@@ -9,6 +9,7 @@
  * routes nothing at all.
  */
 
+import { asSessionId } from '@podium/model'
 import { CLIENT_PLANE_CLASS, type ClientMessage, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
@@ -49,7 +50,7 @@ function harness() {
   return { registry, ports, mux, sent, id }
 }
 
-const A_ROUTABLE_FRAME = { type: 'attach', sessionId: 's1' } satisfies ClientMessage
+const A_ROUTABLE_FRAME = { type: 'attach', sessionId: asSessionId('s1') } satisfies ClientMessage
 
 describe('the instrument', () => {
   it('routes a well-formed frame to the sessions port', () => {
@@ -85,7 +86,7 @@ describe('the gate fails closed', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     // A type that is on neither table — protocol drift, a newer client, a hostile
     // peer. It must reach no port at all.
-    h.mux.routeClientFrame(h.id, { type: 'notAFrame', sessionId: 's1' } as unknown as ClientMessage)
+    h.mux.routeClientFrame(h.id, { type: 'notAFrame', sessionId: asSessionId('s1') } as unknown as ClientMessage)
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('refused unclassified client frame'))
     warn.mockRestore()

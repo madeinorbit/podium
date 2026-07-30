@@ -11,6 +11,7 @@
  * harness's poll seam advances an INJECTED clock rather than the wall clock.
  */
 
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { mailHarness, OPERATOR, phaseState } from './characterization-support'
 import { MessageGate } from './gate'
@@ -28,7 +29,7 @@ describe('characterization: spawn target resolution (S1)', () => {
     const target = h.createIssue({ title: 'target' })
     h.setWorktree(target.id, '/wt/target')
 
-    const r = (await h.gate.dispatch(h.agentCap(parent.id, 'sParent'), true, 'spawnAgent', {
+    const r = (await h.gate.dispatch(h.agentCap(parent.id, asSessionId('sParent')), true, 'spawnAgent', {
       issue: `#${target.seq}`,
       prompt: 'do the thing',
       harness: 'codex',
@@ -95,7 +96,7 @@ describe('characterization: spawn target resolution (S1)', () => {
   it('takes --new as the deliberate issue-create path, inheriting the caller’s repo and parent', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine', repoPath: '/repo' })
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'spawnAgent', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'spawnAgent', {
       newTitle: 'a fresh child',
       prompt: 'the brief',
     })) as { issueId: string }
@@ -210,7 +211,7 @@ describe('characterization: machine placement and the unreachable arm (S2)', () 
   it('inherits the issue’s machine pin and reports the machine the spawn landed on', async () => {
     const h = mailHarness({
       spawnSession: (input) => ({
-        sessionId: 'child1',
+        sessionId: asSessionId('child1'),
         machineId: input.machineId,
         machine: 'Builder',
       }),
@@ -251,7 +252,7 @@ describe('characterization: machine placement and the unreachable arm (S2)', () 
       },
     })
     const iss = h.createIssue({ title: 'pinned' })
-    const cap = h.agentCap(iss.id, 'sMe')
+    const cap = h.agentCap(iss.id, asSessionId('sMe'))
     await expect(
       h.gate.dispatch(cap, undefined, 'spawnAgent', { issue: iss.id, prompt: 'p' }),
     ).rejects.toThrow("machine 'Builder' is offline")
@@ -271,7 +272,7 @@ describe('characterization: the daily spawn budget (S3)', () => {
   it('stops a looping agent at the per-issue daily budget with a verbatim, actionable error', async () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'busy issue' })
-    const cap = h.agentCap(iss.id, 'sMe')
+    const cap = h.agentCap(iss.id, asSessionId('sMe'))
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) {
       await h.gate.dispatch(cap, undefined, 'spawnAgent', { issue: iss.id, prompt: `p${i}` })
     }
@@ -325,13 +326,13 @@ describe('characterization: the daily spawn budget (S3)', () => {
 
 describe('characterization: awaitAgent always returns (S4)', () => {
   const parentCapFor = (h: ReturnType<typeof mailHarness>, issueId: string) =>
-    h.agentCap(issueId, 'sParent')
+    h.agentCap(asIssueId(issueId), asSessionId('sParent'))
 
   it('returns "working" plus a status snapshot at the timeout instead of hanging', async () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'child issue' })
     h.put({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       issueId: iss.id,
       phase: 'working',
       spawnedBy: 'session:sParent',
@@ -340,14 +341,14 @@ describe('characterization: awaitAgent always returns (S4)', () => {
       title: 'the child',
     })
     const r = (await h.gate.dispatch(parentCapFor(h, iss.id), undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })) as { done: boolean; result: string; snapshot: Record<string, unknown> }
     expect(r.done).toBe(false)
     expect(r.result).toBe('working')
     // The snapshot is what makes the timeout actionable rather than a shrug.
     expect(r.snapshot).toEqual({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       status: 'live',
       phase: 'working',
       title: 'the child',
@@ -361,7 +362,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'child issue' })
     const cap = parentCapFor(h, iss.id)
-    const await0 = (sessionId: string) =>
+    const await0 = (sessionId: SessionId) =>
       h.gate.dispatch(cap, undefined, 'awaitAgent', { sessionId, timeoutSeconds: 0 }) as Promise<{
         done: boolean
         result: string
@@ -371,34 +372,34 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     // (1) A session that never existed does NOT come back as `gone`: the
     // session-target gate runs first and cannot find it, so the caller gets a
     // throw. `gone` is reserved for a child that disappears mid-wait (below).
-    h.put({ sessionId: 'sOther', issueId: iss.id, spawnedBy: 'session:sParent' })
-    await expect(await0('sVanished')).rejects.toThrow('session not found')
+    h.put({ sessionId: asSessionId('sOther'), issueId: iss.id, spawnedBy: 'session:sParent' })
+    await expect(await0(asSessionId('sVanished'))).rejects.toThrow('session not found')
 
     // (2) exited without a fresh report — nothing to re-prompt (an
     // overnight-stall case: the parent must not wait on a dead child).
     const [child] = h.put({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       issueId: iss.id,
       spawnedBy: 'session:sParent',
       status: 'exited',
     })
-    expect((await await0('sChild')).result).toBe('gone')
+    expect((await await0(asSessionId('sChild'))).result).toBe('gone')
 
     // (3) blocked: needs parent/human, or errored.
     child!.status = 'live'
     child!.agentState = phaseState('needs_user')
-    expect((await await0('sChild')).result).toBe('blocked')
+    expect((await await0(asSessionId('sChild'))).result).toBe('blocked')
     child!.agentState = phaseState('errored')
-    expect((await await0('sChild')).result).toBe('blocked')
+    expect((await await0(asSessionId('sChild'))).result).toBe('blocked')
 
     // (4) clean finish.
     child!.agentState = phaseState('idle')
-    expect((await await0('sChild')).result).toBe('done')
+    expect((await await0(asSessionId('sChild'))).result).toBe('done')
     child!.agentState = phaseState('ended')
-    expect((await await0('sChild')).result).toBe('done')
+    expect((await await0(asSessionId('sChild'))).result).toBe('done')
     child!.agentState = undefined
     child!.status = 'hibernated'
-    expect((await await0('sChild')).result).toBe('done')
+    expect((await await0(asSessionId('sChild'))).result).toBe('done')
   })
 
   it('returns `gone` when the child disappears DURING the wait', async () => {
@@ -415,7 +416,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     })
     const iss = h.createIssue({ title: 'child issue' })
     h.put({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       issueId: iss.id,
       phase: 'working',
       spawnedBy: 'session:sParent',
@@ -424,7 +425,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
       h.sessions.length = 0
     }
     const r = (await h.gate.dispatch(parentCapFor(h, iss.id), undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 1,
     })) as { done: boolean; result: string; snapshot: unknown }
     expect(r).toEqual({ done: true, result: 'gone', snapshot: null })
@@ -434,29 +435,29 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     const h = mailHarness()
     const parentIssue = h.createIssue({ title: 'parent' })
     const childIssue = h.createIssue({ title: 'child' })
-    h.put({ sessionId: 'sParent', issueId: parentIssue.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sParent'), issueId: parentIssue.id, phase: 'idle' })
     h.put({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       issueId: childIssue.id,
       phase: 'working',
       spawnedBy: 'session:sParent',
     })
-    const cap = h.agentCap(parentIssue.id, 'sParent')
+    const cap = h.agentCap(parentIssue.id, asSessionId('sParent'))
 
     // A message from the parent, and the child's ack for it — this is the STALE
     // ack: it predates the next wait and must not satisfy it.
     const asked = h.svc.send(
-      { kind: 'agent', issueId: parentIssue.id, sessionId: 'sParent' },
+      { kind: 'agent', issueId: parentIssue.id, sessionId: asSessionId('sParent') },
       { to: { kind: 'session', id: 'sChild' }, body: 'round 1', urgency: 'next-turn' },
     )
     h.svc.sendReply(
-      { kind: 'agent', issueId: childIssue.id, sessionId: 'sChild' },
+      { kind: 'agent', issueId: childIssue.id, sessionId: asSessionId('sChild') },
       { inReplyTo: asked.message.id, body: 'round 1 done' },
     )
     // Move the clock so the next wait starts strictly after that ack.
     h.advance(1000)
     const stale = (await h.gate.dispatch(cap, undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })) as { result: string }
     // Believing a stale ack would tell the parent that NEW work finished.
@@ -465,16 +466,16 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     // A fresh ack, after the wait's start, IS the answer — and it wins over
     // exit/settle classification (reported-then-exited is `acked`, not `gone`).
     const asked2 = h.svc.send(
-      { kind: 'agent', issueId: parentIssue.id, sessionId: 'sParent' },
+      { kind: 'agent', issueId: parentIssue.id, sessionId: asSessionId('sParent') },
       { to: { kind: 'session', id: 'sChild' }, body: 'round 2', urgency: 'next-turn' },
     )
     h.advance(1000)
     const ack = h.svc.sendReply(
-      { kind: 'agent', issueId: childIssue.id, sessionId: 'sChild' },
+      { kind: 'agent', issueId: childIssue.id, sessionId: asSessionId('sChild') },
       { inReplyTo: asked2.message.id, body: 'round 2 done' },
     )
     const r = (await h.gate.dispatch(cap, undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })) as { done: boolean; result: string; ack: { id: string; body: string } }
     expect(r).toMatchObject({ done: true, result: 'acked' })
@@ -486,7 +487,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     const parentIssue = h.createIssue({ title: 'parent' })
     const childIssue = h.createIssue({ title: 'child' })
     h.put({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       issueId: childIssue.id,
       phase: 'working',
       spawnedBy: 'session:sParent',
@@ -494,18 +495,18 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     // The parent relationship (spawnedBy provenance) is sufficient authority —
     // it already crossed the scope, confirmed, at spawn time.
     const asParent = (await h.gate.dispatch(
-      h.agentCap(parentIssue.id, 'sParent'),
+      h.agentCap(parentIssue.id, asSessionId('sParent')),
       undefined,
       'awaitAgent',
-      { sessionId: 'sChild', timeoutSeconds: 0 },
+      { sessionId: asSessionId('sChild'), timeoutSeconds: 0 },
     )) as { result: string }
     expect(asParent.result).toBe('working')
 
     // A stranger does not get a free pass.
     const stranger = h.createIssue({ title: 'stranger' })
     await expect(
-      h.gate.dispatch(h.agentCap(stranger.id, 'sStranger'), undefined, 'awaitAgent', {
-        sessionId: 'sChild',
+      h.gate.dispatch(h.agentCap(stranger.id, asSessionId('sStranger')), undefined, 'awaitAgent', {
+        sessionId: asSessionId('sChild'),
         timeoutSeconds: 0,
       }),
     ).rejects.toThrow(
@@ -513,7 +514,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     )
     await expect(
       h.gate.dispatch(OPERATOR, undefined, 'awaitAgent', {
-        sessionId: 'sNoSuchSession',
+        sessionId: asSessionId('sNoSuchSession'),
         timeoutSeconds: 0,
       }),
     ).rejects.toThrow('session not found')
@@ -524,7 +525,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     const childIssue = h.createIssue({ title: 'child' })
     const parentIssue = h.createIssue({ title: 'parent' })
     h.put({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       issueId: childIssue.id,
       phase: 'idle',
       spawnedBy: 'session:sParent',
@@ -541,8 +542,8 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     })
     expect(facts.hasActive(factKey, 'sParent', h.now())).toBe(true)
 
-    await h.gate.dispatch(h.agentCap(parentIssue.id, 'sParent'), undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+    await h.gate.dispatch(h.agentCap(parentIssue.id, asSessionId('sParent')), undefined, 'awaitAgent', {
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })
     // POD-917/POD-923: cleared so a later GENUINE re-completion can re-wake once.
@@ -559,9 +560,9 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
   it('rides the send pipeline as a next-turn + wake question, and returns "no answer yet" at the bound', async () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'working' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'ask', {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       question: 'what is the status?',
       timeoutSeconds: 0,
     })) as { answered: boolean; questionId: string; reason: string; snapshot: unknown }
@@ -570,7 +571,7 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
       'no answer yet — the question is delivered/queued; check back or await the ack',
     )
     expect(r.snapshot).toEqual({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       status: 'live',
       phase: 'working',
       issueId: iss.id,
@@ -589,16 +590,16 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    h.put({ sessionId: 'sTheirs', issueId: theirs.id, status: 'hibernated' })
+    h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, status: 'hibernated' })
     // First ask: a peer keeps wake.
-    await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'ask', {
-      sessionId: 'sTheirs',
+    await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'ask', {
+      sessionId: asSessionId('sTheirs'),
       question: 'q1',
       timeoutSeconds: 0,
     })
     // Second within the cooldown window: clamped to wait, and the caller is told.
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'ask', {
-      sessionId: 'sTheirs',
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'ask', {
+      sessionId: asSessionId('sTheirs'),
       question: 'q2',
       timeoutSeconds: 0,
     })) as { clamped?: boolean; questionId: string }
@@ -617,16 +618,16 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
       },
     })
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     answerOnce = () => {
       const q = h.svc.inbox([{ kind: 'session', id: 's1' }]).find((m) => m.kind === 'question')!
       h.svc.sendReply(
-        { kind: 'agent', issueId: iss.id, sessionId: 's1' },
+        { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
         { inReplyTo: q.id, body: 'the answer' },
       )
     }
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'ask', {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       question: 'q',
       timeoutSeconds: 30,
     })) as { answered: boolean; answer: string; ackId: string }
@@ -659,7 +660,7 @@ describe('characterization: the spawn-on-wake seam (S6)', () => {
     h.setWorktree(iss.id, '/wt/target')
     const sender = h.createIssue({ title: 'sender' })
     h.svc.send(
-      { kind: 'agent', issueId: sender.id, sessionId: 'sWaker' },
+      { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sWaker') },
       { to: { kind: 'issue', id: iss.id }, body: 'wake', lifecycle: 'wake' },
     )
     // A session-identified agent sender becomes the child's PARENT, so the waker
@@ -691,7 +692,7 @@ describe('characterization: the spawn-on-wake seam (S6)', () => {
     h.setWorktree(iss.id, '/wt/target')
     const sender = h.createIssue({ title: 'sender' })
     h.svc.send(
-      { kind: 'agent', issueId: sender.id, sessionId: 'sWaker' },
+      { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sWaker') },
       { to: { kind: 'issue', id: iss.id }, body: 'wake', lifecycle: 'wake' },
     )
     expect(h.wakeSpawns).toHaveLength(1)
@@ -708,7 +709,7 @@ describe('characterization: the spawn-on-wake seam (S6)', () => {
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
       issue: iss.id,
       prompt: 'p',
-    })) as { sessionId: string; agentId: string }
+    })) as { sessionId: SessionId; agentId: string }
     // agentId defaults to the session id when the spawn seam reports none.
     expect(r.agentId).toBe(r.sessionId)
     expect(h.sessions.map((s) => s.sessionId)).toContain(r.sessionId)

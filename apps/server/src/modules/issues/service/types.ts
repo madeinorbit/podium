@@ -1,9 +1,12 @@
 import type {
+  ArtifactId,
   IssueColorSlot,
+  IssueId,
   IssueTree,
   IssueTreeNode,
   IssueTreeSession,
   IssueWire,
+  SessionId,
   SessionMeta,
 } from '@podium/model'
 import type { MetadataChange, RepoOp, ServerMessage } from '@podium/protocol'
@@ -81,7 +84,7 @@ export type IssuePanelOp =
       title?: string
       /** Permanent-store snapshot fields ([spec:SP-0fc9]) — set by panelArtifactAdd
        *  after the pull succeeded; a bare artifact-add stays a legacy path entry. */
-      artifactId?: string
+      artifactId?: ArtifactId
       entry?: string
       files?: { path: string; size: number }[]
     }
@@ -147,7 +150,7 @@ export interface IssueDeps {
     cwd: string
     /** Explicit issue attachment (POD-529): the workflow knows the issue, so the
      *  session must not fall back to cwd-derived attachment (or a DRAFT birth ref). */
-    issueId?: string
+    issueId?: IssueId
     agentKind?: string
     model?: string
     effort?: string
@@ -158,7 +161,7 @@ export interface IssueDeps {
     spawnedBy?: string
     machineId?: string
   }): {
-    sessionId: string
+    sessionId: SessionId
     agentId?: string
     harness?: string
     model?: string | null
@@ -186,19 +189,19 @@ export interface IssueDeps {
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace). Injected by
    *  the relay; optional so existing test deps literals stay valid. */
-  getSessionIssueId?(sessionId: string): string | null
+  getSessionIssueId?(sessionId: SessionId): IssueId | null
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
-  setSessionIssueId?(sessionId: string, issueId: string | null): void
+  setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void
   /** Archive/unarchive a session (persist + sessions broadcast). Injected by the
    *  relay; optional so existing test deps literals stay valid. Used to cascade an
    *  issue archive onto its member sessions (issue #133) so archiving an issue never
    *  leaves a bare, session-less worktree row in the sidebar. */
-  setSessionArchived?(sessionId: string, archived: boolean): void
+  setSessionArchived?(sessionId: SessionId, archived: boolean): void
   /** Clear a session's agent action offer [spec:SP-c7f1]. Injected by the relay;
    *  optional so existing test deps literals stay valid. Used to retire pending
    *  decisions when an issue closes (POD-290) so a delegate offer cannot keep
    *  demanding attention after the work is finished elsewhere. */
-  clearSessionOffer?(sessionId: string): void
+  clearSessionOffer?(sessionId: SessionId): void
   /** Fired after a worktree is successfully created (POD-665) so connected clients
    *  can re-fetch repos — otherwise a freshly-started issue's worktree is invisible
    *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)
@@ -216,14 +219,14 @@ export interface IssueDeps {
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {
     snapshot(o: {
-      issueId: string
+      issueId: IssueId
       root: string
       machineId?: string
       sourcePath: string
       extraPaths?: string[]
-    }): Promise<{ artifactId: string; entry: string; files: { path: string; size: number }[] }>
-    remove(issueId: string, artifactId: string): Promise<void>
-    removeIssue(issueId: string): Promise<void>
+    }): Promise<{ artifactId: ArtifactId; entry: string; files: { path: string; size: number }[] }>
+    remove(issueId: IssueId, artifactId: ArtifactId): Promise<void>
+    removeIssue(issueId: IssueId): Promise<void>
   }
 }
 

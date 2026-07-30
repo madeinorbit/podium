@@ -1,6 +1,7 @@
+import type { SessionId } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 
-export function TerminalPane({ sessionId }: { sessionId: string }) {
+export function TerminalPane({ sessionId }: { sessionId: SessionId }) {
   return (
     <View style={styles.box}>
       <Text style={styles.title}>Terminal</Text>

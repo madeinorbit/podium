@@ -41,7 +41,7 @@
  * and is recorded as an open gap in the ledger.
  */
 
-import { OPERATOR } from '@podium/model'
+import { OPERATOR, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { INSTANCE_OWNER, type CommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -109,7 +109,7 @@ function revocableStack() {
 const humanScoped = (userId: string): CommandPrincipal => ({
   kind: 'user',
   user: userId as typeof INSTANCE_OWNER,
-  capability: { role: 'worker', scope: { kind: 'owned', userId } },
+  capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(userId) } },
 })
 
 const human = humanScoped(INSTANCE_OWNER)
@@ -122,9 +122,9 @@ const human = humanScoped(INSTANCE_OWNER)
  */
 const agentOf = (agentSessionId: string, onBehalfOf: string): CommandPrincipal => ({
   kind: 'agent',
-  agentSessionId,
+  agentSessionId: asSessionId(agentSessionId),
   onBehalfOf: onBehalfOf as typeof INSTANCE_OWNER,
-  capability: { ...OPERATOR, actorSessionId: agentSessionId },
+  capability: { ...OPERATOR, actorSessionId: asSessionId(agentSessionId) },
   chain: [],
 })
 

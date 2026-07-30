@@ -3,7 +3,16 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
-import type { Geometry, IssueColorSlot, PinKind as ModelPinKind } from '@podium/model'
+import type {
+  AccountId,
+  Geometry,
+  IssueColorSlot,
+  IssueId,
+  PinKind as ModelPinKind,
+  RepoId,
+  SessionId,
+  UserId,
+} from '@podium/model'
 import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
@@ -37,7 +46,7 @@ export type SessionDeletionSource = 'issue' | 'standalone'
 
 /** Durable observer lease plus the last accepted causal checkpoint. */
 export interface ObservationLeaseRecord {
-  sessionId: string
+  sessionId: SessionId
   provider: ObservationProvider
   providerSessionId: string | null
   bindingVersion: number
@@ -48,7 +57,7 @@ export interface ObservationLeaseRecord {
 
 export interface TerminalCandidateFacts {
   schemaVersion: 1
-  sessionId: string
+  sessionId: SessionId
   terminalTransitionId: string
   terminalTurnEpoch: number
   provider: ObservationProvider
@@ -78,7 +87,7 @@ export interface TerminalCandidateFacts {
     nativeSubagentCount: number
     nativeSubagentIds: string[]
     awaitingSubagents: boolean
-    childSessions: Array<{ sessionId: string; status: string; activityCount: number }>
+    childSessions: Array<{ sessionId: SessionId; status: string; activityCount: number }>
     queueDrainActive: boolean
     draftPending: boolean
     draftVersion: string | null
@@ -99,13 +108,13 @@ export interface TerminalCandidateRecord {
 
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
-  id: string
+  id: SessionId
   agentKind: string
   /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
   model?: string | null
   effort?: string | null
   /** Account selection, not credential material. */
-  accountId?: string | null
+  accountId?: AccountId | null
   cwd: string
   title: string
   /** Curated display name; null = derive from title. Written by a human OR by the
@@ -116,6 +125,14 @@ export interface SessionRow {
    *  null/absent = nobody named it (also every row from before the column existed). */
   nameSource?: 'user' | 'agent' | null
   originKind: 'spawn' | 'resume'
+  /** NOT a branded `ConversationId`, and deliberately so — POD-362 branded this
+   *  and reverted it on evidence. This column holds the HARNESS-NATIVE
+   *  conversation id: `session.ts#toRow` writes `origin.conversationId`, which
+   *  `entities/session.ts` documents as the native id that is unbranded BY
+   *  DECISION (a native id has no brand; and the `?? ''` default means a `.min(1)`
+   *  schema could not hold it either). The stable Podium `ConversationId` is a
+   *  DIFFERENT FACT and lives on `conversationPodiumId`. Type-identical, encodes
+   *  identically, different id space. */
   conversationId: string | null
   resumeKind: string | null
   resumeValue: string | null
@@ -154,11 +171,11 @@ export interface SessionRow {
   headless?: boolean
   /** Explicit issue attachment (issue-as-workspace). null/absent = unattached
    *  (legacy / shells) — cwd-derived worktree grouping applies. */
-  issueId?: string | null
+  issueId?: IssueId | null
   /** BIRTH issue for the permanent human-facing nice name (#474). Set once at
    *  naming time and never changed — re-attaching to a different issue does NOT
    *  rename. null/absent = named in the DRAFT namespace (see refDraft). */
-  refIssueId?: string | null
+  refIssueId?: IssueId | null
   /** Column letter allocated within refIssueId (`A`, `B`, … `POD-13-A`). */
   refLetter?: string | null
   /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
@@ -182,7 +199,7 @@ export interface SessionRow {
   deletionSource?: SessionDeletionSource | null
   /** The issue deletion that produced this tombstone. Kept separate from issueId
    *  because cwd-derived member sessions may not have been explicitly attached. */
-  deletedByIssueId?: string | null
+  deletedByIssueId?: IssueId | null
 }
 
 /** One row of the machines table (token_hash is internal — not included here). */
@@ -258,13 +275,13 @@ export interface MachineRecord {
  * pattern from the current file before re-running it.
  */
 export interface IssueRow {
-  id: string
+  id: IssueId
   repoPath: string
   /** Stable repo identity (#74/#164) — the issue's repo KEY: repo-scoped reads
    *  and seq allocation key on it (UNIQUE(repo_id, seq)). repoPath remains the
    *  display/lookup attribute maintained by the repo registry. Nullable only as
    *  defense in depth (the boot heal re-fills NULLs; every write resolves it). */
-  repoId?: string | null
+  repoId?: RepoId | null
   seq: number
   title: string
   description: string
@@ -302,8 +319,8 @@ export interface IssueRow {
   deletedAt?: string | null
   priority: number
   type: string
-  assignee: string | null
-  parentId: string | null
+  assignee: UserId | null
+  parentId: IssueId | null
   design: string | null
   acceptance: string | null
   notes: string | null
@@ -317,8 +334,8 @@ export interface IssueRow {
    *  cleared whenever the closed predicate flips back open. Optional so
    *  pre-existing row literals stay valid. */
   tuckedAt?: string | null
-  supersededBy: string | null
-  duplicateOf: string | null
+  supersededBy: IssueId | null
+  duplicateOf: IssueId | null
   pinned: boolean
   /** Manual order (POD-168): fractional sort key, ascending = top of the row's
    *  sibling scope. Optional so pre-existing row literals stay valid; null/
@@ -337,7 +354,7 @@ export interface IssueRow {
   humanQuestionOptions?: string[] | null
   /** sessionId of the agent session that asked (issue #53); null/absent =
    *  unattributed (legacy flag or non-session caller). */
-  humanQuestionAskedBy?: string | null
+  humanQuestionAskedBy?: SessionId | null
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt?: string | null
   /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
@@ -360,16 +377,16 @@ export interface IssueRow {
   /** Designated coordinator session (bare session id) — actionable issue-addressed
    *  mail prefers this when live. Claimable/changeable; dangling-tolerant (no FK).
    *  Optional so pre-existing row literals stay valid; null/absent = unset. */
-  coordinatorSessionId?: string | null
+  coordinatorSessionId?: SessionId | null
   /** Bare session id of the agent that created this issue (started-by provenance).
    *  Null for operator/human creates. Dangling-tolerant. Optional so pre-existing
    *  row literals stay valid. */
-  startedBySession?: string | null
+  startedBySession?: SessionId | null
 }
 
 export interface IssueCommentRow {
   id: string
-  issueId: string
+  issueId: IssueId
   author: string
   body: string
   createdAt: string
@@ -379,7 +396,7 @@ export interface IssueCommentRow {
  *  unread → read (inbox listing) → claimed (an agent committing to act on it). */
 export interface IssueMessageRow {
   id: string
-  issueId: string
+  issueId: IssueId
   fromAuthor: string
   body: string
   createdAt: string
@@ -423,12 +440,17 @@ export interface MessageRow {
   threadId: string
   inReplyTo: string | null
   fromKind: MessageFromKind
-  fromSession: string | null
+  fromSession: SessionId | null
   /** Named system producer (for example `workflow` or `steward`). */
   fromName?: string | null
   /** Sender's issue at send time (agent senders). */
-  fromIssue: string | null
+  fromIssue: IssueId | null
   toKind: MessageToKind
+  /** DELIBERATELY UNBRANDED (POD-362): which id space this holds is decided by
+   *  `toKind` — an IssueId for 'issue', a SessionId for 'session', neither for
+   *  'operator'. A single brand here would be a lie in two of the three cases,
+   *  and a union would not narrow on the discriminant without restructuring the
+   *  row. Consumers narrow at the `toKind` branch; see `messages/service.ts`. */
   toId: string | null
   kind: MessageKind
   urgency: MessageUrgency
@@ -440,7 +462,7 @@ export interface MessageRow {
   /** When status reached `delivered` — the transcript echo, NOT the enqueue. */
   deliveredAt: string | null
   /** The session that actually received it (set on inject; confirmed at delivered). */
-  deliveredTo: string | null
+  deliveredTo: SessionId | null
   /** When status reached `read` — the recipient opened its inbox (PULL path). */
   readAt?: string | null
   /** When the message was last dispatched toward a live PTY (bytes typed). An
@@ -538,7 +560,7 @@ export interface SuperagentMessageRow {
 export interface SuperagentThreadRow {
   id: string
   kind: 'global' | 'btw' | 'concierge'
-  originSessionId?: string
+  originSessionId?: SessionId
   /** The repo this thread fronts (concierge threads only). */
   repoPath?: string
   title?: string
@@ -550,7 +572,7 @@ export interface SuperagentThreadRow {
    *  turns keep the same agent even if the settings default changes. */
   agentKind?: string
   /** The Podium headless session rendering this thread (concierge unification). */
-  podiumSessionId?: string
+  podiumSessionId?: SessionId
   /** The harness's own session id — the resume value for every later turn. */
   harnessSessionId?: string
   /** PTY session holding the "open in terminal" one-writer lock; sendTurn
@@ -566,7 +588,7 @@ export interface SuperagentThreadRow {
 export interface PendingSuperagentTurnRow {
   turnId: string
   threadId: string
-  podiumSessionId: string
+  podiumSessionId: SessionId
   payload: {
     agent: string
     model?: string
@@ -595,8 +617,8 @@ export interface QueuedSuperagentInputRow {
     view?: string
     worktreePath?: string
     issueId?: string
-    focusedSessionId?: string
-    visibleSessionIds?: string[]
+    focusedSessionId?: SessionId
+    visibleSessionIds?: SessionId[]
     filePath?: string
   }
   createdAt: string

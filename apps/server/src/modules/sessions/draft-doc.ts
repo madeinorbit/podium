@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 /**
  * Versioned draft document — the conflict model for Draft Sync v2 (POD-859).
  *
@@ -21,7 +22,7 @@ export const DEFAULT_LEASE_MS = 1500
 export const DEFAULT_HISTORY_LIMIT = 5
 
 export interface DraftDoc {
-  sessionId: string
+  sessionId: SessionId
   /** The current composer text. Empty string = no draft. */
   text: string
   /** Server-assigned monotonic sequence per session. 0 = never edited (seed). */
@@ -52,7 +53,7 @@ export type ApplyResult =
   | { status: 'rejected'; doc: DraftDoc }
 
 /** A fresh, empty, never-edited draft. */
-export function emptyDraftDoc(sessionId: string): DraftDoc {
+export function emptyDraftDoc(sessionId: SessionId): DraftDoc {
   return { sessionId, text: '', rev: 0, origin: 'seed', editedAt: '', history: [] }
 }
 

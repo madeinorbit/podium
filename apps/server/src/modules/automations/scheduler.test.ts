@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
@@ -173,14 +174,14 @@ function harness(
   const createSession = vi.fn((_input: { cwd: string }) => {
     if (opts.spawnThrows) throw new Error('no daemon for that machine')
     n += 1
-    return { sessionId: `sess_${n}` }
+    return { sessionId: asSessionId(`sess_${n}`) }
   })
   const queueText = vi.fn(() => ({ ok: opts.queueOk ?? true, reason: 'no resume ref' }))
   const resumeAndSend = vi.fn(() => ({
     ok: opts.resumeOk ?? true,
     ...(opts.resumeReason ? { reason: opts.resumeReason } : {}),
   }))
-  const createIssue = vi.fn(() => ({ id: `iss_${++issueN}` }))
+  const createIssue = vi.fn(() => ({ id: asIssueId(`iss_${++issueN}`) }))
   const service = new AutomationsService({
     store: store.automations,
     ledger,
@@ -189,7 +190,7 @@ function harness(
     queueText,
     resumeAndSend,
     createIssue,
-    liveSessionIds: () => new Set(opts.live ?? []),
+    liveSessionIds: () => new Set((opts.live ?? []).map(asSessionId)),
     now: () => clock,
     homeDir: () => '/home/tester',
   })
@@ -341,7 +342,7 @@ describe('AutomationsService.tick — spawn', () => {
 
     expect(h.resumeAndSend).toHaveBeenCalledTimes(1)
     expect(h.resumeAndSend).toHaveBeenCalledWith({
-      sessionId: 'sess_sleeping',
+      sessionId: asSessionId('sess_sleeping'),
       text: 'Continue the queued work.',
       mutationId: expect.stringMatching(/^arun_/),
     })
@@ -351,7 +352,7 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.service.runs(a.id)).toHaveLength(1)
     expect(h.service.runs(a.id)[0]).toMatchObject({
       outcome: 'spawned',
-      sessionId: 'sess_sleeping',
+      sessionId: asSessionId('sess_sleeping'),
       firedAt: iso(runAt),
     })
     expect(h.store.automations.get(a.id)).toMatchObject({
@@ -383,7 +384,7 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.createSession).not.toHaveBeenCalled()
     expect(h.service.runs(a.id)[0]).toMatchObject({
       outcome: 'error',
-      sessionId: 'sess_deleted',
+      sessionId: asSessionId('sess_deleted'),
       detail: expect.stringContaining('no resume ref'),
     })
     expect(h.store.automations.get(a.id)).toMatchObject({ enabled: false, nextRunAt: null })
@@ -415,7 +416,7 @@ describe('AutomationsService.tick — spawn', () => {
     // silently becomes a draft on opencode/cursor [spec:SP-17db].
     expect(spawn.initialPrompt).toBeUndefined()
     expect(h.queueText).toHaveBeenCalledWith({
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       text: 'Run the test suite and report.',
       inputOrigin: 'system',
       // Replay-safe: the run id doubles as the outbox mutation id.
@@ -423,7 +424,7 @@ describe('AutomationsService.tick — spawn', () => {
     })
 
     const [run] = h.service.runs(a.id)
-    expect(run).toMatchObject({ outcome: 'spawned', sessionId: 'sess_1' })
+    expect(run).toMatchObject({ outcome: 'spawned', sessionId: asSessionId('sess_1') })
     expect(run!.firedAt).toBe(iso(new Date(2026, 6, 15, 9, 0)))
     // Re-armed for the day after, and stamped with the fire it just did.
     const stored = h.store.automations.get(a.id)!
@@ -507,7 +508,7 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.createSession).toHaveBeenCalledTimes(1)
     expect(h.queueText).toHaveBeenCalledTimes(1)
     expect(h.resumeAndSend).toHaveBeenCalledWith({
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       text: 'Continue the sweep.',
       mutationId: expect.stringMatching(/^arun_/),
     })
@@ -603,7 +604,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
       queueText: live.queueText,
       resumeAndSend: live.resumeAndSend,
       createIssue: live.createIssue,
-      liveSessionIds: () => new Set(['sess_1']),
+      liveSessionIds: () => new Set([asSessionId('sess_1')]),
       now: () => new Date(2026, 6, 16, 9, 0, 10),
     })
     service.tick()
@@ -633,7 +634,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     h.service.tick()
     const [run] = h.service.runs(a.id)
-    expect(run).toMatchObject({ outcome: 'error', sessionId: 'sess_1' })
+    expect(run).toMatchObject({ outcome: 'error', sessionId: asSessionId('sess_1') })
     expect(run!.detail).toContain('sess_1')
   })
 })

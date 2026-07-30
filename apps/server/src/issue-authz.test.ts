@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { authorize, type Capability, OPERATOR } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
@@ -44,7 +45,7 @@ describe('registry action classification', () => {
 
 const worker = (rootId: string): Capability => ({
   role: 'worker',
-  scope: { kind: 'subtree', rootId },
+  scope: { kind: 'subtree', rootId: asIssueId(rootId) },
 })
 const unbound: Capability = { role: 'worker', scope: { kind: 'none' } }
 const viewer: Capability = { role: 'viewer', scope: { kind: 'all' } }

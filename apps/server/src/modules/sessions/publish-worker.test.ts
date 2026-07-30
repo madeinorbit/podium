@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createPublishWorkerHandler } from './publish-worker.js'
@@ -5,7 +7,7 @@ import { createViewKey } from './publish-worker-actor.js'
 import { PublishWorkerClient } from './publish-worker-client.js'
 import type { PublishWorkerResult } from './publish-worker-protocol.js'
 
-function session(sessionId: string): SessionMeta {
+function session(sessionId: SessionId): SessionMeta {
   return {
     sessionId,
     agentKind: 'codex',
@@ -49,7 +51,7 @@ describe('publish worker entrypoint', () => {
       event: {
         generation: 1,
         ledgerCursor: 1,
-        changes: [{ seq: 1, entity: 'session', id: 's1', op: 'upsert', value: session('s1') }],
+        changes: [{ seq: 1, entity: 'session', id: 's1', op: 'upsert', value: session(asSessionId('s1')) }],
       },
     })
     handle({
@@ -71,13 +73,13 @@ describe('publish worker entrypoint', () => {
     if (!result?.ok) throw new Error('expected successful publication')
     expect(JSON.parse(result.publication.bytes)).toMatchObject({
       type: 'sessionsChanged',
-      sessions: [{ sessionId: 's1' }],
+      sessions: [{ sessionId: asSessionId('s1') }],
     })
   })
 
   it('runs the actor in a real Worker thread from source', async () => {
     const client = new PublishWorkerClient({ timeoutMs: 5_000 })
-    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
+    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session(asSessionId('s1'))] })
     await expect(
       client.request({ view: publicationView, sinceCursor: null }),
     ).resolves.toMatchObject({

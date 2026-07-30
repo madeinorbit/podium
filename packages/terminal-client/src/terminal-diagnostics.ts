@@ -1,9 +1,10 @@
+import type { SessionId } from '@podium/model'
 export type TerminalDiagnosticData = Record<string, unknown>
 
 export interface TerminalDiagnosticEntry {
   at: string
   elapsedMs: number
-  sessionId: string
+  sessionId: SessionId
   mountId: string
   event: string
   data: TerminalDiagnosticData
@@ -84,7 +85,7 @@ export interface TerminalDiagnosticRecorder {
  * The bounded history remains available after an intermittent failure through
  * `globalThis.__podiumTerminalDiagnostics.snapshot()`.
  */
-export function createTerminalDiagnosticRecorder(sessionId: string): TerminalDiagnosticRecorder {
+export function createTerminalDiagnosticRecorder(sessionId: SessionId): TerminalDiagnosticRecorder {
   const mountId = `${Date.now().toString(36)}-${(nextMount++).toString(36)}`
   return {
     mountId,

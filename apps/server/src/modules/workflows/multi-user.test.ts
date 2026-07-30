@@ -18,6 +18,7 @@
  * succeeding for the principal who should be allowed.
  */
 
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -37,9 +38,9 @@ const SESSIONS = new Map([
   [
     'a1',
     {
-      sessionId: 'a1',
+      sessionId: asSessionId('a1'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-a',
+      issueId: asIssueId('issue-a'),
       agentKind: 'claude-code',
       machineId: 'm-alice',
     },
@@ -48,9 +49,9 @@ const SESSIONS = new Map([
   [
     'b1',
     {
-      sessionId: 'b1',
+      sessionId: asSessionId('b1'),
       cwd: '/repo-b/wt',
-      issueId: 'issue-b',
+      issueId: asIssueId('issue-b'),
       agentKind: 'claude-code',
       machineId: 'm-bob',
     },
@@ -59,9 +60,9 @@ const SESSIONS = new Map([
   [
     'a2',
     {
-      sessionId: 'a2',
+      sessionId: asSessionId('a2'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-a',
+      issueId: asIssueId('issue-a'),
       agentKind: 'codex',
       machineId: 'm-bob',
     },
@@ -71,9 +72,9 @@ const SESSIONS = new Map([
   [
     'a3',
     {
-      sessionId: 'a3',
+      sessionId: asSessionId('a3'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-a',
+      issueId: asIssueId('issue-a'),
       agentKind: 'codex',
       machineId: 'm-offline',
     },
@@ -126,7 +127,7 @@ function twoUserPolicy() {
      * in-flight run stop advancing with no reaper anywhere.
      */
     caller: (
-      sessionId: string | null,
+      sessionId: SessionId | null,
       human: WorkflowUserRef,
       role: 'member' | 'admin' = 'member',
     ): WorkflowCaller => {
@@ -139,7 +140,7 @@ function twoUserPolicy() {
                 role: 'worker' as const,
                 scope: {
                   kind: 'subtree' as const,
-                  rootId: SESSIONS.get(sessionId)?.issueId ?? 'x',
+                  rootId: SESSIONS.get(sessionId)?.issueId ?? asIssueId('x'),
                 },
                 actorSessionId: sessionId,
               },
@@ -201,7 +202,7 @@ describe('workflows under two humans', () => {
         instructions: 'hers',
         steps: [],
       },
-      policy.caller('a1', ALICE),
+      policy.caller(asSessionId('a1'), ALICE),
     )
     policy.own(created.workflow.id, ALICE)
     return created
@@ -247,17 +248,17 @@ describe('workflows under two humans', () => {
     expect(
       h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v3', steps: [] },
-        policy.caller('a1', ALICE),
+        policy.caller(asSessionId('a1'), ALICE),
       ).version,
     ).toBe(3)
   })
 
   it('refuses one member READING another member’s workflow, and honours an explicit grant', () => {
     const created = alicesWorkflow()
-    expect(thrown(() => h.service.get({ id: created.workflow.id }, policy.caller('b1', BOB)))).toBe(
+    expect(thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)))).toBe(
       `unknown workflow: ${created.workflow.id}`,
     )
-    expect(h.service.list({}, policy.caller('b1', BOB))).toEqual([])
+    expect(h.service.list({}, policy.caller(asSessionId('b1'), BOB))).toEqual([])
     // ADR 9 D2: sharing is EXPLICIT and it is an edge. A read grant opens the
     // read and nothing else — the write stays refused, which is what makes this
     // a grant rather than a transfer.
@@ -271,7 +272,7 @@ describe('workflows under two humans', () => {
     expect(h.service.get({ id: created.workflow.id }, policy.caller(null, BOB)).workflow.id).toBe(
       created.workflow.id,
     )
-    expect(thrown(() => h.service.get({ id: created.workflow.id }, policy.caller('b1', BOB)))).toBe(
+    expect(thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)))).toBe(
       `unknown workflow: ${created.workflow.id}`,
     )
     // …and the read grant does not open the WRITE path for Bob either.
@@ -311,14 +312,14 @@ describe('workflows under two humans', () => {
     )
     policy.own(profile.id, ALICE)
     const run = h.service.startRun({
-      sessionId: 'a1',
+      sessionId: asSessionId('a1'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-a',
+      issueId: asIssueId('issue-a'),
       revisionId: published.id,
     })
     policy.own(run.id, ALICE)
 
-    const bob = () => policy.caller('b1', BOB)
+    const bob = () => policy.caller(asSessionId('b1'), BOB)
     expect(h.service.runs({}, bob())).toEqual([])
     expect(h.service.bindings(bob())).toEqual([])
     expect(h.service.profiles(bob())).toEqual([])
@@ -329,10 +330,10 @@ describe('workflows under two humans', () => {
 
     // THE COUNTERFACTUAL for all four: Alice sees her own. Without this the
     // assertions above would pass against a surface that lists nothing at all.
-    expect(h.service.runs({}, policy.caller('a1', ALICE)).map((r) => r.id)).toEqual([run.id])
-    expect(h.service.bindings(policy.caller('a1', ALICE))).toHaveLength(1)
+    expect(h.service.runs({}, policy.caller(asSessionId('a1'), ALICE)).map((r) => r.id)).toEqual([run.id])
+    expect(h.service.bindings(policy.caller(asSessionId('a1'), ALICE))).toHaveLength(1)
     expect(h.service.profiles(policy.caller(null, ALICE, 'admin'))).toHaveLength(1)
-    expect(h.service.status({ runId: run.id }, policy.caller('a1', ALICE)).id).toBe(run.id)
+    expect(h.service.status({ runId: run.id }, policy.caller(asSessionId('a1'), ALICE)).id).toBe(run.id)
   })
 
   it('closes the ambient global-scope write path, for a member of either account', () => {
@@ -343,10 +344,10 @@ describe('workflows under two humans', () => {
       instructions: '',
       steps: [],
     }
-    expect(thrown(() => h.service.create(global, policy.caller('a1', ALICE)))).toBe(
+    expect(thrown(() => h.service.create(global, policy.caller(asSessionId('a1'), ALICE)))).toBe(
       'approval required to create a global workflow',
     )
-    expect(thrown(() => h.service.create(global, policy.caller('b1', BOB)))).toBe(
+    expect(thrown(() => h.service.create(global, policy.caller(asSessionId('b1'), BOB)))).toBe(
       'approval required to create a global workflow',
     )
     // An ADMIN may. The library is admin-grade to WRITE, not unwritable.
@@ -358,7 +359,7 @@ describe('workflows under two humans', () => {
       thrown(() =>
         h.service.revise(
           { workflowId: created.workflow.id, instructions: 'member edit', steps: [] },
-          policy.caller('b1', BOB),
+          policy.caller(asSessionId('b1'), BOB),
         ),
       ),
     ).toBe('approval required to change a global workflow')
@@ -382,13 +383,13 @@ describe('workflows under two humans', () => {
           { id: 'two', title: 'Two', instructions: '', completionGuidance: '' },
         ],
       },
-      policy.caller('a1', ALICE),
+      policy.caller(asSessionId('a1'), ALICE),
     )
     policy.own(created.workflow.id, ALICE)
     const run = h.service.startRun({
-      sessionId: 'a1',
+      sessionId: asSessionId('a1'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-a',
+      issueId: asIssueId('issue-a'),
       revisionId: created.revision.id,
     })
     policy.own(run.id, ALICE)
@@ -402,7 +403,7 @@ describe('workflows under two humans', () => {
           summary: '',
           evidence: { summary: '', tests: [], artifacts: [] },
         },
-        policy.caller('a1', ALICE),
+        policy.caller(asSessionId('a1'), ALICE),
       ).message,
     ).toBe('Step complete. Next: Two')
 
@@ -421,7 +422,7 @@ describe('workflows under two humans', () => {
             summary: '',
             evidence: { summary: '', tests: [], artifacts: [] },
           },
-          policy.caller('a1', ALICE),
+          policy.caller(asSessionId('a1'), ALICE),
         ),
       ),
     ).toBe('no active workflow run for this session')
@@ -471,7 +472,7 @@ describe('workflows under two humans', () => {
     ).toBe('Workflow complete.')
     // …and the refusal is the same string an unknown run gives, so a revoked
     // principal cannot use its own revocation as an existence oracle.
-    expect(thrown(() => h.service.status({ runId: 'wrun_nope' }, policy.caller('a1', ALICE)))).toBe(
+    expect(thrown(() => h.service.status({ runId: 'wrun_nope' }, policy.caller(asSessionId('a1'), ALICE)))).toBe(
       'no active workflow run for this session',
     )
   })
@@ -492,13 +493,13 @@ describe('workflows under two humans', () => {
         instructions: '',
         steps: [{ id: 'one', title: 'One', instructions: '', completionGuidance: '' }],
       },
-      policy.caller('a1', ALICE),
+      policy.caller(asSessionId('a1'), ALICE),
     )
     policy.own(created.workflow.id, ALICE)
     const run = h.service.startRun({
-      sessionId: 'a1',
+      sessionId: asSessionId('a1'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-a',
+      issueId: asIssueId('issue-a'),
       revisionId: created.revision.id,
     })
     policy.own(run.id, ALICE)
@@ -507,8 +508,8 @@ describe('workflows under two humans', () => {
     expect(
       thrown(() =>
         h.service.assignStep(
-          { runId: run.id, stepId: 'one', sessionId: 'a2' },
-          policy.caller('a1', ALICE),
+          { runId: run.id, stepId: 'one', sessionId: asSessionId('a2') },
+          policy.caller(asSessionId('a1'), ALICE),
         ),
       ),
     ).toBe('not authorized to run work on machine m-bob')
@@ -518,8 +519,8 @@ describe('workflows under two humans', () => {
     expect(
       thrown(() =>
         h.service.assignStep(
-          { runId: run.id, stepId: 'one', sessionId: 'a3' },
-          policy.caller('a1', ALICE),
+          { runId: run.id, stepId: 'one', sessionId: asSessionId('a3') },
+          policy.caller(asSessionId('a1'), ALICE),
         ),
       ),
     ).toBe('machine m-offline is unreachable')
@@ -528,8 +529,8 @@ describe('workflows under two humans', () => {
     // THE COUNTERFACTUAL: her own reachable machine works.
     expect(
       h.service.assignStep(
-        { runId: run.id, stepId: 'one', sessionId: 'a1' },
-        policy.caller('a1', ALICE),
+        { runId: run.id, stepId: 'one', sessionId: asSessionId('a1') },
+        policy.caller(asSessionId('a1'), ALICE),
       ).message,
     ).toBe('Step assigned to a1.')
   })
@@ -587,7 +588,7 @@ describe('workflows under two humans', () => {
             model: 'auto',
             effort: 'auto',
           },
-          policy.caller('b1', BOB),
+          policy.caller(asSessionId('b1'), BOB),
         ),
       ),
     ).toBe('only an administrator may change execution profiles')
@@ -652,13 +653,13 @@ describe('run history records the attribution PAIR', () => {
         instructions: '',
         steps: [{ id: 'one', title: 'One', instructions: '', completionGuidance: '' }],
       },
-      policy.caller('a1', ALICE),
+      policy.caller(asSessionId('a1'), ALICE),
     )
     policy.own(created.workflow.id, ALICE)
     const run = h.service.startRun({
-      sessionId: 'a1',
+      sessionId: asSessionId('a1'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-a',
+      issueId: asIssueId('issue-a'),
       revisionId: created.revision.id,
     })
     policy.own(run.id, ALICE)
@@ -716,13 +717,13 @@ describe('the ownership port is consulted, not assumed', () => {
         instructions: '',
         steps: [],
       },
-      policy.caller('a1', ALICE),
+      policy.caller(asSessionId('a1'), ALICE),
     )
     policy.own(created.workflow.id, ALICE)
     expect(
-      h.service.get({ id: created.workflow.id }, policy.caller('a1', ALICE)).workflow.name,
+      h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('a1'), ALICE)).workflow.name,
     ).toBe('Probe')
-    expect(h.service.list({}, policy.caller('a1', ALICE))).toHaveLength(1)
+    expect(h.service.list({}, policy.caller(asSessionId('a1'), ALICE))).toHaveLength(1)
   })
 
   /**
@@ -746,7 +747,7 @@ describe('the ownership port is consulted, not assumed', () => {
     )
     // Deliberately NOT recorded as owned — the pre-migration row.
     expect(
-      thrown(() => h.service.get({ id: created.workflow.id }, policy.caller('a1', ALICE))),
+      thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('a1'), ALICE))),
     ).toBe(`unknown workflow: ${created.workflow.id}`)
     expect(
       h.service.get({ id: created.workflow.id }, policy.caller(null, ALICE, 'admin')).workflow.id,

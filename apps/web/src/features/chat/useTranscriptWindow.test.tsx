@@ -1,9 +1,5 @@
 import { beginSwitch, getRecentSwitchTraces, resetSwitchTraces } from '@podium/client-core/perf'
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-  type TranscriptItem,
-} from '@podium/model'
+import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
 import type { JSX } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -29,15 +25,15 @@ import {
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
 
 const fakeHub = {
-  subscribes: [] as Array<{ sessionId: string; since: string | undefined; cb: DeltaCb }>,
-  subscribeTranscript(sessionId: string, since: string | undefined, cb: DeltaCb): () => void {
+  subscribes: [] as Array<{ sessionId: SessionId; since: string | undefined; cb: DeltaCb }>,
+  subscribeTranscript(sessionId: SessionId, since: string | undefined, cb: DeltaCb): () => void {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
   },
 }
 
 interface ReadCall {
-  input: { sessionId: string; anchor?: string; direction: 'before' | 'after'; limit: number }
+  input: { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number }
   resolve: (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
   reject: (err: unknown) => void
 }
@@ -70,7 +66,7 @@ const fakeReplica = {
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -98,7 +94,7 @@ let captured: UseTranscriptWindowResult | null = null
 function Probe({ active }: { active: boolean }): JSX.Element | null {
   const scrollerRef = { current: null }
   captured = useTranscriptWindow({
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     hub: fakeHub,
     trpc: fakeTrpc,
     replica: fakeReplica,
@@ -168,7 +164,7 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
     const rowsBefore = captured?.rows
 
     // Gesture: begin the trace, then re-activate the still-mounted panel.
-    beginSwitch({ sessionId: 's1' })
+    beginSwitch({ sessionId: asSessionId('s1') })
     act(() => root.render(<Probe active={true} />))
     await flush()
     // No new disk read — the held window is reused.
@@ -205,7 +201,7 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
     await flush()
     expect(reads).toHaveLength(2)
 
-    beginSwitch({ sessionId: 's1' })
+    beginSwitch({ sessionId: asSessionId('s1') })
     act(() => root.render(<Probe active={true} />))
     await flush()
     // Health is broken → the activation re-reads rather than reusing the window.
@@ -224,7 +220,7 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
     })
     await flush()
 
-    beginSwitch({ sessionId: 's1' })
+    beginSwitch({ sessionId: asSessionId('s1') })
     act(() => root.render(<Probe active={true} />))
     await flush()
     expect(reads).toHaveLength(2)
@@ -249,7 +245,7 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
     // The offline copy is showing — potentially stale, so health must be broken.
     expect(captured?.offlineAsOf).not.toBeNull()
 
-    beginSwitch({ sessionId: 's1' })
+    beginSwitch({ sessionId: asSessionId('s1') })
     act(() => root.render(<Probe active={true} />))
     await flush()
     expect(reads).toHaveLength(2)
@@ -290,7 +286,7 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
     await flush()
     expect(captured?.blocks.some((b) => b.item.text === 'third')).toBe(true)
 
-    beginSwitch({ sessionId: 's1' })
+    beginSwitch({ sessionId: asSessionId('s1') })
     act(() => root.render(<Probe active={true} />))
     await flush()
     // Still a healthy window — no re-read, and the delta is on screen.

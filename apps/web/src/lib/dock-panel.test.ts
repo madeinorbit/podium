@@ -1,9 +1,4 @@
-import {
-  type IssueWireInput,
-  type SessionMetaInput,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type IssueWire, type IssueWireInput, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from '@/app/store'
 import {
@@ -61,7 +56,7 @@ describe('resolveActiveWorktree', () => {
     expect(resolveActiveWorktree({ paneA: 's1', fileTabs: [], sessions: [s1, s2] })).toEqual({
       cwd: '/wt/a',
       machineId: 'm1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
     })
   })
 
@@ -98,7 +93,7 @@ describe('resolveActiveWorktree', () => {
     expect(resolveActiveWorktree({ paneA: null, fileTabs: [], sessions: [s1, s2] })).toEqual({
       cwd: '/wt/b',
       machineId: undefined,
-      sessionId: 's2',
+      sessionId: asSessionId('s2'),
     })
   })
 
@@ -153,7 +148,7 @@ describe('issueForPanel', () => {
         issues: [owning, attached],
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
       })?.id,
     ).toBe('i2')
   })
@@ -166,7 +161,7 @@ describe('issueForPanel', () => {
         issues: [owning, attached, target],
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         issueId: 'i9',
       })?.id,
     ).toBe('i9')
@@ -177,7 +172,7 @@ describe('issueForPanel', () => {
         issues: [owning, attached, gone],
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         issueId: 'i9',
       })?.id,
     ).toBe('i2')
@@ -200,7 +195,7 @@ describe('issueForPanel', () => {
         issues: [owning, attached],
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
       }),
     ).toBeNull()
   })
@@ -213,7 +208,7 @@ describe('issueForPanel', () => {
         issues: [owning, archivedTarget],
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
       }),
     ).toBeNull()
   })
@@ -225,7 +220,7 @@ describe('issueForPanel', () => {
         issues: [owning, attached],
         sessions: [s],
         cwd: '/elsewhere/wt',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
       })?.id,
     ).toBe('i2')
   })
@@ -234,7 +229,7 @@ describe('issueForPanel', () => {
     const s = sess('s1', '/elsewhere/wt', { issueId: 'i2' })
     const archived = issue({ id: 'i2', worktreePath: null, archived: true })
     expect(
-      issueForPanel({ issues: [archived], sessions: [s], cwd: '/elsewhere/wt', sessionId: 's1' }),
+      issueForPanel({ issues: [archived], sessions: [s], cwd: '/elsewhere/wt', sessionId: asSessionId('s1') }),
     ).toBeNull()
     // No sessionId (file-tab resolution) → cwd-only behavior.
     expect(
@@ -246,7 +241,7 @@ describe('issueForPanel', () => {
         issues: [owning, attached],
         sessions: [sess('s2', '/elsewhere/wt')],
         cwd: '/elsewhere/wt',
-        sessionId: 's2',
+        sessionId: asSessionId('s2'),
       }),
     ).toBeNull()
   })

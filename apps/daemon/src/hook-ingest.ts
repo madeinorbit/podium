@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { chmod, mkdir, rm } from 'node:fs/promises'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { createConnection } from 'node:net'
@@ -18,7 +20,7 @@ export interface HookIngest {
   port: number
   /** Stable, instance-scoped Codex endpoint when configured. */
   socketPath?: string
-  endpointFor(sessionId: string): string
+  endpointFor(sessionId: SessionId): string
   close(): Promise<void>
 }
 
@@ -38,7 +40,7 @@ export const DEFAULT_HOOK_PORT = 45777
 export const HOOK_BODY_MAX_BYTES = 2 * 1024 * 1024
 
 export async function startHookIngest(opts: {
-  onPayload: (sessionId: string, payload: unknown) => void
+  onPayload: (sessionId: SessionId, payload: unknown) => void
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_HOOK_PORT. */
   port?: number
   /** Stable, instance-scoped Unix socket used by Codex hooks. */
@@ -49,7 +51,7 @@ export async function startHookIngest(opts: {
    * `null`/timeout/throw all fall back to `'{}'`. `onPayload` still fires for
    * every request. Absent → behaves exactly as before (immediate `'{}'`).
    */
-  respondTo?: (sessionId: string, payload: unknown) => Promise<string | null>
+  respondTo?: (sessionId: SessionId, payload: unknown) => Promise<string | null>
   /** Max time to await `respondTo` before falling back to `'{}'`. Default 3000. */
   respondTimeoutMs?: number
 }): Promise<HookIngest> {
@@ -60,7 +62,9 @@ export async function startHookIngest(opts: {
       res.end()
       return
     }
-    const sessionId = match[1] as string
+    // DECODE EDGE: the session id comes off the HTTP path (`/agent/<sessionId>`),
+    // so this is where an untyped request segment re-enters the branded id space.
+    const sessionId = asSessionId(match[1] as string)
     const chunks: Buffer[] = []
     let total = 0
     let aborted = false

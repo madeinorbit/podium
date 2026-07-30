@@ -401,18 +401,30 @@ a manifest is read by a *different build* than wrote it.
 the committed ledger with its owner and reason. §0.2 covers the detector and the syntax forms it
 gained. The named ones first.
 
-| Site | Key | Owner |
-|---|---|---|
-| `packages/sync/src/mirror.ts:128` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` |
-| `packages/sync/src/mirror.ts:166` | `` `${machineId}\n${item.nativeId}` `` | B → `machineScopedKey` |
-| `packages/sync/src/mirror.ts:205` | `` `${machineId}\n${item.nativeId}` `` | B → `machineScopedKey` |
-| `apps/server/src/transcript-indexer.ts:79` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` |
-| `apps/server/src/transcript-indexer.ts:94` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` |
-| `apps/server/src/transcript-indexer.ts:116` | `` `${machineId}\n${s.nativeId}` `` | B → `machineScopedKey` |
-| `apps/server/src/transcript-indexer.ts:140` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` |
-| `apps/server/src/search.ts:173` | `` `${t.machineId}\n${t.nativeId}` `` | B → `machineScopedKey` |
-| `packages/domain/src/session-identity.ts:69` | `` `${session.resume.kind}:${session.resume.value}` `` | B → `resumeKey` |
-| `packages/domain/src/session-identity.ts:74` | `` `${s.resume.kind}:${s.resume.value}` `` | B → `resumeKey` |
+| Site | Key | Owner | Status |
+|---|---|---|---|
+| `packages/sync/src/mirror.ts:128` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `packages/sync/src/mirror.ts:166` | `` `${machineId}\n${item.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `packages/sync/src/mirror.ts:205` | `` `${machineId}\n${item.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/transcript-indexer.ts:79` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/transcript-indexer.ts:94` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/transcript-indexer.ts:116` | `` `${machineId}\n${s.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/transcript-indexer.ts:140` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/search.ts:173` | `` `${t.machineId}\n${t.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `packages/model/src/identity/session-identity.ts:69` (was `packages/domain`) | `` `${session.resume.kind}:${session.resume.value}` `` | B → `resumeKey` | ✅ POD-362 |
+| `packages/model/src/identity/session-identity.ts:74` (was `packages/domain`) | `` `${s.resume.kind}:${s.resume.value}` `` | B → `resumeKey` | ✅ POD-362 |
+
+> **POD-362 ADOPTED ALL TEN, together** (`scripts/pod362-keyproof.test.ts` proves both
+> halves: byte-identical to the ad-hoc form for every real id, so no in-memory key was
+> invalidated, AND the `('m','a\nb')` / `('m\na','b')` collision is gone).
+>
+> It required WIDENING `machineScopedKey`'s first parameter from `MachineId` to `string`,
+> which is a pushback on POD-361 recorded in `ids/keys.ts`: as shipped, that signature was
+> unsatisfiable by any live producer — `MachineId` is carved out until POD-318, every
+> machine-id field uses `machineIdBlockedOnPOD318`, and three tables DEFAULT the column to
+> `'__local__'`. The only way to call it was `asMachineId(...)`, laundering the very sentinel
+> the carve-out exists to keep flaggable. That is why it had ZERO production callers before
+> this issue. POD-318 tightens the one parameter back.
 
 **The brief named `mirror.ts` and `session-identity.ts`. The sweep found five more machine-scoped
 sites** — four in `transcript-indexer.ts` and one in `search.ts` — using the *same* `\n`
@@ -545,7 +557,8 @@ second, hand-maintained statement of the resume-ref vocabulary that `resumeKey` 
 **D5 — `reexport-shims`** (owner POD-333, baseline 19 → now **24**), including
 `apps/server/src/local-machine.ts` — a pure re-export of the D1/D2 definitions. It disappears with
 the shim, so POD-362 should import from `@podium/runtime/local-machine` directly rather than
-brand the shim.
+brand the shim. ✅ **POD-362 did exactly that**: nine import sites redirected to
+`@podium/runtime/local-machine` and the shim DELETED, taking `reexport-shims` 23 → 22.
 
 ### 3.6 Owner E — attribution sites that must learn to name a person
 

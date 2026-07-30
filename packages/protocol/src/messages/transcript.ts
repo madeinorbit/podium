@@ -1,4 +1,4 @@
-import { AgentKind, ResumeRef, TranscriptItem } from '@podium/model'
+import { AgentKind, ResumeRef, SessionIdField, TranscriptItem } from '@podium/model'
 import { z } from 'zod'
 
 // TranscriptItem (and TranscriptRole / TranscriptTag) live in @podium/model
@@ -11,7 +11,7 @@ import { z } from 'zod'
 // buffer (the tailer switched files, e.g. resume rolled into a fresh transcript).
 export const TranscriptDeltaMessage = z.object({
   type: z.literal('transcriptDelta'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   items: z.array(TranscriptItem),
   tail: z.string().optional(),
   reset: z.boolean().optional(),
@@ -23,14 +23,14 @@ export type TranscriptDeltaMessage = z.infer<typeof TranscriptDeltaMessage>
 // tail / send what the server buffers).
 export const TranscriptSubscribeMessage = z.object({
   type: z.literal('transcriptSubscribe'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   since: z.string().optional(),
 })
 export type TranscriptSubscribeMessage = z.infer<typeof TranscriptSubscribeMessage>
 
 export const TranscriptUnsubscribeMessage = z.object({
   type: z.literal('transcriptUnsubscribe'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
 })
 export type TranscriptUnsubscribeMessage = z.infer<typeof TranscriptUnsubscribeMessage>
 
@@ -48,7 +48,7 @@ export type TranscriptUnsubscribeMessage = z.infer<typeof TranscriptUnsubscribeM
 export const TranscriptReadRequestMessage = z.object({
   type: z.literal('transcriptRead'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   agentKind: AgentKind,
   cwd: z.string(),
   resume: ResumeRef.optional(),
@@ -73,7 +73,7 @@ export type TranscriptReadRequestMessage = z.infer<typeof TranscriptReadRequestM
 export const TranscriptReadResultMessage = z.object({
   type: z.literal('transcriptReadResult'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   items: z.array(TranscriptItem),
   head: z.string().optional(),
   tail: z.string().optional(),

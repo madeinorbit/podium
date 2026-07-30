@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type AgentPhase, type AgentRuntimeState, asSessionId, SOLE_USER_ID } from '@podium/model'
+import { SOLE_USER_ID, asSessionId, type AgentPhase, type AgentRuntimeState, type SessionId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -25,7 +25,7 @@ function sink() {
   return { send: (m: ServerMessage) => sent.push(m), sent }
 }
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: string) =>
+const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
@@ -119,7 +119,7 @@ describe('SessionRegistry', () => {
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
-      sessionId: clientId,
+      sessionId: asSessionId(clientId),
     })
     expect(sessionId).toBe(clientId)
     expect(reg.modules.sessions.listSessions()).toMatchObject([
@@ -148,13 +148,13 @@ describe('SessionRegistry', () => {
     reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
-      sessionId: clientId,
+      sessionId: asSessionId(clientId),
     })
     expect(() =>
       reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/other',
-        sessionId: clientId,
+        sessionId: asSessionId(clientId),
       }),
     ).toThrow()
     // The original session is intact — not overwritten by the second cwd.
@@ -896,7 +896,7 @@ describe('SessionRegistry', () => {
   // boot the durable host — not the stale row — is the source of truth, so the
   // registry probes exited rows and reattaches the ones still running.
   const exitedRow = (id: string, over: Partial<SessionRow> = {}): SessionRow => ({
-    id,
+    id: asSessionId(id),
     agentKind: 'claude-code',
     cwd: '/proj',
     title: 'agent',
@@ -931,7 +931,7 @@ describe('SessionRegistry', () => {
     )
     // The daemon found the master alive → bind → the session comes back live and
     // the stale exit is cleared. Without the fix it would stay 'exited' forever.
-    reg.gateway.routeDaemonFrame('local', bind(id))
+    reg.gateway.routeDaemonFrame('local', bind(asSessionId(id)))
     const healed = reg.modules.sessions.listSessions().find((m) => m.sessionId === id)
     expect(healed).toMatchObject({ status: 'live' })
     expect(healed?.exitCode).toBeUndefined()
@@ -947,7 +947,7 @@ describe('SessionRegistry', () => {
     // must stay put: no status change, no exitCode churn (0 → -1), no re-broadcast.
     reg.gateway.routeDaemonFrame('local', {
       type: 'reattachFailed',
-      sessionId: id,
+      sessionId: asSessionId(id),
       reason: 'session not found',
     })
     expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === id)).toMatchObject({
@@ -994,8 +994,8 @@ describe('SessionRegistry', () => {
     const clientId = reg.clientGateway.attachClient(() => {})
     reg.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
-      visible: ['visible', 'focused'],
-      focused: 'focused',
+      visible: [asSessionId('visible'), asSessionId('focused')],
+      focused: asSessionId('focused'),
     })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
@@ -1243,7 +1243,7 @@ describe('SessionRegistry', () => {
     c.sent.length = 0
     reg.gateway.routeDaemonFrame('local', {
       type: 'title',
-      sessionId: 'nope',
+      sessionId: asSessionId('nope'),
       title: 'x',
     })
     expect(c.sent).toEqual([])
@@ -1420,7 +1420,7 @@ describe('SessionRegistry', () => {
   it('skips a persisted session with an invalid agentKind on load', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession({
-      id: 'good',
+      id: asSessionId('good'),
       agentKind: 'claude-code',
       cwd: '/a',
       title: 'good',
@@ -1444,7 +1444,7 @@ describe('SessionRegistry', () => {
     // legacy/externally-corrupted row is simulated by writing a valid row and then
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
     store.sessions.upsertSession({
-      id: 'bad',
+      id: asSessionId('bad'),
       agentKind: 'claude-code',
       cwd: '/b',
       title: 'bad',
@@ -1569,7 +1569,7 @@ describe('memory breakdown relay', () => {
       sampledAt: '2026-06-11T00:00:00.000Z',
       supported: true,
       memory,
-      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 2 }], // // POD-361-EDGE-CAST
+      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 2 }],
       projects: [],
       otherBytes: 12,
     })
@@ -1668,7 +1668,7 @@ describe('agent state', () => {
     expect(() =>
       reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
-        sessionId: 'ghost',
+        sessionId: asSessionId('ghost'),
         state: STATE,
       }),
     ).not.toThrow()
@@ -1697,7 +1697,7 @@ describe('agent state', () => {
         'utf8',
       ),
     ).toBe('continue\r')
-    expect(reg.modules.sessions.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
+    expect(reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({ ok: false })
   })
 
   it('sends every configured external push target only when no client is visible', () => {
@@ -2253,7 +2253,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     await expect(
-      reg.modules.rpc.readTranscript({ sessionId: 'nope', direction: 'before', limit: 10 }),
+      reg.modules.rpc.readTranscript({ sessionId: asSessionId('nope'), direction: 'before', limit: 10 }),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
   })
@@ -2265,7 +2265,7 @@ describe('sendText (chat send path)', () => {
       .filter((m) => m.type === 'input')
       .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
   const agentStateMsg = (
-    sessionId: string,
+    sessionId: SessionId,
     phase: AgentPhase,
     extra: Record<string, unknown> = {},
   ) =>
@@ -2996,7 +2996,7 @@ describe('reconnect identity (hello reclaim)', () => {
      * after the gate landed, because its assertion is that NO broadcast happens and
      * a refused write broadcasts nothing either. It was green for the wrong reason.
      */
-    const seedSession = (reg: SessionRegistry): string =>
+    const seedSession = (reg: SessionRegistry): SessionId =>
       reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' }).sessionId
     it('broadcasts setSessionDraft to other clients, not the sender', () => {
       const reg = new SessionRegistry()
@@ -3007,7 +3007,7 @@ describe('reconnect identity (hello reclaim)', () => {
       reg.clientGateway.attachClient((m) => b.push(m))
       reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'half typed',
       })
       expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
@@ -3031,13 +3031,13 @@ describe('reconnect identity (hello reclaim)', () => {
       expect(() =>
         reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
-          sessionId: 'no-such-session',
+          sessionId: asSessionId('no-such-session'),
           text: 'into the void',
         }),
       ).not.toThrow()
 
       expect(seen.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
-      expect(reg.sessionStore.sessions.loadDrafts()['no-such-session']).toBeUndefined()
+      expect(reg.sessionStore.sessions.loadDrafts()[asSessionId('no-such-session')]).toBeUndefined()
     })
 
     it('replays stored drafts to a freshly connected client', () => {
@@ -3046,7 +3046,7 @@ describe('reconnect identity (hello reclaim)', () => {
       const idA = reg.clientGateway.attachClient(() => {})
       reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'wip',
       })
       const c: ServerMessage[] = []
@@ -3060,7 +3060,7 @@ describe('reconnect identity (hello reclaim)', () => {
       const idA = reg.clientGateway.attachClient(() => {})
       reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'wip',
       })
       // The write LANDED first — asserted, because this test's real assertion is an
@@ -3072,7 +3072,7 @@ describe('reconnect identity (hello reclaim)', () => {
       reg.clientGateway.attachClient((m) => watcher.push(m))
       reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'wip again',
       })
       expect(watcher).toContainEqual({
@@ -3083,7 +3083,7 @@ describe('reconnect identity (hello reclaim)', () => {
 
       reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: '',
       })
       expect(reg.sessionStore.sessions.loadDrafts()[sessionId]).toBeUndefined()
@@ -3103,7 +3103,7 @@ describe('reconnect identity (hello reclaim)', () => {
         const idA = reg.clientGateway.attachClient(() => {})
         reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           text: 'real work',
         })
         // Not written yet — keystrokes coalesce; the row appears once the debounce fires.
@@ -3138,7 +3138,7 @@ describe('reconnect identity (hello reclaim)', () => {
         const idA = reg.clientGateway.attachClient(() => {})
         reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           text: 'about to send',
         })
         vi.advanceTimersByTime(1000)
@@ -3148,7 +3148,7 @@ describe('reconnect identity (hello reclaim)', () => {
 
         reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           text: '',
         })
         // No debounce wait: an empty draft flushes at once so a restart right after
@@ -3182,7 +3182,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     reg.clientGateway.attachClient((m) => b.push(m))
     reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: 'sess',
+      sessionId: asSessionId('sess'),
       baseRev: 0,
       text: 'hi',
     })
@@ -3198,13 +3198,13 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     reg.clientGateway.attachClient((m) => b.push(m))
     reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'a',
     })
     reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 1,
       text: 'ab',
     })
@@ -3222,7 +3222,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const idB = reg.clientGateway.attachClient((m) => b.push(m))
     reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'from A',
     })
@@ -3230,7 +3230,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     b.length = 0
     reg.clientGateway.routeClientFrame(idB, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'from B',
     })
@@ -3247,7 +3247,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     reg.clientGateway.attachClient((m) => c.push(m))
     reg.gateway.routeDaemonFrame('local', {
       type: 'nativeDraft',
-      sessionId: 'sess',
+      sessionId: asSessionId('sess'),
       text: 'typed in native',
     })
     expect(c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
@@ -3423,7 +3423,11 @@ describe('SessionRegistry read state (#124)', () => {
 })
 
 describe('SessionRegistry snooze', () => {
-  const agentState = (sessionId: string, phase: AgentPhase, extra: Record<string, unknown> = {}) =>
+  const agentState = (
+    sessionId: SessionId,
+    phase: AgentPhase,
+    extra: Record<string, unknown> = {},
+  ) =>
     ({
       type: 'agentState',
       sessionId,
@@ -3491,7 +3495,7 @@ describe('SessionRegistry snooze', () => {
   it('seeds snoozedUntil from the store at load', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession({
-      id: 's1',
+      id: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/p',
       title: 't',
@@ -3511,7 +3515,7 @@ describe('SessionRegistry snooze', () => {
       archived: false,
       workState: null,
     })
-    store.sessions.setSnooze(SOLE_USER_ID, 's1', null)
+    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), null)
     const reg = new SessionRegistry(store)
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
   })
@@ -3556,7 +3560,7 @@ describe('SessionRegistry — auto-continue', () => {
     const sessionId = liveSession(reg)
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: erroredState,
     })
     expect(daemon).not.toContainEqual(continueInput)
@@ -3574,7 +3578,7 @@ describe('SessionRegistry — auto-continue', () => {
     const sessionId = liveSession(reg)
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: erroredState,
     })
     expect(daemon).toContainEqual(continueInput)
@@ -3592,7 +3596,7 @@ describe('SessionRegistry — auto-continue', () => {
     const sessionId = liveSession(reg)
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: erroredState,
     })
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far

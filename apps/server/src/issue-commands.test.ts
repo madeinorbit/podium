@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueTrpc } from './issue-client'
 import { ISSUE_COMMANDS } from './issue-commands'
@@ -369,7 +370,7 @@ describe('ISSUE_COMMANDS registry', () => {
         // Sibling sessions on the root issue [spec:SP-99d3]
         sessions: [
           {
-            sessionId: 'sess-a',
+            sessionId: asSessionId('sess-a'),
             displayRef: 'POD-10-A',
             label: 'Implementer',
             agentKind: 'grok',
@@ -379,7 +380,7 @@ describe('ISSUE_COMMANDS registry', () => {
             coordinator: true,
           },
           {
-            sessionId: 'sess-b',
+            sessionId: asSessionId('sess-b'),
             displayRef: 'POD-10-B',
             label: 'Reviewer',
             agentKind: 'codex',
@@ -396,7 +397,7 @@ describe('ISSUE_COMMANDS registry', () => {
             omittedChildren: 3, children: [],
             sessions: [
               {
-                sessionId: 'sess-c',
+                sessionId: asSessionId('sess-c'),
                 displayRef: 'POD-11-A',
                 agentKind: 'claude-code',
                 model: 'sonnet',
@@ -463,7 +464,7 @@ describe('ISSUE_COMMANDS registry', () => {
       coordinatorSessionId: 'sess-a',
       sessions: [
         {
-          sessionId: 'sess-a',
+          sessionId: asSessionId('sess-a'),
           displayRef: 'POD-7-A',
           name: 'Lead',
           agentKind: 'grok',
@@ -472,7 +473,7 @@ describe('ISSUE_COMMANDS registry', () => {
           agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
         },
         {
-          sessionId: 'sess-b',
+          sessionId: asSessionId('sess-b'),
           displayRef: 'POD-7-B',
           name: 'Reviewer',
           agentKind: 'codex',

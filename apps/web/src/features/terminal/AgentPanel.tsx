@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { randomUUID } from '@podium/client-core/id'
 import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
@@ -186,7 +187,7 @@ export function AgentPanel({
   sessionId,
   active = true,
 }: {
-  sessionId: string
+  sessionId: SessionId
   /** False when this panel is mounted but hidden (an inactive tab kept warm so
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
@@ -1186,7 +1187,7 @@ function ExitedPane({
   worktreeMissing,
   worktreePath,
 }: {
-  sessionId: string
+  sessionId: SessionId
   exitCode: number | undefined
   spawnFailure?: string
   isShell: boolean
@@ -1261,7 +1262,7 @@ function ExitedBanner({
   worktreeMissing,
   worktreePath,
 }: {
-  sessionId: string
+  sessionId: SessionId
   exitCode: number | undefined
   spawnFailure?: string
   isShell: boolean
@@ -1328,7 +1329,7 @@ function ExitedBanner({
 
 /** Thin bar over a hibernated session's (read-only) transcript: explains the
  *  state and offers one-click resume, without hiding the conversation. */
-function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
+function HibernatedBanner({ sessionId }: { sessionId: SessionId }): JSX.Element {
   const resurrectSession = useStoreSelector((s) => s.resurrectSession)
   const [waking, setWaking] = useState(false)
   return (
@@ -1356,7 +1357,7 @@ function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
 }
 
 /** Firefox-snoozed-tab moment: the process is parked, one click wakes it. */
-function HibernatedPane({ sessionId }: { sessionId: string }): JSX.Element {
+function HibernatedPane({ sessionId }: { sessionId: SessionId }): JSX.Element {
   const resurrectSession = useStoreSelector((s) => s.resurrectSession)
   const [waking, setWaking] = useState(false)
   return (

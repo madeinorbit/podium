@@ -6,6 +6,7 @@
  * localStorage keys are migrated in there once and removed.
  */
 
+import { asSessionId, type SessionId } from '@podium/model'
 import type { UiState } from '../replica/replica'
 import type { MainView } from '../router'
 import type { RecentFileEntry } from '../viewmodels/dock-panel'
@@ -43,15 +44,17 @@ export function readStoredView(ui: UiState): MainView {
 
 /** The persisted worktreePath → dock-shell-session map (#23). A corrupt/missing
  *  blob reads as empty. */
-export function readStoredDockShells(ui: UiState): Record<string, string> {
+export function readStoredDockShells(ui: UiState): Record<string, SessionId> {
   const raw = ui.get(DOCK_SHELLS_KEY)
   if (!raw) return {}
   try {
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object') return {}
-    const out: Record<string, string> = {}
+    // DECODE EDGE: the dock map is read back out of persisted UI state (JSON),
+    // so this is where the stored strings re-enter the session id space.
+    const out: Record<string, SessionId> = {}
     for (const [wt, id] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof id === 'string' && id) out[wt] = id
+      if (typeof id === 'string' && id) out[wt] = asSessionId(id)
     }
     return out
   } catch {

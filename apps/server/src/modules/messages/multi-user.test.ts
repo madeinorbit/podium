@@ -12,6 +12,7 @@
  * succeeding under a ceiling that allows it.
  */
 
+import { asIssueId, asSessionId } from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -34,8 +35,8 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    h.put({ sessionId: 'sTheirs', issueId: theirs.id, phase: 'idle' })
-    const cap = h.agentCap(mine.id, 'sMine')
+    h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     // Without the confirmation it is a WIDENING, not a denial: an issue the
     // human can see, outside the agent's own subtree, answers confirm-required
@@ -61,8 +62,8 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    h.put({ sessionId: 'sTheirs', issueId: theirs.id, phase: 'idle' })
-    const cap = h.agentCap(mine.id, 'sMine')
+    h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     // Raise the ceiling against it. The capability, the confirmation and the
     // target are all UNCHANGED from the passing case above — the only thing
@@ -88,7 +89,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     hidden.push(theirs.id)
-    const cap = h.agentCap(mine.id, 'sMine')
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     const shape = async (to: string, override: boolean | undefined): Promise<unknown> => {
       try {
@@ -130,13 +131,13 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    const cap = h.agentCap(mine.id, 'sMine')
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
     // A row this agent may `mayView` in the OTHER issue's box — one it sent
     // itself. Without it the peek returns [] for mayView reasons and the test
     // would pass whether or not the ceiling was ever consulted (the read path
     // has no delivery step, so nothing else would catch it).
     h.svc.send(
-      { kind: 'agent', issueId: mine.id, sessionId: 'sMine' },
+      { kind: 'agent', issueId: mine.id, sessionId: asSessionId('sMine') },
       { to: { kind: 'issue', id: theirs.id }, body: 'mine to see' },
     )
 
@@ -176,11 +177,11 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     })
     const target = h.createIssue({ title: 'target' })
     const sender = h.createIssue({ title: 'sender' })
-    h.put({ sessionId: 'sSender', issueId: sender.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
     // No live session on the target, so the row is ACCEPTED and stays queued —
     // which is the state the whole re-authorization rule is about.
     const r = h.svc.send(
-      { kind: 'agent', issueId: sender.id, sessionId: 'sSender' },
+      { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'work please' },
     )
     expect(r.disposition).toBe('held')
@@ -188,7 +189,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
 
     // Access is revoked BETWEEN accept and drain.
     revoked = true
-    h.put({ sessionId: 'sTarget', issueId: target.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     h.svc.sweep()
 
     const after = h.svc.message(r.message.id)
@@ -221,14 +222,14 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
 
     // THE INSTRUMENT SAYS YES FIRST: allowed, the mirror row IS written.
     const ok = h.svc.send(
-      { kind: 'agent', issueId: sender.id, sessionId: 'sSender' },
+      { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'legitimate' },
     )
     expect(h.store.issues.getIssueMessage(ok.message.id)).not.toBeNull()
 
     allowed = false
     const denied = h.svc.send(
-      { kind: 'agent', issueId: sender.id, sessionId: 'sSender' },
+      { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'injected' },
     )
     expect(h.store.issues.getIssueMessage(denied.message.id)).toBeNull()
@@ -239,12 +240,12 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     const h = mailHarness({ authorizeAtApply: () => ({ ok: true }) })
     const target = h.createIssue({ title: 'target' })
     const sender = h.createIssue({ title: 'sender' })
-    h.put({ sessionId: 'sSender', issueId: sender.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: sender.id, sessionId: 'sSender' },
+      { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'work please' },
     )
-    h.put({ sessionId: 'sTarget', issueId: target.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     h.svc.sweep()
     expect(h.svc.message(r.message.id)?.status).not.toBe('dead_letter')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
@@ -271,7 +272,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = withMachine(h)
     await expect(
-      h.gate.dispatch(h.agentCap(issue.id, 'sMe'), undefined, 'spawnAgent', {
+      h.gate.dispatch(h.agentCap(asIssueId(issue.id), asSessionId('sMe')), undefined, 'spawnAgent', {
         issue: issue.id,
         prompt: 'go',
       }),
@@ -287,7 +288,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const b = withMachine(offline)
     const message = async (h: ReturnType<typeof mailHarness>, id: string): Promise<string> => {
       try {
-        await h.gate.dispatch(h.agentCap(id, 'sMe'), undefined, 'spawnAgent', {
+        await h.gate.dispatch(h.agentCap(asIssueId(id), asSessionId('sMe')), undefined, 'spawnAgent', {
           issue: id,
           prompt: 'go',
         })
@@ -306,7 +307,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
   it('spawns when the principal holds `use` — the instrument can say yes', async () => {
     const h = mailHarness({ machines: machines({ use: true, reachable: true }) })
     const issue = withMachine(h)
-    const r = (await h.gate.dispatch(h.agentCap(issue.id, 'sMe'), undefined, 'spawnAgent', {
+    const r = (await h.gate.dispatch(h.agentCap(asIssueId(issue.id), asSessionId('sMe')), undefined, 'spawnAgent', {
       issue: issue.id,
       prompt: 'go',
     })) as { ok: boolean; machine: string | null }
@@ -340,7 +341,7 @@ describe('sender identity is stamped from the capability and cannot be influence
   it('ignores every impersonation field on `send`', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
-    const cap: Capability = h.agentCap(mine.id, 'sMine')
+    const cap: Capability = h.agentCap(mine.id, asSessionId('sMine'))
     const r = (await h.gate.dispatch(cap, undefined, 'send', {
       to: mine.id,
       body: 'x',
@@ -356,12 +357,12 @@ describe('sender identity is stamped from the capability and cannot be influence
   it('ignores them on `reply` too — the second write surface', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
-    h.put({ sessionId: 'sMine', issueId: mine.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
     const original = h.svc.send(
       { kind: 'operator' },
       { to: { kind: 'issue', id: mine.id }, body: 'ping' },
     )
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'reply', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'reply', {
       id: original.message.id,
       body: 'pong',
       ...IMPERSONATION_PAYLOAD,
@@ -377,7 +378,7 @@ describe('sender identity is stamped from the capability and cannot be influence
     // this, "fromKind is agent" would pass against a surface that hard-coded it.
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
-    h.put({ sessionId: 'sMine', issueId: mine.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
       to: mine.id,
       body: 'x',

@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
@@ -64,8 +65,8 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
 
     // The agent CLI clients: one in-scope, one that carries `--outside-scope` (overrideScope).
     // The session id is bound in the relay URL — there is deliberately no `--session` flag.
-    client = makeRelayIssueClient(relayServer.endpointFor(sA))
-    overrideClient = makeRelayIssueClient(relayServer.endpointFor(sA), { outsideScope: true })
+    client = makeRelayIssueClient(relayServer.endpointFor(asSessionId(sA)))
+    overrideClient = makeRelayIssueClient(relayServer.endpointFor(asSessionId(sA)), { outsideScope: true })
   })
 
   afterAll(async () => {

@@ -6,6 +6,7 @@
  * (`upstream_outbox`, docs/spec/node-hub-issues.md §2.2).
  */
 
+import type { SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { ChangePrunePlan } from '../../change-log'
@@ -202,10 +203,11 @@ export class SyncRepository {
   }
 
   /** Per-session queued counts — the boot seed for Session.queuedMessageCount. */
-  queuedMessageCounts(): Map<string, number> {
+  queuedMessageCounts(): Map<SessionId, number> {
     const rows = this.db
       .prepare('SELECT session_id, COUNT(*) AS n FROM queued_messages GROUP BY session_id')
-      .all() as { session_id: string; n: number }[]
+      // SERIALIZATION EDGE: an untyped column re-entering the session id space.
+      .all() as { session_id: SessionId; n: number }[]
     return new Map(rows.map((r) => [r.session_id, r.n]))
   }
 

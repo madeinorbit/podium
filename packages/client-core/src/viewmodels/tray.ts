@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta, SessionOffer } from '@podium/model'
+import type { IssueWire, SessionId, SessionMeta, SessionOffer } from '@podium/model'
 import { attentionGroup } from '../focus'
 
 /**
@@ -34,7 +34,7 @@ export type TrayItem = {
 
 /** Identity of one offer instance — a NEW offer on the same session is a new
  *  card (and a fresh flash), so the key carries createdAt, not just the session. */
-export const offerKey = (sessionId: string, createdAt: string): string =>
+export const offerKey = (sessionId: SessionId, createdAt: string): string =>
   `${sessionId}@${createdAt}`
 
 const live = (issue: IssueWire): boolean => !issue.archived && !issue.deletedAt

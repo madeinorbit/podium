@@ -1,4 +1,4 @@
-import { AgentKind } from '@podium/model'
+import { AgentKind, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -39,7 +39,7 @@ export const ApprovalOp = z.discriminatedUnion('kind', [
     prompt: z.string().min(1),
     target: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('current') }),
-      z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
+      z.object({ kind: z.literal('session'), sessionId: z.string().min(1).pipe(SessionIdField) }),
       z.object({
         kind: z.literal('fresh'),
         repoPath: z.string().min(1),
@@ -60,7 +60,7 @@ export const ApprovalWire = z.object({
   id: z.string(),
   machineId: z.string(),
   machineName: z.string().optional(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   /** The issue the requesting session was attached to (navigation target). */
   issueId: z.string().nullable(),
   issueSeq: z.number().nullable(),

@@ -1,3 +1,4 @@
+import { resumeKey } from '../ids/keys'
 /**
  * Pure session-identity predicates: what counts as a "real" (generic-surface)
  * session vs. a headless shadow, and how duplicate rows for the same underlying
@@ -66,12 +67,12 @@ export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]
   for (const session of sessions) {
     if (!session.resume || isHeadlessSession(session)) continue
     if (!['live', 'starting', 'reconnecting'].includes(session.status)) continue
-    activeRefs.add(`${session.resume.kind}:${session.resume.value}`)
+    activeRefs.add(resumeKey(session.resume.kind, session.resume.value))
   }
   const indexByRef = new Map<string, number>()
   const out: S[] = []
   for (const s of sessions) {
-    const key = s.resume && !isHeadlessSession(s) ? `${s.resume.kind}:${s.resume.value}` : undefined
+    const key = s.resume && !isHeadlessSession(s) ? resumeKey(s.resume.kind, s.resume.value) : undefined
     // A headless session shares its resume ref with its terminal twin by design.
     // Any group touching a live row stays fail-visible so every stable Podium
     // id remains independently usable. Only all-parked legacy twins collapse.

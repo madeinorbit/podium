@@ -88,8 +88,8 @@ import {
   type IssueType,
   isIssueColorSlot,
   NeedsHuman,
+  SessionIdField,
 } from '@podium/model'
-import type { IssueId, RepoId, SessionId, UserId } from '@podium/model'
 import { z } from 'zod'
 import type { IssueRow } from './types'
 
@@ -137,7 +137,12 @@ export const LegacyAsked = z.object({
   question: z.string().optional(),
   options: z.array(z.string()).optional(),
   at: z.string().optional(),
-  by: z.string().optional(),
+  /** SAME FACT as {@link StoredAsked}'s `by` — the asking session — so it carries
+   *  the SAME brand (POD-362). `SessionIdField`, not the `.min(1)` `SessionId`
+   *  schema: this shape exists to hold what the strict one refuses, and adding
+   *  validation here would turn a legacy row that decodes today into one that
+   *  throws. The field schema is brand-only, so what parses is unchanged. */
+  by: SessionIdField.optional(),
 })
 export type LegacyAsked = z.infer<typeof LegacyAsked>
 
@@ -189,10 +194,10 @@ export function fromStorage(row: IssueRow): StoredIssue {
   const asked = decodeAsked(row)
   return {
     // --- IssueIdentity ---------------------------------------------------
-    // POD-361-EDGE-CAST (POD-362 owns): the store row types its ids as plain
-    // strings. This pair is now the ONE place the brand is applied on read.
-    id: row.id as IssueId,
-    ...(row.repoId ? { repoId: row.repoId as RepoId } : {}),
+    // No cast: `IssueRow` carries branded ids (POD-362). The brand is applied
+    // once, at the sqlite decode in `store/issues.ts#mapIssueRow`.
+    id: row.id,
+    ...(row.repoId ? { repoId: row.repoId } : {}),
     seq: row.seq,
 
     // --- IssueText -------------------------------------------------------
@@ -222,7 +227,7 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // --- IssueTriage (labels live in issue_labels, not on the row) --------
     priority: row.priority,
     type: row.type as IssueType,
-    ...(row.assignee ? { assignee: row.assignee as UserId } : {}),
+    ...(row.assignee ? { assignee: row.assignee } : {}),
     ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
     // Guarded so a corrupt/unknown stored slot degrades to "no colour" rather
     // than failing the issue [spec:SP-b4d1] — the behaviour `toWire` had.
@@ -231,9 +236,9 @@ export function fromStorage(row: IssueRow): StoredIssue {
     ...opt('dueAt', row.dueAt),
 
     // --- IssueGraphRefs (RENAME: blockedBy -> blockedByNotes, D-2) --------
-    ...(row.parentId ? { parentId: row.parentId as IssueId } : {}),
-    ...(row.supersededBy ? { supersededBy: row.supersededBy as IssueId } : {}),
-    ...(row.duplicateOf ? { duplicateOf: row.duplicateOf as IssueId } : {}),
+    ...(row.parentId ? { parentId: row.parentId } : {}),
+    ...(row.supersededBy ? { supersededBy: row.supersededBy } : {}),
+    ...(row.duplicateOf ? { duplicateOf: row.duplicateOf } : {}),
     blockedByNotes: row.blockedBy,
 
     // --- IssueWorkspace (nullable, NOT optional — the row's own shape) ----
@@ -263,9 +268,9 @@ export function fromStorage(row: IssueRow): StoredIssue {
 
     // --- IssueCoordination -----------------------------------------------
     ...(row.coordinatorSessionId
-      ? { coordinatorSessionId: row.coordinatorSessionId as SessionId }
+      ? { coordinatorSessionId: row.coordinatorSessionId }
       : {}),
-    ...(row.startedBySession ? { startedBySession: row.startedBySession as SessionId } : {}),
+    ...(row.startedBySession ? { startedBySession: row.startedBySession } : {}),
 
     // --- IssueLinear ------------------------------------------------------
     ...opt('linearId', row.linearId),
@@ -424,7 +429,7 @@ function decodeAsked(row: IssueRow): { asked?: StoredAsked } | { askedLegacy?: L
         question: row.humanQuestion,
         ...(options ? { options } : {}),
         at: row.humanQuestionAskedAt,
-        by: row.humanQuestionAskedBy as SessionId,
+        by: row.humanQuestionAskedBy,
       },
     }
   }

@@ -1,4 +1,4 @@
-import { HarnessAgent } from '@podium/model'
+import { type AccountId, AccountIdField, asAccountId, HarnessAgent } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -168,7 +168,10 @@ export type Account = z.infer<typeof Account>
  *  selections and can later select a harness for a managed credential; native
  *  superagent accounts imply their harness even on older settings blobs. */
 export const RoleBackend = z.object({
-  accountId: z.string().default(''),
+  /** `AccountIdField` (brand-only), NOT the `.min(1)` `AccountId` schema: '' is a
+   *  DOCUMENTED value here meaning "the role's default", so a validating schema
+   *  would reject settings blobs that parse today (POD-362). */
+  accountId: AccountIdField.default(asAccountId('')),
   model: z.string().default('auto'),
   effort: z.string().default('auto'),
   harness: HarnessAgent.optional(),
@@ -215,12 +218,14 @@ const MANAGED_CLAUDE_OAUTH = 'claude-oauth' as const
 export const CLAUDE_OAUTH_ACCOUNT_ID = `${MANAGED_ACCOUNT}${MANAGED_CLAUDE_OAUTH}` as const
 
 /** Synthetic account id for a native harness login. */
-export function nativeAccountId(harness: HarnessAgent): string {
-  return `${HARNESS_ACCOUNT}${harness}`
+export function nativeAccountId(harness: HarnessAgent): AccountId {
+  // MINT SITE for a synthetic native AccountId (POD-362).
+  return asAccountId(`${HARNESS_ACCOUNT}${harness}`)
 }
 /** Synthetic account id for a managed API-key provider. */
-export function managedAccountId(provider: ApiProvider): string {
-  return `${MANAGED_ACCOUNT}${provider}`
+export function managedAccountId(provider: ApiProvider): AccountId {
+  // MINT SITE for a synthetic managed AccountId (POD-362).
+  return asAccountId(`${MANAGED_ACCOUNT}${provider}`)
 }
 
 /** A credential Podium holds and injects (SP-6454, managed accounts). Only
@@ -456,7 +461,7 @@ export function normalizeSettings(raw: unknown): PodiumSettings {
 }
 
 export interface ResolvedRole {
-  accountId: string
+  accountId: AccountId
   execution: 'harness' | 'api'
   /** The harness to run (session roles) or the fallback harness (api roles). */
   harness: HarnessAgent
@@ -466,7 +471,7 @@ export interface ResolvedRole {
   effort: string
 }
 
-const DEFAULT_ACCOUNT: Record<RoleName, string> = {
+const DEFAULT_ACCOUNT: Record<RoleName, AccountId> = {
   coding: nativeAccountId('claude-code'),
   // The orchestrator always runs a real harness with Podium's MCP tools. Keep its
   // empty/default account aligned with what the settings UI displays.
@@ -478,7 +483,7 @@ const DEFAULT_ACCOUNT: Record<RoleName, string> = {
  *  superagent account always means that harness. Background Codex remains the
  *  one special case: that one-shot consumer uses the ChatGPT Responses API. */
 function decodeAccount(
-  accountId: string,
+  accountId: AccountId,
   role: RoleName,
 ): { execution: 'harness' | 'api'; harness: HarnessAgent; provider?: ApiProvider } {
   if (accountId.startsWith(HARNESS_ACCOUNT)) {

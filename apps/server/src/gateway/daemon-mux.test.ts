@@ -4,6 +4,7 @@
  * names the mux and not a feature.
  */
 
+import { asSessionId } from '@podium/model'
 import {
   AGENT_RELAY_FRAMES,
   attributionOf,
@@ -76,7 +77,7 @@ const muxWith = (ports: DaemonFeaturePorts) =>
 const sampleFrame = (type: DaemonMessage['type']): DaemonMessage =>
   ({
     type,
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     requestId: 'r1',
     inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
     conversations: [],

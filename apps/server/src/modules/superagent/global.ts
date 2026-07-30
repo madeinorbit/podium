@@ -4,6 +4,7 @@
  * client-reported "what's on screen" block prepended to every turn.
  */
 import type { IssueWire } from '@podium/model'
+import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import { eventLine, type ConciergeEvent, type ConciergeSessionInfo } from './concierge'
 
@@ -95,8 +96,10 @@ export const UserFocus = z.object({
   /** Selected issue (issue-as-workspace), by id. */
   issueId: z.string().max(128).optional(),
   /** The session in the focused pane, and any other on-screen ones. */
-  focusedSessionId: z.string().max(128).optional(),
-  visibleSessionIds: z.array(z.string().max(128)).max(4).optional(),
+  // `.max(128)` KEPT and the shared brand piped in after it (POD-362) — a local
+  // `.brand()` here would be byte-identical and invisible to every fixture.
+  focusedSessionId: z.string().max(128).pipe(SessionIdField).optional(),
+  visibleSessionIds: z.array(z.string().max(128).pipe(SessionIdField)).max(4).optional(),
   /** An open file tab in the focused pane. */
   filePath: z.string().max(1024).optional(),
 })

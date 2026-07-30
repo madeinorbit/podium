@@ -3,7 +3,7 @@ import { delimiter, dirname, join } from 'node:path'
 import { type AgentSession, abducoHasSessionAsync, attachAbducoAgent, attachTmuxAgent, killAbducoSessionAsync, killTmuxServerAsync, spawnAbducoAgent, spawnAgent, spawnTmuxAgent, tmuxHasSessionAsync } from '@podium/pty'
 import { agentStateProviderFor, type LaunchFile } from '@podium/harness'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, SessionId } from '@podium/model'
 import { resolveInstanceId } from '@podium/runtime/config'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
@@ -22,7 +22,7 @@ import { sourceForRead } from './transcripts'
  * Pure so it's unit-testable without standing up the daemon.
  */
 export function agentRelayEnv(
-  sessionId: string,
+  sessionId: SessionId,
   endpoint: string,
   instanceId: string = resolveInstanceId(),
 ): Record<string, string> {
@@ -76,17 +76,17 @@ export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {
   }
 }
 
-function instructionRuntimeDir(ctx: DaemonContext, sessionId: string): string {
+function instructionRuntimeDir(ctx: DaemonContext, sessionId: SessionId): string {
   return join(ctx.settingsDir, 'session-instructions', sessionId)
 }
 
-function removeSessionInstructions(ctx: DaemonContext, sessionId: string): void {
+function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): void {
   rmSync(instructionRuntimeDir(ctx, sessionId), { recursive: true, force: true })
 }
 
 export function wireBridge(
   ctx: DaemonContext,
-  sessionId: string,
+  sessionId: SessionId,
   session: AgentSession,
   agentKind: AgentKind,
   durableLabel: string,

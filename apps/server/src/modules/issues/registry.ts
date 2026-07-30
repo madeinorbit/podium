@@ -1,10 +1,13 @@
 import {
   IssueColor,
+  IssueIdField,
+  type SessionId,
+  SessionIdField,
   IssueStage,
   IssueType,
   isSortKey,
-  type IssueSearchFilter,
   type SessionMeta,
+  UserIdField,
 } from '@podium/model'
 import {
   type CommandDef,
@@ -117,7 +120,7 @@ export interface IssueCommandDeps {
    *  text fallback for sessions without a live menu. Injected by the relay;
    *  optional so existing test deps literals stay valid. */
   answerSessionQuestion?(
-    sessionId: string,
+    sessionId: SessionId,
     answer: string,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
   /** Stop every session on an issue and free its worktree (keep branch)
@@ -497,14 +500,12 @@ const defs = {
       stage: IssueStage.optional(),
       priority: z.number().int().optional(),
       type: IssueType.optional(),
-      assignee: z.string().optional(),
+      assignee: UserIdField.optional(),
       label: z.string().optional(),
-      parentId: z.string().optional(),
+      parentId: IssueIdField.optional(),
     }),
     action: 'read',
-    // POD-361-EDGE-CAST (POD-362 owns): the command input is a parsed but
-    // UNBRANDED zod shape; POD-362 declares the input schema with the brands.
-    handler: (ctx, input) => ctx.issues.search(input as IssueSearchFilter),
+    handler: (ctx, input) => ctx.issues.search(input),
   }),
   count: def({
     kind: 'query',
@@ -655,9 +656,9 @@ const defs = {
         .optional(),
       priority: z.number().int().min(0).max(4).optional(),
       type: IssueType.optional(),
-      assignee: z.string().optional(),
+      assignee: UserIdField.optional(),
       labels: z.array(z.string()).optional(),
-      parentId: z.string().optional(),
+      parentId: IssueIdField.optional(),
       // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
       color: IssueColor.optional(),
       // #198: an agent opts a work item onto the human's top-level board with
@@ -800,7 +801,7 @@ const defs = {
   update: def({
     kind: 'mutation',
     input: z.object({
-      id: z.string(),
+      id: IssueIdField,
       patch: z.object({
         title: z.string().optional(),
         description: z.string().optional(),
@@ -814,8 +815,8 @@ const defs = {
         archived: z.boolean().optional(),
         priority: z.number().int().min(0).max(4).optional(),
         type: IssueType.optional(),
-        assignee: z.string().optional(),
-        parentId: z.string().optional(),
+        assignee: UserIdField.optional(),
+        parentId: IssueIdField.optional(),
         design: z.string().optional(),
         acceptance: z.string().optional(),
         notes: z.string().optional(),
@@ -888,7 +889,7 @@ const defs = {
   attachSession: def({
     kind: 'mutation',
     input: z.object({
-      sessionId: z.string(),
+      sessionId: SessionIdField,
       targetId: z.string().optional(),
       confirmRehome: z.boolean().optional(),
       // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
@@ -1203,7 +1204,7 @@ const defs = {
       // Structured question metadata (issue #53): suggested answers rendered as
       // Tray chips + the asking session (defaults to the caller's own session).
       options: z.array(z.string().min(1)).max(20).optional(),
-      askedBy: z.string().optional(),
+      askedBy: SessionIdField.optional(),
     }),
     action: 'write',
     scope: 'issue',
@@ -1313,7 +1314,7 @@ const defs = {
   }),
   claim: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), assignee: z.string() }),
+    input: z.object({ id: z.string(), assignee: UserIdField }),
     action: 'write',
     scope: 'issue',
     target: targetId,
@@ -1331,7 +1332,7 @@ const defs = {
     input: z.object({
       id: z.string(),
       /** Explicit session id to set; null clears. Mutually exclusive with claim. */
-      sessionId: z.string().nullable().optional(),
+      sessionId: SessionIdField.nullable().optional(),
       /** When true, set coordinator to the calling session (actorSessionId). */
       claim: z.boolean().optional(),
     }),
@@ -1340,7 +1341,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
-        let sessionId: string | null
+        let sessionId: SessionId | null
         if (input.claim) {
           const actor = ctx.caller.capability.actorSessionId
           if (!actor) {

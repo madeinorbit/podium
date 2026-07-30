@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,7 +16,7 @@ async function makeStore(): Promise<CodexIdentityReceipts> {
   return new CodexIdentityReceipts(dir)
 }
 
-function receiptPath(store: CodexIdentityReceipts, sessionId: string): string {
+function receiptPath(store: CodexIdentityReceipts, sessionId: SessionId): string {
   const path = store.pathFor(sessionId)
   if (!path) throw new Error(`invalid fixture session id: ${sessionId}`)
   return path
@@ -28,7 +29,7 @@ afterEach(async () => {
 describe('CodexIdentityReceipts', () => {
   it('atomically records a process-derived exact binding for acknowledged replay', async () => {
     const store = await makeStore()
-    expect(await store.record('pane-a', 'thread-a')).toBe(true)
+    expect(await store.record(asSessionId('pane-a'), 'thread-a')).toBe(true)
     expect(await store.pending()).toEqual([{ sessionId: 'pane-a', nativeId: 'thread-a' }])
 
     const sent: DaemonMessage[] = []
@@ -46,8 +47,8 @@ describe('CodexIdentityReceipts', () => {
 
   it('replays only complete valid payloads as exact acknowledged bindings', async () => {
     const store = await makeStore()
-    await writeFile(receiptPath(store, 'pane-a'), JSON.stringify({ session_id: 'thread-a' }))
-    await writeFile(receiptPath(store, 'pane-b'), 'not json')
+    await writeFile(receiptPath(store, asSessionId('pane-a')), JSON.stringify({ session_id: 'thread-a' }))
+    await writeFile(receiptPath(store, asSessionId('pane-b')), 'not json')
     await writeFile(join(store.dir, 'pane-c.123.tmp'), JSON.stringify({ session_id: 'thread-c' }))
 
     const sent: DaemonMessage[] = []
@@ -70,17 +71,17 @@ describe('CodexIdentityReceipts', () => {
     const staleClaim = join(store.dir, `pane-b.json.${suffix}`)
     await writeFile(onlyClaim, JSON.stringify({ session_id: 'thread-a' }))
     await writeFile(staleClaim, JSON.stringify({ session_id: 'thread-b-old' }))
-    await writeFile(receiptPath(store, 'pane-b'), JSON.stringify({ session_id: 'thread-b-new' }))
+    await writeFile(receiptPath(store, asSessionId('pane-b')), JSON.stringify({ session_id: 'thread-b-new' }))
 
     expect(await store.pending()).toEqual([
       { sessionId: 'pane-a', nativeId: 'thread-a' },
       { sessionId: 'pane-b', nativeId: 'thread-b-new' },
     ])
     expect(
-      JSON.parse(await readFile(receiptPath(store, 'pane-a'), 'utf8')) as { session_id: string },
+      JSON.parse(await readFile(receiptPath(store, asSessionId('pane-a')), 'utf8')) as { session_id: string },
     ).toEqual({ session_id: 'thread-a' })
     expect(
-      JSON.parse(await readFile(receiptPath(store, 'pane-b'), 'utf8')) as { session_id: string },
+      JSON.parse(await readFile(receiptPath(store, asSessionId('pane-b')), 'utf8')) as { session_id: string },
     ).toEqual({ session_id: 'thread-b-new' })
     await expect(access(onlyClaim)).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(access(staleClaim)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -88,15 +89,15 @@ describe('CodexIdentityReceipts', () => {
 
   it('deletes only when the ack still matches the latest payload', async () => {
     const store = await makeStore()
-    const path = receiptPath(store, 'pane-a')
+    const path = receiptPath(store, asSessionId('pane-a'))
     await writeFile(path, JSON.stringify({ session_id: 'thread-new' }))
 
-    expect(await store.acknowledge('pane-a', { kind: 'codex-thread', value: 'thread-old' })).toBe(
+    expect(await store.acknowledge(asSessionId('pane-a'), { kind: 'codex-thread', value: 'thread-old' })).toBe(
       false,
     )
     await access(path)
 
-    expect(await store.acknowledge('pane-a', { kind: 'codex-thread', value: 'thread-new' })).toBe(
+    expect(await store.acknowledge(asSessionId('pane-a'), { kind: 'codex-thread', value: 'thread-new' })).toBe(
       true,
     )
     await expect(access(path)).rejects.toMatchObject({ code: 'ENOENT' })

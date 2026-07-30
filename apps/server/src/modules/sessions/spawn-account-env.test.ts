@@ -12,6 +12,7 @@
  *     frame shape every existing user already spawns with.
  */
 
+import { asAccountId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -32,7 +33,7 @@ function storeWith(
   const settings = store.settings.getSettings()
   store.settings.setSettings({
     ...settings,
-    roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } },
+    roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: asAccountId(accountId) } },
   })
   return store
 }

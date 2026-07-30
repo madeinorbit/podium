@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -75,7 +76,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-lake', LAKE_LINES)
     registry.gateway.detachDaemon('m1')
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({ sessionId: asSessionId(sessionId), direction: 'before', limit: 10 })
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -100,7 +101,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({ sessionId: asSessionId(sessionId), direction: 'before', limit: 10 })
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -130,7 +131,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({ sessionId: asSessionId(sessionId), direction: 'before', limit: 10 })
     expect(res.items.map((i) => i.text)).toEqual(['fresh from the daemon'])
   })
 

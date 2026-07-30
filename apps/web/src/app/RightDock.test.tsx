@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { asSessionId } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -19,7 +20,7 @@ const otherIssue = {
   worktreePath: '/other/wt',
 } as IssueWire
 const otherSession = {
-  sessionId: 'other-session',
+  sessionId: asSessionId('other-session'),
   cwd: '/other/wt',
   issueId: otherIssue.id,
   archived: false,

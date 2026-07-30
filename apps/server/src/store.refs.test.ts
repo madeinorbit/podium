@@ -3,6 +3,7 @@
  * collision, transactional letter allocation, per-repo DRAFT counter, and the
  * migration backfill over colliding repo names.
  */
+import { asRepoId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -78,9 +79,9 @@ describe('session letter allocation', () => {
 describe('per-repo DRAFT counter', () => {
   it('increments and never reuses an ordinal', () => {
     const s = memStore()
-    expect(s.repos.nextDraftSeq('repo_x')).toBe(1)
-    expect(s.repos.nextDraftSeq('repo_x')).toBe(2)
-    expect(s.repos.nextDraftSeq('repo_y')).toBe(1)
+    expect(s.repos.nextDraftSeq(asRepoId('repo_x'))).toBe(1)
+    expect(s.repos.nextDraftSeq(asRepoId('repo_x'))).toBe(2)
+    expect(s.repos.nextDraftSeq(asRepoId('repo_y'))).toBe(1)
     s.close()
   })
 })

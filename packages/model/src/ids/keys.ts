@@ -300,7 +300,22 @@ const MACHINE_SCOPED_SEP = '\n'
  *  `transcript-indexer.ts` ×4 and `search.ts`, which POD-360 found sharing the
  *  collision surface). `nativeId` is raw by design: it is harness-minted, so it
  *  has no brand (see `brands.ts`). */
-export const machineScopedKey = (machineId: MachineId, nativeId: string): string =>
+/**
+ * POD-362 WIDENED `machineId` FROM `MachineId` TO `string`, and it is a pushback,
+ * not a shortcut. As shipped, this signature was UNSATISFIABLE by any live
+ * producer: `MachineId` is carved out until POD-318, every machine-id field in
+ * `entities/` uses `machineIdBlockedOnPOD318` (a plain `z.string()`), and the
+ * three tables DEFAULT the column to `'__local__'`. So the only way to call this
+ * was `asMachineId(machineId)` — which LAUNDERS the exact sentinel `brands.ts`
+ * carves the brand out to keep flaggable. A helper nobody can call without
+ * committing the error it exists to prevent is not adopted; it is bypassed, which
+ * is why it had ZERO production callers before this issue.
+ *
+ * The key's real value — escaping the separator, so the `\n`-collision assumption
+ * at every ad-hoc site goes away — does not depend on the brand at all. POD-318
+ * tightens this ONE parameter back to `MachineId` when the sentinel is retired.
+ */
+export const machineScopedKey = (machineId: string, nativeId: string): string =>
   joinKeyParts(MACHINE_SCOPED_SEP, [machineId, nativeId])
 
 /** Inverse of {@link machineScopedKey}. Throws on a string that is not a well-formed key. */

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { authorize } from '../../issue-authz'
 import type { IssueCaller } from '../issues/registry'
 import type { IssueService } from '../issues/service'
-import type { LockCallerIdentity, LockService } from './service'
+import type { LockCallerIdentity, LockHolderId, LockService } from './service'
 
 /**
  * The lock command registry [spec:SP-85d1]: every lock.* command (advisory
@@ -77,7 +77,7 @@ export class LockCommandCtx {
     // Only the unconstrained operator (scope 'all', no actor session) maps to
     // the null holder; a constrained caller with no known session gets the
     // UNKNOWN_RELAY_SESSION sentinel so it can never impersonate the operator.
-    const sessionId =
+    const sessionId: LockHolderId | null =
       cap.actorSessionId ?? (cap.scope.kind === 'all' ? null : UNKNOWN_RELAY_SESSION)
     const issueId = cap.scope.kind === 'subtree' ? cap.scope.rootId : null
     let label = 'operator'

@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import { WORKFLOW_CONTRACTS } from '@podium/commands'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
@@ -9,11 +10,11 @@ const operator: WorkflowCaller = {
   protectedWrite: true,
 }
 const agent = (sessionId: string, issueId = 'issue-1'): WorkflowCaller => ({
-  actor: { kind: 'session', id: sessionId },
+  actor: { kind: 'session', id: asSessionId(sessionId) },
   capability: {
     role: 'worker',
-    scope: { kind: 'subtree', rootId: issueId },
-    actorSessionId: sessionId,
+    scope: { kind: 'subtree', rootId: asIssueId(issueId) },
+    actorSessionId: asSessionId(sessionId),
   },
 })
 
@@ -27,7 +28,7 @@ describe('WorkflowService', () => {
     [
       's1',
       {
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         cwd: '/repo/wt',
         issueId: 'issue-1',
         agentKind: 'claude-code',
@@ -36,7 +37,7 @@ describe('WorkflowService', () => {
     ],
     [
       's2',
-      { sessionId: 's2', cwd: '/repo/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
+      { sessionId: asSessionId('s2'), cwd: '/repo/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
     ],
   ])
 
@@ -100,7 +101,7 @@ describe('WorkflowService', () => {
     )
 
     expect(
-      service.resolveRevision({ sessionId: 's1', cwd: '/repo/wt', issueId: 'issue-1' })?.id,
+      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })?.id,
     ).toBe(task.revision.id)
 
     const revised = service.revise(
@@ -111,7 +112,7 @@ describe('WorkflowService', () => {
     expect(store.workflows.getRevision(task.revision.id)?.instructions).toBe('task rules')
     // The binding points at an exact revision; editing never changes unstarted tasks silently.
     expect(
-      service.resolveRevision({ sessionId: 's1', cwd: '/repo/wt', issueId: 'issue-1' })?.id,
+      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })?.id,
     ).toBe(task.revision.id)
   })
 
@@ -214,7 +215,7 @@ describe('WorkflowService', () => {
       operator,
     )
     const run = service.startRun({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: 'issue-1',
       revisionId: created.revision.id,
@@ -272,7 +273,7 @@ describe('WorkflowService', () => {
       operator,
     )
     const run = service.startRun({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: 'issue-1',
       revisionId: created.revision.id,
@@ -330,14 +331,14 @@ describe('WorkflowService', () => {
     expect(first.warnings).toContain('step completed with uncommitted worktree changes')
     expect(first.nextStep?.stepId).toBe('review')
     expect(service.runs({}, operator).map((item) => item.id)).toEqual([run.id])
-    expect(service.renderRunPrime(first.run, 's1')).toContain(
+    expect(service.renderRunPrime(first.run, asSessionId('s1'))).toContain(
       `podium agent spawn --issue issue-1 --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id review --execution-profile-id ${profile.id}`,
     )
-    expect(service.renderRunPrime(first.run, 's1')).toContain(
+    expect(service.renderRunPrime(first.run, asSessionId('s1'))).toContain(
       `podium workflow assign-step review <child-session-id> --run ${run.id}`,
     )
 
-    service.assignStep({ runId: run.id, stepId: 'review', sessionId: 's2' }, agent('s1'))
+    service.assignStep({ runId: run.id, stepId: 'review', sessionId: asSessionId('s2') }, agent('s1'))
     const completed = service.checkpoint(
       {
         runId: run.id,
@@ -351,7 +352,7 @@ describe('WorkflowService', () => {
     expect(completed.run.status).toBe('complete')
     expect(completed.message).toBe('Workflow complete.')
     expect(notices).toEqual([
-      { sessionId: 's1', text: 'Workflow step "Review" complete: reviewed' },
+      { sessionId: asSessionId('s1'), text: 'Workflow step "Review" complete: reviewed' },
     ])
     expect(service.runs({}, operator)).toEqual([])
     expect(service.runs({ includeTerminal: true }, operator)).toHaveLength(1)
@@ -370,7 +371,7 @@ describe('WorkflowService', () => {
       operator,
     )
     const run = service.startRun({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: 'issue-1',
       revisionId: created.revision.id,
@@ -385,13 +386,13 @@ describe('WorkflowService', () => {
     )
 
     const prepared = service.prepareStart({
-      sessionId: 's2',
+      sessionId: asSessionId('s2'),
       cwd: '/repo/wt',
       issueId: 'issue-1',
     })
     expect(prepared?.revision.id).toBe(created.revision.id)
     expect(prepared?.prompt).toContain('version one')
-    const rehydrated = service.prepareExistingSession({ sessionId: 's1', issueId: 'issue-1' })
+    const rehydrated = service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' })
     expect(rehydrated?.revision.id).toBe(created.revision.id)
     expect(rehydrated?.prompt).toContain('version one')
     expect(rehydrated?.prompt).not.toContain('version two')
@@ -411,7 +412,7 @@ describe('WorkflowService', () => {
     ).toThrow('not assigned')
     expect(() =>
       service.prepareStart({
-        sessionId: 's2',
+        sessionId: asSessionId('s2'),
         cwd: '/repo/wt',
         issueId: 'issue-1',
         explicitRevisionId: revised.id,
@@ -432,7 +433,7 @@ describe('WorkflowService', () => {
       operator,
     )
     const run = service.startRun({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: 'issue-1',
       revisionId: created.revision.id,
@@ -491,7 +492,7 @@ describe('WorkflowService', () => {
       operator,
     )
     const first = service.startRun({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: 'issue-1',
       revisionId: created.revision.id,

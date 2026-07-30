@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   eventLogPruneRunKey,
@@ -206,7 +207,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
  */
 describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
   const valid = {
-    sessionId: 'ses_1',
+    sessionId: asSessionId('ses_1'),
     issueId: 'iss_1',
     stoppedAt: '2026-07-01T00:00:00.000Z',
     readAt: '2026-07-01T00:00:00.000Z',
@@ -238,14 +239,14 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
   })
 
   it('refuses an empty sessionId, and one past the 256-char input bound', () => {
-    expect(() => MaintenanceCommand.parse(command({ ...valid, sessionId: '' }))).toThrow()
+    expect(() => MaintenanceCommand.parse(command({ ...valid, sessionId: asSessionId('') }))).toThrow()
     expect(() =>
-      MaintenanceCommand.parse(command({ ...valid, sessionId: 'x'.repeat(257) })),
+      MaintenanceCommand.parse(command({ ...valid, sessionId: asSessionId('x').repeat(257) })),
     ).toThrow()
     // 256 exactly is the boundary and must still be accepted, so the bound is
     // pinned from both sides rather than only from outside.
     expect(() =>
-      MaintenanceCommand.parse(command({ ...valid, sessionId: 'x'.repeat(256) })),
+      MaintenanceCommand.parse(command({ ...valid, sessionId: asSessionId('x').repeat(256) })),
     ).not.toThrow()
   })
 

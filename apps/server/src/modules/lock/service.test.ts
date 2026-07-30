@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
@@ -41,8 +42,8 @@ function harness(opts?: { alive?: Set<string> }) {
 }
 
 const agent = (n: number) => ({
-  sessionId: `sess_${n}`,
-  issueId: `iss_${n}`,
+  sessionId: asSessionId(`sess_${n}`),
+  issueId: asIssueId(`iss_${n}`),
   label: `issue:#${n}`,
 })
 const OPERATOR = { sessionId: null, issueId: null, label: 'operator' }
@@ -54,7 +55,7 @@ describe('LockService', () => {
     expect(r.granted).toBe(true)
     if (!r.granted) throw new Error('unreachable')
     expect(r.alreadyHeld).toBe(false)
-    expect(r.lock.holder).toEqual({ sessionId: 'sess_1', issueId: 'iss_1', label: 'issue:#1' })
+    expect(r.lock.holder).toEqual({ sessionId: asSessionId('sess_1'), issueId: 'iss_1', label: 'issue:#1' })
     expect(r.lock.secondsLeft).toBe(DEFAULT_LOCK_TTL_SECONDS)
     expect(r.lock.queue).toEqual([])
   })
@@ -180,7 +181,7 @@ describe('LockService', () => {
     svc.acquire(agent(2), { repoPath: REPO, name: 'a' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'b' })
     svc.acquire(agent(1), { repoPath: REPO, name: 'b' }) // sess_1 queued on b
-    svc.releaseForSession('sess_1')
+    svc.releaseForSession(asSessionId('sess_1'))
     // a: advanced to sess_2 (mailed); b: sess_1's queue entry pruned, sess_2 still holds
     expect(svc.status({ repoPath: REPO, name: 'a' })[0]?.holder.sessionId).toBe('sess_2')
     expect(svc.status({ repoPath: REPO, name: 'b' })[0]?.queue).toEqual([])

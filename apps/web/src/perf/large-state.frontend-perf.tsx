@@ -6,12 +6,7 @@ import {
 } from '@podium/client-core/perf'
 import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
-import {
-  type GitRepositoryWire,
-  ISSUE_STAGES,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import { ISSUE_STAGES, asSessionId, type GitRepositoryWire, type IssueWire, type SessionMeta } from '@podium/model'
 import type { ClientSwitchTrace } from '@podium/protocol'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -352,15 +347,15 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     const traces: ClientSwitchTrace[] = []
     setSwitchTraceReporter((trace) => traces.push(trace))
 
-    beginSwitch({ sessionId: 'session-0001', issueId: 'issue-0001' })
+    beginSwitch({ sessionId: asSessionId('session-0001'), issueId: 'issue-0001' })
     now = 12
-    markSwitch('session-0001', 'viewstate:sent')
+    markSwitch(asSessionId('session-0001'), 'viewstate:sent')
     now = 28
-    markSwitch('session-0001', 'transcript:read-start')
+    markSwitch(asSessionId('session-0001'), 'transcript:read-start')
     now = 45
-    markSwitch('session-0001', 'transcript:read-end', { items: 200 })
+    markSwitch(asSessionId('session-0001'), 'transcript:read-end', { items: 200 })
     now = 64
-    markSwitch('session-0001', 'chat:first-paint', { paintedRows: 40 })
+    markSwitch(asSessionId('session-0001'), 'chat:first-paint', { paintedRows: 40 })
 
     expect(traces).toHaveLength(1)
     expect(traces[0]?.cold).toBe(false)

@@ -1,5 +1,6 @@
 // apps/web/src/MarkdownPreview.tsx
 
+import type { SessionId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { type JSX, useMemo } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -17,7 +18,7 @@ export function MarkdownPreview({
   content,
   scrollRef,
 }: {
-  sessionId: string
+  sessionId: SessionId
   path: string
   content: string
   scrollRef?: React.MutableRefObject<HTMLDivElement | null>

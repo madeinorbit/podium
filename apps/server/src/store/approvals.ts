@@ -1,3 +1,4 @@
+import type { IssueId, SessionId } from '@podium/model'
 import type { ApprovalOp, ApprovalStatus } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
@@ -6,8 +7,8 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 export interface ApprovalRow {
   id: string
   machineId: string
-  sessionId: string
-  issueId: string | null
+  sessionId: SessionId
+  issueId: IssueId | null
   op: ApprovalOp
   status: ApprovalStatus
   createdAt: string
@@ -19,8 +20,9 @@ function toRow(r: Record<string, unknown>): ApprovalRow {
   return {
     id: r.id as string,
     machineId: r.machine_id as string,
-    sessionId: r.session_id as string,
-    issueId: (r.issue_id as string | null) ?? null,
+    // SERIALIZATION EDGE: untyped sqlite columns re-entering their id spaces.
+    sessionId: r.session_id as SessionId,
+    issueId: (r.issue_id as IssueId | null) ?? null,
     op: JSON.parse(r.op_json as string) as ApprovalOp,
     status: r.status as ApprovalStatus,
     createdAt: r.created_at as string,
@@ -35,8 +37,8 @@ export class ApprovalsRepository {
   insert(row: {
     id: string
     machineId: string
-    sessionId: string
-    issueId: string | null
+    sessionId: SessionId
+    issueId: IssueId | null
     op: ApprovalOp
     createdAt: string
   }): void {

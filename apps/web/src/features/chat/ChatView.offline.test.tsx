@@ -1,8 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-  type TranscriptItem,
-} from '@podium/model'
+import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,15 +12,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
 
 const fakeHub = {
-  subscribes: [] as Array<{ sessionId: string; since: string | undefined; cb: DeltaCb }>,
-  subscribeTranscript(sessionId: string, since: string | undefined, cb: DeltaCb): () => void {
+  subscribes: [] as Array<{ sessionId: SessionId; since: string | undefined; cb: DeltaCb }>,
+  subscribeTranscript(sessionId: SessionId, since: string | undefined, cb: DeltaCb): () => void {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
   },
 }
 
 interface ReadCall {
-  input: { sessionId: string; anchor?: string; direction: 'before' | 'after'; limit: number }
+  input: { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number }
   resolve: (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
   reject: (err: unknown) => void
 }
@@ -95,7 +91,7 @@ const { ChatView } = await import('./ChatView')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -152,7 +148,7 @@ describe('ChatView offline transcript copy', () => {
       savedAt: Date.parse('2026-07-01T10:00:00.000Z'),
     })
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     expect(reads).toHaveLength(1)
     await act(async () => {
@@ -166,7 +162,7 @@ describe('ChatView offline transcript copy', () => {
 
   it('settles to the empty state (no notice) on a failed read with no cache', async () => {
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
       reads[0]?.reject(new Error('fetch failed'))
@@ -178,7 +174,7 @@ describe('ChatView offline transcript copy', () => {
 
   it('writes a successful read through into the replica and shows no notice', async () => {
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
       reads[0]?.resolve({
@@ -202,7 +198,7 @@ describe('ChatView offline transcript copy', () => {
       savedAt: Date.now(),
     })
     act(() => {
-      root.render(<ChatView sessionId="s1" active={false} />)
+      root.render(<ChatView sessionId={asSessionId('s1')} active={false} />)
     })
     await act(async () => {
       reads[0]?.reject(new Error('offline'))
@@ -211,7 +207,7 @@ describe('ChatView offline transcript copy', () => {
     expect(container.textContent).toContain('offline copy')
     // Becoming active triggers a re-read (the becameActive refresh) — succeed it.
     act(() => {
-      root.render(<ChatView sessionId="s1" active={true} />)
+      root.render(<ChatView sessionId={asSessionId('s1')} active={true} />)
     })
     await flush()
     expect(reads.length).toBeGreaterThanOrEqual(2)

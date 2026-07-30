@@ -85,6 +85,8 @@ const COMPOSED: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['deletedAt', IssueLifecycle.shape],
   ['priority', IssueTriage.shape],
   ['type', IssueTriage.shape],
+  // POD-362 composed this; NOT_COMPOSED's note said "until the flip".
+  ['assignee', IssueTriage.shape],
   ['labels', IssueTriage.shape],
   ['estimateMin', IssueTriage.shape],
   ['sortKey', IssueTriage.shape],
@@ -145,7 +147,6 @@ const NOT_COMPOSED: Readonly<Record<string, string>> = {
   color: 'wire adds .catch(undefined) tolerance',
   audience: 'wire adds .catch tolerance',
   // The brand flip, owned by POD-362/POD-363, not by this issue.
-  assignee: 'group brands it UserId; wire is still z.string() until the flip',
   startedBySession: 'group brands it SessionId; wire is still z.string()',
   // Derived edges, the deprecated array, the embed, provenance, timestamps.
   deps: 'derived from issue_deps',
@@ -166,7 +167,9 @@ describe('IssueWire composes the shared field groups', () => {
     const composed = COMPOSED.map(([k]) => k)
     expect(new Set(composed).size, 'a key listed twice as composed').toBe(composed.length)
     expect([...composed, ...Object.keys(NOT_COMPOSED)].sort()).toEqual(Object.keys(wire).sort())
-    expect(composed).toHaveLength(43)
+    // 44 since POD-362 composed `assignee`, which this list previously excluded
+    // with the note "wire is still z.string() until the flip". This was the flip.
+    expect(composed).toHaveLength(44)
   })
 
   it.each(COMPOSED)('%s IS the shared group member, not a restatement', (key, groupShape) => {
@@ -189,9 +192,10 @@ describe('IssueWire composes the shared field groups', () => {
       }
     }
     // Verify the instrument: a loop that compared nothing would pass silently.
-    // 16 of the 35 uncomposed keys have a same-named member (the rest are keys
+    // 15 of the uncomposed keys have a same-named member (16 before POD-362
+    // composed `assignee`; the rest are keys
     // no group declares at all, e.g. `createdAt`, `deps`, `tuckedAt`).
-    expect(checked, 'the uncomposed-key scan compared nothing').toBe(16)
+    expect(checked, 'the uncomposed-key scan compared nothing').toBe(15)
   })
 })
 

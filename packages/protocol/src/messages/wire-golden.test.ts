@@ -11,7 +11,7 @@
  * deliberate, reviewed wire change:  bun --conditions @podium/source scripts/wire-golden-capture.ts
  */
 
-import { HandoffManifest } from '@podium/model'
+import { HandoffManifest, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { WIRE_FIXTURES } from './wire-golden.fixtures'
 import golden from './wire-golden.json'
@@ -63,7 +63,7 @@ describe('golden wire fixtures', () => {
   it('still rejects worktree locations that escape the repository', () => {
     const base = {
       format: 1 as const,
-      sessionId: 'sess-1',
+      sessionId: asSessionId('sess-1'),
       agentKind: 'codex' as const,
       resume: { kind: 'codex-thread', value: 'thread-1' },
       transcriptFilename: 'rollout.jsonl',

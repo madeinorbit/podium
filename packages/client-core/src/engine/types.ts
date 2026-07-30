@@ -6,19 +6,7 @@
  * client).
  */
 
-import type {
-  AgentKind,
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
-  GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
-  HostMetricsWire,
-  IssueWire,
-  MachineWire,
-  SessionMeta,
-  WorkState,
-} from '@podium/model'
+import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'
@@ -101,7 +89,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
   /** Manual tab order per worktree path (drag-to-reorder). Absent key = no manual order. */
   tabOrders: Record<string, string[]>
-  setTabOrder: (worktree: string, sessionIds: string[]) => Promise<void>
+  setTabOrder: (worktree: string, sessionIds: SessionId[]) => Promise<void>
   /** Main-area surface: attention board, worktree workspace, superagent, or settings. */
   view: MainView
   setView: (view: MainView) => void
@@ -121,10 +109,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Bumped when a btw thread finishes seeding, so the superagent view refetches. */
   superRefreshKey: number
   /** Open (or re-open) a btw superagent thread seeded from a chat session's transcript. */
-  startBtw: (sessionId: string) => Promise<void>
+  startBtw: (sessionId: SessionId) => Promise<void>
   /** Open the session's btw thread and ask the superagent for a concise tl;dr of
    *  the agent's last answer (passed in for context). */
-  tldrSession: (sessionId: string, answerText: string) => Promise<void>
+  tldrSession: (sessionId: SessionId, answerText: string) => Promise<void>
   /** The issue whose detail drawer is open (from the kanban card or the sidebar
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: string | null
@@ -146,9 +134,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: string | null
   setSelectedIssueId: (id: string | null) => void
-  paneA: string | null // sessionId in pane A
-  paneB: string | null // sessionId in pane B (null = no split)
-  setPane: (pane: 'A' | 'B', sessionId: string | null) => void
+  paneA: SessionId | null // sessionId in pane A
+  paneB: SessionId | null // sessionId in pane B (null = no split)
+  setPane: (pane: 'A' | 'B', sessionId: SessionId | null) => void
   /** Which split pane currently holds input focus — drives the `focused` field of
    *  the view-state the client reports so the server prioritizes that session's PTY
    *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
@@ -158,28 +146,29 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  returns to the view the user last left it in. A missing entry falls back to the
    *  per-device default; the hibernated/exited-forces-chat rule still wins over it. */
   panelMode: Record<string, 'chat' | 'native'>
-  setPanelMode: (sessionId: string, mode: 'chat' | 'native') => void
+  setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
   /** The EFFECTIVE rendered mode per session (native terminal vs chat) as each
    *  AgentPanel computes it — distinct from the saved `panelMode` override. Reported
    *  up the viewState channel so the server has the signal; not persisted. */
-  setPanelRenderMode: (sessionId: string, mode: 'chat' | 'native') => void
+  setPanelRenderMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
   /** The right dock's shell per worktree (#23): worktreePath → the shell session
    *  living in the dock's Shell panel. Dock shells render THERE, not as workspace
    *  tabs — the tab strip filters every id in this map. Persisted so a reload
    *  reattaches the same shell [spec:SP-75b1]. */
-  dockShells: Record<string, string>
+  /** worktreePath -> the session its dock is pointed at. */
+  dockShells: Record<string, SessionId>
   /** Point a worktree's dock at `sessionId` (null = forget the mapping). */
-  setDockShell: (worktreePath: string, sessionId: string | null) => void
+  setDockShell: (worktreePath: string, sessionId: SessionId | null) => void
   /** The dock shell currently RENDERED (mounted terminal), reported in the
    *  viewState `visible` set so the server accepts its resizes. Not persisted. */
   dockVisibleSession: string | null
-  setDockVisibleSession: (sessionId: string | null) => void
+  setDockVisibleSession: (sessionId: SessionId | null) => void
   fileTabs: FileTab[]
   /** Recently opened files across all workspaces (POD-149), newest first —
    *  feeds the "+" menu's Recent-files list so strict issue scoping never
    *  strands a file. Persisted. */
   recentFiles: RecentFileEntry[]
-  openFile: (sessionId: string, path: string) => void
+  openFile: (sessionId: SessionId, path: string) => void
   /** `issueId` names the owning issue explicitly (issue pages, legacy
    *  artifacts); omitted, the open is stamped to the selected issue (POD-149). */
   openFileInWorktree: (args: {
@@ -240,38 +229,38 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  if the create never lands. Returns the ids synchronously so the caller
    *  navigates without waiting on the round-trip. */
   spawnDraftAgent: (args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }) => {
-    sessionId: string
+    sessionId: SessionId
     issueId: string
   }
-  killSession: (sessionId: string) => Promise<void>
+  killSession: (sessionId: SessionId) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
-  continueSession: (sessionId: string) => Promise<void>
+  continueSession: (sessionId: SessionId) => Promise<void>
   /** Session whose first manual Continue should raise the auto-continue popup,
    *  or null when the popup is closed. */
   autoContinuePromptSessionId: string | null
   closeAutoContinuePrompt: () => void
   /** [spec:SP-a1c0] Central navigate-to-session (#411): accepts a UUID or birth ref and is the ONLY way UI surfaces jump to a session. */
   navigateToSession: (sessionIdOrRef: string) => void
-  renameSession: (sessionId: string, name: string) => Promise<void>
-  hibernateSession: (sessionId: string) => Promise<void>
-  resurrectSession: (sessionId: string) => Promise<void>
+  renameSession: (sessionId: SessionId, name: string) => Promise<void>
+  hibernateSession: (sessionId: SessionId) => Promise<void>
+  resurrectSession: (sessionId: SessionId) => Promise<void>
   /** Send a chat message to a parked (hibernated/exited) session, waking it
    *  first and delivering the text once it's ready. Falls back to a plain send
    *  when the session is already live. */
-  resumeAndSend: (sessionId: string, text: string) => Promise<void>
-  archiveSession: (sessionId: string, archived: boolean) => Promise<void>
-  setWorkState: (sessionId: string, workState: WorkState | null) => Promise<void>
+  resumeAndSend: (sessionId: SessionId, text: string) => Promise<void>
+  archiveSession: (sessionId: SessionId, archived: boolean) => Promise<void>
+  setWorkState: (sessionId: SessionId, workState: WorkState | null) => Promise<void>
   /** Snooze a session out of the attention surface. `until` = null → until next
    *  message; ISO string → timed. Orthogonal to agent state. */
-  setSnooze: (sessionId: string, until: string | null) => Promise<void>
+  setSnooze: (sessionId: SessionId, until: string | null) => Promise<void>
   /** Un-snooze a session (return it to the normal attention flow). */
-  clearSnooze: (sessionId: string) => Promise<void>
+  clearSnooze: (sessionId: SessionId) => Promise<void>
   /** Mark a session read (issue #124): stamp readAt = now, clearing derived `unread`.
    *  Optimistic + outboxed. Called when the operator opens/focuses the session. */
-  markSessionRead: (sessionId: string) => Promise<void>
+  markSessionRead: (sessionId: SessionId) => Promise<void>
   /** Mark a session UNREAD again (issue #138, email-style inverse of markSessionRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
-  markSessionUnread: (sessionId: string) => Promise<void>
+  markSessionUnread: (sessionId: SessionId) => Promise<void>
   /** Mark an issue read (issue #124): stamp readAt = now, clearing derived `unread`.
    *  Optimistic + outboxed. Called when the operator opens the issue. */
   markIssueRead: (id: string) => Promise<void>
@@ -288,7 +277,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  The native PTY input line is opaque bytes we can't read back, so this is the
    *  one input state we *can* synchronize. */
   drafts: Record<string, string>
-  setSessionDraft: (sessionId: string, text: string) => void
+  setSessionDraft: (sessionId: SessionId, text: string) => void
   /** Sidebar layout preferences (repo sort mode + custom order). */
   sidebarSettings: SidebarSettings
   /** Persist a new sidebar sort/order — optimistic update + server round-trip. */

@@ -1,3 +1,4 @@
+import { asAccountId } from '@podium/model'
 import type { AgentKind } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
@@ -19,7 +20,7 @@ function storeWithClaudeDefaults(): SessionStore {
       ...settings.roles,
       coding: {
         ...settings.roles.coding,
-        accountId: 'native:claude-code',
+        accountId: asAccountId('native:claude-code'),
         harness: 'codex',
         model: 'claude-opus-4-8',
         effort: 'xhigh',

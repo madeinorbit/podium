@@ -14,7 +14,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { claudeProjectSlug, locateClaudeSessionFile, resolvePinnedCodexRollout } from '@podium/harness'
-import type { Attribution } from '@podium/model'
+import type { Attribution, SessionId } from '@podium/model'
 import { HandoffManifest, HandoffManifest as HandoffManifestType } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
 
@@ -154,7 +154,17 @@ async function landingCwd(worktreeRoot: string, subpath?: string): Promise<strin
 
 export async function buildSnapshotCommit(
   cwd: string,
-  sessionId: string,
+  /**
+   * NOT AN ID — a git snapshot REF NAME, and renamed to say so (POD-362).
+   *
+   * It was `sessionId: string`, but its two callers pass different things: the
+   * handoff path passes a session id, the workspace-fetch path passes a
+   * `ws-<uuid>` fetch id. Both are only ever interpolated into a ref, so neither
+   * is wrong — what was wrong was the NAME claiming an id space. Branding it
+   * would have laundered the fetch id; widening it to a union would have implied
+   * the ref cares which one it got. It does not.
+   */
+  snapshotTag: string,
 ): Promise<{
   headSha: string
   snapshotSha: string | null
@@ -163,7 +173,7 @@ export async function buildSnapshotCommit(
 }> {
   const scratch = await mkdtemp(join(tmpdir(), 'podium-handoff-index-'))
   const env = { GIT_INDEX_FILE: join(scratch, 'index') }
-  const handoffRef = `${HANDOFF_REF_ROOT}/${sessionId}`
+  const handoffRef = `${HANDOFF_REF_ROOT}/${snapshotTag}`
   try {
     const headSha = await git(cwd, ['rev-parse', 'HEAD'])
     await git(cwd, ['read-tree', 'HEAD'], env)
@@ -173,7 +183,7 @@ export async function buildSnapshotCommit(
     if (tree === headTree) return { headSha, snapshotSha: null, treeSha: tree, handoffRef }
     const snapshotSha = await git(
       cwd,
-      ['commit-tree', tree, '-p', headSha, '-m', `Podium handoff snapshot ${sessionId}`],
+      ['commit-tree', tree, '-p', headSha, '-m', `Podium handoff snapshot ${snapshotTag}`],
       env,
     )
     await git(cwd, ['update-ref', handoffRef, snapshotSha])
@@ -233,18 +243,18 @@ function worktreeContains(root: string, cwd: string): boolean {
 
 interface HandoffResidue {
   format: 1
-  sessionId: string
+  sessionId: SessionId
   repoId: string
   branch: string
   worktreeRoot: string
   treeSha: string
 }
 
-function residuePathFor(home: string, sessionId: string): string {
+function residuePathFor(home: string, sessionId: SessionId): string {
   return join(home, '.podium', 'handoff-residue', `${basename(sessionId)}.json`)
 }
 
-async function readResidue(home: string, sessionId: string): Promise<HandoffResidue | null> {
+async function readResidue(home: string, sessionId: SessionId): Promise<HandoffResidue | null> {
   try {
     const value = JSON.parse(
       await readFile(residuePathFor(home, sessionId), 'utf8'),
@@ -391,7 +401,7 @@ export async function sweepHandoffStage(input?: {
 }
 
 export async function exportHandoffPackage(input: {
-  sessionId: string
+  sessionId: SessionId
   cwd: string
   fallbackCwd?: string
   agentKind: 'claude-code' | 'codex'
@@ -492,13 +502,13 @@ export async function exportHandoffPackage(input: {
   }
 }
 
-function stagePathFor(home: string, sessionId: string): string {
+function stagePathFor(home: string, sessionId: SessionId): string {
   return join(stageDirFor(home), `${basename(sessionId)}.tgz`)
 }
 
 export async function appendImportChunk(input: {
   homeDir?: string
-  sessionId: string
+  sessionId: SessionId
   offset: number
   data: Buffer
 }): Promise<number> {
@@ -542,7 +552,7 @@ export async function readExportChunk(input: {
 
 export async function importHandoffPackage(input: {
   homeDir?: string
-  sessionId: string
+  sessionId: SessionId
   repoPath: string
   worktreeName: string
   occupiedWorktreePaths?: string[]

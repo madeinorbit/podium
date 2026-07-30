@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -37,7 +38,7 @@ describe('browser-open callback capability', () => {
     })
     expect(
       manager.capture(
-        's1',
+        asSessionId('s1'),
         'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',
       ),
     ).toEqual({ ok: true })
@@ -50,7 +51,7 @@ describe('browser-open callback capability', () => {
 
     await manager.callback({
       type: 'sessionOpenUrlCallback',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: request.requestId,
       url: 'http://localhost:1455/auth/callback?code=secret&state=x',
     })
@@ -71,20 +72,20 @@ describe('browser-open callback capability', () => {
     const execute = vi.fn(async () => 200)
     const manager = createBrowserOpenManager((message) => sent.push(message), { execute })
     manager.capture(
-      's1',
+      asSessionId('s1'),
       'https://auth.example/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A8085%2Foauth2callback',
     )
     const request = sent[0] as SessionOpenUrlMessage
 
     await manager.callback({
       type: 'sessionOpenUrlCallback',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: request.requestId,
       url: 'http://localhost:22/oauth2callback?code=x',
     })
     await manager.callback({
       type: 'sessionOpenUrlCallback',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: request.requestId,
       url: 'http://localhost:8085/admin?code=x',
     })
@@ -98,10 +99,10 @@ describe('browser-open callback capability', () => {
     const sent: DaemonMessage[] = []
     const manager = createBrowserOpenManager((message) => sent.push(message))
     manager.capture(
-      's1',
+      asSessionId('s1'),
       'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',
     )
-    manager.capture('s1', 'https://claude.ai/code/artifact/abc?via=auto_preview')
+    manager.capture(asSessionId('s1'), 'https://claude.ai/code/artifact/abc?via=auto_preview')
     const [login, link] = sent as SessionOpenUrlMessage[]
     expect(login?.intent).toBe('login')
     expect(link?.intent).toBe('link')
@@ -110,7 +111,7 @@ describe('browser-open callback capability', () => {
 
   it('prioritizes the adapter verdict and withholds the callback capability on links', () => {
     const sent: DaemonMessage[] = []
-    const classify = vi.fn((_sessionId: string, url: URL) =>
+    const classify = vi.fn((_sessionId: SessionId, url: URL) =>
       url.hostname === 'known.example'
         ? ({ intent: url.pathname.startsWith('/oauth/') ? 'login' : 'link' } as const)
         : undefined,
@@ -118,13 +119,13 @@ describe('browser-open callback capability', () => {
     const manager = createBrowserOpenManager((message) => sent.push(message), { classify })
     // Adapter says link: even a loopback redirect_uri must not mint a target.
     manager.capture(
-      's1',
+      asSessionId('s1'),
       'https://known.example/share?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',
     )
     // Adapter says login without a loopback redirect: pending login, no target.
-    manager.capture('s1', 'https://known.example/oauth/device')
+    manager.capture(asSessionId('s1'), 'https://known.example/oauth/device')
     // Unknown host: generic fallback still applies.
-    manager.capture('s1', 'https://other.example/page')
+    manager.capture(asSessionId('s1'), 'https://other.example/page')
     const [link, login, fallback] = sent as SessionOpenUrlMessage[]
     expect(link).toMatchObject({ intent: 'link' })
     expect(link?.callbackTarget).toBeUndefined()
@@ -141,7 +142,7 @@ describe('browser-open callback capability', () => {
       now: () => now,
       ttlMs: 50,
     })
-    manager.capture('s1', 'https://auth.example/login')
+    manager.capture(asSessionId('s1'), 'https://auth.example/login')
     manager.replay()
     expect(sent.filter((message) => message.type === 'sessionOpenUrl')).toHaveLength(2)
     now = 151

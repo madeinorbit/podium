@@ -1,8 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-  type TranscriptItem,
-} from '@podium/model'
+import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,13 +12,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
 
 interface ReadCall {
-  input: { sessionId: string; anchor?: string; direction: 'before' | 'after'; limit: number }
+  input: { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number }
   resolve: (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
 }
 
 const fakeHub = {
-  subscribes: [] as Array<{ sessionId: string; since: string | undefined; cb: DeltaCb }>,
-  subscribeTranscript(sessionId: string, since: string | undefined, cb: DeltaCb): () => void {
+  subscribes: [] as Array<{ sessionId: SessionId; since: string | undefined; cb: DeltaCb }>,
+  subscribeTranscript(sessionId: SessionId, since: string | undefined, cb: DeltaCb): () => void {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
   },
@@ -112,7 +108,7 @@ const { ChatView } = await import('./ChatView')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -167,11 +163,11 @@ async function flush(): Promise<void> {
 describe('ChatView read-then-subscribe', () => {
   it('renders a LIVE session transcript from the initial read even with ZERO hub deltas', async () => {
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     // The read-then-subscribe effect fires a transcriptRead.
     expect(reads).toHaveLength(1)
-    expect(reads[0]?.input).toMatchObject({ sessionId: 's1', direction: 'before' })
+    expect(reads[0]?.input).toMatchObject({ sessionId: asSessionId('s1'), direction: 'before' })
     // Resolve it with a window — and push NO hub deltas.
     await act(async () => {
       reads[0]?.resolve({
@@ -187,12 +183,12 @@ describe('ChatView read-then-subscribe', () => {
     expect(container.textContent).toContain('world')
     // And the live subscribe used the read's tail as `since`.
     expect(fakeHub.subscribes).toHaveLength(1)
-    expect(fakeHub.subscribes[0]).toMatchObject({ sessionId: 's1', since: 'c2' })
+    expect(fakeHub.subscribes[0]).toMatchObject({ sessionId: asSessionId('s1'), since: 'c2' })
   })
 
   it('merges a live delta without duplicating an item already in the read window', async () => {
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
       reads[0]?.resolve({
@@ -217,7 +213,7 @@ describe('ChatView read-then-subscribe', () => {
 
   it('re-reads the window when a reset delta arrives', async () => {
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
       reads[0]?.resolve({
@@ -249,7 +245,7 @@ describe('ChatView read-then-subscribe', () => {
 
   it('shows "No transcript yet" when the read resolves empty', async () => {
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
       reads[0]?.resolve({ items: [], hasMore: false })
@@ -261,7 +257,7 @@ describe('ChatView read-then-subscribe', () => {
   it('does a read-then-subscribe for a PARKED (hibernated) session too — no parked gate', async () => {
     storeSessions = [meta({ status: 'hibernated' })]
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     // Same uniform path: an initial read, then a subscribe — no separate parked fetch.
     expect(reads).toHaveLength(1)
@@ -280,7 +276,7 @@ describe('ChatView read-then-subscribe', () => {
 
   it('makes the real operator row sticky after collapsed tools but excludes delivered mail', async () => {
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     const tools: TranscriptItem[] = [
       { id: 't1', cursor: 'c1', role: 'tool', text: '', toolName: 'Read', toolResult: 'ok' },
@@ -334,7 +330,7 @@ This is agent mail, not the operator's latest prompt.
   it('keeps operator prompts in normal flow when the device preference is disabled', async () => {
     fakeUiValues.set('podium.chat.stickyPrompts', 'false')
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
       reads[0]?.resolve({
@@ -371,7 +367,7 @@ describe('ChatView composer', () => {
       },
     ])
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
 
@@ -384,7 +380,7 @@ describe('ChatView composer', () => {
   it('does not submit Enter during composition and submits after composition ends', async () => {
     storeDrafts = { s1: '日本語' }
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     const textarea = container.querySelector('textarea')
     expect(textarea).not.toBeNull()
@@ -418,14 +414,14 @@ describe('ChatView composer', () => {
 
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 's1', text: '日本語' }),
+      expect.objectContaining({ sessionId: asSessionId('s1'), text: '日本語' }),
     )
   })
 
   it('does not submit Enter when the browser only reports IME keyCode 229', async () => {
     storeDrafts = { s1: '中文' }
     act(() => {
-      root.render(<ChatView sessionId="s1" />)
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     const textarea = container.querySelector('textarea')
     expect(textarea).not.toBeNull()

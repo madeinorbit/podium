@@ -4,7 +4,14 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import { isAgentKind, SOLE_USER_ID, type TranscriptItem, WorkState } from '@podium/model'
+import {
+  asSessionId,
+  isAgentKind,
+  type SessionId,
+  SOLE_USER_ID,
+  type TranscriptItem,
+  WorkState,
+} from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
@@ -255,7 +262,7 @@ export function buildSuperagentTools(
         const r = modules.messages.send(
           { kind: 'superagent' },
           {
-            to: { kind: 'session', id: str(args.sessionId) ?? '' },
+            to: { kind: 'session', id: sessionIdArg(args.sessionId) },
             body: str(args.text) ?? '',
             urgency: 'next-turn',
           },
@@ -287,7 +294,7 @@ export function buildSuperagentTools(
         // textFallback — this tool's contract is the native menu or a refusal.
         const r = await deliverAnswerToSession(
           { getSession, sessions, rpc },
-          { sessionId: str(args.sessionId) ?? '', answer: str(args.answer) ?? '' },
+          { sessionId: sessionIdArg(args.sessionId), answer: str(args.answer) ?? '' },
         )
         if (!r.ok) return r.message
         if (r.via !== 'menu') return 'failed: unexpected delivery path' // unreachable without textFallback
@@ -312,7 +319,7 @@ export function buildSuperagentTools(
       },
       run: async (args) => {
         const r = sessions.resumeAndSend({
-          sessionId: str(args.sessionId) ?? '',
+          sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',
         })
         return r.ok
@@ -333,7 +340,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
+        const sessionId = sessionIdArg(args.sessionId)
         if (!getSession(sessionId)) return 'unknown session'
         const r = sessions.continueSession({ sessionId })
         return r.ok ? 'sent continue' : 'failed: session must be running and in the errored phase'
@@ -352,7 +359,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const r = sessions.hibernateSession({ sessionId: str(args.sessionId) ?? '' })
+        const r = sessions.hibernateSession({ sessionId: sessionIdArg(args.sessionId) })
         return r.ok ? 'hibernated' : `failed: ${r.reason ?? 'unknown'}`
       },
     },
@@ -375,7 +382,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
+        const sessionId = sessionIdArg(args.sessionId)
         const until = str(args.until) ?? ''
         if (!getSession(sessionId)) return 'unknown session'
         // null = until next message (SessionMeta.snoozedUntil semantics).
@@ -401,7 +408,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
+        const sessionId = sessionIdArg(args.sessionId)
         if (!getSession(sessionId)) return 'unknown session'
         sessions.clearSnooze(SOLE_USER_ID, sessionId)
         return 'snooze cleared'
@@ -418,7 +425,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
+        const sessionId = sessionIdArg(args.sessionId)
         if (!getSession(sessionId)) return 'unknown session'
         sessions.renameSession({
           sessionId,
@@ -442,7 +449,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
+        const sessionId = sessionIdArg(args.sessionId)
         const parsed = WorkState.safeParse(args.workState)
         if (!parsed.success) {
           return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
@@ -474,7 +481,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
+        const sessionId = sessionIdArg(args.sessionId)
         if (!getSession(sessionId)) return 'unknown session'
         const timeoutS = Math.min(120, Math.max(0, num(args.timeoutSeconds) ?? 60))
         // Already settled? Answer from the current state without waiting — the
@@ -527,7 +534,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        sessions.killSession({ sessionId: str(args.sessionId) ?? '' })
+        sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
         return 'killed'
       },
     },
@@ -550,7 +557,7 @@ export function buildSuperagentTools(
         const lastN = Math.min(100, Math.max(1, num(args.lastN) ?? 30))
         // The latest window off disk; 'before' with no anchor returns the newest items.
         const { items } = await rpc.readTranscript({
-          sessionId: str(args.sessionId) ?? '',
+          sessionId: sessionIdArg(args.sessionId),
           direction: 'before',
           limit: lastN,
         })
@@ -585,7 +592,7 @@ export function buildSuperagentTools(
         JSON.stringify(
           await modules.readToolkit.recap(
             {
-              sessionId: str(args.sessionId) ?? '',
+              sessionId: sessionIdArg(args.sessionId),
               ...(str(args.since) ? { since: str(args.since) as string } : {}),
             },
             threadId ? `superagent:${threadId}` : 'superagent',
@@ -611,7 +618,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
+        const sessionId = sessionIdArg(args.sessionId)
         const question = str(args.question) ?? ''
         if (!question) return 'question is required'
         // Same substrate as podium session ask: a question message through the
@@ -902,6 +909,21 @@ export { matchAnswerToOptions } from './answer-delivery'
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
+}
+/**
+ * DECODE EDGE for an MCP tool argument (POD-362) — the one place a `SessionId` is
+ * recovered from this file's untyped `args` bag.
+ *
+ * MCP hands arguments in as `Record<string, unknown>`, so the brand cannot ride
+ * in on a parameter type. Every caller below immediately gates on
+ * `getSession(...)`, which is the real check; this only says which id SPACE the
+ * value is claimed to be in. `''` for a missing argument is the PRE-EXISTING
+ * behaviour of `str(...) ?? ''` and is preserved deliberately — `getSession('')`
+ * misses and the tool answers 'unknown session', which is what these tools
+ * already did.
+ */
+function sessionIdArg(v: unknown): SessionId {
+  return asSessionId(str(v) ?? '')
 }
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined

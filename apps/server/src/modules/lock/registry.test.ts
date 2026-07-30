@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { LOCK_COMMAND_NAMES } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
@@ -38,7 +40,7 @@ describe('lock registry', () => {
     const r = (await dispatch({ capability: OPERATOR }, 'acquire', {
       repoPath: '/repo',
       name: 'merge:main',
-    })) as { granted: boolean; lock: { holder: { sessionId: string | null; label: string } } }
+    })) as { granted: boolean; lock: { holder: { sessionId: SessionId | null; label: string } } }
     expect(r.granted).toBe(true)
     expect(r.lock.holder).toMatchObject({ sessionId: null, label: 'operator' })
   })
@@ -48,15 +50,15 @@ describe('lock registry', () => {
       capability: {
         role: 'worker' as const,
         scope: { kind: 'none' as const },
-        actorSessionId: 'sess_agent',
+        actorSessionId: asSessionId('sess_agent'),
       },
     }
     const r = (await dispatch(caller, 'acquire', { repoPath: '/repo', name: 'agent-lock' })) as {
       granted: boolean
-      lock: { holder: { sessionId: string | null; label: string } }
+      lock: { holder: { sessionId: SessionId | null; label: string } }
     }
     expect(r.granted).toBe(true)
-    expect(r.lock.holder).toMatchObject({ sessionId: 'sess_agent', label: 'session:sess_agent' })
+    expect(r.lock.holder).toMatchObject({ sessionId: asSessionId('sess_agent'), label: 'session:sess_agent' })
   })
 
   it('viewers are role-gated out of writes but may read status', async () => {
@@ -110,14 +112,14 @@ describe('lock registry', () => {
       capability: {
         role: 'worker' as const,
         scope: { kind: 'none' as const },
-        actorSessionId: 'sess_h',
+        actorSessionId: asSessionId('sess_h'),
       },
     }
     const waiter = {
       capability: {
         role: 'worker' as const,
         scope: { kind: 'none' as const },
-        actorSessionId: 'sess_w',
+        actorSessionId: asSessionId('sess_w'),
       },
     }
     await dispatch(holder, 'acquire', { repoPath: '/repo', name: 'c' })

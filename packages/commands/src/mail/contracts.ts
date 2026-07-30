@@ -40,6 +40,7 @@
  * being snapshotted at accept.
  */
 
+import { IssueIdField, SessionIdField } from '@podium/model'
 import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
 import { z } from 'zod'
 import type {
@@ -140,8 +141,8 @@ export const mailReplyInput = z.object({
 export const mailInboxInput = z.object({ issue: z.string().optional() }).optional()
 
 export const mailLedgerInput = z.object({
-  issueId: z.string().optional(),
-  sessionId: z.string().optional(),
+  issueId: IssueIdField.optional(),
+  sessionId: SessionIdField.optional(),
   limit: z.number().int().min(1).max(500).optional(),
 })
 
@@ -162,7 +163,7 @@ export const spawnAgentInput = z.object({
 })
 
 export const awaitAgentInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   timeoutSeconds: z.number().min(0).max(300).optional(),
 })
 
@@ -531,7 +532,7 @@ export const mailDismissInput = z.object({ id: z.string() })
 export const mailStatusInput = z.object({ id: z.string() })
 export const mailPendingRemindersInput = z.object({}).optional()
 export const mailAskInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   question: z.string().min(1).max(32_768),
   timeoutSeconds: z.number().min(0).max(300).optional(),
 })

@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
 import { SessionStore } from './store'
@@ -10,7 +11,7 @@ function db(store: SessionStore) {
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
-    id: 'iss_x', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
+    id: asIssueId('iss_x'), repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
     worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
     defaultModel: 'auto', defaultEffort: 'auto',
     linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
@@ -104,9 +105,9 @@ describe('repo_id schema (v8, #74)', () => {
   it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', () => {
     const s = new SessionStore(':memory:')
     s.repos.addRepo('/r', 'm1') // no origin → path fallback
-    s.issues.upsertIssue(issueRow({ id: 'iss_1', repoPath: '/r' }))
-    s.issues.upsertIssue(issueRow({ id: 'iss_2', repoPath: '/r/nested', seq: 2 }))
-    s.issues.upsertIssue(issueRow({ id: 'iss_3', repoPath: '/other', seq: 3 }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3 }))
     const fallback = deriveRepoId({ machineId: 'm1', path: '/r' })
     expect(s.repos.listRepos()[0]?.repoId).toBe(fallback)
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(fallback)
@@ -132,7 +133,7 @@ describe('repo_id schema (v8, #74)', () => {
   it('upsertIssue dual-writes repo_id from the registered repo prefix match', () => {
     const s = new SessionStore(':memory:')
     s.repos.addRepo('/repo', 'm1', 'https://github.com/o/repo')
-    s.issues.upsertIssue(issueRow({ id: 'iss_1', repoPath: '/repo' }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(
       deriveRepoId({ originUrl: 'https://github.com/o/repo', machineId: 'm1', path: '/repo' }),
     )

@@ -1,10 +1,7 @@
 // @vitest-environment happy-dom
 /** Agent roster band grammar (POD-170, POD-100 laws L2/L6): band shell,
  *  terracotta-glyphed roster rows, and carried-over row controls. */
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentRosterBand, GroupedSessionRows, PanelRow } from './sidebar-common'
@@ -22,7 +19,7 @@ afterEach(cleanup)
 
 const session = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
   ({
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     cwd: '/repo',
     title: 'Release driver',

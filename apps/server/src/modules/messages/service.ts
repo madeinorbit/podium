@@ -32,7 +32,14 @@ import {
   type MailSenderPrincipal,
   senderBrakeKey,
 } from '@podium/commands'
-import type { AgentPhase, SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  type AgentPhase,
+  type IssueId,
+  type IssueScope,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,
@@ -154,7 +161,7 @@ export type MessageSender =
   | { kind: 'operator' }
   | { kind: 'superagent' }
   | { kind: 'system'; name?: string }
-  | { kind: 'agent'; issueId?: string; sessionId?: string }
+  | { kind: 'agent'; issueId?: IssueId; sessionId?: SessionId }
 
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
@@ -203,7 +210,7 @@ interface DeliveryOutcome {
 export interface SpawnOnWake {
   spawn(input: { issueId: string | null; message: MessageRow }): {
     ok: boolean
-    sessionId?: string
+    sessionId?: SessionId
     reason?: string
   }
 }
@@ -215,18 +222,18 @@ export interface MessageDeliveryDeps {
   issues(): IssueService
   sessions(): {
     listSessions(): SessionMeta[]
-    sendText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
+    sendText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
-    queueText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
+    queueText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
-    interruptText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
+    interruptText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
@@ -339,8 +346,10 @@ export function renderEnvelope(
  *  as an agent (enveloped, peer-clamped, cooldown-subject), never operator.
  *  Server-side only — the mailIdentity() pattern, structured. */
 export function senderFromCapability(capability: {
-  scope: { kind: string; rootId?: string }
-  actorSessionId?: string
+  // COMPOSED, was a restated `{ kind: string; rootId?: string }` (POD-362): the
+  // local shape re-erased the brands `IssueScope` carries.
+  scope: IssueScope
+  actorSessionId?: SessionId
 }): MessageSender {
   if (capability.scope.kind === 'all') return { kind: 'operator' }
   if (capability.scope.kind === 'subtree' && capability.scope.rootId) {
@@ -457,7 +466,7 @@ export class MessageDeliveryService {
 
   /** Queue the session principal plus both sides of its issue-resolution change. */
   onSessionEligibilityChanged(
-    sessionId: string,
+    sessionId: SessionId,
     changed?: SessionMeta,
     opts?: {
       preferThisIdleSession?: boolean
@@ -950,7 +959,10 @@ export class MessageDeliveryService {
     if (message.toKind === 'issue' && toId && issues.has(toId) && this.applyAuth(message).ok) {
       legacy = {
         id,
-        issueId: toId,
+        // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so
+        // the brand is recovered HERE, inside the branch that decides the id
+        // space — and only after `issues.has(toId)` confirms the row exists.
+        issueId: asIssueId(toId),
         fromAuthor: this.legacyAuthor(from),
         body: input.body,
         createdAt: message.createdAt,
@@ -1144,7 +1156,7 @@ export class MessageDeliveryService {
   private injectAndMark(
     via: 'now' | 'queue' | 'interrupt',
     message: MessageRow,
-    sessionId: string,
+    sessionId: SessionId,
     okDisposition: SendDisposition,
   ): DeliveryOutcome {
     const sessions = this.deps.sessions()
@@ -1481,7 +1493,7 @@ export class MessageDeliveryService {
    *  unwrapped operator body can never echo and a best-effort ack/notification is
    *  never chased, so both are confirmed now; everything else is injected and
    *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
-  private recordPush(message: MessageRow, sessionId: string): void {
+  private recordPush(message: MessageRow, sessionId: SessionId): void {
     if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId, 'injection')
     else this.markInjected(message, sessionId)
   }
@@ -1570,14 +1582,14 @@ export class MessageDeliveryService {
   }
 
   /** Delivered-but-unacked (unexpired) messages awaiting `sessionId`'s reply. */
-  deliveredUnacked(sessionId: string): MessageRow[] {
+  deliveredUnacked(sessionId: SessionId): MessageRow[] {
     return this.deps.messages.listDeliveredUnacked(sessionId, this.deps.now())
   }
 
   /** The messages that would produce a settle notice for `sessionId` right now
    *  (#468): asked-for-something + not-already-notified. The relay guard uses it
    *  to skip the git-log stitch work when nothing is notifiable. */
-  settleNotifiable(sessionId: string): MessageRow[] {
+  settleNotifiable(sessionId: SessionId): MessageRow[] {
     return this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
   }
 
@@ -1589,7 +1601,7 @@ export class MessageDeliveryService {
    * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
    * render-ready rows for the daemon's block reason.
    */
-  pendingReminders(sessionId: string): { id: string; from: string; body: string }[] {
+  pendingReminders(sessionId: SessionId): { id: string; from: string; body: string }[] {
     const at = this.deps.now()
     const out: { id: string; from: string; body: string }[] = []
     for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
@@ -1611,7 +1623,7 @@ export class MessageDeliveryService {
    * target's unanswered state. System clamps (next-turn/wait) apply.
    */
   systemAckFallback(
-    sessionId: string,
+    sessionId: SessionId,
     context: {
       outcome: string
       issueSeq?: number
@@ -1810,7 +1822,7 @@ export class MessageDeliveryService {
    */
   readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
-    opts?: { consume?: string | null; limit?: number },
+    opts?: { consume?: SessionId | null; limit?: number },
   ): MessageRow[] {
     const rows = this.inbox(principals, opts?.limit !== undefined ? { limit: opts.limit } : {})
     if (opts?.consume === undefined) return rows
@@ -2187,7 +2199,7 @@ export class MessageDeliveryService {
    *  injected_at + delivered_to, keeps status `queued` [POD-834]. The transcript
    *  echo (`markDelivered`) or an inbox read (`markRead`) makes the honest claim
    *  later; the sweep re-pushes an echo-mode row whose echo never came. */
-  private markInjected(message: MessageRow, sessionId: string): void {
+  private markInjected(message: MessageRow, sessionId: SessionId): void {
     const at = this.deps.now()
     if (this.deps.messages.markInjected(message.id, sessionId, at)) {
       // The injected message triggers the receiver's next turn — anything it
@@ -2208,7 +2220,7 @@ export class MessageDeliveryService {
    *  original was received). */
   private markDelivered(
     message: MessageRow,
-    sessionId: string,
+    sessionId: SessionId,
     via: 'echo' | 'boundary' | 'injection' | 'ack',
   ): void {
     const at = this.deps.now()
@@ -2262,7 +2274,7 @@ export class MessageDeliveryService {
    * Best-effort and idempotent: a late/duplicate echo is a no-op (markDelivered
    * is guarded on status='queued').
    */
-  onTranscriptDelta(sessionId: string, items: { role?: string; text?: string }[]): void {
+  onTranscriptDelta(sessionId: SessionId, items: { role?: string; text?: string }[]): void {
     for (const item of items) {
       // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
       // id must never self-confirm a message the agent merely referenced.

@@ -23,7 +23,7 @@
  */
 
 import type { HumanCeiling } from '@podium/commands'
-import type { AgentPhase, SessionMeta } from '@podium/model'
+import { asSessionId, type AgentPhase, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
@@ -38,7 +38,7 @@ import { makeSpawnOnWake } from './spawn'
  *  byte-fidelity assertions read it with no normalisation whatsoever. */
 export interface Push {
   fn: 'sendText' | 'queueText' | 'interruptText'
-  sessionId: string
+  sessionId: SessionId
   text: string
   inputOrigin?: string
 }
@@ -54,11 +54,11 @@ export interface TransportBehaviour {
 }
 
 export interface SessionFixture {
-  sessionId: string
+  sessionId: SessionId
   status?: SessionMeta['status']
   phase?: AgentPhase
   cwd?: string
-  issueId?: string
+  issueId?: IssueId
   spawnedBy?: string
   agentKind?: string
   lastActiveAt?: string
@@ -154,8 +154,8 @@ export interface MailHarness {
   advance(ms: number): void
   setNow(iso: string): void
   /** Create an issue and return its row-ish metadata. */
-  createIssue(input: { title: string; repoPath?: string; parentId?: string }): {
-    id: string
+  createIssue(input: { title: string; repoPath?: string; parentId?: IssueId }): {
+    id: IssueId
     seq: number
   }
   /** Attach a worktree path to an issue (issue-membership by cwd). Goes through
@@ -165,7 +165,7 @@ export interface MailHarness {
   archive(issueId: string): void
   put(...fixtures: SessionFixture[]): SessionMeta[]
   /** A capability for an agent bound to an issue subtree. */
-  agentCap(issueId: string, sessionId?: string): Capability
+  agentCap(issueId: IssueId, sessionId?: SessionId): Capability
   events(kinds?: string[]): { kind: string; subject: string; payload: unknown }[]
 }
 
@@ -195,7 +195,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: () => ({ sessionId: 'unused' }),
+    spawnSession: () => ({ sessionId: asSessionId('unused') }),
     repoOp: async () => ({ ok: true, output: '' }),
     ...issueTestPlumbing(),
     now,
@@ -203,7 +203,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
   const issues = new IssueService(issueDeps)
 
   const record =
-    (fn: Push['fn']) => (i: { sessionId: string; text: string; inputOrigin?: string }) => {
+    (fn: Push['fn']) => (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
       pushes.push({ fn, ...i })
       const fails =
         transport.ok === false &&
@@ -239,7 +239,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
             issues: () => issues,
             createSession: (input) => {
               wakeSpawns.push(input as unknown as Record<string, unknown>)
-              const sessionId = `woken${wakeSpawns.length}`
+              const sessionId = asSessionId(`woken${wakeSpawns.length}`)
               sessions.push(
                 session({
                   sessionId,
@@ -264,7 +264,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
         opts?.spawnSession ??
         ((input) => {
           gateSpawns.push(input as unknown as Record<string, unknown>)
-          const sessionId = `child${gateSpawns.length}`
+          const sessionId = asSessionId(`child${gateSpawns.length}`)
           sessions.push(
             session({
               sessionId,

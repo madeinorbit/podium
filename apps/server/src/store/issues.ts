@@ -7,7 +7,14 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
-import { isIssueColorSlot, IssueStage } from '@podium/model'
+import {
+  isIssueColorSlot,
+  type IssueId,
+  IssueStage,
+  type RepoId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray } from './helpers'
@@ -146,11 +153,18 @@ export class IssuesRepository {
       )
   }
 
+  /**
+   * SERIALIZATION EDGE — the one place a sqlite `Record<string, unknown>` becomes
+   * an `IssueRow`. Every cast below is a decode of an untyped column, brands
+   * included: sqlite has no type to carry a brand, so this is where a stored
+   * string re-enters the branded id space. Casts here are NOT POD-361 adapter
+   * casts; above this function every issue id is branded.
+   */
   private mapIssueRow(r: Record<string, unknown>): IssueRow {
     return {
-      id: r.id as string,
+      id: r.id as IssueId,
       repoPath: r.repo_path as string,
-      repoId: (r.repo_id as string | null) ?? null,
+      repoId: (r.repo_id as RepoId | null) ?? null,
       seq: r.seq as number,
       title: r.title as string,
       description: (r.description as string) ?? '',
@@ -175,8 +189,8 @@ export class IssuesRepository {
       prUrl: (r.pr_url as string | null) ?? null,
       priority: (r.priority as number) ?? 2,
       type: (r.type as string) ?? 'task',
-      assignee: (r.assignee as string | null) ?? null,
-      parentId: (r.parent_id as string | null) ?? null,
+      assignee: (r.assignee as UserId | null) ?? null,
+      parentId: (r.parent_id as IssueId | null) ?? null,
       design: (r.design as string | null) ?? null,
       acceptance: (r.acceptance as string | null) ?? null,
       notes: (r.notes as string | null) ?? null,
@@ -185,8 +199,8 @@ export class IssuesRepository {
       closedReason: (r.closed_reason as string | null) ?? null,
       closedAt: (r.closed_at as string | null) ?? null,
       tuckedAt: (r.tucked_at as string | null) ?? null,
-      supersededBy: (r.superseded_by as string | null) ?? null,
-      duplicateOf: (r.duplicate_of as string | null) ?? null,
+      supersededBy: (r.superseded_by as IssueId | null) ?? null,
+      duplicateOf: (r.duplicate_of as IssueId | null) ?? null,
       pinned: r.pinned === 1,
       sortKey: (r.sort_key as string | null) ?? null,
       color: isIssueColorSlot(r.color) ? r.color : null,
@@ -204,7 +218,7 @@ export class IssuesRepository {
             return v.length > 0 ? v : null
           })()
         : null,
-      humanQuestionAskedBy: (r.human_question_asked_by as string | null) ?? null,
+      humanQuestionAskedBy: (r.human_question_asked_by as SessionId | null) ?? null,
       humanQuestionAskedAt: (r.human_question_asked_at as string | null) ?? null,
       panel: (r.panel as string | null) ?? null,
       createdAt: r.created_at as string,
@@ -215,8 +229,8 @@ export class IssuesRepository {
       audience: (r.audience as string | null) ?? 'human',
       draft: r.draft === 1,
       readAt: (r.read_at as string | null) ?? null,
-      coordinatorSessionId: (r.coordinator_session_id as string | null) ?? null,
-      startedBySession: (r.started_by_session as string | null) ?? null,
+      coordinatorSessionId: (r.coordinator_session_id as SessionId | null) ?? null,
+      startedBySession: (r.started_by_session as SessionId | null) ?? null,
     }
   }
 
@@ -463,13 +477,13 @@ export class IssuesRepository {
 
   // ---- deps ----
 
-  addIssueDep(fromId: string, toId: string, type = 'blocks'): void {
+  addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocks'): void {
     this.db
       .prepare('INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, ?)')
       .run(fromId, toId, type)
   }
 
-  removeIssueDep(fromId: string, toId: string, type?: string): void {
+  removeIssueDep(fromId: IssueId, toId: IssueId, type?: string): void {
     if (type) {
       this.db
         .prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ? AND type = ?')
@@ -479,23 +493,26 @@ export class IssuesRepository {
     }
   }
 
-  listIssueDeps(fromId: string): { toId: string; type: string }[] {
+  /** SERIALIZATION EDGE: `to_id`/`from_id` come back untyped, so the row shape
+   *  re-declares the id space they were stored under. `type` is a dep KIND, not
+   *  an id, and stays a free string. */
+  listIssueDeps(fromId: IssueId): { toId: IssueId; type: string }[] {
     return (
       this.db
         .prepare(
           'SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC',
         )
-        .all(fromId) as { to_id: string; type: string }[]
+        .all(fromId) as { to_id: IssueId; type: string }[]
     ).map((r) => ({ toId: r.to_id, type: r.type }))
   }
 
-  listDependents(toId: string): { fromId: string; type: string }[] {
+  listDependents(toId: IssueId): { fromId: IssueId; type: string }[] {
     return (
       this.db
         .prepare(
           'SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC',
         )
-        .all(toId) as { from_id: string; type: string }[]
+        .all(toId) as { from_id: IssueId; type: string }[]
     ).map((r) => ({ fromId: r.from_id, type: r.type }))
   }
 
@@ -509,14 +526,14 @@ export class IssuesRepository {
       .run(c.id, c.issueId, c.author, c.body, c.createdAt)
   }
 
-  listIssueComments(issueId: string): IssueCommentRow[] {
+  listIssueComments(issueId: IssueId): IssueCommentRow[] {
     return (
       this.db
         .prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
         .all(issueId) as Record<string, unknown>[]
     ).map((r) => ({
       id: r.id as string,
-      issueId: r.issue_id as string,
+      issueId: r.issue_id as IssueId,
       author: r.author as string,
       body: r.body as string,
       createdAt: r.created_at as string,
@@ -571,7 +588,7 @@ export class IssuesRepository {
   private mapIssueMessage(r: Record<string, unknown>): IssueMessageRow {
     return {
       id: r.id as string,
-      issueId: r.issue_id as string,
+      issueId: r.issue_id as IssueId,
       fromAuthor: r.from_author as string,
       body: r.body as string,
       createdAt: r.created_at as string,

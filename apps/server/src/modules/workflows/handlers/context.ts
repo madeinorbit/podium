@@ -37,6 +37,7 @@
  * survive this function.
  */
 
+import type { SessionId } from '@podium/model'
 import {
   canReadWorkflowEntity,
   type PlacementDecision,
@@ -565,7 +566,7 @@ export class WorkflowAccess {
   }
 
   /** The machine a session sits on, for the assign-time placement check. */
-  machineForSession(sessionId: string | null): string | undefined {
+  machineForSession(sessionId: SessionId | null): string | undefined {
     return sessionId ? this.deps.session(sessionId)?.machineId : undefined
   }
 }

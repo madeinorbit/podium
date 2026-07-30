@@ -88,8 +88,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         .map((d) => ({ from: r.id, to: d.toId, type: d.type })),
       ...(r.parentId ? [{ from: r.id, to: r.parentId, type: 'parent-child' }] : []),
     ])
-    // POD-361-EDGE-CAST (POD-362 owns): store rows carry plain-string ids.
-    return { nodes, edges } as IssueGraph
+    return { nodes, edges }
   }
 
   epicStatus(id: string): EpicStatus {
@@ -97,7 +96,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
     const childDoneCount = children.filter((c) => this.isClosed(c)).length
     return {
-      id: row.id as IssueId, // POD-361-EDGE-CAST
+      id: row.id,
       childCount: children.length,
       childDoneCount,
       complete: children.length > 0 && childDoneCount === children.length,
@@ -288,8 +287,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         const tb = toks.get(b.id)
         if (!tb) continue
         const score = jaccard(ta, tb)
-        // POD-361-EDGE-CAST
-        if (score >= threshold) out.push({ a: a.id as IssueId, b: b.id as IssueId, score })
+        if (score >= threshold) out.push({ a: a.id, b: b.id, score })
       }
     }
     return out.sort((x, y) => y.score - x.score)
@@ -312,7 +310,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   lint(repoPath?: string): LintFinding[] {
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
-      .map((r) => ({ id: r.id as IssueId, seq: r.seq, findings: lintIssue(r) })) // POD-361-EDGE-CAST
+      .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
       .filter((f) => f.findings.length > 0)
   }
 
@@ -322,22 +320,20 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     )
     const ids = new Set(rows.map((r) => r.id))
     const danglingDeps: DoctorReport['danglingDeps'] = []
-    const adj = new Map<string, string[]>()
+    const adj = new Map<IssueId, IssueId[]>()
     for (const r of rows) {
       for (const d of this.deps.store.issues.listIssueDeps(r.id)) {
-        // POD-361-EDGE-CAST
-        if (!ids.has(d.toId))
-          danglingDeps.push({ from: r.id as IssueId, to: d.toId as IssueId, type: d.type })
+        if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
         if (d.type === 'blocks') {
           adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])
         }
       }
     }
     // dependency-cycle detection over blocks edges only (DFS colouring); hierarchy is separate.
-    const cycles: string[][] = []
-    const colour = new Map<string, number>() // 0=white,1=grey,2=black
-    const stack: string[] = []
-    const visit = (u: string): void => {
+    const cycles: IssueId[][] = []
+    const colour = new Map<IssueId, number>() // 0=white,1=grey,2=black
+    const stack: IssueId[] = []
+    const visit = (u: IssueId): void => {
       colour.set(u, 1)
       stack.push(u)
       for (const v of adj.get(u) ?? []) {
@@ -350,7 +346,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     }
     for (const r of rows) if (!colour.get(r.id)) visit(r.id)
     return {
-      cycles: cycles as IssueId[][], // POD-361-EDGE-CAST
+      cycles,
       danglingDeps,
       lintCount: this.lint(repoPath).length,
       staleCount: this.staleList(repoPath).length,
@@ -374,7 +370,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
       const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
       const ref = hashRef ?? branchRef
-      if (ref) out.push({ id: r.id as IssueId, seq: r.seq, title: r.title, ref }) // POD-361-EDGE-CAST
+      if (ref) out.push({ id: r.id, seq: r.seq, title: r.title, ref })
     }
     return out.sort((a, b) => a.seq - b.seq)
   }
@@ -475,10 +471,10 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   }
 
   /** The id of the issue whose worktree contains `cwd`, or null. Used to mint per-agent scope. */
-  issueForCwd(cwd: string): string | null {
+  issueForCwd(cwd: string): IssueId | null {
     // Most-specific match (POD-529): with nested worktrees (or a worktree under the
     // repo root), first-match could attribute a session to the broader owner.
-    let best: { id: string; len: number } | null = null
+    let best: { id: IssueId; len: number } | null = null
     for (const r of this.rows.values()) {
       if (r.deletedAt) continue
       if (!isMemberCwd(r.worktreePath, cwd)) continue
@@ -494,7 +490,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  A registered repo MAIN checkout is shared workspace, never an issue's own
    *  worktree — an issue claiming it must not swallow every session spawned
    *  there ([spec:SP-595b] #582). */
-  soleOwnerForCwd(cwd: string): string | null {
+  soleOwnerForCwd(cwd: string): IssueId | null {
     const repoRoots = new Set(this.deps.store.repos.listRepoPaths())
     const owners = [...this.rows.values()].filter(
       (r) =>

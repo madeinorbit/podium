@@ -1,8 +1,9 @@
-import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
+import type { IssueWire, IssueWireInput, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { sessionCardModel, sessionTitle } from './session-card'
 
-function session(overrides: Partial<SessionMetaInput> & { sessionId: string }): SessionMeta {
+function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
   const { sessionId, ...rest } = overrides
   return {
     agentKind: 'claude-code',
@@ -73,7 +74,7 @@ describe('session card view model', () => {
   it('carries attention summary, group and issue context', () => {
     const model = sessionCardModel(
       session({
-        sessionId: 'need',
+        sessionId: asSessionId('need'),
         title: 'Needs decision',
         issueId: 'issue-1',
         lastActiveAt: '2026-07-01T01:00:00.000Z',
@@ -103,10 +104,10 @@ describe('session card view model', () => {
   })
 
   it('prefers the user-set name, then title, then the cwd basename', () => {
-    expect(sessionTitle(session({ sessionId: 'a', name: 'My rename', title: 'live title' }))).toBe(
+    expect(sessionTitle(session({ sessionId: asSessionId('a'), name: 'My rename', title: 'live title' }))).toBe(
       'My rename',
     )
-    expect(sessionTitle(session({ sessionId: 'b', title: 'live title' }))).toBe('live title')
-    expect(sessionTitle(session({ sessionId: 'c', title: '  ' }))).toBe('podium')
+    expect(sessionTitle(session({ sessionId: asSessionId('b'), title: 'live title' }))).toBe('live title')
+    expect(sessionTitle(session({ sessionId: asSessionId('c'), title: '  ' }))).toBe('podium')
   })
 })

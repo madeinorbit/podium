@@ -1,7 +1,7 @@
 import type { AgentSession } from '@podium/pty'
 import type { agentLaunchCommand } from '@podium/harness'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
-import type { UsageBucketWire } from '@podium/model'
+import type { SessionId, UsageBucketWire } from '@podium/model'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BrowserOpenManager } from '../browser-open'
@@ -33,8 +33,8 @@ export interface DaemonContext {
   /** Selected Podium instance that owns every runtime/session in this daemon. */
   instanceId: string
   /** Exact labels retained for reattached legacy/adopted sessions. */
-  durableLabels: Map<string, string>
-  durableLabelFor(sessionId: string): string
+  durableLabels: Map<SessionId, string>
+  durableLabelFor(sessionId: SessionId): string
   backend: DurableBackend
   /** Maps an agent kind to a spawn command (tests inject a fixture). */
   launch: typeof agentLaunchCommand
@@ -45,7 +45,7 @@ export interface DaemonContext {
 
   // -- per-session runtime state ---------------------------------------------
   /** Live PTY bridges by Podium session id. */
-  bridges: Map<string, AgentSession>
+  bridges: Map<SessionId, AgentSession>
   /** Draft Sync v2 (POD-859): read-only/inject composer engine for flagged sessions. */
   composerEngine: ComposerSyncEngine
   /** Coalesced, prioritized PTY frame relay. */
@@ -55,7 +55,7 @@ export interface DaemonContext {
   /** Resolves hook cwds to worktree roots; cleared on session exit. */
   sessionCwdTracker: SessionCwdTracker
   /** Re-arms prime injection when a session dies. */
-  primeInjector: { reset(sessionId: string): void }
+  primeInjector: { reset(sessionId: SessionId): void }
   /** Bounds the reattach spawn fan-out (REATTACH_CONCURRENCY). */
   reattachGate<T>(fn: () => Promise<T>): Promise<T>
   /** Paces transcript reseeds independently of immediate bridge wiring. */
@@ -71,9 +71,9 @@ export interface DaemonContext {
   /** Pending exact Podium ID -> native Codex ID bindings. */
   codexIdentityReceipts: CodexIdentityReceipts
   /** Hook-ingest endpoint for a session (instrumentation URLs). */
-  hookEndpointFor(sessionId: string): string
+  hookEndpointFor(sessionId: SessionId): string
   /** Agent-relay loopback endpoint for a session (agent env). */
-  agentRelayEndpointFor(sessionId: string): string
+  agentRelayEndpointFor(sessionId: SessionId): string
   agentRelayHub: AgentRelayHub
   /** Expiring, redirect-bound browser-open callback capabilities. */
   browserOpen: BrowserOpenManager

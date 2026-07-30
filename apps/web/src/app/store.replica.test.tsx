@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
@@ -201,7 +202,7 @@ describe('store ↔ replica', () => {
       // Optimistic curation write: the pending mutation folds over server
       // truth on the next paint — no replica patching involved.
       await act(async () => {
-        await latestStore?.renameSession('s1', ' renamed ')
+        await latestStore?.renameSession(asSessionId('s1'), ' renamed ')
       })
       await settle()
       expect(latest.sessions[0]?.name).toBe('renamed')
@@ -243,7 +244,7 @@ describe('store ↔ replica', () => {
     expect(latest.sessions[0]?.unread).toBe(true)
 
     await act(async () => {
-      await latestStore?.markSessionRead('s1')
+      await latestStore?.markSessionRead(asSessionId('s1'))
     })
     await settle()
     expect(latest.sessions[0]?.unread).toBe(false)
@@ -339,7 +340,7 @@ describe('store ↔ replica', () => {
 
     // Optimistic writes flow through the same replica seam (in memory).
     await act(async () => {
-      await latestStore?.renameSession('s-mem', 'renamed')
+      await latestStore?.renameSession(asSessionId('s-mem'), 'renamed')
     })
     await settle()
     expect(latest.sessions[0]?.name).toBe('renamed')

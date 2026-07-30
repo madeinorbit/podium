@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asIssueId } from '@podium/model'
+import { asIssueId, asUserId } from '@podium/model'
 import type { RefIssueLike, ResolvedRef } from '@/lib/ref-miniview'
 import { RefCard, seedCardPosition } from './RefMiniview'
 
@@ -22,7 +22,7 @@ const rich: RefIssueLike = {
   title: 'Enrich the miniview',
   stage: 'in_progress',
   priority: 1,
-  assignee: 'agent:claude-code',
+  assignee: asUserId('agent:claude-code'),
   ready: false,
   blocked: true,
   blockedBy: [asIssueId('iss_a'), asIssueId('iss_b')],

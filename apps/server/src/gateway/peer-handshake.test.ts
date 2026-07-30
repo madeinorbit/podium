@@ -6,6 +6,7 @@
  * `MachinesService`, and the machine principal's owner-less fail-closed posture.
  */
 
+import { asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { machineUseAllowed, WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -142,7 +143,7 @@ describe('handshake order at the real gateway', () => {
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
-    ws.emit('message', frame({ type: 'agentExit', sessionId: 's1', code: 0 }))
+    ws.emit('message', frame({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 }))
     expect(onMsg).toHaveBeenCalledWith(expect.objectContaining({ kind: 'machine', machine: 'm1' }), expect.objectContaining({ type: 'agentExit' }))
   })
 })

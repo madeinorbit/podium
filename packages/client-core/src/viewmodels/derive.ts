@@ -5,36 +5,7 @@
  * modules — the boundary lint and the web shim (apps/web/src/derive.ts, which
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
-import {
-  type AgentKind,
-  agentCapabilityRejection,
-  asIssueId,
-  asSessionId,
-  DEFER_NEXT_MESSAGE,
-  dedupeSessionsByResume,
-  type GitRepositoryWire,
-  type HostMetricsWire,
-  type IssueWire,
-  isHeadlessSession,
-  isIssueDeferred,
-  isSnoozed,
-  issueReturnedFromDefer,
-  lastUsedMachine,
-  machinesForRepo,
-  machinesForRepoOrClone,
-  machinesWithRepo,
-  normalizeOriginUrl,
-  onlineMachinesForRepoOrClone,
-  repoNameFromOrigin,
-  resolveTargetMachine,
-  resolveTargetMachineForAgent,
-  returnedFromSnooze,
-  type SessionMeta,
-  snoozeUntil1h,
-  snoozeUntilTomorrow5am,
-  withoutHeadless,
-  worktreeForCwd,
-} from '@podium/model'
+import { DEFER_NEXT_MESSAGE, agentCapabilityRejection, asIssueId, asSessionId, dedupeSessionsByResume, isHeadlessSession, isIssueDeferred, isSnoozed, issueReturnedFromDefer, lastUsedMachine, machinesForRepo, machinesForRepoOrClone, machinesWithRepo, normalizeOriginUrl, onlineMachinesForRepoOrClone, repoNameFromOrigin, resolveTargetMachine, resolveTargetMachineForAgent, returnedFromSnooze, snoozeUntil1h, snoozeUntilTomorrow5am, type AgentKind, type GitRepositoryWire, type HostMetricsWire, type IssueWire, type SessionId, type SessionMeta, withoutHeadless, worktreeForCwd } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
@@ -324,7 +295,7 @@ export function sessionsForWorktree(
 
 /** One session's worktree change, as seen between two `sessions` snapshots. */
 export interface WorktreeMove {
-  sessionId: string
+  sessionId: SessionId
   from: string | null
   to: string | null
 }
@@ -571,7 +542,7 @@ export function elevateCoordinatorSession(
 /** True when this session is the issue's designated coordinator (M6). */
 export function isCoordinatorSession(
   issue: Pick<IssueWire, 'coordinatorSessionId'>,
-  sessionId: string,
+  sessionId: SessionId,
 ): boolean {
   return typeof issue.coordinatorSessionId === 'string' && issue.coordinatorSessionId === sessionId
 }
@@ -963,9 +934,10 @@ export function sessionsForIssueNav(
  *  nothing to open (empty row) — clear the pane so the picker shows. */
 export function pickPaneSession(
   members: SessionMeta[],
-  paneA: string | null,
+  paneA: SessionId | null,
+  /** File-tab ids, which are NOT session ids — hence the plain string here. */
   extraValidIds: readonly string[] = [],
-): string | null {
+): SessionId | null {
   if (
     paneA != null &&
     (members.some((s) => s.sessionId === paneA) || extraValidIds.includes(paneA))
@@ -1521,7 +1493,7 @@ function buildUnifiedRows(
  * session or its issue is not in the given sets (sidebar fallback: top-level).
  */
 export function issueIdOwningSession(
-  sessionId: string,
+  sessionId: SessionId,
   sessions: readonly SessionMeta[],
   issues: readonly IssueWire[],
   allWorktreePaths: string[],

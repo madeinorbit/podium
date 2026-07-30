@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionState, SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
@@ -63,7 +64,7 @@ describe('session-mount clear semantics', () => {
       const { hub, setState } = fakeHub()
       const mounted = mountSession(document.createElement('div'), {
         hub,
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         active: false,
       })
       setState({ epoch: 0 }) // first state only seeds the epoch tracker — no clear
@@ -83,7 +84,7 @@ describe('session-mount clear semantics', () => {
       const { hub, reset } = fakeHub()
       const mounted = mountSession(document.createElement('div'), {
         hub,
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         active: false,
       })
       clear.mockClear()
@@ -102,7 +103,7 @@ describe('session-mount clear semantics', () => {
       const { hub, setState } = fakeHub()
       const mounted = mountSession(document.createElement('div'), {
         hub,
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         active: false,
       })
       setState({ epoch: 0, connected: true }) // seed the tracker
@@ -126,7 +127,7 @@ describe('session-mount E2E API handle', () => {
     const b = fakeHub()
     const mountedA = mountSession(document.createElement('div'), {
       hub: a.hub,
-      sessionId: 'a',
+      sessionId: asSessionId('a'),
       test: true,
       active: true,
     })
@@ -136,7 +137,7 @@ describe('session-mount E2E API handle', () => {
     // A second warm (hidden) pane mounts and claims the shared handle.
     const mountedB = mountSession(document.createElement('div'), {
       hub: b.hub,
-      sessionId: 'b',
+      sessionId: asSessionId('b'),
       test: true,
       active: false,
     })

@@ -1,4 +1,4 @@
-import { asSessionId, type SessionMeta } from '@podium/model'
+import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import {
   createDispatcher,
   type DispatchHandlers,
@@ -38,7 +38,7 @@ function setup() {
   return { sock, hub }
 }
 
-const meta = (sessionId: string): SessionMeta => ({
+const meta = (sessionId: SessionId): SessionMeta => ({
   // POD-361-EDGE-CAST: test helper takes a plain string id.
   sessionId: asSessionId(sessionId),
   agentKind: 'claude-code',
@@ -133,7 +133,7 @@ describe('SocketHub subscription seam (on/emit)', () => {
     hub.on('sessions', (s) => viaSeam.push(s)) // new seam (no replay)
     hub.connect()
     sock.open()
-    const m = meta('s1')
+    const m = meta(asSessionId('s1'))
     sock.recv({ type: 'sessionsChanged', sessions: [m] })
     // Wrapper: synchronous replay of the empty list + the update — timing unchanged.
     expect(viaWrapper).toEqual([[], [m]])
@@ -151,7 +151,7 @@ describe('SocketHub subscription seam (on/emit)', () => {
     hub.on('sessionDraft', (sessionId, text) => seam.push([sessionId, text]))
     hub.connect()
     sock.open()
-    sock.recv({ type: 'sessionDraftChanged', sessionId: 's1', text: 'draft…' })
+    sock.recv({ type: 'sessionDraftChanged', sessionId: asSessionId('s1'), text: 'draft…' })
     expect(legacy).toEqual([['s1', 'draft…']])
     expect(seam).toEqual([['s1', 'draft…']])
   })
@@ -197,8 +197,8 @@ describe('Codex review round (#261)', () => {
     sock.open()
     const seen: unknown[] = []
     const cb = (e: unknown) => seen.push(e)
-    const un1 = hub.subscribeHeadless('s1', cb as never)
-    const un2 = hub.subscribeHeadless('s1', cb as never)
+    const un1 = hub.subscribeHeadless(asSessionId('s1'), cb as never)
+    const un2 = hub.subscribeHeadless(asSessionId('s1'), cb as never)
     expect(un2).toBe(un1) // same registration → same unsubscribe
     sock.recv({
       type: 'headlessActivity',

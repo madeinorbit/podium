@@ -11,7 +11,7 @@
  * in MessageDeliveryService.trySpawn. This module only knows how to spawn.
  */
 
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, IssueId, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'
@@ -24,10 +24,10 @@ export interface SpawnOnWakeDeps {
     agentKind?: AgentKind
     model?: string
     effort?: string
-    issueId?: string
+    issueId?: IssueId
     spawnedBy?: string
     machineId?: string
-  }): { sessionId: string }
+  }): { sessionId: SessionId }
 }
 
 /** Provenance for the spawned child, derived from the triggering message's

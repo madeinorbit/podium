@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,7 +45,7 @@ function claudeProvider(): AgentStateProvider {
   return provider
 }
 
-function agentStateMsgs(sent: DaemonMessage[], sessionId: string) {
+function agentStateMsgs(sent: DaemonMessage[], sessionId: SessionId) {
   return sent.filter(
     (m): m is Extract<DaemonMessage, { type: 'agentState' }> =>
       m.type === 'agentState' && m.sessionId === sessionId,
@@ -55,7 +56,7 @@ function agentStateMsgs(sent: DaemonMessage[], sessionId: string) {
  * Stand up a tracker + observation with a mock provider so tests can feed
  * exact AgentStateEvents through onHookPayload → applyAgentStateEvents.
  */
-function setupControlledSession(sessionId = 's-idle') {
+function setupControlledSession(sessionId = asSessionId('s-idle')) {
   const sent: DaemonMessage[] = []
   let nextEvents: AgentStateEvent[] = []
   const provider: AgentStateProvider = {
@@ -112,17 +113,17 @@ describe('session observer stat polling', () => {
       cwdTracker: { onHookCwd: vi.fn(async () => {}) },
     })
 
-    observers.bindHeadlessSession('podium-session', 'cursor', '/repo', 'cursor-chat')
+    observers.bindHeadlessSession(asSessionId('podium-session'), 'cursor', '/repo', 'cursor-chat')
     expect(statTick.watchers.size).toBe(2)
 
-    observers.clearSession('podium-session')
+    observers.clearSession(asSessionId('podium-session'))
     expect(statTick.watchers.size).toBe(0)
   })
 })
 
 describe('session observer hook field normalization', () => {
   it('reads a Grok camelCase sessionId as the exact resume ref', async () => {
-    const { sent, observers, sessionId } = setupControlledSession('s-grok')
+    const { sent, observers, sessionId } = setupControlledSession(asSessionId('s-grok'))
     // Grok Build native hook payload — camelCase, no snake_case aliases.
     observers.onHookPayload(sessionId, {
       sessionId: 'grok-thread-1',
@@ -178,7 +179,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'reattach',
-        sessionId: 'delayed-poll',
+        sessionId: asSessionId('delayed-poll'),
         durableLabel: 'podium-delayed-poll',
         agentKind: 'codex',
         cwd: '/repo',
@@ -194,7 +195,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     )
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'delayed-poll',
+      sessionId: asSessionId('delayed-poll'),
       observerGeneration: 7,
       bindingVersion: 2,
       transitionId: 'bootstrap',
@@ -265,7 +266,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'reattach',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         durableLabel: 'podium-podium-1',
         agentKind: 'codex',
         cwd: '/repo',
@@ -312,7 +313,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     })
 
     const observation = (overrides: Partial<AgentObservation> = {}): AgentObservation => ({
-      podiumSessionId: 'podium-1',
+      podiumSessionId: asSessionId('podium-1'),
       provider: 'codex',
       providerSessionId: 'thread-1',
       bindingVersion: 2,
@@ -342,7 +343,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
 
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       bindingVersion: 1,
       transitionId: 'snapshot-1',
@@ -352,7 +353,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     expect(observationAck).not.toHaveBeenCalled()
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       transitionId: 'snapshot-1',
       result: 'rejected',
@@ -361,7 +362,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     expect(observationAck).not.toHaveBeenCalled()
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       bindingVersion: 2,
       transitionId: 'snapshot-1',
@@ -370,7 +371,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     })
     expect(observationAck).toHaveBeenCalledTimes(1)
 
-    observers.onHookPayload('podium-1', {
+    observers.onHookPayload(asSessionId('podium-1'), {
       session_id: 'thread-2',
       transcript_path: '/repo/thread-2.jsonl',
       cwd: '/repo',
@@ -405,7 +406,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       rebindId: 'rebind-1',
       priorObserverGeneration: 7,
@@ -420,7 +421,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     expect(rebindAck).not.toHaveBeenCalled()
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       rebindId: 'rebind-1',
       priorObserverGeneration: 7,
@@ -442,7 +443,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     })
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       rebindId: 'rebind-2',
       priorObserverGeneration: 8,
@@ -468,7 +469,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     })
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       rebindId: 'rebind-rejected',
       priorObserverGeneration: 9,
@@ -508,7 +509,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     })
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       rebindId: 'rebind-same',
       priorObserverGeneration: 10,
@@ -541,7 +542,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'reattach',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         durableLabel: 'podium-podium-1',
         agentKind: 'codex',
         cwd: '/repo',
@@ -557,7 +558,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     )
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       rebindId: 'rebind-lost',
       priorObserverGeneration: 10,
@@ -609,7 +610,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       observers.initSessionObservers(
         {
           type: 'reattach',
-          sessionId: 'retry-observation',
+          sessionId: asSessionId('retry-observation'),
           durableLabel: 'podium-retry-observation',
           agentKind: 'codex',
           cwd: '/repo',
@@ -629,7 +630,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       providerSessionId: string,
       transitionId: string,
     ): AgentObservation => ({
-      podiumSessionId: 'retry-observation',
+      podiumSessionId: asSessionId('retry-observation'),
       provider: 'codex',
       providerSessionId,
       bindingVersion,
@@ -666,7 +667,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'retry-observation',
+        sessionId: asSessionId('retry-observation'),
         observerGeneration: 8,
         bindingVersion: 3,
         transitionId: 'reconnected-bootstrap',
@@ -676,7 +677,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       await vi.advanceTimersByTimeAsync(CAUSAL_DELIVERY_RETRY_BASE_MS * 8)
       expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
     } finally {
-      observers.clearSession('retry-observation')
+      observers.clearSession(asSessionId('retry-observation'))
       vi.useRealTimers()
     }
   })
@@ -706,7 +707,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       observers.initSessionObservers(
         {
           type: 'reattach',
-          sessionId: 'retry-rebind',
+          sessionId: asSessionId('retry-rebind'),
           durableLabel: 'podium-retry-rebind',
           agentKind: 'codex',
           cwd: '/repo',
@@ -732,7 +733,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
 
       observers.onProviderRebindAck({
         type: 'agentObservationRebindAck',
-        sessionId: 'retry-rebind',
+        sessionId: asSessionId('retry-rebind'),
         provider: 'codex',
         rebindId: 'exact-rebind',
         priorObserverGeneration: 7,
@@ -747,7 +748,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       await vi.advanceTimersByTimeAsync(CAUSAL_DELIVERY_RETRY_BASE_MS * 8)
       expect(sent.filter((message) => message.type === 'agentObservationRebind')).toHaveLength(2)
     } finally {
-      observers.clearSession('retry-rebind')
+      observers.clearSession(asSessionId('retry-rebind'))
       vi.useRealTimers()
     }
   })
@@ -785,7 +786,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'reattach',
-        sessionId: 'podium-late',
+        sessionId: asSessionId('podium-late'),
         durableLabel: 'podium-podium-late',
         agentKind: 'codex',
         cwd: '/repo',
@@ -801,7 +802,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     )
     const baselineWatchers = statTick.watchers.size
     for (const hook_event_name of ['Stop', 'SessionEnd', 'PostToolUse']) {
-      observers.onHookPayload('podium-late', {
+      observers.onHookPayload(asSessionId('podium-late'), {
         session_id: 'thread-a',
         transcript_path: `/repo/${hook_event_name}.jsonl`,
         cwd: '/stale',
@@ -812,9 +813,9 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     expect(bindHookThread).not.toHaveBeenCalled()
     expect(translate).not.toHaveBeenCalled()
     expect(statTick.watchers.size).toBe(baselineWatchers)
-    expect(observers.trackedState('podium-late')?.phase).toBe('unknown')
+    expect(observers.trackedState(asSessionId('podium-late'))?.phase).toBe('unknown')
 
-    observers.onHookPayload('podium-late', {
+    observers.onHookPayload(asSessionId('podium-late'), {
       session_id: 'thread-c',
       transcript_path: '/repo/thread-c.jsonl',
       cwd: '/repo',
@@ -829,7 +830,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
 
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-late',
+      sessionId: asSessionId('podium-late'),
       provider: 'codex',
       rebindId: 'rebind-thread-c',
       priorObserverGeneration: 7,
@@ -842,7 +843,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       checkpoint: null,
     })
     expect(statTick.watchers.size).toBe(baselineWatchers + 1)
-    observers.clearSession('podium-late')
+    observers.clearSession(asSessionId('podium-late'))
   })
 })
 
@@ -962,7 +963,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       first.initSessionObservers(
         {
           type: 'spawn',
-          sessionId: 'podium-late-flush',
+          sessionId: asSessionId('podium-late-flush'),
           agentKind: 'claude-code',
           cwd: dir,
           geometry: G,
@@ -974,7 +975,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         claudeProvider(),
         { seedOnFrame: false },
       )
-      first.onHookPayload('podium-late-flush', hook)
+      first.onHookPayload(asSessionId('podium-late-flush'), hook)
       await vi.waitFor(() => {
         expect(firstSent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
       })
@@ -985,7 +986,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
       first.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-late-flush',
+        sessionId: asSessionId('podium-late-flush'),
         observerGeneration: 7,
         bindingVersion: 2,
         transitionId: bootstrap.transitionId,
@@ -1006,7 +1007,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         transitionKind: 'turn_opened',
         providerCursor: { components: { transcript: 0, hook: 1 } },
       })
-      first.clearSession('podium-late-flush')
+      first.clearSession(asSessionId('podium-late-flush'))
 
       const record = JSON.stringify({
         type: 'user',
@@ -1022,7 +1023,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       restarted.initSessionObservers(
         {
           type: 'reattach',
-          sessionId: 'podium-late-flush',
+          sessionId: asSessionId('podium-late-flush'),
           durableLabel: 'podium-podium-late-flush',
           agentKind: 'claude-code',
           cwd: dir,
@@ -1037,7 +1038,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         claudeProvider(),
         { seedOnFrame: false },
       )
-      restarted.onHookPayload('podium-late-flush', {
+      restarted.onHookPayload(asSessionId('podium-late-flush'), {
         ...hook,
         hook_event_name: 'SessionStart',
       })
@@ -1065,9 +1066,9 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
           at,
         ).kind,
       ).toBe('snapshot_applied')
-      restarted.clearSession('podium-late-flush')
+      restarted.clearSession(asSessionId('podium-late-flush'))
     } finally {
-      first.clearSession('podium-late-flush')
+      first.clearSession(asSessionId('podium-late-flush'))
       await rm(dir, { recursive: true, force: true })
     }
   })
@@ -1096,7 +1097,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       observers.initSessionObservers(
         {
           type: 'spawn',
-          sessionId: 'podium-composer',
+          sessionId: asSessionId('podium-composer'),
           agentKind: 'claude-code',
           cwd: dir,
           geometry: G,
@@ -1108,14 +1109,14 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         claudeProvider(),
         { seedOnFrame: false },
       )
-      observers.onHookPayload('podium-composer', prompt)
+      observers.onHookPayload(asSessionId('podium-composer'), prompt)
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
       })
       const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-composer',
+        sessionId: asSessionId('podium-composer'),
         observerGeneration: 7,
         bindingVersion: 2,
         transitionId: bootstrap.transitionId,
@@ -1133,14 +1134,14 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         .at(-1)!.observation
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-composer',
+        sessionId: asSessionId('podium-composer'),
         observerGeneration: 7,
         bindingVersion: 2,
         transitionId: opened.transitionId,
         result: 'live_transition_accepted',
         acceptedCursor: opened.providerCursor,
       })
-      observers.onHookPayload('podium-composer', { ...prompt, hook_event_name: 'Stop' })
+      observers.onHookPayload(asSessionId('podium-composer'), { ...prompt, hook_event_name: 'Stop' })
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
       })
@@ -1149,7 +1150,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       expect(idleStates).toEqual([false, true])
       expect(sent.some((message) => message.type === 'agentState')).toBe(false)
     } finally {
-      observers.clearSession('podium-composer')
+      observers.clearSession(asSessionId('podium-composer'))
       await rm(dir, { recursive: true, force: true })
     }
   })
@@ -1185,7 +1186,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       observers.initSessionObservers(
         {
           type: 'spawn',
-          sessionId: 'podium-reset-capture',
+          sessionId: asSessionId('podium-reset-capture'),
           agentKind: 'claude-code',
           cwd: dir,
           geometry: G,
@@ -1206,7 +1207,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
     try {
       init(7)
-      observers.onHookPayload('podium-reset-capture', prompt)
+      observers.onHookPayload(asSessionId('podium-reset-capture'), prompt)
       await vi.waitFor(() => expect(captures).toBe(1))
 
       init(8)
@@ -1216,7 +1217,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       await Promise.resolve()
       expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(0)
 
-      observers.onHookPayload('podium-reset-capture', prompt)
+      observers.onHookPayload(asSessionId('podium-reset-capture'), prompt)
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
       })
@@ -1225,7 +1226,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       })
       expect(captures).toBe(2)
     } finally {
-      observers.clearSession('podium-reset-capture')
+      observers.clearSession(asSessionId('podium-reset-capture'))
       await rm(dir, { recursive: true, force: true })
     }
   })
@@ -1245,7 +1246,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'spawn',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         agentKind: 'claude-code',
         cwd: dir,
         geometry: G,
@@ -1257,7 +1258,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       agentStateProviderFor('claude-code'),
       { seedOnFrame: false },
     )
-    observers.recordInputOrigin('podium-1', 'steward')
+    observers.recordInputOrigin(asSessionId('podium-1'), 'steward')
     const prompt = {
       hook_event_name: 'UserPromptSubmit',
       session_id: 'claude-1',
@@ -1265,7 +1266,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       cwd: dir,
       prompt_id: 'prompt-1',
     }
-    observers.onHookPayload('podium-1', prompt)
+    observers.onHookPayload(asSessionId('podium-1'), prompt)
     await vi.waitFor(() => {
       expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
     })
@@ -1278,7 +1279,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
 
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       transitionId: snapshot.observation.transitionId,
       result: 'snapshot_applied',
@@ -1300,7 +1301,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     })
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       bindingVersion: 2,
       transitionId: working.observation.transitionId,
@@ -1309,7 +1310,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     })
 
     const stop = { ...prompt, hook_event_name: 'Stop' }
-    observers.onHookPayload('podium-1', stop)
+    observers.onHookPayload(asSessionId('podium-1'), stop)
     await vi.waitFor(() => {
       expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
     })
@@ -1321,7 +1322,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     const terminal = sent.filter((m) => m.type === 'agentObservation').at(-1)!
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       bindingVersion: 2,
       transitionId: terminal.observation.transitionId,
@@ -1331,7 +1332,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     // A delayed predecessor ack cannot roll the accepted confirmation cursor backward.
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       bindingVersion: 2,
       transitionId: working.observation.transitionId,
@@ -1371,10 +1372,10 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       confirmations,
     )
 
-    observers.onHookPayload('podium-1', stop)
+    observers.onHookPayload(asSessionId('podium-1'), stop)
     await Promise.resolve()
     expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
-    observers.clearSession('podium-1')
+    observers.clearSession(asSessionId('podium-1'))
   })
   it('learns an ack-lost fresh Claude binding and rolls exactly once through rebind', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-roll-'))
@@ -1391,7 +1392,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'spawn',
-        sessionId: 'podium-roll',
+        sessionId: asSessionId('podium-roll'),
         agentKind: 'claude-code',
         cwd: dir,
         geometry: G,
@@ -1411,14 +1412,14 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       cwd: dir,
       prompt_id: 'prompt-1',
     }
-    observers.onHookPayload('podium-roll', firstPrompt)
+    observers.onHookPayload(asSessionId('podium-roll'), firstPrompt)
     await vi.waitFor(() => {
       expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
     })
     const firstSnapshot = sent.find((message) => message.type === 'agentObservation')!
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-roll',
+      sessionId: asSessionId('podium-roll'),
       observerGeneration: 7,
       bindingVersion: 2,
       transitionId: firstSnapshot.observation.transitionId,
@@ -1436,7 +1437,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       transcript_path: nextTranscript,
       prompt_id: 'prompt-2',
     }
-    observers.onHookPayload('podium-roll', nextPrompt)
+    observers.onHookPayload(asSessionId('podium-roll'), nextPrompt)
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === 'agentObservationRebind')).toBe(true)
     })
@@ -1458,7 +1459,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     ).toBe(false)
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-roll',
+      sessionId: asSessionId('podium-roll'),
       provider: 'claude-code',
       rebindId: rebind.rebindId,
       priorObserverGeneration: 7,
@@ -1484,7 +1485,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(sent.some((message) => message.type === 'agentState')).toBe(false)
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-roll',
+      sessionId: asSessionId('podium-roll'),
       observerGeneration: 8,
       bindingVersion: 3,
       transitionId: nextSnapshot.observation.transitionId,
@@ -1510,7 +1511,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       resumeRefs: sent.filter((message) => message.type === 'sessionResumeRef').length,
     }
     for (const hook_event_name of ['Stop', 'SessionEnd', 'PostToolUse']) {
-      observers.onHookPayload('podium-roll', {
+      observers.onHookPayload(asSessionId('podium-roll'), {
         ...firstPrompt,
         hook_event_name,
       })
@@ -1525,7 +1526,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       beforeLate.resumeRefs,
     )
 
-    observers.onHookPayload('podium-roll', {
+    observers.onHookPayload(asSessionId('podium-roll'), {
       ...nextPrompt,
       session_id: 'claude-3',
       transcript_path: join(dir, 'claude-3.jsonl'),
@@ -1547,7 +1548,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(
       beforeLate.observations,
     )
-    observers.clearSession('podium-roll')
+    observers.clearSession(asSessionId('podium-roll'))
   })
 
   it('reboots from an authoritative live rejection without replaying buffered effects', async () => {
@@ -1577,7 +1578,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       observers.initSessionObservers(
         {
           type: 'spawn',
-          sessionId: 'podium-reject',
+          sessionId: asSessionId('podium-reject'),
           agentKind: 'claude-code',
           cwd: dir,
           geometry: G,
@@ -1591,7 +1592,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         agentStateProviderFor('claude-code'),
         { seedOnFrame: false },
       )
-      observers.onHookPayload('podium-reject', prompt)
+      observers.onHookPayload(asSessionId('podium-reject'), prompt)
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
       })
@@ -1609,7 +1610,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       if (bootstrapResult.kind === 'rejected') throw new Error(bootstrapResult.rejectionReason)
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-reject',
+        sessionId: asSessionId('podium-reject'),
         observerGeneration: 7,
         bindingVersion: 2,
         transitionId: bootstrap.transitionId,
@@ -1627,10 +1628,10 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       const opened = openedMessage.observation
       expect(opened.transitionKind).toBe('turn_opened')
 
-      observers.onHookPayload('podium-reject', { ...prompt, hook_event_name: 'Stop' })
+      observers.onHookPayload(asSessionId('podium-reject'), { ...prompt, hook_event_name: 'Stop' })
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-reject',
+        sessionId: asSessionId('podium-reject'),
         observerGeneration: 7,
         bindingVersion: 2,
         transitionId: opened.transitionId,
@@ -1660,7 +1661,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
 
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-reject',
+        sessionId: asSessionId('podium-reject'),
         observerGeneration: 7,
         bindingVersion: 2,
         transitionId: recoveryMessage.observation.transitionId,
@@ -1669,7 +1670,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         acceptedCursor: recoveryMessage.observation.providerCursor,
         checkpoint: bootstrapResult.checkpoint,
       })
-      observers.onHookPayload('podium-reject', { ...prompt, prompt_id: 'prompt-2' })
+      observers.onHookPayload(asSessionId('podium-reject'), { ...prompt, prompt_id: 'prompt-2' })
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(4)
       })
@@ -1677,7 +1678,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         observation: { provenance: 'live', transitionKind: 'turn_opened' },
       })
     } finally {
-      observers.clearSession('podium-reject')
+      observers.clearSession(asSessionId('podium-reject'))
       await rm(dir, { recursive: true, force: true })
     }
   })
@@ -1703,7 +1704,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       observers.initSessionObservers(
         {
           type: 'spawn',
-          sessionId: 'podium-1',
+          sessionId: asSessionId('podium-1'),
           agentKind: 'claude-code',
           cwd: dir,
           geometry: G,
@@ -1715,7 +1716,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         agentStateProviderFor('claude-code'),
         { seedOnFrame: false },
       )
-      observers.onHookPayload('podium-1', prompt)
+      observers.onHookPayload(asSessionId('podium-1'), prompt)
     }
 
     start(7)
@@ -1723,7 +1724,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
     })
     const stale = sent.find((m) => m.type === 'agentObservation')!.observation
-    observers.clearSession('podium-1')
+    observers.clearSession(asSessionId('podium-1'))
 
     start(8)
     await vi.waitFor(() => {
@@ -1734,7 +1735,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
 
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 7,
       transitionId: stale.transitionId,
       result: 'snapshot_applied',
@@ -1748,7 +1749,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
 
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 8,
       transitionId: current.transitionId,
       result: 'snapshot_applied',
@@ -1762,7 +1763,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       provenance: 'live',
       transitionKind: 'turn_opened',
     })
-    observers.clearSession('podium-1')
+    observers.clearSession(asSessionId('podium-1'))
   })
   it.each([
     { name: 'same transcript segment', rotated: false },
@@ -1785,7 +1786,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
     const checkpoint: SessionObservationCheckpointV1 = {
       schemaVersion: 1,
-      podiumSessionId: 'podium-1',
+      podiumSessionId: asSessionId('podium-1'),
       provider: 'claude-code',
       providerSessionId: 'claude-1',
       bindingVersion: 2,
@@ -1830,7 +1831,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'reattach',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         durableLabel: 'podium-podium-1',
         agentKind: 'claude-code',
         cwd: dir,
@@ -1851,7 +1852,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       transcript_path: liveTranscript,
       cwd: dir,
     }
-    observers.onHookPayload('podium-1', sessionStart)
+    observers.onHookPayload(asSessionId('podium-1'), sessionStart)
     await vi.waitFor(() => {
       expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
     })
@@ -1875,7 +1876,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         observerGeneration: 8,
         transitionId: bootstrap.transitionId,
         result: bootResult.kind,
@@ -1888,7 +1889,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       })
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         observerGeneration: 8,
         transitionId: bootstrap.transitionId,
         result: 'rejected',
@@ -1905,13 +1906,13 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
 
     const acceptedBootstrap = bootResult.kind === 'rejected' ? checkpoint : bootResult.checkpoint
     await writeFile(liveTranscript, 'y'.repeat(120))
-    observers.recordInputOrigin('podium-1', 'human')
+    observers.recordInputOrigin(asSessionId('podium-1'), 'human')
     const prompt = {
       ...sessionStart,
       hook_event_name: 'UserPromptSubmit',
       prompt_id: 'prompt-6',
     }
-    observers.onHookPayload('podium-1', prompt)
+    observers.onHookPayload(asSessionId('podium-1'), prompt)
     await vi.waitFor(() => {
       expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(2)
     })
@@ -1928,7 +1929,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     if (openedResult.kind === 'rejected') throw new Error(openedResult.rejectionReason)
     observers.onObservationAck({
       type: 'agentObservationAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       observerGeneration: 8,
       bindingVersion: 2,
       transitionId: opened.transitionId,
@@ -1937,7 +1938,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       checkpoint: openedResult.checkpoint,
     })
 
-    observers.onHookPayload('podium-1', {
+    observers.onHookPayload(asSessionId('podium-1'), {
       ...prompt,
       hook_event_name: 'Stop',
     })
@@ -1956,7 +1957,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(terminalResult.kind).toBe('live_transition_accepted')
     if (terminalResult.kind === 'rejected') throw new Error(terminalResult.rejectionReason)
     expect(terminalResult.checkpoint.terminalFence?.turnEpoch).toBe(6)
-    observers.clearSession('podium-1')
+    observers.clearSession(asSessionId('podium-1'))
   })
 
   it.each([
@@ -2050,7 +2051,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     const checkpointTerminal = scenario !== 'lost_stop'
     const checkpoint: SessionObservationCheckpointV1 = {
       schemaVersion: 1,
-      podiumSessionId: 'podium-1',
+      podiumSessionId: asSessionId('podium-1'),
       provider: 'claude-code',
       providerSessionId: 'claude-1',
       bindingVersion: 2,
@@ -2106,7 +2107,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     observers.initSessionObservers(
       {
         type: 'reattach',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         durableLabel: 'podium-podium-1',
         agentKind: 'claude-code',
         cwd: dir,
@@ -2127,7 +2128,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       transcript_path: transcript,
       cwd: dir,
     }
-    observers.onHookPayload('podium-1', sessionStart)
+    observers.onHookPayload(asSessionId('podium-1'), sessionStart)
     await vi.waitFor(() => {
       expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
     })
@@ -2166,7 +2167,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       })
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         observerGeneration: 8,
         transitionId: bootstrap.transitionId,
         result: 'rejected',
@@ -2188,7 +2189,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       })
       observers.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-1',
+        sessionId: asSessionId('podium-1'),
         observerGeneration: 8,
         transitionId: bootstrap.transitionId,
         result: 'snapshot_applied',
@@ -2201,7 +2202,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
 
     if (opensNewEpoch && reconciledPhase === 'working') {
       if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
-      observers.onHookPayload('podium-1', {
+      observers.onHookPayload(asSessionId('podium-1'), {
         ...sessionStart,
         hook_event_name: 'Stop',
       })
@@ -2223,6 +2224,6 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         'live_transition_accepted',
       )
     }
-    observers.clearSession('podium-1')
+    observers.clearSession(asSessionId('podium-1'))
   })
 })

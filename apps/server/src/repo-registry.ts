@@ -185,9 +185,7 @@ export class RepoRegistry {
     )
 
     return {
-      // POD-361-EDGE-CAST (POD-362 owns): `repoId`/`machineId` are stamped from
-      // plain-string store rows.
-      repositories: perMachine.flatMap((r) => r.repositories) as GitRepositoryWire[],
+      repositories: perMachine.flatMap((r) => r.repositories),
       diagnostics: perMachine.flatMap((r) => r.diagnostics),
     }
   }

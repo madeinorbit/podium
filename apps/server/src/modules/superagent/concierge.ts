@@ -3,7 +3,7 @@
  * identity, the repo-scoped system prompt, and the deterministic tracker
  * digest/delta blocks that seed a thread's harness turns.
  */
-import type { IssueWire } from '@podium/model'
+import type { IssueWire, SessionId } from '@podium/model'
 
 /** Per-repo concierge intake thread (issue #64). One thread per repo path, id
  *  deterministic + reversible: `concierge_<base64url(repoPath)>`. */
@@ -44,7 +44,7 @@ export interface ConciergeEvent {
 }
 
 export interface ConciergeSessionInfo {
-  sessionId: string
+  sessionId: SessionId
   name?: string
   agentKind?: string
   phase?: string

@@ -1,5 +1,5 @@
 import { type ChatBlock, type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
-import type { TranscriptItem, TranscriptTag } from '@podium/model'
+import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model'
 
 /**
  * Pure helpers for the chat view: transcript search and the birds-eye minimap
@@ -295,7 +295,7 @@ export interface QueuedChatMessage {
   at: number
 }
 
-export function queuedOperatorMessages(rows: unknown, sessionId: string): QueuedChatMessage[] {
+export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): QueuedChatMessage[] {
   if (!Array.isArray(rows)) return []
   return rows
     .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
