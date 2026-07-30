@@ -29,6 +29,7 @@ import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
+import { OPERATOR } from '../../apps/server/src/issue-authz'
 import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { sha256 } from '../../apps/server/src/modules/machines/service'
 import { RepoRegistry } from '../../apps/server/src/repo-registry'
@@ -152,8 +153,14 @@ const control = createServer((req, res) => {
         result = mods.sessions.sendText(body as { sessionId: string; text: string })
       } else if (req.method === 'POST' && url.pathname === '/handoff') {
         const body = await readBody(req)
+        // The caller is passed EXPLICITLY, as the tRPC procedure does (POD-642):
+        // this loopback control API stands in for the operator's browser, so the
+        // two-machine scenario exercises the same principal seam production does
+        // rather than the service's compatibility default. `use` on both machines
+        // is resolved from this capability.
         result = await mods.sessions.handoffSession(
           body as { sessionId: string; machineId: string },
+          { capability: OPERATOR },
         )
       } else if (req.method === 'POST' && url.pathname === '/scan') {
         result = await repoRegistry.scanReposAll()
