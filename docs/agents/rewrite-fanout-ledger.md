@@ -1448,3 +1448,49 @@ generalised one scope too wide.
 **Confirmed: `podium session send` is the working channel.** After the mail sat queued two hours, the same
 instruction sent via `session send` reached POD-382 and it is mid-merge (`MERGE_HEAD` present, four files
 unmerged) within minutes. That settles POD-1174's recommendation from evidence rather than inference.
+
+## A CLEAN MERGE IS NOT A GREEN ONE — and an unverified merge on integration LEAKS TO SIBLINGS
+
+Two branches merged with ZERO conflicts this sweep and both were broken afterwards. Git having nothing to
+say is not evidence; it only ever compared the two diffs, never the resulting type graph.
+
+**POD-731 merged clean, then failed the workspace typecheck.** POD-382's commit `63c316e7` had added 39
+lines to `packages/commands/src/contract.ts` after POD-731 branched. That ONE landing caused TWO distinct
+breaks in POD-731, and each is a different failure shape worth recognising:
+
+- **TS2352**, its two widening casts over `WORKFLOW_CONTRACTS` no longer "sufficiently overlap" — the
+  union it casts FROM grew.
+- **TS2741**, `visibility` became REQUIRED, so eleven contracts are missing a property. **Vitest cannot
+  see this at all.** It is type-level only: the test lane stays green while every build fails.
+
+**The propagation, which is the expensive part and was my error.** I left that merge on `issue/279-integration`
+while I ran the typecheck. In that ~20-minute window POD-351 merged integration, absorbed the broken commit,
+and now carries POD-731's workflow files through a merge commit I subsequently reset away — its tree has
+`packages/commands/src/workflows/*` even though POD-731's branch tip is not an ancestor of it. A merge that
+existed for twenty minutes is now permanently in a sibling's history.
+
+**THE RULE: verify BEFORE the merge commit is visible.** Merge with `--no-commit`, run the workspace
+typecheck, and only then commit — or accept that every sibling merging integration during your verification
+window inherits whatever you were about to reject. Resetting integration does NOT un-ship it.
+
+**Corollaries earned the same sweep:**
+
+- **Run BOTH typechecks after every merge, even when git reports no conflict.** In-package was clean while
+  the workspace one was red (POD-729 broke `apps/web` while `apps/server` passed; POD-731 broke
+  `packages/commands`).
+- **A trivial conflict on a heavily-edited file is a WARNING, not a relief.** POD-389's single hunk in
+  `sessions/service.ts` was two imports against a blank line only because POD-382 had rewritten that file an
+  hour earlier and git merged the rest silently. Verify both intents survived INDEPENDENTLY — 389's mux
+  removal AND 382's zero hand-written session mutations — rather than accepting the exit code.
+- **A branch you already merged can advance.** `podium issue cleanup` refused POD-382 because its tip had
+  moved one commit past what I closed it on. `git rev-list --count HEAD..<branch>` must be 0 at cleanup
+  time, not merely at close time.
+- **Do not fix another issue's classification to green the build.** POD-731's missing `visibility` is one
+  line per contract and is NOT mechanical: it names which ADR 9 D3 class the written state belongs to, it is
+  default-closed so a wrong guess cannot ride in, and guessing wrong bakes a wrong class into eleven
+  contracts at once. POD-351 found it and deliberately left it. Correct.
+- **The structural non-conflict.** POD-351 could not merge for a reason git cannot express: it had built
+  `renameProc` as a hand-written procedure and POD-382 deleted that entire surface, with
+  `scripts/audit-session-commands.ts` now failing the build if any session `.mutation(` appears in
+  `router.ts`. The fix was a re-point onto the derived surface — and the contract and reducer needed NO
+  changes, which is the first demonstration in this run that the port shapes actually hold.
