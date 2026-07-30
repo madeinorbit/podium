@@ -93,6 +93,11 @@ export type TerminalFence = z.infer<typeof TerminalFence>
 export const AgentObservation = z.object({
   podiumSessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
+  /** UNBRANDED BY DECISION: the PROVIDER's own session id, not Podium's. It sits
+   *  beside the branded `podiumSessionId` above precisely because they are different
+   *  id spaces — a resume that rolls into a new provider session changes this and
+   *  keeps that. `ids/brands.ts` records that a harness-native id has no brand and
+   *  should not get one: it is evidence, not identity. */
   providerSessionId: z.string().min(1).nullable(),
   bindingVersion: z.number().int().nonnegative(),
   providerTurnId: z.string().min(1).nullable(),
@@ -121,6 +126,11 @@ export const SessionObservationCheckpointV1 = z.object({
   schemaVersion: z.literal(1),
   podiumSessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
+  /** UNBRANDED BY DECISION: the PROVIDER's own session id, not Podium's. It sits
+   *  beside the branded `podiumSessionId` above precisely because they are different
+   *  id spaces — a resume that rolls into a new provider session changes this and
+   *  keeps that. `ids/brands.ts` records that a harness-native id has no brand and
+   *  should not get one: it is evidence, not identity. */
   providerSessionId: z.string().min(1).nullable(),
   bindingVersion: z.number().int().nonnegative(),
   lifecycleObservationGeneration: z.number().int().nonnegative(),
@@ -163,6 +173,11 @@ export const AgentObserverLiveConfirmationMessage = z.object({
   type: z.literal('agentObserverLiveConfirmation'),
   sessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
+  /** UNBRANDED BY DECISION: the PROVIDER's own session id, not Podium's. It sits
+   *  beside the branded `sessionId` above precisely because they are different
+   *  id spaces — a resume that rolls into a new provider session changes this and
+   *  keeps that. `ids/brands.ts` records that a harness-native id has no brand and
+   *  should not get one: it is evidence, not identity. */
   providerSessionId: z.string().min(1).nullable(),
   bindingVersion: z.number().int().positive(),
   observerGeneration: z.number().int().positive(),
@@ -203,9 +218,19 @@ export const AgentObservationRebindMessage = z.object({
   type: z.literal('agentObservationRebind'),
   sessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
+  /** UNBRANDED BY DECISION: the PROVIDER's own session id, not Podium's. It sits
+   *  beside the branded `sessionId` above precisely because they are different
+   *  id spaces — a resume that rolls into a new provider session changes this and
+   *  keeps that. `ids/brands.ts` records that a harness-native id has no brand and
+   *  should not get one: it is evidence, not identity. */
   providerSessionId: z.string().min(1).nullable(),
   observerGeneration: z.number().int().positive(),
   bindingVersion: z.number().int().positive(),
+  /** UNBRANDED BY DECISION: the PROVIDER's own session id, not Podium's. It sits
+   *  beside the branded `sessionId` above precisely because they are different
+   *  id spaces — a resume that rolls into a new provider session changes this and
+   *  keeps that. `ids/brands.ts` records that a harness-native id has no brand and
+   *  should not get one: it is evidence, not identity. */
   nextProviderSessionId: z.string().min(1),
   resumeKind: z.string().min(1),
   rebindId: z.string().min(1),
@@ -219,8 +244,15 @@ export const AgentObservationRebindAckMessage = z.object({
   rebindId: z.string().min(1),
   priorObserverGeneration: z.number().int().positive(),
   priorBindingVersion: z.number().int().positive(),
+  /** UNBRANDED BY DECISION: the PROVIDER's own session id, not Podium's. It sits
+   *  beside the branded `sessionId` above precisely because they are different
+   *  id spaces — a resume that rolls into a new provider session changes this and
+   *  keeps that. `ids/brands.ts` records that a harness-native id has no brand and
+   *  should not get one: it is evidence, not identity. */
   nextProviderSessionId: z.string().min(1),
-  /** Current durable identity after applying (accepted) or rejecting the request. */
+  /** Current durable identity after applying (accepted) or rejecting the request.
+   *  UNBRANDED BY DECISION: the PROVIDER's session id, not Podium's — a
+   *  harness-native id, which `ids/brands.ts` records as evidence, not identity. */
   providerSessionId: z.string().min(1).nullable(),
   result: z.enum(['accepted', 'rejected']),
   rejectionReason: ObservationRejectionReason.optional(),

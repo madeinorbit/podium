@@ -18,7 +18,7 @@
     "panel-mode-duality": 3,
     "per-user-singletons": 8,
     "publish-computed-fanout": 13,
-    "raw-string-entity-ids": 47,
+    "raw-string-entity-ids": 36,
     "reexport-shims": 22,
     "representation-registry-rot": 0,
     "router-triple-access": 61,
@@ -27,7 +27,7 @@
     "state-dir-defs": 0,
     "static-systemd-units": 11,
     "superagent-shadow-types": 2,
-    "unbranded-by-decision-ids": 2,
+    "unbranded-by-decision-ids": 13,
     "upstream-sync-forwarder": 4,
     "web-storage-keys": 12
   }

@@ -108,7 +108,10 @@ export const HeadlessTurnResultMessage = z.object({
   requestId: z.string(),
   ok: z.boolean(),
   error: z.string().optional(),
-  /** The harness's own session id (resume value for the next turn). */
+  /** The harness's own session id (resume value for the next turn).
+   *  UNBRANDED BY DECISION: harness-minted, so it names the harness's id space
+   *  and not Podium's `SessionId` — see `ids/brands.ts`, which lists a resume
+   *  ref among the ids that must stay raw. */
   harnessSessionId: z.string().optional(),
   /** Final assistant text — durability/fallback; the transcript tail is canonical. */
   output: z.string().optional(),
