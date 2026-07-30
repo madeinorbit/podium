@@ -80,12 +80,30 @@ describe('covered range — contiguous and non-overlapping PER CONNECTION', () =
     ])
   })
 
-  it('a connection attached MID-FEED is not certified a range it never had', () => {
-    // The bug this pins: deriving `fromSeq` from the batch's first seq. That
-    // reads naturally and is wrong — a connection attached at 5 would be handed a
-    // frame claiming to cover from 0, and its cursor would then certify five seqs
-    // it never received. Two connections at different positions is the only
-    // fixture in which the two implementations differ.
+  it('certifies from the CONNECTION position even when the batch starts above it', () => {
+    // THE BUG THIS PINS: deriving `fromSeq` from the batch's first seq. It reads
+    // naturally and it is wrong, and the wrongness is invisible unless the batch
+    // SKIPS a seq — which is routine, since a seq the authority evaluated and
+    // deduped away produces no row.
+    //
+    // Here the connection sits at 2 and the next batch begins at 4. The true
+    // certified range is (2, 5]: the authority evaluated 3 and found nothing. The
+    // batch-derived spelling emits (3, 5] instead, so seq 3 is never certified by
+    // anyone — an invisible permanent gap, because the replica's contiguity rule
+    // sees `fromSeq === cursor` fail once, heals, and is handed the same hole
+    // again. This is the exact failure ADR 2 warns POD-308 about.
+    //
+    // My first draft of this case published a CONTIGUOUS batch, where the two
+    // spellings agree and the mutant survives it. Measured, not assumed: mutating
+    // `fromSeq` to the batch-derived form left that version green.
+    const feed = publisher()
+    const connection = feed.connect('late', 2)
+    feed.publish([change(4, 'd'), change(5, 'e')])
+
+    expect(deltas(connection.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[2, 5]])
+  })
+
+  it('two connections at DIFFERENT positions each get their own lower bound', () => {
     const feed = publisher()
     const early = feed.connect('early', 0)
     feed.publish([change(1, 'a'), change(2, 'b')])
