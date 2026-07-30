@@ -5,7 +5,7 @@
  * than being served with an implicit default.
  */
 
-import { WorkState } from '@podium/model'
+import { OP_STREAM_MEMBERS, WorkState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { type CommandDef, commandExposure, isExposedOn } from './commands'
@@ -192,8 +192,12 @@ describe('the composer draft reserves op-stream without building it (§4)', () =
   const draft = sessionPresenceCommands.defs.setDraft
   const parse = (input: unknown) => draft.input.safeParse(input)
 
-  it('declares the op-stream conflict class and records the reasoning ON the contract', () => {
+  it('declares the op-stream conflict class, and the draft is a DECLARED member of the reserved set', () => {
     expect(draft.conflict).toBe('op-stream')
+    // The class's membership is closed (ADR 1 Am1 D12) and POD-365 already owns
+    // the list. This contract must be reserving a member of THAT set, not
+    // inventing a twelfth op-stream field by convenience.
+    expect(OP_STREAM_MEMBERS).toContain('session.composerDraft')
     expect(draft.decision).toContain('op-stream')
     // §3.3 classifies the draft as shared-surface state, NOT per-user. If a later
     // implementer deviates, the deviation must be recorded here — this assertion
@@ -209,18 +213,18 @@ describe('the composer draft reserves op-stream without building it (§4)', () =
     expect(parse({ sessionId: 's', edit: { kind: 'splice', at: 0 } }).success).toBe(false)
   })
 
-  it('baseRev is optional — absent is today’s unconditional write, present enables rejection', () => {
+  it('baseRevision is optional — absent is today’s unconditional write, present enables rejection', () => {
     expect(parse({ sessionId: 's', edit: { kind: 'replace', text: 'x' } }).success).toBe(true)
-    expect(parse({ sessionId: 's', baseRev: 3, edit: { kind: 'replace', text: 'x' } }).success).toBe(
+    expect(parse({ sessionId: 's', baseRevision: 3, edit: { kind: 'replace', text: 'x' } }).success).toBe(
       true,
     )
     // A revision is an ordinal, not a timestamp or a string: -1 and 1.5 are not
     // revisions the Authority could have issued.
-    expect(parse({ sessionId: 's', baseRev: -1, edit: { kind: 'replace', text: 'x' } }).success).toBe(
+    expect(parse({ sessionId: 's', baseRevision: -1, edit: { kind: 'replace', text: 'x' } }).success).toBe(
       false,
     )
     expect(
-      parse({ sessionId: 's', baseRev: 1.5, edit: { kind: 'replace', text: 'x' } }).success,
+      parse({ sessionId: 's', baseRevision: 1.5, edit: { kind: 'replace', text: 'x' } }).success,
     ).toBe(false)
   })
 })

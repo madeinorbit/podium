@@ -28,12 +28,18 @@
  *     of §3.1.3 A3's attribution pair (actor + on-behalf-of). It is preserved
  *     verbatim across this move; the on-behalf-of half is POD-1075's to add.
  *
- * Deliberately NOT added here: no `user`/`owner`/`grant` scope members and no
- * new action names. ADR 3 D2 already carries `read`/`write`/`manage` with
- * `machine` as a declared resource scope kind, so §3.1.4 M1's see/use/manage
- * needs an OWNER and a per-machine GRANT LIST, not a new action vocabulary —
- * and how those three verbs map onto the existing actions is POD-1079's call,
- * not this scaffold's.
+ * ── EXTENDED (POD-380) ──────────────────────────────────────────────────────
+ * `IssueScope` now carries the two §3.1.1/§3.3 members the presence-class session
+ * writes need — `owned` (owner-or-grant) and `self` (per-user state) — and
+ * {@link authorize}'s target widened to {@link AuthTarget} so one function decides
+ * for issues, owned entities and per-user rows. This follows invariant 2
+ * literally: the extension is THIS function, not a second check beside it.
+ *
+ * Still NOT added: no new ACTION names. ADR 3 D2 already carries
+ * `read`/`write`/`manage` with `machine` as a declared resource scope kind, so
+ * §3.1.4 M1's see/use/manage needs an OWNER and a per-machine GRANT LIST, not a
+ * new action vocabulary — and how those three verbs map onto the existing actions
+ * is POD-1079's call, not this scaffold's.
  */
 
 import { assertUnreachable } from '../exhaustive'
@@ -60,7 +66,49 @@ const ROLE_ACTIONS: Record<IssueRole, IssueAction[]> = {
  * discriminated members of THIS union — never by widening `kind` to `string`,
  * which would silently disable every totality check that guards the extension.
  */
-export type IssueScope = { kind: 'all' } | { kind: 'none' } | { kind: 'subtree'; rootId: string }
+export type IssueScope =
+  | { kind: 'all' }
+  | { kind: 'none' }
+  | { kind: 'subtree'; rootId: string }
+  /**
+   * OWNER-OR-GRANT (POD-380, docs/multi-user-readiness.md §3.1.1 personal class).
+   * The principal writes what it OWNS plus what has been explicitly GRANTED to it.
+   * `userId` is the principal's identity — for an agent, its delegating human,
+   * because §3.1.3 A1 resolves an agent's rights as its scope intersected with its
+   * human's CURRENT rights, so the identity a grant is matched against is always
+   * the human at the root of the delegation chain.
+   */
+  | { kind: 'owned'; userId: string }
+  /**
+   * SELF (§3.3 per-user state). The principal writes only rows keyed to its own
+   * `userId`. Deliberately NOT a narrow `owned`: per-user state is NON-GRANTABLE
+   * by construction (ADR 9 D3 rule 4 — there is no "share my read state" verb), so
+   * a grant list must have no way to widen it. Keeping them separate members is
+   * what makes that unrepresentable rather than merely unimplemented.
+   */
+  | { kind: 'self'; userId: string }
+
+/**
+ * What a decision is ABOUT. `kind` is optional so the ~4 shipped call sites that
+ * pass a bare `{ id, ancestorIds }` keep meaning "an issue" — the legacy shape is
+ * the `issue` member with its tag elided, not a new permissive default.
+ *
+ * The two new members carry the facts the new scopes need. They are read from the
+ * STORE by the caller, never from a payload (ADR 3 D7).
+ */
+export type AuthTarget =
+  | { kind?: 'issue'; id: string; ancestorIds?: string[] }
+  /** An owned entity (a session, here): its owner and the grants on it. */
+  | {
+      kind: 'owned'
+      id: string
+      /** `null` = unowned. An unowned entity is NOT ambient: see {@link authorize}. */
+      owner: string | null
+      /** User ids explicitly granted write on this entity. */
+      grants?: readonly string[]
+    }
+  /** One row of the per-user state family, identified by whose row it is. */
+  | { kind: 'per-user-row'; userId: string }
 
 /** Full authz outcome: a hard role denial vs. a scope violation the caller may knowingly override. */
 export type AuthDecision = 'allow' | 'forbidden' | 'confirm-required'
@@ -142,7 +190,7 @@ function outOfScope(opts?: { override?: boolean }): AuthDecision {
 export function authorize(
   cap: Capability,
   action: IssueAction,
-  issue?: { id: string; ancestorIds?: string[] },
+  issue?: AuthTarget,
   opts?: { override?: boolean },
 ): AuthDecision {
   if (!ROLE_ACTIONS[cap.role].includes(action)) return 'forbidden'
@@ -156,9 +204,46 @@ export function authorize(
       return issue ? outOfScope(opts) : 'allow'
     case 'subtree': {
       if (!issue) return 'allow'
+      // A subtree capability is an ISSUE-tree capability. Handing it an owned
+      // entity or a per-user row is not a scope violation to be overridden — it is
+      // a category error, and answering 'confirm-required' would let
+      // `--outside-scope` convert it into an allow. Forbidden, without an override.
+      if (issue.kind === 'owned' || issue.kind === 'per-user-row') return 'forbidden'
       const inSubtree =
         issue.id === scope.rootId || (issue.ancestorIds ?? []).includes(scope.rootId)
       return inSubtree ? 'allow' : outOfScope(opts)
+    }
+    case 'owned': {
+      if (!issue) return 'allow' // additive: creating what you will own
+      switch (issue.kind) {
+        case 'owned':
+          // An UNOWNED entity is not ambient (§3.1.1 default-closed, and §3.1.4 M4's
+          // all-in-one case): absent ownership fails toward refusal. It is also NOT
+          // overridable — `--outside-scope` confirms crossing an ISSUE boundary
+          // (ADR 3 D2), and reusing it here would make it a general escalation.
+          if (issue.owner === null) return 'forbidden'
+          return issue.owner === scope.userId || (issue.grants ?? []).includes(scope.userId)
+            ? 'allow'
+            : 'forbidden'
+        case 'per-user-row':
+          // §3.3: an owner-or-grant capability does not reach anybody's per-user
+          // rows, including its own — a per-user write needs a `self` scope, so
+          // this cannot silently become "the owner may set your readAt".
+          return 'forbidden'
+        default:
+          // An ISSUE target under an owned scope: this capability says nothing
+          // about issue trees, so it grants nothing over one.
+          return 'forbidden'
+      }
+    }
+    case 'self': {
+      if (!issue) return 'allow'
+      // The ONE thing a self scope may write: its own row. Not another user's row,
+      // and not a shared entity — a `self` principal that could rename a session
+      // would be an owner-or-grant capability wearing the wrong name.
+      return issue.kind === 'per-user-row' && issue.userId === scope.userId
+        ? 'allow'
+        : 'forbidden'
     }
     default:
       return assertUnreachable(scope)

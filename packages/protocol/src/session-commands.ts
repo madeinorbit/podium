@@ -208,35 +208,43 @@ const tabsSetOrder: CommandDef = {
  * co-watched; making it per-user would delete a shipped collaboration behaviour,
  * which is a product decision and not a migration's to take.
  *
- * WHAT THE RESERVATION BUYS, so becoming `op-stream` needs no further wire change:
+ * THIS IS THE COMMAND HALF OF A RESERVATION THAT ALREADY EXISTS. POD-365 reserved
+ * the DOCUMENT half in `@podium/model`'s `OpStreamDocument` (`{value, revision?,
+ * opsTail?}`) and listed `session.composerDraft` in `OP_STREAM_MEMBERS`. This
+ * contract must not fork that vocabulary, so it borrows its names:
  *
- *  1. `baseRev` — the revision the edit was composed against. Absent means
+ *  1. `baseRevision` — the document `revision` the edit was composed against
+ *     (`OpStreamDocument.revision`, not a second numbering). Absent means
  *     "unconditional", exactly today's whole-body write, so nothing breaks; present
- *     means the Authority may reject or rebase (POD-316). An op-stream edit needs
- *     no new envelope field: an op IS a `{baseRev, edit}` pair.
+ *     means the Authority may reject or rebase (POD-316). An op needs no new
+ *     envelope field: an op IS a `{baseRevision, edit}` pair.
  *  2. `edit` is a UNION whose only member today is `{kind: 'replace', text}`. Adding
  *     `{kind: 'splice', at, remove, insert}` later is an ADDITIVE variant on an
  *     existing discriminated union — the shape POD-300's wire rules already permit —
- *     rather than a new field on a flat payload.
+ *     rather than a new field on a flat payload. A `replace` supplies the document's
+ *     materialized `value`; a splice would append to its `opsTail`.
  *  3. The materialized value travels with the document. ADR 2 D5's retention proof
  *     depends on the bootstrap snapshot being POSITIVE STATE, so ops are only safe
  *     to head-prune if they compact into a materialized snapshot. `replace` carries
- *     the whole materialized text, so a document entity carrying its materialized
- *     value plus a bounded recent-op tail keeps D5 intact.
+ *     the whole materialized text, which is why POD-365 made `value` the required
+ *     member and the tail the additive one.
  *
  * WHAT THE RESERVATION DOES NOT DO: it does not make concurrent editing safe. A
  * `replace` still overwrites. The shipped shape must not let one writer's text
- * silently overwrite another's, and `baseRev` is what makes that enforceable —
- * a stale `baseRev` is a REJECTION the author can see, not a silent clobber. The
- * handler therefore rejects a stale `baseRev` rather than ignoring it, which is
- * the smallest thing that keeps the promise without building op transport.
+ * silently overwrite another's, and `baseRevision` is what makes that enforceable —
+ * a stale `baseRevision` is a REJECTION the author can see, not a silent clobber.
+ * The handler therefore rejects a stale `baseRevision` rather than ignoring it,
+ * which is the smallest thing that keeps the promise without building op transport.
+ * It also discharges D10's named interim defect against the composer draft: before
+ * session sharing ships, the draft must either move to `op-stream` or be gated to a
+ * single writer, and a rejected stale revision IS that gate.
  */
 const sessionDraft: CommandDef = {
   input: z.object({
     sessionId: z.string(),
-    /** The document revision this edit was composed against. Absent ⇒
+    /** The `OpStreamDocument.revision` this edit was composed against. Absent ⇒
      *  unconditional (today's behaviour); present ⇒ the Authority may reject. */
-    baseRev: z.number().int().nonnegative().optional(),
+    baseRevision: z.number().int().nonnegative().optional(),
     /** ADDITIVE union — `splice` joins it when op-stream is built. */
     edit: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('replace'), text: z.string() }),
@@ -254,7 +262,7 @@ const sessionDraft: CommandDef = {
   },
   conflict: 'op-stream',
   decision:
-    'RESERVED, not built (§4). Shared-surface class per §3.3, not per-user. baseRev + a discriminated edit union make the op-stream promotion additive; a stale baseRev is rejected, never silently applied, so no writer’s text is clobbered without the author being told.',
+    'RESERVED, not built (§4), composing POD-365’s OpStreamDocument vocabulary rather than a second one. Shared-surface class per §3.3, not per-user. baseRevision + a discriminated edit union make the op-stream promotion additive; a stale baseRevision is REJECTED, never silently applied, so no writer’s text is clobbered without the author being told — which is also ADR 1 Am1 D10’s required single-writer gate for the draft.',
 }
 
 // ---------------------------------------------------------------------------
