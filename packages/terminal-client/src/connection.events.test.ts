@@ -63,6 +63,12 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
   const noop = () => {}
   const total: DispatchHandlers<ServerMessage> = {
     approvalsChanged: noop,
+    // wire v2 (POD-308) — a v1 peer handles these as explicit no-ops; see
+    // connection.ts for why the table must still name them.
+    feedDelta: noop,
+    feedBootstrap: noop,
+    feedRescope: noop,
+    feedResyncRequired: noop,
     welcome: noop,
     pong: noop,
     attached: noop,

@@ -949,6 +949,23 @@ export class SocketHub {
     metadataDelta: (msg) => {
       this.ingestDelta(msg)
     },
+    // ---- wire v2 (POD-308) ----
+    // THIS BUILD IS A WIRE v1 PEER, deliberately and for one rollout window.
+    // `hello` advertises no `wireVersion`, so the server serves it through the
+    // legacy v1 edge adapter and these frames never arrive. They are handled
+    // explicitly rather than left off the table because the table is TOTAL: a
+    // silent gap is what the exhaustiveness check exists to prevent, and an
+    // ignored frame must be an ignored frame ON PURPOSE.
+    //
+    // The rollout order is server → clients → daemons
+    // (docs/rearch-wire-cutover-rollout.md): consuming the feed here — cursor
+    // triple, certified range, evict, rescope — is the CLIENT step, and doing it
+    // in the same change as the server step would have made the two
+    // undeployable separately, which is the whole property the window buys.
+    feedDelta: () => {},
+    feedBootstrap: () => {},
+    feedRescope: () => {},
+    feedResyncRequired: () => {},
     sessionsChanged: (msg) => {
       this.sessionList = msg.sessions
       this.emit('sessions', this.sessionList)
