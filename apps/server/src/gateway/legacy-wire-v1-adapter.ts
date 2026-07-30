@@ -70,7 +70,12 @@ import type {
   WireAdapterExpiry,
   WireVersionAdapter,
 } from '@podium/protocol'
-import type { FeedFrame, LegacyPeer } from './wire-feed-edge'
+import type {
+  FeedFrame,
+  LegacyAdvisoryKind,
+  LegacyAdvisorySource,
+  LegacyPeer,
+} from './wire-feed-edge'
 
 /**
  * THE EXPIRY, as data.
@@ -126,7 +131,9 @@ export interface LegacyWireV1Deps {
   diagnostics(): ConversationDiagnosticWire[]
 }
 
-export class LegacyWireV1Adapter implements WireVersionAdapter<FeedFrame, ServerMessage, LegacyPeer> {
+export class LegacyWireV1Adapter
+  implements WireVersionAdapter<FeedFrame, ServerMessage, LegacyPeer>, LegacyAdvisorySource
+{
   readonly version = 1
   readonly name = 'legacy-wire-v1'
   readonly expiry = LEGACY_WIRE_V1_EXPIRY
@@ -213,6 +220,24 @@ export class LegacyWireV1Adapter implements WireVersionAdapter<FeedFrame, Server
       touched.add(change.entity)
     }
     return [...touched]
+  }
+
+  /**
+   * Re-serve an advisory this wire carries INSIDE an entity message (POD-1203).
+   *
+   * The conversation scan diagnostics are the only one, and this method is the
+   * whole reason they still reach a v1 peer promptly: they are not feed content,
+   * so no frame carries them, and before the cutover the server forced a full
+   * conversation snapshot at delta clients whenever they changed. Same bytes,
+   * same trigger, built from THIS projection instead of from a feature's list —
+   * and it goes out to a delta peer too, because a v1 delta peer has no other
+   * vocabulary for "the diagnostics moved".
+   */
+  advisory(kind: LegacyAdvisoryKind, peer: LegacyPeer): readonly ServerMessage[] {
+    void peer
+    if (kind !== 'conversation-diagnostics') return []
+    const message = this.snapshot('conversation')
+    return message === null ? [] : [message]
   }
 
   private snapshotsFor(peer: LegacyPeer, kinds: readonly LegacyKind[]): ServerMessage[] {

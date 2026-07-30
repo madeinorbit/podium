@@ -61,6 +61,7 @@
 
 import { SOLE_USER_ID } from '@podium/model'
 import { asCapabilityRef, asDeviceId, asUserId, type UserPrincipal } from '@podium/protocol'
+import { DEVICE_GRADE_PRINCIPAL, type FeedPrincipal } from '@podium/sync'
 
 /**
  * The principal of one `/client` connection. A `UserPrincipal` whose `user` is
@@ -106,3 +107,27 @@ export const deviceClientPrincipal = (connectionId: string): ClientPrincipal => 
   // OPAQUE here by construction. The gateway carries it and never inspects it.
   capability: asCapabilityRef('cap:operator'),
 })
+
+/**
+ * The FEED principal one client connection stands for (POD-1203).
+ *
+ * EVERY connection maps to the ONE device-grade principal, and that is a
+ * statement about what this transport can authenticate rather than a
+ * simplification. `auth-store.ts` is one shared password and
+ * {@link CLIENT_PRINCIPAL_GRADE} is `'device'`, so two connections presenting it
+ * are indistinguishable AS PERSONS — deriving a distinct feed principal per
+ * connection would produce slices that LOOK per-user while being decided by a
+ * shared credential, which POD-1077 named as worse than an honestly unscoped
+ * one because it reads as privacy.
+ *
+ * It is also what makes the serving path work at all: the funnel subscribes the
+ * Authority for `DEVICE_GRADE_PRINCIPAL`, and a connection registered under any
+ * other principal would simply never be published to. The two must be the same
+ * value, and this function is where that is said once.
+ *
+ * When per-user login lands, this is the function that stops being a constant.
+ */
+export const feedPrincipalOf = (principal: ClientPrincipal): FeedPrincipal => {
+  void principal
+  return DEVICE_GRADE_PRINCIPAL
+}

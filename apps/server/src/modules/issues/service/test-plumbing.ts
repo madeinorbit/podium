@@ -4,14 +4,17 @@ import type { IssueDeps } from './types'
 
 /**
  * TEST-ONLY funnel/ledger/publish plumbing for IssueDeps (issues #190, #255):
- * a minimal in-memory IssueFunnel (authorize → write for the write-only sites,
- * snapshot-forwarding publishComputed), a REAL write-seam {@link Ledger} over
- * an in-memory change-log store (pass-through transact — atomicity with the
- * SessionStore is covered by the ledger suites, not here), plus the two issue
- * PublishSpec builders WITHOUT the upstream-mirror union. Every published
- * snapshot is forwarded to `broadcast` — the message stream service tests
- * asserted on back when IssueDeps carried a raw `broadcast(msg)` hook.
- * Production wiring lives in relay.ts (WriteFunnel + Ledger + IssuePublisher).
+ * a minimal in-memory IssueFunnel (authorize → write for the write-only sites),
+ * a REAL write-seam {@link Ledger} over an in-memory change-log store
+ * (pass-through transact — atomicity with the SessionStore is covered by the
+ * ledger suites, not here), plus the two issue PublishSpec builders WITHOUT the
+ * upstream-mirror union. Production wiring lives in relay.ts (WriteFunnel +
+ * Ledger + IssuePublisher).
+ *
+ * `broadcast` NO LONGER RECEIVES ANYTHING (POD-1203): the snapshot tail every
+ * issue mutation used to call is deleted, so a caller wanting to observe what a
+ * mutation published reads the ledger's appended rows — which is the same truth
+ * a client is served from, and was not before.
  */
 export function issueTestPlumbing(
   broadcast: (msg: ServerMessage) => void = () => {},
@@ -22,7 +25,6 @@ export function issueTestPlumbing(
         op.authorize?.()
         return op.write()
       },
-      publishComputed: (snapshot) => broadcast(snapshot),
     },
     ledger: new Ledger({
       repo: memoryChangeLogStore(),

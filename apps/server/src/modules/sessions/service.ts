@@ -55,6 +55,7 @@ import {
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
+  FEED_MESSAGE_TYPES,
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
@@ -307,9 +308,10 @@ interface SessionsServiceDeps {
   conversations(): ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
   issues(): IssueService
-  /** Full issue-list fan-out through the publisher (ledger reconcile + legacy
-   *  snapshot). Mutually recursive with the broadcast pipeline by design — the
-   *  publisher's own deps point back at fanOutSnapshot/sendMetadataDelta here. */
+  /** Full issue-list reconcile through the publisher — the derived-ripple path
+   *  (closing an issue flips its dependents' wire rows with no write on them).
+   *  Its rows are appended at the write seam and served from the feed; there is
+   *  no snapshot tail behind it any more (POD-1203). */
   publishIssues(sessions: SessionMeta[]): void
   /** The issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
@@ -3989,15 +3991,20 @@ export class SessionsService {
   onClientAttached(_principal: ClientPrincipal, client: ClientConn): void {
     const send = client.send
     const publication = client.publication
+    // THE FIVE ENTITY LISTS ARE NOT SENT HERE ANY MORE (POD-1203). Sessions,
+    // issues, conversations, automations and runs are the feed's, and the
+    // connection receives them as a `feedBootstrap` — translated back into
+    // exactly these messages, in exactly this order, for a peer on the v1 wire.
+    // What stays is everything that is NOT feed content: the prepared-publication
+    // schedule, drafts, machines, approvals, the host snapshot and parked
+    // open-url requests. `LEGACY_KINDS` in the v1 adapter carries the send order
+    // this method used, because a v1 client that applies lists in arrival order
+    // would render differently if it changed.
     if (publication) this.schedulePreparedSessionPublications()
-    else send({ type: 'sessionsChanged', sessions: this.listSessions() })
     // Until an authority supplies per-kind worlds, a scoped socket is explicitly
     // session-only. Sending the global issue/conversation feeds would re-embed
     // hidden SessionMeta values and defeat the worker boundary.
     if (!publication || publication.global) {
-      send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
-      send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
-      send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
       if (this.draftSyncEnabled()) {
         // Versioned replay (POD-859): send the full doc (rev/origin/editedAt) so the
         // attaching client starts from the authoritative rev. Skip cleared docs.
@@ -4009,11 +4016,6 @@ export class SessionsService {
           send({ type: 'sessionDraftChanged', sessionId, text })
         }
       }
-      send({
-        type: 'conversationsChanged',
-        conversations: this.conversations().allConversations(),
-        diagnostics: this.conversations().diagnostics(),
-      })
       send({ type: 'machinesChanged', machines: this.machines.listMachines() })
       send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
       this.hosts.snapshotFor(send)
@@ -5201,44 +5203,20 @@ export class SessionsService {
         return
       }
       this.runningSessionsBroadcastGeneration = generation
-      const hasMainEncodedReceivers = [...this.clients.values()].some(
-        (client) => !client.caps.has(CAP_METADATA_DELTA) && !client.publication,
-      )
       const issueProjectionChanged =
         this.issueProjectionGeneration !== this.lastIssueProjectionGeneration
-      // Worker-only connection churn needs neither legacy nor issue snapshots.
-      const sessions = hasMainEncodedReceivers || issueProjectionChanged ? this.listSessions() : []
+      // THE SNAPSHOT HALF IS GONE (POD-1203). Session rows were already captured
+      // at their owning seams (`flushVolatileSessionCaptures` above, plus the
+      // commits) and are served from the feed, so the only reason left to build
+      // the list here is the issue projection, which embeds SessionMeta[].
+      const sessions = issueProjectionChanged ? this.listSessions() : []
       const tList = performance.now()
       perf.record('phase', 'sessionsBroadcast.list', tList - t0)
-      const mainEncodedBytes = hasMainEncodedReceivers ? JSON.stringify(sessions).length : 0
-      perf.record(
-        'phase',
-        'sessionsBroadcast.stringify',
-        performance.now() - tList,
-        mainEncodedBytes,
-      )
-      // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
-      // captured at their owning seams and ride the funnel's ordered onAppended
-      // pipe — recording here again would double-append.
-      const tFanout0 = performance.now()
-      if (hasMainEncodedReceivers) {
-        this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
-      }
+      perf.record('phase', 'sessionsBroadcast.stringify', 0, 0)
       // Delta-capable publications schedule at the funnel's ordered flush, after
       // every same-tick entity append fixed the source cursor. Starting one here
       // would be superseded by that flush and discard the actor's prior view.
       this.schedulePreparedSessionPublications({ includeDeltaCapable: false })
-      // Snapshot receivers = the non-delta-cap clients (see fanOutSnapshot).
-      let receivers = 0
-      for (const c of this.clients.values()) {
-        if (!c.caps.has(CAP_METADATA_DELTA)) receivers += 1
-      }
-      perf.record(
-        'phase',
-        'sessionsBroadcast.fanout',
-        performance.now() - tFanout0,
-        mainEncodedBytes * receivers,
-      )
       // Session changes also change issues' DERIVED member data (sessions/summary),
       // so keep issue clients live. The publisher builds the payload ONCE (allWire()
       // is O(issues × sessions)); sessionsChanged was already sent above, so even if
@@ -5275,22 +5253,6 @@ export class SessionsService {
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
   }
 
-  /**
-   * The legacy half of the split fan-out (spec §2.3): every non-cap client gets
-   * the full-list snapshot (exactly the pre-oplog behavior); delta-cap clients
-   * get it only when `snapshotToCapClients` forces it (diagnostics changes) —
-   * their normal feed is the ordered metadataDelta pipe (sendMetadataDelta).
-   */
-  fanOutSnapshot(snapshot: ServerMessage, opts: { snapshotToCapClients?: boolean } = {}): void {
-    for (const c of this.clients.values()) {
-      if (c.publication && (snapshot.type === 'sessionsChanged' || !c.publication.global)) continue
-      if (c.caps.has(CAP_METADATA_DELTA)) {
-        if (opts.snapshotToCapClients) this.clients.deliver(c, snapshot)
-      } else {
-        this.clients.deliver(c, snapshot)
-      }
-    }
-  }
 
   private globalPublicationIds(): readonly string[] {
     const cached = this.globalPublicationIdsCache
@@ -5522,44 +5484,99 @@ export class SessionsService {
     this.publicationWorker.prioritize(focused)
   }
 
-  /** The delta half of the split fan-out: one `metadataDelta` batch (stamped
-   *  with its last change's seq) to every delta-cap client. Called ONLY by the
-   *  funnel's ordered pipe ([spec:SP-3fe2] #256) so batches reach every client
-   *  in strict append order — the client gap rule (seq !== cursor+1 → heal)
-   *  turns any second emitter or reorder into a heal storm. */
-  sendMetadataDelta(changes: MetadataChange[]): void {
-    const last = changes[changes.length - 1]
-    if (!last) return
+  /**
+   * THE FEED HAS ADVANCED to `seq` (POD-1203) — one call per coalesced batch,
+   * from the funnel, BEFORE any of it is delivered.
+   *
+   * The prepared-publication worker keeps its own cursor over the same log and
+   * must advance it ONCE per batch, not once per recipient: this is a fact about
+   * the feed's position, which is why it cannot live in the per-connection sink
+   * below. Verbatim the head of the deleted `sendMetadataDelta`, including the
+   * "is anyone actually on that path" guard, so a server with no publication
+   * client still does no worker work.
+   */
+  onFeedPublished(seq: number): void {
     const hasPublicationClient = [...this.clients.values()].some(
       (client) => client.publication && client.caps.has(CAP_METADATA_DELTA),
     )
-    if (hasPublicationClient) {
-      this.publicationWorker.advanceCursor(last.seq)
-      this.schedulePreparedSessionPublications()
-    }
-    const delta: ServerMessage = { type: 'metadataDelta', seq: last.seq, changes }
-    let encoded: string | undefined
-    for (const c of this.clients.values()) {
-      if (!c.caps.has(CAP_METADATA_DELTA)) continue
-      if (!c.publication) {
-        this.clients.deliver(c, delta)
-        continue
-      }
-      // Scoped publication clients never see the raw global batch. The worker
-      // emits their filtered range (possibly empty) through the same sequencer.
-      if (!c.publication.global) continue
-      const current = this.publicationView(c)
-      if (!current || c.publicationPending || !this.publicationMatches(c, current)) {
-        const buffered = c.publicationBufferedChanges ?? []
-        if (buffered.length >= 512) buffered.shift()
-        buffered.push(structuredClone(changes))
-        c.publicationBufferedChanges = buffered
-        continue
-      }
-      encoded ??= JSON.stringify(delta)
-      this.clients.deliverPrepared(c, encoded)
-    }
+    if (!hasPublicationClient) return
+    this.publicationWorker.advanceCursor(seq)
+    this.schedulePreparedSessionPublications()
   }
+
+  /**
+   * ONE entity message → ONE connection, obeying the publication rules.
+   *
+   * THIS IS THE ENTANGLEMENT THE CUTOVER HAD TO PRESERVE, and it is preserved by
+   * transcription rather than by re-derivation. Before POD-1203 the same three
+   * rules were split across two methods — `fanOutSnapshot` (which snapshots a
+   * connection may receive) and `sendMetadataDelta` (how a delta reaches one) —
+   * and they were entangled because a connection's publication AUTHORITY, not
+   * its wire capability, decides both. Every branch below is one of theirs:
+   *
+   *  - a publication client NEVER receives `sessionsChanged`: the prepared
+   *    worker owns that connection's session world, filtered;
+   *  - a NON-GLOBAL (scoped) publication client receives nothing else either —
+   *    the worker emits its filtered range, possibly empty, through the same
+   *    sequencer, and a raw global message would defeat the boundary;
+   *  - a GLOBAL publication client receives deltas as PREPARED BYTES, or has
+   *    them buffered while its view is being rebuilt.
+   *
+   * What is NOT here any more is the capability check. `caps.has(CAP_METADATA_
+   * DELTA)` decided which SHAPE a client got, and shape is now the edge's:
+   * a peer that did not announce the delta capability is handed full lists by
+   * its version's adapter, and one that did is handed a delta. This method never
+   * sees the choice, which is why it can no longer disagree with the wire.
+   */
+  deliverEntityMessage(client: ClientConn, msg: ServerMessage): void {
+    const publication = client.publication
+    if (msg.type === 'metadataDelta') {
+      if (!publication) {
+        this.clients.deliver(client, msg)
+        return
+      }
+      if (!publication.global) return
+      const current = this.publicationView(client)
+      if (!current || client.publicationPending || !this.publicationMatches(client, current)) {
+        const buffered = client.publicationBufferedChanges ?? []
+        if (buffered.length >= 512) buffered.shift()
+        buffered.push(structuredClone(msg.changes))
+        client.publicationBufferedChanges = buffered
+        return
+      }
+      this.clients.deliverPrepared(client, this.encodeForPublication(msg))
+      return
+    }
+    if (publication !== undefined && !publication.global && isFeedFrameMessage(msg)) {
+      // A SCOPED connection being handed a v2 frame is an unbuilt combination,
+      // and it fails loudly rather than leaking: the frame carries the GLOBAL
+      // feed, the prepared worker (which is what narrows this connection) speaks
+      // only the v1 shapes, and nothing between them filters. POD-1077's rule
+      // applies unchanged — a scoped principal must be served a wire that can
+      // express its slice, or not served.
+      throw new Error(
+        `sessions: a wire-v2 '${msg.type}' frame reached a SCOPED publication connection, whose ` +
+          'filtering lives in the prepared-publication worker and does not cover it. Serving it ' +
+          'would hand that connection the global feed (ADR 2 Am1 D12.7).',
+      )
+    }
+    if (publication && (msg.type === 'sessionsChanged' || !publication.global)) return
+    this.clients.deliver(client, msg)
+  }
+
+  /** One encode per message object, however many connections share it. The
+   *  deleted `sendMetadataDelta` encoded once per BATCH; the edge now hands each
+   *  peer a message, and the v1 adapter hands every peer of one frame the SAME
+   *  object, so identity is the right key and the encode count is unchanged. */
+  private encodeForPublication(msg: ServerMessage): string {
+    const cached = this.preparedEncodeCache.get(msg)
+    if (cached !== undefined) return cached
+    const encoded = JSON.stringify(msg)
+    this.preparedEncodeCache.set(msg, encoded)
+    return encoded
+  }
+
+  private readonly preparedEncodeCache = new WeakMap<ServerMessage & object, string>()
 
   /**
    * Cursor catch-up for `sync.changesSince` (spec §2.3). Bootstrap (null cursor),
@@ -5600,4 +5617,17 @@ export class SessionsService {
       cursor: sourceCursor,
     }
   }
+}
+
+/**
+ * Is this one of wire v2's entity frames?
+ *
+ * Derived from `FEED_MESSAGE_TYPES` rather than listing the four here: a fifth
+ * frame added to the family would otherwise be classified as a v1 message by
+ * omission, and the branch this guards is a REFUSAL — a message that fails to be
+ * recognised as a feed frame is served to a scoped connection instead of being
+ * refused, which is the fail-open direction.
+ */
+function isFeedFrameMessage(msg: ServerMessage): boolean {
+  return (FEED_MESSAGE_TYPES as readonly string[]).includes(msg.type)
 }

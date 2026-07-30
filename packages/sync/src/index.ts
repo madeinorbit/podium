@@ -64,6 +64,24 @@ export {
   type VisibilityReason,
   type VisibilityStatePort,
 } from './feed/visibility'
+/**
+ * The feed's PRODUCING half (POD-306/POD-1077, consumed at POD-1203).
+ *
+ * Named exports rather than a barrel re-export, because `./feed/index` also
+ * re-exports the visibility seam above and a `export *` would give two paths to
+ * the same symbols. A serving composition root outside this package needs
+ * exactly these: the publisher that frames per connection, the identity registry
+ * that persists `(feedId, epoch)`, and the two port shapes it must satisfy.
+ */
+export {
+  FeedIdentityRegistry,
+  FeedPublisher,
+  type FeedConnection,
+  type FeedIdentity,
+  type FeedIdentityStore,
+  type FeedPublisherDeps,
+  type FeedRetentionPort,
+} from './feed/index'
 export * from './ledger'
 export * from './mirror'
 /**

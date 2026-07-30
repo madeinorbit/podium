@@ -69,6 +69,20 @@ export type FeedFrame =
   | FeedRescopeMessage
   | FeedResyncRequiredMessage
 
+/**
+ * Advisory state a pre-cutover wire carried inside an entity message.
+ *
+ * One member, and the enum exists so adding a second is a deliberate act rather
+ * than a string appearing at a call site. Every member of this type is a piece of
+ * v1 debt and the type is deleted with the adapter.
+ */
+export type LegacyAdvisoryKind = 'conversation-diagnostics'
+
+/** An adapter that can re-serve an advisory on demand. See {@link WireFeedEdge.publishAdvisory}. */
+export interface LegacyAdvisorySource {
+  advisory(kind: LegacyAdvisoryKind, peer: LegacyPeer): readonly ServerMessage[]
+}
+
 /** What an adapter may know about a connection. Deliberately tiny: an adapter
  *  that needed the connection object would be making routing decisions, and
  *  routing is the edge's. */
@@ -167,6 +181,34 @@ export class WireFeedEdge {
       return
     }
     for (const message of translated) peer.send(message)
+  }
+
+  /**
+   * Re-serve an ADVISORY that is not feed content, to the peers whose wire
+   * version requires it (POD-1203).
+   *
+   * There is exactly one today and it is a v1-only debt: `conversationsChanged`
+   * carries the conversation SCAN DIAGNOSTICS as a required field. They were
+   * never an entity, never had a change row, and v2 does not carry them at all —
+   * so on the current wire this method has nothing to do, and that is the correct
+   * resting state rather than a gap. Before the cutover the same refresh happened
+   * by forcing a full-list snapshot at delta clients (`snapshotToCapClients`),
+   * which is one of the thirteen call sites this issue deleted.
+   *
+   * Held to the adapter that needs it by DUCK TYPING rather than by widening
+   * `WireVersionAdapter`: the mechanism is permanent and this is not, so the
+   * permanent interface must not grow a member whose only implementor expires.
+   */
+  publishAdvisory(kind: LegacyAdvisoryKind): void {
+    for (const peer of this.peers.values()) {
+      const adapter = this.registry.resolve(peer.wireVersion)
+      if (isUpgradeRequired(adapter)) continue
+      const advisory = (adapter as Partial<LegacyAdvisorySource>).advisory
+      if (typeof advisory !== 'function') continue
+      for (const message of advisory.call(adapter, kind, { acceptsDelta: peer.acceptsDelta })) {
+        peer.send(message)
+      }
+    }
   }
 
   /** Connected-peer version telemetry — the rollout's "may I raise the floor". */

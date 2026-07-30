@@ -582,7 +582,6 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     this.reload()
     const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
     this.deps.ledger.reconcile('issue', spec.rows)
-    this.deps.funnel.publishComputed(spec.snapshot)
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     void this.deps.artifacts?.removeIssue(id).catch(() => {})
   }

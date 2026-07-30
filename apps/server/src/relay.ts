@@ -1,14 +1,16 @@
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { AgentKind, SessionMeta } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { ClientMux } from './gateway/client-mux'
+import { FeedServing } from './gateway/feed-serving'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
 import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
-import { Ledger, MutationLedger } from '@podium/sync'
+import { FeedIdentityRegistry, Ledger, MutationLedger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
@@ -347,14 +349,35 @@ export class SessionRegistry {
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
     // clients through.
+    // THE SERVING EDGE (POD-1203). One feed, framed per connection by the kernel's
+    // publisher, translated per negotiated wire version at the boundary. Feed
+    // identity is PERSISTED (`readFeedIdentity`/`writeFeedIdentity`), because ADR
+    // 2 D1 makes a re-minted epoch across a restart indistinguishable from a
+    // restored backup to every replica holding a cursor.
+    const feedServing = new FeedServing({
+      authority: ledger.authority,
+      identity: new FeedIdentityRegistry(
+        {
+          readIdentity: () => this.store.sync.readFeedIdentity(),
+          writeIdentity: (identity) => this.store.sync.writeFeedIdentity(identity, this.now()),
+        },
+        // Opaque, never a counter: D1 forbids a counter outright (restoring one
+        // backup twice re-mints the same value and hands a different timeline an
+        // epoch clients have already accepted) and `assertOpaqueEpoch` refuses a
+        // decimal integer at this boundary.
+        () => randomUUID(),
+      ),
+      retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
+      diagnostics: () => conversations?.diagnostics() ?? [],
+    })
     const funnel = new WriteFunnel({
       bus: this.bus,
       // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
       // two over one store would each keep their own dedup baseline and their
       // own ordered broadcast queue.
       authority: ledger.authority,
-      fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),
-      sendDelta: (changes) => sessionsSvc.sendMetadataDelta(changes),
+      serving: feedServing,
+      onPublished: (seq) => sessionsSvc.onFeedPublished(seq),
     })
     const publisher = new IssuePublisher({
       allWire: (sessionList) => issues?.allWire(sessionList),
@@ -362,10 +385,11 @@ export class SessionRegistry {
       // reconcile against the ledger baseline (durable append, #255), then fan
       // the committed changes out.
       publishIssueList: (spec) => {
-        // The reconcile's appends reach delta clients via the funnel's ordered
-        // onAppended pipe; publishComputed carries only the legacy snapshot.
+        // The reconcile's appends ARE the fan-out (POD-1203): they enter the
+        // Authority's ordered pipe and reach every connection through the feed.
+        // The legacy snapshot that used to follow this line is built at the
+        // connection boundary now, from these same rows.
         ledger.reconcile('issue', spec.rows)
-        funnel.publishComputed(spec.snapshot)
       },
     })
     const issueCommands = new IssueCommandDispatcher({
@@ -1042,10 +1066,12 @@ export class SessionRegistry {
         now: () => this.now(),
         // Conversation writes commit through the write-seam ledger (#257):
         // discovery/meta commits + list reconciles append durably at
-        // the write, then the funnel fans out ONLY the legacy snapshot (delta
-        // clients ride the ordered onAppended pipe).
+        // the write; the feed serves them (POD-1203 deleted the snapshot tail).
         ledger,
-        publishSnapshot: (snapshot, opts) => funnel.publishComputed(snapshot, opts),
+        // Scan diagnostics are not feed content and the v1 wire carried them
+        // inside `conversationsChanged`; the edge re-serves them to the wire
+        // versions that still need them (POD-1203).
+        onDiagnosticsChanged: () => feedServing.publishAdvisory('conversation-diagnostics'),
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
           rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
@@ -1086,10 +1112,10 @@ export class SessionRegistry {
       onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
-      // out via the funnel's publishComputed tail; the PublishSpecs are built
       // by the publisher (which unions in hub-mirrored issues), so durable-
       // before-fan-out holds by construction — there is NO raw-WS path out of
-      // the issue tracker anymore.
+      // the issue tracker anymore, and since POD-1203 no snapshot path either:
+      // the appended rows ARE what a client is served.
       funnel,
       ledger,
       publishSpecs: publisher,
@@ -1325,7 +1351,6 @@ export class SessionRegistry {
     automations = new AutomationsService({
       store: this.store.automations,
       ledger,
-      funnel,
       createSession: (o) => sessionsSvc.createSession(o),
       queueText: (o) => sessionsSvc.queueText(o),
       resumeAndSend: (o) => sessionsSvc.resumeAndSend(o),
@@ -1392,6 +1417,7 @@ export class SessionRegistry {
     this.clientGateway = new ClientMux({
       registry: clientRegistry,
       ports: { sessions: sessionsSvc },
+      feed: feedServing,
     })
     this.gateway = new DaemonMux({
       bus: this.bus,
