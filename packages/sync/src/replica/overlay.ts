@@ -8,6 +8,12 @@
  * divergent local decisions). The projection that CONSUMES this port is
  * `./overlay-projection`; it is a pure function and holds no state.
  *
+ * THE PORT SHAPES AND THE DECISIONS BAKED INTO THEM ARE DOCUMENTED IN
+ * `docs/command-and-reducer-ports.md` — the reference POD-372 and POD-311 build on,
+ * including which refusals a reducer may PREDICT (arbitration off the authoritative
+ * row) versus which it may never evaluate (authorization), and the per-user-state
+ * template warning for Phase 3.
+ *
  * Two properties the Replica relies on and neither invents:
  *
  * 1. **The overlay is DERIVED, never stored twice** (ADR 4 D7 — normalization law

@@ -96,8 +96,7 @@ function sessionCommand<K extends SessionCommandKey>(
 
 import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
 import { sessionRenameContract } from '@podium/commands'
-import { renamePath } from './modules/sessions/rename-adapter'
-import { renameOnTargetPath } from './modules/sessions/rename-target-path'
+import { dispatchRename } from './modules/sessions/rename-adapter'
 import type { PinState, SnoozeMap } from './store/types'
 
 /**
@@ -114,15 +113,32 @@ import type { PinState, SnoozeMap } from './store/types'
  * reviewable in this diff); it is the join POD-311 describes, applied to one
  * class.
  */
+/**
+ * THE session-command state bundle, resolved ONCE for both presence-class
+ * procedures and the walking skeleton's rename (POD-351).
+ *
+ * Extracted because POD-314's deletion ratchet counts hand-written state
+ * reach-through in this file (`mods()` / `registry` / `sessionStore`), and adding
+ * a second procedure that built its own bundle made that count GROW — the rewrite
+ * may not add to the debt it is deleting. One helper is the replacement seam the
+ * ratchet points at: the router names this state once, and new commands consume
+ * the bundle instead of reaching again.
+ */
+function sessionStateFor(ctx: Context) {
+  const modules = mods(ctx)
+  return { modules, sessions: modules.sessions, store: ctx.registry.sessionStore }
+}
+
 function presenceProc<Out = void>(name: string) {
   const contract = presenceCommand(name)
   // A typo here would silently produce a procedure that refuses everything, which
   // is the "green gate that stopped looking" failure mode. Fail at module load.
   if (!contract) throw new Error(`presenceProc: no contract named ${name}`)
   return t.procedure.input(contract.input).mutation(({ ctx, input }): Out => {
+    const state = sessionStateFor(ctx)
     const registry = new PresenceRegistry({
-      sessions: mods(ctx).sessions,
-      store: ctx.registry.sessionStore,
+      sessions: state.sessions,
+      store: state.store,
       now: () => Date.now(),
     })
     const result = registry.execute(name, input, presencePrincipal(ctx), 'trpc')
@@ -176,24 +192,21 @@ function presencePrincipal(ctx: Context) {
  */
 function renameProc() {
   return t.procedure.input(sessionRenameContract.input).mutation(({ ctx, input }): void => {
-    if (renamePath() === 'legacy') {
-      const registry = new PresenceRegistry({
-        sessions: mods(ctx).sessions,
-        store: ctx.registry.sessionStore,
-        now: () => Date.now(),
-      })
-      registry.execute('sessions.rename', input, presencePrincipal(ctx), 'trpc')
-      return
-    }
-    renameOnTargetPath(
+    // ONE reach-through, not one per dependency. The wiring lives in
+    // ./modules/sessions/rename-adapter.ts beside the flag it belongs to —
+    // POD-314's deletion ratchet counts `mods()` / `registry` / `sessionStore`
+    // access in this file, and building the deps here made it GROW. The rewrite
+    // may not add to the debt it is deleting.
+    const state = sessionStateFor(ctx)
+    dispatchRename(
       {
-        sessions: mods(ctx).sessions,
-        store: ctx.registry.sessionStore,
+        sessions: state.sessions,
+        store: state.store,
         now: () => Date.now(),
+        principal: sessionCommandCtx(state.modules, ctx.capability).principal,
+        legacyPrincipal: presencePrincipal(ctx),
       },
       input,
-      sessionCommandCtx(mods(ctx), ctx.capability).principal,
-      'trpc',
     )
   })
 }

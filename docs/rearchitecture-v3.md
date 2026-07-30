@@ -691,6 +691,85 @@ first real command contract + optimistic reducer port that POD-372/POD-311 consu
 **Ledger obligations:** shadow-comparison record for POD-351 lands in this section;
 zero divergence required.
 
+#### POD-351 as-built — the walking skeleton
+
+**What moved.** Exactly one command. `sessions.rename` runs on the target path in
+production config (`apps/server/src/router.ts`, `renameProc`); the other ten presence
+commands are untouched on `presenceProc`. The adapter
+(`modules/sessions/rename-adapter.ts`) defaults to the target path — a legacy default
+would leave the target path with zero production callers — with
+`PODIUM_SESSION_RENAME_PATH=legacy` as the rollback, matched exactly so a typo cannot
+silently disable a shipped command. `MIGRATED_COMMANDS` is asserted to be exactly
+`['sessions.rename']`, so a list that grew would fail a test rather than pass a review.
+
+**The pairing, since the obvious one no longer exists.** POD-380 deleted the
+hand-written rename procedure. LEGACY is therefore `PresenceRegistry` (POD-380's
+envelope, the protocol `CommandDef`, a `PresencePrincipal`, `undefined` on success);
+TARGET is `modules/sessions/rename-target-path.ts` (the `@podium/commands` ADR 3
+contract, the real `CommandPrincipal` with its delegation chain resolved live, the
+contract's accept/reject outcome union).
+
+**SHADOW COMPARISON — ZERO DIVERGENCE.** `modules/sessions/rename-shadow.test.ts`
+runs nine input cases plus the SP-eb60 arbitration branch and the not-found case
+through BOTH paths, on two independently-seeded REAL stacks (real `SessionStore`,
+`SessionRegistry`, `SessionsService`), comparing the written row *and* a normalised
+verdict in ONE assertion that fails on divergence. Refusal reason strings are compared
+verbatim. 20 tests, all passing, zero divergence.
+
+**The comparison is proven able to fail.** Three tests inject a real divergence and
+assert the shadow assertion reds — including the case a name-only comparison would
+miss: same string, different `nameSource`. Without it, an agent write laundered as a
+human write would pass the shadow and take SP-eb60's sovereignty with it.
+
+**Crash / reconnect.** Not re-proved here. POD-373's conformance suite certifies
+`base/crash-between-writes` (entity/cursor/outbox all-or-nothing, including inside an
+atomic bootstrap install and while draining the buffer) and
+`scoped/crash-with-watermark-in-flight` against both kernels, and POD-1146's single
+`SyncSpan` plus POD-373's externally-opened-span rule are what make the one-transaction
+guarantee structural. POD-351 adds the VERTICAL that suite cannot express — see below —
+rather than a second copy of the kernel property.
+
+**Offline path.** `modules/sessions/rename-offline.test.ts` (12 tests): a rename queued
+offline is re-authorized at DRAIN by the same code that authorizes it online; it is
+REJECTED when the principal loses access, and also when the delegating HUMAN is revoked
+though the agent is not (§3.1.3 A1's transitive property). A revoked REPLAY is refused
+rather than served from the dedup cache — the test first asserts the mutation IS in the
+applied table, so the cache genuinely had something to serve. No capability snapshot
+exists anywhere in the path: `OutboxRecord` has no field for one, and two otherwise
+identical drains resolve differently when ownership flips between them.
+
+##### The two gaps this skeleton does NOT close, stated so a green run cannot imply them
+
+1. **READ-SIDE SCOPING IS NOT BUILT, AND IS NOT CLAIMED.** POD-351 enforces the
+   WRITE side: authorization is owner/grant-aware, resolved live over the delegation
+   chain at every apply. It does **not** enforce read-side visibility — the delta feed
+   here is still unscoped, which is POD-1077's work in Phase 2 and must land before the
+   POD-308 wire cutover. Nothing in this issue's evidence should be read as privacy.
+   The contract, the delta envelope and the replica apply path are shaped so
+   per-principal filtering plus watermarks and an `evict`/`rescope` op can be added
+   without a wire break: the reducer port already carries `ExitKind` (`evicted` vs
+   `removed`) and the overlay DROPS with the row before any reducer runs, so a revoked
+   share cannot be re-exposed optimistically. Recorded rather than implied because a
+   filter without a watermark is a protocol break, and every suppressed row without one
+   is a permanent invisible gap that heal-loops forever.
+2. **TODAY'S OPERATOR SHORT-CIRCUITS THE OWNER GATE.** The tRPC human is `OPERATOR`
+   (`role: admin`, `scope: all`), and `authorize()` allows on scope `all` before reading
+   the target's owner. So owner/grant gating is real and proven for an agent (whose
+   human ceiling has no scope short-circuit) and for any scoped human, and is
+   short-circuited for today's unconstrained operator — correct as designed under §3.2's
+   one-password instance, and replaced by POD-1075. Pinned by two tests in
+   `rename-offline.test.ts` so the qualifier travels with the claim.
+
+**Defect found: POD-1172 (sole-human identity fork).** `SOLE_USER_ID` (`'user:sole'`,
+POD-380 — what `sessionOwner` stamps) and `INSTANCE_OWNER` (`'instance-owner'`, POD-381
+— what `resolvePrincipal` mints) both name the one pre-accounts human and disagree.
+Each side was internally self-consistent, so nothing had compared them; POD-351's
+delegation ceiling is the first code that needs both, and unreconciled it denies every
+agent write. It fails CLOSED (liveness, not a leak) but would have surfaced as "agents
+inexplicably cannot act" the day accounts land. Bridged in one named place
+(`samePrincipal`) with a tripwire test asserting the constants still differ, so whoever
+reconciles them deletes the bridge instead of leaving a permanent alias table.
+
 ### Phase 1 — packages/model (POD-288) · exit gate POD-423
 
 **Scope:** one semantic vocabulary at L0: `packages/model` scaffold (POD-299), entity

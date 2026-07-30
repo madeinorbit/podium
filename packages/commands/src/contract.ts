@@ -3,6 +3,10 @@
  * Amendment 1 (POD-1073) and ADR 1 Amendment 1 (POD-1071) added when Podium
  * became multi-user within one tenant.
  *
+ * PORT REFERENCE: `docs/command-and-reducer-ports.md` documents these shapes for
+ * POD-372 (optimistic overlay) and POD-311 (Phase 3, which populates contracts and
+ * reducers broadly). `sessions/rename.ts` is the worked example POD-351 established.
+ *
  * L1 RULE: this file is pure data and pure functions. It may reference
  * `@podium/model` and `@podium/protocol` (schemas, brands, the principal
  * taxonomy) and nothing else. A handler lives with its L3 feature and is joined

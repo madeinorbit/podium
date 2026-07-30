@@ -40,6 +40,11 @@
  * anything is spelled out above and is checked exactly.
  */
 
+import type { CommandPrincipal } from '../../command-principal'
+import type { SessionStore } from '../../store'
+import { PresenceRegistry, type PresencePrincipal } from './presence-registry'
+import { renameOnTargetPath, type RenameServices } from './rename-target-path'
+
 /** Which path a rename should take. */
 export type RenamePath = 'target' | 'legacy'
 
@@ -67,3 +72,46 @@ export function renamePath(env: Record<string, string | undefined> = process.env
  * off on.
  */
 export const MIGRATED_COMMANDS: readonly string[] = ['sessions.rename']
+
+/**
+ * THE WHOLE DISPATCH, so the router reaches into state ONCE.
+ *
+ * The two paths need the same three things (the sessions service, the session
+ * store, a clock), and building them at the call site meant `router.ts` reaching
+ * through `mods(ctx)` / `ctx.registry.sessionStore` five separate times. POD-314's
+ * deletion ratchet counts exactly that pattern and it GREW — correctly, the rewrite
+ * may not add to the debt it is deleting.
+ *
+ * So the wiring lives here, beside the flag it belongs to, and the router hands in
+ * one already-resolved bundle. That is the replacement seam the ratchet is pointing
+ * at, not a way around it: `router.ts` now names the state once for this command
+ * instead of once per dependency.
+ */
+export interface RenameDispatchDeps {
+  sessions: RenameServices
+  store: SessionStore
+  now: () => number
+  /** The target path's principal — the real one, chain already resolved. */
+  principal: CommandPrincipal
+  /** The legacy path's principal. Different type, deliberately: see rename-target-path.ts. */
+  legacyPrincipal: PresencePrincipal
+}
+
+/**
+ * Route one rename. Returns nothing: BOTH paths are `void` at the tRPC boundary,
+ * which is §3.1.5's consistent-error rule — surfacing the target path's richer
+ * outcome to this transport would make a denial distinguishable from a not-found.
+ */
+export function dispatchRename(deps: RenameDispatchDeps, input: unknown): void {
+  const { sessions, store, now } = deps
+  if (renamePath() === 'legacy') {
+    new PresenceRegistry({ sessions: sessions as never, store, now }).execute(
+      'sessions.rename',
+      input,
+      deps.legacyPrincipal,
+      'trpc',
+    )
+    return
+  }
+  renameOnTargetPath({ sessions, store, now }, input, deps.principal, 'trpc')
+}
