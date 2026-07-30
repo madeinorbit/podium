@@ -247,9 +247,12 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
 
     // `theirs` is absent, not denied: for this principal it does not exist.
     expect(offered.map((m) => m.id).sort()).toEqual(['mine', 'shared'])
-    // And the one that IS visible carries the denial, so the client predicate
-    // refuses it with a reason that is not "offline" — the M5 distinction,
-    // surviving all the way to the projection the picker reads.
+    // And the one that IS visible carries the denial, so the SERVER-SIDE
+    // predicate refuses it with a reason that is not "offline" — the M5
+    // distinction. The annotation stops at the wire on purpose: `MachineWire`
+    // may not grow a per-principal field until POD-1079/POD-1075 land the
+    // ownership columns, so a client-side picker sees the see-filter today and
+    // the use-decision when that schema carries it.
     expect(offered.find((m) => m.id === 'mine')?.use).toBe('granted')
     expect(offered.find((m) => m.id === 'shared')?.use).toBe('denied')
   })

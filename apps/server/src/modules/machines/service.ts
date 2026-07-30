@@ -23,6 +23,24 @@ import type { Send } from '../sessions/session'
  */
 export type MachineUseResolver = (machineId: string) => MachineUseDecision
 
+/**
+ * A machine row with the calling principal's `use` decision attached.
+ *
+ * NOT on `MachineWire` itself, and that is deliberate: `packages/model`'s
+ * machine entity says in its own header that no `owner`, `visibility` or `grant`
+ * field may land there yet — those are POD-1075's model types and POD-1071's
+ * matrix columns, and adding one would break the byte-identical wire contract
+ * that made the Phase-1 move provable. A per-principal decision is the same
+ * class of field.
+ *
+ * So the decision is a SERVER-SIDE annotation today. It reaches every server
+ * consumer that enforces it (`requireAgent`, `resolveMachineForAgent`, and
+ * through them `agentCapabilityRejection`), and it does NOT survive the wire
+ * until the schema carries it — which is POD-1079's, with the projection this
+ * type already shapes.
+ */
+export type MachineListing = MachineWire & { use?: MachineUseDecision }
+
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 export function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex')
@@ -381,7 +399,7 @@ export class MachinesService {
    * reads the field and already denies FIRST when it says `'denied'`, so
    * supplying it here is what turns the whole placement surface on.
    */
-  listMachines(use?: MachineUseResolver): MachineWire[] {
+  listMachines(use?: MachineUseResolver): MachineListing[] {
     return this.machineRecords().map((m) => ({
       ...(use ? { use: use(m.id) } : {}),
       id: m.id,
