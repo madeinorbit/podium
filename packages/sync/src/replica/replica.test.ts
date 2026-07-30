@@ -1131,6 +1131,42 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.outbox.list()).toHaveLength(0)
   })
 
+  it('an install inside a SPAN still REPLACES the cache, dropping the excluded row', async () => {
+    const h = overlayHarness()
+    // A row the pre-rescope slice could see.
+    await bootstrapped(h, 5, [session(1, 'revoked', 'no longer mine')])
+    queued(h, 'm-1', 's1')
+    const channel = h.authority.driveManually()
+
+    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    // The new slice does NOT contain 'revoked' — that is what a rescope means.
+    channel.push(bootstrapChunk(10, [session(2, 'kept', 'still mine')], false))
+    await Promise.resolve()
+    // Provenance here is load-bearing for THIS test: a retirement is what opens a
+    // span at all, and the span branch of installSnapshot is a different code path
+    // from the autocommit one. Without a queued command the install autocommits and
+    // the replacement is never exercised inside a span.
+    h.replica.receive(
+      deltaFrame(10, 11, [session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: 'm-1' })]),
+    )
+    channel.push(bootstrapChunk(10, [], true))
+    await h.replica.settled()
+
+    // D6.4's atomic swap REPLACES the cache; it does not merge into it. A span draft
+    // starts as a copy of the live rows, so an install that extended instead of
+    // replacing would leave 'revoked' visible after a rights change — under
+    // private-by-default that is a visibility leak, not a cosmetic staleness bug.
+    expect(
+      h.replica
+        .entities()
+        .map((r) => r.entityId)
+        .sort(),
+    ).toEqual(['kept', 's1'])
+    expect(h.replica.view('session', 'revoked')).toBeUndefined()
+    // And the span really did commit, so this is the replacing path, not a no-op.
+    expect(h.outbox.list()).toHaveLength(0)
+  })
+
   it('AGGREGATES retirements across every buffered frame ONE install includes', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 5, [])
