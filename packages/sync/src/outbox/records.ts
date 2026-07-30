@@ -98,6 +98,33 @@ export interface OutboxCommand {
 }
 
 /**
+ * The durable user confirmation for a deliberately out-of-scope write (ADR 3 D2
+ * confirmation rules / D8 outcome 3: "`confirm-required` WITHOUT a durable user
+ * confirmation on the envelope → `rejected`").
+ *
+ * **The NAME is provisional and POD-311 owns it**; the SEMANTICS are decided —
+ * the confirmation rides the envelope, and therefore has to be durable with the
+ * entry, because an offline out-of-scope write that lost its confirmation would
+ * be refused at apply.
+ *
+ * It is declared exactly ONCE, as a key constant plus a mapped type, so the
+ * rename POD-311 will make is a one-line change here rather than a hunt through
+ * the record, the envelope, the enqueue request and the recovery path. Production
+ * code reads and writes it through `confirmationOf` / `CONFIRMED` and never spells
+ * the key; tests spell it deliberately, because pinning the wire shape is their
+ * job.
+ */
+export const CONFIRMATION_FIELD = 'confirmed' as const
+export type EnvelopeConfirmation = { readonly [K in typeof CONFIRMATION_FIELD]?: true }
+
+/** Carry the confirmation across, or nothing at all — never a key with an
+ *  `undefined` value, which would serialise into the durable record. */
+export const confirmationOf = (source: EnvelopeConfirmation): EnvelopeConfirmation =>
+  source[CONFIRMATION_FIELD] === undefined ? {} : { [CONFIRMATION_FIELD]: true }
+
+export const CONFIRMED: EnvelopeConfirmation = { [CONFIRMATION_FIELD]: true }
+
+/**
  * One durable Outbox entry.
  *
  * `input` is the author's own intent, verbatim — it is what makes dead-letter
@@ -105,7 +132,7 @@ export interface OutboxCommand {
  * discarded) and it is also the ONLY payload the record holds: no Authority
  * state, no target content, nothing the author did not already have.
  */
-export interface OutboxRecord {
+export interface OutboxRecord extends EnvelopeConfirmation {
   /** Client-minted idempotency key; also the dedupe key at the Authority
    *  (ADR 2 D8 / ADR 3 D11). */
   readonly mutationId: MutationId
@@ -120,14 +147,8 @@ export interface OutboxRecord {
    *  the key; the contract's target extractor computes it (POD-311/POD-371). */
   readonly partitionKey: string
   readonly attribution: OutboxAttribution
-  /** A durable user confirmation for a deliberately out-of-scope write (ADR 3
-   *  D2 confirmation rules / D8 outcome 3: "`confirm-required` WITHOUT a durable
-   *  user confirmation on the envelope → `rejected`"). The field NAME on the
-   *  final contract envelope is POD-311's; what is decided already is that the
-   *  confirmation rides the envelope, and therefore has to be durable with the
-   *  entry — an offline out-of-scope write that lost its confirmation would be
-   *  refused at apply. */
-  readonly confirmed?: true
+  // The out-of-scope confirmation arrives via `EnvelopeConfirmation` above —
+  // declared once so POD-311's rename is one line.
   readonly state: OutboxState
   readonly queuedAt: number
   /** Number of drain attempts so far. Diagnostic; the retry CADENCE and the age

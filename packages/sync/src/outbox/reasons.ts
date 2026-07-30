@@ -151,8 +151,15 @@ export const recoveryPlanFor = (code: OutboxRejectionCode): RecoveryPlan => {
   return { retry, edit: true, discard: true }
 }
 
-/** What the caller offers to satisfy a `RetryPrecondition`. `retry()` refuses a
- *  mismatch: an authz denial cannot be waved through with a rebase. */
+/**
+ * What the caller offers to satisfy a `RetryPrecondition`. `retry()` refuses a
+ * mismatch: an authz denial cannot be waved through with a rebase.
+ *
+ * These keys describe WHAT THE USER DID in the recovery UI, and are deliberately
+ * a separate vocabulary from the envelope's field names — so `confirmed` here is
+ * not the envelope's confirmation field (`CONFIRMATION_FIELD` in records.ts,
+ * whose name POD-311 owns) and is not renamed with it.
+ */
 export type RetrySatisfaction =
   | { readonly rightsFixed: true }
   | { readonly expectedRevision: number }

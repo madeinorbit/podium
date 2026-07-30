@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { type EnqueueRequest, envelopeFor, Outbox, OutboxUsageError } from './outbox'
 import type { OutboxEnvelope, OutboxEvent, OutboxSubmitOutcome } from './ports'
 import type { AuthorityRefusal } from './reasons'
-import type { OutboxAttribution, OutboxCommand, OutboxRecord } from './records'
+import {
+  CONFIRMATION_FIELD,
+  type OutboxAttribution,
+  type OutboxCommand,
+  type OutboxRecord,
+} from './records'
 import {
   InMemoryOutboxStore,
   ManualClock,
@@ -446,7 +451,7 @@ describe('apply-time re-authorization is a first-class rejection path (D8 / amen
   })
 
   it('parks a confirmation-required refusal with a confirmation affordance', async () => {
-    const { outbox, authority } = await harness((envelope) =>
+    const { outbox, authority, store } = await harness((envelope) =>
       envelope.confirmed
         ? applied
         : { kind: 'rejected', refusal: { kind: 'confirmation-required' } },
@@ -459,7 +464,14 @@ describe('apply-time re-authorization is a first-class rejection path (D8 / amen
     await outbox.drain()
 
     expect(state(outbox, record.mutationId)).toBe('applied')
+    // Spelled literally on purpose: pinning the wire shape is a test's job. The
+    // second assertion is what keeps POD-311's rename a ONE-line change — if the
+    // constant moves and the envelope does not follow, this fails.
     expect(authority.envelopes.at(-1)?.confirmed).toBe(true)
+    expect(Object.keys(authority.envelopes.at(-1) ?? {})).toContain(CONFIRMATION_FIELD)
+    // And the confirmation is durable with the entry, because an offline
+    // out-of-scope write that lost it would be refused at apply (D8 outcome 3).
+    expect(store.durable().at(-1)?.confirmed).toBe(true)
   })
 })
 

@@ -95,8 +95,20 @@ would be a *fresh* command (D11.8), which is why expiry — not the Authority �
   Amendment 1 D9.1). The actor/on-behalf-of *distinction* is structural regardless.
 - **Which existence facts may legitimately leak** is open (ADR 3 amendment §3 O1). The closed
   behavior is implemented; nothing here decides the open question.
-- **The confirmation field name** on the contract envelope is POD-311's; that a confirmation
-  rides the envelope and must be durable with the entry is already decided (D8 outcome 3).
+- **The confirmation field NAME is provisional and POD-311 owns it.** The SEMANTICS are decided:
+  a durable user confirmation for a deliberately out-of-scope write rides the envelope (D8
+  outcome 3 / D2), and therefore has to be durable with the entry — an offline out-of-scope write
+  that lost its confirmation would be refused at apply. It ships spelled as `confirmed?: true`
+  rather than as an opaque token, on the coordinator's ruling: with nothing to carry, the
+  `confirmation-required` recovery path would be untestable, and an untestable state in a
+  lifecycle is how the earlier attempts left mechanisms half-landed. To keep the rename cheap it
+  is declared **once** — `CONFIRMATION_FIELD` plus the `EnvelopeConfirmation` mapped type in
+  `records.ts` — and production code reads and writes it only through `confirmationOf` /
+  `CONFIRMED`, so POD-311 changes one line. Tests spell the key literally on purpose (pinning the
+  wire shape is their job) and one asserts the emitted envelope key *is* `CONFIRMATION_FIELD`, so
+  a rename that misses the envelope fails rather than passing quietly.
+  Note that `RetrySatisfaction.confirmed` is a different vocabulary — what the user DID in the
+  recovery UI — and does not rename with the envelope field.
 - **Any replica→outbox notification.** POD-369 (Replica) owns the `RebootstrapCause` union and
   the `bootstrap-installed` event. This module deliberately has no port for it: an earlier draft
   offered a contractual no-op `noteReplicaRebootstrapped(cause)`, and POD-369's objection was

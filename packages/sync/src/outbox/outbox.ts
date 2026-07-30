@@ -57,15 +57,18 @@ import {
 } from './reasons'
 import {
   belongsTo,
+  CONFIRMED,
+  confirmationOf,
   type DeadLetterRecord,
   ENQUEUEABLE_DELIVERY,
+  type EnvelopeConfirmation,
   type OutboxAttribution,
   type OutboxCommand,
   type OutboxRecord,
 } from './records'
 import { applyOutboxTransition } from './states'
 
-export interface EnqueueRequest {
+export interface EnqueueRequest extends EnvelopeConfirmation {
   readonly command: OutboxCommand
   readonly input: unknown
   /**
@@ -82,11 +85,6 @@ export interface EnqueueRequest {
   readonly partitionKey?: string
   /** Supply one to keep a caller-minted id; otherwise the config mints it. */
   readonly mutationId?: MutationId
-  /** A durable user confirmation for a deliberately out-of-scope write (D2 /
-   *  D8 outcome 3). Field NAME is POD-311's to finalise on the contract
-   *  envelope; what is decided here is that the confirmation rides the envelope
-   *  and is therefore durable with the entry. */
-  readonly confirmed?: true
 }
 
 export interface EditRequest {
@@ -216,7 +214,7 @@ export class Outbox {
       state: 'queued',
       queuedAt: this.config.now(),
       attempts: 0,
-      ...(request.confirmed === undefined ? {} : { confirmed: request.confirmed }),
+      ...confirmationOf(request),
     }
     this.records.push(record)
     await this.persist()
@@ -410,7 +408,7 @@ export class Outbox {
       ...('expectedRevision' in satisfaction
         ? { expectedRevision: satisfaction.expectedRevision }
         : {}),
-      ...('confirmed' in satisfaction ? { confirmed: true as const } : {}),
+      ...('confirmed' in satisfaction ? CONFIRMED : {}),
     }
     const requeued = await this.transition(record, 'user-retried', {
       ...patch,
@@ -599,7 +597,7 @@ export const envelopeFor = (record: OutboxRecord): OutboxEnvelope => ({
   version: record.command.version,
   input: record.input,
   ...(record.expectedRevision === undefined ? {} : { expectedRevision: record.expectedRevision }),
-  ...(record.confirmed === undefined ? {} : { confirmed: record.confirmed }),
+  ...confirmationOf(record),
 })
 
 /** Project a parked record into the record POD-316 recovers from. Everything in

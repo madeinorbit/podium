@@ -7,7 +7,7 @@
 
 import type { MutationId } from '@podium/protocol'
 import type { AuthorityRefusal, OutboxRejectionReason } from './reasons'
-import type { DeadLetterRecord, OutboxRecord, UserRef } from './records'
+import type { DeadLetterRecord, EnvelopeConfirmation, OutboxRecord, UserRef } from './records'
 
 /**
  * What actually goes on the wire for one attempt.
@@ -24,16 +24,15 @@ import type { DeadLetterRecord, OutboxRecord, UserRef } from './records'
  * not because the drain remembers to re-check, but because it has nothing to
  * re-present.
  */
-export interface OutboxEnvelope {
+export interface OutboxEnvelope extends EnvelopeConfirmation {
   readonly mutationId: MutationId
   readonly command: string
   readonly version: number
   readonly input: unknown
   readonly expectedRevision?: number
-  /** ADR 3 D8 outcome 3 / D2: the durable confirmation for a deliberately
-   *  out-of-scope write. Not identity — a decision the user made, which is why
-   *  it may ride the envelope while a principal may not. */
-  readonly confirmed?: true
+  // The out-of-scope confirmation rides here via `EnvelopeConfirmation` (ADR 3
+  // D8 outcome 3 / D2). It is not identity — it is a decision the USER made,
+  // which is why it may ride the envelope while a principal may not.
 }
 
 /**
