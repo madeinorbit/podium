@@ -727,6 +727,23 @@ authorise one.
      than by an instance field on the wire — which is why D20 can stay absolute. This is the
      answer to §1.4's "three situations, one rejection" without touching the frames.
 
+   - **D19.4c — The pairing root is NORMATIVE, not a suggested implementation.** Recorded
+     because it was explicitly asked and explicitly answered at review (2026-07-30): the
+     contract requires **a verifiable fact held outside the database**, and leaving the choice
+     of that fact open would recreate exactly the vagueness this decision was written to
+     remove — an implementer would be back to deciding what "durable enough" means, which is
+     the half of the original defect that made the bug possible.
+     So D19.4's mechanism is binding, with the two completions that make it sound: the
+     revocation ledger must share the pairing root's **failure domain** (D19.4a), and the
+     recovered ownership state must be **decided rather than reconstructed opportunistically**
+     (D19.4b). A mechanism that verifies enrolment outside the DB but records revocation inside
+     it is not a partial implementation of this decision — it is the hole D19.4a closes.
+     What POD-1114 retains latitude over: file format and layout, the serial's encoding, the
+     verification primitive (MAC versus signature), rotation policy for the root, and how the
+     ledger is compacted **above** the pairing root's lifetime. What it does not: the tier,
+     the append-only and never-rolled-back properties, ledger-wins precedence, serial-based
+     revocation comparison, drop-grants, and quarantine-on-unresolvable-owner.
+
    - **Honest boundary.** The contract covers loss of the **database**. If the whole state
      root is lost, the pairing root is lost with it and a real re-pair is genuinely required;
      that is the limit of what any server-side fact can promise, and it is not a gap to be
@@ -974,7 +991,7 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
 
 | Item | Status |
 |---|---|
-| Pairing durability / unattended re-pair recovery (§1.4's bug) | **POD-1114**, `discovered-from` POD-733. The **observable contract (D19.4), the durability domain (D19.4a) and the reconstructed row including ownership and grants (D19.4b) are all DECIDED** — POD-1114 implements them and chooses none of them. Machine-axis; not fixable by a wire field (D20) or a column (D18); not in POD-734's scope |
+| Pairing durability / unattended re-pair recovery (§1.4's bug) | **POD-1114**, `discovered-from` POD-733. The **observable contract (D19.4), the durability domain (D19.4a), the reconstructed row including ownership and grants (D19.4b), and the binding status of the mechanism itself (D19.4c) are all DECIDED** — POD-1114 implements them and chooses none of them. Machine-axis; not fixable by a wire field (D20) or a column (D18); not in POD-734's scope |
 | Logging the **verdict** (re-enrolled / revoked / unverifiable) plus the instance id and state root on a refused handshake or refused state root | Required by D19.4, and possible only once its two durable facts exist — so it lands with POD-1114 rather than before it. No wire, no protocol change |
 
 ---
