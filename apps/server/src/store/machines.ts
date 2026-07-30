@@ -30,32 +30,59 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     createdAt: r.created_at as string,
     lastSeenAt: r.last_seen_at as string,
     ...(inventory !== undefined ? { inventory } : {}),
+    // POD-1079: no `??` fallback. A row whose column is NULL reads back as
+    // unowned, and unowned refuses `use` to everyone — substituting an owner
+    // here would be the fail-open shape the nullable column exists to avoid.
+    ownerUserId: (r.owner_user_id as string | null | undefined) ?? null,
   }
 }
 
 export class MachinesRepository {
   constructor(private readonly db: SqlDatabase) {}
 
-  upsertMachine(m: { id: string; name: string; hostname: string; tokenHash: string }): void {
+  /**
+   * Register or refresh a machine row.
+   *
+   * `ownerUserId` is REQUIRED at the type level (POD-1079) — every caller must
+   * say who a machine belongs to, and `null` is the way to say "nobody", which
+   * refuses `use` to everyone rather than admitting everyone. An optional field
+   * would let a new pairing path forget, and forgetting would read as unowned
+   * only by luck.
+   *
+   * ON CONFLICT KEEPS AN OWNER THAT ALREADY EXISTS (`COALESCE`). A returning
+   * daemon's `hello`, a boot-time `ensureLocalMachine` and a re-pair all run
+   * through here, and none of them is an ownership TRANSFER: letting the latest
+   * writer win would make re-pairing a silent take-over of somebody else's
+   * machine. It fills a NULL, so a row written before this column existed
+   * acquires an owner the first time its owner touches it.
+   */
+  upsertMachine(m: {
+    id: string
+    name: string
+    hostname: string
+    tokenHash: string
+    ownerUserId: string | null
+  }): void {
     const now = new Date().toISOString()
     this.db
       .prepare(
-        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            hostname = excluded.hostname,
            token_hash = excluded.token_hash,
-           last_seen_at = excluded.last_seen_at`,
+           last_seen_at = excluded.last_seen_at,
+           owner_user_id = COALESCE(machines.owner_user_id, excluded.owner_user_id)`,
       )
-      .run(m.id, m.name, m.hostname, m.tokenHash, now, now)
+      .run(m.id, m.name, m.hostname, m.tokenHash, now, now, m.ownerUserId)
   }
 
   listMachines(): MachineRecord[] {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
     ).map(toRecord)
@@ -64,7 +91,7 @@ export class MachinesRepository {
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
       .prepare(
-        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json FROM machines WHERE id = ?',
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id FROM machines WHERE id = ?',
       )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined

@@ -89,7 +89,7 @@ describe('oracle: create', () => {
   it(`${willChange('POD-1079', "machines become owned compute; 'use' defaults to the owner only")}: placement is ambient — any authenticated caller may spawn on any paired machine`, async () => {
     const o = makeOracle()
     // A second paired machine nobody "owns": there is no owner column today.
-    o.store.machines.upsertMachine({ id: 'other', name: 'other', hostname: 'o', tokenHash: 'x' })
+    o.store.machines.upsertMachine({ id: 'other', name: 'other', hostname: 'o', tokenHash: 'x', ownerUserId: 'user:sole' })
     const other: ControlMessage[] = []
     o.reg.gateway.attachDaemon('other', (m) => other.push(m))
 

@@ -45,8 +45,7 @@ describe('daemon socket auth', () => {
       id: 'm1',
       name: 'box',
       hostname: 'box',
-      tokenHash: sha256('tok'),
-    })
+      tokenHash: sha256('tok'), ownerUserId: 'user:sole' })
     const reg = new SessionRegistry(store)
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
@@ -76,8 +75,7 @@ describe('daemon socket auth', () => {
       id: 'local',
       name: 'thishost',
       hostname: 'thishost',
-      tokenHash: sha256('sekret'),
-    })
+      tokenHash: sha256('sekret'), ownerUserId: 'user:sole' })
     const reg = new SessionRegistry(store)
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame')
@@ -191,7 +189,7 @@ describe('daemon socket auth', () => {
 
   it('detaches the machine on close', () => {
     const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
+    store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok'), ownerUserId: 'user:sole' })
     const reg = new SessionRegistry(store)
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
@@ -208,7 +206,7 @@ describe('daemon socket auth', () => {
 
   it('does not detach when the socket closes before it ever attached', () => {
     const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
+    store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok'), ownerUserId: 'user:sole' })
     const reg = new SessionRegistry(store)
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()

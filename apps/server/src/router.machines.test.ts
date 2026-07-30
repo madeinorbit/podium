@@ -14,8 +14,7 @@ function machineCaller() {
     id: 'm1',
     name: 'machine-one',
     hostname: 'host-one',
-    tokenHash: 'h1',
-  })
+    tokenHash: 'h1', ownerUserId: 'user:sole' })
   // Pairing is a hub-role capability, injected the way server assembly does it.
   const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
   registry.modules.machines.ensureLocalMachine()
@@ -77,8 +76,7 @@ describe('sessions.create with machineId', () => {
       id: 'm2',
       name: 'machine-two',
       hostname: 'host-two',
-      tokenHash: 'h2',
-    })
+      tokenHash: 'h2', ownerUserId: 'user:sole' })
     store.machines.setMachineInventory(
       'm2',
       JSON.stringify({

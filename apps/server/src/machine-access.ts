@@ -36,13 +36,16 @@
  * human's execute rights.
  *
  * Here the subject is a human (or an agent acting for one), and refusing
- * everyone would take the product offline: nobody could spawn. The pre-accounts
- * answer is that the instance's one account IS the owner of every paired
- * machine — which is M3 ("a newly paired machine is private to its pairer")
- * evaluated in a world with exactly one pairer, not a widening of it. A second
- * human cannot authenticate today, and when POD-1079 lands the owner column
- * {@link ownershipFromMachines} reads it instead of defaulting, with no call
- * site here changing.
+ * everyone would take the product offline: nobody could spawn.
+ *
+ * POD-1079 REPLACED THE DEFAULT WITH A COLUMN. {@link ownershipFromMachines} now
+ * reads `machines.owner_user_id` and the `grants` edge table, live, and no call
+ * site changed — the seam POD-1075 left is exactly the seam that was filled. The
+ * qualifier that survives is about the TRANSPORT, not this module: there is
+ * still one shared password, so every connection resolves to one `UserId`
+ * ({@link deviceGradeSoleOwner}, and `audit:machine-grants` holds its call sites
+ * to an allowlist). This gate can refuse a second person; today's login cannot
+ * produce one.
  *
  * ---------------------------------------------------------------------------
  * ABSENT vs UNAUTHORIZED vs UNREACHABLE
@@ -73,7 +76,8 @@ import type {
 } from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
-import { FIRST_ADMIN_USER_ID, onBehalfOfUser } from './command-principal'
+import { onBehalfOfUser } from './command-principal'
+import { deviceGradeSoleOwner } from './device-grade-owner'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 
 /**
@@ -114,29 +118,68 @@ export interface MachineOwnershipIndex {
   delegatedMachines?(agentSessionId: string): ReadonlySet<string> | undefined
 }
 
-/** The machines-service slice this module reads. */
-export interface MachineRowSource {
-  listMachines(): { id: string; name?: string }[]
+/**
+ * The grant-edge slice this module reads (POD-1079). One call per decision, not
+ * a cache: ADR 9 D2 rule 4 evaluates a grant LIVE, so removing the edge must
+ * stop the NEXT apply with no invalidation step in between.
+ *
+ * OPTIONAL ON THE SOURCE, and the omission is the CLOSED direction: a source
+ * with no grant table resolves owner-only — fewer verbs, never more. A required
+ * method would have forced every fixture to supply an empty one, and an empty
+ * fake is exactly what makes a grant test unable to say YES.
+ */
+export interface MachineGrantSource {
+  grantsForMachine?(machineId: string): { grantee: string; verb: string }[]
 }
 
 /**
- * Ownership over today's `machines` table. The table has no owner column and no
- * grant list (POD-1079 / POD-318 own that), so every row resolves to the
- * instance's one account as owner with no additional grants.
+ * The machines-service slice this module reads.
  *
- * When the columns land, only the two marked lines change.
+ * A SEPARATE method from `listMachines()`, deliberately (POD-1079). The listing
+ * is the WIRE projection, and ownership is a server-side fact: putting an owner
+ * id on `MachineWire` would ship every machine's owner to every client that can
+ * see the machine, which is a disclosure decision nobody made. This reads the
+ * stored rows instead.
+ *
+ * `ownerUserId` is REQUIRED and nullable rather than optional: a source that
+ * cannot say who owns a machine must say `null` — "nobody, so `use` is refused
+ * to everyone" — and an absent key would be indistinguishable from a source that
+ * simply forgot to thread it.
+ */
+export interface MachineRowSource extends MachineGrantSource {
+  ownershipRows(): { id: string; name?: string; ownerUserId: string | null }[]
+}
+
+
+/** The verbs a machine grant can carry, as a runtime membership test. A stored
+ *  verb this build does not know (`read`/`write` belong to other classes, and a
+ *  newer build may write a fifth) is DROPPED rather than admitted. */
+const MACHINE_VERBS: readonly string[] = ['see', 'use', 'manage']
+
+/**
+ * Ownership over the `machines` table and the `grants` edge table.
+ *
+ * Both reads are LIVE on every call. That is the D16.1 obligation stated as
+ * code: an owner change or a revoked share takes effect at the next decision,
+ * and there is no reaper to write and therefore none to forget. The machine
+ * ROWS come through `MachinesService`, which caches them and invalidates on
+ * every write; the GRANTS deliberately bypass that cache.
+ *
+ * The source supplies BOTH halves — see {@link MachineGrantSource} for why the
+ * grant half is optional and why omitting it is the closed direction.
  */
 export function ownershipFromMachines(machines: MachineRowSource): MachineOwnershipIndex {
   return {
     rowFor: (machineId) => {
-      const row = machines.listMachines().find((candidate) => candidate.id === machineId)
+      const row = machines.ownershipRows().find((candidate) => candidate.id === machineId)
       if (!row) return undefined
+      const edges = (machines.grantsForMachine?.(row.id) ?? [])
+        .filter((edge) => MACHINE_VERBS.includes(edge.verb))
+        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb }))
       return {
         machine: row.id as MachineId,
-        // POD-1079: read `row.ownerUserId` here.
-        owner: FIRST_ADMIN_USER_ID,
-        // POD-1079: read the grant edges here.
-        grants: [],
+        owner: row.ownerUserId === null ? null : (row.ownerUserId as UserId),
+        grants: edges,
         ...(row.name === undefined ? {} : { name: row.name }),
       }
     },
@@ -175,7 +218,11 @@ export const isLocalSentinel = (machineId: string): boolean =>
 
 const sentinelRow = (machineId: string): MachineOwnershipRow => ({
   machine: machineId as MachineId,
-  owner: FIRST_ADMIN_USER_ID,
+  // The sentinel is the host this process runs on, and no pairing ever named an
+  // owner for it — so the owner is the honestly-named placeholder rather than a
+  // bare constant. When per-user login lands, this line is a compile error and
+  // has to name whoever set the instance up.
+  owner: deviceGradeSoleOwner(),
   grants: [],
 })
 

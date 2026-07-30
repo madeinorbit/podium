@@ -1512,9 +1512,8 @@ describe('host metrics relay', () => {
       id: 'm-alpha',
       name: 'alpha',
       hostname: 'alpha',
-      tokenHash: 'x',
-    })
-    store.machines.upsertMachine({ id: 'm-beta', name: 'beta', hostname: 'beta', tokenHash: 'y' })
+      tokenHash: 'x', ownerUserId: 'user:sole' })
+    store.machines.upsertMachine({ id: 'm-beta', name: 'beta', hostname: 'beta', tokenHash: 'y', ownerUserId: 'user:sole' })
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon('m-alpha', () => {})
     reg.gateway.attachDaemon('m-beta', () => {})

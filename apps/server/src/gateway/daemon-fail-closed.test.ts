@@ -56,8 +56,7 @@ function harness(machines: { id: string; token: string }[]) {
       id: m.id,
       name: m.id,
       hostname: m.id,
-      tokenHash: sha256(m.token),
-    })
+      tokenHash: sha256(m.token), ownerUserId: 'user:sole' })
   }
   const reg = new SessionRegistry(store)
   const attach = vi.spyOn(reg.gateway, 'attachDaemon')
@@ -99,8 +98,7 @@ describe('a daemon that cannot prove who it is', () => {
       id: 'm1',
       name: 'm1',
       hostname: 'm1',
-      tokenHash: sha256('rotated'),
-    })
+      tokenHash: sha256('rotated'), ownerUserId: 'user:sole' })
     h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'old', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     expect(h.ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)

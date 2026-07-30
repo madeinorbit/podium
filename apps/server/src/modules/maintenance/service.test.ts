@@ -452,8 +452,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         id: 'remote',
         name: 'remote',
         hostname: 'remote',
-        tokenHash: 'x',
-      })
+        tokenHash: 'x', ownerUserId: 'user:sole' })
     } finally {
       vi.useRealTimers()
     }

@@ -13,6 +13,7 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
+import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { Send } from '../sessions/session'
 
@@ -59,6 +60,22 @@ export interface PairingCodes {
 }
 
 export interface PairingGrant {
+  /**
+   * WHO THE MACHINE WILL BELONG TO (POD-1079, ADR 9 D6 M3: "a newly paired
+   * machine is private to its pairer").
+   *
+   * Stamped at MINT time from the minting principal, carried opaquely through
+   * the code, and written onto the row at redeem. Ownership therefore flows from
+   * the person who asked for the code, and the daemon — which supplies
+   * everything else in the pair frame — has no say in it. A daemon-supplied
+   * owner would be an identity claim from a payload, which ADR 3 D7 forbids.
+   *
+   * ABSENT MEANS UNOWNED, and an unowned machine grants `use` to NOBODY
+   * (`machineUseAllowed`). That is the fail-closed direction: a pairing path that
+   * forgets to name an owner produces a machine nobody can run code on, which is
+   * visible and fixable, rather than one everybody can.
+   */
+  ownerUserId?: string
   copyAgentCredentials?: boolean
 }
 
@@ -197,6 +214,9 @@ export class MachinesService {
         name,
         hostname: frame.hostname,
         tokenHash: sha256(token),
+        // The pairer, carried from mint. `?? null` is the fail-closed arm, not a
+        // default: a code with no owner produces an unowned machine.
+        ownerUserId: pairingGrant.ownerUserId ?? null,
       })
       this.invalidateMachineCache()
       return { ok: true, machineId: frame.machineId, name, token, pairingGrant }
@@ -411,6 +431,36 @@ export class MachinesService {
     }))
   }
 
+  /**
+   * The ownership facts for every machine row — `machine-access.ts`'s
+   * `MachineRowSource` (POD-1079).
+   *
+   * Separate from {@link listMachines} because that one builds the WIRE
+   * projection: a client sees a machine's name, liveness and inventory, and does
+   * not need to be told who owns it in order to be refused. Served from the same
+   * cache, which every write to the table invalidates.
+   */
+  ownershipRows(): { id: string; name: string; ownerUserId: string | null }[] {
+    return this.machineRecords().map((m) => ({
+      id: m.id,
+      name: m.name,
+      ownerUserId: m.ownerUserId,
+    }))
+  }
+
+  /**
+   * The grant edges on one machine, read STRAIGHT FROM THE TABLE (POD-1079).
+   *
+   * Deliberately NOT served from `machineRecordsCache`. That cache exists because
+   * `listSessions` resolves a machine NAME per session on the hottest path; a
+   * grant is consulted once per access decision, and caching it would reintroduce
+   * the exact failure ADR 9 D2 rule 4 forbids — a revoked share that keeps
+   * working until somebody remembers to invalidate.
+   */
+  grantsForMachine(machineId: string): { grantee: string; verb: string }[] {
+    return this.deps.store.grants.listForResource('machine', machineId)
+  }
+
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
   recordInventory(machineId: string, inventory: Inventory): void {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
@@ -426,6 +476,10 @@ export class MachinesService {
   }
 
   revokeMachine(id: string): void {
+    // The grant edges die WITH the machine (POD-1079). A daemon keeps its
+    // machineId across a revoke/re-pair, so an edge that outlived the row would
+    // silently re-share a machine its owner had already un-shared.
+    this.deps.store.grants.removeAllForResource('machine', id)
     this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
@@ -474,6 +528,12 @@ export class MachinesService {
       name: hostname,
       hostname,
       tokenHash: sha256(secret),
+      // NOBODY PAIRED THIS ONE. It is provisioned at boot by the server process,
+      // with no principal in scope to attribute it to, so its owner is the
+      // honestly-named placeholder — see `device-grade-owner.ts`. The COALESCE in
+      // `upsertMachine` means a later real owner is never overwritten by this
+      // boot-time write.
+      ownerUserId: deviceGradeSoleOwner(),
     })
     this.invalidateMachineCache()
     this.adoptPlaceholderRows(LOCAL_MACHINE_ID)

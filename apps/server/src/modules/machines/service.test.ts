@@ -145,7 +145,7 @@ describe('MachinesService inventory persistence (#222)', () => {
 
   test('recordInventory persists the report and it survives a hello reconnect', () => {
     const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({ id: MACHINE, name: 'vmi', hostname: 'vmi', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: MACHINE, name: 'vmi', hostname: 'vmi', tokenHash: 'x', ownerUserId: 'user:sole' })
 
     svc.recordInventory(MACHINE, INV)
     expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
@@ -158,7 +158,7 @@ describe('MachinesService inventory persistence (#222)', () => {
 
   test('explicit session placement is rejected when the harness is missing or logged out', () => {
     const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({ id: MACHINE, name: 'Builder', hostname: 'vmi', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: MACHINE, name: 'Builder', hostname: 'vmi', tokenHash: 'x', ownerUserId: 'user:sole' })
     svc.attach(MACHINE, recorder().send)
 
     svc.recordInventory(MACHINE, INV)
@@ -178,8 +178,8 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('implicit placement moves to a capable machine that owns the cwd', () => {
     const { svc, store } = makeStoreService()
     const other = 'capable'
-    store.machines.upsertMachine({ id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x' })
-    store.machines.upsertMachine({ id: other, name: 'Capable', hostname: 'b', tokenHash: 'y' })
+    store.machines.upsertMachine({ id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x', ownerUserId: 'user:sole' })
+    store.machines.upsertMachine({ id: other, name: 'Capable', hostname: 'b', tokenHash: 'y', ownerUserId: 'user:sole' })
     store.repos.addRepo('/repo', MACHINE)
     store.repos.addRepo('/repo', other)
     svc.attach(MACHINE, recorder().send)

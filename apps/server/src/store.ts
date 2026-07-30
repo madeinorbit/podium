@@ -42,6 +42,7 @@ import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
+import { GrantsRepository } from './store/grants'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
@@ -82,6 +83,9 @@ export class SessionStore {
    *  Deliberately NOT in the settings blob, which round-trips to the browser. */
   readonly accounts: AccountsRepository
   readonly machines: MachinesRepository
+  /** The `(entityRef, granteeUserId, verb)` grant edges (POD-1079, ADR 9 D2) —
+   *  read live at every access decision, never cached into a rights snapshot. */
+  readonly grants: GrantsRepository
   readonly events: EventsRepository
   /** Cross-producer notification deduplication [spec:SP-ba61]. */
   readonly notificationFacts: NotificationFactsRepository
@@ -146,6 +150,7 @@ export class SessionStore {
     this.settings = new SettingsRepository(this.db)
     this.accounts = new AccountsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
+    this.grants = new GrantsRepository(this.db)
     this.events = new EventsRepository(this.db)
     this.notificationFacts = new NotificationFactsRepository(this.db)
     this.messages = new MessagesRepository(this.db)

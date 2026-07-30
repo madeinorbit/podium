@@ -11,8 +11,8 @@ afterEach(() => {
 
 function setup() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
-  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y', ownerUserId: 'user:sole' })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',

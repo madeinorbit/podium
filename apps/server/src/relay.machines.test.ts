@@ -9,8 +9,8 @@ import { SessionStore } from './store'
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
-  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y', ownerUserId: 'user:sole' })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',
@@ -212,8 +212,8 @@ async function handoffRegistry(
   } = {},
 ) {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x' })
-  store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y', ownerUserId: 'user:sole' })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',
