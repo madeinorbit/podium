@@ -51,7 +51,7 @@ describe('the bulk port is paged, lazy and point-to-point', () => {
     expect(read).toHaveBeenCalledTimes(1)
   })
 
-  it('answers unreadable and nonexistent identically, and reads nothing on refusal', async () => {
+  it('refuses an unreadable resource with a bare null and never calls the reader', async () => {
     const { port, read } = setup({ canSee: () => false })
     expect(await port.read(target, resource, { offset: 0, limit: 16 })).toBeNull()
     expect(read).not.toHaveBeenCalled()

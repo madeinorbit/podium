@@ -112,7 +112,7 @@ describe('ADR 7 Amendment 1 D13 — ONE routing primitive, parameterized by dura
     expect(registry.members(key).get(principalRoutingId(alice))).toHaveLength(2)
   })
 
-  it('derives leaves from the connection lifecycle (D10.6)', () => {
+  it('drops every subscription a closed connection held, across both key spaces', () => {
     const registry = new SubscriptionRegistry()
     const conn = asSubscriberId('conn')
     const k1 = roomRoutingKey({ kind: 'session', id: 's1' })

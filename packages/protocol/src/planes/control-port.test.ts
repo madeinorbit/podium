@@ -117,15 +117,34 @@ describe('the port carries a principal and evaluates no policy', () => {
     ).toBe(true)
   })
 
-  it('asks the resolver rather than reading the capability', () => {
+  it('never reads the capability: only the resolver decides', () => {
+    // A tripwire, not an inspection of the call args: `capability` is a getter
+    // that records every read, so "the port evaluates no policy" is checked at
+    // the one place a port could cheat — reading a scope out of the capability
+    // instead of asking the policy layer.
+    let capabilityReads = 0
+    const principal = {
+      kind: 'user' as const,
+      user: asUserId('alice'),
+      device: asDeviceId('d'),
+      get capability() {
+        capabilityReads++
+        return asCapabilityRef('cap')
+      },
+    }
     const canSee = vi.fn(() => true)
     const { port } = setup({ canSee })
-    port.admitEntity(target('alice'), { kind: 'session', id: 's1' })
+    const spied: PlaneTarget = { subscriberId: asSubscriberId('alice'), principal }
+
+    port.admitEntity(spied, { kind: 'session', id: 's1' })
+    port.publishEntity({ kind: 'session', id: 's1' }, frame(0, 1))
+    port.sendCommand(spied, { requestId: asCorrelationId('r'), type: 'kill', payload: {} })
+
+    expect(capabilityReads).toBe(0)
+    // And the resolver IS consulted, with the whole principal and the entity.
     expect(canSee).toHaveBeenCalledTimes(1)
-    const [principal, entity] = canSee.mock.calls[0] as unknown as [Principal, unknown]
-    // The port hands the whole principal to the policy layer; it does not
-    // interpret `capability` itself.
-    expect(principal.kind).toBe('user')
+    const [passed, entity] = canSee.mock.calls[0] as unknown as [Principal, unknown]
+    expect(passed.kind).toBe('user')
     expect(entity).toEqual({ kind: 'session', id: 's1' })
   })
 
