@@ -51,11 +51,18 @@ import { z } from 'zod'
  *
  *   - `revision` — the Authority-assigned sequence position the materialized
  *     value reflects. Absent while the class is unbuilt.
- *   - `ops` — the BOUNDED recent-op tail. Deliberately `z.unknown()`: the op
+ *   - `opsTail` — the BOUNDED recent-op tail. Deliberately `z.unknown()`: the op
  *     vocabulary is the unbuilt part, and inventing one here would be building
  *     the class rather than reserving it. What is fixed is that it is a bounded
  *     ARRAY sitting BESIDE a materialized value, which is the property ADR 2 D5
  *     actually needs.
+ *
+ *     NAMED `opsTail`, not `ops`, on POD-367's flag and it is not cosmetic: an
+ *     `ops` array reads as *the history*, and a document reconstructed by
+ *     replaying an unbounded history is exactly the head-pruning hazard ADR 2 D5
+ *     warns about. The name is where the constraint survives — whoever
+ *     eventually builds op-streams inherits it instead of rediscovering it from
+ *     an ADR two documents away.
  *
  * The optionality is what makes the eventual arrival additive, and it is also
  * the README rule 2 case: a scoped projection that suppresses a document body
@@ -67,8 +74,10 @@ export const OpStreamDocument = z.object({
   /** Authority-assigned position this materialization reflects (ADR 1 D1: the
    *  Replica applies an ordering someone else decided; it never arbitrates). */
   revision: z.number().int().nonnegative().optional(),
-  /** The bounded recent-op tail. Unbuilt — see the file header. */
-  ops: z.array(z.unknown()).optional(),
+  /** The BOUNDED recent-op TAIL — never the whole history. An unbounded op log
+   *  breaks ADR 2 D5's positive-state retention proof and needs the
+   *  log-compaction ADR that D5 already parks. Unbuilt — see the file header. */
+  opsTail: z.array(z.unknown()).optional(),
 })
 export type OpStreamDocument = z.infer<typeof OpStreamDocument>
 
