@@ -19,6 +19,7 @@
  * ADR 3 D9 invariant 5 says the same thing from the command side.
  */
 
+import type { OwnedSyncSpan, SyncSpan } from '../span'
 import type {
   BootstrapChunk,
   ChangeEnvelope,
@@ -27,6 +28,18 @@ import type {
   Cursor,
   EntityRecord,
 } from './types'
+
+/**
+ * ADR 2 D10's unit of work is defined ONCE, in `../span`, and re-exported here so
+ * the replica's own modules keep importing it from their ports file (POD-1146).
+ *
+ * It is the single module this direction-locked role reaches outside its own
+ * directory, pinned by name in `check-boundaries` rule 9. It sits outside because
+ * the outbox role imports it too, and putting it here would have made the outbox
+ * import the replica — the edge POD-369 and POD-370 deliberately removed.
+ */
+export type { OwnedSyncSpan, SyncSpan, SyncSpanParticipant, SyncUnitOfWork } from '../span'
+export { SyncCommitConflict } from '../span'
 
 /**
  * ONE operation against the cache, in FEED ORDER.
@@ -56,61 +69,14 @@ export type CacheOperation =
   | { readonly kind: 'evict'; readonly entity: string; readonly entityId: string }
 
 /**
- * ADR 2 D10's unit of work, made EXPLICIT — the seam settled with POD-370.
- *
- * The five clauses of that agreement, because a seam documented on one side only
- * is half a seam:
- *
- * 1. An explicit shared span is REQUIRED when one logical commit spans more than
- *    one region: entities/cache + cursor + the outbox/overlay. That is exactly the
- *    Replica's frame commit, which retires the commands the frame confirms.
- * 2. A lone single-region operation MAY use one atomic store write / autocommit
- *    directly; it need not open an extra unit of work.
- * 3. A span resolves only after DURABILITY, never before.
- * 4. Joining is EXPLICIT-SPAN-ONLY. There is no ambient or current transaction to
- *    pick up — a participant is in a span iff the span was handed to it.
- * 5. The shared physical store publishes ONCE for the whole span, not once per
- *    participant. Participants stage into one draft; nobody commits a second time.
- *
- * Why this exists at all: retirement used to be one call per applied change, and
+ * Why the Replica's frame commit is multi-region at all, and why retirement
+ * arrives as a BATCH: retirement used to be one call per applied change, and
  * inside a shared unit of work that is unsafe. Two retirements for one frame each
  * stage from the same pre-commit outbox snapshot, so the second RESURRECTS the
  * first — POD-370 reproduced exactly that. One certified frame routinely confirms
  * several of my own commands, so the Replica was handing the outbox precisely that
- * sequence.
+ * sequence. `SyncSpan.join`'s extend-the-one-draft idempotency is what closes it.
  */
-export interface SyncSpan {
-  /**
-   * Enrol in this span. Idempotent per participant: joining twice extends the one
-   * draft rather than creating a second.
-   */
-  join(participant: SyncSpanParticipant): void
-}
-
-/** One region's participation in a span. Staged privately, published once. */
-export interface SyncSpanParticipant {
-  /**
-   * Last chance to VETO, run for every participant before any of them publishes.
-   * Throwing here aborts the whole span and nothing is published.
-   */
-  prepare?(): void
-  /**
-   * Make the staged draft visible. MUST NOT throw: by the time this runs the span
-   * has passed the point where a failure could be reported cleanly, so anything
-   * that can fail belongs in `prepare`.
-   */
-  publish(): void
-  /** Drop the private draft. Called on abort, and on any participant's veto. */
-  discard?(): void
-}
-
-/** A span whose lifecycle the opener owns. Every path must reach commit or abort. */
-export interface OwnedSyncSpan extends SyncSpan {
-  /** Prepare every participant, then publish once. Throws if a participant vetoes. */
-  commit(): void
-  /** Discard every participant's draft. Nothing published, nothing retired. */
-  abort(): void
-}
 
 /** One atomic batch. Everything in it commits together or not at all (ADR 2 D10, ADR 6 D4.1). */
 export interface CacheMutation {

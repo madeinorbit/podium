@@ -2090,12 +2090,19 @@ describe('review round 4 — commit-time conflicts and transaction atomicity', (
 })
 
 describe('review round 5 — store-level transaction isolation', () => {
-  it('serializes commits, so two concurrent spans on DISJOINT keys both survive', async () => {
-    // The commit lock had no test, and a mutant that removed it passed: the double's
-    // commit was synchronous end to end, so nothing could interleave. `slowCommits`
-    // models the gap a real IndexedDB or SQLite transaction has between computing a
-    // post-state and publishing it — and with that gap, two unserialized commits each
-    // publish from the same base and the second silently drops the first's key.
+  it('re-reads truth at PREPARE, so two concurrent spans on DISJOINT keys both survive', async () => {
+    // What guarantees this changed with POD-1146, so the name and the probe changed
+    // with it. It used to be a commit lock around an async publish; the unified span
+    // makes enrolment two-phase and SYNCHRONOUS (a hook that awaited would close the
+    // very IndexedDB transaction it is enrolled in), so no lock can help — the
+    // post-state has to be computed from truth as it stands at `prepare`, not from
+    // the base this span read back at `apply`.
+    //
+    // The live mutant this kills: have `prepare` reuse the apply-time view instead of
+    // re-parsing. Both spans then publish from an empty base and the second silently
+    // drops the first's key. `holdNextApplies(2)` parks both callers after they have
+    // entered `apply` and before either stages, so the interleaving is deterministic
+    // rather than a microtask-ordering accident.
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
     const one = await harness(() => unreachable, { store, clock, idPrefix: 'one-' })
@@ -2105,11 +2112,11 @@ describe('review round 5 — store-level transaction isolation', () => {
       principal: 'u-grace',
       idPrefix: 'two-',
     })
-    store.slowCommits = true
     const uowOne = new InMemoryUnitOfWork()
     const uowTwo = new InMemoryUnitOfWork()
 
-    await Promise.all([
+    const release = store.holdNextApplies(2)
+    const both = Promise.all([
       uowOne.transact(async (span) => {
         await store.apply(
           {
@@ -2151,6 +2158,9 @@ describe('review round 5 — store-level transaction isolation', () => {
         )
       }),
     ])
+    await Promise.resolve()
+    release()
+    await both
 
     // Neither commit dropped the other's key.
     expect(

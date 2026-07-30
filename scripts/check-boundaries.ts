@@ -65,8 +65,9 @@
  *     not.
  * 10. The sync kernel's REPLICA ROLE (`packages/sync/src/replica/`) is
  *     direction-locked (POD-369): it imports nothing outside its own directory
- *     (storage and transport arrive as injected ports, so any other import is a
- *     merge policy or a concrete adapter leaking in), and its comment-stripped
+ *     — save for the single neutral unit-of-work port `packages/sync/src/span.ts`
+ *     (POD-1146), which is neither a merge policy nor an adapter and is the ONE
+ *     definition site both kernel roles share — and its comment-stripped
  *     source contains no visibility/authorization or conflict-resolution
  *     evaluation. A replica that can answer "may this principal see X" is a
  *     second authorization surface; a replica that can pick a conflict winner is
@@ -658,6 +659,22 @@ function targetWorkspace(file: string, specifier: string): string | null {
  */
 const REPLICA_ROLE_DIR = 'packages/sync/src/replica/'
 
+/**
+ * The ONE module the replica role may reach outside its directory (POD-1146).
+ *
+ * ADR 2 D10's unit of work must have a single definition site, and it must sit
+ * where NEITHER kernel role imports the other: inside `replica/` the outbox would
+ * have to import the replica, which is the edge POD-369 and POD-370 deliberately
+ * removed. So the span port lives one level up and this rule names it exactly.
+ *
+ * It is an EXACT PATH and not a prefix, and that is the whole safety of it. A
+ * directory exception (`packages/sync/src/ports/`) would let a future file that
+ * happens to land beside the span carry a merge policy or a concrete adapter into
+ * the replica under the same waiver. This list may only grow by someone editing
+ * this constant, which is the review checkpoint the rule exists to force.
+ */
+const REPLICA_NEUTRAL_PORTS: ReadonlySet<string> = new Set(['packages/sync/src/span.ts'])
+
 /** Evaluation verbs. A call or a declaration either way — both are the same bug. */
 const REPLICA_FORBIDDEN_EVAL =
   /\b(canSee|maySee|mayView|isVisibleTo|visibleTo|evaluateVisibility|filterVisible|hasGrant|grantsFor|checkAccess|checkIssueAccess|authorize|resolveCapability|mergePolicy|resolveConflict|arbitrate|lastWriteWins|mergeFields|pickWinner)\s*\(/
@@ -671,6 +688,9 @@ function checkReplicaDirection(file: string, source: string): Violation[] {
       const abs = resolve('/', dirname(file), ref.specifier)
       const rel = relative('/', abs).split(sep).join('/')
       if (rel.startsWith(REPLICA_ROLE_DIR)) continue
+      // Extensionless by convention here, so both spellings resolve to the same
+      // module and both must be checked against the exact-path allowlist.
+      if (REPLICA_NEUTRAL_PORTS.has(rel) || REPLICA_NEUTRAL_PORTS.has(`${rel}.ts`)) continue
       violations.push({
         file,
         specifier: ref.specifier,

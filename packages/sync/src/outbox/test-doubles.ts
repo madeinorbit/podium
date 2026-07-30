@@ -13,7 +13,9 @@ import type {
   OutboxStorePort,
   OutboxSubmitOutcome,
   OutboxSubmitPort,
+  OwnedSyncSpan,
   SyncSpan,
+  SyncSpanParticipant,
   SyncUnitOfWork,
 } from './ports'
 import { SyncCommitConflict } from './ports'
@@ -71,14 +73,6 @@ export class InMemoryOutboxStore implements OutboxStorePort {
   /** Serializes commits for this physical store, so two spans cannot interleave
    *  validate-and-publish. */
   private commitLock: Promise<unknown> = Promise.resolve()
-  /**
-   * Model a real adapter's ASYNCHRONOUS transaction by yielding between computing
-   * the post-state and publishing it. Without this the double's commit is
-   * synchronous end to end, which hides whether the commit lock does anything — a
-   * real IndexedDB or SQLite transaction has that gap, so a test that needs the lock
-   * to matter turns this on.
-   */
-  slowCommits = false
 
   constructor(initial: readonly OutboxRecord[] = []) {
     this.snapshot = JSON.stringify(initial)
@@ -154,23 +148,40 @@ export class InMemoryOutboxStore implements OutboxStorePort {
     if (stale.length > 0) return { ok: false, conflicts: stale }
     const mutations: OutboxStoreMutation[] = [mutation]
     this.staged.set(span, mutations)
-    const enlistable = span as SyncSpan & { enlist?: (w: () => Promise<void>) => void }
-    enlistable.enlist?.(async () => {
-      this.staged.delete(span)
-      await this.serialize(async () => {
+    // Two-phase enrolment on the ONE span type (POD-1146). This used to reach a
+    // `enlist` method that existed on the concrete span and on no interface, via a
+    // cast — the unified port names the same thing, so the cast is gone and the
+    // validate/publish split is now the span's own protocol rather than this
+    // adapter's private arrangement.
+    let publishable: OutboxRecord[] | undefined
+    span.join({
+      prepare: () => {
         // Re-validate every staged mutation against CURRENT truth: another span may
         // have committed while this one was open. Nothing is written until all of
         // them pass, so an abort leaves the store byte-identical — including record
         // ORDER, which a restore-by-push undo could not promise.
+        //
+        // This is also what serializes two concurrent spans without a lock: the
+        // whole prepare→publish sequence runs with no await in it, so a second span
+        // cannot compute its post-state from a base the first has already
+        // superseded. A real adapter has the same obligation for the same reason —
+        // an await inside the transaction would close it (ADR 6 / D10).
         let next = this.parse()
         for (const staged of mutations) {
           const conflicts = conflictsOf(staged, next)
           if (conflicts.length > 0) throw new SyncCommitConflict([...conflicts])
           next = applyTo(next, staged)
         }
-        if (this.slowCommits) await Promise.resolve()
-        this.publish(next)
-      })
+        publishable = next
+      },
+      publish: () => {
+        // Cannot fail: everything that could refuse already did, in `prepare`.
+        if (publishable !== undefined) this.publish(publishable)
+        this.staged.delete(span)
+      },
+      discard: () => {
+        this.staged.delete(span)
+      },
     })
     return { ok: true }
   }
@@ -272,12 +283,14 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
       const span = new InMemorySpan()
       this.spans += 1
       try {
+        // `body` sees the span NARROWED to `SyncSpan`: participants enrol, and only
+        // this opener settles.
         const result = await body(span)
         if (this.failCommit !== undefined) throw this.failCommit
-        await span.commit()
+        span.commit()
         return result
       } catch (error) {
-        await span.abort()
+        span.abort()
         throw error
       }
     })
@@ -289,39 +302,66 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
   }
 }
 
-class InMemorySpan implements SyncSpan {
-  private readonly commits: (() => void)[] = []
-  private readonly writes: (() => Promise<void>)[] = []
-
-  onCommit(adopt: () => void): void {
-    this.commits.push(adopt)
-  }
+/**
+ * The unit of work's own span. `implements OwnedSyncSpan` and not `SyncSpan`: the
+ * OPENER settles, and `transact` is the opener — the body only ever sees it
+ * narrowed to `SyncSpan`, so no participant can commit or abort somebody else's
+ * transaction (POD-1146).
+ */
+class InMemorySpan implements OwnedSyncSpan {
+  private readonly participants: SyncSpanParticipant[] = []
+  private readonly adoptions: (() => void)[] = []
+  private state: 'open' | 'discarded' | 'published' = 'open'
 
   /**
-   * Adapters enroll their durable work here; it lands only if the span commits.
-   * There is no undo hook, and there must not be one: a participant store stages
-   * its mutations and publishes them only after all of them validate, so an aborted
-   * span never wrote anything to un-write. Rollback by restoring prior values is
-   * what let one span's abort delete another span's committed row.
+   * Adapters enrol their durable work here; it lands only if the span commits.
+   * `discard` drops a PRIVATE draft nobody has observed — it is not the abort hook
+   * `onCommit` deliberately lacks, and it cannot make memory disagree with durable
+   * truth in either direction. Rollback by restoring prior values is what let one
+   * span's abort delete another span's committed row; staging until publish is what
+   * replaced it.
    */
-  enlist(write: () => Promise<void>): void {
-    this.writes.push(write)
+  join(participant: SyncSpanParticipant): void {
+    if (this.state !== 'open') throw new Error('cannot join a span that has already settled')
+    if (!this.participants.includes(participant)) this.participants.push(participant)
   }
 
-  async commit(): Promise<void> {
-    // Each enrolled publisher validates ALL of its store's staged mutations and
-    // publishes them in one step, so a failure anywhere leaves that store untouched.
-    for (const write of this.writes) await write()
-    // Registration order after the durable commit.
-    for (const effect of this.commits) effect()
+  onCommit(adopt: () => void): void {
+    if (this.state !== 'open') throw new Error('cannot enrol in a span that has already settled')
+    this.adoptions.push(adopt)
   }
 
-  async abort(): Promise<void> {
+  commit(): void {
+    if (this.state !== 'open') throw new Error('span already settled')
+    try {
+      // Every participant validates ALL of its store's staged mutations here, so a
+      // refusal anywhere leaves every store untouched.
+      for (const participant of this.participants) participant.prepare?.()
+    } catch (error) {
+      this.discardAll()
+      throw error
+    }
+    this.state = 'published'
+    for (const participant of this.participants) participant.publish()
+    // Registration order, after the durable commit.
+    for (const adopt of this.adoptions) adopt()
+  }
+
+  abort(): void {
+    // Idempotent, so the `catch (…) { span.abort() }` idiom is always safe after a
+    // vetoed commit, which is the normal error path.
+    if (this.state === 'discarded') return
+    if (this.state === 'published') throw new Error('cannot abort a span that already published')
+    this.discardAll()
+  }
+
+  private discardAll(): void {
     // Dropping the span IS the whole rollback: nothing was published, because
-    // participants stage until commit, and nothing was adopted, because adoption
-    // only happens in `commit()`.
-    this.writes.length = 0
-    this.commits.length = 0
+    // participants stage until publish, and nothing was adopted, because adoption
+    // only happens on commit.
+    this.state = 'discarded'
+    for (const participant of this.participants) participant.discard?.()
+    this.adoptions.length = 0
   }
 }
 

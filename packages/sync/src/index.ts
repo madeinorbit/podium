@@ -8,36 +8,24 @@
  * (./change-log.ts) are private to the package.
  */
 /**
- * TWO `SyncSpan` DEFINITIONS EXIST AND THEY ARE NOT THE SAME TYPE (POD-1146).
+ * ADR 2 D10's unit of work has ONE definition site: `./span` (POD-1146).
  *
- * POD-369 (`./replica/ports`) declares `SyncSpan.join(participant)` with an
- * `OwnedSyncSpan` that commits or aborts and participants that
- * prepare/publish/discard. POD-370 (`./outbox/ports`) declares
- * `SyncSpan.onCommit(adopt)`. Both are the ADR 2 D10 unit-of-work seam, designed
- * independently by two siblings who each cite the other's findings — which is
- * precisely the parallel-definition drift POD-302 exists to end, arriving inside
- * the sync kernel itself.
+ * It used to have two. POD-369 (`./replica/ports`) declared
+ * `SyncSpan.join(participant)` with an `OwnedSyncSpan` that commits or aborts;
+ * POD-370 (`./outbox/ports`) declared `SyncSpan.onCommit(adopt)`. Left as two
+ * `export *`s that was TS2308 here, and the provisional fix bound the bare name to
+ * the replica's so that handing it to `outbox.retireApplied` failed loudly at the
+ * wiring site rather than silently.
  *
- * Until POD-1146 unifies them, the bare name is bound EXPLICITLY to the replica's
- * definition and the outbox's participant-side seam is exported only as
- * `OutboxSyncSpan`. Two reasons, and the second is the load-bearing one:
+ * There is now nothing to disambiguate: one span carries both hooks, and the
+ * opener/participant asymmetry that motivated the provisional binding is expressed
+ * where it belongs — `OwnedSyncSpan extends SyncSpan` with `commit`/`abort` on the
+ * owner alone. POD-305 and POD-373 wire both modules against this one type.
  *
- *  1. The asymmetry is real. The replica OPENS and owns the span (it decides when
- *     a frame's retirements commit together); the outbox PARTICIPATES in one it is
- *     handed. Opener-side is the sense a caller reaching for `SyncSpan` means.
- *  2. It fails LOUDLY rather than silently. Left as two `export *`s this was
- *     TS2308 in the barrel; bound the other way it would have compiled and handed
- *     POD-305/POD-373 — which wire BOTH modules — a name whose shape does not
- *     describe the object they receive. Passing this `SyncSpan` to
- *     `outbox.retireApplied` is now a type error at the wiring site, which is
- *     where the decision belongs.
- *
- * Each half keeps its own name internally (both import from their own `./ports`),
- * so nothing inside either module is renamed, and nothing outside packages/sync
- * imports either name today.
+ * `OutboxSyncSpan` is deliberately NOT re-introduced as an alias: a second name
+ * for one type is how the drift starts again.
  */
-export type { OwnedSyncSpan, SyncSpan, SyncSpanParticipant } from './replica/ports'
-export type { SyncSpan as OutboxSyncSpan } from './outbox/ports'
+export * from './span'
 
 export * from './ledger'
 export * from './mirror'
