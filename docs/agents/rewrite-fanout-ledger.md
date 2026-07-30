@@ -1697,3 +1697,38 @@ itself — a suite that passed against a fixture and passes against the real ker
 either a triumph or still not reaching the kernel, and those are indistinguishable from outside. Give
 it a guard that fails loudly when it is talking to the fixture (POD-305's shape: bind to the SHIPPED
 matrix, with a check that fails FIRST if it imports empty).
+
+### Naming a restatement is not creating one — and a ratchet that grows on an extraction
+
+POD-311's ratchet went the WRONG way (+3: session-shapes 0→2, issue-shapes 0→2, per-user-singletons
+8→9) on a change that only MOVED code. The diagnosis is worth keeping because it will recur every time
+an inline schema is extracted:
+
+`NOT_A_REPRESENTATION` is keyed by `(file, symbol)`. The `createInput`/`updateInput` schemas were
+ALWAYS restatements of issue vocabulary — but **anonymous**, written inline as
+`def({ input: z.object({...}) })`, which the detector reads as an expression rather than a declaration.
+Extracting them gave them NAMES, and a named declaration is what the audit can see. The restatement did
+not appear; it became *visible*.
+
+So they were excluded at their new address for the same reason the session pair already carried, and
+the pin was bumped 34→36 deliberately — that pin exists to force exactly this conversation. Back to
+189, no baseline edited.
+
+**The general rule: when a ratchet moves on a change that only relocates code, ask whether the DETECTOR'S
+VISIBILITY changed before concluding the code did.** Same family as the `isFrozenFile` narrowing (which
+raised a baseline 13→16 because the detector's scope widened, not because code regressed) and POD-1180
+(an extraction into an unscanned file reads as a win with nothing removed).
+
+**And the honest negative that belongs beside it:** absorbing the stranded protocol contracts did NOT
+drop the ratchet, because none of the 25 inventory items ever counted `protocol/commands.ts` or
+`messages/mutations.ts` — AC3's "audit items zero" clause had no corresponding item to zero. POD-311
+reported that rather than hunting for a number to move. A criterion that cannot be satisfied because it
+names nothing is a finding about the criterion, not a licence to find a substitute metric.
+
+### A mutant that patches a value to what it already was
+
+POD-311's first oracle perturbation set `close.scope` to `issue` when it was ALREADY `issue`. It applied
+cleanly, changed nothing, and read as a PASS. Third distinct way a mutant can be non-evidence, after
+failed-to-apply and failed-to-compile. Its fix is the general one: **every perturbation must name the
+command it perturbs and DIFF THE FIELD FIRST**, asserting the mutant actually changed the value before
+reading the result.
