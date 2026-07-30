@@ -361,11 +361,29 @@ Two consequences:
    regardless of what reads key presence. (b) Only if no, ask whether anything downstream reads
    `k in obj` rather than the JSON.
 
-   **This applies to this schema, not only to POD-366's.** `title` and `cwdSubpath` are both plain
-   optional strings that can legitimately be `""`, so both are exposed. `worktreeRelativePath` is
-   *not*: its `.min(1)` rejects `""` outright rather than shipping it — validation catching what the
-   type layer cannot, and an argument for constraining optional strings that have a meaningful
-   non-empty invariant.
+   **This applies to this schema, not only to POD-366's** — but only as a *wire* change, and I
+   initially overstated its consequence. `title` and `cwdSubpath` are plain optional strings that can
+   legitimately be `""`, so a `??`-style rewrite would put a new key on the wire.
+   `worktreeRelativePath` is exempt: its `.min(1)` rejects `""` outright rather than shipping it.
+
+   **Correction, traced rather than assumed.** I claimed in three places that `cwdSubpath: ""` versus
+   absent "may route a resumed agent differently". It does not. `landingCwd`
+   (`apps/daemon/src/handoff-package.ts:64`) splits the subpath, filters empty and dot segments, and
+   returns the worktree root when nothing survives — so `""` and absent are *identical* in behaviour.
+   `transcriptRelativeDir` is the same: its reader coerces with `relativeDir ?? ''` and then
+   sanitises. Both readers are defensive, so the falsy-but-defined case is a wire change with **no
+   behavioural consequence** in today's code.
+
+   That narrows the `.min(1)` recommendation rather than supporting it here. Where a reader already
+   normalises `""` to absent, adding `.min(1)` would convert a harmless value into a **hard parse
+   failure** — a net loss for a file format, which must stay readable. So the rule is not "constrain
+   every optional string with a non-empty invariant", it is: **constrain it where `""` is both
+   meaningless *and* not already normalised by the reader.** On this schema that set is currently
+   empty, which is why nothing was changed.
+
+   The genuinely user-visible defect is the *other* one, and it is unaffected by any of this: a
+   mistyped key is stripped, so `cwdSubpath` goes **absent** — and absent is exactly what sends the
+   agent to the worktree root instead of its subdirectory.
 
 The general rule worth extracting, in POD-366's formulation: **a schema `.parse()` on a literal you
 just built validates the data against the schema but never validates that you wrote the keys the
