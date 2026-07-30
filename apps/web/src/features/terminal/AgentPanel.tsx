@@ -43,7 +43,7 @@ import {
 import { ChatView } from '@/features/chat/ChatView'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
-import { AGENT_BRAND_DOT } from '@/lib/agent-tone'
+import { agentBrandDot } from '@/lib/agent-tone'
 import {
   defaultChatCapable,
   exitedRecovery,
@@ -789,11 +789,11 @@ export function AgentPanel({
             >
               {/* Brand mark for harnesses that have one — a table lookup, so a new
                   harness adds a row rather than another branch here. */}
-              {AGENT_BRAND_DOT[session.agentKind] && (
+              {agentBrandDot(session.agentKind) && (
                 <span
                   className={cn(
                     'size-[6px] flex-none rounded-full',
-                    AGENT_BRAND_DOT[session.agentKind],
+                    agentBrandDot(session.agentKind),
                   )}
                   aria-hidden="true"
                 />

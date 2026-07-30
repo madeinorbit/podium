@@ -161,17 +161,49 @@ export function agentSupportsCloud(kind: AgentKind): boolean {
   return AGENT_CAPABILITIES[kind].cloud
 }
 
+/**
+ * Capability row for a harness, or `undefined` when this build has never heard of
+ * it (POD-1105 review, blocker 1).
+ *
+ * `AgentKind` is the closed set of harnesses THIS BUILD knows; the wire is NOT
+ * closed, because a newer machine in the fleet can name a harness added after
+ * this client shipped. So capability questions asked at a consumer boundary take
+ * the open id and answer totally: indexing the closed table by an unknown id
+ * throws, where the comparison it replaced simply returned false. This is the
+ * incremental-completeness seam — an unknown harness must degrade to "no special
+ * affordance", never crash the view.
+ *
+ * VOCABULARY, deliberately not invented here. POD-397 lands the real identity
+ * model next door in ./harness — `HarnessId` (open, branded), the closed
+ * `BuiltinHarnessKind`, and `manifestFor(kind): AgentManifest | undefined`, whose
+ * contract is exactly this function's: unknown ⇒ undefined, caller branches. The
+ * parameter is spelled inline rather than as a new exported alias ON PURPOSE:
+ * this file and ./harness are both re-exported by the package barrel, so
+ * exporting a second `HarnessId` from here would be a duplicate export the
+ * moment POD-397 merges. When it does, POD-398 replaces this signature with
+ * their `HarnessId` — a rename, not a reconciliation of two vocabularies.
+ */
+export function agentCapabilitiesFor(
+  kind: AgentKind | (string & {}),
+): AgentCapabilities | undefined {
+  return AGENT_CAPABILITIES[kind as AgentKind]
+}
+
 /** Worth drawing the native prompt-chrome hint row for this harness (POD-1105 —
- *  the view asks the capability table instead of naming a harness). */
-export function agentShowsPromptModeHints(kind: AgentKind): boolean {
-  return AGENT_CAPABILITIES[kind].promptModeHints
+ *  the view asks the capability table instead of naming a harness). Total: an
+ *  unknown harness advertises NO hints, since a hint it does not honour is worse
+ *  than none — and that matches the `=== 'claude-code'` this replaced. */
+export function agentShowsPromptModeHints(kind: AgentKind | (string & {})): boolean {
+  return agentCapabilitiesFor(kind)?.promptModeHints ?? false
 }
 
 /** Sessions of this kind can be handed off to another machine (claude-code,
  *  codex today). The eligibility question every handoff surface asks, answered
- *  once here rather than re-listing the pair per call site (POD-1105). */
-export function agentSupportsHandoff(kind: AgentKind): boolean {
-  return AGENT_CAPABILITIES[kind].handoff
+ *  once here rather than re-listing the pair per call site (POD-1105). Total: an
+ *  unknown harness is NOT handoff-eligible, which is both the safe answer and
+ *  what the pair of equality checks this replaced returned. */
+export function agentSupportsHandoff(kind: AgentKind | (string & {})): boolean {
+  return agentCapabilitiesFor(kind)?.handoff ?? false
 }
 
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })

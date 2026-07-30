@@ -41,7 +41,7 @@ import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/features/issues/issue-card'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
-import { AGENT_BRAND_TEXT, AGENT_FLEET_TILE_TINT } from '@/lib/agent-tone'
+import { agentBrandText, agentFleetTileTint } from '@/lib/agent-tone'
 import {
   branchRollup,
   draftIssueLabel,
@@ -149,7 +149,7 @@ function IssueFleetSummary({
         // Per-kind tint (POD-293): Claude wears its clay, other harnesses a quiet
         // navy — solid fills so stacked tiles don't ghost through each other. A
         // table keyed by kind, not a comparison (see @/lib/agent-tone).
-        const tileTint = AGENT_FLEET_TILE_TINT[session.agentKind]
+        const tileTint = agentFleetTileTint(session.agentKind)
         // The row's unopened-update dot rides the corner of the LAST tile (the
         // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
         // row background — reads as "this fleet has something new", not a third
@@ -448,7 +448,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
               <AgentIcon
                 size={14}
                 aria-hidden="true"
-                className={cn('flex-none', AGENT_BRAND_TEXT[defaultAgent])}
+                className={cn('flex-none', agentBrandText(defaultAgent))}
               />
             ) : null
           })()}

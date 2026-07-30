@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AGENT_CAPABILITIES,
   AgentKind,
+  agentCapabilitiesFor,
   agentShowsPromptModeHints,
   agentSupportsHandoff,
 } from './terminal'
@@ -28,6 +29,24 @@ describe('capabilities relocated from view code (POD-1105)', () => {
     // really honours shift+tab cycling and `?` help may advertise them.
     const kinds = AgentKind.options.filter((k) => agentShowsPromptModeHints(k))
     expect(kinds).toEqual(['claude-code'])
+  })
+
+  it('answers for an UNKNOWN harness instead of throwing (review blocker 1)', () => {
+    // The wire is not closed: a newer machine can name a harness this build has
+    // never heard of. The comparisons these helpers replaced returned false for
+    // such an id; indexing the closed table would throw instead. An unknown
+    // harness must degrade to "no special affordance", not crash the view.
+    const unknown = 'future-harness'
+    expect(() => agentShowsPromptModeHints(unknown)).not.toThrow()
+    expect(() => agentSupportsHandoff(unknown)).not.toThrow()
+    expect(agentShowsPromptModeHints(unknown)).toBe(false)
+    expect(agentSupportsHandoff(unknown)).toBe(false)
+    expect(agentCapabilitiesFor(unknown)).toBeUndefined()
+  })
+
+  it('still resolves a real row for a known harness', () => {
+    expect(agentCapabilitiesFor('codex')?.handoff).toBe(true)
+    expect(agentCapabilitiesFor('claude-code')?.promptModeHints).toBe(true)
   })
 
   it('every harness kind carries a row for both new flags', () => {

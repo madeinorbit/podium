@@ -312,6 +312,20 @@ describe('issueHandoffAvailability (POD-850)', () => {
     ])
   })
 
+  it('treats an UNKNOWN harness as not handoff-eligible without throwing (POD-1105)', () => {
+    // agentKind comes off the wire, so it can name a harness this build has never
+    // heard of. Eligibility now reads the capability table; an unknown id must
+    // answer "not eligible" — the same thing the `claude-code || codex` pair of
+    // comparisons returned — rather than throwing on a missing row.
+    const future = makeSession({ sessionId: 'f1', agentKind: 'future-harness' as never })
+    expect(() =>
+      issueHandoffAvailability(issueWith(['f1']), [future], handoffRepos, handoffMachines),
+    ).not.toThrow()
+    expect(
+      issueHandoffAvailability(issueWith(['f1']), [future], handoffRepos, handoffMachines),
+    ).toEqual({ blocker: 'no-agent-session' })
+  })
+
   it('reports no-agent-session for a shell-only issue instead of hiding', () => {
     const shell = makeSession({ sessionId: 'sh', agentKind: 'shell' })
     expect(issueHandoffAvailability(issueWith(['sh']), [shell], handoffRepos, handoffMachines)).toEqual({

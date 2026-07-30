@@ -2,7 +2,7 @@ import type { AgentKind, SessionMeta } from '@podium/protocol'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
 import type { JSX } from 'react'
-import { AGENT_CHIP_TINT, AGENT_GLYPH_TONE } from '@/lib/agent-tone'
+import { agentChipTint, agentGlyphTone } from '@/lib/agent-tone'
 import {
   ClaudeCodeIcon,
   CursorIcon,
@@ -99,11 +99,11 @@ export function KindIcon({
   const Icon = KIND_ICON[kind]
   // Claude's brand clay for its glyph; other kinds stay text-toned like the mock.
   // Table lookups, not comparisons — see apps/web/src/lib/agent-tone.ts.
-  const tone = dimmed ? 'text-muted-foreground/70' : AGENT_GLYPH_TONE[kind]
+  const tone = dimmed ? 'text-muted-foreground/70' : agentGlyphTone(kind)
   if (chip) {
     // Per-kind tinted tile (POD-293): Claude wears its clay, other harnesses a
     // quiet navy — solid fills so the chip never ghosts through a neighbour.
-    const chipTint = dimmed ? 'border-[#2a3550] bg-[#141d30]' : AGENT_CHIP_TINT[kind]
+    const chipTint = dimmed ? 'border-[#2a3550] bg-[#141d30]' : agentChipTint(kind)
     return (
       <span
         className={`flex size-5 flex-none items-center justify-center rounded-[6px] border ${chipTint} ${tone}`}
