@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import { Copy, ExternalLink, GripVertical, PanelRight, Play, User, X } from 'lucide-react'
@@ -56,7 +57,7 @@ export function RefMiniviewHost(): JSX.Element | null {
       shallowEqual,
     )
 
-  const openIssueFull = (issueId: string): void => {
+  const openIssueFull = (issueId: IssueId): void => {
     setOpenIssueId(issueId)
     setView('issues')
   }

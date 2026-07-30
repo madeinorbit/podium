@@ -1,10 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  asIssueId,
-  type IssueComment,
-  type IssueStage,
-  type IssueWire,
-} from '@podium/model'
+import { asIssueId, type IssueComment, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { CircleAlert, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
@@ -482,7 +477,7 @@ export function IssuePanelView({
     }),
     shallowEqual,
   )
-  const openIssuePage = (id: string) => {
+  const openIssuePage = (id: IssueId) => {
     setOpenIssueId(id)
     setView('issues')
   }

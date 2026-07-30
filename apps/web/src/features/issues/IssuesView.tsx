@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, type IssueStage, IssueType, type IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Bot,
@@ -333,7 +333,7 @@ export function IssuesView(): JSX.Element {
   }, [focusId])
 
   // Shift+click toggles the clicked issue in/out of the selection (focusing it too).
-  const toggleSelectId = (id: string): void =>
+  const toggleSelectId = (id: IssueId): void =>
     setKeyState((s) =>
       issuesKeyReduce({ ...s, focusId: id }, { kind: 'toggleSelect' }, navRef.current),
     )
@@ -341,7 +341,7 @@ export function IssuesView(): JSX.Element {
   // Right-click on a card/row: inside the current selection the menu acts on
   // all selected (bulk-bar semantics); on an unselected issue it re-focuses it
   // and drops the old selection, then the menu acts on just that issue.
-  const onIssueContextMenu = (id: string, e: ReactMouseEvent): void => {
+  const onIssueContextMenu = (id: IssueId, e: ReactMouseEvent): void => {
     e.preventDefault()
     const { keyState: next, targetIds } = contextMenuTargets(
       { focusId: keyState.focusId, selected: selectedIds },
@@ -947,18 +947,18 @@ function IssueColumn({
   badges: IssuesDisplay['badges']
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
-  onOpen: (id: string) => void
+  onOpen: (id: IssueId) => void
   onMoveIssue: (id: string, stage: IssueStage) => void
-  onApprove: (id: string) => void
-  onApproveStart: (id: string) => void
+  onApprove: (id: IssueId) => void
+  onApproveStart: (id: IssueId) => void
   onArchive: (id: string) => void
   onCreateIn: (stage: IssueStage) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
   focusId: string | null
   selected: string[]
-  onToggleSelect: (id: string) => void
-  onContextMenu: (id: string, e: ReactMouseEvent) => void
+  onToggleSelect: (id: IssueId) => void
+  onContextMenu: (id: IssueId, e: ReactMouseEvent) => void
 }): JSX.Element {
   // Highlight the column while a card is dragged over it. Native DnD fires
   // enter/leave on descendants too, so this can flicker — it's cosmetic only.
@@ -1136,16 +1136,16 @@ function IssueCard({
   stageCounts?: { stage: IssueStage; count: number }[]
   /** Whole-subtree rollup for a human-facing epic (#198); null = no descendants. */
   progress?: EpicProgress | null
-  onOpen: (id: string) => void
-  onApprove: (id: string) => void
-  onApproveStart: (id: string) => void
+  onOpen: (id: IssueId) => void
+  onApprove: (id: IssueId) => void
+  onApproveStart: (id: IssueId) => void
   onArchive: (id: string) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
   focused: boolean
   selected: boolean
-  onToggleSelect: (id: string) => void
-  onContextMenu: (id: string, e: ReactMouseEvent) => void
+  onToggleSelect: (id: IssueId) => void
+  onContextMenu: (id: IssueId, e: ReactMouseEvent) => void
 }): JSX.Element {
   const m = issueCardModel(issue)
   const show = badges

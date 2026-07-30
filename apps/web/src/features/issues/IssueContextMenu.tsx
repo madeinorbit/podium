@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   AlarmClock,
@@ -77,7 +77,7 @@ export function IssueContextMenu({
   anchor: ContextMenuAnchor
   onClose: () => void
   /** Open the issue page for a single target. */
-  onOpen: (id: string) => void
+  onOpen: (id: IssueId) => void
   /** Start an inline rename for a single target (#170). When omitted (e.g. the
    *  board, which has no in-place editor) the Rename item is not offered. */
   onRename?: (id: string) => void

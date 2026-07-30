@@ -1,6 +1,6 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { asIssueId, asSessionId, type AgentKind, type IssueColorSlot, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import { type AgentKind, asIssueId, asSessionId, type IssueColorSlot, type IssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
@@ -1013,7 +1013,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setView('workspace')
   }
   // Open the issue PAGE (the right-click "Open" action), leaving the workspace.
-  const openIssuePage = (id: string) => {
+  const openIssuePage = (id: IssueId) => {
     setOpenIssueId(id)
     setView('issues')
   }
@@ -1878,7 +1878,7 @@ function UnifiedIssueRow({
   onSelectIssue: (issue: IssueWire) => void
   onSelectPanelForIssue: (issue: IssueWire, sessionId: SessionId) => void
   /** Open the issue PAGE (the context menu's "Open"). */
-  onOpenIssue: (id: string) => void
+  onOpenIssue: (id: IssueId) => void
   onRenameIssue: (id: string, title: string) => void
   onColorChangeIssue: (id: string, color: IssueColorSlot | null) => unknown
   /** Manual-sort drag start (POD-168); absent = row not draggable. */

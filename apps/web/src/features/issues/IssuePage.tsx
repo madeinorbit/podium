@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core'
-import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
+import { isPendingSync, type IssueId, isUpstreamStale, isViaHub } from '@podium/model'
 import type { IssuePanelArtifact, IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -84,9 +84,9 @@ export function IssuePage({
   onNavigate,
 }: {
   issue: IssueWire
-  orderedIds: string[]
+  orderedIds: IssueId[]
   onBack: () => void
-  onNavigate: (id: string) => void
+  onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const model = useIssuePageModel(issue, orderedIds)
   const { busy, toast, run, prev, next, repoName, feed, mail, children } = model
@@ -720,10 +720,10 @@ function LifecycleBanner({
   onNavigate,
 }: {
   issue: IssueWire
-  onNavigate: (id: string) => void
+  onNavigate: (id: IssueId) => void
 }): JSX.Element | null {
   const issues = useStoreSelector((s) => s.issues)
-  const link = (id: string, verb: string): JSX.Element => {
+  const link = (id: IssueId, verb: string): JSX.Element => {
     const target = issues.find((i) => i.id === id)
     return (
       <p className="text-[13px] text-foreground">

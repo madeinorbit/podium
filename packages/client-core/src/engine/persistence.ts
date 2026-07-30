@@ -6,7 +6,7 @@
  * localStorage keys are migrated in there once and removed.
  */
 
-import { asSessionId, type SessionId } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId, type SessionId } from '@podium/model'
 import type { UiState } from '../replica/replica'
 import type { MainView } from '../router'
 import type { RecentFileEntry } from '../viewmodels/dock-panel'
@@ -82,8 +82,12 @@ export function readStoredRecentFiles(ui: UiState): RecentFileEntry[] {
         worktreePath: e.worktreePath,
         openedAt: e.openedAt,
         ...(typeof e.machineId === 'string' ? { machineId: e.machineId } : {}),
+        // DECODE EDGE (POD-363): `localStorage` hands back parsed JSON, so this
+        // is where a persisted artifact ref re-enters the id space. The
+        // `typeof === 'string'` guards immediately above ARE the validation —
+        // the brand is applied to what they admit, not in place of them.
         ...(a && typeof a.issueId === 'string' && typeof a.artifactId === 'string'
-          ? { artifact: { issueId: a.issueId, artifactId: a.artifactId } }
+          ? { artifact: { issueId: asIssueId(a.issueId), artifactId: asArtifactId(a.artifactId) } }
           : {}),
       })
     }
