@@ -1,7 +1,7 @@
 import { TRPCClientError } from '@trpc/client'
 import { describe, expect, it } from 'vitest'
-import type { SyncRepository } from './sync-repository'
-import { createTestSyncRepository } from './test-support'
+import type { SyncRepository } from './adapters/sqlite/sync-repository'
+import { createTestSyncRepository } from './adapters/sqlite/test-support'
 import {
   isDefinitiveRejection,
   optimisticIssuePatch,

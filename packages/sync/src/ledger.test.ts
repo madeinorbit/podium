@@ -1,11 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { transaction } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CHANGE_MAX_AGE_MS, CHANGE_PRUNE_EVERY } from './change-log'
 import { type EntityChangeSpec, entityOverlayKey, Ledger, prepareLedgerBoot } from './ledger'
-import { SyncRepository } from './sync-repository'
-import { createTestSyncDatabase, createTestSyncRepository } from './test-support'
+import { SyncRepository } from './adapters/sqlite/sync-repository'
+import {
+  createTestSyncDatabase,
+  createTestSyncRepository,
+  createTestTransact,
+} from './adapters/sqlite/test-support'
 
 // The write-seam change log [spec:SP-3fe2] (#253): commit() must append exactly
 // the declared-and-real changes atomically with the entity write, reconcile()
@@ -487,7 +490,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
     const db = createTestSyncDatabase()
     db.exec('CREATE TABLE issues (id TEXT PRIMARY KEY, title TEXT)')
     const repo = new SyncRepository(db)
-    const transact = <T>(fn: () => T): T => transaction(db, fn)
+    const transact = createTestTransact(db)
     const insertIssue = (id: string, title: string) =>
       db.prepare('INSERT INTO issues (id, title) VALUES (?, ?)').run(id, title)
     const issueRows = () =>
