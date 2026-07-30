@@ -3,10 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { decodeCursor } from '@podium/transcript'
+import {
+  type ChainEntry,
+  decodeCursor,
+  fileChainSource,
+  fileIdFor,
+  stampOpencodeItems,
+} from '@podium/transcript'
 import { afterEach, describe, expect, it } from 'vitest'
-import { type ChainEntry, fileChainSource, fileIdFor, stampOpencodeItems } from '@podium/transcript'
-import { opencodeDbSource } from './adapters/opencode.js'
+import { opencodeDbSource } from './manifests/opencode.js'
 import { transcriptSourceFor } from './transcript-source.js'
 
 // ---------------------------------------------------------------------------
@@ -355,7 +360,7 @@ describe('stampOpencodeItems (shared by live observer + DB read)', () => {
       textPart(`prt-${i}`, `msg-${i}`, i % 2 === 0 ? 'user' : 'assistant', `m${i}`, 500 + i),
     )
     const { homeDir } = await seedOpencode(sid, parts)
-    const { openOpencodeDb, loadOpencodeTranscriptTail } = await import('../opencode/db.js')
+    const { openOpencodeDb, loadOpencodeTranscriptTail } = await import('./opencode/db.js')
     const db = openOpencodeDb(homeDir)
     if (!db) throw new Error('db open failed')
     const rows = loadOpencodeTranscriptTail(db, sid)

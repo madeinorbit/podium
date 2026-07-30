@@ -13,11 +13,7 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
-import {
-  claudeProjectSlug,
-  locateClaudeSessionFile,
-  resolvePinnedCodexRollout,
-} from '@podium/agent-bridge'
+import { claudeProjectSlug, locateClaudeSessionFile, resolvePinnedCodexRollout } from '@podium/harness'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/protocol'
 import { gitWorktree } from './worktree-resolve'
 

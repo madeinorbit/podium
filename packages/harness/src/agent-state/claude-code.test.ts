@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { agentStateProviderFor } from '../harness/registry.js'
+import { agentStateProviderFor } from '../registry.js'
 import { acceptAgentObservation } from './causal'
 import {
   ClaudeCausalObserver,

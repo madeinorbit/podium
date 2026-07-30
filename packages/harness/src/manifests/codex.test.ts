@@ -1,6 +1,6 @@
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HarnessObservationLease, HarnessObserverHost } from '../adapter.js'
+import type { HarnessObservationLease, HarnessObserverHost } from '../manifest.js'
 
 const mockedObserver = vi.hoisted(() => ({
   starts: [] as Array<{
@@ -12,8 +12,8 @@ const mockedObserver = vi.hoisted(() => ({
   }>,
 }))
 
-vi.mock('../../agent-state/codex.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../agent-state/codex.js')>()
+vi.mock('../agent-state/codex.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../agent-state/codex.js')>()
   return {
     ...actual,
     observeCodexState: vi.fn((opts) => {
@@ -28,7 +28,7 @@ vi.mock('../../agent-state/codex.js', async (importOriginal) => {
   }
 })
 
-import { codexAdapter } from './codex.js'
+import { codexManifest } from './codex.js'
 
 function lease(providerSessionId: string | null): HarnessObservationLease {
   return {
@@ -75,8 +75,9 @@ function ack(
 
 function start(initialLease: HarnessObservationLease) {
   const observerHost = host()
-  const observerFactory = codexAdapter.observer
-  if (!observerFactory) throw new Error('codex observer is required')
+  if (!codexManifest.observer.supported)
+    throw new Error(`codex declares observer unsupported: ${codexManifest.observer.reason}`)
+  const observerFactory = codexManifest.observer.value
   const observation = observerFactory(
     {
       cwd: '/repo',

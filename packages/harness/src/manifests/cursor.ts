@@ -1,17 +1,19 @@
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
-import { cursorBinCandidates, resolveCursorBin } from '../../cursor/cli.js'
-import { cursorSessionPaths } from '../../cursor/paths.js'
-import { createCursorConversationProvider } from '../../discovery/providers/cursor.js'
+import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
+import { cursorBinCandidates, resolveCursorBin } from '../cursor/cli.js'
+import { cursorSessionPaths } from '../cursor/paths.js'
+import { createCursorConversationProvider } from '../discovery/providers/cursor.js'
+import { composeAgentInstructions } from '../instructions.js'
 import {
-  type HarnessAdapter,
+  type AgentManifest,
   isSet,
+  supported,
   type TranscriptSourceInput,
   transcriptFileExists,
-} from '../adapter.js'
-import { composeAgentInstructions } from '../instructions.js'
+  unsupported,
+} from '../manifest.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
@@ -23,7 +25,7 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   return (await transcriptFileExists(path)) ? [path] : []
 }
 
-export const cursorAdapter: HarnessAdapter = {
+export const cursorManifest: AgentManifest = {
   kind: 'cursor',
   capabilities: AGENT_CAPABILITIES.cursor,
   resumeKind: 'cursor-chat',
@@ -75,19 +77,19 @@ export const cursorAdapter: HarnessAdapter = {
     }
   },
 
-  exec(opts, bins) {
+  exec: supported((opts, bins) => {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return { cmd: bins.cursor(), args: ['-p', ...(model ? ['--model', model] : []), prompt] }
-  },
+  }),
 
-  headless: {
+  headless: supported({
     driver: 'resume-exec',
     // The chat id is pre-allocated with `cursor-agent create-chat` (bare UUID
     // on stdout) so even the first turn runs pinned via --resume.
     resumeIdAllocation: 'create-chat',
-    buildExec(opts, bins) {
+    buildExec: supported((opts, bins) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const sys = opts.systemPrompt?.trim()
       const context = opts.contextPrompt?.trim()
@@ -103,14 +105,14 @@ export const cursorAdapter: HarnessAdapter = {
           prompt,
         ],
       }
-    },
-  },
+    }),
+  }),
 
-  state: cursorStateProvider,
+  state: supported(cursorStateProvider),
 
   // No hook channel — a polling observer discovers/pins the chat and tails its
   // per-chat transcript file.
-  observer(input, host) {
+  observer: supported((input, host) => {
     const transcriptPathFor = (chatId: string): string =>
       cursorSessionPaths({
         cwd: input.cwd,
@@ -133,16 +135,20 @@ export const cursorAdapter: HarnessAdapter = {
       onEvents: (events) => host.onStateEvents(events),
     })
     return { stop: () => obs.stop() }
-  },
+  }),
 
   discovery: createCursorConversationProvider(),
 
-  transcript: {
+  transcript: supported({
     storage: 'file-chain',
-    chainPaths,
+    chainPaths: supported(chainPaths),
     async sourceFor(input) {
       const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
       return fileChainSource(chain, recordToItemsForKind('cursor'))
     },
-  },
+  }),
+
+  classifyBrowserOpen: unsupported(
+    'no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',
+  ),
 }

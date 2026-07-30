@@ -1,12 +1,7 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import {
-  type GitDiscoveryDiagnostic,
-  type GitRepositorySummary,
-  scanGitRepositories,
-  scanGitRepositoriesAtPath,
-} from '@podium/agent-bridge'
+import { type GitDiscoveryDiagnostic, type GitRepositorySummary, scanGitRepositories, scanGitRepositoriesAtPath } from '@podium/harness'
 import type {
   ControlMessage,
   DirectoryEntryWire,

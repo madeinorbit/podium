@@ -6,12 +6,12 @@ import {
   stampOpencodeItems,
   type TranscriptSource,
 } from '@podium/transcript'
-import { observeOpencodeState, opencodeStateProvider } from '../../agent-state/opencode.js'
-import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
-import { opencodeBinCandidates, resolveOpencodeBin } from '../../opencode/cli.js'
-import { loadOpencodeTranscriptTail, openOpencodeDb } from '../../opencode/db.js'
-import { type HarnessAdapter, isSet } from '../adapter.js'
+import { observeOpencodeState, opencodeStateProvider } from '../agent-state/opencode.js'
+import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
 import { composeAgentInstructions } from '../instructions.js'
+import { type AgentManifest, isSet, supported, unsupported } from '../manifest.js'
+import { opencodeBinCandidates, resolveOpencodeBin } from '../opencode/cli.js'
+import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
 
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
@@ -43,7 +43,7 @@ export function opencodeDbSource(input: { sessionId: string; homeDir?: string })
   }
 }
 
-export const opencodeAdapter: HarnessAdapter = {
+export const opencodeManifest: AgentManifest = {
   kind: 'opencode',
   capabilities: AGENT_CAPABILITIES.opencode,
   resumeKind: 'opencode-session',
@@ -91,19 +91,19 @@ export const opencodeAdapter: HarnessAdapter = {
     }
   },
 
-  exec(opts, bins) {
+  exec: supported((opts, bins) => {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return { cmd: bins.opencode(), args: ['run', ...(model ? ['-m', model] : []), prompt] }
-  },
+  }),
 
-  headless: {
+  headless: supported({
     driver: 'resume-exec',
     // First turn has no id (opencode mints ses_… internally; captured from the
     // --format json event stream); later turns pin with -s.
     resumeIdAllocation: 'stream-captured',
-    buildExec(opts, bins) {
+    buildExec: supported((opts, bins) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const sys = opts.systemPrompt?.trim()
       const context = opts.contextPrompt?.trim()
@@ -119,16 +119,16 @@ export const opencodeAdapter: HarnessAdapter = {
           prompt,
         ],
       }
-    },
-  },
+    }),
+  }),
 
-  state: opencodeStateProvider,
+  state: supported(opencodeStateProvider),
 
   // No hook channel and no file to tail (SQLite store): the observer polls the
   // DB, discovers the session, and pushes live transcript items itself. Items
   // are already cursor-stamped (stampOpencodeItems), so the live delta carries
   // the same cursors the on-demand read produces.
-  observer(input, host) {
+  observer: supported((input, host) => {
     const obs = observeOpencodeState({
       cwd: input.cwd,
       ...(input.statTick ? { statTick: input.statTick } : {}),
@@ -140,14 +140,15 @@ export const opencodeAdapter: HarnessAdapter = {
       onTranscriptItems: (items, reset) => host.onTranscriptItems(items, reset),
     })
     return { stop: () => obs.stop() }
-  },
+  }),
 
   discovery: createOpencodeConversationProvider(),
 
-  transcript: {
+  transcript: supported({
     // SQLite-backed — no file chain; the DB adapter serves the same cursor
     // contract as the chain reader.
     storage: 'sqlite',
+    chainPaths: unsupported('opencode stores transcripts in SQLite — there are no files to chain'),
     async sourceFor(input) {
       // No resume value → nothing to read; hand back an inert empty source so
       // the caller need not special-case it.
@@ -159,5 +160,9 @@ export const opencodeAdapter: HarnessAdapter = {
         ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
       })
     },
-  },
+  }),
+
+  classifyBrowserOpen: unsupported(
+    'no catalogued opencode login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',
+  ),
 }

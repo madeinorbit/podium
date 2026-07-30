@@ -11,7 +11,8 @@ import {
   type HarnessObserveInput,
   type HarnessObserverHost,
   harnessAdapterFor,
-} from '@podium/agent-bridge'
+  supported,
+} from '@podium/harness'
 import type {
   AgentObservation,
   DaemonMessage,
@@ -155,7 +156,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
         kind === 'codex'
           ? {
               ...codex,
-              observer: (_input, host) => {
+              observer: supported((_input, host) => {
                 const stop = statTick.subscribe(() => {
                   if (reading) return
                   reading = true
@@ -170,7 +171,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
                     bootstrapped = true
                   },
                 }
-              },
+              }),
             }
           : harnessAdapterFor(kind),
     })
@@ -243,7 +244,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
         kind === 'codex'
           ? {
               ...codex,
-              observer: (nextInput, nextHost) => {
+              observer: supported((nextInput, nextHost) => {
                 input = nextInput
                 host = nextHost
                 return {
@@ -257,7 +258,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
                       rebindId: 'rebind-1',
                     }),
                 }
-              },
+              }),
             }
           : harnessAdapterFor(kind),
     })
@@ -597,10 +598,10 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
         kind === 'codex'
           ? {
               ...codex,
-              observer: (_input, nextHost) => {
+              observer: supported((_input, nextHost) => {
                 host = nextHost
                 return { stop: vi.fn() }
-              },
+              }),
             }
           : harnessAdapterFor(kind),
     })
@@ -694,10 +695,10 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
         kind === 'codex'
           ? {
               ...codex,
-              observer: (_input, nextHost) => {
+              observer: supported((_input, nextHost) => {
                 host = nextHost
                 return { stop: vi.fn() }
-              },
+              }),
             }
           : harnessAdapterFor(kind),
     })
@@ -767,7 +768,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
         kind === 'codex'
           ? {
               ...codex,
-              observer: (_input, host) => ({
+              observer: supported((_input, host) => ({
                 stop: vi.fn(),
                 bindHookThread: (nativeId) => {
                   bindHookThread(nativeId)
@@ -777,7 +778,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
                     rebindId: `rebind-${nativeId}`,
                   })
                 },
-              }),
+              })),
             }
           : harnessAdapterFor(kind),
     })

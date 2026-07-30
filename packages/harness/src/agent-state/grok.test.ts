@@ -7,8 +7,18 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import type { HarnessObserverHost } from '../harness/adapter'
-import { grokAdapter } from '../harness/adapters/grok'
+import type { AgentManifest, HarnessObserver, HarnessObserverHost } from '../manifest'
+import { grokManifest } from '../manifests/grok'
+
+/** grok declares `observer` supported; unwrap it once so the tests below read as
+ *  observer behavior rather than as Declared plumbing. Throws (rather than
+ *  silently skipping) if that declaration ever regresses to unsupported. */
+function declaredObserver(manifest: AgentManifest): HarnessObserver {
+  if (!manifest.observer.supported)
+    throw new Error(`${manifest.kind} declares observer unsupported: ${manifest.observer.reason}`)
+  return manifest.observer.value
+}
+
 import { acceptAgentObservation, type ObservationLease } from './causal'
 import {
   classifyGrokIdleTranscript,
@@ -1737,7 +1747,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       onExactProviderRebind,
       onTranscriptItems: vi.fn(),
     }
-    const observer = grokAdapter.observer?.(
+    const observer = declaredObserver(grokManifest)(
       {
         cwd,
         homeDir: home,
@@ -1822,7 +1832,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       onExactProviderRebind,
       onTranscriptItems: vi.fn(),
     }
-    const observer = grokAdapter.observer?.(
+    const observer = declaredObserver(grokManifest)(
       {
         cwd,
         homeDir: home,
@@ -1901,7 +1911,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       onExactProviderRebind: vi.fn(),
       onTranscriptItems: vi.fn(),
     }
-    const observer = grokAdapter.observer?.(
+    const observer = declaredObserver(grokManifest)(
       {
         cwd,
         homeDir: home,

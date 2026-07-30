@@ -213,22 +213,43 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     platform: 'neutral',
     features: ['telemetry-schema', 'telemetry-consent', 'telemetry-queue'],
   },
+  // The PTY half of the old agent-bridge. POD-397 moved per-CLI variance out to
+  // packages/harness, so this workspace now owns only 'pty-port' — it is
+  // HARNESS-AGNOSTIC and must not learn that codex/claude/grok exist. POD-396
+  // renames it to packages/pty; POD-399 deletes it (ADR 8 D4).
   'packages/agent-bridge': {
     layer: 2,
     platform: 'node-only',
-    features: ['harness-adapters'],
+    // Both halves extracted (POD-396 pty, POD-397 harness); this is an empty
+    // shell awaiting deletion by POD-399. It owns no feature: ownership is
+    // exclusive, so the tags MOVED rather than being duplicated.
+    features: [],
   },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
   // durable hosts (abduco/tmux + the vendored-C build), byte framing, OSC scan,
   // redraw. It owns `pty-port`, which agent-bridge used to claim alongside
   // `harness-adapters` — feature ownership is exclusive, so the tag moves rather
-  // than being duplicated. HARNESS-AGNOSTIC by construction: the harness axiom's
-  // home stays agent-bridge (see HARNESS_ADAPTER_HOME), so a harness comparison
-  // appearing in here is a violation, which is exactly the seam POD-325 wants.
+  // than being duplicated. HARNESS-AGNOSTIC by construction: HARNESS_ADAPTER_HOME
+  // is now packages/harness (POD-397), so the axiom APPLIES here and a harness
+  // comparison appearing in pty is a violation — exactly the seam POD-325 wants.
   'packages/pty': {
     layer: 2,
     platform: 'node-only',
     features: ['pty-port', 'durable-host'],
+  },
+  // The home for coding-agent CLI variance: one AgentManifest per CLI
+  // (launch/exec/headless/state/discovery/transcript), the native-state
+  // providers, conversation discovery and machine inventory. L2 like the rest of
+  // the kernel/port family (ADR 8 D4 end-state `packages/harness`). node-only:
+  // child_process probes, fs transcript reads, SQLite via @podium/runtime.
+  // PRINCIPAL-FREE by construction — it must never import a user/principal/
+  // capability type; authorization belongs at the server projection boundary
+  // (POD-1079), enforced here by the manifest-principal-free rule in
+  // scripts/check-boundaries.ts.
+  'packages/harness': {
+    layer: 2,
+    platform: 'node-only',
+    features: ['harness-adapters'],
   },
   'packages/terminal-client': { layer: 2, platform: 'browser-safe', features: ['terminal-port'] },
   // The harness composer port: pure prompt-draft extraction + keystroke
@@ -295,6 +316,11 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L2: agent-bridge parses transcripts through the shared parser rather than
   // carrying a second copy.
   'packages/agent-bridge -> packages/transcript',
+  // L2: harness reads config/stateDir/sqlite from runtime and parses transcripts
+  // through the shared parser — the same two edges agent-bridge had, inherited by
+  // the half that actually uses them (POD-397).
+  'packages/harness -> packages/runtime',
+  'packages/harness -> packages/transcript',
   // L2: terminal-client's prompt-extract is now a re-export of the shared,
   // pure composer rather than a second copy of the extractors.
   'packages/terminal-client -> packages/composer',
@@ -440,8 +466,15 @@ export function checkManifestRole(file: string, ref: ImportRef): Violation | nul
 
 const HARNESS_ENUM_SOURCE = 'packages/protocol/src/messages/harness.ts'
 
-/** The workspace that OWNS harness behavioral branching. */
-export const HARNESS_ADAPTER_HOME = 'packages/agent-bridge'
+/**
+ * The workspace that OWNS harness behavioral branching. POD-397 moved the
+ * manifests out of packages/agent-bridge into packages/harness, so this is the
+ * home; agent-bridge (soon packages/pty) is now subject to the axiom like anyone
+ * else, which is the point — the PTY layer must not know which CLI it is driving.
+ *
+ * Still WARN level: POD-399 flips the axiom to error as its deliberate final act.
+ */
+export const HARNESS_ADAPTER_HOME = 'packages/harness'
 
 /**
  * The canonical harness identifiers, read LIVE from the protocol enum so this

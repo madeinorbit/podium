@@ -6,11 +6,12 @@
  *
  *  1. No app→app imports. Grandfathered allowance: `apps/web` may import from
  *     `@podium/server` **type-only** (the `AppRouter` type for the tRPC client).
- *  2. `@podium/agent-bridge` and `@podium/pty` may only be imported by
- *     `apps/daemon`, `scripts/`, and their own packages (including their tests);
- *     agent-bridge may also reach pty. Importing either means driving real agent
- *     processes / PTYs, which is a host capability. Servers read transcripts via
- *     `@podium/transcript` instead. See {@link AGENT_HOST_CONSUMERS}.
+ *  2. `@podium/agent-bridge`, `@podium/pty` and `@podium/harness` may only be
+ *     imported by `apps/daemon`, `scripts/`, and their own packages (including
+ *     their tests); agent-bridge may also reach pty and harness. Importing any of
+ *     them means driving real agent processes / PTYs, which is a host capability.
+ *     Servers read transcripts via `@podium/transcript` instead.
+ *     See {@link AGENT_HOST_CONSUMERS}.
  *  3. `@podium/protocol` and `@podium/domain` are leaf packages — they import
  *     no other workspace package. `@podium/transcript` is a near-leaf: it may
  *     import only `@podium/protocol`. `@podium/runtime` is a near-leaf
@@ -132,11 +133,12 @@ const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([])
  * listed here for the same reason agent-bridge is: importing it means spawning
  * PTYs, which is a host capability, not a general-purpose one. agent-bridge may
  * reach it (its real-`claude` harness smoke drives a session through it), and
- * POD-397's `packages/harness` will be added the same way when it lands.
+ * POD-397's `packages/harness` is registered the same way.
  */
 const AGENT_HOST_CONSUMERS: Record<string, ReadonlySet<string>> = {
   'packages/agent-bridge': new Set(['apps/daemon', 'scripts', 'packages/agent-bridge']),
   'packages/pty': new Set(['apps/daemon', 'scripts', 'packages/pty', 'packages/agent-bridge']),
+  'packages/harness': new Set(['apps/daemon', 'scripts', 'packages/harness', 'packages/agent-bridge']),
 }
 
 /**
@@ -370,6 +372,83 @@ export function checkRuntimeBarrelPurity(repoRoot: string): Violation[] {
   return violations
 }
 
+/**
+ * The workspaces that must stay PRINCIPAL-FREE libraries (POD-397 / POD-325 AC).
+ * They describe SOFTWARE and drive PROCESSES; they never answer "who is acting,
+ * and for whom".
+ */
+const PRINCIPAL_FREE_WORKSPACES: readonly string[] = ['packages/harness', 'packages/agent-bridge']
+
+/**
+ * Identifiers that carry a principal, an authorization decision, or a visibility
+ * class. Matched as whole words in a workspace's IMPORT CLAUSES only — this is a
+ * "what did you pull in" rule, not a full taint analysis.
+ *
+ * DELIBERATELY EXCLUDES `AgentCapabilities` / `AGENT_CAPABILITIES`. That is the
+ * harness CAPABILITY DESCRIPTOR ("does this CLI support an argv prompt?") and has
+ * nothing to do with an authorization capability. The two senses of the word
+ * collide exactly here, which is why the exclusion is written down rather than
+ * left to whoever next reads a failure.
+ */
+const PRINCIPAL_IDENTIFIERS: readonly string[] = [
+  'UserId',
+  'Principal',
+  'EnvelopePrincipal',
+  'envelopePrincipal',
+  'OperatorPrincipal',
+  'CurrentUser',
+  'OnBehalfOf',
+  'Grant',
+  'PairingGrant',
+  'pairingGrant',
+  'VisibilityClass',
+  'AuthzContext',
+  'IssueAuthz',
+  'authorize',
+  'requirePermission',
+]
+
+const PRINCIPAL_RE = new RegExp(`\\b(${PRINCIPAL_IDENTIFIERS.join('|')})\\b`)
+
+/**
+ * Rule: packages/harness (and the pty half until POD-399 deletes it) must not
+ * import a principal, user, grant or visibility type.
+ *
+ * WHY IT IS A LINT rather than a review note: the pressure to break this is
+ * ordinary and arrives one call site at a time — someone threads a `currentUser`
+ * into a manifest or a discovery call to make something compile, and the harness
+ * layer quietly becomes an authorization layer. Per docs/multi-user-readiness.md
+ * §3.1.1 the harness/model inventory is OWNED COMPUTE whose scoping is applied at
+ * the SERVER PROJECTION BOUNDARY (POD-1079); the daemon side runs as a system
+ * principal, which per §3.1.6 S5 may read across owners but never acts as a person
+ * and never widens anyone's visibility. If a call site seems to need a principal
+ * here, the fix is to push it out to the caller.
+ */
+export function checkPrincipalFree(file: string, source: string): Violation[] {
+  const workspace = PRINCIPAL_FREE_WORKSPACES.find((w) => file.startsWith(`${w}/`))
+  if (!workspace) return []
+  const violations: Violation[] = []
+  const stripped = stripComments(source)
+  // Import CLAUSES only: a local variable happening to be called `grant` is not a
+  // boundary violation, and this rule should not pretend to know about one.
+  const clauses = stripped.matchAll(
+    /\b(?:import|export)\s+(?:type\s+)?(\{[^}]*\}|[A-Za-z_$][\w$]*)\s+from\s*['"]([^'"]+)['"]/g,
+  )
+  for (const m of clauses) {
+    const clause = m[1] ?? ''
+    const specifier = m[2] ?? ''
+    const hit = PRINCIPAL_RE.exec(clause)
+    if (!hit) continue
+    violations.push({
+      file,
+      specifier,
+      rule: 'harness-principal-free',
+      message: `${file}: imports '${hit[1]}' from '${specifier}' — ${workspace} must stay a principal-free library (no operator, user id, grant or visibility class). Authorization belongs at the server projection boundary (POD-1079); push the principal out to the caller. See docs/multi-user-readiness.md §3.1.1.`,
+    })
+  }
+  return violations
+}
+
 /** Workspace a specifier points at, or null for external/std imports. */
 function targetWorkspace(file: string, specifier: string): string | null {
   if (specifier.startsWith('@podium/')) {
@@ -478,7 +557,7 @@ export function checkFile(
         file,
         specifier: ref.specifier,
         rule: 'agent-bridge-consumers',
-        message: `${file}: '${to === 'packages/pty' ? '@podium/pty' : '@podium/agent-bridge'}' may only be imported by ${[...hostAllowed].sort().join(', ')}, or its own tests (Phase 3 extracts @podium/transcript for the grandfathered server cases)`,
+        message: `${file}: '${ref.specifier}' may only be imported by ${[...hostAllowed].sort().join(', ')}, or its own tests (Phase 3 extracts @podium/transcript for the grandfathered server cases)`,
       })
     }
   }
@@ -567,6 +646,7 @@ export function runCheck(repoRoot: string): {
       const source = readFileSync(abs, 'utf8')
       workspaces.add(workspaceOf(file))
       violations.push(...checkFile(file, source, domainExportNames))
+      violations.push(...checkPrincipalFree(file, source))
       manifest.push(...checkManifestFile(file, source, harnessLiterals))
       if (extractImports(source).some((r) => r.specifier.startsWith('@podium/agent-bridge')))
         agentBridgeImporters.add(file)

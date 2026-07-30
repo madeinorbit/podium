@@ -1,11 +1,6 @@
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import {
-  discoveryRoots,
-  harnessKindForResumeKind,
-  resolveWithinRoots,
-  transcriptSourceFor,
-} from '@podium/agent-bridge'
+import { discoveryRoots, harnessKindForResumeKind, resolveWithinRoots, transcriptSourceFor } from '@podium/harness'
 import type { AgentKind, ControlMessage } from '@podium/protocol'
 import type { SliceResult, TranscriptSource } from '@podium/transcript'
 import type { ControlHandlers, DaemonContext } from './context'

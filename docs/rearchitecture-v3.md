@@ -618,8 +618,9 @@ same commit.**
 | `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |
 | `packages/sync` | L2 kernel | node-only | oplog, upstream-sync | → one sync kernel (Phase 2 POD-305/306) |
 | `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
-| `packages/agent-bridge` | L2 kernel | node-only | harness-adapters | POD-396 split the PTY half out to `packages/pty` (`pty-port` moved with it — feature ownership is exclusive); the harness half → `packages/harness` (Phase 5 POD-397/399) |
-| `packages/pty` | L2 kernel | node-only | pty-port, durable-host | extracted from agent-bridge by POD-396 (ADR 8 D4). Harness-AGNOSTIC: the harness axiom's home stays agent-bridge, so a harness comparison inside pty is a violation |
+| `packages/agent-bridge` | L2 kernel | node-only | (none) | **EMPTY SHELL.** POD-396 extracted the PTY half to `packages/pty`, POD-397 the harness half to `packages/harness`; feature ownership is exclusive so both tags MOVED. Awaiting deletion by POD-399 |
+| `packages/pty` | L2 kernel | node-only | pty-port, durable-host | **landed POD-396** (5.3a) from agent-bridge (ADR 8 D4). Harness-AGNOSTIC: `HARNESS_ADAPTER_HOME` is now `packages/harness`, so the axiom APPLIES here and a harness comparison inside pty is a violation |
+| `packages/harness` | L2 kernel | node-only | harness-adapters | **landed POD-397** (5.3b): one `AgentManifest` per CLI (launch/exec/headless/state/discovery/transcript) over `Record<BuiltinHarnessKind, AgentManifest>`; the home for harness variance and `HARNESS_ADAPTER_HOME` for the axiom. Principal-free (`harness-principal-free` lint) |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
 | `packages/composer` | L2 kernel | browser-safe | composer-driver, prompt-draft | appeared on main after POD-296; the harness composer port (pure, protocol-only) — folds into `packages/harness` with agent-bridge (Phase 5 POD-325) |
 | `packages/client-core` | L3 feature | browser-safe | viewmodels | → client engine split (Phase 6 POD-331) |
@@ -635,7 +636,7 @@ same commit.**
 
 **Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
 `sync → runtime`; `telemetry → runtime`; `agent-bridge → runtime`; `agent-bridge → transcript`;
-`pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache); `terminal-client → composer`.
+`pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache); `harness → runtime`; `harness → transcript`; `terminal-client → composer`.
 
 **Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
 barrel with node-only concerns behind explicit subpaths, so neither is honestly

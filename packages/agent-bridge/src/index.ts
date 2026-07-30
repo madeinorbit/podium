@@ -1,25 +1,16 @@
 /**
- * @podium/agent-bridge — the HARNESS half of the old bridge: per-CLI adapters
- * (launch/exec/headless flags), agent-state classification, conversation
- * discovery and inventory. Speaks @podium/protocol vocabulary types.
+ * @podium/agent-bridge — EMPTY. Both halves of the old bridge have been extracted
+ * and this package is a shell awaiting deletion by POD-399.
  *
  * The PTY half — backends, durable hosts (abduco/tmux/scopes), byte framing, OSC
- * title scan and redraw — moved to **@podium/pty** (POD-396). Import it directly;
- * this barrel deliberately does NOT re-export it, so there is one home per
- * concern and no transitional shim for the deletion audit to chase.
+ * title scan and redraw — is **@podium/pty** (POD-396).
+ * The HARNESS half — per-CLI manifests, agent-state classification, conversation
+ * discovery, inventory and the launch dispatcher — is **@podium/harness** (POD-397).
+ *
+ * Nothing is re-exported from here on purpose. A forwarding barrel is exactly the
+ * tombstone the deletion audit counts (reexport-shims), so there is one home per
+ * concern and nothing transitional for POD-399 to chase. Import the two packages
+ * directly.
  */
 
-export * from './agent-state/index.js'
-export * from './cursor/cli.js'
-export * from './cursor/paths.js'
-export * from './discovery/index.js'
-export * from './harness/adapter.js'
-export * from './harness/instructions.js'
-export * from './harness/issue-system-pointer.js'
-export * from './harness/registry.js'
-export * from './harness/transcript-source.js'
-export * from './inventory/build-inventory.js'
-export * from './jsonl-stream.js'
-export * from './launch.js'
-export * from './opencode/cli.js'
-export * from './opencode/db.js'
+export {}

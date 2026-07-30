@@ -620,16 +620,28 @@ export const CHECKS: AuditCheck[] = [
         // and drifts the same way, but it is a UI icon map, not a capability
         // POD-325 folds into a harness manifest — counting it would block this
         // phase on unrelated web work. Deliberately out of scope, not an oversight.
+        // SPANS BOTH HOMES of the harness code. POD-397 split agent-bridge, moving
+        // the manifest registry to packages/harness; this list keeps BOTH so the
+        // move cannot silently zero the count. A path-prefix scope that follows
+        // code to exactly one new home reads a relocation as a deletion, and the
+        // ratchet banks it as progress — see docs/rearch-deletion-audit.md, "a
+        // detector that stops matching is not a deletion".
         roots: [
           'packages/protocol',
           'packages/runtime',
           'packages/agent-bridge',
+          'packages/harness',
           'apps/server',
           'apps/daemon',
         ],
         // No `export` requirement: a module-private table drifts identically.
+        // BuiltinHarnessKind is included because POD-397 renamed the registry's key
+        // type (Record<HarnessAgent, HarnessAdapter> -> Record<BuiltinHarnessKind,
+        // AgentManifest>). Without it the rename alone would drop the site while the
+        // table sat there untouched — the same phantom zero as the path move, by a
+        // second independent route.
         pattern:
-          /^\s*(?:export )?const \w+: (?:Readonly<)?Record<\s*(?:AgentKind|HarnessAgent)\s*,/,
+          /^\s*(?:export )?const \w+: (?:Readonly<)?Record<\s*(?:AgentKind|HarnessAgent|BuiltinHarnessKind)\s*,/,
       }),
   },
   {

@@ -1,7 +1,7 @@
 // apps/daemon/src/discovery-worker.ts
 
 import { parentPort } from 'node:worker_threads'
-import { ConversationDiscoveryCache } from '@podium/agent-bridge'
+import { ConversationDiscoveryCache } from '@podium/harness'
 import {
   type IndexRefreshJobInput,
   type MemoryBreakdownJobInput,

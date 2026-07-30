@@ -3,11 +3,17 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { claudeCodeStateProvider } from '../../agent-state/claude-code.js'
-import { claudeProjectSlug, locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
-import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
-import { type HarnessAdapter, isSet, type TranscriptSourceInput } from '../adapter.js'
+import { claudeCodeStateProvider } from '../agent-state/claude-code.js'
+import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
+import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../instructions.js'
+import {
+  type AgentManifest,
+  isSet,
+  supported,
+  type TranscriptSourceInput,
+  unsupported,
+} from '../manifest.js'
 
 // The claude session_id (resume value) IS the JSONL basename. The locator
 // tries the current-cwd bucket first, then sweeps all buckets — session.cwd is
@@ -24,7 +30,7 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   return path ? [path] : []
 }
 
-export const claudeCodeAdapter: HarnessAdapter = {
+export const claudeCodeManifest: AgentManifest = {
   kind: 'claude-code',
   capabilities: AGENT_CAPABILITIES['claude-code'],
   resumeKind: 'claude-session',
@@ -68,7 +74,7 @@ export const claudeCodeAdapter: HarnessAdapter = {
     }
   },
 
-  exec(opts) {
+  exec: supported((opts) => {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     return {
@@ -91,17 +97,18 @@ export const claudeCodeAdapter: HarnessAdapter = {
       // stdin is the documented headless mode and dodges ARG_MAX too.
       stdin: opts.prompt,
     }
-  },
+  }),
 
-  headless: {
+  headless: supported({
     // One turn through the Claude Agent SDK; the first turn mints the session id
     // via the SDK's `sessionId` (a server-minted UUID) so the thread ↔ transcript
-    // binding is deterministic. The SDK builds its own invocation — no buildExec.
+    // binding is deterministic.
     driver: 'claude-sdk',
     resumeIdAllocation: 'sdk-session-uuid',
-  },
+    buildExec: unsupported('the Claude Agent SDK builds its own invocation in-process'),
+  }),
 
-  state: claudeCodeStateProvider,
+  state: supported(claudeCodeStateProvider),
 
   // Claude Code needs no polling state observer — state arrives on the hook
   // channel. Observation here is the transcript-tail bootstrap: eagerly tail
@@ -112,7 +119,7 @@ export const claudeCodeAdapter: HarnessAdapter = {
   // scrollback (native view) still shows the whole conversation. Hooks remain
   // a fast-path: when one lands, its transcript_path re-points the tail at the
   // live file.
-  observer(input, host) {
+  observer: supported((input, host) => {
     // Honor a discovery homeDir override (tests / isolated HOME) so the live
     // tail reads the SAME location the on-demand read source does — otherwise
     // a daemon run against an isolated home would tail the real ~/.claude and
@@ -153,25 +160,25 @@ export const claudeCodeAdapter: HarnessAdapter = {
     // Nothing to stop — the host owns the tail registry, and hooks (not a
     // poller) drive state.
     return { stop() {} }
-  },
+  }),
 
   discovery: createClaudeCodeConversationProvider(),
 
-  transcript: {
+  transcript: supported({
     storage: 'file-chain',
-    chainPaths,
+    chainPaths: supported(chainPaths),
     async sourceFor(input) {
       const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
       return fileChainSource(chain, recordToItemsForKind('claude-code'))
     },
-  },
+  }),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every
   // other claude.ai/console.anthropic.com URL the CLI opens (artifacts, docs,
   // usage pages) is a plain link. Unknown hosts fall to the generic heuristic.
-  classifyBrowserOpen(url) {
+  classifyBrowserOpen: supported((url) => {
     const host = url.hostname.toLowerCase()
     if (host !== 'claude.ai' && host !== 'console.anthropic.com') return undefined
     return { intent: url.pathname.startsWith('/oauth/') ? 'login' : 'link' }
-  },
+  }),
 }

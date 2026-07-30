@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { PODIUM_GROK_HOOK_URL_ENV } from '@podium/agent-bridge'
+import { PODIUM_GROK_HOOK_URL_ENV } from '@podium/harness'
 
 /**
  * Grok Build reads personal hooks from GROK_HOME/hooks without project trust.

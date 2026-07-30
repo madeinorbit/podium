@@ -6,7 +6,7 @@
  *
  * Run: bunx tsx tests/e2e/run-resume-smoke.ts
  */
-import { scanAgentConversations } from '@podium/agent-bridge'
+import { scanAgentConversations } from '@podium/harness'
 import { encode } from '@podium/protocol'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'

@@ -7,6 +7,7 @@ import {
   captureClaudeTranscript,
   claudePromptHookFingerprint,
   claudeTranscriptSegmentId,
+  declaredValue,
   type HarnessAdapter,
   type HarnessObservation,
   type HarnessObservationLease,
@@ -17,7 +18,7 @@ import {
   initialAgentState,
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
-} from '@podium/agent-bridge'
+} from '@podium/harness'
 import type {
   AgentKind,
   AgentObservation,
@@ -1061,9 +1062,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     input: HarnessObserveInput,
   ): void => {
     stopObservation(sessionId)
+    // A harness that declares `observer` unsupported gets NO observation — its
+    // phase stays 'unknown' and its transcript stays unbound, which is the honest
+    // degraded state. Registering a fake or borrowed observer here would report
+    // another harness's conventions as this session's status.
+    const observe = declaredValue(adapter.observer)
+    if (!observe) return
     observations.set(sessionId, {
       adapter,
-      observation: adapter.observer(input, hostFor(sessionId, adapter)),
+      observation: observe(input, hostFor(sessionId, adapter)),
     })
   }
 

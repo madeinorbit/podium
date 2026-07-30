@@ -3,7 +3,14 @@ import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 
-import { agentLaunchCommand } from '@podium/agent-bridge'
+import {
+  type AgentSession,
+  isAbducoAvailable,
+  isTmuxAvailable,
+  killAbducoSession,
+  killTmuxServer,
+} from '@podium/pty'
+import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import {
   type ControlMessage,
   type DaemonHandshake,
@@ -15,13 +22,6 @@ import {
   parseDaemonHandshakeReply,
   WIRE_VERSION,
 } from '@podium/protocol'
-import {
-  type AgentSession,
-  isAbducoAvailable,
-  isTmuxAvailable,
-  killAbducoSession,
-  killTmuxServer,
-} from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -493,9 +493,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // captures `send` so requests ride the live WS.
   const agentRelayHub = createAgentRelayHub(send)
   const browserOpen = createBrowserOpenManager(send, {
-    // The session's harness adapter classifies its own known URLs (login vs
+    // The session's harness manifest classifies its own known URLs (login vs
     // plain link) ahead of the generic redirect_uri fallback. [spec:SP-a43e]
-    classify: (sessionId, url) => observers.adapterFor(sessionId)?.classifyBrowserOpen?.(url),
+    // A harness that declares the capability unsupported falls through to the
+    // generic heuristic rather than borrowing another harness's domain list.
+    classify: (sessionId, url) => {
+      const manifest = observers.adapterFor(sessionId)
+      const classify = manifest && declaredValue(manifest.classifyBrowserOpen)
+      return classify?.(url)
+    },
   })
   // Injects the session's capability-scoped `prime` as additionalContext on the first
   // SessionStart/UserPromptSubmit after (re)start; re-arms on PreCompact. Driven by

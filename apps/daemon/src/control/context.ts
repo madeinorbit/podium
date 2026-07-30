@@ -1,6 +1,6 @@
-import type { agentLaunchCommand } from '@podium/agent-bridge'
-import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
+import type { agentLaunchCommand } from '@podium/harness'
+import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BrowserOpenManager } from '../browser-open'

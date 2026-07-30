@@ -1,7 +1,7 @@
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { LineDecoder } from '@podium/agent-bridge'
+import { LineDecoder } from '@podium/harness'
 import type { UsageBucketWire } from '@podium/protocol'
 
 /**

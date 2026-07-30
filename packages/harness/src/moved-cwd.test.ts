@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { claudeProjectSlug } from '../agent-state/claude-locate.js'
+import { claudeProjectSlug } from './agent-state/claude-locate.js'
 import { resolveFileChain, transcriptSourceFor } from './transcript-source.js'
 
 // End-to-end regression for "transcripts can't be loaded after the session moved
