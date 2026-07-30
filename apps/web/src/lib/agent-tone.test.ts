@@ -55,9 +55,7 @@ describe('agent tone resolvers are total', () => {
     expect(agentGlyphTone('shell')).toBe('text-foreground')
     expect(agentChipTint('claude-code')).toBe('border-[#d97757]/50 bg-[#2a1a14]')
     expect(agentChipTint('grok')).toBe('border-[#33456e] bg-[#182338]')
-    expect(agentFleetTileTint('claude-code')).toBe(
-      'border-[#d97757]/50 bg-[#2a1a14] text-claude',
-    )
+    expect(agentFleetTileTint('claude-code')).toBe('border-[#d97757]/50 bg-[#2a1a14] text-claude')
     expect(agentFleetTileTint('cursor')).toBe('border-[#33456e] bg-[#182338] text-[#c3cbe0]')
   })
 })
