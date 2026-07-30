@@ -29,6 +29,7 @@ import {
   SessionCommandCtx,
   spawnedByFor,
 } from './command-plane'
+import { machinesForPrincipal } from './command-ctx'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
 import type { SessionVisibility } from './session-access'
 
@@ -212,6 +213,45 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
       "unknown machine 'local'",
     )
     expect(dispatchSessionCommand(asOwner, 'kill', { sessionId })).toBeUndefined()
+  })
+})
+
+describe('the spawn surface never OFFERS a machine the principal cannot use', () => {
+  it('drops what the principal cannot see, and marks what it may see but not use', () => {
+    const o = makeOracle({
+      machineId: 'mine',
+      offlineMachines: [
+        { id: 'mine', name: 'Mine' },
+        { id: 'shared', name: 'Shared' },
+        { id: 'theirs', name: 'Theirs' },
+      ],
+    })
+    const ownership = ownershipTable(
+      new Map([
+        ['mine', { owner: INSTANCE_OWNER, grants: [] as MachineGrant[], name: 'Mine' }],
+        // Visible but not usable...
+        [
+          'shared',
+          {
+            owner: COLLEAGUE,
+            grants: [{ subject: INSTANCE_OWNER, verb: 'see' }] as MachineGrant[],
+            name: 'Shared',
+          },
+        ],
+        // ...and not visible at all.
+        ['theirs', { owner: COLLEAGUE, grants: [] as MachineGrant[], name: 'Theirs' }],
+      ]),
+    )
+
+    const offered = machinesForPrincipal(o.reg.modules, human(INSTANCE_OWNER), ownership)
+
+    // `theirs` is absent, not denied: for this principal it does not exist.
+    expect(offered.map((m) => m.id).sort()).toEqual(['mine', 'shared'])
+    // And the one that IS visible carries the denial, so the client predicate
+    // refuses it with a reason that is not "offline" — the M5 distinction,
+    // surviving all the way to the projection the picker reads.
+    expect(offered.find((m) => m.id === 'mine')?.use).toBe('granted')
+    expect(offered.find((m) => m.id === 'shared')?.use).toBe('denied')
   })
 })
 

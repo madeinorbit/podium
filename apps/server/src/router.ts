@@ -73,7 +73,7 @@ import {
   type SessionCommandKey,
   type SessionCommandResult,
 } from './modules/sessions/command-plane'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { sessionCommandCtx, visibleMachinesFor } from './modules/sessions/command-ctx'
 
 /**
  * Dispatch a migrated session command (POD-381). The tRPC procedure is now pure
@@ -1077,7 +1077,10 @@ export const appRouter = t.router({
     // the machine dropdown. Single-machine: just the one 'local' machine. CORE —
     // a node reads its own (and its hub-mirrored) fleet; only ADMITTING and
     // administering machines is the hub's job (hubProc below).
-    list: t.procedure.query(({ ctx }) => mods(ctx).machines.listMachines()),
+    // The spawn picker's source. Scoped to what THIS principal may see, with
+    // its `use` decision attached, so a machine it cannot execute on is never
+    // OFFERED (readiness §3.1.4 M5) and one it cannot see is simply absent.
+    list: t.procedure.query(({ ctx }) => visibleMachinesFor(mods(ctx), ctx.capability)),
     rename: hubProc
       .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
       .mutation(({ ctx, input }) => {
