@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   agentBadge,
@@ -357,7 +358,7 @@ function WorkRow({
   now: number
   depth?: number
   onOpenIssue: (issue: IssueWire) => void
-  onOpenSession: (sessionId: string) => void
+  onOpenSession: (sessionId: SessionId) => void
   onLongPress: (issue: IssueWire) => void
   onTuck?: (() => void) | undefined
 }) {

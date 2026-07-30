@@ -16,12 +16,7 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type {
-  AgentKind,
-  GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
-  WorkState,
-} from '@podium/model'
+import type { AgentKind, GitDiscoveryDiagnosticWire, GitRepositoryWire, SessionId, WorkState } from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { PinKind, PinState } from './viewmodels/types'
@@ -59,22 +54,22 @@ export interface PodiumClientApi {
         machineId?: string
         mutationId?: string
       },
-      { sessionId: string }
+      { sessionId: SessionId }
     >
-    resumeAndSend: ApiMutation<WithMutationId<{ sessionId: string; text: string }>>
-    rename: ApiMutation<WithMutationId<{ sessionId: string; name: string }>>
-    setArchived: ApiMutation<WithMutationId<{ sessionId: string; archived: boolean }>>
-    setWorkState: ApiMutation<WithMutationId<{ sessionId: string; workState: WorkState | null }>>
-    markRead: ApiMutation<WithMutationId<{ sessionId: string }>>
-    markUnread: ApiMutation<WithMutationId<{ sessionId: string }>>
-    kill: ApiMutation<{ sessionId: string }>
-    continue: ApiMutation<{ sessionId: string }>
-    hibernate: ApiMutation<{ sessionId: string }>
-    resurrect: ApiMutation<{ sessionId: string }, { ok: boolean; reason?: string }>
+    resumeAndSend: ApiMutation<WithMutationId<{ sessionId: SessionId; text: string }>>
+    rename: ApiMutation<WithMutationId<{ sessionId: SessionId; name: string }>>
+    setArchived: ApiMutation<WithMutationId<{ sessionId: SessionId; archived: boolean }>>
+    setWorkState: ApiMutation<WithMutationId<{ sessionId: SessionId; workState: WorkState | null }>>
+    markRead: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
+    markUnread: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
+    kill: ApiMutation<{ sessionId: SessionId }>
+    continue: ApiMutation<{ sessionId: SessionId }>
+    hibernate: ApiMutation<{ sessionId: SessionId }>
+    resurrect: ApiMutation<{ sessionId: SessionId }, { ok: boolean; reason?: string }>
   }
   snoozes: {
-    set: ApiMutation<WithMutationId<{ sessionId: string; until: string | null }>>
-    clear: ApiMutation<WithMutationId<{ sessionId: string }>>
+    set: ApiMutation<WithMutationId<{ sessionId: SessionId; until: string | null }>>
+    clear: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
   }
   issues: {
     markRead: ApiMutation<WithMutationId<{ id: string }>>
@@ -127,10 +122,10 @@ export interface PodiumClientApi {
     set: ApiMutation<PodiumSettings, PodiumSettings>
   }
   superagent: {
-    startBtw: ApiMutation<{ sessionId: string }>
+    startBtw: ApiMutation<{ sessionId: SessionId }>
     sendTurn: ApiMutation<
       { threadId: string; text: string },
-      { threadId: string; podiumSessionId?: string }
+      { threadId: string; podiumSessionId?: SessionId }
     >
   }
 }

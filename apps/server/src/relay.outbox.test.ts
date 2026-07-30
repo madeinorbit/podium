@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type SessionMeta, SOLE_USER_ID } from '@podium/model'
+import { SOLE_USER_ID, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -15,7 +15,7 @@ import { SessionStore } from './store'
 // relay.test.ts's 'queueText drain' describe — not duplicated here.
 
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: string) =>
+const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
@@ -53,7 +53,7 @@ function settle(reg: SessionRegistry, sessionId: string): void {
   for (let i = 0; i < 5; i += 1) {
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentFrame',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       seq: seq++,
       data: 'eA==',
     })
@@ -72,7 +72,7 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
-      expect(reg.modules.sessions.queueText({ sessionId, text: 'wake-up-msg' })).toEqual({
+      expect(reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' })).toEqual({
         ok: true,
         queued: true,
       })
@@ -89,7 +89,7 @@ describe('queueText (durable outbox sends)', () => {
       // ...and nothing is typed while the respawn is still starting.
       expect(pastesContaining(daemon, 'wake-up-msg')).toHaveLength(0)
 
-      reg.gateway.routeDaemonFrame('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame('local', bind(asSessionId(sessionId)))
       settle(reg, sessionId)
 
       // Exactly ONE bracketed-paste input containing the text (no double-type).
@@ -136,7 +136,7 @@ describe('queueText (durable outbox sends)', () => {
       )
       expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(0)
 
-      reg.gateway.routeDaemonFrame('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame('local', bind(asSessionId(sessionId)))
       settle(reg, sessionId)
 
       expect(pastesContaining(daemon, 'continue-night-work')).toEqual([
@@ -191,7 +191,7 @@ describe('queueText (durable outbox sends)', () => {
       const daemonA: ControlMessage[] = []
       regA.gateway.attachDaemon('local', (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
-      expect(regA.modules.sessions.queueText({ sessionId, text: 'survive-restart' })).toEqual({
+      expect(regA.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'survive-restart' })).toEqual({
         ok: true,
         queued: true,
       })
@@ -209,7 +209,7 @@ describe('queueText (durable outbox sends)', () => {
 
       const daemonB: ControlMessage[] = []
       regB.gateway.attachDaemon('local', (m) => daemonB.push(m))
-      regB.gateway.routeDaemonFrame('local', bind(sessionId))
+      regB.gateway.routeDaemonFrame('local', bind(asSessionId(sessionId)))
       // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
       vi.advanceTimersByTime(7_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
@@ -302,7 +302,7 @@ describe('queueText (durable outbox sends)', () => {
     })
     const before = inbox.length
 
-    reg.modules.sessions.queueText({ sessionId, text: 'queued-while-parked' })
+    reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'queued-while-parked' })
     reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
     const changes = inbox
@@ -319,10 +319,10 @@ describe('queueText (durable outbox sends)', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
-    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId: asSessionId(sessionId), until: null })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
-    reg.modules.sessions.queueText({ sessionId, text: 'un-snooze' })
+    reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
     expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
     expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
   })

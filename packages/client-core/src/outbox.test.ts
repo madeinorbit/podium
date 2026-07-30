@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createOutbox,
@@ -8,8 +10,8 @@ import {
 } from './outbox'
 
 type Kinds = {
-  rename: { sessionId: string; name: string }
-  snoozeClear: { sessionId: string }
+  rename: { sessionId: SessionId; name: string }
+  snoozeClear: { sessionId: SessionId }
 }
 
 function memoryStorage(seed: string | null = null): {
@@ -84,8 +86,8 @@ describe('storage-neutral outbox', () => {
       now: () => 1000,
     })
     outboxes.push(ob)
-    const a = ob.enqueue('rename', { sessionId: 's1', name: 'one' })
-    const b = ob.enqueue('snoozeClear', { sessionId: 's2' })
+    const a = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    const b = ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     await ob.drain()
     expect(calls.map((c) => c.kind)).toEqual(['rename', 'snoozeClear'])
     expect(calls[0]?.input).toEqual({ sessionId: 's1', name: 'one', mutationId: a.mutationId })
@@ -103,8 +105,8 @@ describe('storage-neutral outbox', () => {
       randomId: deterministicIds(),
     })
     outboxes.push(first)
-    const a = first.enqueue('rename', { sessionId: 's1', name: 'one' })
-    const b = first.enqueue('rename', { sessionId: 's1', name: 'two' })
+    const a = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    const b = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'two' })
     first.dispose()
 
     const { calls, executors } = makeExecutors()
@@ -137,8 +139,8 @@ describe('storage-neutral outbox', () => {
       randomId: deterministicIds(),
     })
     outboxes.push(ob)
-    ob.enqueue('rename', { sessionId: 's1', name: 'bad' })
-    const ok = ob.enqueue('rename', { sessionId: 's1', name: 'good' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'bad' })
+    const ok = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'good' })
     await ob.drain()
     expect(dropped.map((e) => e.kind)).toEqual(['rename'])
     expect(calls.at(-1)?.input.mutationId).toBe(ok.mutationId)
@@ -158,7 +160,7 @@ describe('storage-neutral outbox', () => {
       randomId: deterministicIds(),
     })
     outboxes.push(ob)
-    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     await ob.drain()
     expect(calls).toHaveLength(1)
     expect(ob.size()).toBe(1)
@@ -179,7 +181,7 @@ describe('storage-neutral outbox', () => {
       randomId: deterministicIds(),
     })
     outboxes.push(ob)
-    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     const d1 = ob.drain()
     const d2 = ob.drain()
     await Promise.resolve()
@@ -194,8 +196,8 @@ describe('storage-neutral outbox', () => {
     const sizes: number[] = []
     const ob = make({ isOnline: () => false })
     const off = ob.subscribe((n) => sizes.push(n))
-    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
-    ob.enqueue('snoozeClear', { sessionId: 's2' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     expect(sizes).toEqual([1, 2])
     await ob.drain()
     expect(sizes).toEqual([1, 2, 1, 0])
@@ -215,7 +217,7 @@ describe('storage-neutral outbox', () => {
     })
     outboxes.push(ob)
     ob.subscribe((n) => events.push(`size:${n}`))
-    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     await ob.drain()
     // The overlay handoff (#263) depends on this order: at the moment
     // subscribers see the entry gone, onApplied has already staged it.
@@ -224,8 +226,8 @@ describe('storage-neutral outbox', () => {
 
   it('pending() snapshots the FIFO queue without exposing the live array', () => {
     const ob = make({ isOnline: () => false })
-    const a = ob.enqueue('rename', { sessionId: 's1', name: 'one' })
-    const b = ob.enqueue('snoozeClear', { sessionId: 's2' })
+    const a = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    const b = ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     const snap = ob.pending()
     expect(snap.map((e) => e.mutationId)).toEqual([a.mutationId, b.mutationId])
     snap.pop()
@@ -245,7 +247,7 @@ describe('storage-neutral outbox', () => {
       randomId: deterministicIds(),
     })
     outboxes.push(ob1)
-    const a = ob1.enqueue('rename', { sessionId: 's1', name: 'one' })
+    const a = ob1.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     const d1 = ob1.drain() // in flight, parked on the gate
     await Promise.resolve()
     // The replacement outbox loads the same storage and enqueues a NEW write.
@@ -256,7 +258,7 @@ describe('storage-neutral outbox', () => {
       randomId: () => 'm-succ',
     })
     outboxes.push(ob2)
-    const b = ob2.enqueue('snoozeClear', { sessionId: 's2' })
+    const b = ob2.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     expect(parseOutboxEntries(backing.raw()).map((e) => e.mutationId)).toEqual([
       a.mutationId,
       b.mutationId,
@@ -288,7 +290,7 @@ describe('storage-neutral outbox', () => {
       onApplied: () => true,
     })
     outboxes.push(ob)
-    const a = ob.enqueue('rename', { sessionId: 's1', name: 'one' }, { baseline: '{"n":0}' })
+    const a = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' }, { baseline: '{"n":0}' })
     await ob.drain()
     // Out of the QUEUE (subscriber-visible size), but not out of storage.
     expect(ob.size()).toBe(0)
@@ -329,7 +331,7 @@ describe('storage-neutral outbox', () => {
       onApplied: () => true,
     })
     outboxes.push(first)
-    const a = first.enqueue('rename', { sessionId: 's1', name: 'one' })
+    const a = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     await first.drain()
     first.dispose()
     const { calls, executors } = makeExecutors()
@@ -343,7 +345,7 @@ describe('storage-neutral outbox', () => {
     expect(second.size()).toBe(0)
     expect(second.awaiting().map((e) => e.mutationId)).toEqual([a.mutationId])
     // Queued writes drain normally alongside the held entry.
-    second.enqueue('snoozeClear', { sessionId: 's2' })
+    second.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     await second.drain()
     expect(calls.map((c) => c.kind)).toEqual(['snoozeClear']) // no rename replay
     expect(second.awaiting()).toHaveLength(1)

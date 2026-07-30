@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import { useEffect, useRef } from 'react'
 import { MARK_READ_ON_VIEW_MS } from '../engine/engine'
 
@@ -32,7 +32,7 @@ export function useMarkReadOnView({
 }: {
   /** The focused + visible session, if any. */
   session: SessionMeta | undefined
-  markSessionRead: (sessionId: string) => void
+  markSessionRead: (sessionId: SessionId) => void
   delayMs?: number
   isVisible?: () => boolean
 }): void {

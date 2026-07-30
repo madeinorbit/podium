@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import {
   type ConnectionState,
   type MountedSession,
@@ -12,7 +13,7 @@ export interface UseTerminalSessionOptions {
   /** The hub this session attaches through. Null/undefined → nothing mounts (a
    *  not-yet-connected SocketHub, e.g. while useSocketHub is still connecting). */
   hub: SocketHub | null | undefined
-  sessionId: string
+  sessionId: SessionId
   /**
    * Mount gate (default true). Flip false for a state with no live PTY to attach
    * to (hibernated/exited) or before the server has confirmed the session

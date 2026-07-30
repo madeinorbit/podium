@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -185,12 +186,12 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // (strictly-greater, matching the boot reconcile).
     function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
       const clientId = reg.clientGateway.attachClient(() => {})
-      reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
+      reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId: asSessionId(sessionId) })
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(afterIso) + 60_000)
       try {
         reg.clientGateway.routeClientFrame(clientId, {
           type: 'input',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           data: Buffer.from('fix it\r').toString('base64'),
         })
       } finally {

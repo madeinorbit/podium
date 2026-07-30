@@ -3,6 +3,7 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { ControlMessage } from '@podium/protocol'
@@ -58,7 +59,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
 function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
   reg.gateway.routeDaemonFrame('local', {
     type: 'bind',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     cmd: 'claude',
     cwd,
     agentKind: 'claude-code',
@@ -66,7 +67,7 @@ function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
   })
   reg.gateway.routeDaemonFrame('local', {
     type: 'sessionResumeRef',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
   })
 }

@@ -15,7 +15,7 @@
  *    free text must never land on top of an open menu.
  */
 
-import type { TranscriptItem } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 
 /** The session shape the delivery gate reads (SessionMeta subset). */
 export interface AnswerTargetSession {
@@ -23,16 +23,16 @@ export interface AnswerTargetSession {
 }
 
 export interface AnswerDeliveryDeps {
-  getSession(sessionId: string): AnswerTargetSession | undefined
+  getSession(sessionId: SessionId): AnswerTargetSession | undefined
   sessions: {
-    answerAskUserQuestion(input: { sessionId: string; choices: { optionIndices: number[] }[] }): {
+    answerAskUserQuestion(input: { sessionId: SessionId; choices: { optionIndices: number[] }[] }): {
       ok: boolean
     }
-    resumeAndSend(input: { sessionId: string; text: string }): { ok: boolean; reason?: string }
+    resumeAndSend(input: { sessionId: SessionId; text: string }): { ok: boolean; reason?: string }
   }
   rpc: {
     readTranscript(input: {
-      sessionId: string
+      sessionId: SessionId
       direction: 'before' | 'after'
       limit: number
     }): Promise<{ items: TranscriptItem[] }>
@@ -49,7 +49,7 @@ export type AnswerDeliveryResult =
 
 export async function deliverAnswerToSession(
   deps: AnswerDeliveryDeps,
-  input: { sessionId: string; answer: string; textFallback?: boolean },
+  input: { sessionId: SessionId; answer: string; textFallback?: boolean },
 ): Promise<AnswerDeliveryResult> {
   const { sessionId, answer } = input
   const session = deps.getSession(sessionId)

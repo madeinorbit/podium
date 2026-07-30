@@ -35,7 +35,7 @@
 
 import { commandVisibility, PRESENCE_COMMAND_TABLES, presenceCommand, sessionCommandPlane } from '@podium/commands'
 import { sessionHandoffContract } from '@podium/commands'
-import { asUserId, type UserId } from '@podium/model'
+import { asSessionId, asUserId, type UserId } from '@podium/model'
 import type { MachineGrant, MachineId } from '@podium/protocol'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -107,9 +107,9 @@ const human = (id: UserId): CommandPrincipal => ({
 
 const agentFor = (sessionId: string, onBehalfOf: UserId): AgentCommandPrincipal => ({
   kind: 'agent',
-  agentSessionId: sessionId,
+  agentSessionId: asSessionId(sessionId),
   onBehalfOf,
-  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: sessionId },
+  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId(sessionId) },
   chain: [],
 })
 
@@ -328,12 +328,12 @@ describe('AC2 · framework idempotency is the single implementation', () => {
 
     // A DIFFERENT user (scope `owned` for themselves) replays the same id.
     const stranger = {
-      userId: 'user:stranger',
+      userId: asUserId('user:stranger'),
       capability: {
         role: 'worker' as const,
-        scope: { kind: 'owned' as const, userId: 'user:stranger' },
+        scope: { kind: 'owned' as const, userId: asUserId('user:stranger') },
       },
-      onBehalfOf: 'user:stranger',
+      onBehalfOf: asUserId('user:stranger'),
       humanDirect: true,
     }
     const replay = presence.execute(
@@ -480,7 +480,7 @@ describe('AC4 · the per-user split actually happened', () => {
     const o = makeOracle()
     const store = o.store.sessions
     store.setPin('user:alice', 'panel', 's-1', true)
-    store.setSnooze('user:alice', 's-1', null)
+    store.setSnooze('user:alice', asSessionId('s-1'), null)
     store.setTabOrder('user:alice', '/w', ['s-1'])
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a
@@ -584,7 +584,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       },
       {
         userId: 'user:h',
-        capability: { ...OPERATOR, actorSessionId: 'agent-1' },
+        capability: { ...OPERATOR, actorSessionId: asSessionId('agent-1') },
         actorSessionId: 'agent-1',
         onBehalfOf: 'user:h',
         humanDirect: false,
@@ -929,7 +929,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       { sessionId, name: 'x' },
       {
         userId: 'user:stranger',
-        capability: { role: 'worker', scope: { kind: 'owned', userId: 'user:stranger' } },
+        capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId('user:stranger') } },
         onBehalfOf: 'user:stranger',
         humanDirect: true,
       },

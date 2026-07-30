@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { mergeTranscriptItems, prependTranscriptItems } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { Eraser } from 'lucide-react-native'
@@ -43,7 +44,7 @@ export function SuperagentScreen() {
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [podiumSid, setPodiumSid] = useState<string | undefined>(undefined)
+  const [podiumSid, setPodiumSid] = useState<SessionId | undefined>(undefined)
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
   // Monotonic per-mount counter behind each optimistic row's id. Date.now()
   // alone collides when two sends land in the same millisecond.

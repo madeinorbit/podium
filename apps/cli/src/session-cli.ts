@@ -3,11 +3,7 @@ import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
 // (`StatusWire`, `RecapWire`, `ReadWire` — inventory §2.1 #22) because
 // `apps/cli` cannot import `apps/server`; `@podium/model` is the shared L0 home
 // they were missing (POD-366).
-import type {
-  SessionReadResult,
-  SessionRecapResult,
-  SessionStatusResult,
-} from '@podium/model'
+import type { SessionId, SessionReadResult, SessionRecapResult, SessionStatusResult } from '@podium/model'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
@@ -52,7 +48,7 @@ interface AskWire {
   ackId?: string
   reason?: string
   clamped?: boolean
-  snapshot: { sessionId: string; status: string; phase?: string; issueId?: string } | null
+  snapshot: { sessionId: SessionId; status: string; phase?: string; issueId?: string } | null
 }
 
 

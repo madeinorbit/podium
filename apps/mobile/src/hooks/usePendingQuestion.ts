@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { latestPendingQuestion } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { useEffect, useState } from 'react'
@@ -9,7 +10,7 @@ import { useMobileClient } from '../client/MobileClientProvider'
  * change re-checks). Powers inline answering from the Inbox without holding a
  * transcript subscription per card.
  */
-export function usePendingQuestion(sessionId: string, enabled: boolean, revision?: string) {
+export function usePendingQuestion(sessionId: SessionId, enabled: boolean, revision?: string) {
   const { readTranscript } = useMobileClient()
   const [item, setItem] = useState<TranscriptItem | null>(null)
 

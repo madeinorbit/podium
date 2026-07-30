@@ -32,7 +32,7 @@
  * multi-user answer is exercised before POD-1075 supplies the real one.
  */
 
-import type { Capability, SessionMeta } from '@podium/model'
+import type { Capability, SessionId, SessionMeta } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
 
@@ -82,7 +82,7 @@ export const SESSION_NOT_FOUND = 'session not found'
 /** Resolve a caller-supplied session id. Never throws; the caller decides shape. */
 export function resolveSessionTarget(
   principal: CommandPrincipal,
-  sessionId: string,
+  sessionId: SessionId,
   deps: SessionAccessDeps,
 ): SessionTarget {
   const session = deps.listSessions().find((candidate) => candidate.sessionId === sessionId)

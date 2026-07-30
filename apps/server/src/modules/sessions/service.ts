@@ -1,16 +1,20 @@
+import { sessionSpawnerParentId } from '../../steward'
 import type {
+  AccountId,
   ActorRef,
   AgentRuntimeState,
   AutomationRunWire,
   AutomationWire,
   Geometry,
+  IssueId,
   IssueWire,
   ResumeRef,
+  SessionId,
   SessionMeta,
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import { AgentKind, asIssueId } from '@podium/model'
+import { AgentKind, asIssueId, asSessionId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -74,7 +78,7 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
@@ -83,6 +87,7 @@ import type {
   SessionStore,
   TerminalCandidateFacts,
 } from '../../store'
+import type { StoredDraftDoc } from '../../store/sessions'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -318,10 +323,10 @@ interface SessionsServiceDeps {
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
   instructionsForStart(input: {
-    sessionId: string
+    sessionId: SessionId
     cwd: string
     agentKind: AgentKind
-    issueId?: string
+    issueId?: IssueId
     workflowRevisionId?: string
     existingOnly?: boolean
   }): PreparedSessionInstructions
@@ -336,20 +341,20 @@ interface SessionsServiceDeps {
  * public delegates.
  */
 export interface SessionSpawnResult {
-  sessionId: string
+  sessionId: SessionId
   agentId: string
   harness: AgentKind
   model: string | null
   effort: string | null
   machine: string
   machineId: string
-  accountId: string | null
+  accountId: AccountId | null
 }
 
 export class SessionsService {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
-  readonly sessions = new Map<string, Session>()
+  readonly sessions = new Map<SessionId, Session>()
   /**
    * THE CLIENT CONNECTION SET — OWNED BY THE GATEWAY (POD-390).
    *
@@ -362,7 +367,7 @@ export class SessionsService {
   readonly clients: ClientRegistry
 
   /** Durable observer leases, hydrated before session state restoration. */
-  private readonly observationLeases = new Map<string, ObservationLeaseRecord>()
+  private readonly observationLeases = new Map<SessionId, ObservationLeaseRecord>()
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -394,7 +399,7 @@ export class SessionsService {
    * survives a server restart and a full web reload with no other client holding it
    * (issue #34). Hydrated from the store at boot in loadFromStore().
    */
-  private draftBySession = new Map<string, string>()
+  private draftBySession = new Map<SessionId, string>()
   /** Per-session title debouncers — drop transient spinner titles, coalesce bursts. */
   private readonly titleDebouncers = new Map<string, ReturnType<typeof makeTitleDebouncer>>()
   // Pending debounced draft persists, keyed by sessionId — one timer per session
@@ -427,10 +432,10 @@ export class SessionsService {
   private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
   private volatileSessionMutationVersion = 0
   private readonly pendingVolatileSessions = new Map<
-    string,
+    SessionId,
     { version: number; preserve: Set<SessionVolatileField>; issueRelevant: boolean }
   >()
-  private readonly capturedSessionStates = new Map<string, SessionDurableState>()
+  private readonly capturedSessionStates = new Map<SessionId, SessionDurableState>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
   // The generation whose legacy sessionsChanged snapshot completed successfully.
@@ -452,7 +457,7 @@ export class SessionsService {
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
   // churn must not re-flood the daemon with the whole map every time).
-  private readonly lastPriority = new Map<string, number>()
+  private readonly lastPriority = new Map<SessionId, number>()
   /** Pending remote browser-open requests, parked here when no client is connected. */
   private readonly pendingOpenUrls = new Map<string, SessionOpenUrlMessage>()
   private readonly openUrlExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -607,7 +612,7 @@ export class SessionsService {
   }
 
   private markVolatileSessionDirty(
-    sessionId: string,
+    sessionId: SessionId,
     preserve: SessionVolatileField[] = ['geometry', 'handoffTarget'],
     issueRelevant = true,
   ): void {
@@ -687,7 +692,7 @@ export class SessionsService {
    * once per session by the coalesced broadcast flush, keeping interaction paths
    * free of synchronous SQLite writes [spec:SP-c29e]. */
   private mutateSessionView(
-    sessionId: string,
+    sessionId: SessionId,
     mutate: (session: Session) => void,
     issueRelevant = true,
   ): boolean {
@@ -805,8 +810,7 @@ export class SessionsService {
     const displayRef = this.computeSessionDisplayRef(session)
     return {
       ...meta,
-      // POD-361-EDGE-CAST (POD-362 owns): `Session.refIssueId` is a plain string.
-      ...(session.refIssueId ? { refIssueId: asIssueId(session.refIssueId) } : {}),
+      ...(session.refIssueId ? { refIssueId: session.refIssueId } : {}),
       ...(session.refLetter ? { refLetter: session.refLetter } : {}),
       ...(session.refDraft != null ? { refDraft: session.refDraft } : {}),
       ...(displayRef ? { displayRef } : {}),
@@ -1014,12 +1018,16 @@ export class SessionsService {
     // Drafts historically replay independently of session-row existence. Keep
     // that contract for crash/orphan recovery; active rows additionally receive
     // their draft timestamp and runtime metadata below.
-    for (const [sessionId, text] of Object.entries(drafts)) {
+    // `Object.entries` types its keys `string` regardless of the Record's key type,
+    // so the brand is re-applied per entry (POD-362) rather than cast on the map.
+    for (const [sessionId, text] of Object.entries(drafts) as [SessionId, string][]) {
       this.draftBySession.set(sessionId, text)
     }
     // Versioned draft docs (POD-859) — seeded alongside the legacy map so the
     // flag-on path resumes with the persisted rev/origin/history after a restart.
-    for (const [sessionId, d] of Object.entries(this.store.sessions.loadDraftDocs())) {
+    for (const [sessionId, d] of Object.entries(
+      this.store.sessions.loadDraftDocs(),
+    ) as [SessionId, StoredDraftDoc][]) {
       this.draftDocs.set(sessionId, {
         sessionId,
         text: d.text,
@@ -1304,7 +1312,7 @@ export class SessionsService {
   // Entities mirrored FROM the hub this node syncs against. They are display/read
   // surfaces: never in this.sessions (so PTY/command paths can't touch them), never
   // pushed back upstream (viaHub provenance), and retained-but-stale on hub loss.
-  private readonly upstreamSessions = new Map<string, SessionMeta>()
+  private readonly upstreamSessions = new Map<SessionId, SessionMeta>()
   private upstreamStale = false
   /** machineIds that ARE this node (its daemon may also be paired with the hub in
    *  some topologies) — hub entries for them are echoes and are dropped at ingest. */
@@ -1315,13 +1323,13 @@ export class SessionsService {
   }
 
   /** True when `sessionId` is a hub-mirrored (read-only) session. */
-  isUpstreamSession(sessionId: string): boolean {
+  isUpstreamSession(sessionId: SessionId): boolean {
     return !this.sessions.has(sessionId) && this.upstreamSessions.has(sessionId)
   }
 
   /** `{ ok: false, reason }` for a hub-mirrored session, else null — the shared
    *  guard every ok/reason command path checks first. */
-  private upstreamRejection(sessionId: string): { ok: false; reason: string } | null {
+  private upstreamRejection(sessionId: SessionId): { ok: false; reason: string } | null {
     if (this.sessions.has(sessionId) || !this.upstreamSessions.has(sessionId)) return null
     return { ok: false, reason: UPSTREAM_COMMAND_REJECTION }
   }
@@ -1426,7 +1434,7 @@ export class SessionsService {
     until,
   }: {
     userId: string
-    sessionId: string
+    sessionId: SessionId
     until: string | null
   }): void {
     const session = this.sessions.get(sessionId)
@@ -1440,7 +1448,7 @@ export class SessionsService {
     this.broadcastSessions()
   }
 
-  clearSnooze(userId: string, sessionId: string): void {
+  clearSnooze(userId: string, sessionId: SessionId): void {
     const session = this.sessions.get(sessionId)
     if (!session || !session.clearSnooze()) {
       this.store.sessions.clearSnooze(userId, sessionId)
@@ -1462,7 +1470,7 @@ export class SessionsService {
    * ONE place that transitional answer is given, so POD-1075 changes it here
    * rather than in eleven handlers.
    */
-  sessionOwner(sessionId: string): { owner: string | null; grants: string[] } | undefined {
+  sessionOwner(sessionId: SessionId): { owner: string | null; grants: string[] } | undefined {
     if (!this.sessions.has(sessionId)) return undefined
     return { owner: SOLE_USER_ID, grants: [] }
   }
@@ -1473,7 +1481,7 @@ export class SessionsService {
    * `baseRevision` instead of overwriting a second writer's text — the one rule the
    * op-stream reservation enforces today (§3.3/§4).
    */
-  draftRevision(sessionId: string): number | undefined {
+  draftRevision(sessionId: SessionId): number | undefined {
     return this.draftDocs.get(sessionId)?.rev
   }
 
@@ -1486,7 +1494,7 @@ export class SessionsService {
     actions,
     artifacts,
   }: {
-    sessionId: string
+    sessionId: SessionId
     message: string
     actions: { label: string; prompt: string; input?: boolean }[]
     /** Issue-artifact paths named as evidence [POD-120]; resolved client-side. */
@@ -1511,7 +1519,7 @@ export class SessionsService {
 
   /** Clear a session's agent action offer [spec:SP-c7f1] (explicit `offer clear`
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
-  clearOffer(sessionId: string): void {
+  clearOffer(sessionId: SessionId): void {
     const session = this.sessions.get(sessionId)
     if (!session || !session.clearOffer()) {
       this.store.sessions.clearOffer(sessionId)
@@ -1551,7 +1559,7 @@ export class SessionsService {
     model?: string
     effort?: string
     /** Resolved account selection from an execution profile; never credential material. */
-    accountId?: string
+    accountId?: AccountId
     /** Deliberately spawn with a model slug the live catalog doesn't list (bypasses
      *  the unknown-MODEL rejection only) [spec:SP-cc60]. Recorded in events when it
      *  takes effect. */
@@ -1568,11 +1576,11 @@ export class SessionsService {
     /** Explicit issue attachment (issue-as-workspace). Absent = derive: a session
      *  spawned inside a worktree owned by exactly one non-archived issue is
      *  "continuing that issue" and gets its id stamped. */
-    issueId?: string
+    issueId?: IssueId
     /** Client-supplied id (optimistic UI): use this verbatim instead of minting a
      *  fresh uuid, so an optimistic client row reconciles onto the real session
      *  without a swap. Absent = mint one (unchanged default behavior). */
-    sessionId?: string
+    sessionId?: SessionId
     /** Explicit workflow override; absent = issue → repository → global default. */
     workflowRevisionId?: string
     /** The CALLING principal's per-machine `use` decision (ADR 3 Am1 D18). Absent
@@ -1612,7 +1620,9 @@ export class SessionsService {
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
     const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
-    const sessionId = input.sessionId ?? randomUUID()
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const preparedInstructions = this.deps.instructionsForStart({
       sessionId,
       cwd: input.cwd,
@@ -1680,7 +1690,7 @@ export class SessionsService {
   /** The capability a relayed agent session presents: worker, scoped to the issue whose
    *  worktree it runs in (subtree), else 'none' (may read + create, but writing an existing
    *  issue needs --outside-scope). Unknown session → most-restricted. */
-  capabilityForSession(sessionId: string): Capability {
+  capabilityForSession(sessionId: SessionId): Capability {
     const s = this.sessions.get(sessionId)
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
@@ -1705,7 +1715,7 @@ export class SessionsService {
     spawnedBy?: string
     /** The calling principal's `use` decision per machine — see createSession. */
     use?: MachineUseResolver
-  }): Promise<{ sessionId: string }> {
+  }): Promise<{ sessionId: SessionId }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
     // that row, never mint a parallel one. Each parallel row spawned its own
@@ -1728,7 +1738,9 @@ export class SessionsService {
       return { sessionId: existing.sessionId }
     }
     const issueId = this.issues().soleOwnerForCwd(input.cwd) ?? undefined
-    const sessionId = randomUUID()
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = asSessionId(randomUUID())
     const preparedInstructions = this.deps.instructionsForStart({
       sessionId,
       cwd: input.cwd,
@@ -1788,7 +1800,7 @@ export class SessionsService {
    * `continue⏎` into its PTY. Guarded to the errored phase so a stray click
    * can't inject text into a healthy prompt.
    */
-  continueSession({ sessionId }: { sessionId: string }): { ok: boolean } {
+  continueSession({ sessionId }: { sessionId: SessionId }): { ok: boolean } {
     if (this.upstreamRejection(sessionId)) return { ok: false }
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false }
@@ -1818,7 +1830,7 @@ export class SessionsService {
     text,
     inputOrigin = 'controller',
   }: {
-    sessionId: string
+    sessionId: SessionId
     text: string
     inputOrigin?: ObservationInputOrigin
   }): {
@@ -1847,7 +1859,7 @@ export class SessionsService {
     text,
     inputOrigin = 'controller',
   }: {
-    sessionId: string
+    sessionId: SessionId
     text: string
     inputOrigin?: ObservationInputOrigin
   }): {
@@ -1888,7 +1900,7 @@ export class SessionsService {
     inputOrigin = 'controller',
     afterEsc,
   }: {
-    sessionId: string
+    sessionId: SessionId
     inputOrigin?: ObservationInputOrigin
     text: string
     /** Set ONLY by interruptText, which just sent an ESC that cancels an
@@ -1973,7 +1985,7 @@ export class SessionsService {
    * no longer running.
    */
   private scheduleSubmitVerify(
-    sessionId: string,
+    sessionId: SessionId,
     baselineUserTurns: number,
     attempt: number,
   ): void {
@@ -2016,7 +2028,7 @@ export class SessionsService {
     sessionId,
     choices,
   }: {
-    sessionId: string
+    sessionId: SessionId
     choices: { optionIndices: number[] }[]
   }): { ok: boolean } {
     const session = this.sessions.get(sessionId)
@@ -2047,7 +2059,7 @@ export class SessionsService {
     return { ok: true }
   }
 
-  setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
+  setSessionDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void {
     if (this.draftSyncEnabled()) {
       // Versioned path (POD-859): a legacy `setSessionDraft` (or the spawn seed) is
       // an unconditional edit — it bases off the current rev, so it is never
@@ -2099,7 +2111,7 @@ export class SessionsService {
    * pending timer cancelled, so a stale draft can't outlive the message that was
    * sent — even if the server restarts in the debounce window.
    */
-  private persistDraft(sessionId: string, text: string): void {
+  private persistDraft(sessionId: SessionId, text: string): void {
     const existing = this.draftWriteTimers.get(sessionId)
     if (existing) {
       clearTimeout(existing)
@@ -2119,7 +2131,7 @@ export class SessionsService {
     this.draftWriteTimers.set(sessionId, timer)
   }
 
-  private writeDraft(sessionId: string, text: string): void {
+  private writeDraft(sessionId: SessionId, text: string): void {
     try {
       this.store.sessions.setDraft(sessionId, text)
     } catch (e) {
@@ -2181,7 +2193,7 @@ export class SessionsService {
    * authoritative doc so it rebases. See draft-doc.ts and design §1/§3.
    */
   private applyVersionedEdit(
-    sessionId: string,
+    sessionId: SessionId,
     edit: { baseRev: number; text: string; origin: string },
     fromClientId?: string,
   ): void {
@@ -2240,7 +2252,7 @@ export class SessionsService {
 
   /** Debounced persistence of a versioned doc — mirrors {@link persistDraft} but
    *  writes the full doc (rev/origin/history). An empty draft flushes immediately. */
-  private persistDraftDoc(sessionId: string, doc: DraftDoc): void {
+  private persistDraftDoc(sessionId: SessionId, doc: DraftDoc): void {
     const existing = this.draftDocWriteTimers.get(sessionId)
     if (existing) {
       clearTimeout(existing)
@@ -2274,7 +2286,7 @@ export class SessionsService {
 
   /** Schedule (or reset) native injection of the current chat draft, one lease
    *  window from now — so we inject the settled text, not every keystroke. */
-  private scheduleDraftInject(sessionId: string): void {
+  private scheduleDraftInject(sessionId: SessionId): void {
     const existing = this.draftInjectTimers.get(sessionId)
     if (existing) clearTimeout(existing)
     const timer = setTimeout(() => {
@@ -2289,7 +2301,7 @@ export class SessionsService {
     this.draftInjectTimers.set(sessionId, timer)
   }
 
-  private cancelDraftInject(sessionId: string): void {
+  private cancelDraftInject(sessionId: SessionId): void {
     const t = this.draftInjectTimers.get(sessionId)
     if (t) {
       clearTimeout(t)
@@ -2303,7 +2315,7 @@ export class SessionsService {
    * chat edited it while the session was down. Otherwise the live native composer's
    * own scrape wins. The daemon injects only if native differs and is stable.
    */
-  private maybeCatchupInject(sessionId: string, machineId: string): void {
+  private maybeCatchupInject(sessionId: SessionId, machineId: string): void {
     if (!this.draftSyncEnabled()) return
     const doc = this.draftDocs.get(sessionId)
     if (!doc || !doc.text) return
@@ -2337,7 +2349,7 @@ export class SessionsService {
     inputOrigin = 'controller',
     mutationId,
   }: {
-    sessionId: string
+    sessionId: SessionId
     text: string
     inputOrigin?: ObservationInputOrigin
     mutationId?: string
@@ -2393,7 +2405,7 @@ export class SessionsService {
    * REMAIN — the next liveness signal re-arms. Successive messages are spaced so
    * each lands as its own submitted input.
    */
-  private drainQueuedMessages(sessionId: string): void {
+  private drainQueuedMessages(sessionId: SessionId): void {
     if (this.activeDrains.has(sessionId)) return
     const session = this.sessions.get(sessionId)
     if (!session || session.queuedMessageCount === 0) return
@@ -2487,7 +2499,7 @@ export class SessionsService {
    * here instead of hand-rolling persist+broadcast.
    */
   private mutateSessionMeta(
-    sessionId: string,
+    sessionId: SessionId,
     write: (session: Session) => void | (() => void),
   ): void {
     const session = this.sessions.get(sessionId)
@@ -2510,7 +2522,7 @@ export class SessionsService {
    * Clearing (name = '') also clears the source — the session is unnamed again, so
    * an agent may name it (and the prime will ask it to).
    */
-  renameSession({ sessionId, name }: { sessionId: string; name: string }): void {
+  renameSession({ sessionId, name }: { sessionId: SessionId; name: string }): void {
     this.mutateSessionMeta(sessionId, (session) => {
       const clean = name.trim()
       session.name = clean
@@ -2530,7 +2542,7 @@ export class SessionsService {
    * Refusal is a returned reason, not a throw: the CLI prints it and the agent
    * carries on. Same persist + broadcast path as renameSession.
    */
-  setAgentName({ sessionId, name }: { sessionId: string; name: string }): {
+  setAgentName({ sessionId, name }: { sessionId: SessionId; name: string }): {
     ok: boolean
     name?: string
     reason?: string
@@ -2554,7 +2566,7 @@ export class SessionsService {
     return { ok: true, name: norm.name }
   }
 
-  setArchived({ sessionId, archived }: { sessionId: string; archived: boolean }): void {
+  setArchived({ sessionId, archived }: { sessionId: SessionId; archived: boolean }): void {
     this.mutateSessionMeta(sessionId, (session) => {
       session.archived = archived
     })
@@ -2576,7 +2588,7 @@ export class SessionsService {
    * archiving a working session, and that confirmed intent is "stop it".
    * Unarchiving does NOT resurrect; that stays an explicit resume.
    */
-  private parkArchivedSession(sessionId: string): void {
+  private parkArchivedSession(sessionId: SessionId): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
     const running =
@@ -2603,7 +2615,7 @@ export class SessionsService {
   /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
   tryAutoArchiveStoppedObserved(
     observed: {
-      sessionId: string
+      sessionId: SessionId
       issueId: string | null
       stoppedAt: string
       readAt: string
@@ -2638,7 +2650,7 @@ export class SessionsService {
    *  derived `unread` in the session meta flips to false immediately (read_at is now the
    *  latest timestamp) and re-arms on the next activity. Read state is GLOBAL —
    *  single-operator, no per-user row. No-op for an unknown session. */
-  markSessionRead(sessionId: string): void {
+  markSessionRead(sessionId: SessionId): void {
     this.mutateSessionMeta(sessionId, (session) => {
       // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
       // lexical unread compare both require it (this.now() is epoch ms).
@@ -2650,14 +2662,14 @@ export class SessionsService {
    *  markSessionRead): clear read_at so the derived `unread` (readAt null ⇒ unread)
    *  flips back to true, persist + broadcast. Read state stays GLOBAL —
    *  single-operator, no per-user row. No-op for an unknown session. */
-  markSessionUnread(sessionId: string): void {
+  markSessionUnread(sessionId: SessionId): void {
     this.mutateSessionMeta(sessionId, (session) => {
       session.readAt = null
     })
   }
 
   /** Set (or clear with null) a session's explicit issue attachment. */
-  setSessionIssueId(sessionId: string, issueId: string | null): void {
+  setSessionIssueId(sessionId: SessionId, issueId: IssueId | null): void {
     this.mutateSessionMeta(sessionId, (session) => {
       session.issueId = issueId ?? undefined
       // Naming point (#474): the first attach on a still-unnamed session brands
@@ -2668,11 +2680,11 @@ export class SessionsService {
   }
 
   /** The session's explicit issue attachment (issue-as-workspace), if any. */
-  getSessionIssueId(sessionId: string): string | null {
+  getSessionIssueId(sessionId: SessionId): IssueId | null {
     return this.sessions.get(sessionId)?.issueId ?? null
   }
 
-  setWorkState({ sessionId, workState }: { sessionId: string; workState: WorkState | null }): void {
+  setWorkState({ sessionId, workState }: { sessionId: SessionId; workState: WorkState | null }): void {
     this.mutateSessionMeta(sessionId, (session) => {
       session.workState = workState ?? undefined
     })
@@ -2689,7 +2701,7 @@ export class SessionsService {
    * lands before the agent dies.
    */
   async stopSession(input: {
-    sessionId: string
+    sessionId: SessionId
     force?: boolean
     /** True when the CALLER is stopping itself — defer process kill. */
     selfStop?: boolean
@@ -2823,7 +2835,7 @@ export class SessionsService {
    * [spec:SP-9904]. Called from AgentRelayGate once agentRelayResult is on the
    * wire — not a fixed timer.
    */
-  finalizeDeferredStopKill(sessionId: string): void {
+  finalizeDeferredStopKill(sessionId: SessionId): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
     // Only kill if still parked from stop (hibernated/exited) — never a live row.
@@ -3007,7 +3019,7 @@ export class SessionsService {
     )
   }
 
-  hasValidTerminalProof(sessionId: string): boolean {
+  hasValidTerminalProof(sessionId: SessionId): boolean {
     const session = this.sessions.get(sessionId)
     const lease = this.store.observationCheckpoints.get(sessionId)
     if (!session || !lease || (session.status !== 'live' && session.status !== 'reconnecting'))
@@ -3023,7 +3035,7 @@ export class SessionsService {
     )
   }
 
-  terminalProofMissing(sessionId: string): boolean {
+  terminalProofMissing(sessionId: SessionId): boolean {
     const lease = this.store.observationCheckpoints.get(sessionId)
     return (
       lease?.checkpoint?.terminalFence == null ||
@@ -3035,7 +3047,7 @@ export class SessionsService {
     sessionId,
     requireTerminalProof = false,
   }: {
-    sessionId: string
+    sessionId: SessionId
     requireTerminalProof?: boolean
   }): { ok: boolean; reason?: string } {
     const rejected = this.upstreamRejection(sessionId)
@@ -3133,7 +3145,7 @@ export class SessionsService {
    * resolves a real principal per transport, this parameter is what it fills.
    */
   handoffSession(
-    input: { sessionId: string; machineId: string },
+    input: { sessionId: SessionId; machineId: string },
     caller: HandoffCaller = { capability: OPERATOR },
   ): Promise<{ ok: true; newCwd: string }> {
     // THE GATE IS BUILT PER DISPATCH, not held on the coordinator. Two callers
@@ -3164,12 +3176,13 @@ export class SessionsService {
       // POD-381's delegation index, read from live rows: an agent's chain is
       // walked from `spawnedBy`, so it roots at exactly one human and a sub-agent
       // cannot carry a delegator its parent lacks (D16.2).
-      parentSessionOf: (sessionId) => {
-        const spawnedBy = this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy
-        return spawnedBy?.startsWith('session:') === true
-          ? spawnedBy.slice('session:'.length)
-          : undefined
-      },
+      // One parser for the `session:<id>` tag (POD-362): it brands what it
+      // EXTRACTS while leaving the tag itself raw, which entities/session.ts
+      // records as deliberate. This was the third hand-rolled copy of the slice.
+      parentSessionOf: (sessionId) =>
+        sessionSpawnerParentId(
+          this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
+        ),
       ownership: ownershipFromMachines(this.machines),
     })
 
@@ -3310,7 +3323,10 @@ export class SessionsService {
    * nothing is published or persisted ahead of time (export → transfer → import
    * all happen inside this one request, refs deleted before it returns).
    */
-  async fetchWorkspace(input: { sourceSessionId: string; callerSessionId: string }): Promise<{
+  async fetchWorkspace(input: {
+    sourceSessionId: SessionId
+    callerSessionId: SessionId
+  }): Promise<{
     path: string
     sameMachine: boolean
     sourceMachine: string
@@ -3393,7 +3409,8 @@ export class SessionsService {
       throw new Error(exported.error ?? 'source failed to export its workspace')
     await transferHandoffPackage({
       rpc: this.rpc,
-      sessionId: fetchId,
+      // A workspace-fetch subject, not a session — see HandoffTransferSubjectId.
+      sessionId: fetchId as `ws-${string}`,
       sourceMachineId: source.machineId,
       targetMachineId: caller.machineId,
       sourceStagePath: exported.stagePath,
@@ -3413,7 +3430,7 @@ export class SessionsService {
   }
 
   /** Remove every peek worktree fetch materialized in the caller's repo [POD-658]. */
-  async cleanWorkspacePeeks(input: { callerSessionId: string }): Promise<{ removed: string[] }> {
+  async cleanWorkspacePeeks(input: { callerSessionId: SessionId }): Promise<{ removed: string[] }> {
     const caller = this.sessions.get(input.callerSessionId)
     if (!caller) throw new Error('unknown calling session')
     const repo = this.store.repos
@@ -3443,7 +3460,7 @@ export class SessionsService {
     mutationId,
     inputOrigin = 'controller',
   }: {
-    sessionId: string
+    sessionId: SessionId
     text: string
     mutationId?: string
     inputOrigin?: ObservationInputOrigin
@@ -3470,7 +3487,7 @@ export class SessionsService {
   resurrectSession({
     sessionId,
   }: {
-    sessionId: string
+    sessionId: SessionId
   }): Promise<{ ok: boolean; reason?: string }> {
     const rejected = this.upstreamRejection(sessionId)
     if (rejected) return Promise.resolve(rejected)
@@ -3615,7 +3632,7 @@ export class SessionsService {
 
   /** Durable union transition for removing a local session. A retained upstream
    *  collision is revealed in the same ordered append as the local remove. */
-  private sessionRemovalSpecs(sessionId: string): EntityChangeSpec[] {
+  private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     const specs: EntityChangeSpec[] = [{ entity: 'session', id: sessionId, op: 'remove' }]
     const revealedUpstream = this.upstreamSessions.get(sessionId)
     if (revealedUpstream) {
@@ -3686,7 +3703,7 @@ export class SessionsService {
 
   /** Runtime half of a durable session removal. Kept separate so issue deletion
    *  can batch many rows in one transaction and one sessions broadcast. */
-  private removeSessionRuntime(sessionId: string): void {
+  private removeSessionRuntime(sessionId: SessionId): void {
     const session = this.sessions.get(sessionId)
     // The issues service owns the per-session Git attribution ledger. Notify it
     // while membership/cwd are still resolvable, before this permanent removal.
@@ -3723,7 +3740,7 @@ export class SessionsService {
     if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
   }
 
-  killSession(input: { sessionId: string }): void {
+  killSession(input: { sessionId: SessionId }): void {
     // Read-only surface (node-hub-sync §2.3): killing a hub-mirrored session here
     // would fabricate a kill for a PTY this server doesn't own — reject loudly.
     if (this.isUpstreamSession(input.sessionId)) {
@@ -3770,7 +3787,7 @@ export class SessionsService {
    * not undo the exit side-effects already applied.
    */
   private emitSessionExited(
-    sessionId: string,
+    sessionId: SessionId,
     code: number,
     spawnedBy?: string | null,
     sourceSession: Session | undefined = this.sessions.get(sessionId),
@@ -3823,14 +3840,14 @@ export class SessionsService {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
-    accountId?: string
+    accountId?: AccountId
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
-    issueId?: string
+    issueId?: IssueId
     /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
-    sessionId?: string
+    sessionId?: SessionId
   }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let `sessions.set` overwrite the live
@@ -3839,7 +3856,9 @@ export class SessionsService {
     if (input.sessionId && this.sessions.has(input.sessionId)) {
       throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
     }
-    const sessionId = input.sessionId ?? randomUUID()
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
     const launch = this.modelDefaults(
       input.agentKind,
@@ -4115,11 +4134,11 @@ export class SessionsService {
     this.pushPriorities()
     this.broadcastSessions()
   }
-  private openUrlKey(sessionId: string, requestId: string): string {
+  private openUrlKey(sessionId: SessionId, requestId: string): string {
     return `${sessionId}:${requestId}`
   }
 
-  private clearPendingOpenUrl(sessionId: string, requestId: string): void {
+  private clearPendingOpenUrl(sessionId: SessionId, requestId: string): void {
     const requestKey = this.openUrlKey(sessionId, requestId)
     this.pendingOpenUrls.delete(requestKey)
     const timer = this.openUrlExpiryTimers.get(requestKey)
@@ -4127,7 +4146,7 @@ export class SessionsService {
     this.openUrlExpiryTimers.delete(requestKey)
   }
 
-  private expireOpenUrl(sessionId: string, requestId: string): void {
+  private expireOpenUrl(sessionId: SessionId, requestId: string): void {
     const requestKey = this.openUrlKey(sessionId, requestId)
     if (!this.pendingOpenUrls.has(requestKey)) return
     this.clearPendingOpenUrl(sessionId, requestId)
@@ -5120,7 +5139,7 @@ export class SessionsService {
     }
   }
 
-  transcriptFor(sessionId: string): TranscriptItem[] {
+  transcriptFor(sessionId: SessionId): TranscriptItem[] {
     return this.sessions.get(sessionId)?.transcriptItems() ?? []
   }
 

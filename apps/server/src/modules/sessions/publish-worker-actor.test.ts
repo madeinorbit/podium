@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -7,7 +9,7 @@ import {
   SessionPublicationActor,
 } from './publish-worker-actor.js'
 
-function session(sessionId: string, title = sessionId): SessionMeta {
+function session(sessionId: SessionId, title = sessionId): SessionMeta {
   return {
     sessionId,
     agentKind: 'codex',
@@ -61,7 +63,7 @@ describe('SessionPublicationActor', () => {
     actor.applyPatch({
       generation: 1,
       ledgerCursor: 2,
-      changes: [upsert(1, session('a')), upsert(2, session('b'))],
+      changes: [upsert(1, session(asSessionId('a'))), upsert(2, session(asSessionId('b')))],
     })
 
     const alice = view('alice', ['a'])
@@ -71,10 +73,10 @@ describe('SessionPublicationActor', () => {
     const bobPublication = actor.prepare({ view: bob, sinceCursor: null })
 
     expect(aliceFirst.kind).toBe('snapshot')
-    expect(decoded(aliceFirst)).toEqual({ type: 'sessionsChanged', sessions: [session('a')] })
+    expect(decoded(aliceFirst)).toEqual({ type: 'sessionsChanged', sessions: [session(asSessionId('a'))] })
     expect(decoded(bobPublication)).toEqual({
       type: 'sessionsChanged',
-      sessions: [session('b')],
+      sessions: [session(asSessionId('b'))],
     })
     expect(aliceFirst.bytes).toBe(aliceSecond.bytes)
     expect(aliceFirst.bytes).not.toBe(bobPublication.bytes)
@@ -88,7 +90,7 @@ describe('SessionPublicationActor', () => {
     actor.applyPatch({
       generation: 1,
       ledgerCursor: 2,
-      changes: [upsert(1, session('a')), upsert(2, session('b'))],
+      changes: [upsert(1, session(asSessionId('a'))), upsert(2, session(asSessionId('b')))],
     })
     actor.prepare({ view: alice, sinceCursor: null })
     actor.prepare({ view: bob, sinceCursor: null })
@@ -96,7 +98,7 @@ describe('SessionPublicationActor', () => {
     actor.applyPatch({
       generation: 2,
       ledgerCursor: 4,
-      changes: [upsert(3, session('a', 'renamed'))],
+      changes: [upsert(3, session(asSessionId('a'), asSessionId('renamed')))],
     })
 
     const visible = actor.prepare({ view: alice, sinceCursor: 2 })
@@ -130,7 +132,7 @@ describe('SessionPublicationActor', () => {
     actor.applyPatch({
       generation: 1,
       ledgerCursor: 1,
-      changes: [upsert(1, session('a'))],
+      changes: [upsert(1, session(asSessionId('a')))],
     })
     actor.prepare({ view: alice, sinceCursor: null })
 
@@ -152,51 +154,51 @@ describe('SessionPublicationActor', () => {
     actor.applyPatch({
       generation: 1,
       ledgerCursor: 2,
-      changes: [upsert(1, session('a')), upsert(2, session('b'))],
+      changes: [upsert(1, session(asSessionId('a'))), upsert(2, session(asSessionId('b')))],
     })
     actor.prepare({ view: both, sinceCursor: null })
 
     const revoked = view('alice', ['a'], 2)
     const revocation = actor.prepare({ view: revoked, sinceCursor: 2 })
     expect(revocation.kind).toBe('snapshot')
-    expect(decoded(revocation)).toEqual({ type: 'sessionsChanged', sessions: [session('a')] })
+    expect(decoded(revocation)).toEqual({ type: 'sessionsChanged', sessions: [session(asSessionId('a'))] })
 
     actor.applyPatch({ generation: 2, ledgerCursor: 3, changes: [remove(3, 'b')] })
-    actor.applyPatch({ generation: 3, ledgerCursor: 4, changes: [upsert(4, session('a', 'v2'))] })
-    actor.applyPatch({ generation: 4, ledgerCursor: 5, changes: [upsert(5, session('a', 'v3'))] })
+    actor.applyPatch({ generation: 3, ledgerCursor: 4, changes: [upsert(4, session(asSessionId('a'), asSessionId('v2')))] })
+    actor.applyPatch({ generation: 4, ledgerCursor: 5, changes: [upsert(5, session(asSessionId('a'), asSessionId('v3')))] })
 
     const healed = actor.prepare({ view: revoked, sinceCursor: 2 })
     expect(healed.kind).toBe('snapshot')
     expect(healed).toMatchObject({ generation: 4, ledgerCursor: 5 })
     expect(decoded(healed)).toEqual({
       type: 'sessionsChanged',
-      sessions: [session('a', 'v3')],
+      sessions: [session(asSessionId('a'), asSessionId('v3'))],
     })
   })
 
   it('rejects out-of-order generations and cursor regressions without mutating the model', () => {
     const actor = new SessionPublicationActor()
     const alice = view('alice', ['a'])
-    actor.applyPatch({ generation: 1, ledgerCursor: 1, changes: [upsert(1, session('a'))] })
+    actor.applyPatch({ generation: 1, ledgerCursor: 1, changes: [upsert(1, session(asSessionId('a')))] })
 
     expect(() =>
       actor.applyPatch({
         generation: 1,
         ledgerCursor: 2,
-        changes: [upsert(2, session('a', 'bad-generation'))],
+        changes: [upsert(2, session(asSessionId('a'), asSessionId('bad-generation')))],
       }),
     ).toThrow(/generation/)
     expect(() =>
       actor.applyPatch({
         generation: 2,
         ledgerCursor: 0,
-        changes: [upsert(2, session('a', 'bad-cursor'))],
+        changes: [upsert(2, session(asSessionId('a'), asSessionId('bad-cursor')))],
       }),
     ).toThrow(/cursor/)
 
     expect(decoded(actor.prepare({ view: alice, sinceCursor: null }))).toEqual({
       type: 'sessionsChanged',
-      sessions: [session('a')],
+      sessions: [session(asSessionId('a'))],
     })
   })
 })

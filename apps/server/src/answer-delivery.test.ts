@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -50,13 +51,13 @@ describe('deliverAnswerToSession (issue #53)', () => {
   it('types the matched option digit into a live menu', async () => {
     const h = harness({ phase: 'needs_user', needKind: 'question', items: [menuItem()] })
     const r = await deliverAnswerToSession(h.deps, {
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       answer: 'No',
       textFallback: true,
     })
     expect(r).toEqual({ ok: true, via: 'menu', choices: [{ optionIndices: [2] }] })
     expect(h.answerAskUserQuestion).toHaveBeenCalledWith({
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       choices: [{ optionIndices: [2] }],
     })
     expect(h.resumeAndSend).not.toHaveBeenCalled()
@@ -65,12 +66,12 @@ describe('deliverAnswerToSession (issue #53)', () => {
   it('textFallback delivers as a chat message when no menu is live', async () => {
     const h = harness({ phase: 'idle' })
     const r = await deliverAnswerToSession(h.deps, {
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       answer: 'ship it',
       textFallback: true,
     })
     expect(r).toEqual({ ok: true, via: 'text' })
-    expect(h.resumeAndSend).toHaveBeenCalledWith({ sessionId: 'sess_1', text: 'ship it' })
+    expect(h.resumeAndSend).toHaveBeenCalledWith({ sessionId: asSessionId('sess_1'), text: 'ship it' })
     expect(h.answerAskUserQuestion).not.toHaveBeenCalled()
   })
 
@@ -79,7 +80,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     // no digits, an explicit refusal instead.
     const h = harness({ phase: 'needs_user', needKind: 'question', items: [menuItem()] })
     const r = await deliverAnswerToSession(h.deps, {
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       answer: 'maybe tomorrow',
       textFallback: true,
     })
@@ -91,7 +92,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
 
   it('menu-only mode (the MCP tool contract) refuses without a live menu', async () => {
     const h = harness({ phase: 'idle' })
-    const r = await deliverAnswerToSession(h.deps, { sessionId: 'sess_1', answer: 'Yes' })
+    const r = await deliverAnswerToSession(h.deps, { sessionId: asSessionId('sess_1'), answer: 'Yes' })
     expect(r).toEqual({ ok: false, message: 'no pending question (phase=idle)' })
     expect(h.resumeAndSend).not.toHaveBeenCalled()
   })
@@ -100,7 +101,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     const h = harness()
     expect(
       await deliverAnswerToSession(h.deps, {
-        sessionId: 'nope',
+        sessionId: asSessionId('nope'),
         answer: 'Yes',
         textFallback: true,
       }),
@@ -111,7 +112,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     const h = harness({ phase: 'idle' })
     h.resumeAndSend.mockReturnValueOnce({ ok: false, reason: 'unknown session' } as never)
     const r = await deliverAnswerToSession(h.deps, {
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       answer: 'x',
       textFallback: true,
     })

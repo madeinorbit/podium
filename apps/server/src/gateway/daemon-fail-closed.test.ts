@@ -12,6 +12,7 @@
  * instrument can say YES: a good hello on the same fixture must attach and route.
  */
 
+import { asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
@@ -40,7 +41,7 @@ const frame = (v: unknown): Buffer => Buffer.from(JSON.stringify(v))
 
 const A_ROUTABLE_FRAME = {
   type: 'bind',
-  sessionId: 's1',
+  sessionId: asSessionId('s1'),
   cmd: 'claude',
   cwd: '/tmp',
   agentKind: 'claude-code',

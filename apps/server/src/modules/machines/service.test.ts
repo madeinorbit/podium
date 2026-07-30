@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
@@ -18,7 +19,7 @@ function makeService(): MachinesService {
 
 const MACHINE = 'vmi'
 /** A keystroke — the message class that silently queued into the void during the outage. */
-const keystroke: ControlMessage = { type: 'input', sessionId: 's1', data: 'ls\r' }
+const keystroke: ControlMessage = { type: 'input', sessionId: asSessionId('s1'), data: 'ls\r' }
 
 function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
   const got: ControlMessage[] = []

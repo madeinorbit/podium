@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/model'
@@ -13,7 +14,7 @@ function harness(sessions: SessionMeta[] = []) {
     store,
     listSessions: () => sessions,
     getSettings: () => normalizeSettings({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }),
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -196,7 +197,7 @@ describe('IssueService event emission', () => {
   it('issue.needs_human carries options + askedBy when given (issue #53)', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.setNeedsHuman(a.id, 'merge?', { options: ['Yes', 'No'], askedBy: 'sess_asker' })
+    svc.setNeedsHuman(a.id, 'merge?', { options: ['Yes', 'No'], askedBy: asSessionId('sess_asker') })
     const flagged = store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
     expect(flagged[0]).toMatchObject({

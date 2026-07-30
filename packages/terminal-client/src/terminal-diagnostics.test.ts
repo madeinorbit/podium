@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearTerminalDiagnostics,
@@ -13,8 +14,8 @@ beforeEach(() => {
 
 describe('terminal lifecycle diagnostics', () => {
   it('keeps mount and session identity while filtering snapshots', () => {
-    const a = createTerminalDiagnosticRecorder('a')
-    const b = createTerminalDiagnosticRecorder('b')
+    const a = createTerminalDiagnosticRecorder(asSessionId('a'))
+    const b = createTerminalDiagnosticRecorder(asSessionId('b'))
     a.record('mount', { active: true })
     b.record('mount', { active: false })
 
@@ -25,7 +26,7 @@ describe('terminal lifecycle diagnostics', () => {
   })
 
   it('returns defensive copies and keeps only the newest 500 events', () => {
-    const recorder = createTerminalDiagnosticRecorder('s1')
+    const recorder = createTerminalDiagnosticRecorder(asSessionId('s1'))
     for (let i = 0; i < 505; i += 1) recorder.record('fit', { i, nested: { value: i } })
 
     const snapshot = terminalDiagnosticsSnapshot('s1')
@@ -37,7 +38,7 @@ describe('terminal lifecycle diagnostics', () => {
   })
 
   it('installs a global post-failure inspection API', () => {
-    const recorder = createTerminalDiagnosticRecorder('s1')
+    const recorder = createTerminalDiagnosticRecorder(asSessionId('s1'))
     recorder.record('reveal:start')
 
     expect(globalThis.__podiumTerminalDiagnostics?.snapshot('s1')).toMatchObject([

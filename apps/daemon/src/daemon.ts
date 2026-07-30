@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { spawnSync } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
@@ -413,7 +414,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // native drafts up to the server; injects chat drafts into the PTY (bytes are a
   // UTF-8 string of control chars + text; the bridge takes base64). Declared here so
   // the session observers can feed it agent-idle state.
-  const bridges = new Map<string, AgentSession>()
+  const bridges = new Map<SessionId, AgentSession>()
   const composerEngine = new ComposerSyncEngine(
     (sessionId, text) => send({ type: 'nativeDraft', sessionId, text }),
     {
@@ -613,7 +614,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     send,
     machineId,
     instanceId,
-    durableLabels: new Map<string, string>(),
+    durableLabels: new Map<SessionId, string>(),
     durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
     backend,
     launch,

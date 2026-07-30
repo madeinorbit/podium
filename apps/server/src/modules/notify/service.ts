@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import {
@@ -43,7 +43,7 @@ function normalizedTelegramKey(settings: NotificationSettings): string {
 /** The session fields an attention notice needs — a plain projection so the
  *  service never holds live Session objects. */
 export interface SessionNoticeInfo {
-  sessionId: string
+  sessionId: SessionId
   name?: string
   title?: string
   cwd: string
@@ -65,7 +65,7 @@ export interface NotifyDeps {
   now(): number
   clients(): Iterable<{ send(msg: ServerMessage): void; visible: boolean }>
   /** Resolve the notice projection for a session (undefined = unknown session). */
-  sessionInfo(sessionId: string): SessionNoticeInfo | undefined
+  sessionInfo(sessionId: SessionId): SessionNoticeInfo | undefined
   /** Runtime state per session — notifyAttentionForNewExternalTargets replays the
    *  current blocked states to a freshly configured external target. */
   sessionStates(): Iterable<{ info: SessionNoticeInfo; state: AgentRuntimeState | undefined }>

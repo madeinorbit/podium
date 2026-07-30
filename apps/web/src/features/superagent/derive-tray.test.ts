@@ -1,14 +1,11 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { deriveTrayItems, offerKey, workingSessionCount } from './derive-tray'
 
 const session = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     status: 'live',
     createdAt: 't',
@@ -69,12 +66,12 @@ describe('deriveTrayItems', () => {
       id: 'closed',
       stage: 'done',
       closedReason: 'done',
-      sessions: [session({ sessionId: 'delegate', offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('delegate'), offer })] as SessionMeta[],
     })
     const review = makeIssue({
       id: 'review',
       stage: 'review',
-      sessions: [session({ sessionId: 'live', offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('live'), offer })] as SessionMeta[],
       updatedAt: '2026-07-14T13:00:00Z',
     })
     expect(deriveTrayItems([closed, review]).map((i) => `${i.kind}:${i.issue.id}`)).toEqual([
@@ -91,12 +88,12 @@ describe('deriveTrayItems', () => {
     const offered = makeIssue({
       id: 'o',
       stage: 'review',
-      sessions: [session({ sessionId: 'agent', offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('agent'), offer })] as SessionMeta[],
     })
     expect(deriveTrayItems([offered]).map((i) => i.kind)).toEqual(['offer'])
     // An optimistically-dismissed offer means the user just acted — the
     // backstop must not pop in for that beat.
-    const dismissed = new Set([offerKey('agent', offer.createdAt)])
+    const dismissed = new Set([offerKey(asSessionId('agent'), offer.createdAt)])
     expect(deriveTrayItems([offered], dismissed)).toHaveLength(0)
     // A needsHuman question already gives the issue a card — don't double up.
     const asking = makeIssue({
@@ -119,7 +116,7 @@ describe('deriveTrayItems', () => {
       id: 'o-new',
       sessions: [
         session({
-          sessionId: 'agent',
+          sessionId: asSessionId('agent'),
           offer: { message: 'Ready.', actions: [], createdAt: '2026-07-14T11:00:00Z' },
         }),
       ] as SessionMeta[],
@@ -146,11 +143,11 @@ describe('deriveTrayItems', () => {
       id: 'o',
       updatedAt: '2026-07-14T10:00:00Z',
       sessions: [
-        session({ sessionId: 'agent', offer }),
-        session({ sessionId: 'sh', agentKind: 'shell', offer }),
-        session({ sessionId: 'hl', headless: true, offer }),
-        session({ sessionId: 'dead', archived: true, offer }),
-        session({ sessionId: 'quiet' }),
+        session({ sessionId: asSessionId('agent'), offer }),
+        session({ sessionId: asSessionId('sh'), agentKind: 'shell', offer }),
+        session({ sessionId: asSessionId('hl'), headless: true, offer }),
+        session({ sessionId: asSessionId('dead'), archived: true, offer }),
+        session({ sessionId: asSessionId('quiet') }),
       ] as SessionMeta[],
     })
     const items = deriveTrayItems([issue])
@@ -158,7 +155,7 @@ describe('deriveTrayItems', () => {
     expect(items[0]).toMatchObject({
       kind: 'offer',
       offer,
-      session: { sessionId: 'agent' },
+      session: { sessionId: asSessionId('agent') },
       since: offer.createdAt,
     })
   })
@@ -167,15 +164,15 @@ describe('deriveTrayItems', () => {
     const offer = { message: 'm', actions: [], createdAt: '2026-07-14T12:00:00Z' }
     const issue = makeIssue({
       id: 'o',
-      sessions: [session({ sessionId: 'agent', offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('agent'), offer })] as SessionMeta[],
     })
-    const dismissed = new Set([offerKey('agent', offer.createdAt)])
+    const dismissed = new Set([offerKey(asSessionId('agent'), offer.createdAt)])
     expect(deriveTrayItems([issue], dismissed)).toHaveLength(0)
     // A NEW offer on the same session is a new key — it shows again.
     const fresh = { ...offer, createdAt: '2026-07-14T13:00:00Z' }
     const again = makeIssue({
       id: 'o',
-      sessions: [session({ sessionId: 'agent', offer: fresh })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('agent'), offer: fresh })] as SessionMeta[],
     })
     expect(deriveTrayItems([again], dismissed)).toHaveLength(1)
   })
@@ -202,7 +199,7 @@ describe('deriveTrayItems', () => {
       humanQuestion: 'Merge strategy?',
       sessions: [
         session({
-          sessionId: 'agent',
+          sessionId: asSessionId('agent'),
           offer: { message: 'Ready.', actions: [], createdAt: '2026-07-14T12:00:00Z' },
         }),
       ] as SessionMeta[],
@@ -220,24 +217,24 @@ describe('workingSessionCount', () => {
     const issue = makeIssue({
       id: 'p',
       sessions: [
-        session({ sessionId: 'w1' }),
+        session({ sessionId: asSessionId('w1') }),
         session({
-          sessionId: 'w2',
+          sessionId: asSessionId('w2'),
           agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
         }),
-        session({ sessionId: 'w3', agentKind: 'shell', busy: true }),
-        session({ sessionId: 'w4', headless: true }),
-        session({ sessionId: 'w5', archived: true }),
+        session({ sessionId: asSessionId('w3'), agentKind: 'shell', busy: true }),
+        session({ sessionId: asSessionId('w4'), headless: true }),
+        session({ sessionId: asSessionId('w5'), archived: true }),
       ] as SessionMeta[],
     })
     const other = makeIssue({
       id: 'x',
-      sessions: [session({ sessionId: 'w6' })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('w6') })] as SessionMeta[],
     })
     const dead = makeIssue({
       id: 'dead',
       archived: true,
-      sessions: [session({ sessionId: 'w7' })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('w7') })] as SessionMeta[],
     })
     expect(workingSessionCount([issue, other, dead])).toBe(2)
   })

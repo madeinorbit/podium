@@ -1,3 +1,4 @@
+import { asRepoId, type RepoId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -65,16 +66,18 @@ export function deriveRepoId(input: {
   originUrl?: string | null
   machineId: string
   path: string
-}): string {
+}): RepoId {
+  // MINT SITE for a RepoId — derived here from an origin URL or a (machine, path)
+  // fallback, so this is where the brand is applied (POD-362).
   const normalized = normalizeOriginUrl(input.originUrl)
-  if (normalized) return `repo_${sha1_16(normalized)}`
-  return `repo_${sha1_16(`path:${input.machineId}:${input.path}`)}`
+  if (normalized) return asRepoId(`repo_${sha1_16(normalized)}`)
+  return asRepoId(`repo_${sha1_16(`path:${input.machineId}:${input.path}`)}`)
 }
 
 /** True iff `repoId` is the path-fallback id for (machineId, path) — i.e. it was
  *  NOT derived from an origin URL and may be upgraded when an origin is learned. */
 export function isPathFallbackRepoId(
-  repoId: string | null | undefined,
+  repoId: RepoId | null | undefined,
   machineId: string,
   path: string,
 ): boolean {

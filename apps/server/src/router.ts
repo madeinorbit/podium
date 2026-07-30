@@ -2,11 +2,14 @@ import { presenceCommand } from '@podium/commands'
 import { sessionHandoffInput } from '@podium/commands'
 import {
   AgentKind,
+  ArtifactIdField,
   AutomationScheduleKind,
   AutomationSessionMode,
-  isAgentKind,
+  IssueIdField,
   ResumeRef,
+  SessionIdField,
   WorkState,
+  isAgentKind,
 } from '@podium/model'
 import { agentSupportsCloud, clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
@@ -187,7 +190,7 @@ const cloudRepoInput = z.object({
 })
 const cloudRuntimeSizeInput = z.enum(['small', 'medium', 'large'])
 const cloudSourceSessionInput = z.object({
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   agent: z.enum(['claude-code', 'codex']),
   resumeRef: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
@@ -198,7 +201,7 @@ const cloudAgentInput = z.object({
   displayName: z.string().min(1),
   size: cloudRuntimeSizeInput.optional(),
   repo: cloudRepoInput,
-  issueId: z.string().optional(),
+  issueId: IssueIdField.optional(),
   purpose: z.string().optional(),
   sourceSession: cloudSourceSessionInput.optional(),
 })
@@ -210,7 +213,7 @@ const cloudMachineInput = z.object({
   purpose: z.string().optional(),
 })
 const cloudMoveSessionInput = z.object({
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   tenantId: z.string().min(1),
   size: cloudRuntimeSizeInput.optional(),
   repo: cloudRepoInput.optional(),
@@ -460,7 +463,7 @@ export const appRouter = t.router({
     transcriptRead: t.procedure
       .input(
         z.object({
-          sessionId: z.string(),
+          sessionId: SessionIdField,
           anchor: z.string().optional(),
           direction: z.enum(['before', 'after']),
           limit: z.number().int().positive().max(2000),
@@ -480,7 +483,7 @@ export const appRouter = t.router({
     read: t.procedure
       .input(
         z.object({
-          sessionId: z.string(),
+          sessionId: SessionIdField,
           turns: z.coerce.number().int().positive().optional(),
           cursor: z.string().optional(),
         }),
@@ -492,7 +495,7 @@ export const appRouter = t.router({
     // since a watermark — repeated check-ins pay only for the delta (the
     // watermark persists per (reader, target)).
     recap: t.procedure
-      .input(z.object({ sessionId: z.string(), since: z.string().optional() }))
+      .input(z.object({ sessionId: SessionIdField, since: z.string().optional() }))
       .query(({ ctx, input }) =>
         mods(ctx).readToolkit.recap(input, ctx.capability.actorSessionId ?? 'operator'),
       ),
@@ -582,7 +585,7 @@ export const appRouter = t.router({
     // Ensure (or re-open) a btw thread for a chat session. The transcript seed /
     // re-open delta is prepended to the thread's next sendTurn.
     startBtw: t.procedure
-      .input(z.object({ sessionId: z.string() }))
+      .input(z.object({ sessionId: SessionIdField }))
       .mutation(({ ctx, input }) => ctx.superagent.startBtwTurn(input)),
     // Per-repo concierge intake (issue #64): ensure the repo's thread, then run
     // the message as a headless harness turn (digest seed on the first turn,
@@ -1222,8 +1225,8 @@ export const appRouter = t.router({
     read: t.procedure
       .input(
         z.union([
-          z.object({ sessionId: z.string(), path: z.string() }),
-          z.object({ issueId: z.string(), artifactId: z.string(), path: z.string() }),
+          z.object({ sessionId: SessionIdField, path: z.string() }),
+          z.object({ issueId: IssueIdField, artifactId: ArtifactIdField, path: z.string() }),
           z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
         ]),
       )
@@ -1246,7 +1249,7 @@ export const appRouter = t.router({
       .input(
         z.union([
           z.object({
-            sessionId: z.string(),
+            sessionId: SessionIdField,
             path: z.string(),
             content: z.string(),
             baseHash: z.string().optional(),

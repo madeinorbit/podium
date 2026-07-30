@@ -400,6 +400,7 @@
       "name": "@podium/terminal-client-react",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/terminal-client": "workspace:*",
       },
       "devDependencies": {

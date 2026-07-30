@@ -1,13 +1,4 @@
-import type {
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
-  HostMetricsWire,
-  IssueWire,
-  MachineWire,
-  SessionMeta,
-  TranscriptItem,
-} from '@podium/model'
+import type { AutomationRunWire, AutomationWire, ConversationSummaryWire, HostMetricsWire, IssueWire, MachineWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_METADATA_DELTA,
@@ -47,7 +38,7 @@ export interface ConnectionState {
   connected: boolean
   clientId: string
   controllerId: string | null
-  sessionId: string
+  sessionId: SessionId
   role: 'controller' | 'spectator'
   cols: number
   rows: number
@@ -183,7 +174,7 @@ function applyChange<T>(
 }
 
 export interface AttentionEvent {
-  sessionId: string
+  sessionId: SessionId
   title: string
   body: string
 }
@@ -227,12 +218,12 @@ export interface HubEvents {
   attention: [event: AttentionEvent]
   openUrl: [request: SessionOpenUrlMessage]
   openUrlResult: [result: SessionOpenUrlResultMessage]
-  sessionDraft: [sessionId: string, text: string]
+  sessionDraft: [sessionId: SessionId, text: string]
   /** One live transcript frame: ONLY that frame's delta items — the caller owns
    *  history (see subscribeTranscript, which also manages the server-side
    *  subscription these frames depend on). */
-  transcriptDelta: [sessionId: string, items: TranscriptItem[], meta: { reset: boolean }]
-  headlessActivity: [sessionId: string, event: HeadlessActivityEvent]
+  transcriptDelta: [sessionId: SessionId, items: TranscriptItem[], meta: { reset: boolean }]
+  headlessActivity: [sessionId: SessionId, event: HeadlessActivityEvent]
 }
 
 export type HubEventKind = keyof HubEvents
@@ -285,7 +276,7 @@ export class SocketHub {
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
-  private readonly connections = new Map<string, SessionConnection>()
+  private readonly connections = new Map<SessionId, SessionConnection>()
   // Per-session structured transcript subscriptions. The hub is a thin
   // delta-forwarder: it holds NO buffered items (ChatView owns history, seeded
   // from a tRPC read). It tracks only `since` — the cursor of the newest item
@@ -299,7 +290,7 @@ export class SocketHub {
   // forwarded so far — so a reconnect can resume the live stream from that point.
   // An entry exists while at least one observer is subscribed.
   private readonly transcripts = new Map<
-    string,
+    SessionId,
     {
       since: string | undefined
       observers: Set<(items: TranscriptItem[], meta: { reset: boolean }) => void>
@@ -311,8 +302,8 @@ export class SocketHub {
   private readonly eventObservers = new Map<HubEventKind, Set<AnyHubEventHandler>>()
   private lastVisible = true
   private lastViewState: {
-    visible: string[]
-    focused: string | null
+    visible: SessionId[]
+    focused: SessionId | null
     modes?: Record<string, 'native' | 'chat'>
   } = {
     visible: [],
@@ -525,7 +516,7 @@ export class SocketHub {
     this.onSocketClosed()
   }
 
-  attach(sessionId: string, cb: SessionCallbacks = {}): SessionConnection {
+  attach(sessionId: SessionId, cb: SessionCallbacks = {}): SessionConnection {
     let conn = this.connections.get(sessionId)
     if (conn === undefined) {
       conn = new SessionConnection(this, sessionId, cb, this.opts.viewport)
@@ -537,7 +528,7 @@ export class SocketHub {
     return conn
   }
 
-  detach(sessionId: string): void {
+  detach(sessionId: SessionId): void {
     if (this.connections.delete(sessionId) && this.connectedFlag) {
       this.sendRaw({ type: 'detach', sessionId })
     }
@@ -697,7 +688,7 @@ export class SocketHub {
    * from the read, and a sync empty cb would clobber it.
    */
   subscribeTranscript(
-    sessionId: string,
+    sessionId: SessionId,
     since: string | undefined,
     cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
   ): () => void {
@@ -737,7 +728,7 @@ export class SocketHub {
    * server subscription. Returns an unsubscribe.
    * @deprecated Use `on('headlessActivity', cb)` and filter by sessionId.
    */
-  subscribeHeadless(sessionId: string, cb: (e: HeadlessActivityEvent) => void): () => void {
+  subscribeHeadless(sessionId: SessionId, cb: (e: HeadlessActivityEvent) => void): () => void {
     // Dedup by the CALLER's callback per session (the old per-session Set
     // semantics): re-registering the same cb must not double-deliver, and the
     // one registration has one unsubscribe. A fresh wrapper closure per call
@@ -776,16 +767,16 @@ export class SocketHub {
    * Subscribe to draft changes broadcast by other clients/devices. Returns an unsubscribe.
    * @deprecated Use `on('sessionDraft', cb)`.
    */
-  onSessionDraft(cb: (sessionId: string, text: string) => void): () => void {
+  onSessionDraft(cb: (sessionId: SessionId, text: string) => void): () => void {
     return this.on('sessionDraft', cb)
   }
 
   /** Publish this client's in-progress draft for a session to the server. */
-  sendSessionDraft(sessionId: string, text: string): void {
+  sendSessionDraft(sessionId: SessionId, text: string): void {
     if (this.connectedFlag) this.sendRaw({ type: 'setSessionDraft', sessionId, text })
   }
   /** Submit a user-pasted loopback callback to the daemon that owns the session. */
-  submitOpenUrlCallback(sessionId: string, requestId: string, url: string): void {
+  submitOpenUrlCallback(sessionId: SessionId, requestId: string, url: string): void {
     this.sendRaw({
       type: 'sessionOpenUrlCallback',
       sessionId,
@@ -795,7 +786,7 @@ export class SocketHub {
   }
 
   /** Dismiss and revoke a pending browser-open request. */
-  dismissOpenUrl(sessionId: string, requestId: string): void {
+  dismissOpenUrl(sessionId: SessionId, requestId: string): void {
     this.sendRaw({
       type: 'sessionOpenUrlDismiss',
       sessionId,
@@ -819,8 +810,8 @@ export class SocketHub {
    * relay/coalescing behavior.
    */
   setViewState(
-    visible: string[],
-    focused: string | null,
+    visible: SessionId[],
+    focused: SessionId | null,
     modes?: Record<string, 'native' | 'chat'>,
   ): void {
     // Omit `modes` entirely when undefined so the wire payload (and the
@@ -1295,7 +1286,7 @@ export type SessionScopedServerMessage = Extract<
 
 /** A per-session view of the hub: tagged sends + the session's authoritative state. */
 export class SessionConnection {
-  readonly sessionId: string
+  readonly sessionId: SessionId
   private readonly hub: SocketHub
   private cb: SessionCallbacks
   private controllerId: string | null = null
@@ -1307,7 +1298,7 @@ export class SessionConnection {
 
   constructor(
     hub: SocketHub,
-    sessionId: string,
+    sessionId: SessionId,
     cb: SessionCallbacks,
     viewport: ConnectionViewport,
   ) {

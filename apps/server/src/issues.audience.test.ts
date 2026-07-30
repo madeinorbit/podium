@@ -7,6 +7,7 @@
  * SP-6144: agent-created top-level issues are human-facing proposals, inert until
  * an operator promotes them. needsHuman remains reserved for actual questions.
  */
+import { asSessionId } from '@podium/model'
 import type { IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
@@ -323,7 +324,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
       await expect(proposalWorker.issues.start({ id: sub.id })).rejects.toThrow(/operator/i)
       await expect(proposalWorker.issues.start({ id: proposal.id })).rejects.toThrow(/operator/i)
       await expect(
-        proposalWorker.issues.attachSession({ sessionId: 'sess-x', targetId: proposal.id }),
+        proposalWorker.issues.attachSession({ sessionId: asSessionId('sess-x'), targetId: proposal.id }),
       ).rejects.toThrow(/operator/i)
     } finally {
       reg.dispose()

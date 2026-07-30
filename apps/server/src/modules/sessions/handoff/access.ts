@@ -39,7 +39,7 @@
  * "may this caller use it".
  */
 
-import type { Capability } from '@podium/model'
+import type { Capability, SessionId } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../../command-principal'
 import {
   checkMachineUse,
@@ -79,7 +79,7 @@ export const machineUseGateFor = (deps: {
  */
 export const machineUseGateForCapability = (deps: {
   capability: Capability
-  parentSessionOf: (sessionId: string) => string | undefined
+  parentSessionOf: (sessionId: SessionId) => SessionId | undefined
   ownership: MachineOwnershipIndex
 }): AssertMachineUse =>
   machineUseGateFor({

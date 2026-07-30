@@ -1,11 +1,11 @@
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, IssueId, SessionId } from '@podium/model'
 import type { AgentInstruction } from '@podium/protocol'
 
 export interface SessionInstructionContext {
-  sessionId: string
+  sessionId: SessionId
   cwd: string
   agentKind: AgentKind
-  issueId?: string
+  issueId?: IssueId
   workflowRevisionId?: string
   /** Resurrection only rehydrates instructions already attached to the session;
    * it must not adopt a default that appeared after the conversation began. */

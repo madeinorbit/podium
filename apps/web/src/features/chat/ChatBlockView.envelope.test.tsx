@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -33,7 +34,7 @@ function mount(item: TranscriptItem, stickyOperator = false): void {
         index={0}
         highlighted={false}
         dimmed={false}
-        sessionId="s1"
+        sessionId={asSessionId('s1')}
         cwd="/r"
         openFile={() => {}}
         httpOrigin="http://x"

@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { type JSX, lazy, Suspense } from 'react'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { cn } from '@/lib/utils'
@@ -52,7 +53,7 @@ export function PanelDeck({
             style={visible ? { order: item.inA ? 0 : 1 } : undefined}
           >
             {item.kind === 'session' ? (
-              <AgentPanel sessionId={item.id} active={visible} />
+              <AgentPanel sessionId={asSessionId(item.id)} active={visible} />
             ) : item.file ? (
               <Suspense fallback={null}>
                 <FilePanel

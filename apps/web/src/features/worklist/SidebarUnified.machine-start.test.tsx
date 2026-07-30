@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
@@ -6,7 +7,7 @@ import { SidebarUnified } from './SidebarUnified'
 // Optimistic spawn (#119): the sidebar goes through store.spawnDraftAgent, which
 // mints client-side ids and paints the row before any server round-trip — the
 // component never calls trpc.sessions.create directly anymore.
-const spawnDraftAgent = vi.fn(() => ({ sessionId: 'new-session', issueId: 'draft-issue' }))
+const spawnDraftAgent = vi.fn(() => ({ sessionId: asSessionId('new-session'), issueId: 'draft-issue' }))
 const settingsGet = vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } }))
 const settingsSet = vi.fn(async (settings) => settings)
 const setSelectedWorktree = vi.fn()
@@ -38,7 +39,7 @@ vi.mock('@/app/store', () => {
     ],
     sessions: [
       {
-        sessionId: 'recent-vmi',
+        sessionId: asSessionId('recent-vmi'),
         agentKind: 'claude-code',
         cwd: '/home/vmi34/podium',
         title: 'recent',

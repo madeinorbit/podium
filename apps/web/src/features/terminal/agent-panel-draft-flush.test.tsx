@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -121,7 +118,7 @@ const { AgentPanel } = await import('./AgentPanel')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -186,7 +183,7 @@ describe('AgentPanel chat→native draft flush re-arm (warm toggle)', () => {
   it('re-injects a chat-authored draft into the native composer on a later chat→native toggle', async () => {
     // Start native (mounts the terminal once, warm across toggles).
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await settle()
     tickPoll()
@@ -197,7 +194,7 @@ describe('AgentPanel chat→native draft flush re-arm (warm toggle)', () => {
     // Switch native→chat (terminal stays mounted, hidden).
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await settle()
 
@@ -205,7 +202,7 @@ describe('AgentPanel chat→native draft flush re-arm (warm toggle)', () => {
     storeDrafts = { s1: 'hello from chat' }
     storePanelMode = { s1: 'native' }
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await settle()
     tickPoll()

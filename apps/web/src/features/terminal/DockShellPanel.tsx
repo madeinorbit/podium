@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { MachineWire, SessionMeta } from '@podium/model'
+import type { MachineWire, SessionId, SessionMeta } from '@podium/model'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
@@ -167,7 +167,7 @@ function DockShellTerminal({
   sessionId,
   hub,
 }: {
-  sessionId: string
+  sessionId: SessionId
   hub: Parameters<typeof useTerminalSession>[0]['hub']
 }): JSX.Element {
   const { settings, appearance } = useTerminalAppearance()

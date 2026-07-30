@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import {
   agentBadge,
   chatActivity,
@@ -37,8 +39,11 @@ const WORK_STATES: (WorkState | null)[] = [
 ]
 
 export function SessionScreen() {
+  // Route params are RAW URL values, so the type stays `string` and the brand is
+  // applied once here — the DECODE EDGE for this screen (POD-362).
   const params = useLocalSearchParams<{ sessionId: string | string[] }>()
-  const sessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
+  const rawSessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
+  const sessionId = rawSessionId ? asSessionId(rawSessionId) : undefined
   const router = useRouter()
   const client = useMobileClient()
   const session = sessionId ? client.sessionById(sessionId) : undefined

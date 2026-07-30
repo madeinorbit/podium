@@ -1,21 +1,23 @@
+import type { SessionId } from '../ids/brands'
+
 /**
  * Attention-tier math for the daemon's PTY output scheduler (#194: moved from
  * apps/server/src/session-priority.ts — pure, platform-neutral, belongs in
  * the model alongside the other session-identity predicates).
  */
 export interface PriorityClient {
-  attached: ReadonlySet<string>
-  viewVisible: ReadonlySet<string>
-  focused: string | null
+  attached: ReadonlySet<SessionId>
+  viewVisible: ReadonlySet<SessionId>
+  focused: SessionId | null
 }
 
 /** Per session, the strongest tier ANY client assigns it (lower = higher priority):
  *  0 focused, 1 visible, 2 attached, 3 unwatched. */
 export function computePriorities(
   clients: Iterable<PriorityClient>,
-  sessionIds: Iterable<string>,
-): Map<string, 0 | 1 | 2 | 3> {
-  const out = new Map<string, 0 | 1 | 2 | 3>()
+  sessionIds: Iterable<SessionId>,
+): Map<SessionId, 0 | 1 | 2 | 3> {
+  const out = new Map<SessionId, 0 | 1 | 2 | 3>()
   for (const sid of sessionIds) {
     let best: 0 | 1 | 2 | 3 = 3
     for (const c of clients) {

@@ -709,6 +709,110 @@ const REPLICA_NEUTRAL_PORTS: ReadonlySet<string> = new Set(['packages/sync/src/s
 const REPLICA_FORBIDDEN_EVAL =
   /\b(canSee|maySee|mayView|isVisibleTo|visibleTo|evaluateVisibility|filterVisible|hasGrant|grantsFor|checkAccess|checkIssueAccess|authorize|resolveCapability|mergePolicy|resolveConflict|arbitrate|lastWriteWins|mergeFields|pickWinner)\s*\(/
 
+/**
+ * Rule 11 — the sync KERNEL has zero SQLite/Bun/DOM (POD-305; ADR 2's layered
+ * persistence ownership, POD-279 review finding 5).
+ *
+ * This is POD-305's acceptance criterion as a LINT rather than as a claim,
+ * because the import that breaks it will be added by somebody who never read the
+ * comment saying not to.
+ *
+ * The layering it enforces:
+ *
+ *   KERNEL   `packages/sync/src/**` (everything else)  ports + state machines.
+ *   ADAPTER  `packages/sync/src/adapters/**`           the one place a storage
+ *                                                      technology is named.
+ *
+ * SCOPED TO EXACTLY THE THREE TECHNOLOGIES THE CRITERION NAMES, and this is a
+ * decision worth stating because the first draft was broader and wrong. Written
+ * as "no infrastructure", it also caught `node:fs` in `mirror.ts` (the
+ * transcript-lake writer) and `upstream.ts` (the node→hub dialer) — neither of
+ * which is a kernel role, both of which legitimately touch files, and one of
+ * which POD-309 deletes outright. A rule that needs three exclusions to pass on
+ * the day it lands is a rule that will be widened by exclusion afterwards. So it
+ * says what the criterion says: SQLite, Bun, DOM. `mirror.ts` and `upstream.ts`
+ * pass because reading a file is not any of those three, and no exclusion — and
+ * therefore no allowlist entry — is needed for them.
+ *
+ * TWO PROHIBITIONS, and the second is the one that rots first:
+ *
+ *  (a) NO SQLITE, BUN OR DOM. A kernel that knows what a database is cannot be
+ *      instantiated by the next storage backend without being edited, and one
+ *      that knows what a `window` is cannot run on the server.
+ *  (b) NO REACHING INTO `adapters/` FROM KERNEL SOURCE. The dependency points
+ *      one way: the adapter implements the kernel's ports, the kernel never
+ *      names the adapter. Without (b), (a) is bypassed by importing a helper
+ *      from the adapter that re-exports the thing.
+ *
+ * TESTS ARE HELD TO (a) AND EXEMPT FROM (b), deliberately. A kernel test that
+ * wires the REAL adapter is proving the port against real technology, which is
+ * the most valuable test in the package — but it must take that wiring as a
+ * FIXTURE from the layer that owns the technology rather than importing SQLite
+ * itself. A test is exactly where a database import first looks harmless, and a
+ * kernel test that has one is one refactor away from a kernel MODULE that does.
+ *
+ * `index.ts` is exempt from (b) and only from (b): a package barrel names every
+ * layer by definition — that is what a barrel is — and `@podium/sync`'s public
+ * surface legitimately includes the SQLite repository apps/server constructs.
+ * What matters is that no kernel MODULE reaches for it, which is what the rule
+ * still checks everywhere else.
+ */
+const SYNC_KERNEL_DIR = 'packages/sync/src/'
+const SYNC_ADAPTER_DIR = 'packages/sync/src/adapters/'
+const SYNC_PACKAGE_BARREL = 'packages/sync/src/index.ts'
+
+/** SQLite, Bun and DOM — the three the criterion names, and nothing else. */
+const KERNEL_FORBIDDEN_SPECIFIER =
+  /^(?:bun:|@podium\/runtime\/sqlite$|better-sqlite3|drizzle-orm(?:\/|$))/
+
+/** DOM reached through a global rather than an import — the form no import
+ *  check can see, and the one a browser-shaped helper arrives as. */
+const KERNEL_FORBIDDEN_DOM =
+  /\b(?:window|document|localStorage|sessionStorage|navigator|indexedDB|HTMLElement)\b/
+
+function checkSyncKernelPurity(file: string, source: string): Violation[] {
+  if (!file.startsWith(SYNC_KERNEL_DIR)) return []
+  if (file.startsWith(SYNC_ADAPTER_DIR)) return []
+  const violations: Violation[] = []
+  const isTest = file.endsWith('.test.ts')
+  for (const ref of extractImports(source)) {
+    if (KERNEL_FORBIDDEN_SPECIFIER.test(ref.specifier)) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'sync-kernel-purity',
+        message: `${file}: the sync kernel imports '${ref.specifier}' — SQLite, Bun and DOM are the adapter's, not the kernel's. Infrastructure lives in ${SYNC_ADAPTER_DIR}; the kernel takes storage and transactions as injected ports (POD-305, ADR 2 layered persistence ownership).`,
+      })
+      continue
+    }
+    if (isTest || file === SYNC_PACKAGE_BARREL) continue
+    const resolved = ref.specifier.startsWith('.')
+      ? relative('/', resolve('/', dirname(file), ref.specifier)).split(sep).join('/')
+      : ref.specifier
+    if (resolved.startsWith(SYNC_ADAPTER_DIR)) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'sync-kernel-purity',
+        message: `${file}: the sync kernel imports the SQLite adapter ('${ref.specifier}'). The dependency points one way — the adapter implements the kernel's ports, never the reverse — and without this the no-SQLite rule is bypassed by re-export. Tests may wire the real adapter; kernel source may not.`,
+      })
+    }
+  }
+  // Checked over COMMENT-STRIPPED source, so that DOCUMENTING the prohibition —
+  // which this package does at length — does not trip the lint enforcing it.
+  // Same treatment rule 9 gives its evaluation verbs, and for the same reason.
+  const dom = KERNEL_FORBIDDEN_DOM.exec(stripComments(source))
+  if (dom) {
+    violations.push({
+      file,
+      specifier: dom[0],
+      rule: 'sync-kernel-purity',
+      message: `${file}: '${dom[0]}' is a DOM global. The sync kernel runs on the server and in a worker as well as in a browser; reaching a DOM global makes it instantiable in exactly one of them (POD-305).`,
+    })
+  }
+  return violations
+}
+
 function checkReplicaDirection(file: string, source: string): Violation[] {
   if (!file.startsWith(REPLICA_ROLE_DIR)) return []
   const violations: Violation[] = []
@@ -758,6 +862,7 @@ export function checkFile(
   const violations: Violation[] = [
     ...checkModelRedefinition(file, source, modelExportNames),
     ...checkReplicaDirection(file, source),
+    ...checkSyncKernelPurity(file, source),
   ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {

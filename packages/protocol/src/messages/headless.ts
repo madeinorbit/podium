@@ -1,4 +1,4 @@
-import { AgentKind, HarnessAgent } from '@podium/model'
+import { AgentKind, HarnessAgent, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
@@ -39,7 +39,7 @@ export const HeadlessActivityEvent = z.discriminatedUnion('kind', [
 export type HeadlessActivityEvent = z.infer<typeof HeadlessActivityEvent>
 export const HeadlessActivityMessage = z.object({
   type: z.literal('headlessActivity'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   event: HeadlessActivityEvent,
 })
 export type HeadlessActivityMessage = z.infer<typeof HeadlessActivityMessage>
@@ -51,7 +51,7 @@ export const HeadlessTurnRequestMessage = z.object({
   /** Stable across server/daemon restarts. The daemon uses this to reattach to
    *  (or return the completed result of) the same durable abduco turn. */
   turnId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   /** Superagent thread this turn belongs to (opaque to the daemon). */
   threadId: z.string(),
   agent: HarnessAgent,
@@ -78,19 +78,19 @@ export const HeadlessTurnRequestMessage = z.object({
 export const HeadlessInterruptMessage = z.object({
   type: z.literal('headlessInterrupt'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
 })
 export const HeadlessTurnAckMessage = z.object({
   type: z.literal('headlessTurnAck'),
   turnId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
 })
 // server -> daemon: (re)establish the per-kind transcript observers/tails for a
 // headless session — exactly what reattach does for a PTY session, minus the PTY.
 export const HeadlessBindMessage = z.object({
   type: z.literal('headlessBind'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   agentKind: AgentKind,
   cwd: z.string(),
   resumeValue: z.string(),
@@ -100,7 +100,7 @@ export const HeadlessBindMessage = z.object({
 export const HeadlessTurnEventMessage = z.object({
   type: z.literal('headlessTurnEvent'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   event: HeadlessTurnEvent,
 })
 export const HeadlessTurnResultMessage = z.object({

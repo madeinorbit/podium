@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { act, type JSX } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWarmSet } from './use-warm-set'
 
-function P({ all, active }: { all: string[]; active: string[] }): JSX.Element {
+function P({ all, active }: { all: SessionId[]; active: SessionId[] }): JSX.Element {
   const w = useWarmSet(all, active)
   return <span data-w={[...w].sort().join(',')} />
 }
@@ -36,11 +38,11 @@ function warmAttr(): string {
 
 describe('useWarmSet', () => {
   it('caps the warm set at the mobile capacity (N=3) by recency', () => {
-    const all = Array.from({ length: 10 }, (_, i) => `s${i + 1}`)
+    const all = Array.from({ length: 10 }, (_, i) => asSessionId(`s${i + 1}`))
     // Activate s1..s10 one at a time across rerenders.
     for (let i = 1; i <= 10; i++) {
       act(() => {
-        root.render(<P all={all} active={[`s${i}`]} />)
+        root.render(<P all={all} active={[asSessionId(`s${i}`)]} />)
       })
     }
     const warm = new Set(warmAttr().split(',').filter(Boolean))
@@ -59,10 +61,10 @@ describe('useWarmSet', () => {
     // The universe is GLOBAL (every live session id, as Workspace now feeds it) so
     // recency spans issue switches — the point of POD-782. Activating a 9th distinct
     // session must evict the least-recently-viewed one, holding the mounted count at 8.
-    const all = Array.from({ length: 9 }, (_, i) => `s${i + 1}`)
+    const all = Array.from({ length: 9 }, (_, i) => asSessionId(`s${i + 1}`))
     for (let i = 1; i <= 9; i++) {
       act(() => {
-        root.render(<P all={all} active={[`s${i}`]} />)
+        root.render(<P all={all} active={[asSessionId(`s${i}`)]} />)
       })
     }
     const warm = new Set(warmAttr().split(',').filter(Boolean))

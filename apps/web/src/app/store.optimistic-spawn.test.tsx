@@ -1,8 +1,4 @@
-import {
-  type SessionMetaInput,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type IssueWire, type SessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -144,8 +140,8 @@ function render(): void {
   })
 }
 
-function spawn(): { sessionId: string; issueId: string } {
-  let ids: { sessionId: string; issueId: string } = { sessionId: '', issueId: '' }
+function spawn(): { sessionId: SessionId; issueId: string } {
+  let ids: { sessionId: SessionId; issueId: string } = { sessionId: asSessionId(''), issueId: '' }
   act(() => {
     ids = store!.spawnDraftAgent({
       target: { path: '/w/wt', repoPath: '/w' },

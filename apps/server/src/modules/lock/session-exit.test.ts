@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
@@ -10,7 +11,7 @@ import { SessionRegistry } from '../../relay'
  */
 
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: string) =>
+const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
@@ -38,7 +39,7 @@ function liveSession(reg: SessionRegistry): string {
 /** Acquire `name` as the given live session via the relay dispatcher. */
 async function acquireAs(reg: SessionRegistry, sessionId: string, name: string): Promise<void> {
   const r = (await reg.modules.lockCommands.dispatch(
-    { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId } },
+    { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(sessionId) } },
     'acquire',
     { repoPath: '/repo', name },
   )) as { granted: boolean; lock: { holder: { sessionId: string | null } } }
@@ -59,7 +60,7 @@ describe('session.exited → lock auto-release wiring', () => {
     await acquireAs(reg, survivor, 'held-by-survivor')
     // dying also queues behind the survivor's lock
     const q = (await reg.modules.lockCommands.dispatch(
-      { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: dying } },
+      { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(dying) } },
       'acquire',
       { repoPath: '/repo', name: 'held-by-survivor' },
     )) as { granted: boolean }
@@ -67,7 +68,7 @@ describe('session.exited → lock auto-release wiring', () => {
 
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
-      sessionId: dying,
+      sessionId: asSessionId(dying),
       code: 0,
     })
     expect(lockNames(reg)).toEqual(['held-by-survivor'])
@@ -81,7 +82,7 @@ describe('session.exited → lock auto-release wiring', () => {
     const reg = regWithDaemon()
     const victim = liveSession(reg)
     await acquireAs(reg, victim, 'merge:main')
-    reg.modules.sessions.killSession({ sessionId: victim })
+    reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
     expect(lockNames(reg)).toEqual([])
     reg.dispose()
   })
@@ -92,11 +93,11 @@ describe('session.exited → lock auto-release wiring', () => {
     const waiter = liveSession(reg)
     await acquireAs(reg, victim, 'merge:main')
     await reg.modules.lockCommands.dispatch(
-      { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: waiter } },
+      { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(waiter) } },
       'acquire',
       { repoPath: '/repo', name: 'merge:main' },
     )
-    reg.modules.sessions.killSession({ sessionId: victim })
+    reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
     const after = reg.modules.locks.status({ repoPath: '/repo', name: 'merge:main' })
     expect(after[0]?.holder.sessionId).toBe(waiter)
     reg.dispose()
@@ -107,16 +108,16 @@ describe('session.exited → lock auto-release wiring', () => {
     const parked = liveSession(reg)
     reg.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
-      sessionId: parked,
+      sessionId: asSessionId(parked),
       resume: { kind: 'claude', value: 'conv-1' },
     })
     await acquireAs(reg, parked, 'merge:main')
-    const r = reg.modules.sessions.hibernateSession({ sessionId: parked })
+    const r = reg.modules.sessions.hibernateSession({ sessionId: asSessionId(parked) })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no release.
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
-      sessionId: parked,
+      sessionId: asSessionId(parked),
       code: 0,
     })
     expect(lockNames(reg)).toEqual(['merge:main'])
@@ -129,7 +130,7 @@ describe('session.exited → lock auto-release wiring', () => {
     await acquireAs(reg, doomed, 'merge:main')
     reg.gateway.routeDaemonFrame('local', {
       type: 'spawnError',
-      sessionId: doomed,
+      sessionId: asSessionId(doomed),
       message: 'boom',
     })
     expect(lockNames(reg)).toEqual([])

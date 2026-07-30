@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -74,7 +75,7 @@ describe('appRouter', () => {
   it('sessions.create rejects a non-uuid sessionId (guards the durableLabel/scope path)', async () => {
     const { call } = caller()
     await expect(
-      call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: '../../evil' }),
+      call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: asSessionId('../../evil') }),
     ).rejects.toThrow()
   })
 
@@ -421,10 +422,10 @@ describe('repos router', () => {
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {
     const { registry, call } = caller()
     const store = registry.sessionStore
-    store.superagent.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: 's9' })
+    store.superagent.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: asSessionId('s9') })
     store.superagent.setThreadWatermark('btw_s9', 'item-1', '2026-06-16T00:00:00Z')
     // Unknown session → empty transcript → no delta → re-open path, no backend call.
-    const res = await call.superagent.startBtw({ sessionId: 's9' })
+    const res = await call.superagent.startBtw({ sessionId: asSessionId('s9') })
     expect(res).toEqual({ threadId: 'btw_s9', isNew: false })
   })
 

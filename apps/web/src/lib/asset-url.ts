@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { resolveAgainstCwd } from './file-path'
 import type { FileScope } from './file-scope'
 
@@ -8,7 +9,7 @@ import type { FileScope } from './file-scope'
  */
 export function assetUrl(args: {
   httpOrigin: string
-  sessionId: string
+  sessionId: SessionId
   fileDir: string
   src: string
 }): string | null {

@@ -1,9 +1,5 @@
 import { readdirSync, readFileSync, readlinkSync } from 'node:fs'
-import {
-  asSessionId,
-  type AgentMemoryWire,
-  type ProjectMemoryWire,
-} from '@podium/model'
+import { asSessionId, type AgentMemoryWire, type ProjectMemoryWire, type SessionId } from '@podium/model'
 
 /** One process as seen in /proc. memBytes is PSS where readable, RSS otherwise. */
 export interface ProcSample {
@@ -19,7 +15,7 @@ export interface ProcSample {
 /** How to find a session's processes: its attach/PTY pid, and the durable label
  *  that the abduco/tmux master (not a daemon child!) carries in its cmdline. */
 export interface SessionProcessHint {
-  sessionId: string
+  sessionId: SessionId
   label: string
   pid?: number
 }
@@ -134,9 +130,7 @@ export function attributeMemory(
       bytes += byPid.get(pid)?.memBytes ?? 0
       claimed.add(pid)
     }
-    // // POD-361-EDGE-CAST (POD-362 owns): the daemon's own session record types its id as a
-    // plain string; the wire projection brands at this boundary.
-    agents.push({ sessionId: asSessionId(session.sessionId), bytes, processCount: mine.size })
+    agents.push({ sessionId: session.sessionId, bytes, processCount: mine.size })
   }
 
   // Longest root first so a worktree registered inside a repo wins over the repo.

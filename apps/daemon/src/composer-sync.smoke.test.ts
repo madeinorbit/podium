@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import { ComposerSyncEngine } from './composer-sync'
@@ -26,7 +27,7 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
     const nodePty = pty as NonNullable<typeof pty>
     const published: string[] = []
     const engine = new ComposerSyncEngine((_sessionId, text) => published.push(text))
-    engine.attach('s1', 'claude-code', 48, 8)
+    engine.attach(asSessionId('s1'), 'claude-code', 48, 8)
 
     // A shell that prints a Claude composer box (then idles briefly) — a real PTY
     // renders it through the same emulator path the daemon uses.
@@ -42,7 +43,7 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
       cols: 48,
       rows: 8,
     })
-    child.onData((d) => engine.onData('s1', d))
+    child.onData((d) => engine.onData(asSessionId('s1'), d))
     await new Promise<void>((resolve) => child.onExit(() => resolve()))
     // Let the coalesced scrape (60ms) fire after the last frame.
     await new Promise((r) => setTimeout(r, 200))

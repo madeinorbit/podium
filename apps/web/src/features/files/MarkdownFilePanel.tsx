@@ -1,4 +1,5 @@
 // apps/web/src/MarkdownFilePanel.tsx
+import { asSessionId } from '@podium/model'
 import type { EditorView } from '@codemirror/view'
 import { EditorView as CMView } from '@codemirror/view'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
@@ -198,7 +199,7 @@ export function MarkdownFilePanel({
           {showPreview && (
             <div className="flex min-w-0 flex-1">
               <MarkdownPreview
-                sessionId={scope.kind === 'session' ? scope.sessionId : ''}
+                sessionId={scope.kind === 'session' ? scope.sessionId : asSessionId('')}
                 path={path}
                 content={doc.content}
                 scrollRef={previewScrollRef}

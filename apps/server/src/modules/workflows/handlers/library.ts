@@ -8,6 +8,7 @@
  * authorization question goes to `ctx.access`; none is decided here.
  */
 
+import { asSessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import type {
   ContractInput,
@@ -184,7 +185,10 @@ export function assignHandler(
   // is a code-execution boundary. Denied is never silently retargeted, and it
   // stays distinguishable from unreachable.
   if (input.targetKind === 'session') {
-    access.assertMayPlaceOn(access.machineForSession(input.targetId))
+    // `targetId` is polymorphic by `targetKind` (a session id here, an issue id on
+    // the other arm), so the brand is recovered INSIDE the narrowed branch — the
+    // same rule POD-362 applies to MessageRow.toId and EntityChangeSpec.id.
+    access.assertMayPlaceOn(access.machineForSession(asSessionId(input.targetId)))
   }
   const now = deps.now()
   const binding = deps.store.setBinding({ ...input, actor: engine.actor(caller), now })

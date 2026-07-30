@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { execFile } from 'node:child_process'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 
@@ -127,7 +128,7 @@ export function createCwdResolver(opts?: {
 /** One `sessionCwd` send: the worktree a session now sits in, plus what the daemon
  *  knows about that directory — the daemon is the only side that can run git here. */
 export interface SessionCwdUpdate {
-  sessionId: string
+  sessionId: SessionId
   /** The resolved worktree root (not the raw cwd). */
   cwd: string
   kind: WorktreeKind
@@ -142,14 +143,14 @@ export interface SessionCwdUpdate {
 export interface SessionCwdTracker {
   /** Feed one hook payload's cwd; resolves it to a worktree root and emits
    *  `send` only when the session's resolved root actually changes. */
-  onHookCwd(sessionId: string, cwd: string): Promise<void>
+  onHookCwd(sessionId: SessionId, cwd: string): Promise<void>
   /** Agent-declared worktree (`podium worktree` via the loopback relay). Resolves
    *  `path` to its worktree root, sends if it differs from the last sent root,
    *  supersedes any in-flight hook resolution, and returns the resolved root.
    *  The pin is STICKY: hook-observed cwds can no longer re-home the session
    *  (a `cd` into another checkout for one command doesn't bounce it); only a
    *  new `podium worktree` (or session exit) moves it again. */
-  setExplicit(sessionId: string, path: string): Promise<string>
+  setExplicit(sessionId: SessionId, path: string): Promise<string>
   /** The cwd the SERVER launched this session in (spawn / reattach) — podium's own
    *  decision, known before the agent has run a single hook. A session launched in a
    *  real worktree is BORN pinned to it (POD-665): it never waits for a hook to learn
@@ -163,7 +164,7 @@ export interface SessionCwdTracker {
    *  Silent when the launch cwd IS the worktree root, since the server picked it and
    *  already has it — but a launch into a SUBDIRECTORY of one sends the root, because
    *  the pin taken here means no later hook can correct the server's view. */
-  setLaunchCwd(sessionId: string, cwd: string): Promise<void>
+  setLaunchCwd(sessionId: SessionId, cwd: string): Promise<void>
   /** Where the agent's shell actually IS — the last raw cwd reported, as opposed to
    *  the worktree ROOT the session is grouped under.
    *
@@ -174,9 +175,9 @@ export interface SessionCwdTracker {
    *  its grouping key and must not start following `cd`s again [spec:SP-4ef9].
    *
    *  Undefined until a hook reports; callers fall back to the root. */
-  rawCwd(sessionId: string): string | undefined
+  rawCwd(sessionId: SessionId): string | undefined
   /** Forget a session (on exit) so a respawn re-reports from scratch. */
-  clear(sessionId: string): void
+  clear(sessionId: SessionId): void
 }
 
 /**
@@ -213,7 +214,7 @@ export function createSessionCwdTracker(opts: {
   /** Build the send for a resolved root. Only a real worktree gets a branch: main is
    *  never adopted as a workspace, and a non-git directory has no branch to read. */
   const update = async (
-    sessionId: string,
+    sessionId: SessionId,
     info: WorktreeInfo,
     explicit?: boolean,
   ): Promise<SessionCwdUpdate> => {

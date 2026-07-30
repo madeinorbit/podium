@@ -56,7 +56,15 @@
  * none, which is POD-731's lesson from `workflows.assign`.
  */
 
-import { IssueColor, IssueStage, IssueType, isSortKey } from '@podium/model'
+import {
+  IssueColor,
+  IssueIdField,
+  IssueStage,
+  IssueType,
+  isSortKey,
+  SessionIdField,
+  UserIdField,
+} from '@podium/model'
 import { z } from 'zod'
 import type { CommandContract } from '../contract'
 import {
@@ -132,9 +140,9 @@ export const searchInput = z.object({
   stage: IssueStage.optional(),
   priority: z.number().int().optional(),
   type: IssueType.optional(),
-  assignee: z.string().optional(),
+  assignee: UserIdField.optional(),
   label: z.string().optional(),
-  parentId: z.string().optional(),
+  parentId: IssueIdField.optional(),
 })
 
 export const countInput = repoScoped
@@ -195,9 +203,9 @@ export const createInput = z.object({
     .optional(),
   priority: z.number().int().min(0).max(4).optional(),
   type: IssueType.optional(),
-  assignee: z.string().optional(),
+  assignee: UserIdField.optional(),
   labels: z.array(z.string()).optional(),
-  parentId: z.string().optional(),
+  parentId: IssueIdField.optional(),
   // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
   color: IssueColor.optional(),
   // #198: an agent opts a work item onto the human's top-level board with
@@ -214,7 +222,7 @@ export const startInput = z.object({
 })
 
 export const updateInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   patch: z.object({
     title: z.string().optional(),
     description: z.string().optional(),
@@ -228,8 +236,8 @@ export const updateInput = z.object({
     archived: z.boolean().optional(),
     priority: z.number().int().min(0).max(4).optional(),
     type: IssueType.optional(),
-    assignee: z.string().optional(),
-    parentId: z.string().optional(),
+    assignee: UserIdField.optional(),
+    parentId: IssueIdField.optional(),
     design: z.string().optional(),
     acceptance: z.string().optional(),
     notes: z.string().optional(),
@@ -250,7 +258,7 @@ export const updateInput = z.object({
 export const promoteInput = z.object({ id: z.string() })
 
 export const attachSessionInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   targetId: z.string().optional(),
   confirmRehome: z.boolean().optional(),
   // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
@@ -324,7 +332,7 @@ export const setNeedsHumanInput = z.object({
   // Structured question metadata (issue #53): suggested answers rendered as
   // Tray chips + the asking session (defaults to the caller's own session).
   options: z.array(z.string().min(1)).max(20).optional(),
-  askedBy: z.string().optional(),
+  askedBy: SessionIdField.optional(),
 })
 
 export const answerQuestionInput = z.object({ id: z.string(), answer: z.string().trim().min(1) })
@@ -333,12 +341,12 @@ export const clearNeedsHumanInput = byId
 
 export const reparentInput = z.object({ id: z.string(), parentId: z.string().nullable() })
 
-export const claimInput = z.object({ id: z.string(), assignee: z.string() })
+export const claimInput = z.object({ id: z.string(), assignee: UserIdField })
 
 export const setCoordinatorInput = z.object({
   id: z.string(),
   /** Explicit session id to set; null clears. Mutually exclusive with claim. */
-  sessionId: z.string().nullable().optional(),
+  sessionId: SessionIdField.nullable().optional(),
   /** When true, set coordinator to the calling session (actorSessionId). */
   claim: z.boolean().optional(),
 })

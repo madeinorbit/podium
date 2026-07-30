@@ -1,4 +1,4 @@
-import { asIssueId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   collectRefPrefixes,
@@ -16,8 +16,8 @@ const issues: RefIssueLike[] = [
 ]
 
 const sessions: RefSessionLike[] = [
-  { sessionId: 's1', displayRef: 'POD-13-A', cwd: '/repo', issueId: 'iss_1', name: 'agent a' },
-  { sessionId: 's2', displayRef: 'POD-DRAFT-3', cwd: '/repo', name: 'draft agent' },
+  { sessionId: asSessionId('s1'), displayRef: 'POD-13-A', cwd: '/repo', issueId: 'iss_1', name: 'agent a' },
+  { sessionId: asSessionId('s2'), displayRef: 'POD-DRAFT-3', cwd: '/repo', name: 'draft agent' },
 ]
 
 describe('resolveRef', () => {

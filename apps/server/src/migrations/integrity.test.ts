@@ -14,6 +14,7 @@
  * fresh-schema equivalent for those tests, so they are dropped, not adapted.
  */
 
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow } from '../store'
 import { SessionStore } from '../store'
@@ -27,7 +28,7 @@ function rawDb(s: SessionStore): {
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
-    id: 'iss_x', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
+    id: asIssueId('iss_x'), repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
     worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
     defaultModel: 'auto', defaultEffort: 'auto',
     linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
@@ -44,32 +45,32 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 describe('issue schema: FK behavior at runtime', () => {
   it('deleting an issue cascades onto labels/deps/comments/messages', () => {
     const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(issueRow({ id: 'iss_a', seq: 1 }))
-    s.issues.upsertIssue(issueRow({ id: 'iss_b', seq: 2 }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_a'), seq: 1 }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_b'), seq: 2 }))
     s.issues.setIssueLabels('iss_a', ['ui'])
-    s.issues.addIssueDep('iss_a', 'iss_b', 'blocks')
-    s.issues.addIssueDep('iss_b', 'iss_a', 'related')
-    s.issues.addIssueComment({ id: 'cmt_1', issueId: 'iss_a', author: 'me', body: 'hi', createdAt: 't' })
+    s.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'), 'blocks')
+    s.issues.addIssueDep(asIssueId('iss_b'), asIssueId('iss_a'), 'related')
+    s.issues.addIssueComment({ id: 'cmt_1', issueId: asIssueId('iss_a'), author: 'me', body: 'hi', createdAt: 't' })
     s.issues.addIssueMessage({
-      id: 'msg_1', issueId: 'iss_a', fromAuthor: 'me', body: 'mail', createdAt: 't',
+      id: 'msg_1', issueId: asIssueId('iss_a'), fromAuthor: 'me', body: 'mail', createdAt: 't',
       status: 'unread', claimedBy: null, readAt: null, claimedAt: null,
     })
 
     s.issues.deleteIssue('iss_a')
 
     expect(s.issues.getIssueLabels('iss_a')).toEqual([])
-    expect(s.issues.listIssueDeps('iss_a')).toEqual([])
-    expect(s.issues.listIssueDeps('iss_b')).toEqual([]) // edge pointing AT the deleted issue too
-    expect(s.issues.listIssueComments('iss_a')).toEqual([])
+    expect(s.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([])
+    expect(s.issues.listIssueDeps(asIssueId('iss_b'))).toEqual([]) // edge pointing AT the deleted issue too
+    expect(s.issues.listIssueComments(asIssueId('iss_a'))).toEqual([])
     expect(s.issues.listIssueMessages('iss_a')).toEqual([])
     s.close()
   })
 
   it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", () => {
     const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(issueRow({ id: 'iss_parent', seq: 1 }))
-    s.issues.upsertIssue(issueRow({ id: 'iss_child', seq: 2, parentId: 'iss_parent' }))
-    s.issues.upsertIssue(issueRow({ id: 'iss_dup', seq: 3, duplicateOf: 'iss_parent', supersededBy: 'iss_parent' }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_parent'), seq: 1 }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_child'), seq: 2, parentId: asIssueId('iss_parent') }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_dup'), seq: 3, duplicateOf: asIssueId('iss_parent'), supersededBy: asIssueId('iss_parent') }))
 
     s.issues.deleteIssue('iss_parent')
 
@@ -91,7 +92,7 @@ describe('issue schema: FK behavior at runtime', () => {
 
   it('CHECK rejects a garbage stage/type/priority at the SQL layer', () => {
     const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(issueRow({ id: 'iss_ok' }))
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_ok') }))
     const upd = (col: string, v: unknown) =>
       rawDb(s).prepare(`UPDATE issues SET ${col} = ? WHERE id = 'iss_ok'`).run(v)
     expect(() => upd('stage', 'bogus')).toThrow(/check/i)

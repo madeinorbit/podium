@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 
@@ -6,7 +7,7 @@ describe('agent relay hub', () => {
     const sent: any[] = []
     const hub = createAgentRelayHub((m) => sent.push(m))
     const p = hub.relay({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       router: 'issues',
       proc: 'ready',
       input: { repoPath: '/r' },
@@ -23,7 +24,7 @@ describe('agent relay hub', () => {
   it('ignores an unknown or duplicate/late result', async () => {
     const sent: any[] = []
     const hub = createAgentRelayHub((m) => sent.push(m))
-    const p = hub.relay({ sessionId: 's1', router: 'issues', proc: 'ready' })
+    const p = hub.relay({ sessionId: asSessionId('s1'), router: 'issues', proc: 'ready' })
     hub.onResult({ requestId: 'nope', ok: true, result: 'x' }) // unknown → ignored
     hub.onResult({ requestId: sent[0].requestId, ok: false, error: 'boom' })
     const r = await p
@@ -35,7 +36,7 @@ describe('agent relay hub', () => {
   it('times out with ok:false when no result arrives', async () => {
     vi.useFakeTimers()
     const hub = createAgentRelayHub(() => {}, { timeoutMs: 1000 })
-    const p = hub.relay({ sessionId: 's1', router: 'issues', proc: 'ready' })
+    const p = hub.relay({ sessionId: asSessionId('s1'), router: 'issues', proc: 'ready' })
     vi.advanceTimersByTime(1001)
     const r = await p
     expect(r.ok).toBe(false)
@@ -53,7 +54,7 @@ describe('agent relay hub', () => {
       timeoutMs: 1000,
       blockingTimeoutMs: 5000,
     })
-    const p = hub.relay({ sessionId: 's1', router: 'messages', proc: 'send', input: {} })
+    const p = hub.relay({ sessionId: asSessionId('s1'), router: 'messages', proc: 'send', input: {} })
     // Past the NORMAL 1000ms timeout — a normal proc would already be dead here.
     vi.advanceTimersByTime(1001)
     // A blocking proc is still pending, so its result still lands.
@@ -65,7 +66,7 @@ describe('agent relay hub', () => {
   it('a non-blocking proc still times out at the 30s default (discrimination)', async () => {
     vi.useFakeTimers()
     const hub = createAgentRelayHub(() => {}, { timeoutMs: 1000, blockingTimeoutMs: 5000 })
-    const p = hub.relay({ sessionId: 's1', router: 'issues', proc: 'ready' })
+    const p = hub.relay({ sessionId: asSessionId('s1'), router: 'issues', proc: 'ready' })
     vi.advanceTimersByTime(1001)
     expect((await p).error).toMatch(/timed out/)
     vi.useRealTimers()
@@ -74,7 +75,7 @@ describe('agent relay hub', () => {
   it('a blocking proc still times out at the longer bound (never hangs)', async () => {
     vi.useFakeTimers()
     const hub = createAgentRelayHub(() => {}, { timeoutMs: 1000, blockingTimeoutMs: 5000 })
-    const p = hub.relay({ sessionId: 's1', router: 'messages', proc: 'send' })
+    const p = hub.relay({ sessionId: asSessionId('s1'), router: 'messages', proc: 'send' })
     vi.advanceTimersByTime(5001)
     expect((await p).error).toMatch(/timed out/)
     vi.useRealTimers()
@@ -104,8 +105,8 @@ describe('agent relay server', () => {
     })
     try {
       // endpointFor emits the new /agent/ path.
-      expect(srv.endpointFor('sX')).toMatch(/\/agent\/sX$/)
-      const res = await fetch(srv.endpointFor('sX'), {
+      expect(srv.endpointFor(asSessionId('sX'))).toMatch(/\/agent\/sX$/)
+      const res = await fetch(srv.endpointFor(asSessionId('sX')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ proc: 'ready', input: { repoPath: '/r' } }),
@@ -146,7 +147,7 @@ describe('agent relay server', () => {
   })
 
   it('POST /agent/<sessionId>/open captures the raw URL without entering the command relay', async () => {
-    const opened: Array<{ sessionId: string; url: string }> = []
+    const opened: Array<{ sessionId: SessionId; url: string }> = []
     let relayCalls = 0
     const srv = await startAgentRelayServer({
       port: 0,
@@ -162,7 +163,7 @@ describe('agent relay server', () => {
     try {
       const url =
         'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback'
-      const response = await fetch(`${srv.endpointFor('sOpen')}/open`, {
+      const response = await fetch(`${srv.endpointFor(asSessionId('sOpen'))}/open`, {
         method: 'POST',
         headers: { 'content-type': 'text/plain' },
         body: url,
@@ -198,7 +199,7 @@ describe('agent relay server', () => {
       },
     })
     try {
-      const res = await fetch(srv.endpointFor('sX'), {
+      const res = await fetch(srv.endpointFor(asSessionId('sX')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: 'null',
@@ -207,7 +208,7 @@ describe('agent relay server', () => {
       expect(await res.json()).toEqual({ ok: false, error: 'missing proc' })
       expect(relayCalls).toBe(0)
       // Server must still be alive and serving after the malformed request.
-      const res2 = await fetch(srv.endpointFor('sX'), {
+      const res2 = await fetch(srv.endpointFor(asSessionId('sX')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ proc: 'ready' }),
@@ -228,7 +229,7 @@ describe('agent relay server', () => {
   ])('returns 400 for a non-object JSON body %s', async (payload) => {
     const srv = await startAgentRelayServer({ port: 0, relay: async () => ({ ok: true }) })
     try {
-      const res = await fetch(srv.endpointFor('sX'), {
+      const res = await fetch(srv.endpointFor(asSessionId('sX')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: payload,
@@ -250,7 +251,7 @@ describe('agent relay server', () => {
       },
     })
     try {
-      const res = await fetch(srv.endpointFor('sX'), {
+      const res = await fetch(srv.endpointFor(asSessionId('sX')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ proc: 'ready' }),
@@ -273,7 +274,7 @@ describe('agent relay server', () => {
     })
     try {
       const huge = 'x'.repeat(1024 * 1024 + 1024) // > 1 MB cap
-      const res = await fetch(srv.endpointFor('sX'), {
+      const res = await fetch(srv.endpointFor(asSessionId('sX')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ proc: 'ready', input: huge }),

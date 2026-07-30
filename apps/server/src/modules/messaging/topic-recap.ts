@@ -2,7 +2,7 @@
  * Issue-topic entry recap [spec:SP-62c3]: last few conversational messages from
  * the bound agent transcript, truncated for phone chat.
  */
-import type { TranscriptItem } from '@podium/model'
+import { asSessionId, type SessionId, type TranscriptItem } from '@podium/model'
 
 /** How many conversational turns to show on topic entry. */
 export const TOPIC_RECAP_MESSAGE_COUNT = 3
@@ -20,15 +20,17 @@ export interface TopicRecapLine {
 export function transcriptSessionIdForThread(
   thread:
     | {
-        podiumSessionId?: string | null
-        originSessionId?: string | null
+        podiumSessionId?: SessionId | null
+        originSessionId?: SessionId | null
       }
     | undefined,
   superagentThreadId: string,
-): string | undefined {
+): SessionId | undefined {
   if (thread?.podiumSessionId) return thread.podiumSessionId
   if (thread?.originSessionId) return thread.originSessionId
-  if (superagentThreadId.startsWith('btw_')) return superagentThreadId.slice(4)
+  // A `btw_<sessionId>` thread id CARRIES the origin session id in its tail; the
+  // brand is applied on extraction (POD-362), same shape as sessionSpawnerParentId.
+  if (superagentThreadId.startsWith('btw_')) return asSessionId(superagentThreadId.slice(4))
   return undefined
 }
 

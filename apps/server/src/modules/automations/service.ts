@@ -11,6 +11,7 @@
  * dispatcher changes.
  */
 
+import type { IssueId, SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import {
@@ -47,12 +48,12 @@ export interface AutomationsDeps {
     effort?: string
     spawnedBy?: string
     title?: string
-    issueId?: string
-  }): { sessionId: string }
+    issueId?: IssueId
+  }): { sessionId: SessionId }
   /** SessionsService.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
   queueText(input: {
-    sessionId: string
+    sessionId: SessionId
     text: string
     mutationId?: string
     inputOrigin?: 'system'
@@ -61,7 +62,7 @@ export interface AutomationsDeps {
     reason?: string
   }
   /** Wake and deliver to the previous run's session in resume mode. */
-  resumeAndSend(input: { sessionId: string; text: string; mutationId?: string }): {
+  resumeAndSend(input: { sessionId: SessionId; text: string; mutationId?: string }): {
     ok: boolean
     reason?: string
   }
@@ -74,9 +75,9 @@ export interface AutomationsDeps {
     defaultModel: string
     defaultEffort: string
     type: 'automation'
-  }): { id: string }
+  }): { id: IssueId }
   /** Sessions currently running — the overlap check's input. */
-  liveSessionIds(): Set<string>
+  liveSessionIds(): Set<SessionId>
   now(): Date
   /** Where a GLOBAL (repo-less) automation runs. Injected for the tests. */
   homeDir?(): string
@@ -102,7 +103,7 @@ export interface AutomationInput {
 class AutomationSpawnError extends Error {
   constructor(
     message: string,
-    readonly sessionId: string | null,
+    readonly sessionId: SessionId | null,
   ) {
     super(message)
   }
@@ -202,7 +203,8 @@ export class AutomationsService {
     this.validateSchedule(scheduleKind, cron, runAt, scheduleKind === 'once')
     const enabled = input.enabled ?? false
     const row: AutomationRow = {
-      // POD-361-EDGE-CAST (POD-362 owns): mint site; the id is generated here.
+      // MINT SITE: the AutomationId is generated here, so this is where the brand
+      // is applied. Not an adapter cast — nothing upstream held this id.
       id: asAutomationId(`aut_${randomUUID()}`),
       name: input.name.trim(),
       enabled,
@@ -210,7 +212,11 @@ export class AutomationsService {
       scheduleKind,
       cron,
       runAt,
-      targetSessionId: input.targetSessionId?.trim() ? asSessionId(input.targetSessionId.trim()) : null, // POD-361-EDGE-CAST: untyped command input.
+      // `.trim()` strips the brand off a branded string, so it is re-applied — the
+      // input itself is branded by the contract now (router.ts's automations input).
+      targetSessionId: input.targetSessionId?.trim()
+        ? asSessionId(input.targetSessionId.trim())
+        : null,
       agentKind: input.agentKind,
       model: input.model ?? 'auto',
       effort: input.effort ?? 'auto',
@@ -258,7 +264,7 @@ export class AutomationsService {
       runAt,
       ...(patch.targetSessionId !== undefined
         ? {
-            // POD-361-EDGE-CAST: untyped command input.
+            // As above: `.trim()` strips the brand; the input arrives branded.
             targetSessionId: patch.targetSessionId?.trim()
               ? asSessionId(patch.targetSessionId.trim())
               : null,
@@ -441,7 +447,7 @@ export class AutomationsService {
     }
 
     let outcome: AutomationRunOutcome = 'error'
-    let sessionId: string | null = null
+    let sessionId: SessionId | null = null
     let detail: string | null = 'reserved'
     try {
       sessionId = this.spawn(automation, runId)
@@ -553,7 +559,7 @@ export class AutomationsService {
    * gets the turn through the durable outbox. The run id is the replay-safe outbox
    * mutation id.
    */
-  private spawn(automation: AutomationRow, runId: string): string {
+  private spawn(automation: AutomationRow, runId: string): SessionId {
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
       const previousSessionId =
         automation.targetSessionId ?? this.deps.store.lastSpawnedSessions().get(automation.id)

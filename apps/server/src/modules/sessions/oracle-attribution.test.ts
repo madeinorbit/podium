@@ -13,6 +13,7 @@
  * there are no people in the model (docs/multi-user-readiness.md §3.2).
  */
 
+import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, willChange } from './oracle-support'
@@ -65,7 +66,7 @@ describe('oracle: who created this session', () => {
     })
 
     expect(spawned.ok).toBe(true)
-    const childId = (spawned.result as { sessionId: string }).sessionId
+    const childId = (spawned.result as { sessionId: SessionId }).sessionId
     // Actor = the calling session, resolved from the relay capability. There is
     // no second field recording WHICH HUMAN that agent is acting for.
     expect(o.meta(childId).spawnedBy).toBe(`session:${parent.sessionId}`)

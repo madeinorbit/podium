@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { ISSUE_STAGES, type IssueStage, IssueType } from '@podium/model'
+import { ISSUE_STAGES, IssueType, type IssueStage, type UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { FolderGit2, GitBranch, Plus } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
@@ -151,7 +151,7 @@ export function NewIssueDialog({
 
   // Suggestion pools drawn from the issues already in play.
   const assigneeOptions: PropertyOption[] = [
-    ...new Set(issues.map((i) => i.assignee).filter((a): a is string => !!a)),
+    ...new Set(issues.map((i) => i.assignee).filter((a): a is UserId => !!a)),
   ]
     .sort()
     .map((a) => ({ value: a, label: a }))

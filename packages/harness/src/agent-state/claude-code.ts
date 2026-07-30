@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
   AgentObservation,
   ObservationInputOrigin,
@@ -205,7 +205,7 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
   }
 }
 export interface ClaudeCausalObserverOptions {
-  podiumSessionId: string
+  podiumSessionId: SessionId
   observerGeneration: number
   bindingVersion: number
   providerSessionId: string

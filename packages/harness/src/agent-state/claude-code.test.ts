@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -288,7 +289,7 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
   const idle = { phase: 'idle' as const, since: at, workingMsTotal: 0, nativeSubagentCount: 0 }
   const observer = (state: Parameters<typeof reduceAgentState>[0] = idle, generation = 7) =>
     new ClaudeCausalObserver({
-      podiumSessionId: 'podium-1',
+      podiumSessionId: asSessionId('podium-1'),
       observerGeneration: generation,
       bindingVersion: 3,
       providerSessionId: 'claude-1',
@@ -614,7 +615,7 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     if (terminalResult.kind === 'rejected') throw new Error(terminalResult.rejectionReason)
 
     const restarted = new ClaudeCausalObserver({
-      podiumSessionId: 'podium-1',
+      podiumSessionId: asSessionId('podium-1'),
       observerGeneration: 8,
       bindingVersion: 3,
       providerSessionId: 'claude-1',

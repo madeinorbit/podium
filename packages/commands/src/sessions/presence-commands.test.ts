@@ -5,7 +5,7 @@
  * than being served with an implicit default.
  */
 
-import { OP_STREAM_MEMBERS, PinKind, WorkState } from '@podium/model'
+import { OP_STREAM_MEMBERS, PinKind, WorkState, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { type CommandDef, commandExposure, isExposedOn } from '../framework'
@@ -207,25 +207,25 @@ describe('the composer draft reserves op-stream without building it (§4)', () =
   })
 
   it('edit is a DISCRIMINATED UNION, so a splice op joins it additively', () => {
-    expect(parse({ sessionId: 's', edit: { kind: 'replace', text: 'hi' } }).success).toBe(true)
+    expect(parse({ sessionId: asSessionId('s'), edit: { kind: 'replace', text: 'hi' } }).success).toBe(true)
     // Not a bare `{text}`: a flat payload could not gain a second op shape
     // without a wire change, which is exactly what the reservation must avoid.
-    expect(parse({ sessionId: 's', text: 'hi' }).success).toBe(false)
-    expect(parse({ sessionId: 's', edit: { kind: 'splice', at: 0 } }).success).toBe(false)
+    expect(parse({ sessionId: asSessionId('s'), text: 'hi' }).success).toBe(false)
+    expect(parse({ sessionId: asSessionId('s'), edit: { kind: 'splice', at: 0 } }).success).toBe(false)
   })
 
   it('baseRevision is optional — absent is today’s unconditional write, present enables rejection', () => {
-    expect(parse({ sessionId: 's', edit: { kind: 'replace', text: 'x' } }).success).toBe(true)
-    expect(parse({ sessionId: 's', baseRevision: 3, edit: { kind: 'replace', text: 'x' } }).success).toBe(
+    expect(parse({ sessionId: asSessionId('s'), edit: { kind: 'replace', text: 'x' } }).success).toBe(true)
+    expect(parse({ sessionId: asSessionId('s'), baseRevision: 3, edit: { kind: 'replace', text: 'x' } }).success).toBe(
       true,
     )
     // A revision is an ordinal, not a timestamp or a string: -1 and 1.5 are not
     // revisions the Authority could have issued.
-    expect(parse({ sessionId: 's', baseRevision: -1, edit: { kind: 'replace', text: 'x' } }).success).toBe(
+    expect(parse({ sessionId: asSessionId('s'), baseRevision: -1, edit: { kind: 'replace', text: 'x' } }).success).toBe(
       false,
     )
     expect(
-      parse({ sessionId: 's', baseRevision: 1.5, edit: { kind: 'replace', text: 'x' } }).success,
+      parse({ sessionId: asSessionId('s'), baseRevision: 1.5, edit: { kind: 'replace', text: 'x' } }).success,
     ).toBe(false)
   })
 })
@@ -251,8 +251,8 @@ function workStateField(): z.ZodTypeAny {
 describe('input schemas preserve the shipped router validation', () => {
   it('rename keeps the 120-character bound', () => {
     const rename = sessionPresenceCommands.defs.rename
-    expect(rename.input.safeParse({ sessionId: 's', name: 'x'.repeat(120) }).success).toBe(true)
-    expect(rename.input.safeParse({ sessionId: 's', name: 'x'.repeat(121) }).success).toBe(false)
+    expect(rename.input.safeParse({ sessionId: asSessionId('s'), name: 'x'.repeat(120) }).success).toBe(true)
+    expect(rename.input.safeParse({ sessionId: asSessionId('s'), name: 'x'.repeat(121) }).success).toBe(false)
   })
 
   it('mutationId keeps the 128-character bound on every write that carries one', () => {
@@ -262,7 +262,7 @@ describe('input schemas preserve the shipped router validation', () => {
     }
     expect(
       sessionPresenceCommands.defs.markRead.input.safeParse({
-        sessionId: 's',
+        sessionId: asSessionId('s'),
         mutationId: 'm'.repeat(129),
       }).success,
     ).toBe(false)

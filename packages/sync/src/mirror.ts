@@ -1,3 +1,4 @@
+import { machineScopedKey } from '@podium/model'
 import { mkdirSync } from 'node:fs'
 import { open, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -125,7 +126,7 @@ export class MirrorService {
   }
 
   enqueue(machineId: string, nativeId: string, path: string): void {
-    const key = `${machineId}\n${nativeId}`
+    const key = machineScopedKey(machineId, nativeId)
     if (this.queued.has(key)) return
     const backoff = this.backoffUntil.get(key)
     if (backoff !== undefined) {
@@ -163,7 +164,7 @@ export class MirrorService {
         }
         const item = this.queues.get(machineId)?.shift()
         if (!item) return
-        const key = `${machineId}\n${item.nativeId}`
+        const key = machineScopedKey(machineId, item.nativeId)
         try {
           await this.mirrorOne(machineId, item.nativeId, item.path, pass)
         } catch (err) {
@@ -202,7 +203,7 @@ export class MirrorService {
   private dropQueue(machineId: string): void {
     const queue = this.queues.get(machineId)
     if (!queue) return
-    for (const item of queue) this.queued.delete(`${machineId}\n${item.nativeId}`)
+    for (const item of queue) this.queued.delete(machineScopedKey(machineId, item.nativeId))
     queue.length = 0
   }
 

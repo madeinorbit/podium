@@ -13,6 +13,7 @@
  * `term:<event>` marks.
  */
 
+import type { SessionId } from '@podium/model'
 import type { ClientSwitchTrace, SwitchMark } from '@podium/protocol'
 
 type MarkMeta = Record<string, number | string | boolean>
@@ -20,7 +21,7 @@ type MarkMeta = Record<string, number | string | boolean>
 interface ActiveTrace {
   switchId: string
   startedAt: number
-  sessionId: string
+  sessionId: SessionId
   issueId: string | null
   t0: number
   marks: SwitchMark[]
@@ -91,7 +92,7 @@ function consoleEnabled(): boolean {
  *  reads it through globalThis so client-core never runtime-imports the
  *  terminal stack (xterm) just to correlate lifecycle events. */
 interface TerminalDiagnosticsTap {
-  onTrace(listener: (entry: { sessionId: string; event: string }) => void): () => void
+  onTrace(listener: (entry: { sessionId: SessionId; event: string }) => void): () => void
 }
 
 /** Lazily tap the terminal-diagnostics stream (once) so the traced session's
@@ -173,7 +174,7 @@ function finalize(t: ActiveTrace, timedOut: boolean): void {
  * any in-flight trace: the old one is finalized first, flagged `timedOut` if
  * it hadn't quiesced. Callers should skip no-op switches (already-active pane).
  */
-export function beginSwitch(input: { sessionId: string; issueId?: string | null }): void {
+export function beginSwitch(input: { sessionId: SessionId; issueId?: string | null }): void {
   if (active) finalize(active, true)
   ensureTerminalTap()
   const t: ActiveTrace = {
@@ -197,7 +198,7 @@ export function beginSwitch(input: { sessionId: string; issueId?: string | null 
  * free-form counters. Finalizes the trace when it quiesces (chat first paint
  * and/or terminal ready — see quiesced()).
  */
-export function markSwitch(sessionId: string, name: string, meta?: MarkMeta): void {
+export function markSwitch(sessionId: SessionId, name: string, meta?: MarkMeta): void {
   const t = active
   if (!t || t.sessionId !== sessionId) return
   if (ONCE_MARKS.has(name) && t.marks.some((m) => m.name === name)) return
@@ -208,7 +209,7 @@ export function markSwitch(sessionId: string, name: string, meta?: MarkMeta): vo
 
 /** True when a switch trace is in flight for `sessionId` — lets hot paths skip
  *  scheduling work (e.g. paint rAFs) when nothing is being traced. */
-export function isSwitchTraced(sessionId: string): boolean {
+export function isSwitchTraced(sessionId: SessionId): boolean {
   return active !== null && active.sessionId === sessionId
 }
 

@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -145,7 +146,7 @@ describe('gitWorktree (real git)', () => {
 
 describe('createSessionCwdTracker', () => {
   const make = (lookup: (cwd: string) => Promise<WorktreeInfo | null>) => {
-    const sent: Array<{ sessionId: string; cwd: string }> = []
+    const sent: Array<{ sessionId: SessionId; cwd: string }> = []
     const tracker = createSessionCwdTracker({
       resolver: createCwdResolver({ lookup }),
       branch: async (root) => (root.endsWith('feat') ? 'feat' : 'other'),
@@ -168,7 +169,7 @@ describe('createSessionCwdTracker', () => {
 
   it('sends the resolved worktree root, not the raw cwd', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', `${FEAT}/packages/web`)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/packages/web`)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
@@ -178,49 +179,49 @@ describe('createSessionCwdTracker', () => {
   describe('rawCwd — where the agent actually is', () => {
     it('keeps tracking the raw cwd of a PINNED session, while still refusing to re-home it', async () => {
       const { sent, tracker } = make(inRepo)
-      await tracker.setLaunchCwd('s1', FEAT)
+      await tracker.setLaunchCwd(asSessionId('s1'), FEAT)
       sent.length = 0
-      await tracker.onHookCwd('s1', `${FEAT}/apps/web`)
+      await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/apps/web`)
       // The pin holds: no re-home, the server keeps grouping this session at the root.
       expect(sent).toEqual([])
       // But the subdirectory is not lost — this is what POD-741 recovers.
-      expect(tracker.rawCwd('s1')).toBe(`${FEAT}/apps/web`)
+      expect(tracker.rawCwd(asSessionId('s1'))).toBe(`${FEAT}/apps/web`)
     })
 
     it('remembers a launch INTO a subdirectory before any hook has reported', async () => {
       const { tracker } = make(inRepo)
-      await tracker.setLaunchCwd('s1', `${FEAT}/apps/web`)
-      expect(tracker.rawCwd('s1')).toBe(`${FEAT}/apps/web`)
+      await tracker.setLaunchCwd(asSessionId('s1'), `${FEAT}/apps/web`)
+      expect(tracker.rawCwd(asSessionId('s1'))).toBe(`${FEAT}/apps/web`)
     })
 
     it('tracks a wander OUT of the worktree, which the export must then refuse to follow', async () => {
       const { tracker } = make(inRepo)
-      await tracker.setLaunchCwd('s1', FEAT)
-      await tracker.onHookCwd('s1', OTHER)
+      await tracker.setLaunchCwd(asSessionId('s1'), FEAT)
+      await tracker.onHookCwd(asSessionId('s1'), OTHER)
       // Recorded faithfully; containment in the export handler is what makes it safe.
-      expect(tracker.rawCwd('s1')).toBe(OTHER)
+      expect(tracker.rawCwd(asSessionId('s1'))).toBe(OTHER)
     })
 
     it('forgets the raw cwd when the session exits', async () => {
       const { tracker } = make(inRepo)
-      await tracker.setLaunchCwd('s1', `${FEAT}/apps/web`)
-      tracker.clear('s1')
-      expect(tracker.rawCwd('s1')).toBeUndefined()
+      await tracker.setLaunchCwd(asSessionId('s1'), `${FEAT}/apps/web`)
+      tracker.clear(asSessionId('s1'))
+      expect(tracker.rawCwd(asSessionId('s1'))).toBeUndefined()
     })
   })
 
   it('a cd within the same worktree does not re-send', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', FEAT)
-    await tracker.onHookCwd('s1', `${FEAT}/packages/web`)
-    await tracker.onHookCwd('s1', `${FEAT}/apps/server`)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/packages/web`)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/apps/server`)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
   it('a move into a different worktree sends the new root', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', FEAT)
-    await tracker.onHookCwd('s1', `${OTHER}/apps/web`)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), `${OTHER}/apps/web`)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT },
       { sessionId: 's1', cwd: OTHER },
@@ -229,7 +230,7 @@ describe('createSessionCwdTracker', () => {
 
   it('non-git cwd sends the raw path (legacy behavior)', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', '/tmp/scratch')
+    await tracker.onHookCwd(asSessionId('s1'), '/tmp/scratch')
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/tmp/scratch' }])
   })
 
@@ -237,31 +238,31 @@ describe('createSessionCwdTracker', () => {
 
   it('a hook cwd in the repo MAIN checkout never re-homes a session', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
     // `cd /repo && git fetch` — transient command-running, not a move.
-    await tracker.onHookCwd('s1', '/repo')
-    await tracker.onHookCwd('s1', '/repo/packages/web')
+    await tracker.onHookCwd(asSessionId('s1'), '/repo')
+    await tracker.onHookCwd(asSessionId('s1'), '/repo/packages/web')
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
   it('main never captures a session that has no worktree yet either', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', '/repo/apps/server')
+    await tracker.onHookCwd(asSessionId('s1'), '/repo/apps/server')
     expect(sent).toEqual([])
   })
 
   it('after a trip through main, a move into a real worktree still lands', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', '/repo')
-    await tracker.onHookCwd('s1', FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), '/repo')
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
   it('returning from main to the worktree it came from stays quiet', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', FEAT)
-    await tracker.onHookCwd('s1', '/repo')
-    await tracker.onHookCwd('s1', `${FEAT}/apps`)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), '/repo')
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/apps`)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
@@ -269,15 +270,15 @@ describe('createSessionCwdTracker', () => {
 
   it('a session launched in a worktree is born pinned: later cd wandering cannot re-home it', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', FEAT)
-    await tracker.onHookCwd('s1', OTHER)
-    await tracker.onHookCwd('s1', '/repo')
+    await tracker.setLaunchCwd(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
+    await tracker.onHookCwd(asSessionId('s1'), '/repo')
     expect(sent).toEqual([])
   })
 
   it('a launch AT the worktree root sends nothing: the server chose it, so it has it', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', FEAT)
+    await tracker.setLaunchCwd(asSessionId('s1'), FEAT)
     expect(sent).toEqual([])
   })
 
@@ -291,12 +292,12 @@ describe('createSessionCwdTracker', () => {
       branch: async () => 'feat',
       send: (u) => sent.push(u),
     })
-    await tracker.setLaunchCwd('s1', `${FEAT}/apps/web`)
+    await tracker.setLaunchCwd(asSessionId('s1'), `${FEAT}/apps/web`)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT, kind: 'worktree', branch: 'feat', repoRoot: '/repo' },
     ])
     // …and it is still born pinned: drift cannot re-home it afterwards.
-    await tracker.onHookCwd('s1', OTHER)
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     expect(sent).toHaveLength(1)
   })
 
@@ -305,10 +306,10 @@ describe('createSessionCwdTracker', () => {
     // this only spells its location canonically, and adoption refuses kind 'main'
     // anyway. It matters because the main-guard means no hook will ever normalise it.
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', '/repo/apps/web')
+    await tracker.setLaunchCwd(asSessionId('s1'), '/repo/apps/web')
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/repo' }])
     // Unpinned, so it can still follow its harness into a worktree it makes (POD-664).
-    await tracker.onHookCwd('s1', OTHER)
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: '/repo' },
       { sessionId: 's1', cwd: OTHER },
@@ -317,31 +318,31 @@ describe('createSessionCwdTracker', () => {
 
   it('a session launched in MAIN is not pinned, so it can still adopt a worktree the harness makes', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', '/repo')
+    await tracker.setLaunchCwd(asSessionId('s1'), '/repo')
     // Claude's EnterWorktree: the harness built its own workspace (POD-664).
-    await tracker.onHookCwd('s1', OTHER)
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     expect(sent).toEqual([{ sessionId: 's1', cwd: OTHER }])
   })
 
   it('a session launched outside git is not pinned', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', '/tmp/scratch')
-    await tracker.onHookCwd('s1', FEAT)
+    await tracker.setLaunchCwd(asSessionId('s1'), '/tmp/scratch')
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
   it('a hook from the worktree it was born in stays quiet', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', FEAT)
-    await tracker.onHookCwd('s1', `${FEAT}/apps/web`)
+    await tracker.setLaunchCwd(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/apps/web`)
     expect(sent).toEqual([])
   })
 
   it('clear() drops the birth pin so a respawn starts over', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', FEAT)
-    tracker.clear('s1')
-    await tracker.onHookCwd('s1', OTHER)
+    await tracker.setLaunchCwd(asSessionId('s1'), FEAT)
+    tracker.clear(asSessionId('s1'))
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     expect(sent).toEqual([{ sessionId: 's1', cwd: OTHER }])
   })
 
@@ -362,19 +363,19 @@ describe('createSessionCwdTracker', () => {
       branch: async () => null,
       send: (u) => sent.push(u),
     })
-    const launch = tracker.setLaunchCwd('s1', FEAT)
-    tracker.clear('s1')
+    const launch = tracker.setLaunchCwd(asSessionId('s1'), FEAT)
+    tracker.clear(asSessionId('s1'))
     release?.({ root: FEAT, kind: 'worktree', repoRoot: '/repo' })
     await launch
     // Nothing is pinned any more, so this id's hooks re-home it like a fresh session.
-    await tracker.onHookCwd('s1', OTHER)
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     expect(sent.map((u) => u.cwd)).toEqual([OTHER])
   })
 
   it('an explicit declaration still moves a born-pinned session', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', FEAT)
-    await tracker.setExplicit('s1', OTHER)
+    await tracker.setLaunchCwd(asSessionId('s1'), FEAT)
+    await tracker.setExplicit(asSessionId('s1'), OTHER)
     expect(sent).toEqual([{ sessionId: 's1', cwd: OTHER }])
   })
 
@@ -385,7 +386,7 @@ describe('createSessionCwdTracker', () => {
       branch: async () => 'issue/665-born-pinned',
       send: (update) => sent.push(update),
     })
-    await tracker.onHookCwd('s1', `${FEAT}/apps`)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/apps`)
     expect(sent).toEqual([
       {
         sessionId: 's1',
@@ -404,7 +405,7 @@ describe('createSessionCwdTracker', () => {
       branch: async () => null,
       send: (update) => sent.push(update),
     })
-    await tracker.onHookCwd('s1', FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT, kind: 'worktree', repoRoot: '/repo' }])
   })
 
@@ -419,7 +420,7 @@ describe('createSessionCwdTracker', () => {
       },
       send: (update) => sent.push(update),
     })
-    await tracker.onHookCwd('s1', '/tmp/scratch')
+    await tracker.onHookCwd(asSessionId('s1'), '/tmp/scratch')
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/tmp/scratch', kind: 'none' }])
     expect(lookups).toBe(0)
   })
@@ -433,7 +434,7 @@ describe('createSessionCwdTracker', () => {
       },
       send: (update) => sent.push(update),
     })
-    await tracker.onHookCwd('s1', FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT, kind: 'worktree', repoRoot: '/repo' }])
   })
 
@@ -441,7 +442,7 @@ describe('createSessionCwdTracker', () => {
 
   it('drops a stale slow resolution that finishes after a newer one', async () => {
     let releaseFirst: (() => void) | undefined
-    const sent: Array<{ sessionId: string; cwd: string }> = []
+    const sent: Array<{ sessionId: SessionId; cwd: string }> = []
     const tracker = createSessionCwdTracker({
       resolver: createCwdResolver({
         lookup: (cwd) =>
@@ -454,8 +455,8 @@ describe('createSessionCwdTracker', () => {
       branch: async () => null,
       send: ({ sessionId, cwd }) => sent.push({ sessionId, cwd }),
     })
-    const first = tracker.onHookCwd('s1', '/slow/sub')
-    await tracker.onHookCwd('s1', '/fast/sub')
+    const first = tracker.onHookCwd(asSessionId('s1'), '/slow/sub')
+    await tracker.onHookCwd(asSessionId('s1'), '/fast/sub')
     releaseFirst?.()
     await first
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/fast' }])
@@ -463,7 +464,7 @@ describe('createSessionCwdTracker', () => {
 
   it('drops a stale resolution whose BRANCH lookup finishes after a newer cwd', async () => {
     let releaseBranch: ((b: string | null) => void) | undefined
-    const sent: Array<{ sessionId: string; cwd: string }> = []
+    const sent: Array<{ sessionId: SessionId; cwd: string }> = []
     const tracker = createSessionCwdTracker({
       resolver: createCwdResolver({ lookup: inRepo }),
       branch: (root) =>
@@ -474,8 +475,8 @@ describe('createSessionCwdTracker', () => {
           : Promise.resolve('other'),
       send: ({ sessionId, cwd }) => sent.push({ sessionId, cwd }),
     })
-    const first = tracker.onHookCwd('s1', FEAT)
-    await tracker.onHookCwd('s1', OTHER)
+    const first = tracker.onHookCwd(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     releaseBranch?.('feat')
     await first
     expect(sent).toEqual([{ sessionId: 's1', cwd: OTHER }])
@@ -493,16 +494,16 @@ describe('createSessionCwdTracker', () => {
       branch: async () => null,
       send: () => {},
     })
-    await tracker.onHookCwd('s1', `${FEAT}/a`)
-    await tracker.onHookCwd('s1', `${FEAT}/a`)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/a`)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/a`)
     expect(calls).toEqual([`${FEAT}/a`])
   })
 
   it('clear() forgets a session so the same cwd sends again', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', FEAT)
-    tracker.clear('s1')
-    await tracker.onHookCwd('s1', FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
+    tracker.clear(asSessionId('s1'))
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT },
       { sessionId: 's1', cwd: FEAT },
@@ -513,31 +514,31 @@ describe('createSessionCwdTracker', () => {
 
   it('setExplicit resolves, sends, and returns the root', async () => {
     const { sent, tracker } = make(inRepo)
-    const root = await tracker.setExplicit('s1', `${FEAT}/apps`)
+    const root = await tracker.setExplicit(asSessionId('s1'), `${FEAT}/apps`)
     expect(root).toBe(FEAT)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
   it('after setExplicit, a hook cwd resolving to the same root stays quiet', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setExplicit('s1', FEAT)
-    await tracker.onHookCwd('s1', `${FEAT}/apps/web`)
+    await tracker.setExplicit(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/apps/web`)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
   it('the explicit pin is STICKY: a hook cwd in ANOTHER checkout does not re-home', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setExplicit('s1', FEAT)
+    await tracker.setExplicit(asSessionId('s1'), FEAT)
     // e.g. `cd <main checkout> && git merge …` during a deploy — must not move.
-    await tracker.onHookCwd('s1', '/repo')
-    await tracker.onHookCwd('s1', OTHER)
+    await tracker.onHookCwd(asSessionId('s1'), '/repo')
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
   it('a second setExplicit still moves a pinned session', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setExplicit('s1', FEAT)
-    await tracker.setExplicit('s1', OTHER)
+    await tracker.setExplicit(asSessionId('s1'), FEAT)
+    await tracker.setExplicit(asSessionId('s1'), OTHER)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT },
       { sessionId: 's1', cwd: OTHER },
@@ -546,9 +547,9 @@ describe('createSessionCwdTracker', () => {
 
   it('clear() drops the pin: hook cwds re-home again after a respawn', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setExplicit('s1', FEAT)
-    tracker.clear('s1')
-    await tracker.onHookCwd('s1', OTHER)
+    await tracker.setExplicit(asSessionId('s1'), FEAT)
+    tracker.clear(asSessionId('s1'))
+    await tracker.onHookCwd(asSessionId('s1'), OTHER)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT },
       { sessionId: 's1', cwd: OTHER },
@@ -557,8 +558,8 @@ describe('createSessionCwdTracker', () => {
 
   it('pins are per-session: another session still follows its hooks', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setExplicit('s1', FEAT)
-    await tracker.onHookCwd('s2', OTHER)
+    await tracker.setExplicit(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s2'), OTHER)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT },
       { sessionId: 's2', cwd: OTHER },
@@ -567,7 +568,7 @@ describe('createSessionCwdTracker', () => {
 
   it('setExplicit supersedes an in-flight hook resolution', async () => {
     let releaseHook: (() => void) | undefined
-    const sent: Array<{ sessionId: string; cwd: string }> = []
+    const sent: Array<{ sessionId: SessionId; cwd: string }> = []
     const tracker = createSessionCwdTracker({
       resolver: createCwdResolver({
         lookup: (cwd) =>
@@ -580,8 +581,8 @@ describe('createSessionCwdTracker', () => {
       branch: async () => null,
       send: ({ sessionId, cwd }) => sent.push({ sessionId, cwd }),
     })
-    const hook = tracker.onHookCwd('s1', '/slow/sub')
-    await tracker.setExplicit('s1', '/explicit/dir')
+    const hook = tracker.onHookCwd(asSessionId('s1'), '/slow/sub')
+    await tracker.setExplicit(asSessionId('s1'), '/explicit/dir')
     releaseHook?.()
     await hook
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/explicit' }])
@@ -604,8 +605,8 @@ describe('createSessionCwdTracker', () => {
       branch: async () => null,
       send: (u) => sent.push(u),
     })
-    const slow = tracker.setExplicit('s1', FEAT)
-    await tracker.setExplicit('s1', OTHER)
+    const slow = tracker.setExplicit(asSessionId('s1'), FEAT)
+    await tracker.setExplicit(asSessionId('s1'), OTHER)
     releaseSlow?.({ root: FEAT, kind: 'worktree', repoRoot: '/repo' })
     // The caller still learns what its path resolved to, even though it lost the race.
     expect(await slow).toBe(FEAT)
@@ -613,7 +614,7 @@ describe('createSessionCwdTracker', () => {
   })
 
   it('setExplicit marks its send explicit and re-sends even for an unchanged root', async () => {
-    const sent: Array<{ sessionId: string; cwd: string; explicit?: boolean }> = []
+    const sent: Array<{ sessionId: SessionId; cwd: string; explicit?: boolean }> = []
     const tracker = createSessionCwdTracker({
       resolver: createCwdResolver({ lookup: inRepo }),
       branch: async () => null,
@@ -622,8 +623,8 @@ describe('createSessionCwdTracker', () => {
     })
     // Hook already grouped the session under the root; the explicit declaration
     // must STILL send (the server stamps the attached issue's worktree from it).
-    await tracker.onHookCwd('s1', `${FEAT}/apps`)
-    await tracker.setExplicit('s1', FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), `${FEAT}/apps`)
+    await tracker.setExplicit(asSessionId('s1'), FEAT)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT },
       { sessionId: 's1', cwd: FEAT, explicit: true },
@@ -632,8 +633,8 @@ describe('createSessionCwdTracker', () => {
 
   it('tracks sessions independently', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.onHookCwd('s1', FEAT)
-    await tracker.onHookCwd('s2', FEAT)
+    await tracker.onHookCwd(asSessionId('s1'), FEAT)
+    await tracker.onHookCwd(asSessionId('s2'), FEAT)
     expect(sent).toEqual([
       { sessionId: 's1', cwd: FEAT },
       { sessionId: 's2', cwd: FEAT },

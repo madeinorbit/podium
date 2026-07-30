@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -89,7 +90,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
     process.env.ABDUCO_SOCKET_DIR = socketDir
     process.env.PODIUM_NO_SCOPE = '1'
 
-    const sessionId = randomUUID().slice(0, 8) // short: label feeds the socket path
+    const sessionId = asSessionId(randomUUID().slice(0, 8)) // short: label feeds the socket path
     const turnId = randomUUID()
     const label = `podium-${sessionId}`
     const spec = {

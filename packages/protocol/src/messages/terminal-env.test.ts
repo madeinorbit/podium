@@ -1,9 +1,10 @@
+import { asSessionId } from '@podium/model'
 import { expect, it } from 'vitest'
 import { ReattachMessage, SpawnMessage } from './terminal'
 
 const base = {
   type: 'spawn' as const,
-  sessionId: 's1',
+  sessionId: asSessionId('s1'),
   agentKind: 'claude-code' as const,
   cwd: '/tmp',
   geometry: { cols: 80, rows: 24 },
@@ -48,7 +49,7 @@ it('carries an optional observation checkpoint across spawn and reattach', () =>
   const checkpoint = { schemaVersion: 1, turnEpoch: 5 }
   const spawn = {
     type: 'spawn' as const,
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code' as const,
     cwd: '/tmp',
     geometry: { cols: 80, rows: 24 },
@@ -61,7 +62,7 @@ it('carries an optional observation checkpoint across spawn and reattach', () =>
   expect(
     ReattachMessage.parse({
       type: 'reattach',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/tmp',

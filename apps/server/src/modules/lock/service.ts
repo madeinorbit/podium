@@ -1,4 +1,5 @@
-import type { LockRow, LocksRepository, LockWaiterRow } from '../../store/locks'
+import type { IssueId, SessionId } from '@podium/model'
+import type { LockRow, LocksRepository, LockSessionKey, LockWaiterRow } from '../../store/locks'
 import { OPERATOR_LOCK_SESSION } from '../../store/locks'
 import type { WriteFunnel } from '../funnel'
 
@@ -23,14 +24,27 @@ export const DEFAULT_LOCK_TTL_SECONDS = 120
 /** Who is acquiring/holding: the relayed agent's session + bound issue, or the
  *  direct-HTTP operator (both null session and issue). */
 export interface LockCallerIdentity {
-  sessionId: string | null
-  issueId: string | null
+  sessionId: LockHolderId | null
+  issueId: IssueId | null
   label: string
 }
 
+/**
+ * WHO holds (or waits on) a lock (POD-362).
+ *
+ * NOT plain `SessionId | null`, and that is deliberate: `registry.ts` produces
+ * `UNKNOWN_RELAY_SESSION` ('unknown-session') for a relayed caller whose session
+ * the live map does not know, and its own doc says it is DISTINCT from the
+ * operator's null holder so an anomalous relay caller can never release an
+ * operator-held lock. Branding it would launder a sentinel into the session id
+ * space; the union keeps all three cases visible. POD-362's blanket
+ * `sessionId: string` sweep branded this field and it was walked back here.
+ */
+export type LockHolderId = LockSessionKey
+
 export interface LockHolderWire {
-  sessionId: string | null
-  issueId: string | null
+  sessionId: LockHolderId | null
+  issueId: IssueId | null
   label: string
 }
 
@@ -63,7 +77,12 @@ export interface LockServiceDeps {
   /** repoPath → stable repo_id (ReposRepository.resolveRepoIdForPath). */
   resolveRepoId(repoPath: string): string
   /** Is the session still around (waiter pruning)? Unknown/exited → false. */
-  sessionAlive(sessionId: string): boolean
+  /** `LockSessionKey`, not `SessionId`: `advanceQueue` DEPENDS on being able to
+   *  look up `UNKNOWN_RELAY_SESSION` and get `false` — that miss is exactly how
+   *  the unknown-relay sentinel gets pruned from a queue (see its doc in
+   *  registry.ts). Narrowing this to `SessionId` would force a cast at the one
+   *  call site and hide that mechanism. */
+  sessionAlive(sessionId: LockHolderId): boolean
   /** Best-effort agent mail to an issue (IssueService.sendMail); never throws. */
   sendMail(issueId: string, from: string, body: string): void
   /** Durable event log append (steal audit trail). Best-effort. */
@@ -108,7 +127,7 @@ export class LockService {
   }
 
   /** The waiter-queue session key: real session id, or the operator sentinel. */
-  private sessionKey(caller: LockCallerIdentity): string {
+  private sessionKey(caller: LockCallerIdentity): LockHolderId {
     return caller.sessionId ?? OPERATOR_LOCK_SESSION
   }
 
@@ -123,7 +142,7 @@ export class LockService {
   private grantTo(
     repoId: string,
     name: string,
-    holder: { sessionId: string | null; issueId: string | null; label: string },
+    holder: LockCallerIdentity,
     ttlSeconds: number,
     note: string | null,
     opts?: { notify?: boolean },
@@ -387,7 +406,7 @@ export class LockService {
   /** Session-bound auto-release: on session exit, release every lock it holds
    *  (advancing each queue with grant-notification mail) and prune its queue
    *  entries. Fired from the session-lifecycle bus wiring. */
-  releaseForSession(sessionId: string): void {
+  releaseForSession(sessionId: SessionId): void {
     this.deps.funnel.run({
       write: () =>
         this.deps.transact(() => {

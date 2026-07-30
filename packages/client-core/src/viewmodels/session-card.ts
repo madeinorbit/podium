@@ -1,9 +1,9 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
 import { type DotTone, panelLabel, sessionDotTone } from './derive'
 
 export interface SessionCardModel {
-  sessionId: string
+  sessionId: SessionId
   title: string
   subtitle: string
   issueLabel: string | null

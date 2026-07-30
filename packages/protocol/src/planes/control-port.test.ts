@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   asCorrelationId,
@@ -323,7 +324,7 @@ describe('the command class lives inside the control port', () => {
     const disposition = port.sendCommand(target('alice'), {
       requestId: asCorrelationId('r3'),
       type: 'kill',
-      payload: { sessionId: 's1' },
+      payload: { sessionId: asSessionId('s1') },
     })
     expect(disposition).toEqual({ status: 'sent', requestId: 'r3' })
     expect(emit).toHaveBeenCalledTimes(1)

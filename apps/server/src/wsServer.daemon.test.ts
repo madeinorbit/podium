@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from './hub/pairing'
@@ -52,7 +53,7 @@ describe('daemon socket auth', () => {
     wireDaemonSocket(ws as never, reg)
 
     // First frame is junk (not a handshake) → ignored, no attach.
-    ws.emit('message', Buffer.from(JSON.stringify({ type: 'input', sessionId: 's', data: '' })))
+    ws.emit('message', Buffer.from(JSON.stringify({ type: 'input', sessionId: asSessionId('s'), data: '' })))
     expect(attach).not.toHaveBeenCalled()
 
     // A valid hello whose token is in the store → attach + helloOk.
@@ -104,7 +105,7 @@ describe('daemon socket auth', () => {
       Buffer.from(
         JSON.stringify({
           type: 'bind',
-          sessionId: 's1',
+          sessionId: asSessionId('s1'),
           cmd: 'claude',
           cwd: '/tmp',
           agentKind: 'claude-code',
@@ -114,7 +115,7 @@ describe('daemon socket auth', () => {
     )
     expect(onMsg).toHaveBeenCalledWith(
       machinePrincipal('local'),
-      expect.objectContaining({ type: 'bind', sessionId: 's1' }),
+      expect.objectContaining({ type: 'bind', sessionId: asSessionId('s1') }),
     )
 
     // PAYLOAD IDENTITY IS INERT (ADR 3 D7). The same frame carrying a hostile
@@ -126,7 +127,7 @@ describe('daemon socket auth', () => {
       Buffer.from(
         JSON.stringify({
           type: 'bind',
-          sessionId: 's2',
+          sessionId: asSessionId('s2'),
           cmd: 'claude',
           cwd: '/tmp',
           agentKind: 'claude-code',
@@ -137,7 +138,7 @@ describe('daemon socket auth', () => {
     )
     expect(onMsg).toHaveBeenCalledWith(
       machinePrincipal('local'),
-      expect.objectContaining({ type: 'bind', sessionId: 's2' }),
+      expect.objectContaining({ type: 'bind', sessionId: asSessionId('s2') }),
     )
     expect(onMsg.mock.calls[0]?.[0]).not.toBe('attacker')
   })

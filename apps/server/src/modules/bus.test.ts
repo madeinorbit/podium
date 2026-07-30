@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { EventBus } from './bus'
 
@@ -54,7 +55,7 @@ describe('EventBus', () => {
       throw new Error('boom')
     })
     bus.on('session.exited', after)
-    expect(() => bus.emit('session.exited', { sessionId: 's1', code: 0 })).not.toThrow()
+    expect(() => bus.emit('session.exited', { sessionId: asSessionId('s1'), code: 0 })).not.toThrow()
     expect(after).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()

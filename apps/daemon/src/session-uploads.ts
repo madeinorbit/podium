@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { rmSync } from 'node:fs'
 import { readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -47,7 +48,7 @@ export async function sweepUploads(): Promise<void> {
 }
 
 /** Remove a session's upload directory when the session is closed/killed. */
-export function removeSessionUploads(sessionId: string): void {
+export function removeSessionUploads(sessionId: SessionId): void {
   const sessionUploadsDir = join(stateDir(), 'uploads', sessionId)
   try {
     rmSync(sessionUploadsDir, { recursive: true, force: true })

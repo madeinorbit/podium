@@ -43,7 +43,7 @@
  */
 
 import { isExposedOn, presenceCommand } from '@podium/commands'
-import { OPERATOR, SOLE_USER_ID } from '@podium/model'
+import { asSessionId, OPERATOR, SOLE_USER_ID } from '@podium/model'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { INSTANCE_OWNER, type CommandPrincipal } from '../../command-principal'
@@ -89,11 +89,11 @@ type Verdict =
  * which is the branch this comparison most needs to cover, since it is the one
  * with two possible answers.
  */
-const agentCapability = { ...OPERATOR, actorSessionId: 'agent-sess-1' }
+const agentCapability = { ...OPERATOR, actorSessionId: asSessionId('agent-sess-1') }
 
 const agentPrincipal: CommandPrincipal = {
   kind: 'agent',
-  agentSessionId: 'agent-sess-1',
+  agentSessionId: asSessionId('agent-sess-1'),
   onBehalfOf: INSTANCE_OWNER,
   capability: agentCapability,
   chain: [],
@@ -181,8 +181,8 @@ const CASES: ReadonlyArray<{ name: string; actor: Actor; why: string }> = [
 describe('shadow comparison: the legacy and target paths agree on every case', () => {
   for (const { name, actor, why } of CASES) {
     it(`agrees for [${actor}] ${why}`, () => {
-      const legacy = runLegacy({ sessionId: 'x', name }, actor)
-      const target = runTarget({ sessionId: 'x', name }, actor)
+      const legacy = runLegacy({ sessionId: asSessionId('x'), name }, actor)
+      const target = runTarget({ sessionId: asSessionId('x'), name }, actor)
 
       // ONE assertion over BOTH paths. A divergence in the written row or in the
       // verdict fails HERE — there is no second green test to hide behind.
@@ -197,7 +197,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // The branch with two possible answers, and the reason string is compared
     // verbatim — a migration that quietly reworded a user-visible refusal would
     // fail here rather than ship.
-    const legacy = runLegacy({ sessionId: 'x', name: 'human choice' }, 'human')
+    const legacy = runLegacy({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
     const legacyAgent = new PresenceRegistry({
       sessions: legacy.sessions,
       store: legacy.store,
@@ -210,7 +210,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
       'trpc',
     )
 
-    const target = runTarget({ sessionId: 'x', name: 'human choice' }, 'human')
+    const target = runTarget({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
     const targetAgent = renameOnTargetPath(
       target.deps,
       { sessionId: target.created.sessionId, name: 'agent guess' },
@@ -242,13 +242,13 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     const presence = new PresenceRegistry({ sessions, store, now: () => 1, mutations })
     const legacy = presence.execute(
       'sessions.rename',
-      { sessionId: 'no-such-session', name: 'x' },
+      { sessionId: asSessionId('no-such-session'), name: 'x' },
       soleHumanPrincipal(OPERATOR),
       'trpc',
     )
     const target = renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
-      { sessionId: 'no-such-session', name: 'x' },
+      { sessionId: asSessionId('no-such-session'), name: 'x' },
       humanPrincipal,
       'trpc',
     )
@@ -273,8 +273,8 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
  */
 describe('the shadow comparison is able to FAIL', () => {
   it('reds when one path writes a different name', () => {
-    const legacy = runLegacy({ sessionId: 'x', name: 'agreed' }, 'human')
-    const target = runTarget({ sessionId: 'x', name: 'agreed' }, 'human')
+    const legacy = runLegacy({ sessionId: asSessionId('x'), name: 'agreed' }, 'human')
+    const target = runTarget({ sessionId: asSessionId('x'), name: 'agreed' }, 'human')
 
     // Divergence injected into the TARGET stack only, through the real service —
     // the same method the path calls, so this is the divergence a real regression
@@ -293,8 +293,8 @@ describe('the shadow comparison is able to FAIL', () => {
     // string, different provenance. If the comparison did not read `nameSource`,
     // an agent write laundered as a human write would pass the shadow and take
     // SP-eb60's sovereignty with it.
-    const legacy = runLegacy({ sessionId: 'x', name: 'same string' }, 'human')
-    const target = runTarget({ sessionId: 'x', name: 'same string' }, 'agent')
+    const legacy = runLegacy({ sessionId: asSessionId('x'), name: 'same string' }, 'human')
+    const target = runTarget({ sessionId: asSessionId('x'), name: 'same string' }, 'agent')
 
     expect(legacy.row.name).toBe(target.row.name)
     expect(legacy.row.nameSource).not.toBe(target.row.nameSource)
@@ -302,8 +302,8 @@ describe('the shadow comparison is able to FAIL', () => {
   })
 
   it('reds when the two paths disagree about accept versus reject', () => {
-    const legacy = runLegacy({ sessionId: 'x', name: '   ' }, 'agent') // refused
-    const target = runTarget({ sessionId: 'x', name: 'fine' }, 'agent') // applied
+    const legacy = runLegacy({ sessionId: asSessionId('x'), name: '   ' }, 'agent') // refused
+    const target = runTarget({ sessionId: asSessionId('x'), name: 'fine' }, 'agent') // applied
 
     expect(legacy.verdict.kind).toBe('rejected')
     expect(target.verdict.kind).toBe('applied')
@@ -404,7 +404,7 @@ describe('the sole-human identity fork this skeleton surfaced', () => {
     const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',
-      agentSessionId: 'agent-sess-9',
+      agentSessionId: asSessionId('agent-sess-9'),
       onBehalfOf: 'user:stranger' as typeof INSTANCE_OWNER,
       capability: agentCapability,
       chain: [],

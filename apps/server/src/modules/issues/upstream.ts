@@ -1,8 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import {
-  type IssueWireInput,
-  type IssueWire,
-} from '@podium/model'
+import { asIssueId, type IssueId, type IssueWire, type IssueWireInput } from '@podium/model'
 import { optimisticIssuePatch } from '@podium/sync'
 import type { SessionStore } from '../../store'
 import { commandTarget } from './registry'
@@ -43,7 +40,7 @@ export class UpstreamIssuesService {
   /** Optimistic overlays for QUEUED forwarded mutations, keyed by issue id. Merged
    *  at read time; dropped when hub truth arrives AND the outbox no longer holds an
    *  entry for the issue (so an unrelated hub push can't wipe a pending edit). */
-  private readonly upstreamIssuePatches = new Map<string, Partial<IssueWireInput>>()
+  private readonly upstreamIssuePatches = new Map<IssueId, Partial<IssueWireInput>>()
   private upstreamForwarder: IssueUpstreamForwarder | undefined
 
   constructor(private readonly deps: UpstreamIssuesDeps) {}
@@ -115,7 +112,12 @@ export class UpstreamIssuesService {
     const stale = this.deps.upstreamStale()
     return [...this.upstreamIssues.values()].map((i) => {
       const patch = this.upstreamIssuePatches.get(i.id)
-      // POD-361-EDGE-CAST (POD-362 owns): a queued patch is unbranded wire input.
+      // TRUE DECODE EDGE, and it stays (POD-362). `IssueWireInput` is
+      // `UnbrandIds<IssueWire>` — model's OWN deliberately-unbranded wire-input
+      // type — so merging a queued optimistic patch into a branded `IssueWire` is
+      // a wire-input-to-domain decode, not an adapter cast around a type model
+      // could have branded. `id: i.id` is spread LAST so the branded id from the
+      // upstream wire always wins over whatever the patch carried.
       const merged = patch ? ({ ...i, ...patch, id: i.id } as IssueWire) : i
       if (!patch && !stale) return merged
       return {
@@ -152,7 +154,10 @@ export class UpstreamIssuesService {
     const result = await forwarder.forward(proc, payload)
     if ((result as { queued?: boolean } | null)?.queued === true) {
       const target = commandTarget(proc, payload)
-      if (typeof target === 'string') this.applyUpstreamOptimisticPatch(target, proc, payload)
+      // DECODE EDGE: the command target is read off an untyped payload;
+      // applyUpstreamOptimisticPatch's own `upstreamIssues.has` is the gate.
+      if (typeof target === 'string')
+        this.applyUpstreamOptimisticPatch(asIssueId(target), proc, payload)
     }
     return result
   }
@@ -160,7 +165,7 @@ export class UpstreamIssuesService {
   /** Merge a queued mutation's optimistic effect into the issue's overlay and
    *  re-publish so pendingSync (and the patched value) hit the wire immediately. */
   private applyUpstreamOptimisticPatch(
-    issueId: string,
+    issueId: IssueId,
     proc: string,
     input: Record<string, unknown>,
   ): void {
@@ -192,8 +197,11 @@ export class UpstreamIssuesService {
     const target = commandTarget(proc, input)
     const mutationId = typeof input.mutationId === 'string' ? input.mutationId : null
     if (typeof target === 'string') {
-      this.upstreamIssuePatches.delete(target)
-      const issue = this.upstreamIssues.get(target)
+      // DECODE EDGE: `target` came off an untyped relay payload; the map lookup
+      // below is the existence check.
+      const targetId = asIssueId(target)
+      this.upstreamIssuePatches.delete(targetId)
+      const issue = this.upstreamIssues.get(targetId)
       try {
         this.deps.store.appendEvent({
           ts: new Date(this.deps.now()).toISOString(),
@@ -209,7 +217,7 @@ export class UpstreamIssuesService {
         })
       } catch {}
       if (issue) {
-        this.upstreamIssuePatches.set(target, {
+        this.upstreamIssuePatches.set(targetId, {
           needsHuman: true,
           humanQuestion: `hub rejected queued '${proc}': ${message}`,
         })

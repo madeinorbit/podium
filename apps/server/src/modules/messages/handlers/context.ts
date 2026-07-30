@@ -21,6 +21,7 @@
  *    delegation — and neither half is reachable from payload.
  */
 
+import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
   type AddressResolution,
   type HumanCeiling,
@@ -222,7 +223,7 @@ export class MailAccess {
    *  slice (#237 authz): issue-bound targets need write access to that issue;
    *  issueless targets are parent/operator-only (--outside-scope never
    *  substitutes there). */
-  assertSessionTargetAccess(caller: MailCaller, sessionId: string, proc: string): void {
+  assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): void {
     const target = this.deps.listSessions().find((s) => s.sessionId === sessionId)
     if (!target) throw new Error('session not found')
     const issues = this.deps.issues()
@@ -275,7 +276,7 @@ export class MailAccess {
 
   wire(m: MessageRow): MessageWire {
     const issues = this.deps.issues()
-    const label = (kind: string, issueId: string | null, sessionId: string | null): string => {
+    const label = (kind: string, issueId: IssueId | null, sessionId: SessionId | null): string => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
           const issue = issues.getMeta(issueId)
@@ -296,10 +297,12 @@ export class MailAccess {
         m.fromKind === 'system' && m.fromName
           ? `system:${m.fromName}`
           : label(m.fromKind, m.fromIssue, m.fromSession),
+      // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so the
+      // brand is recovered inside each discriminated branch — never once, up front.
       to: label(
         m.toKind,
-        m.toKind === 'issue' ? m.toId : null,
-        m.toKind === 'session' ? m.toId : null,
+        m.toKind === 'issue' && m.toId ? asIssueId(m.toId) : null,
+        m.toKind === 'session' && m.toId ? asSessionId(m.toId) : null,
       ),
       kind: m.kind,
       urgency: m.urgency,

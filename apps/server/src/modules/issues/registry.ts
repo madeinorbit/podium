@@ -1,4 +1,4 @@
-import type { IssueSearchFilter, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import {
   type CommandAction,
   type ContractInput,
@@ -133,7 +133,7 @@ export interface IssueCommandDeps {
    *  text fallback for sessions without a live menu. Injected by the relay;
    *  optional so existing test deps literals stay valid. */
   answerSessionQuestion?(
-    sessionId: string,
+    sessionId: SessionId,
     answer: string,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
   /** Stop every session on an issue and free its worktree (keep branch)
@@ -510,9 +510,7 @@ const defs = {
   }),
   search: def('search', {
     kind: 'query',
-    // POD-361-EDGE-CAST (POD-362 owns): the command input is a parsed but
-    // UNBRANDED zod shape; POD-362 declares the input schema with the brands.
-    handler: (ctx, input) => ctx.issues.search(input as IssueSearchFilter),
+    handler: (ctx, input) => ctx.issues.search(input),
   }),
   count: def('count', {
     kind: 'query',
@@ -1113,7 +1111,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
-        let sessionId: string | null
+        let sessionId: SessionId | null
         if (input.claim) {
           const actor = ctx.caller.capability.actorSessionId
           if (!actor) {

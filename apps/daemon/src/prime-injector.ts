@@ -1,13 +1,14 @@
+import type { SessionId } from '@podium/model'
 import { hookEventName } from './hook-payload'
 
 /** Decides whether a Claude hook event should carry injected `prime` context, and builds the
  *  additionalContext response. Primes once per (re)start; a PreCompact re-arms it so the next
  *  prompt re-injects after compaction. Relay fetches the session's capability-scoped prime. */
 export function createPrimeInjector(
-  relay: (sessionId: string) => Promise<{ ok: boolean; result?: unknown }>,
+  relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
 ): {
-  respondTo(sessionId: string, payload: unknown): Promise<string | null>
-  reset(sessionId: string): void
+  respondTo(sessionId: SessionId, payload: unknown): Promise<string | null>
+  reset(sessionId: SessionId): void
 } {
   const primed = new Set<string>()
   return {

@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { mkdir, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
@@ -12,7 +13,7 @@ export interface HandoffTransferRpc {
     machineId: string,
   ): Promise<{ ok: boolean; data?: string; error?: string }>
   handoffWriteChunk(
-    sessionId: string,
+    sessionId: HandoffTransferSubjectId,
     offset: number,
     data: Buffer,
     machineId: string,
@@ -40,9 +41,23 @@ export function verifiedCommonBundleBases(
   return verifiedBundleBases(sourceResults).filter((sha) => targetShas.has(sha))
 }
 
+/**
+ * WHAT THE TRANSFER IS FOR (POD-362) — a `SessionId` on the handoff path, a
+ * synthetic `ws-<uuid>` fetch id on the workspace-fetch path.
+ *
+ * TWO CALLERS, TWO ID SPACES, measured: `handoff/coordinator.ts` passes
+ * `session.sessionId`; `sessions/service.ts`'s workspace fetch passes its local
+ * `fetchId = ws-${randomUUID().slice(0, 13)}`, which is not a session at all.
+ * The value only ever names a stage file and a chunk-write correlation, so both
+ * work — but branding this `SessionId` would have laundered the fetch id, so the
+ * union records the fact instead. Whether the workspace-fetch path should be its
+ * own function rather than borrowing this parameter is filed as POD-1171.
+ */
+export type HandoffTransferSubjectId = SessionId | `ws-${string}`
+
 export async function transferHandoffPackage(input: {
   rpc: HandoffTransferRpc
-  sessionId: string
+  sessionId: HandoffTransferSubjectId
   sourceMachineId: string
   targetMachineId: string
   sourceStagePath: string

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { asSessionId } from '@podium/model'
 import { FitAddon } from '@xterm/addon-fit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionCallbacks, SocketHub } from './connection'
@@ -148,7 +149,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFittableAddon() // even with a measurable container, a hidden tab stays silent
     const { hub, calls } = fakeHub()
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: false })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: false })
     expect(calls.requestControl).toBe(0)
     expect(calls.resize).toEqual([])
     mounted.setActive(false) // still inactive: still nothing
@@ -160,7 +161,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFittableAddon()
     const { hub, calls } = fakeHub()
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: false })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: false })
     mounted.setActive(true)
     expect(calls.requestControl).toBe(1)
     expect(calls.resize.length).toBeGreaterThanOrEqual(1)
@@ -182,7 +183,7 @@ describe('mountSession eligibility-gated sizing', () => {
     })
 
     const { hub, calls } = fakeHub()
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: true })
     // Active but hidden: no control claim, no resize.
     expect(calls.requestControl).toBe(0)
     expect(calls.resize).toEqual([])
@@ -199,7 +200,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFittableAddon() // fit → 150×50
     const { hub, calls, attached, state } = fakeHub()
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: true })
     attached() // first attach
     calls.resize.length = 0
     const rcBefore = calls.requestControl
@@ -219,7 +220,7 @@ describe('mountSession eligibility-gated sizing', () => {
     const repaint = vi.spyOn(TerminalView.prototype, 'forceRepaint')
     protoPatchRestorers.push(() => repaint.mockRestore())
     const { hub, state } = fakeHub()
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: true })
     // Mounting active reveals the panel → becomeEligible → forceRepaint.
     expect(repaint, 'repaint on reveal').toHaveBeenCalled()
     repaint.mockClear()
@@ -238,7 +239,7 @@ describe('mountSession eligibility-gated sizing', () => {
     // Mount INACTIVE (hidden), then bring the term + server grid to the size fit() will
     // propose, so the reveal fit is a no-op — the case where a same-size resize can't repaint
     // the canvas that display:none freed, so we must repaint the renderer in place.
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: false })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: false })
     state(150, 50) // term + serverGrid now match what fit() proposes
     recover.mockClear()
     calls.resize.length = 0
@@ -255,7 +256,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withFakeTimedRaf()
     const addon = withToggleableAddon() // unmeasurable at mount: hidden / mid-layout
     const { hub, calls } = fakeHub()
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: true })
     // Exhaust the 10-frame rAF window while the pane is still unmeasurable — the
     // old scheduler gave up here permanently.
     vi.advanceTimersByTime(16 * 12)
@@ -277,7 +278,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withFakeTimedRaf()
     const addon = withToggleableAddon()
     const { hub, calls } = fakeHub()
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: true })
     // Let the whole retry schedule (rAF window + slow timeouts) run dry while hidden.
     vi.advanceTimersByTime(16 * 12 + 250 + 500 + 1000 + 50)
     expect(calls.resize).toEqual([])
@@ -303,7 +304,7 @@ describe('mountSession eligibility-gated sizing', () => {
     // Mount INACTIVE at the 80×24 default; revealing fits to 150×50 — a real size change, so
     // xterm's resize recomputes geometry and repaints the whole grid, recovering the freed
     // canvas without extra recovery (the same path a browser-window resize takes).
-    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: false })
+    const mounted = mountSession(fittableHost(), { hub, sessionId: asSessionId('s1'), active: false })
     recover.mockClear()
     mounted.setActive(true) // reveal: grid changes → resize, no extra recovery
     await new Promise((r) => requestAnimationFrame(() => r(null)))

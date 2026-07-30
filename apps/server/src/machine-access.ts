@@ -74,7 +74,7 @@ import type {
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { INSTANCE_OWNER, onBehalfOfUser } from './command-principal'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from './local-machine'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 
 /**
  * One machine's ownership facts — DERIVED from the handshake's

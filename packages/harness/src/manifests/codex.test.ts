@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessObservationLease, HarnessObserverHost } from '../manifest.js'
@@ -58,7 +59,7 @@ function ack(
 ): AgentObservationRebindAckMessage {
   return {
     type: 'agentObservationRebindAck',
-    sessionId: 'podium-1',
+    sessionId: asSessionId('podium-1'),
     provider: 'codex',
     rebindId: 'codex:3:5:thread-b',
     priorObserverGeneration: 5,
@@ -81,7 +82,7 @@ function start(initialLease: HarnessObservationLease) {
   const observation = observerFactory(
     {
       cwd: '/repo',
-      podiumSessionId: 'podium-1',
+      podiumSessionId: asSessionId('podium-1'),
       resumeValue: initialLease.providerSessionId ?? undefined,
       observationLease: initialLease,
     },

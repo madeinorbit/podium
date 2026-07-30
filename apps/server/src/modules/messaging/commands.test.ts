@@ -10,11 +10,7 @@ import {
   parseSlashCommand,
   pickIssueSession,
 } from './commands'
-import {
-  asIssueId,
-  type IssueWire,
-  type IssueWireInput,
-} from '@podium/model'
+import { asIssueId, asSessionId, type IssueWire, type IssueWireInput } from '@podium/model'
 
 function issue(partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
   return {
@@ -154,7 +150,7 @@ describe('issue formatters', () => {
       title: 'Epic',
       sessions: [
         {
-          sessionId: 'old',
+          sessionId: asSessionId('old'),
           agentKind: 'grok',
           title: 'old',
           cwd: '/p',
@@ -171,7 +167,7 @@ describe('issue formatters', () => {
           unread: false,
         },
         {
-          sessionId: 'live',
+          sessionId: asSessionId('live'),
           agentKind: 'grok',
           title: 'live',
           cwd: '/p',

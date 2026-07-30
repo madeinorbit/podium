@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -25,9 +26,9 @@ export function ToolBatchView({
   highlighted: boolean
   dimmed: boolean
   forceOpen: boolean
-  sessionId: string
+  sessionId: SessionId
   cwd: string
-  openFile: (sessionId: string, path: string) => void
+  openFile: (sessionId: SessionId, path: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const expanded = open || forceOpen

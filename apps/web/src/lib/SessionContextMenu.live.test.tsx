@@ -1,7 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionContextMenu } from './SessionContextMenu'
@@ -68,7 +65,7 @@ const machine = (id: string, over: Record<string, unknown> = {}) => ({
 
 function meta(over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
-    sessionId: 's',
+    sessionId: asSessionId('s'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/Users/mw/Source/other/podium/.worktrees/issue-779',
@@ -130,7 +127,7 @@ describe('SessionContextMenu handoff (POD-821)', () => {
     open()
     fireEvent.click(handoffItem())
     fireEvent.click(screen.getByRole('menuitem', { name: LUD }))
-    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: 's', machineId: LUD })
+    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: asSessionId('s'), machineId: LUD })
   })
 
   it('still shows Handoff — with the reason — when the session cannot move at all', () => {
