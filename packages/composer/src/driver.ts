@@ -100,10 +100,42 @@ export const codexComposerDriver: ComposerDriver = {
   },
 }
 
+/**
+ * The driver REGISTRY: harness → its composer adapter. A Record, not an `if`
+ * chain — which is what keeps this package inside the harness axiom (POD-1105).
+ *
+ * The axiom confines *behavioral branching* on harness identity to the adapter
+ * layer and explicitly blesses a table keyed by harness, because a table makes
+ * adding a harness a matter of adding a row. All the per-harness BEHAVIOR here
+ * already lives in the two driver objects above — they ARE the adapters. What
+ * used to be an `if` chain was only adapter *selection*, so expressing it as the
+ * registry it always was resolves the violation rather than hiding it.
+ *
+ * WHY NOT move this into packages/agent-bridge (the axiom's named home): this
+ * package is BROWSER-SAFE by construction and by consumer — apps/web aliases it
+ * in vite.config.ts and packages/terminal-client re-exports the extractors into
+ * the browser bundle — while agent-bridge is node-only. The move would trade a
+ * harness-branching violation for a manifest-platform violation and pull node
+ * code toward a browser bundle. ADR 0008 already rejected exactly this shape
+ * ("move pure mappers into `harness`: would force harness deps on browser-safe
+ * consumers of pure parse"), so the same reasoning applies here.
+ *
+ * WHY NOT declare packages/composer a second sanctioned home for harness
+ * branching: it does not need to be one, and a second home is the kind of
+ * exception that quietly becomes N homes — every future package with a per-CLI
+ * concern would cite it. The registry form needs no exception at all.
+ *
+ * Keys mirror the `composerScrape` capability in @podium/protocol
+ * (AGENT_CAPABILITIES): a kind with no driver here scrapes no composer, and
+ * `null` is the "no driver" answer callers already handle.
+ */
+const COMPOSER_DRIVERS: Partial<Record<AgentKind, ComposerDriver>> = {
+  'claude-code': claudeComposerDriver,
+  codex: codexComposerDriver,
+}
+
 /** The composer driver for a harness, or null when it has none (matches the
  *  `composerScrape` capability: only claude-code and codex today). */
 export function composerDriverFor(kind: AgentKind): ComposerDriver | null {
-  if (kind === 'claude-code') return claudeComposerDriver
-  if (kind === 'codex') return codexComposerDriver
-  return null
+  return COMPOSER_DRIVERS[kind] ?? null
 }

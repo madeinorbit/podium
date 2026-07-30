@@ -42,6 +42,20 @@
  *    blessed exception — icon/label maps — needs no declaration: a Record keyed
  *    by harness is a lookup, not a comparison, so the rule never sees it.
  *
+ *    That exception extends to ADAPTER SELECTION, and POD-1105 is the precedent:
+ *    packages/composer picks a per-harness composer driver, and an `if` chain
+ *    doing so was a violation while the same thing written as a registry Record
+ *    is not. This is not a loophole — the per-harness BEHAVIOR lives in the
+ *    driver objects (they ARE the adapters); only the selection was branching,
+ *    and a table makes adding a harness a new row instead of a found-and-edited
+ *    `if`. Note the alternative was WORSE: moving that selection into
+ *    {@link HARNESS_ADAPTER_HOME} would drag node-only code toward a browser
+ *    bundle (composer is browser-safe, aliased by apps/web and re-exported by
+ *    terminal-client), which ADR 0008 already rejected for pure mappers. So
+ *    composer is NOT a second sanctioned home for harness branching, and no
+ *    second home was created: a sanctioned second home is the kind of exception
+ *    that quietly becomes N homes, and the registry form needs none.
+ *
  * Shipped in WARN mode: known violations are declared in
  * scripts/boundary-allowlist.ts with a per-file COUNT and the phase that
  * removes them. Allowlisted-and-within-count warns; anything new or over count
