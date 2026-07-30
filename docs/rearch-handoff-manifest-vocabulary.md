@@ -124,11 +124,27 @@ the failure mode M5 exists to prevent.
 - **The brief says seven handoff frames; there are eight** — four request/result pairs (export,
   chunkRead, importChunk, import), matching ADR 4 D4's own count. Documented as eight.
 - **The brief's first acceptance criterion is not met, deliberately.** "Derived from the shared
-  session field schemas — zero hand-restated session fields" depends on POD-365, which has landed
-  nothing. Forking its field groups to make this file *look* composed would be the drift POD-302
-  exists to kill, and the fan-out protocol forbids duplicating a predecessor's half. The `Pick` set
-  is instead recorded as the file's contract, the key list is locked so it cannot drift while it
-  waits, and POD-365 has the consumer contract in writing. The remaining change is mechanical.
+  session field schemas — zero hand-restated session fields" depends on POD-365. Forking its field
+  groups to make this file *look* composed would be the drift POD-302 exists to kill, and the
+  fan-out protocol forbids duplicating a predecessor's half. The `Pick` set is instead recorded as
+  the file's contract, the key list is locked so it cannot drift while it waits, and POD-365 has the
+  consumer contract in writing. The remaining change is mechanical.
+
+  **Update — the target schemas now exist.** POD-365 landed its groups (`69d1cfc6`, `ce014033`) and
+  answered all three interface questions: `agentKind`'s narrowing is expressible via
+  `omit`/`extend`; `SessionResume` carries the same `ResumeRef` this file already imports, so no
+  carve-out is needed and the "fourth encoding" was never real; and `Attribution` is one schema
+  carrying `{actor: ActorRef, onBehalfOf: UserIdField.nullable()}` with no bespoke `createdBy`.
+  Two corrections to the Pick set came out of it and are now recorded in the model entry: `repoId`
+  lives on `IssueIdentity` rather than `IssueWorkspace`, and `worktreeName` /
+  `worktreeRelativePath` / `cwdSubpath` are **not** `IssueWorkspace` members — they join the
+  bundle-local path facts.
+
+  What still blocks the code is a **merge ruling, not a dependency**: the coordinator instructed the
+  three 1.4 siblings not to merge or rebase onto each other and reserved integration for itself,
+  while POD-365 advises pulling. POD-365 has asked the coordinator to rule for all three; POD-367 is
+  holding on the same tie. Reaching into a sibling's worktree is exactly what the one-owner rule
+  forbids, so this waits on the ruling rather than routing around it.
 
 ## 6. Evidence
 

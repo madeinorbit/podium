@@ -34,21 +34,45 @@
  *      the schema accept a bundle no importer can resume. Recorded as a
  *      DECISION here (POD-364 §6.4 asked for one), not an accident of copying.
  *
- * WHAT IT PICKS from the shared field schemas: session identity
- * (`sessionId`, `agentKind`, `resume`, `title`, `issueId`), the issue-workspace
- * subset (`branch`, `worktreeName`, `worktreeRelativePath`, `cwdSubpath`,
- * `repoId`), and attribution (`exportedAt`, `sourceMachineId`, plus the
- * actor / on-behalf-of pair). Bundle-local and legitimately not shared:
- * `format`, `transcriptFilename`, `transcriptRelativeDir`, `headSha`,
- * `snapshotSha`, `snapshotFlattened`, `bundleBase`.
+ * WHAT IT PICKS from the shared field schemas — resolved against POD-365's
+ * landed group names (69d1cfc6 / ce014033), which is why this list is more
+ * specific than POD-364 §6.4's sketch:
  *
- * > **COMPOSITION STATUS (POD-643).** The `Pick` set above is DECIDED and is
- * > this file's contract, but it is not yet expressed as code: the shared
- * > session field groups and the single `Attribution` schema are POD-365's, and
- * > forking a second definition here to look composed would defeat the entire
- * > point of POD-302. Until POD-365 lands, these fields stay hand-written and
- * > the key set is LOCKED by `handoff.test.ts` so the list cannot drift further
- * > while it waits. Zero new hand-restated fields were added here.
+ *   - Session groups — `sessionId`, `agentKind`, `resume`, `title`, `issueId`.
+ *     `agentKind` narrows via `SessionIdentity.omit({agentKind: true})
+ *     .extend({agentKind: z.enum(['claude-code','codex'])})`; the group is a
+ *     plain `z.object`, so the narrowing is expressible rather than a fork.
+ *     `resume` composes `SessionResume`, which carries the SAME `ResumeRef`
+ *     this file already imports — re-exported from `fields/session.ts` so a
+ *     consumer gets it from one import instead of reaching into `entities/`.
+ *   - `repoId` from **`IssueIdentity`**, not from `IssueWorkspace`.
+ *   - `branch` from **`IssueWorkspace`** (`{worktreePath, branch, parentBranch,
+ *     machineId}`).
+ *   - Attribution from the single `Attribution` schema — `{actor: ActorRef,
+ *     onBehalfOf: UserIdField.nullable()}` — plus `Ownership` (`{owner,
+ *     visibility}`) for the owner half. `onBehalfOf` is NULLABLE, not optional,
+ *     and that distinction is load-bearing: `null` is a representable "no human
+ *     behind this" for the machine and system arms, while ABSENT would mean
+ *     "nobody threaded it". Those are different facts.
+ *
+ * Bundle-local, and confirmed by POD-365 as defined nowhere in the shared set:
+ * `format`, `transcriptFilename`, `transcriptRelativeDir`, `headSha`,
+ * `snapshotSha`, `snapshotFlattened`, `bundleBase` — facts about a packaged git
+ * state, with no meaning on a live session. `worktreeName`,
+ * `worktreeRelativePath` and `cwdSubpath` join them: they are NOT members of
+ * `IssueWorkspace`, and they are bundle-local path facts in the same sense.
+ *
+ * > **COMPOSITION STATUS (POD-643).** The `Pick` set above is DECIDED, is this
+ * > file's contract, and its target schemas now EXIST — POD-365 landed them —
+ * > but it is not yet expressed as code, because writing it requires POD-365's
+ * > commits on this branch and the coordinator owns that merge (it instructed
+ * > all three 1.4 siblings not to merge or rebase onto each other; POD-365 asked
+ * > it to rule, and POD-367 is holding on the same tie). Forking a second
+ * > definition here to look composed would defeat the entire point of POD-302,
+ * > and reaching into a sibling's worktree is what the one-owner rule forbids.
+ * > So these fields stay hand-written, the key set is LOCKED by
+ * > `handoff.test.ts` so the list cannot drift while it waits, and the remaining
+ * > change is mechanical. Zero new hand-restated fields were added here.
  *
  * ===========================================================================
  * OWNERSHIP, VISIBILITY AND THE ONE THING THAT MUST NEVER BE IN A BUNDLE
