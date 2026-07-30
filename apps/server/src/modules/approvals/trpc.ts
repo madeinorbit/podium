@@ -27,7 +27,7 @@ export type ApprovalProcedures = FamilyProcedures<
 export const approvalFamilyProcedures = (): ApprovalProcedures =>
   derivedFamilyProcedures({
     family: 'approvals',
-    service: (modules) => modules.approvals,
+    service: (state) => state.modules.approvals,
     commands: APPROVAL_COMMANDS_TRPC,
     queries: APPROVAL_QUERIES,
   })

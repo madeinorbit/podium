@@ -56,7 +56,7 @@ const query = <In extends z.ZodTypeAny, Out>(
  * anything, and a strict object would start refusing extra keys that shipped
  * clients may already send — a wire change wearing a tidy-up's clothes.
  */
-const noInput = z.object({}).passthrough()
+const noInput = z.object({}).passthrough().optional()
 
 export const APPROVAL_QUERIES = {
   /** The operator decision surface's queue: every request still awaiting an

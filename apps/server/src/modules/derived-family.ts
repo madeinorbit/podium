@@ -60,7 +60,32 @@ import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { RegistryModules } from '../relay'
+import type { RepoRegistry } from '../repo-registry'
 import { mods, t } from '../trpc'
+
+/**
+ * THE STATE A FAMILY MAY SELECT FROM — the whole of it, and deliberately a
+ * closed list rather than the request context.
+ *
+ * `modules` is the composed service seam. `repos` is the repo registry, which is
+ * ALSO a singleton service (`new RepoRegistry(registry, store)`, built once at
+ * assembly and put on every context) that simply never made it onto
+ * `RegistryModules`. Two families here — `files` and `hosts` — need it for the
+ * repo-root allowlist, and the honest options were to widen `RegistryModules`
+ * for everyone or to name it here. Naming it here is the smaller claim: it does
+ * not change the seam eight other issues depend on, and it keeps the property
+ * that matters, which is that a handler is handed STATE and never a `ctx`.
+ *
+ * What is NOT on this bundle is the point of it. There is no `capability`, no
+ * `overrideScope`, no `registry` — so a handler built through this file cannot
+ * make an authorization decision even by accident, and cannot reach
+ * `ctx.registry.sessionStore` because it has no `ctx` to reach through.
+ * Authorization is the contract's and the service's; this bundle is state.
+ */
+export interface FamilyState {
+  readonly modules: RegistryModules
+  readonly repos: RepoRegistry
+}
 
 // ---------------------------------------------------------------------------
 // What a family declares
@@ -163,9 +188,12 @@ export interface DerivedFamily<
   Q extends Record<string, AnyDerivedQuery>,
 > {
   readonly family: string
-  /** THE ONE READ OF THE MODULE SEAM for every family built through here, and the
-   *  ONLY place the service type is pinned — see the note on `AnyDerivedCommand`. */
-  readonly service: (modules: RegistryModules) => Svc
+  /** THE ONE READ OF THE STATE SEAM for every family built through here, and the
+   *  ONLY place the service type is pinned — see the note on `AnyDerivedCommand`.
+   *  Most families select a single service (`(s) => s.modules.approvals`); the two
+   *  that genuinely need a second return a small record naming exactly what they
+   *  use, so the widening is visible in the family rather than in this file. */
+  readonly service: (state: FamilyState) => Svc
   readonly commands: C
   readonly queries: Q
 }
@@ -258,14 +286,18 @@ export function derivedFamilyProcedures<
       // the handler, and the handler never sees a ctx. `input` is erased at this
       // point because the table is heterogeneous — each pairing is checked where
       // it is declared, and re-derived for the client by `MutationProcedures`.
-      .mutation(({ ctx, input }) => command.handler(spec.service(mods(ctx)), input))
+      .mutation(({ ctx, input }) =>
+        command.handler(spec.service({ modules: mods(ctx), repos: ctx.repos }), input),
+      )
   }
 
   for (const [name, query] of Object.entries(spec.queries)) {
     if (!query.exposure.includes('trpc')) continue
     built[name] = t.procedure
       .input(query.input)
-      .query(({ ctx, input }) => query.run(spec.service(mods(ctx)), input))
+      .query(({ ctx, input }) =>
+        query.run(spec.service({ modules: mods(ctx), repos: ctx.repos }), input),
+      )
   }
 
   assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)

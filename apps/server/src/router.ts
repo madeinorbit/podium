@@ -52,10 +52,15 @@ import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
+import { conversationFamilyProcedures } from './modules/conversations/trpc'
+import { fileFamilyProcedures } from './modules/files/trpc'
+import { hostFamilyProcedures } from './modules/hosts/trpc'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
+import { modelFamilyProcedures } from './modules/models/trpc'
+import { perfFamilyProcedures } from './modules/perf/trpc'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
@@ -535,29 +540,12 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => ctx.superagent.history(input.threadId)),
     ...superagentFamily,
   }),
-  conversations: t.router({
-    // Keyword search over the durable index (FTS5 where available). Empty query
-    // browses by recency. projectPath narrows to a repo/worktree subtree.
-    search: t.procedure
-      .input(
-        z.object({
-          query: z.string().optional(),
-          projectPath: z.string().optional(),
-          limit: z.number().int().positive().max(200).optional(),
-        }),
-      )
-      .query(({ ctx, input }) => mods(ctx).conversations.searchConversations(input)),
-    // Curation written by the command center (user rename / work-LLM summary).
-    setMeta: t.procedure
-      .input(
-        z.object({
-          id: z.string(),
-          name: z.string().max(200).optional(),
-          summary: z.string().max(2000).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => mods(ctx).conversations.setConversationMeta(input)),
-  }),
+  /**
+   * THE CONVERSATION SURFACE IS DERIVED (POD-314) — `setMeta` from its contract,
+   * `search` from the query table. Keyword search over the durable index (FTS5
+   * where available); curation written by the command center.
+   */
+  conversations: t.router(conversationFamilyProcedures()),
   search: t.router({
     // Omni-search (docs/spec/search-v1.md §2.4): one ranked, typed result list
     // across transcripts/issues/conversations/sessions/settings. Wire shape:
@@ -612,39 +600,13 @@ export const appRouter = t.router({
       .input(z.object({ setupId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
   }),
-  // Switch-latency instrumentation [POD-701]: rolling server-side timings
-  // (every rpc via the trpc.ts middleware + named internal phases) and the
-  // client switch-trace ring. Always on; snapshot/reset are diagnostics.
-  perf: t.router({
-    snapshot: t.procedure.query(({ ctx }) => mods(ctx).perf.snapshot()),
-    report: t.procedure.input(clientSwitchTraceSchema).mutation(({ ctx, input }) => {
-      mods(ctx).perf.pushClientTrace(input)
-      // Live visibility: one compact line per reported switch, with the three
-      // slowest gaps between consecutive marks (offsets are relative to t0).
-      const marks = [...input.marks].sort((a, b) => a.atMs - b.atMs)
-      const gaps: { name: string; ms: number }[] = []
-      let prevAt = 0
-      for (const m of marks) {
-        gaps.push({ name: m.name, ms: m.atMs - prevAt })
-        prevAt = m.atMs
-      }
-      const slowest = gaps
-        .sort((a, b) => b.ms - a.ms)
-        .slice(0, 3)
-        .map((g) => `${g.name}+${Math.round(g.ms)}ms`)
-        .join(' ')
-      console.log(
-        `[perf] switch ${input.sessionId.slice(0, 8)} mode=${input.mode} cold=${input.cold} ` +
-          `total=${Math.round(input.totalMs)}ms${input.timedOut ? ' TIMEOUT' : ''}` +
-          (slowest ? ` slowest: ${slowest}` : ''),
-      )
-      return { ok: true as const }
-    }),
-    reset: t.procedure.mutation(({ ctx }) => {
-      mods(ctx).perf.reset()
-      return { ok: true as const }
-    }),
-  }),
+  /**
+   * THE PERF SURFACE IS DERIVED (POD-314) — switch-latency instrumentation
+   * [POD-701]: rolling server-side timings (every rpc via the trpc.ts middleware
+   * plus named internal phases) and the client switch-trace ring. Always on;
+   * `snapshot`/`reset` are diagnostics.
+   */
+  perf: t.router(perfFamilyProcedures()),
   // Experimental feature flags [spec:SP-f4b9] — same auth as settings.get.
   features: t.router({
     state: t.procedure.query(({ ctx }) =>
@@ -787,45 +749,22 @@ export const appRouter = t.router({
     // machine. Distinct from `usage`, transcript-harvested token-cost analytics.
     summary: t.procedure.query(({ ctx }) => mods(ctx).rpc.agentQuotaAll()),
   }),
-  models: t.router({
-    // Live per-agent model lists (grok/cursor/opencode `models`). Stale-while-
-    // revalidate: `catalog` returns instantly (cached, possibly empty on first ever
-    // call) and refreshes in the background; the web merges these over its static
-    // catalog and re-reads on the next open. `refresh` forces + awaits a fresh probe.
-    catalog: t.procedure.query(({ ctx }) => mods(ctx).settings.getModelCatalog()),
-    refresh: t.procedure.mutation(({ ctx }) => mods(ctx).settings.refreshModelCatalog()),
-  }),
-  hosts: t.router({
-    // Who owns the used memory right now. Roots are derived server-side — the
-    // registered repos plus their worktrees (worktrees often live OUTSIDE the
-    // repo path as siblings, so the repo path alone would miss their dev servers).
-    memoryBreakdown: t.procedure
-      .input(z.object({ machineId: z.string().optional() }).optional())
-      .mutation(async ({ ctx, input }) => {
-        const machineId = input?.machineId
-        // Roots are derived server-side — the target machine's registered repos
-        // plus their worktrees (worktrees often live OUTSIDE the repo path as
-        // siblings, so the repo path alone would miss their dev servers). Scoping
-        // to the clicked machine's repos keeps foreign paths out of its /proc walk.
-        const repoPaths = ctx.repos.list(machineId)
-        const { repositories } = await ctx.registry.modules.rpc.scanRepos(
-          repoPaths,
-          { includeHome: false, maxDepth: 0 },
-          machineId ?? undefined,
-        )
-        const roots = [
-          ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
-        ]
-        const breakdown = await mods(ctx).hosts.memoryBreakdown(roots, machineId)
-        if (!breakdown) {
-          throw new TRPCError({
-            code: 'TIMEOUT',
-            message: 'no daemon answered the memory breakdown request',
-          })
-        }
-        return breakdown
-      }),
-  }),
+  /**
+   * THE MODEL SURFACE IS DERIVED (POD-314) — live per-agent model lists
+   * (grok/cursor/opencode `models`). Stale-while-revalidate: `catalog` returns
+   * instantly from cache and refreshes in the background, `refresh` forces and
+   * awaits a fresh probe. Both reach SettingsService, which has always owned the
+   * catalog — see modules/models/registry.ts for why the keys differ.
+   */
+  models: t.router(modelFamilyProcedures()),
+  /**
+   * THE HOST SURFACE IS DERIVED (POD-314) — who owns the used memory right now.
+   * Roots are derived SERVER-SIDE from the target machine's registered repos plus
+   * their worktrees (worktrees often live OUTSIDE the repo path as siblings, so
+   * the repo path alone would miss their dev servers), which is why the command
+   * cannot be pointed at an arbitrary path.
+   */
+  hosts: t.router(hostFamilyProcedures()),
   discovery: t.router({
     // CONVERSATION discovery, not repo discovery — `rpc.scan()` returns
     // `{ conversations, diagnostics }`. It shares this router's name and nothing
@@ -1065,69 +1004,14 @@ export const appRouter = t.router({
         return mods(ctx).rpc.repoOp('diffFile', input.root, { path: input.path }, input.machineId)
       }),
   }),
-  files: t.router({
-    read: t.procedure
-      .input(
-        z.union([
-          z.object({ sessionId: SessionIdField, path: z.string() }),
-          z.object({ issueId: IssueIdField, artifactId: ArtifactIdField, path: z.string() }),
-          z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
-        ]),
-      )
-      .query(async ({ ctx, input }): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> => {
-        // Artifact snapshots ([spec:SP-0fc9] #441) serve from the server-local
-        // store — no daemon round-trip, no root allowlist (there is no root),
-        // and no baseHash (snapshots are immutable, writes are rejected).
-        if ('artifactId' in input) {
-          const r = await mods(ctx).issueArtifacts.read(input.issueId, input.artifactId, input.path)
-          return r
-            ? { ok: true, path: input.path, content: r.bytes.toString('utf8') }
-            : { ok: false, path: input.path, error: 'artifact file not found' }
-        }
-        if ('root' in input && !isAllowedRoot(ctx.repos.list(), input.root)) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
-        }
-        return mods(ctx).rpc.readFile(input)
-      }),
-    write: t.procedure
-      .input(
-        z.union([
-          z.object({
-            sessionId: SessionIdField,
-            path: z.string(),
-            content: z.string(),
-            baseHash: z.string().optional(),
-          }),
-          z.object({
-            machineId: z.string().optional(),
-            root: z.string(),
-            path: z.string(),
-            content: z.string(),
-            baseHash: z.string().optional(),
-          }),
-        ]),
-      )
-      .mutation(({ ctx, input }) => {
-        if ('root' in input && !isAllowedRoot(ctx.repos.list(), input.root)) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
-        }
-        return mods(ctx).rpc.writeFile(input)
-      }),
-    list: t.procedure
-      .input(
-        z.object({
-          machineId: z.string().optional(),
-          root: z.string(),
-          path: z.string().optional(),
-        }),
-      )
-      .query(({ ctx, input }) => {
-        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
-        }
-        return mods(ctx).rpc.listDir(input)
-      }),
-  }),
+  /**
+   * THE FILE SURFACE IS DERIVED (POD-314) — `write` from its contract, `read` and
+   * `list` from the query table. All three run the SAME repo-root allowlist,
+   * shared from modules/files/registry.ts so they cannot drift into three notions
+   * of "an allowed root"; artifact snapshots ([spec:SP-0fc9] #441) serve from the
+   * server-local store with no root and no daemon round-trip.
+   */
+  files: t.router(fileFamilyProcedures()),
   // pspec — the living spec tree in <repo>/pspec/ (modules/specs over
   // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
   // (reads/writes on the server host). The repo-root allowlist gate lives in

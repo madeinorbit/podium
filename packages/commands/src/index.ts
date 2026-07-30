@@ -85,6 +85,20 @@ export {
   type VisibilityClass,
 } from './contract'
 export {
+  CONVERSATION_CONTRACT_NAMES,
+  CONVERSATION_CONTRACTS,
+  type ConversationContractName,
+  conversationsSetMetaContract,
+  conversationsSetMetaInput,
+} from './conversations/contracts'
+export {
+  FILE_CONTRACT_NAMES,
+  FILE_CONTRACTS,
+  type FileContractName,
+  filesWriteContract,
+  filesWriteInput,
+} from './files/contracts'
+export {
   discoveryRefreshReposContract,
   discoveryRefreshReposInput,
   discoveryScanFolderContract,
@@ -132,6 +146,13 @@ export {
   type PolicyResource,
   type PolicyScope,
 } from './framework'
+export {
+  HOST_CONTRACT_NAMES,
+  HOST_CONTRACTS,
+  type HostContractName,
+  hostsMemoryBreakdownContract,
+  hostsMemoryBreakdownInput,
+} from './hosts/contracts'
 export {
   ADDITIVE_POLICY,
   CREATES_NOTHING,
@@ -204,11 +225,27 @@ export {
   senderLabel,
 } from './mail/principal'
 export {
+  MODEL_CONTRACT_NAMES,
+  MODEL_CONTRACTS,
+  type ModelContractName,
+  modelsRefreshContract,
+  modelsRefreshInput,
+} from './models/contracts'
+export {
   MUTATION_RESULT_KINDS,
   MutationEnvelope,
   MutationResult,
   type MutationResultKind,
 } from './mutations'
+export {
+  PERF_CONTRACT_NAMES,
+  PERF_CONTRACTS,
+  type PerfContractName,
+  perfReportContract,
+  perfReportInput,
+  perfResetContract,
+  perfResetInput,
+} from './perf/contracts'
 export * from './sessions/command-plane'
 export {
   EXPORTABLE_HARNESSES,
