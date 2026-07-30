@@ -462,7 +462,7 @@ export interface MessageRow {
   /** When status reached `delivered` — the transcript echo, NOT the enqueue. */
   deliveredAt: string | null
   /** The session that actually received it (set on inject; confirmed at delivered). */
-  deliveredTo: string | null
+  deliveredTo: SessionId | null
   /** When status reached `read` — the recipient opened its inbox (PULL path). */
   readAt?: string | null
   /** When the message was last dispatched toward a live PTY (bytes typed). An
@@ -572,7 +572,7 @@ export interface SuperagentThreadRow {
    *  turns keep the same agent even if the settings default changes. */
   agentKind?: string
   /** The Podium headless session rendering this thread (concierge unification). */
-  podiumSessionId?: string
+  podiumSessionId?: SessionId
   /** The harness's own session id — the resume value for every later turn. */
   harnessSessionId?: string
   /** PTY session holding the "open in terminal" one-writer lock; sendTurn
@@ -588,7 +588,7 @@ export interface SuperagentThreadRow {
 export interface PendingSuperagentTurnRow {
   turnId: string
   threadId: string
-  podiumSessionId: string
+  podiumSessionId: SessionId
   payload: {
     agent: string
     model?: string
@@ -617,8 +617,8 @@ export interface QueuedSuperagentInputRow {
     view?: string
     worktreePath?: string
     issueId?: string
-    focusedSessionId?: string
-    visibleSessionIds?: string[]
+    focusedSessionId?: SessionId
+    visibleSessionIds?: SessionId[]
     filePath?: string
   }
   createdAt: string

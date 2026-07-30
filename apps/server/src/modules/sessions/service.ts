@@ -343,7 +343,7 @@ export class SessionsService {
    * survives a server restart and a full web reload with no other client holding it
    * (issue #34). Hydrated from the store at boot in loadFromStore().
    */
-  private draftBySession = new Map<string, string>()
+  private draftBySession = new Map<SessionId, string>()
   /** Per-session title debouncers — drop transient spinner titles, coalesce bursts. */
   private readonly titleDebouncers = new Map<string, ReturnType<typeof makeTitleDebouncer>>()
   // Pending debounced draft persists, keyed by sessionId — one timer per session

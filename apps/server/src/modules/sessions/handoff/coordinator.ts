@@ -57,6 +57,7 @@
 
 import { basename } from 'node:path'
 import { capabilityAttribution, HandoffManifestV1 } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { agentSupportsHandoff } from '@podium/protocol'
 import type { Session } from '../session'
 import { transferHandoffPackage, verifiedBundleBases, verifiedCommonBundleBases } from '../handoff-transfer'

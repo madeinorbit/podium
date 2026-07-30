@@ -554,7 +554,7 @@ export class SessionsRepository {
   // every keystroke, while a SessionRow is rewritten on every meta change — sharing
   // a row would make either write clobber the other. The registry debounces the
   // writes here (see relay.ts) so SQLite isn't hit per keystroke.
-  loadDrafts(): Record<string, string> {
+  loadDrafts(): Record<SessionId, string> {
     const rows = this.db.prepare('SELECT session_id, text FROM session_drafts').all() as {
       session_id: string
       text: string
@@ -635,7 +635,7 @@ export class SessionsRepository {
   /** All persisted draft docs, keyed by session. Legacy rows (or a DB where the
    *  versioning migration has not applied) read back with `rev: 0`, `origin: null`,
    *  and an empty history. */
-  loadDraftDocs(): Record<string, StoredDraftDoc> {
+  loadDraftDocs(): Record<SessionId, StoredDraftDoc> {
     const versioned = this.versionedDraftColumns()
     const sql = versioned
       ? 'SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts'

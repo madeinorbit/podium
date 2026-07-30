@@ -150,7 +150,7 @@ export function attributionOf(principal: CommandPrincipal): CommandAttribution {
 export interface DelegationIndex {
   /** The session that spawned this one, if it was spawned by another session.
    *  Today's provenance vocabulary is `spawnedBy: 'session:<id>'`. */
-  parentSessionOf(sessionId: SessionId): string | undefined
+  parentSessionOf(sessionId: SessionId): SessionId | undefined
   /** The human a root agent session was spawned for. Absent ⇒ the instance's
    *  one account, which is the only answer available before POD-1075. */
   onBehalfOfFor?(sessionId: SessionId): UserId | undefined
@@ -177,7 +177,7 @@ export function resolvePrincipal(
     return { kind: 'user', user: INSTANCE_OWNER, capability }
   }
   const chain: string[] = []
-  let cursor: string | undefined = delegations.parentSessionOf(actorSessionId)
+  let cursor: SessionId | undefined = delegations.parentSessionOf(actorSessionId)
   while (cursor !== undefined && chain.length < MAX_CHAIN_DEPTH) {
     if (cursor === actorSessionId || chain.includes(cursor)) break
     chain.push(cursor)

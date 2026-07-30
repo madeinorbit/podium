@@ -28,7 +28,7 @@ function isRetryableErrored(s: AgentRuntimeState | undefined): boolean {
 export class AutoContinueController {
   /** sessionId → live loop. `attempt` drives backoff; `timer` is the pending tick. */
   private readonly loops = new Map<
-    string,
+    SessionId,
     { attempt: number; timer: ReturnType<typeof setTimeout> | undefined }
   >()
 
@@ -62,7 +62,7 @@ export class AutoContinueController {
 
   /** Master switch flipped. On enable, arm any already-errored live sessions; on
    *  disable, cancel every running loop. */
-  onSettingsChanged(enabled: boolean, retryableErroredLiveIds: string[]): void {
+  onSettingsChanged(enabled: boolean, retryableErroredLiveIds: SessionId[]): void {
     if (!enabled) {
       this.stopAll()
       return

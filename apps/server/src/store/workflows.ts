@@ -35,7 +35,7 @@ export interface WorkflowRunRow {
   id: string
   subjectKind: 'issue' | 'session'
   subjectId: string
-  coordinatorSessionId: string
+  coordinatorSessionId: SessionId
   revisionId: string
   status: WorkflowRunStatus
   supersedesRunId: string | null
@@ -121,7 +121,8 @@ function toRun(row: Raw): WorkflowRunRow {
     id: text(row.id),
     subjectKind: row.subject_kind as 'issue' | 'session',
     subjectId: text(row.subject_id),
-    coordinatorSessionId: text(row.coordinator_session_id),
+    // SERIALIZATION EDGE: an untyped column re-entering the session id space.
+    coordinatorSessionId: text(row.coordinator_session_id) as SessionId,
     revisionId: text(row.revision_id),
     status: row.status as WorkflowRunStatus,
     supersedesRunId: nullableText(row.supersedes_run_id),

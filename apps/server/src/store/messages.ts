@@ -47,7 +47,8 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     createdAt: r.created_at as string,
     status: r.status as MessageStatus,
     deliveredAt: (r.delivered_at as string | null) ?? null,
-    deliveredTo: (r.delivered_to as string | null) ?? null,
+    // SERIALIZATION EDGE: an untyped column re-entering the session id space.
+    deliveredTo: (r.delivered_to as SessionId | null) ?? null,
     readAt: (r.read_at as string | null) ?? null,
     injectedAt: (r.injected_at as string | null) ?? null,
     deadLetteredAt: (r.dead_lettered_at as string | null) ?? null,
@@ -287,7 +288,7 @@ export class MessagesRepository {
    *  the old "mark delivered on enqueue" lie — `delivered` is now reserved for a
    *  transcript echo. A queued row that was injected but never echoed within the
    *  window is auto-requeued (clearInjected). Guarded on status='queued'. */
-  markInjected(id: string, deliveredTo: string | null, injectedAt: string): boolean {
+  markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): boolean {
     const r = this.db
       .prepare(
         `UPDATE messages SET injected_at = ?, delivered_to = ?

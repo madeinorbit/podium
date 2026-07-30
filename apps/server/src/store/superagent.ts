@@ -4,6 +4,7 @@
  * 'concierge' intake threads).
  */
 
+import type { SessionId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -96,7 +97,7 @@ export class SuperagentRepository {
   upsertSuperagentThread(t: {
     id: string
     kind: 'global' | 'btw' | 'concierge'
-    originSessionId?: string
+    originSessionId?: SessionId
     repoPath?: string
     title?: string
   }): void {
@@ -135,7 +136,7 @@ export class SuperagentRepository {
       agentKind?: string
       // null clears the binding — used on a harness switch to force a fresh
       // session on the next turn (#199).
-      podiumSessionId?: string | null
+      podiumSessionId?: SessionId | null
       harnessSessionId?: string | null
       terminalSessionId?: string | null
     },
@@ -252,7 +253,7 @@ export class SuperagentRepository {
       return {
         turnId,
         threadId: row.thread_id as string,
-        podiumSessionId: row.podium_session_id as string,
+        podiumSessionId: row.podium_session_id as SessionId,
         payload,
         firstTurn: Boolean(row.first_turn),
         createdAt: row.created_at as string,
@@ -268,13 +269,13 @@ export class SuperagentRepository {
     return {
       id: r.id as string,
       kind: r.kind as 'global' | 'btw' | 'concierge',
-      originSessionId: (r.origin_session_id as string | null) ?? undefined,
+      originSessionId: (r.origin_session_id as SessionId | null) ?? undefined,
       repoPath: (r.repo_path as string | null) ?? undefined,
       title: (r.title as string | null) ?? undefined,
       watermarkItemId: (r.watermark_item_id as string | null) ?? undefined,
       watermarkTs: (r.watermark_ts as string | null) ?? undefined,
       agentKind: (r.agent_kind as string | null) ?? undefined,
-      podiumSessionId: (r.podium_session_id as string | null) ?? undefined,
+      podiumSessionId: (r.podium_session_id as SessionId | null) ?? undefined,
       harnessSessionId: (r.harness_session_id as string | null) ?? undefined,
       terminalSessionId: (r.terminal_session_id as string | null) ?? undefined,
       createdAt: r.created_at as string,

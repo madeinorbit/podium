@@ -173,7 +173,7 @@ export class SuperagentService {
   private readonly dispatchedTurnIds = new Set<string>()
   private readonly preparingInputs = new Map<
     string,
-    Promise<{ threadId: string; podiumSessionId: string }>
+    Promise<{ threadId: string; podiumSessionId: SessionId }>
   >()
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
@@ -372,7 +372,7 @@ export class SuperagentService {
     text: string
     /** What the sending client has on screen (#225) — prepended to every turn. */
     focus?: UserFocusInput
-  }): Promise<{ threadId: string; podiumSessionId: string }> {
+  }): Promise<{ threadId: string; podiumSessionId: SessionId }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -400,7 +400,7 @@ export class SuperagentService {
   private prepareQueuedInput(
     queued: QueuedSuperagentInputRow,
     allowWithoutMcp = false,
-  ): Promise<{ threadId: string; podiumSessionId: string }> {
+  ): Promise<{ threadId: string; podiumSessionId: SessionId }> {
     const existing = this.preparingInputs.get(queued.inputId)
     if (existing) return existing
     const preparing = this.prepareQueuedInputInner(queued, allowWithoutMcp).finally(() => {
@@ -413,7 +413,7 @@ export class SuperagentService {
   private async prepareQueuedInputInner(
     queued: QueuedSuperagentInputRow,
     allowWithoutMcp: boolean,
-  ): Promise<{ threadId: string; podiumSessionId: string }> {
+  ): Promise<{ threadId: string; podiumSessionId: SessionId }> {
     const { inputId, threadId, text, focus } = queued
     let thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
@@ -715,7 +715,7 @@ export class SuperagentService {
     repoPath: string
     text: string
     focus?: UserFocusInput
-  }): Promise<{ threadId: string; podiumSessionId: string; isNew: boolean }> {
+  }): Promise<{ threadId: string; podiumSessionId: SessionId; isNew: boolean }> {
     if (!this.repos.list().includes(repoPath)) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }

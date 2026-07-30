@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { asSessionId } from '@podium/model'
-import type { AgentKind, Geometry, HarnessAgent, ResumeRef } from '@podium/model'
+import type { AgentKind, Geometry, HarnessAgent, ResumeRef, SessionId } from '@podium/model'
 import type {
   ControlMessage,
   DaemonMessage,

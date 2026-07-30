@@ -75,7 +75,7 @@ export interface ClientConn {
    * viewport in `hello` is only a transport bootstrap default. Sharing one
    * viewport across sessions can resize the foreground PTY from another pane. */
   viewports: Map<string, Geometry>
-  attached: Set<string>
+  attached: Set<SessionId>
   /** Feature caps from the client's `hello` (e.g. CAP_METADATA_DELTA). Empty until
    *  hello arrives, so a pre-hello client is treated as legacy — it receives
    *  snapshot broadcasts, never deltas it hasn't asked for. */
@@ -87,7 +87,7 @@ export interface ClientConn {
   /** Page-visibility presence — drives smart notification routing. */
   visible: boolean
   /** Sessions this client currently RENDERS on screen (from viewState). */
-  viewVisible: Set<string>
+  viewVisible: Set<SessionId>
   /** The one session that has input focus on this client, or null. */
   focused: string | null
   /** Per-session rendered mode (native terminal vs chat) this client reports for the

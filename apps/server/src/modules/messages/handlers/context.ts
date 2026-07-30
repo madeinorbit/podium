@@ -21,7 +21,7 @@
  *    delegation — and neither half is reachable from payload.
  */
 
-import type { SessionId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import {
   type AddressResolution,
   type HumanCeiling,
@@ -209,7 +209,7 @@ export class MailAccess {
 
   wire(m: MessageRow): MessageWire {
     const issues = this.deps.issues()
-    const label = (kind: string, issueId: string | null, sessionId: SessionId | null): string => {
+    const label = (kind: string, issueId: IssueId | null, sessionId: SessionId | null): string => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
           const issue = issues.getMeta(issueId)
