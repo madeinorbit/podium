@@ -4,79 +4,44 @@
  * served to BOTH the daemon relay (agent capability) and the tRPC router
  * (operator). Sender identity is stamped from the capability — client input
  * never contributes sender fields (mailIdentity pattern).
+ *
+ * POD-728 split this file along ADR 3 D1's line. The five agent-mail mutations
+ * (`send`, `reply`, `spawnAgent`, `awaitAgent`, `inbox`) plus the `ledger` query
+ * are now CONTRACT + HANDLER pairs: the contracts are L1 data in
+ * `@podium/commands`, the handlers are in `./handlers`, and `./registry.ts`
+ * joins them. What is left here is the shipped hand-written remainder
+ * (`show`, `dismiss`, `status`, `pendingReminders`, `ask`), which POD-729 cuts
+ * over and deletes.
+ *
+ * The two structural properties the migration preserves, deliberately:
+ *  - ONE authz path. Both transports dispatch through this class into the same
+ *    `MailAccess`; the relay arm and the tRPC arm share it verbatim.
+ *  - Sender identity from the capability, never from payload (ADR 3 D7 / the
+ *    mailIdentity pattern) — `senderFromCapability` is still the single site.
  */
 
+import { type HumanCeiling, SINGLE_USER_CEILING } from '@podium/commands'
 import type { SessionMeta } from '@podium/model'
-import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
 import { z } from 'zod'
-import { type Capability, checkIssueAccess } from '../../issue-authz'
+import type { Capability } from '../../issue-authz'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
-import { type MessageDeliveryService, SPAWN_BUDGET_PER_DAY, senderFromCapability } from './service'
+import {
+  type MachineAccess,
+  MailAccess,
+  type MailHandlerContext,
+  SINGLE_USER_MACHINE_ACCESS,
+} from './handlers/context'
+import { dispatchMailCommand, isMailProc } from './registry'
+import { type MessageDeliveryService, senderFromCapability } from './service'
 
-const sendInput = z.object({
-  to: z.string().min(1),
-  body: z.string().min(1).max(32_768),
-  urgency: z.enum(['fyi', 'next-turn', 'interrupt']).optional(),
-  lifecycle: z.enum(['wait', 'wake']).optional(),
-  /** Opt into a reply [POD-835 §04b]: `--expect-response`. Off = receipt-only, no
-   *  ack traffic (receipt is proven by the ledger). A `question` implies it. */
-  expectResponse: z.boolean().optional(),
-  /** Explicit absolute expiry (ISO-8601). CLI `--expires-in` converts a duration. */
-  expiresAt: z.string().datetime().optional(),
-})
-const inboxInput = z.object({ issue: z.string().optional() }).optional()
 const showInput = z.object({ id: z.string() })
 const dismissInput = z.object({ id: z.string() })
-// The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
-// delivery ledger. Operator-only — it exposes other principals' traffic.
-const ledgerInput = z.object({
-  issueId: z.string().optional(),
-  sessionId: z.string().optional(),
-  limit: z.number().int().min(1).max(500).optional(),
-})
-const replyInput = z.object({
-  id: z.string(),
-  body: z.string().min(1).max(32_768),
-  kind: z.enum(['ack', 'message']).optional(),
-})
 // Sender-queryable lifecycle (#834 [POD-834 §04d]): "what happened to the
 // message I sent?" — reachable by the sender/recipient (not operator-only like
 // the ledger), so an agent can pull delivered/read/dead_letter after a
 // synchronous send returned at queued.
 const statusInput = z.object({ id: z.string() })
-// Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]. The child
-// is a FULL Podium session (real PTY, human-attachable) spawned through the
-// existing session machinery; `newTitle` is the DELIBERATE `--new` issue-create
-// path — an issue is never auto-created when `issue` is supplied. The workflow
-// fields are #285 metadata; an execution profile is resolved server-side.
-// `title` is the spawner-prescribed child session name [spec:SP-4ef9][spec:SP-eb60]
-// (CLI `--title`); it lands in the curated `name` slot, not the derived title.
-const spawnAgentInput = z.object({
-  issue: z.string().optional(),
-  newTitle: z.string().min(1).optional(),
-  /** Repo for --new when the caller has no issue scope to inherit from. */
-  repo: z.string().optional(),
-  harness: z.string().optional(),
-  prompt: z.string().min(1).max(32_768),
-  worktree: z.boolean().optional(),
-  model: z.string().optional(),
-  effort: z.string().optional(),
-  /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
-  force: z.boolean().optional(),
-  /** Spawner-prescribed child session name (CLI `--title`). Cap is
-   *  MAX_AGENT_TITLE_LENGTH from @podium/protocol; createSession re-validates. */
-  title: z.string().min(1).max(MAX_AGENT_TITLE_LENGTH).optional(),
-  workflowRunId: z.string().max(256).optional(),
-  workflowStepId: z.string().max(256).optional(),
-  executionProfileId: z.string().max(256).optional(),
-})
-// Bounded parent wait [spec:SP-34d7 cross-harness]: ALWAYS returns — the
-// child's ack/settle result, or "still working" + a status snapshot at timeout.
-const awaitAgentInput = z.object({
-  sessionId: z.string(),
-  timeoutSeconds: z.number().min(0).max(300).optional(),
-})
 // The seance [spec:SP-34d7 read-toolkit tier 4]: a `question` message
 // (next-turn + wake, ack expected) + a bounded wait for the answer. Not a new
 // mechanism — it rides the send pipeline, so the clamp matrix, wake cooldown
@@ -186,7 +151,20 @@ export interface MessageWire {
 }
 
 export class MessageGate {
-  constructor(private readonly deps: MessageGateDeps) {}
+  /** The shared authz + projection arithmetic (L3), also handed to every joined
+   *  handler so there is exactly ONE authz path rather than one per command. */
+  private readonly access: MailAccess
+
+  constructor(
+    private readonly deps: MessageGateDeps,
+    opts?: { ceiling?: HumanCeiling; machines?: MachineAccess },
+  ) {
+    this.access = new MailAccess(
+      deps,
+      opts?.ceiling ?? SINGLE_USER_CEILING,
+      opts?.machines ?? SINGLE_USER_MACHINE_ACCESS,
+    )
+  }
 
   /** Undefined = no such proc (the relay shapes its own error). */
   dispatch(
@@ -196,95 +174,26 @@ export class MessageGate {
     input: unknown,
   ): Promise<unknown> | undefined {
     const caller = { capability, ...(overrideScope ? { overrideScope: true } : {}) }
+    // THE MIGRATED PATH (POD-728): contract + handler pairs, validated through
+    // the contract's own schema. Everything in the switch below is still
+    // hand-written and is POD-729's cutover.
+    if (isMailProc(proc)) {
+      const ctx: MailHandlerContext = { caller, deps: this.deps, access: this.access }
+      return Promise.resolve().then(() => dispatchMailCommand(proc, ctx, input))
+    }
     switch (proc) {
-      case 'send':
-        return Promise.resolve().then(() => this.send(caller, sendInput.parse(input)))
-      case 'inbox':
-        return Promise.resolve().then(() => this.inbox(caller, inboxInput.parse(input)))
       case 'show':
         return Promise.resolve().then(() => this.show(caller, showInput.parse(input)))
       case 'dismiss':
         return Promise.resolve().then(() => this.dismiss(caller, dismissInput.parse(input)))
       case 'status':
         return Promise.resolve().then(() => this.status(caller, statusInput.parse(input)))
-      case 'ledger':
-        return Promise.resolve().then(() => this.ledger(caller, ledgerInput.parse(input)))
-      case 'reply':
-        return Promise.resolve().then(() => this.reply(caller, replyInput.parse(input)))
       case 'pendingReminders':
         return Promise.resolve().then(() => this.pendingReminders(caller))
-      case 'spawnAgent':
-        return Promise.resolve().then(() => this.spawnAgent(caller, spawnAgentInput.parse(input)))
-      case 'awaitAgent':
-        return this.awaitAgent(caller, awaitAgentInput.parse(input))
       case 'ask':
         return this.ask(caller, askInput.parse(input))
       default:
         return undefined
-    }
-  }
-
-  private async send(
-    caller: { capability: Capability; overrideScope?: boolean },
-    input: z.infer<typeof sendInput>,
-  ): Promise<unknown> {
-    const svc = this.deps.messages()
-    const to = this.resolveRecipient(input.to)
-    if (to.kind === 'session') {
-      this.assertSessionTargetAccess(caller, to.id, 'messages.send')
-    } else {
-      // Issue-addressed: a write gated against the RESOLVED target issue
-      // [spec:SP-34d7 authz] — messages carry urgency/lifecycle (wake →
-      // resurrect / spawn), so unlike append-only mailSend a cross-subtree
-      // send needs the --outside-scope confirmation. The confirmation only
-      // crosses scope; it never elevates the clamp matrix. The spawn-on-wake
-      // seam is downstream of this same check, so a spawn always required
-      // write access to the target issue.
-      checkIssueAccess(caller, this.deps.issues(), 'messages.send', 'write', to.id)
-    }
-    // Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
-    // surface waits for the trustworthy outcome — interrupt until delivered
-    // (transcript-observed), next-turn until delivered within a budget then
-    // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
-    // that provably vanished. Only THIS surface blocks; internal sends use send().
-    // Capture the poll seams as consts so the `now` adapter narrows without a
-    // non-null assertion (tests inject a fake clock/sleep; production uses timers).
-    const { sleep, awaitPollMs } = this.deps
-    const nowIso = this.deps.now
-    const r = await svc.sendAndConfirm(
-      senderFromCapability(caller.capability),
-      {
-        to,
-        body: input.body,
-        ...(input.urgency ? { urgency: input.urgency } : {}),
-        ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
-        ...(input.expectResponse ? { expectsResponse: true } : {}),
-        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
-      },
-      {
-        ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
-        ...(sleep ? { sleep } : {}),
-        ...(nowIso ? { now: () => Date.parse(nowIso()) } : {}),
-      },
-    )
-    // Keep the legacy `queued` boolean consistent with the FINAL (post-blocking)
-    // disposition [POD-854]: blocking upgraded a busy-held `queued` sync send to
-    // `delivered`, so it must not still report `queued: true` alongside it.
-    const queued = r.queued === true && r.disposition === 'delivered' ? false : r.queued
-    return {
-      id: r.message.id,
-      ok: r.ok,
-      ...(queued !== undefined ? { queued } : {}),
-      ...(r.reason !== undefined ? { reason: r.reason } : {}),
-      // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
-      // hidden behind a bare "queued" success.
-      disposition: r.disposition,
-      urgency: r.message.urgency,
-      lifecycle: r.message.lifecycle,
-      ...(r.message.clampedFrom ? { clamped: true } : {}),
-      // Confirm a response was requested [POD-835 §04b] so the sender knows a reply
-      // (and a settle-nag if none) is expected — otherwise receipt is mechanical.
-      ...(r.message.expectsResponse ? { expectsResponse: true } : {}),
     }
   }
 
@@ -298,52 +207,19 @@ export class MessageGate {
   ): MessageWire {
     const m = this.deps.messages().message(input.id)
     if (!m) throw new Error(`unknown message ${input.id}`)
-    if (!this.mayView(caller.capability, m)) {
+    if (!this.access.mayView(caller.capability, m)) {
       throw new Error('not allowed to view a message you neither sent nor received')
     }
-    return this.wire(m)
-  }
-
-  private inbox(
-    caller: { capability: Capability },
-    input: z.infer<typeof inboxInput>,
-  ): MessageWire[] {
-    const svc = this.deps.messages()
-    if (input?.issue) {
-      // Peek at a named issue's box — never consumes queued status unless it
-      // IS the caller's own issue. Cross-SCOPE peeks are body-filtered: the
-      // substrate carries richer traffic than legacy issue mail (operator ↔
-      // issue in unrelated subtrees), so outside the caller's subtree only
-      // rows it could mayView (sent or received) come back.
-      const id = this.deps.issues().resolveRef(input.issue)
-      const scope = caller.capability.scope
-      const own = scope.kind === 'subtree' && scope.rootId === id
-      const inScope =
-        scope.kind === 'all' ||
-        own ||
-        (scope.kind === 'subtree' &&
-          scope.rootId !== undefined &&
-          this.deps.issues().ancestorIds(id).includes(scope.rootId))
-      const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
-      const rows = svc.readInbox([{ kind: 'issue', id }], consume !== undefined ? { consume } : {})
-      return (inScope ? rows : rows.filter((m) => this.mayView(caller.capability, m))).map((m) =>
-        this.wire(m),
-      )
-    }
-    const principals = this.callerPrincipals(caller.capability)
-    if (principals.length === 0) throw new Error('no mailbox bound to this caller')
-    return svc
-      .readInbox(principals, { consume: caller.capability.actorSessionId ?? null })
-      .map((m) => this.wire(m))
+    return this.access.wire(m)
   }
 
   private show(caller: { capability: Capability }, input: z.infer<typeof showInput>): MessageWire {
     const m = this.deps.messages().message(input.id)
     if (!m) throw new Error(`unknown message ${input.id}`)
-    if (!this.mayView(caller.capability, m)) {
+    if (!this.access.mayView(caller.capability, m)) {
       throw new Error('not allowed to view a message you neither sent nor received')
     }
-    return this.wire(m)
+    return this.access.wire(m)
   }
 
   private dismiss(
@@ -353,50 +229,13 @@ export class MessageGate {
     const svc = this.deps.messages()
     const message = svc.message(input.id)
     if (!message) throw new Error('unknown message ' + input.id)
-    if (caller.capability.scope.kind !== 'all' && !this.isRecipient(caller.capability, message)) {
+    if (
+      caller.capability.scope.kind !== 'all' &&
+      !this.access.isRecipient(caller.capability, message)
+    ) {
       throw new Error('only the recipient of a message may dismiss it')
     }
-    return this.wire(svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
-  }
-
-  /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web]:
-   *  a pure read (never consumes queued status), newest first. Operator-only —
-   *  it surfaces traffic the caller neither sent nor received. */
-  private ledger(
-    caller: { capability: Capability },
-    input: z.infer<typeof ledgerInput>,
-  ): MessageWire[] {
-    if (caller.capability.scope.kind !== 'all') {
-      throw new Error('the message ledger is an operator surface')
-    }
-    return this.deps
-      .messages()
-      .ledger(input)
-      .map((m) => this.wire(m))
-  }
-
-  private reply(caller: { capability: Capability }, input: z.infer<typeof replyInput>): unknown {
-    const svc = this.deps.messages()
-    const original = svc.message(input.id)
-    if (!original) throw new Error(`unknown message ${input.id}`)
-    // Only the RECIPIENT (or the operator) replies — the reply routes to the
-    // original's sender, so recipient-ship is the natural authz boundary.
-    if (caller.capability.scope.kind !== 'all' && !this.isRecipient(caller.capability, original)) {
-      throw new Error('only the recipient of a message may reply to it')
-    }
-    const r = svc.sendReply(senderFromCapability(caller.capability), {
-      inReplyTo: original.id,
-      body: input.body,
-      kind: input.kind ?? 'ack',
-    })
-    return {
-      id: r.message.id,
-      ok: r.ok,
-      acked: (input.kind ?? 'ack') === 'ack',
-      ...(r.queued !== undefined ? { queued: r.queued } : {}),
-      ...(r.reason !== undefined ? { reason: r.reason } : {}),
-      disposition: r.disposition,
-    }
+    return this.access.wire(svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
   }
 
   /** Stop-hook single-reminder query: the CALLING session's delivered-but-
@@ -407,327 +246,6 @@ export class MessageGate {
     const sessionId = caller.capability.actorSessionId
     if (!sessionId) return []
     return this.deps.messages().pendingReminders(sessionId)
-  }
-
-  // ---- cross-harness subagents (#237) [spec:SP-34d7 cross-harness] ----
-
-  /**
-   * `podium agent spawn`: a full Podium session on the target issue, via the
-   * ONE spawn path (SessionsService.createSession). Authz = write access to
-   * the target issue (same posture as messages.send). The caller becomes the
-   * child's parent (spawnedBy 'session:<id>') — which is what unlocks the
-   * parent-grade clamps (interrupt + wake) the clamp matrix already implements.
-   * No issue is EVER auto-created: `newTitle` is the explicit --new path.
-   */
-  private spawnAgent(
-    caller: { capability: Capability; overrideScope?: boolean },
-    input: z.infer<typeof spawnAgentInput>,
-  ): unknown {
-    if (!this.deps.spawnSession) throw new Error('agent spawn is not wired on this server')
-    const issues = this.deps.issues()
-    if (input.issue && input.newTitle) throw new Error('pass --issue OR --new, not both')
-    let issueId: string
-    if (input.issue) {
-      issueId = issues.resolveRef(input.issue)
-      checkIssueAccess(caller, issues, 'agent.spawn', 'write', issueId)
-    } else if (input.newTitle) {
-      if (!this.deps.createIssue) throw new Error('issue creation is not wired on this server')
-      // Deliberate --new: inherit the caller's repo/parent from its own issue
-      // scope when it has one (keeps the child inside the parent's subtree);
-      // otherwise --repo names the repository explicitly.
-      const scopeIssue =
-        caller.capability.scope.kind === 'subtree'
-          ? issues.getMeta(caller.capability.scope.rootId ?? '')
-          : null
-      const repoPath = input.repo ?? scopeIssue?.repoPath
-      if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
-      issueId = this.deps.createIssue({
-        repoPath,
-        title: input.newTitle,
-        description: input.prompt,
-        ...(scopeIssue ? { parentId: scopeIssue.id } : {}),
-        origin: caller.capability.scope.kind === 'all' ? 'human' : 'agent',
-      }).id
-    } else {
-      throw new Error('pass --issue <ref> or --new "title"')
-    }
-    const issue = issues.getMeta(issueId)
-    if (!issue) throw new Error(`unknown issue ${issueId}`)
-    // Brake 2 applies to DIRECT agent spawns too [spec:SP-34d7 containment]:
-    // the same per-issue daily budget as the spawn-on-wake seam, or a looping
-    // agent (or its spawned children re-spawning) fork-bombs the host with
-    // full PTY sessions. Operator intent is never braked.
-    const budgeted = caller.capability.scope.kind !== 'all'
-    if (budgeted && !this.deps.messages().takeSpawnBudget(issueId).ok) {
-      try {
-        this.deps.appendEvent?.({
-          ts: this.deps.now?.() ?? new Date().toISOString(),
-          kind: 'agent.spawn_budget_exhausted',
-          subject: issueId,
-          payload: { issueId, caller: caller.capability.actorSessionId ?? null },
-        })
-      } catch {}
-      throw new Error(
-        `spawn budget exhausted for issue #${issue.seq} (${SPAWN_BUDGET_PER_DAY}/day); ` +
-          'message the issue instead, or ask the operator',
-      )
-    }
-    if (input.worktree && !issue.worktreePath) {
-      // Starting an issue (worktree + branch) stays a deliberate coordinator
-      // action — podium issue start owns that flow; spawn never forks a second one.
-      throw new Error(`issue #${issue.seq} has no worktree — run \`podium issue start\` first`)
-    }
-    const cwd = issue.worktreePath ?? issue.repoPath
-    const spawnedBy = caller.capability.actorSessionId
-      ? `session:${caller.capability.actorSessionId}`
-      : caller.capability.scope.kind === 'all'
-        ? 'user'
-        : 'agent'
-    const profile = input.executionProfileId
-      ? this.deps.resolveExecutionProfile?.({
-          profileId: input.executionProfileId,
-          ...(input.workflowRunId ? { runId: input.workflowRunId } : {}),
-          ...(input.workflowStepId ? { stepId: input.workflowStepId } : {}),
-        })
-      : undefined
-    const harness = profile?.harness ?? input.harness ?? issue.defaultAgent
-    const model = profile?.model ?? input.model
-    const effort = profile?.effort ?? input.effort
-    const machineId = profile?.machineId ?? issue.machineId
-    const spawned = this.deps.spawnSession({
-      cwd,
-      agentKind: harness,
-      initialPrompt: input.prompt,
-      issueId,
-      spawnedBy,
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
-      ...(profile ? { accountId: profile.accountId } : {}),
-      ...(input.force ? { forceUnknownModel: true } : {}),
-      ...(machineId ? { machineId } : {}),
-      // CLI `--title` → curated name slot (not derived title) [spec:SP-4ef9][spec:SP-eb60].
-      ...(input.title ? { name: input.title } : {}),
-      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
-      ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
-    })
-    const sessionId = spawned.sessionId
-    const actualHarness = spawned.harness ?? harness
-    const actualModel = spawned.model === undefined ? model : (spawned.model ?? undefined)
-    const actualEffort = spawned.effort === undefined ? effort : (spawned.effort ?? undefined)
-    const actualMachineId = spawned.machineId ?? machineId
-    const actualAccountId =
-      spawned.accountId === undefined ? profile?.accountId : (spawned.accountId ?? undefined)
-    try {
-      this.deps.appendEvent?.({
-        ts: this.deps.now?.() ?? new Date().toISOString(),
-        kind: 'agent.spawned',
-        subject: sessionId,
-        payload: {
-          sessionId,
-          issueId,
-          spawnedBy,
-          // budgetIssue rides the durable event so brake 2 survives restarts
-          // (spawnCountFor counts it); absent on unbudgeted operator spawns.
-          ...(budgeted ? { budgetIssue: issueId } : {}),
-          harness: actualHarness,
-          ...(actualModel ? { model: actualModel } : {}),
-          ...(actualEffort ? { effort: actualEffort } : {}),
-          ...(actualMachineId ? { machineId: actualMachineId } : {}),
-          ...(actualAccountId ? { accountId: actualAccountId } : {}),
-          ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
-          ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-          ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
-        },
-      })
-    } catch {}
-    return {
-      ok: true,
-      sessionId,
-      issueId,
-      issueSeq: issue.seq,
-      cwd,
-      agentId: spawned.agentId ?? sessionId,
-      harness: actualHarness,
-      model: actualModel ?? null,
-      effort: actualEffort ?? null,
-      machine: spawned.machine ?? actualMachineId ?? null,
-    }
-  }
-
-  /**
-   * `podium agent await <sessionId>`: bounded wait for the child. Returns an
-   * actionable result the parent can branch on — never a false "still working"
-   * when the child is blocked, done, or gone (docs/agent-comms-target.html
-   * §09-D/§09-E; overnight-stall fix). NEVER hangs (every wait bounded).
-   *
-   * Precedence each poll: (1) session missing → gone; (2) fresh ack since
-   * waitStart → acked; (3) phase/status → blocked | done | gone (exited with no
-   * report); (4) deadline → working. Only acks since waitStart count.
-   */
-  private async awaitAgent(
-    caller: { capability: Capability; overrideScope?: boolean },
-    input: z.infer<typeof awaitAgentInput>,
-  ): Promise<unknown> {
-    // The parent relationship (spawnedBy provenance) is sufficient authority to
-    // await its own child — even across issue scopes (it already crossed them,
-    // confirmed, at spawn time). Everyone else passes the session-target gate.
-    const child = this.deps.listSessions().find((x) => x.sessionId === input.sessionId)
-    const isParent =
-      caller.capability.actorSessionId !== undefined &&
-      child?.spawnedBy === `session:${caller.capability.actorSessionId}`
-    if (!isParent) this.assertSessionTargetAccess(caller, input.sessionId, 'agent.await')
-    const svc = this.deps.messages()
-    const timeoutMs = (input.timeoutSeconds ?? 30) * 1000
-    const pollMs = this.deps.awaitPollMs ?? 500
-    const sleep = this.deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
-    const principals = this.callerPrincipals(caller.capability)
-    const deadline = Date.now() + timeoutMs
-    // Only acks SINCE THE WAIT BEGAN count (the documented contract) — a stale
-    // ack from a previous round must not satisfy a new await, or the parent
-    // believes new work finished when the child never acked the new instruction.
-    const waitStart = this.deps.now?.() ?? new Date().toISOString()
-    // biome-ignore lint/nursery/noConstantCondition: loop exits via return
-    for (;;) {
-      const s = this.deps.listSessions().find((x) => x.sessionId === input.sessionId)
-      if (!s) {
-        return this.finishAwait(isParent, caller, input.sessionId, {
-          done: true,
-          result: 'gone',
-          snapshot: null,
-        })
-      }
-      // Rich agent ack first (it carries WHAT the child did): the child's most
-      // recent ack addressed back to this caller since the wait began. Wins over
-      // exit/settle classification — reported-then-exited is acked, not gone.
-      const ack = svc
-        .inbox(principals, { limit: 50 })
-        .filter(
-          (m) => m.kind === 'ack' && m.fromSession === input.sessionId && m.createdAt >= waitStart,
-        )
-        .at(-1)
-      if (ack) {
-        return this.finishAwait(isParent, caller, input.sessionId, {
-          done: true,
-          result: 'acked',
-          ack: this.wire(ack),
-          snapshot: snap(s),
-        })
-      }
-      // Actionable phase/status — parent must never read these as "working".
-      const phase = s.agentState?.phase
-      // Exit without a fresh report: process gone, nothing for the parent to
-      // re-prompt on this session (the other overnight-stall case).
-      if (s.status === 'exited') {
-        return this.finishAwait(
-          isParent,
-          caller,
-          input.sessionId,
-          {
-            done: true,
-            result: 'gone',
-            snapshot: snap(s),
-          },
-          phase,
-          s.status,
-        )
-      }
-      // Blocked: needs parent/human (question menu) or escalation (error).
-      if (phase === 'needs_user' || phase === 'errored') {
-        return this.finishAwait(
-          isParent,
-          caller,
-          input.sessionId,
-          {
-            done: true,
-            result: 'blocked',
-            snapshot: snap(s),
-          },
-          phase,
-          s.status,
-        )
-      }
-      // Clean finish: idle/ended harness phase, or hibernated (parked cleanly).
-      if (s.status === 'hibernated' || phase === 'idle' || phase === 'ended') {
-        return this.finishAwait(
-          isParent,
-          caller,
-          input.sessionId,
-          {
-            done: true,
-            result: 'done',
-            snapshot: snap(s),
-          },
-          phase,
-          s.status,
-        )
-      }
-      if (Date.now() >= deadline) {
-        return { done: false, result: 'working', snapshot: snap(s) }
-      }
-      await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
-    }
-    function snap(s: SessionMeta) {
-      return {
-        sessionId: s.sessionId,
-        status: s.status,
-        ...(s.agentState?.phase ? { phase: s.agentState.phase } : {}),
-        // Carry need/error so a blocked parent can act without a second lookup.
-        ...(s.agentState?.need ? { need: s.agentState.need } : {}),
-        ...(s.agentState?.error ? { error: s.agentState.error } : {}),
-        title: s.title,
-        ...(s.issueId ? { issueId: s.issueId } : {}),
-        ...(s.lastActiveAt ? { lastActiveAt: s.lastActiveAt } : {}),
-        ...(s.queuedMessageCount ? { queuedMessageCount: s.queuedMessageCount } : {}),
-      }
-    }
-  }
-
-  /**
-   * Parent-await consume-on-ack (POD-917/POD-923): when the caller is the child's
-   * session parent and the await observed a settled/terminal state, retire the
-   * session-parent wake sticky so a later genuine re-completion can re-fire once.
-   * Never throws — missing dep or store errors must not break await.
-   */
-  private finishAwait(
-    isParent: boolean,
-    caller: { capability: Capability },
-    childSessionId: string,
-    outcome: { done: boolean; result: string; snapshot: unknown; ack?: unknown },
-    phase?: string,
-    status?: string,
-  ): { done: boolean; result: string; snapshot: unknown; ack?: unknown } {
-    if (isParent && this.shouldConsumeSessionParentSettle(outcome.result, phase, status)) {
-      const parentId = caller.capability.actorSessionId
-      if (parentId) {
-        try {
-          this.deps.retireNotificationFact?.(
-            `sessionparentnudge:phase-reported:${childSessionId}`,
-            parentId,
-          )
-        } catch {
-          // never throw from await
-        }
-      }
-    }
-    return outcome
-  }
-
-  /** Settled/terminal outcomes that mean the parent has observed the child settle. */
-  private shouldConsumeSessionParentSettle(
-    result: string,
-    phase?: string,
-    status?: string,
-  ): boolean {
-    if (result === 'settled' || result === 'done' || result === 'gone') return true
-    // Parent observed via rich ack (still a consume of the settle wake).
-    if (result === 'acked') return true
-    // result === 'blocked' with terminal error phase (parent nudge fires on errored).
-    if (phase === 'idle' || phase === 'ended' || phase === 'errored' || phase === 'exited') {
-      return true
-    }
-    if (status === 'exited' || status === 'hibernated') return true
-    return false
   }
 
   /**
@@ -744,7 +262,7 @@ export class MessageGate {
     caller: { capability: Capability; overrideScope?: boolean },
     input: z.infer<typeof askInput>,
   ): Promise<unknown> {
-    this.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
+    this.access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
     const svc = this.deps.messages()
     const r = svc.send(senderFromCapability(caller.capability), {
       to: { kind: 'session', id: input.sessionId },
@@ -785,121 +303,8 @@ export class MessageGate {
       snapshot,
     }
   }
-
-  // ---- helpers ----
-
-  /** `to` is a session id when it names a known session, else an issue ref. */
-  private resolveRecipient(
-    to: string,
-  ): { kind: 'issue'; id: string } | { kind: 'session'; id: string } {
-    if (this.deps.listSessions().some((s) => s.sessionId === to)) {
-      return { kind: 'session', id: to }
-    }
-    return { kind: 'issue', id: this.deps.issues().resolveRef(to) }
-  }
-
-  /** The session-target containment gate — same posture as the relay sessions
-   *  slice (#237 authz): issue-bound targets need write access to that issue;
-   *  issueless targets are parent/operator-only (--outside-scope never
-   *  substitutes there). */
-  private assertSessionTargetAccess(
-    caller: { capability: Capability; overrideScope?: boolean },
-    sessionId: string,
-    proc: string,
-  ): void {
-    const target = this.deps.listSessions().find((s) => s.sessionId === sessionId)
-    if (!target) throw new Error('session not found')
-    const issues = this.deps.issues()
-    const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
-    if (targetIssueId) {
-      checkIssueAccess(caller, issues, proc, 'write', targetIssueId)
-      return
-    }
-    const isOperator = caller.capability.scope.kind === 'all'
-    const isParent =
-      caller.capability.actorSessionId !== undefined &&
-      target.spawnedBy === `session:${caller.capability.actorSessionId}`
-    if (!isOperator && !isParent) {
-      throw new Error('target session has no issue; only its parent or the operator may message it')
-    }
-  }
-
-  /** The mailbox principals a capability owns: its issue subtree root and its
-   *  own session; the operator owns the operator box. */
-  private callerPrincipals(
-    capability: Capability,
-  ): { kind: 'issue' | 'session' | 'operator'; id?: string }[] {
-    if (capability.scope.kind === 'all') return [{ kind: 'operator' }]
-    const out: { kind: 'issue' | 'session' | 'operator'; id?: string }[] = []
-    if (capability.scope.kind === 'subtree') {
-      out.push({ kind: 'issue', id: capability.scope.rootId })
-    }
-    if (capability.actorSessionId) out.push({ kind: 'session', id: capability.actorSessionId })
-    return out
-  }
-
-  private isRecipient(capability: Capability, m: MessageRow): boolean {
-    if (m.deliveredTo && m.deliveredTo === capability.actorSessionId) return true
-    return this.callerPrincipals(capability).some(
-      (p) => p.kind === m.toKind && (p.kind === 'operator' || p.id === m.toId),
-    )
-  }
-
-  private mayView(capability: Capability, m: MessageRow): boolean {
-    if (capability.scope.kind === 'all') return true
-    if (this.isRecipient(capability, m)) return true
-    // The sender may re-read what it sent.
-    if (m.fromSession && m.fromSession === capability.actorSessionId) return true
-    return (
-      m.fromKind === 'agent' &&
-      capability.scope.kind === 'subtree' &&
-      m.fromIssue === capability.scope.rootId
-    )
-  }
-
-  private wire(m: MessageRow): MessageWire {
-    const issues = this.deps.issues()
-    const label = (kind: string, issueId: string | null, sessionId: string | null): string => {
-      if (kind === 'agent' || kind === 'issue') {
-        if (issueId) {
-          const issue = issues.getMeta(issueId)
-          // Nice-id form (#474), matching the envelope labels.
-          if (issue) return `issue:${issues.niceRef(issue)}`
-          return issueId
-        }
-        if (sessionId) return `session:${sessionId}`
-      }
-      if (kind === 'session' && sessionId) return `session:${sessionId}`
-      return kind
-    }
-    return {
-      id: m.id,
-      threadId: m.threadId,
-      inReplyTo: m.inReplyTo,
-      from:
-        m.fromKind === 'system' && m.fromName
-          ? `system:${m.fromName}`
-          : label(m.fromKind, m.fromIssue, m.fromSession),
-      to: label(
-        m.toKind,
-        m.toKind === 'issue' ? m.toId : null,
-        m.toKind === 'session' ? m.toId : null,
-      ),
-      kind: m.kind,
-      urgency: m.urgency,
-      lifecycle: m.lifecycle,
-      body: m.body,
-      createdAt: m.createdAt,
-      status: m.status,
-      ackedBy: m.ackedBy,
-      deliveredAt: m.deliveredAt,
-      deliveredTo: m.deliveredTo,
-      expiresAt: m.expiresAt,
-      clampedFrom: m.clampedFrom,
-      hop: m.hop,
-      readAt: m.readAt ?? null,
-      deadLetteredAt: m.deadLetteredAt ?? null,
-      expectsResponse: m.expectsResponse ?? false,
-    }
-  }
 }
+
+/** Re-exported for the handlers and the relay arm: the message row shape they
+ *  project. Keeps `MessageRow` off every handler's import list. */
+export type { MessageRow }
