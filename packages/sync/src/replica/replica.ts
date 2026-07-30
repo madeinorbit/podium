@@ -400,7 +400,13 @@ export class Replica {
 
     if (this.state === 'stale') {
       // The link came back underneath us. Frames were missed while offline, so
-      // heal from the cursor rather than applying blind.
+      // heal from the cursor rather than applying blind — UNLESS the frame's own
+      // retention floor already says the heal cannot succeed, which is the
+      // long-offline case D5 advertises `minAvailableSeq` for.
+      if (this.belowRetentionFloor(frame)) {
+        this.startRebootstrap('compacted')
+        return this.outcome('D7-2-COMPACTED', from)
+      }
       this.buffer.push(frame)
       this.startHeal()
       return this.outcome('D7-1-FRAME-WHILE-STALE', from)
@@ -432,6 +438,14 @@ export class Replica {
     const cursor = this.cursorValue as Cursor
 
     if (frame.fromSeq !== cursor.seq) {
+      // A gap. Before spending a round trip on a heal, read the retention floor
+      // the frame itself certifies: if the rows this cursor needs have already
+      // been pruned, `changesSince` can only answer `bootstrap-required`, and
+      // asking is a round trip whose answer is already known (ADR 2 D5).
+      if (this.belowRetentionFloor(frame)) {
+        this.startRebootstrap('compacted')
+        return this.outcome('D7-2-COMPACTED', from)
+      }
       // Do NOT apply. Applying would make the cursor certify data we never
       // received, which is a permanent lie rather than a lost update.
       this.buffer.push(frame)
@@ -1038,6 +1052,30 @@ export class Replica {
    * rows forever. A KNOWN kind that fails its schema, or whose embedded id
    * disagrees with the envelope, is a rung-3 rejection.
    */
+  /**
+   * ADR 2 D5 / D7 rung 2 — is this replica's cursor below what the authority
+   * still retains?
+   *
+   * To be served a delta from `cursor.seq` the authority must still hold
+   * `cursor.seq + 1`, so the boundary is `cursor.seq + 1 < minAvailableSeq` and
+   * NOT `cursor.seq < minAvailableSeq`. The off-by-one matters in the one case
+   * that is common rather than exotic: a replica sitting exactly at the last
+   * pruned seq is still perfectly healable, and the stricter comparison would
+   * throw away its whole cache and re-bootstrap it for nothing every time the
+   * authority pruned up to its cursor.
+   *
+   * This is NOT arbitration. The Replica decides nothing about truth here; it
+   * reads a fact the Authority published about its own log and skips a round trip
+   * whose answer that fact already determines. The authority remains free to
+   * answer `bootstrap-required` for reasons this cannot see, and the heal path
+   * still handles that — this only removes the trip that is knowably futile.
+   */
+  private belowRetentionFloor(frame: DeltaFrame): boolean {
+    const cursor = this.cursorValue
+    if (cursor === null) return false
+    return cursor.seq + 1 < frame.minAvailableSeq
+  }
+
   private rejects(frame: DeltaFrame): string | null {
     const shape = validateFrame(frame)
     if (shape !== null) return shape
@@ -1259,6 +1297,12 @@ export function validateFrame(frame: DeltaFrame): string | null {
   if (!Number.isInteger(frame.fromSeq) || !Number.isInteger(frame.seq)) return 'non-integer range'
   if (frame.fromSeq < 0 || frame.seq < 0) return 'negative range'
   if (frame.fromSeq > frame.seq) return 'inverted covered range'
+  // D5's retention floor is part of the certificate, so a malformed one is a
+  // malformed frame (rung 3) rather than a value to be coerced. Coercing is how
+  // an absent floor becomes a silent 0 — see the field's note in `types.ts`.
+  if (!Number.isInteger(frame.minAvailableSeq)) return 'non-integer minAvailableSeq'
+  if (frame.minAvailableSeq < 0) return 'negative minAvailableSeq'
+  if (frame.minAvailableSeq > frame.seq) return 'minAvailableSeq above the covered range'
   if (frame.fromSeq === frame.seq && frame.changes.length > 0) return 'changes in an empty range'
   let previous = frame.fromSeq
   for (const change of frame.changes) {

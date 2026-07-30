@@ -309,7 +309,20 @@ export class ConformanceAuthority {
     const changes = this.rows
       .filter((row) => row.seq > fromSeq && row.seq <= upTo && this.mayDeliver(principal, row))
       .map((row) => row.change)
-    return { kind: 'delta', feedId: this.feedId, epoch: this.epoch, fromSeq, seq: upTo, changes }
+    // ADR 2 D5 — the floor this fixture actually prunes to, not a constant. It is
+    // read from the same field `changesSince` refuses below, so a case that moves
+    // the floor moves BOTH the proactive signal and the reactive refusal, and a
+    // replica that ignored the published floor would still be caught by the
+    // refusal (and vice versa) rather than by neither.
+    return {
+      kind: 'delta',
+      feedId: this.feedId,
+      epoch: this.epoch,
+      fromSeq,
+      seq: upTo,
+      minAvailableSeq: this.minAvailableSeq,
+      changes,
+    }
   }
 
   /** The read port ONE principal sees. There is no principal parameter on the port itself. */

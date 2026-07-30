@@ -180,9 +180,16 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   // ─── Rung 2: re-bootstrap ──────────────────────────────────────────────────
   {
     id: 'D7-2-COMPACTED',
-    from: ['healing'],
-    input: 'changesSince reply',
-    condition: 'reply is bootstrap-required (cursor below minAvailableSeq / unknown)',
+    // Two routes to one rung, and deliberately not two rows. REACTIVE: a heal was
+    // attempted and the authority answered `bootstrap-required`. PROACTIVE: a
+    // delta frame's published `minAvailableSeq` (ADR 2 D5) already places the
+    // cursor below the retained range, so the heal's answer is known and the
+    // round trip is skipped. The effect is identical, which is the point — the
+    // floor is an optimisation of WHEN rung 2 is reached, never of WHAT it does.
+    from: ['live', 'healing', 'stale'],
+    input: 'changesSince reply, or a delta frame carrying minAvailableSeq',
+    condition:
+      'reply is bootstrap-required (unknown cursor), or cursor.seq + 1 < frame.minAvailableSeq',
     effect: 'Re-bootstrap (scoped). Discard the cache at the atomic swap. KEEP THE OUTBOX.',
     to: ['bootstrapping'],
     rung: 2,

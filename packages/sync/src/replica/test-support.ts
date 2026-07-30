@@ -43,7 +43,21 @@ export function deltaFrame(
   changes: readonly ChangeEnvelope[] = [],
   overrides: Partial<DeltaFrame> = {},
 ): DeltaFrame {
-  return { kind: 'delta', feedId: FEED_ID, epoch: EPOCH, fromSeq, seq, changes, ...overrides }
+  // `minAvailableSeq: 0` — "this fixture's log has pruned nothing", which is true
+  // of every scripted fixture and is the value a compaction case OVERRIDES. It is
+  // spelled here rather than defaulted inside the Replica precisely so that the
+  // default lives in the fixture, where it is visible, instead of in the
+  // production path, where an authority that published nothing would inherit it.
+  return {
+    kind: 'delta',
+    feedId: FEED_ID,
+    epoch: EPOCH,
+    fromSeq,
+    seq,
+    minAvailableSeq: 0,
+    changes,
+    ...overrides,
+  }
 }
 
 /** An empty certified frame. Under private-by-default this is the NORMAL frame. */
