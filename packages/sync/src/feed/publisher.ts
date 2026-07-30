@@ -76,7 +76,7 @@ import type {
   ResyncRequiredFrame,
   ServerFrame,
 } from '../replica/types'
-import type { FeedIdentityRegistry } from './identity'
+import type { FeedIdentity, FeedIdentityRegistry } from './identity'
 import { BoundedSendQueue, type SendQueueConfig } from './send-queue'
 import { principalIdOf, type FeedPrincipal } from './visibility'
 
@@ -166,6 +166,32 @@ function toEnvelope(change: ScopedChange): ChangeEnvelope {
   }
 }
 
+/**
+ * Amendment 1 D14.4 — the principal's RIGHTS changed; re-bootstrap scoped.
+ *
+ * A MODULE FUNCTION and not a method, which is the difference between "a caller
+ * should not do this" and "there is nothing here to call". TypeScript's `private`
+ * is compile-time only: a private method still sits on the prototype, so a
+ * `rescope` a caller could reach by name would exist at runtime and the guard
+ * asserting its absence would have to be written against the public TYPE, where a
+ * cast defeats it. Keeping it off the class means the only route to a rescope is
+ * the `rescope` ARM of a `ScopedDelivery`, chosen in `authority/scoping.ts` from
+ * the size of the set the policy derived.
+ *
+ * Distinct from `resync-required` in TYPE as well as in telemetry, because
+ * collapsing them makes an authz event look like a performance event, and a
+ * re-bootstrap storm after a policy change would be misdiagnosed as backpressure.
+ */
+function rescopeTo(state: ConnectionState, identity: FeedIdentity, reason: string): void {
+  const frame: RescopeFrame | null = state.queue.rescopeNow(
+    identity.feedId,
+    identity.epoch,
+    reason,
+  )
+  state.watermarkThrough = null
+  if (frame !== null) state.pending.push(frame)
+}
+
 export class FeedPublisher {
   private readonly connections = new Map<string, ConnectionState>()
   /** The highest seq this publisher has certified to ANY connection. */
@@ -248,7 +274,7 @@ export class FeedPublisher {
     for (const state of this.connections.values()) {
       if (principalIdOf(state.principal) !== audience) continue
       if (delivery.kind === 'rescope') {
-        this.rescopeTo(state, delivery.reason)
+        rescopeTo(state, this.identity(), delivery.reason)
         continue
       }
       this.emitTo(state, delivery.changes, delivery.throughSeq)
@@ -312,26 +338,6 @@ export class FeedPublisher {
     state.watermarkThrough = null
     state.fromSeq = through
     return [frame]
-  }
-
-  /**
-   * Amendment 1 D14.4 — the principal's RIGHTS changed; re-bootstrap scoped.
-   *
-   * Private, and reachable only through the `rescope` arm of a `ScopedDelivery`.
-   * Distinct from `resync-required` in TYPE as well as in telemetry, because
-   * collapsing them makes an authz event look like a performance event and a
-   * re-bootstrap storm after a policy change would be misdiagnosed as
-   * backpressure.
-   */
-  private rescopeTo(state: ConnectionState, reason: string): void {
-    const identity = this.identity()
-    const frame: RescopeFrame | null = state.queue.rescopeNow(
-      identity.feedId,
-      identity.epoch,
-      reason,
-    )
-    state.watermarkThrough = null
-    if (frame !== null) state.pending.push(frame)
   }
 
   /** THE one frame constructor. A second one would be invisible to every golden fixture. */

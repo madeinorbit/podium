@@ -11,10 +11,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SequencedChange } from '../authority/change-lifecycle'
+import type { ScopedChange } from '../authority/change-lifecycle'
 import type { DeltaFrame, ServerFrame } from '../replica/types'
 import { FeedIdentityRegistry, type FeedIdentityStore } from './identity'
 import { FeedPublisher, type FeedRetentionPort } from './publisher'
+import type { FeedPrincipal } from './visibility'
 
 const ULIDS = [
   '01JQ0P8Z3M4N5R6T7V8W9XAYBZ',
@@ -50,7 +51,7 @@ function retention(initial: number | null = 0): FeedRetentionPort & { floor: num
   }
 }
 
-function change(seq: number, entityId: string): SequencedChange {
+function change(seq: number, entityId: string): ScopedChange {
   return { seq, entity: 'session', entityId, op: 'upsert', value: { id: entityId } }
 }
 
@@ -65,13 +66,36 @@ function publisher(deps?: { retention?: FeedRetentionPort; maxBytes?: number }) 
 const deltas = (frames: readonly ServerFrame[]): readonly DeltaFrame[] =>
   frames.filter((f): f is DeltaFrame => f.kind === 'delta')
 
+/** These cases are about FRAMING, so they all stand for one principal. */
+const ALICE: FeedPrincipal = { kind: 'user', userId: 'alice' }
+
+/**
+ * Publish an already-evaluated slice.
+ *
+ * `throughSeq` defaults to the last row's seq, which is right for a batch where
+ * nothing was suppressed. Passing it EXPLICITLY is how a case says "the authority
+ * evaluated up to here and this is what survived" — including `emit(feed, [], 5)`,
+ * which is a watermark and not an empty call.
+ */
+const emit = (
+  feed: FeedPublisher,
+  changes: readonly ScopedChange[],
+  throughSeq?: number,
+): void => {
+  feed.publish(ALICE, {
+    kind: 'batch',
+    throughSeq: throughSeq ?? (changes[changes.length - 1]?.seq ?? 0),
+    changes,
+  })
+}
+
 describe('covered range — contiguous and non-overlapping PER CONNECTION', () => {
   it('certifies (fromSeq, seq] from the connection position, not from the batch', () => {
     const feed = publisher()
-    const connection = feed.connect('c1', 0)
+    const connection = feed.connect('c1', 0, ALICE)
 
-    feed.publish([change(1, 'a'), change(2, 'b')])
-    feed.publish([change(3, 'c')])
+    emit(feed, [change(1, 'a'), change(2, 'b')])
+    emit(feed, [change(3, 'c')])
 
     const frames = deltas(connection.drain())
     expect(frames.map((f) => [f.fromSeq, f.seq])).toEqual([
@@ -97,18 +121,18 @@ describe('covered range — contiguous and non-overlapping PER CONNECTION', () =
     // spellings agree and the mutant survives it. Measured, not assumed: mutating
     // `fromSeq` to the batch-derived form left that version green.
     const feed = publisher()
-    const connection = feed.connect('late', 2)
-    feed.publish([change(4, 'd'), change(5, 'e')])
+    const connection = feed.connect('late', 2, ALICE)
+    emit(feed, [change(4, 'd'), change(5, 'e')])
 
     expect(deltas(connection.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[2, 5]])
   })
 
   it('two connections at DIFFERENT positions each get their own lower bound', () => {
     const feed = publisher()
-    const early = feed.connect('early', 0)
-    feed.publish([change(1, 'a'), change(2, 'b')])
-    const late = feed.connect('late', 2)
-    feed.publish([change(3, 'c')])
+    const early = feed.connect('early', 0, ALICE)
+    emit(feed, [change(1, 'a'), change(2, 'b')])
+    const late = feed.connect('late', 2, ALICE)
+    emit(feed, [change(3, 'c')])
 
     expect(deltas(early.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([
       [0, 2],
@@ -119,8 +143,8 @@ describe('covered range — contiguous and non-overlapping PER CONNECTION', () =
 
   it('a batch straddling a connection position carries only the part above it', () => {
     const feed = publisher()
-    const connection = feed.connect('c1', 2)
-    feed.publish([change(1, 'a'), change(2, 'b'), change(3, 'c')])
+    const connection = feed.connect('c1', 2, ALICE)
+    emit(feed, [change(1, 'a'), change(2, 'b'), change(3, 'c')])
 
     const [frame] = deltas(connection.drain())
     expect(frame?.fromSeq).toBe(2)
@@ -129,8 +153,8 @@ describe('covered range — contiguous and non-overlapping PER CONNECTION', () =
 
   it('emits a WATERMARK — an empty frame over a NON-empty range (Amendment 1 D13)', () => {
     const feed = publisher()
-    const connection = feed.connect('c1', 0)
-    feed.publishWatermark(5)
+    const connection = feed.connect('c1', 0, ALICE)
+    emit(feed, [], 5)
 
     const [frame] = deltas(connection.drain())
     expect(frame?.changes).toEqual([])
@@ -139,8 +163,8 @@ describe('covered range — contiguous and non-overlapping PER CONNECTION', () =
 
   it('does NOT emit for a connection already at or past the range', () => {
     const feed = publisher()
-    const connection = feed.connect('c1', 9)
-    feed.publish([change(1, 'a')])
+    const connection = feed.connect('c1', 9, ALICE)
+    emit(feed, [change(1, 'a')])
     expect(connection.drain()).toEqual([])
   })
 })
@@ -153,19 +177,19 @@ describe('minAvailableSeq — D5 floor, read LIVE on every frame', () => {
     // and a cached floor advertises a range the log no longer holds.
     const floor = retention(0)
     const feed = publisher({ retention: floor })
-    const connection = feed.connect('c1', 0)
+    const connection = feed.connect('c1', 0, ALICE)
 
-    feed.publish([change(1, 'a')])
+    emit(feed, [change(1, 'a')])
     floor.floor = 4
-    feed.publish([change(5, 'b')])
+    emit(feed, [change(5, 'b')])
 
     expect(deltas(connection.drain()).map((f) => f.minAvailableSeq)).toEqual([0, 4])
   })
 
   it('publishes 0 for an EMPTY log, which means "nothing pruned" and not "unset"', () => {
     const feed = publisher({ retention: retention(null) })
-    const connection = feed.connect('c1', 0)
-    feed.publish([change(1, 'a')])
+    const connection = feed.connect('c1', 0, ALICE)
+    emit(feed, [change(1, 'a')])
     expect(deltas(connection.drain())[0]?.minAvailableSeq).toBe(0)
   })
 })
@@ -177,10 +201,10 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
     // certifying frames that were discarded — the silent divergence D9 exists to
     // prevent, wearing the appearance of a working demotion.
     const feed = publisher({ maxBytes: 10 })
-    const connection = feed.connect('c1', 0)
+    const connection = feed.connect('c1', 0, ALICE)
 
-    feed.publish([change(1, 'a')])
-    feed.publish([change(2, 'b')])
+    emit(feed, [change(1, 'a')])
+    emit(feed, [change(2, 'b')])
 
     // ONLY the control frame. The first frame was admitted and then discarded by
     // the overflow, and that is the behaviour rather than an accident: delivering
@@ -193,7 +217,7 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
     // Re-arm at the seq the replica actually re-bootstrapped to, and the next
     // frame is certified from THERE — not from 2, which the demoted frame claimed.
     connection.rearm(7)
-    feed.publish([change(8, 'c')])
+    emit(feed, [change(8, 'c')])
     expect(deltas(connection.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[7, 8]])
   })
 
@@ -208,12 +232,12 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
       // so a healthy peer that drains keeps flowing while a silent one demotes.
       sendQueue: { maxBytes: 10, sizeOf: () => 10 },
     })
-    const slow = feed.connect('slow', 0)
-    const healthy = feed.connect('healthy', 0)
+    const slow = feed.connect('slow', 0, ALICE)
+    const healthy = feed.connect('healthy', 0, ALICE)
 
-    feed.publish([change(1, 'a')])
+    emit(feed, [change(1, 'a')])
     healthy.drain()
-    feed.publish([change(2, 'b')])
+    emit(feed, [change(2, 'b')])
 
     expect(slow.isDemoted()).toBe(true)
     expect(healthy.isDemoted()).toBe(false)
@@ -222,9 +246,9 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
 
   it('bumpEpoch demotes every connection and publishes the NEW identity', () => {
     const feed = publisher()
-    const one = feed.connect('one', 0)
-    const two = feed.connect('two', 0)
-    feed.publish([change(1, 'a')])
+    const one = feed.connect('one', 0, ALICE)
+    const two = feed.connect('two', 0, ALICE)
+    emit(feed, [change(1, 'a')])
     const epochBefore = deltas(one.drain())[0]?.epoch
     two.drain()
 
@@ -242,8 +266,8 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
 describe('provenance rides the envelope (ADR 2 D8)', () => {
   it('carries originId / causationId / mutationId, and omits them when absent', () => {
     const feed = publisher()
-    const connection = feed.connect('c1', 0)
-    feed.publish([
+    const connection = feed.connect('c1', 0, ALICE)
+    emit(feed, [
       { ...change(1, 'a'), causationId: 'cmd-1', mutationId: 'mut-1', originId: 'peer-1' },
       change(2, 'b'),
     ])
@@ -261,8 +285,8 @@ describe('provenance rides the envelope (ADR 2 D8)', () => {
 
   it('a remove carries NO payload and an upsert always does', () => {
     const feed = publisher()
-    const connection = feed.connect('c1', 0)
-    feed.publish([
+    const connection = feed.connect('c1', 0, ALICE)
+    emit(feed, [
       { seq: 1, entity: 'session', entityId: 'a', op: 'remove' },
       change(2, 'b'),
     ])
