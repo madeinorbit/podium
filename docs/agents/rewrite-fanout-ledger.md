@@ -1455,13 +1455,31 @@ Two branches merged with ZERO conflicts this sweep and both were broken afterwar
 say is not evidence; it only ever compared the two diffs, never the resulting type graph.
 
 **POD-731 merged clean, then failed the workspace typecheck.** POD-382's commit `63c316e7` had added 39
-lines to `packages/commands/src/contract.ts` after POD-731 branched. That ONE landing caused TWO distinct
-breaks in POD-731, and each is a different failure shape worth recognising:
+lines to `packages/commands/src/contract.ts` after POD-731 branched, making `visibility` REQUIRED on
+`CommandContract`.
 
-- **TS2352**, its two widening casts over `WORKFLOW_CONTRACTS` no longer "sufficiently overlap" — the
-  union it casts FROM grew.
-- **TS2741**, `visibility` became REQUIRED, so eleven contracts are missing a property. **Vitest cannot
-  see this at all.** It is type-level only: the test lane stays green while every build fails.
+**I first recorded this as TWO distinct breaks. It is ONE break with two symptoms, and POD-731 corrected
+me with the evidence.** `TS2741` (eleven contracts missing `visibility`) is the CAUSE; `TS2352` (its two
+widening casts no longer "sufficiently overlap") is the SYMPTOM. The casts stopped overlapping because the
+objects genuinely no longer satisfied the interface — a required property was absent — not because the
+union they cast FROM had grown. Declaring `visibility` on the eleven took `packages/commands` AND
+`apps/server` to zero in one move, including the twelve errors in `modules/workflows/registry.ts`.
+
+**Why the distinction is worth the correction: the wrong remedy was one keystroke away and would have
+passed review.** TypeScript's own suggestion for TS2352 is to cast through `unknown`. That compiles — and
+leaves all eleven contracts with NO visibility class, silently defeating the compile-time half of the
+default-closed rule POD-382 had just landed. Green typecheck, rule gone. Treating the symptom as the break
+is what makes that remedy look correct. POD-731 also PROBED the casts rather than assuming: removing them
+reproduces TS2322 plus two TS2339s, so they are load-bearing and ordinary, and it left a note at the site
+so the next TS2352 there prompts a search for a missing field before a reach for `unknown`.
+
+**Vitest cannot see any of this.** It is type-level only: the test lane stays green while every build
+fails. Do not accept a passing suite as evidence against this class of break.
+
+**Diagnostic corollary, measured:** the workspace typecheck surfaced 2 errors, both pointing at the wrong
+file's wrong line. In-package `bunx tsgo --noEmit` gave 14, and the extra 12 named the cause in their
+first line. Run the WORKSPACE typecheck to decide whether something is broken; run the IN-PACKAGE one to
+find out why.
 
 **The propagation, which is the expensive part and was my error.** I left that merge on `issue/279-integration`
 while I ran the typecheck. In that ~20-minute window POD-351 merged integration, absorbed the broken commit,
