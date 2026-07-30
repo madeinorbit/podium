@@ -10,6 +10,36 @@
       "@podium/source": "./src/index.ts",
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./replica": {
+      "@podium/source": "./src/replica/index.ts",
+      "types": "./src/replica/index.ts",
+      "import": "./src/replica/index.ts"
+    },
+    "./outbox": {
+      "@podium/source": "./src/outbox/index.ts",
+      "types": "./src/outbox/index.ts",
+      "import": "./src/outbox/index.ts"
+    },
+    "./span": {
+      "@podium/source": "./src/span.ts",
+      "types": "./src/span.ts",
+      "import": "./src/span.ts"
+    },
+    "./adapters/indexeddb": {
+      "@podium/source": "./src/adapters/indexeddb/index.ts",
+      "types": "./src/adapters/indexeddb/index.ts",
+      "import": "./src/adapters/indexeddb/index.ts"
+    },
+    "./adapters/legacy-replica": {
+      "@podium/source": "./src/adapters/legacy-replica/index.ts",
+      "types": "./src/adapters/legacy-replica/index.ts",
+      "import": "./src/adapters/legacy-replica/index.ts"
+    },
+    "./adapters/mobile-sqlite": {
+      "@podium/source": "./src/adapters/mobile-sqlite/index.ts",
+      "types": "./src/adapters/mobile-sqlite/index.ts",
+      "import": "./src/adapters/mobile-sqlite/index.ts"
     }
   },
   "scripts": {

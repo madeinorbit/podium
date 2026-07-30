@@ -233,6 +233,7 @@
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
+        "@podium/sync": "workspace:*",
         "@podium/terminal-client": "workspace:*",
         "@tanstack/db": "^0.6.16",
         "@tanstack/db-sqlite-persistence-core": "^0.2.8",

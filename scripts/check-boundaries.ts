@@ -854,6 +854,176 @@ function checkReplicaDirection(file: string, source: string): Violation[] {
   return violations
 }
 
+// ---------------------------------------------------------------------------
+// Rule 12 — `sync-browser-reach` (POD-307)
+// ---------------------------------------------------------------------------
+//
+// `packages/sync` is tagged NEUTRAL (see the long note beside its entry in
+// scripts/architecture-manifest.ts). Neutral is UNCONSTRAINED by the platform
+// rule, so on its own the retag would let apps/web import the bare barrel —
+// which value-exports the Authority, the Ledger, `mirror.ts` and the SQLite
+// repository. This rule is the half that makes the retag honest, and it lands in
+// the same commit as the retag for that reason.
+//
+// TWO HALVES, because either alone is a gate that cannot say no:
+//
+//  (a) A browser-safe workspace may reach `@podium/sync` only through a DECLARED
+//      browser entrypoint. The bare barrel and every undeclared subpath fail.
+//      This is rule 8a's shape (apps/web + @podium/runtime), generalised to every
+//      browser-safe workspace because ADR 6 puts a client adapter on mobile too.
+//
+//  (b) Each declared entrypoint's TRANSITIVE import closure must contain no Node.
+//      Rule 8b deliberately stops at one hop; this one does not, and the
+//      difference is load-bearing: (a) alone would be satisfied by an entrypoint
+//      that re-exports `authority/index`, and a declaration list nobody verifies
+//      is exactly the mechanism-present/coverage-absent shape. An entrypoint whose
+//      graph cannot be WALKED is reported too — an unresolvable import silently
+//      truncates the closure, and a truncated closure is green for the wrong
+//      reason.
+//
+// WHAT (b) DOES NOT COVER, stated rather than left to be discovered: npm
+// dependencies are checked only against the short list below. A browser-hostile
+// npm package outside it would pass this rule. That is the job of
+// `scripts/audit-browser-reach.ts`, which bundles each entrypoint with a real
+// browser-target bundler — source text and a running bundler, paired, because
+// each is blind where the other sees.
+//
+// Type-only imports are exempt, matching checkManifestEdge: they are erased at
+// build and create no bundle edge.
+
+/**
+ * The browser-safe surface of `@podium/sync`: specifier → source entry module.
+ *
+ * Adding a row here is a DECISION that the module's whole import closure is
+ * browser-safe, and (b) then holds you to it. `packages/sync/package.json` must
+ * carry the matching `exports` entry — asserted in scripts/check-boundaries.test.ts,
+ * because a rule permitting a specifier Node cannot resolve is a rule that
+ * permits nothing.
+ */
+export const SYNC_BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
+  ['@podium/sync/replica', 'packages/sync/src/replica/index.ts'],
+  ['@podium/sync/outbox', 'packages/sync/src/outbox/index.ts'],
+  ['@podium/sync/span', 'packages/sync/src/span.ts'],
+  ['@podium/sync/adapters/indexeddb', 'packages/sync/src/adapters/indexeddb/index.ts'],
+  ['@podium/sync/adapters/mobile-sqlite', 'packages/sync/src/adapters/mobile-sqlite/index.ts'],
+  ['@podium/sync/adapters/legacy-replica', 'packages/sync/src/adapters/legacy-replica/index.ts'],
+])
+
+/** npm specifiers (b) knows are node-only. Short and explicit — see the note
+ *  above on what this deliberately does not attempt. */
+const SYNC_BROWSER_FORBIDDEN_NPM: ReadonlySet<string> = new Set([
+  'ws',
+  'better-sqlite3',
+  'drizzle-orm',
+  'fake-indexeddb',
+])
+
+/**
+ * Rule 12a — a browser-safe workspace may reach @podium/sync only through a
+ * declared browser entrypoint.
+ */
+export function checkSyncBrowserReach(file: string, ref: ImportRef): Violation | null {
+  if (ref.typeOnly) return null
+  if (isTestFile(file)) return null
+  const spec = ref.specifier
+  if (spec !== '@podium/sync' && !spec.startsWith('@podium/sync/')) return null
+  const from = workspaceOf(file)
+  if (tagsFor(from)?.platform !== 'browser-safe') return null
+  if (SYNC_BROWSER_ENTRYPOINTS.has(spec)) return null
+  const allowed = [...SYNC_BROWSER_ENTRYPOINTS.keys()].sort().join(', ')
+  return {
+    file,
+    specifier: spec,
+    rule: 'sync-browser-reach',
+    message:
+      spec === '@podium/sync'
+        ? `${file}: browser-safe ${from} imports the @podium/sync BARREL — it value-exports the Authority, the Ledger and the SQLite repository, so a browser bundle would inline Node code. Import a declared browser entrypoint instead: ${allowed}.`
+        : `${file}: browser-safe ${from} imports '${spec}', which is not a declared browser entrypoint of @podium/sync. Declared: ${allowed}. Adding one is a decision — declare it in SYNC_BROWSER_ENTRYPOINTS (scripts/check-boundaries.ts) and its closure is then held to no-Node.`,
+  }
+}
+
+/** Resolve a relative specifier against a repo-relative importer, trying the
+ *  extensionless spellings this repo uses. Returns null when nothing exists —
+ *  which (b) reports rather than skips. */
+function resolveRelativeModule(repoRoot: string, fromFile: string, spec: string): string | null {
+  const base = relative('/', resolve('/', dirname(fromFile), spec)).split(sep).join('/')
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
+    if (candidate.endsWith('.ts') || candidate.endsWith('.tsx')) {
+      if (existsSync(join(repoRoot, candidate))) return candidate
+    }
+  }
+  return null
+}
+
+/**
+ * Rule 12b — the transitive closure of every declared browser entrypoint is
+ * Node-free. Runs over the declared set rather than per-file (same shape as
+ * rules 8b and 9).
+ */
+export function checkSyncBrowserGraphAll(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  for (const [specifier, entry] of SYNC_BROWSER_ENTRYPOINTS) {
+    const seen = new Set<string>()
+    const queue: string[] = [entry]
+    while (queue.length > 0) {
+      const file = queue.shift() as string
+      if (seen.has(file)) continue
+      seen.add(file)
+      let source: string
+      try {
+        source = readFileSync(join(repoRoot, file), 'utf8')
+      } catch {
+        violations.push({
+          file: entry,
+          specifier,
+          rule: 'sync-browser-reach',
+          message: `${entry}: declared browser entrypoint of '${specifier}' does not exist — a missing entry makes the closure check vacuously green. Create it or remove the row from SYNC_BROWSER_ENTRYPOINTS.`,
+        })
+        continue
+      }
+      for (const ref of extractImports(source)) {
+        if (ref.typeOnly) continue
+        const spec = ref.specifier
+        if (spec.startsWith('.')) {
+          const target = resolveRelativeModule(repoRoot, file, spec)
+          if (target === null) {
+            violations.push({
+              file,
+              specifier: spec,
+              rule: 'sync-browser-reach',
+              message: `${file}: reachable from browser entrypoint '${specifier}' and imports '${spec}', which resolves to no file here. An unresolvable import TRUNCATES the closure, so the no-Node claim would be green for the wrong reason.`,
+            })
+            continue
+          }
+          queue.push(target)
+          continue
+        }
+        const bad =
+          spec.startsWith('node:') ||
+          spec.startsWith('bun:') ||
+          spec.startsWith('@podium/runtime/') ||
+          SYNC_BROWSER_FORBIDDEN_NPM.has(spec) ||
+          (spec.startsWith('@podium/') && tagsFor(podiumWorkspaceOf(spec))?.platform === 'node-only')
+        if (bad) {
+          violations.push({
+            file,
+            specifier: spec,
+            rule: 'sync-browser-reach',
+            message: `${file}: reachable from browser entrypoint '${specifier}' and imports '${spec}' — a browser bundle would inline Node code. @podium/sync is tagged NEUTRAL on the strength of this closure staying Node-free (POD-307); move the dependency behind a port the composition root injects.`,
+          })
+        }
+      }
+    }
+  }
+  return violations
+}
+
+/** `@podium/foo` / `@podium/foo/bar` → the workspace path the manifest tags. */
+function podiumWorkspaceOf(specifier: string): string {
+  const name = specifier.slice('@podium/'.length).split('/')[0] ?? ''
+  return tagsFor(`packages/${name}`) !== null ? `packages/${name}` : `apps/${name}`
+}
+
 export function checkFile(
   file: string,
   source: string,
@@ -977,6 +1147,13 @@ export function checkManifestFile(
       violations.push(roleViolation)
       continue
     }
+    // Rule 12a — the guard that replaces what packages/sync's node-only tag used
+    // to give the platform rule for free.
+    const syncReach = checkSyncBrowserReach(file, ref)
+    if (syncReach) {
+      violations.push(syncReach)
+      continue
+    }
     const to = targetWorkspace(file, ref.specifier)
     if (to === null || to === from) continue
     violations.push(...checkManifestEdge(file, from, to, ref))
@@ -1047,6 +1224,7 @@ export function runCheck(repoRoot: string): {
   violations.push(...checkDeclaredDeps(repoRoot))
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
+  manifest.push(...checkSyncBrowserGraphAll(repoRoot))
   const staleGrandfathers = [...GRANDFATHERED_AGENT_BRIDGE].filter(
     (f) => !agentBridgeImporters.has(f),
   )
