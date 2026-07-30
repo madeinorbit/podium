@@ -77,6 +77,74 @@ affordance set free of an existence oracle. Withholding a button for one of the 
 | Secrets never queued | `online-sensitive` / `online-only` refused before any persistence |
 | D12 partitions | FIFO within, concurrent across; a parked head blocks only its own partition, on every later pass |
 
+## Privacy is a binding, not a filter
+
+An `Outbox` instance is bound to ONE authenticated principal (`OutboxConfig.principal`,
+supplied by the caller from the transport per ADR 3 D7/D14). Every observation API —
+`deadLetters()`, `all()`, `find()`, `pending()` — is scoped to it, and `deadLetters()` takes no
+argument at all, so there is no query another principal could phrase to reach this author's work
+(private-by-default, readiness §3.1.1). `enqueue` refuses an `attribution.onBehalfOf` that is not
+the bound principal, so an instance cannot become a mixed queue whose privacy depends on every
+reader filtering correctly. Two principals sharing one physical store get two bound views, each
+blind to the other's entries — and, crucially, neither able to DROP them: a foreign entry is not
+drained here and not observable here, but it survives, because it is that principal's unsent work.
+
+## One writer, staged before it commits
+
+Every mutation goes through `mutate()`, which serializes against every other mutation, builds a
+DRAFT, writes it, and only then adopts it in memory and emits its events. Consequences that are
+tested rather than asserted: a quota denial or a closed database leaves memory exactly as it was
+(ADR 6 D4.4 — the failing operation does not partially apply), two concurrent `enqueue` calls
+cannot commit out of order, and observability never precedes durability (D4.3).
+
+Removals are licensed. A draft diffs the ids it started with against the ids it ends with, and
+every id that disappeared must have been removed with one of D9 invariant 1's two licences —
+`covering-truth` (an `applied` retirement) or `user-discarded`. Anything else throws
+`OutboxInvariantError` before the write. That is the guard a method-name check only approximated:
+a future `destroy()`/`flush()`, or a stray `filter` inside a maintenance routine, cannot reach the
+store no matter what it is called.
+
+## The ADR 2 D10 transaction seam (agreed with POD-369)
+
+The Replica commits entity + cursor and retires its overlay post-commit; the Outbox retires an
+applied entry in its own write. Each is correct alone; the torn window exists only in the JOIN, so
+the seam is a shared port that neither kernel owns:
+
+```ts
+interface SyncUnitOfWork { transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T> }
+interface SyncSpan {
+  onCommit(effect: () => void): void   // publish RAM effects after the durable commit
+  onAbort(revert: () => void): void    // revert state that had to mutate eagerly
+}
+```
+
+Wired by POD-305 / POD-373 — not by either kernel — as
+`uow.transact(span => { replica.applyDelta(delta, span); outbox.retireApplied(id, span) })`.
+
+POD-370 proposed it; **POD-369's three amendments were accepted** and are what the shape above
+records: (1) enrollment is EXPLICIT — the span is threaded into the participant call and on into
+the store write, because wrapping unchanged methods in `transact` does not make their inner store
+calls join the native transaction and there is no portable ambient transaction in a browser; both
+span parameters are optional, so no existing caller breaks. (2) `onCommit` as well as `onAbort`,
+because an observation that escapes to a subscriber before the outer span commits cannot be
+un-emitted; participants stage and publish on commit. (3) No silent per-write fallback on the
+durable path — one-transaction-per-write IS the D10 non-compliance, so it is legal only as ADR 2's
+explicitly surfaced degraded mode, the in-memory adapter implements a real unit of work, and the
+span body does local-storage work only (an authority await inside it would let an IndexedDB
+transaction auto-close).
+
+It carries no cause, rung, rescope or re-bootstrap parameter and never will: it is not a place to
+smuggle back the replica→outbox edge both issues deliberately removed.
+
+**The case POD-373 owes this seam** (outbox half by POD-370, replica half by POD-369): given
+durable pre-state entity `E@r0`, cursor `C`, and mutation `M` applied but awaiting covering truth,
+receive a certified frame carrying `E@r1` with provenance matching `M` and cursor `C2`. Inject a
+failure after either participant's native write is enrolled but before the shared transaction
+commits, then recreate both kernels from the store. The only legal recovered snapshots are
+`PRE = {E@r0, C, M awaiting}` or `POST = {E@r1, C2, M retired}`; both torn mixes are forbidden, and
+on abort no `upserted`, `cursor` or `retired` observation may have escaped. Run it again for a
+buffered delta included in an atomic bootstrap install.
+
 ## Delivery semantics
 
 **At-least-once**, deduped into effectively-once by the client-minted `mutationId` inside the

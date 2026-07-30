@@ -25,6 +25,17 @@
  * (D12). Global head-of-line blocking is forbidden; a blocked or dead-lettered
  * entry blocks only its own partition, until recovery or cancel.
  *
+ * ## One writer, and it stages before it commits
+ *
+ * Every mutation goes through `mutate()`, which (a) SERIALIZES against every
+ * other mutation, (b) builds a DRAFT of the record set, (c) writes the draft to
+ * the store, and only then (d) adopts it in memory and emits its events. So a
+ * failed or denied write (ADR 6 D4.4 quota: "the failing operation does not
+ * partially apply") leaves memory exactly as it was, two concurrent `enqueue`
+ * calls cannot commit out of order, and observability never runs ahead of
+ * durability (D4.3). Removals inside a draft must carry one of D9 invariant 1's
+ * two licences or the draft refuses to commit — see `OutboxDraft`.
+ *
  * ## What this module deliberately cannot do
  *
  * - It cannot hold a secret: `enqueue` accepts only `offline-eligible` commands,
@@ -32,6 +43,9 @@
  * - It cannot hold a capability, an "allow" bit or any rights snapshot, so a
  *   replay cannot re-present stale rights. Re-authorization is the Authority's,
  *   live over the delegation chain, at every apply (D8 / amendment D16).
+ * - It cannot show one principal another principal's work: the instance is BOUND
+ *   to its authenticated principal, and every observation API is scoped to it
+ *   (private-by-default, readiness §3.1.1). A caller cannot even ask.
  * - It cannot drop user-authored work. Every path out of the store is either a
  *   user action or an `applied` retirement after covering truth (D9 invariant 1),
  *   with exactly one exception: a genuinely unreadable store, which is loud
@@ -40,12 +54,12 @@
 
 import type { MutationId } from '@podium/protocol'
 import type {
-  DeadLetterQuery,
   OutboxConfig,
   OutboxEnvelope,
   OutboxEvent,
   OutboxStorePort,
   OutboxSubmitOutcome,
+  SyncSpan,
 } from './ports'
 import {
   MAX_AGE_REASON,
@@ -65,8 +79,9 @@ import {
   type OutboxAttribution,
   type OutboxCommand,
   type OutboxRecord,
+  type UserRef,
 } from './records'
-import { applyOutboxTransition } from './states'
+import { applyOutboxTransition, type OutboxTransition } from './states'
 
 export interface EnqueueRequest extends EnvelopeConfirmation {
   readonly command: OutboxCommand
@@ -76,6 +91,11 @@ export interface EnqueueRequest extends EnvelopeConfirmation {
    * TRANSPORT by the caller (ADR 3 D7 / amendment D14, D17). It is a separate
    * argument from `input` on purpose: identity that arrives inside a payload is
    * inert by decision, and the Outbox has no code path that reads one.
+   *
+   * Its `onBehalfOf` half must equal the principal this Outbox is BOUND to —
+   * one authenticated principal per instance. Enqueueing for somebody else is
+   * refused, so an instance cannot become a mixed queue whose privacy depends on
+   * every reader filtering correctly.
    */
   readonly attribution: OutboxAttribution
   readonly expectedRevision?: number
@@ -93,21 +113,112 @@ export interface EditRequest {
 }
 
 /** Thrown for a caller mistake: an illegal recovery, an unknown id, a delivery
- *  class the Outbox may not hold. Distinct from an Authority refusal, which is
- *  never an exception — it is a state. */
+ *  class the Outbox may not hold, an enqueue for another principal. Distinct
+ *  from an Authority refusal, which is never an exception — it is a state. */
 export class OutboxUsageError extends Error {}
+
+/**
+ * Thrown when a draft tries to remove a record without a licence. This is not a
+ * caller error — it is a KERNEL INVARIANT BREACH, so it is a distinct type that
+ * nothing catches: D9 invariant 1 allows an entry to become gone only by a user
+ * action or by an `applied` retirement after covering truth, and any other
+ * deletion (a future `flush`, a stray `filter` inside a maintenance path) must
+ * fail loudly at the moment it is written rather than silently eat user work.
+ */
+export class OutboxInvariantError extends Error {}
+
+/** D9 invariant 1's two licences to make an entry gone. There is no third. */
+export type RemovalLicence =
+  /** A successful `applied` retirement after covering truth landed. */
+  | 'covering-truth'
+  /** The user discarded it (or re-issued it under a fresh id, which is the same
+   *  decision: they chose for this entry to stop existing). */
+  | 'user-discarded'
+
+/**
+ * A staged edit of the record set.
+ *
+ * The reason this exists rather than mutating an array in place: it makes the
+ * removal rule STRUCTURAL. `commit()` diffs the ids it started with against the
+ * ids it ends with, and every id that disappeared must have been removed through
+ * `remove(id, licence)`. A deletion introduced anywhere else — a `filter` slipped
+ * into a maintenance routine, a `destroy()` added next year — cannot reach the
+ * store, because the draft refuses to commit. That is a stronger guard than
+ * asserting method NAMES: a name-based check passes a method called `flush`.
+ */
+class OutboxDraft {
+  readonly events: OutboxEvent[] = []
+  private readonly licensed = new Map<MutationId, RemovalLicence>()
+  private records: OutboxRecord[]
+
+  constructor(private readonly before: readonly OutboxRecord[]) {
+    this.records = [...before]
+  }
+
+  all(): readonly OutboxRecord[] {
+    return this.records
+  }
+
+  find(mutationId: MutationId): OutboxRecord | undefined {
+    return this.records.find((r) => r.mutationId === mutationId)
+  }
+
+  /** Insert, or replace in place so FIFO position survives a state change. */
+  put(record: OutboxRecord): void {
+    const idx = this.records.findIndex((r) => r.mutationId === record.mutationId)
+    if (idx === -1) this.records.push(record)
+    else this.records[idx] = record
+  }
+
+  remove(mutationId: MutationId, licence: RemovalLicence): void {
+    this.licensed.set(mutationId, licence)
+    this.records = this.records.filter((r) => r.mutationId !== mutationId)
+  }
+
+  emit(event: OutboxEvent): void {
+    this.events.push(event)
+  }
+
+  /** The validated record set, or a loud failure. */
+  sealed(): readonly OutboxRecord[] {
+    const after = new Set(this.records.map((r) => r.mutationId))
+    const vanished = this.before.filter((r) => !after.has(r.mutationId)).map((r) => r.mutationId)
+    const unlicensed = vanished.filter((id) => !this.licensed.has(id))
+    if (unlicensed.length > 0) {
+      throw new OutboxInvariantError(
+        `unlicensed outbox removal of ${unlicensed.join(', ')} — D9 invariant 1 permits "gone" only on user action or an applied retirement after covering truth`,
+      )
+    }
+    const phantom = [...this.licensed.keys()].filter((id) => after.has(id))
+    if (phantom.length > 0) {
+      throw new OutboxInvariantError(
+        `removal licence claimed but ${phantom.join(', ')} still present`,
+      )
+    }
+    return this.records
+  }
+}
 
 export class Outbox {
   private readonly config: OutboxConfig
   private readonly store: OutboxStorePort
-  /** Insertion order IS the FIFO order within a partition. */
-  private records: OutboxRecord[]
+  /** The authenticated principal this instance belongs to. Every observation API
+   *  is scoped to it; see `EnqueueRequest.attribution`. */
+  private readonly principal: UserRef
+  /** Insertion order IS the FIFO order within a partition. Replaced wholesale by
+   *  `mutate()` — never mutated in place, so a rollback is an assignment. */
+  private records: readonly OutboxRecord[]
   private readonly listeners = new Set<(event: OutboxEvent) => void>()
   private draining: Promise<void> | null = null
+  /** The serialization chain. Every mutation queues behind the previous one, so
+   *  two concurrent `enqueue` calls cannot interleave stage-and-write and commit
+   *  out of order. */
+  private mutations: Promise<unknown> = Promise.resolve()
 
-  private constructor(config: OutboxConfig, records: OutboxRecord[]) {
+  private constructor(config: OutboxConfig, records: readonly OutboxRecord[]) {
     this.config = config
     this.store = config.store
+    this.principal = config.principal
     this.records = records
     if (config.onEvent) this.listeners.add(config.onEvent)
   }
@@ -124,6 +235,10 @@ export class Outbox {
    * - a `rejected` / `expired` record is parked. Invariant 2 says those states
    *   ALWAYS enter dead-letter; a crash in that window must not leave an entry
    *   resolved-but-unrecoverable.
+   *
+   * Records belonging to another principal are loaded and left ALONE: not
+   * observable here, not drained here, and above all not dropped — they are that
+   * principal's unsent writes and only their own bound instance may resolve them.
    */
   static async open(config: OutboxConfig): Promise<Outbox> {
     let loaded: readonly OutboxRecord[] = []
@@ -151,34 +266,40 @@ export class Outbox {
     return () => this.listeners.delete(listener)
   }
 
-  /** Every record, in FIFO order. Diagnostics, the drain and conformance probes —
-   *  NOT a UI surface: the recovery UI reads `deadLetters`, which is scoped to a
-   *  principal (readiness §3.1.1, brief point 4). */
+  /** This instance's principal — the one whose work it may see and drain. */
+  boundTo(): UserRef {
+    return this.principal
+  }
+
+  /** Every record THIS PRINCIPAL authored, in FIFO order. Another principal's
+   *  entries in the same physical store are invisible here by construction, not
+   *  by a filter the caller has to remember. */
   all(): readonly OutboxRecord[] {
-    return [...this.records]
+    return this.mine()
   }
 
   find(mutationId: MutationId): OutboxRecord | undefined {
-    return this.records.find((r) => r.mutationId === mutationId)
+    return this.mine().find((r) => r.mutationId === mutationId)
   }
 
-  /** The optimistic-overlay input (POD-372): entries the user has authored that
-   *  the Authority has not applied yet. */
+  /** The optimistic-overlay input (POD-372): entries this principal has authored
+   *  that the Authority has not applied yet. */
   pending(): readonly OutboxRecord[] {
-    return this.records.filter(
+    return this.mine().filter(
       (r) => r.state === 'queued' || r.state === 'sending' || r.state === 'accepted',
     )
   }
 
   /**
-   * The recovery surface, scoped to ONE principal. There is deliberately no
-   * unscoped accessor: a dead-letter entry is personal state belonging to the
-   * human it was authored on behalf of, and it must never surface in another
-   * user's recovery UI (private-by-default, readiness §3.1.1).
+   * The recovery surface. It takes NO principal argument: the instance is bound
+   * to one authenticated principal, so there is no query another user could
+   * phrase to reach this author's work (private-by-default, readiness §3.1.1).
+   * A dead-letter entry belongs to the human it was authored on behalf of — the
+   * actor may be a retired agent session (§3.1.3 A4).
    */
-  deadLetters(query: DeadLetterQuery): readonly DeadLetterRecord[] {
-    return this.records
-      .filter((r) => r.state === 'dead-letter' && belongsTo(r, query.forUser))
+  deadLetters(): readonly DeadLetterRecord[] {
+    return this.mine()
+      .filter((r) => r.state === 'dead-letter')
       .map((r) => toDeadLetterRecord(r))
   }
 
@@ -198,28 +319,37 @@ export class Outbox {
         `command ${request.command.name} is ${String(request.command.delivery)}; only ${ENQUEUEABLE_DELIVERY} commands may enter the outbox`,
       )
     }
-    const mutationId = request.mutationId ?? this.config.newMutationId()
-    if (this.find(mutationId)) {
-      throw new OutboxUsageError(`duplicate mutationId in outbox: ${mutationId}`)
+    if (request.attribution.onBehalfOf !== this.principal) {
+      throw new OutboxUsageError(
+        `this outbox is bound to ${this.principal}; it cannot enqueue work on behalf of ${request.attribution.onBehalfOf}`,
+      )
     }
-    const record: OutboxRecord = {
-      mutationId,
-      command: request.command,
-      input: request.input,
-      ...(request.expectedRevision === undefined
-        ? {}
-        : { expectedRevision: request.expectedRevision }),
-      partitionKey: request.partitionKey ?? `create:${mutationId}`,
-      attribution: request.attribution,
-      state: 'queued',
-      queuedAt: this.config.now(),
-      attempts: 0,
-      ...confirmationOf(request),
-    }
-    this.records.push(record)
-    await this.persist()
-    this.emit({ type: 'local-ack', mutationId })
-    return record
+    return await this.mutate((draft) => {
+      const mutationId = request.mutationId ?? this.config.newMutationId()
+      // Uniqueness is checked against the WHOLE store, not just this principal's
+      // slice: a `mutationId` is the Authority's dedupe key, so a collision
+      // across principals would be just as wrong.
+      if (draft.find(mutationId)) {
+        throw new OutboxUsageError(`duplicate mutationId in outbox: ${mutationId}`)
+      }
+      const record: OutboxRecord = {
+        mutationId,
+        command: request.command,
+        input: request.input,
+        ...(request.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: request.expectedRevision }),
+        partitionKey: request.partitionKey ?? `create:${mutationId}`,
+        attribution: request.attribution,
+        state: 'queued',
+        queuedAt: this.config.now(),
+        attempts: 0,
+        ...confirmationOf(request),
+      }
+      draft.put(record)
+      draft.emit({ type: 'local-ack', mutationId })
+      return record
+    })
   }
 
   /**
@@ -240,7 +370,9 @@ export class Outbox {
 
   private async drainPass(): Promise<void> {
     const partitions = new Map<string, OutboxRecord[]>()
-    for (const record of this.records) {
+    // Only this principal's work: another principal's entries drain under their
+    // own bound instance, over their own authenticated transport.
+    for (const record of this.mine()) {
       const bucket = partitions.get(record.partitionKey)
       if (bucket) bucket.push(record)
       else partitions.set(record.partitionKey, [record])
@@ -279,7 +411,6 @@ export class Outbox {
       attempts: queued.attempts + 1,
       lastAttemptAt: this.config.now(),
     })
-    this.emit({ type: 'sending', mutationId: sending.mutationId })
 
     let outcome: OutboxSubmitOutcome
     try {
@@ -293,17 +424,11 @@ export class Outbox {
 
     switch (outcome.kind) {
       case 'applied': {
-        const applied = await this.transition(sending, 'authority-applied', {
-          appliedAt: this.config.now(),
-        })
-        this.emit({ type: 'applied', mutationId: applied.mutationId })
+        await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
         return true
       }
       case 'accepted': {
-        const accepted = await this.transition(sending, 'authority-accepted', {
-          acceptedAt: this.config.now(),
-        })
-        this.emit({ type: 'accepted', mutationId: accepted.mutationId })
+        await this.transition(sending, 'authority-accepted', { acceptedAt: this.config.now() })
         // Order within the partition holds: nothing may be submitted behind an
         // envelope the Authority has taken but not yet applied.
         return false
@@ -315,8 +440,11 @@ export class Outbox {
       case 'unreachable': {
         // D9 invariant 4: this is NOT a rejection. Back to `queued`, forever if
         // need be, until the age limit converts it to `expired`.
-        const requeued = await this.transition(sending, 'transport-failed', {})
-        this.emit({ type: 'requeued', mutationId: requeued.mutationId })
+        //
+        // Returning FALSE is load-bearing, not incidental: the head of this
+        // partition did not get through, so nothing behind it may be submitted.
+        // Returning true here would silently reorder writes to one aggregate.
+        await this.transition(sending, 'transport-failed', {})
         return false
       }
     }
@@ -328,11 +456,9 @@ export class Outbox {
    * hop is not atomic, and D9 models them as two states.
    */
   async noteApplied(mutationId: MutationId): Promise<void> {
-    const record = this.require(mutationId)
-    const applied = await this.transition(record, 'authority-applied', {
+    await this.transition(this.require(mutationId), 'authority-applied', {
       appliedAt: this.config.now(),
     })
-    this.emit({ type: 'applied', mutationId: applied.mutationId })
   }
 
   /** The Authority refused an envelope it had `accepted` — including the case the
@@ -346,27 +472,71 @@ export class Outbox {
   }
 
   /**
+   * The transport died while an envelope was in flight or accepted-but-not-yet-
+   * applied: `sending` / `accepted` → `queued` (D9 invariant 4).
+   *
+   * This exists because the `accepted → queued` edge has to be reachable WHILE
+   * THE PROCESS LIVES, not only through a cold reopen. An `accepted` entry whose
+   * apply notification is lost blocks its partition, and "wait for a restart" is
+   * not a recovery path — it is invariant 1's "gone" hazard wearing the opposite
+   * coat, work the user can neither see resolved nor recover. Replaying is safe
+   * because the `mutationId` is unchanged (D11.7).
+   */
+  async noteTransportLost(mutationId: MutationId): Promise<OutboxRecord> {
+    const record = this.require(mutationId)
+    if (record.state !== 'sending' && record.state !== 'accepted') {
+      throw new OutboxUsageError(
+        `cannot requeue ${mutationId} from ${record.state}: nothing is in flight`,
+      )
+    }
+    return await this.transition(record, 'transport-failed', {})
+  }
+
+  /**
+   * Sweep every entry that has been `sending` or `accepted` with no progress for
+   * longer than `stalledForMs`, back to `queued`. The liveness backstop for a
+   * reply that never came; the CADENCE that calls it is POD-371's.
+   */
+  async requeueStalled(opts: { readonly stalledForMs: number }): Promise<readonly MutationId[]> {
+    const now = this.config.now()
+    const stalled = this.mine().filter(
+      (r) =>
+        (r.state === 'sending' || r.state === 'accepted') &&
+        now - (r.lastAttemptAt ?? r.queuedAt) >= opts.stalledForMs,
+    )
+    for (const record of stalled) await this.transition(record, 'transport-failed', {})
+    return stalled.map((r) => r.mutationId)
+  }
+
+  /**
    * Retire an `applied` entry after covering truth landed. This is D9 invariant
    * 1's second (and only non-user) licence to make an entry gone; today's
    * `awaiting-truth` is the sub-stage of `applied` that ends here, not a ninth
    * state.
+   *
+   * Pass the `span` of a `SyncUnitOfWork` transaction (ADR 2 D10) to enroll the
+   * write in it, so the entity rows, the cursor advance and this retirement land
+   * together or not at all. Enrollment is EXPLICIT because an ambient transaction
+   * cannot portably reach an inner store call (POD-369's amendment 1); the
+   * parameter is optional, so callers that do not use the seam are unaffected.
    */
-  async retireApplied(mutationId: MutationId): Promise<void> {
+  async retireApplied(mutationId: MutationId, span?: SyncSpan): Promise<void> {
     const record = this.require(mutationId)
     if (record.state !== 'applied') {
       throw new OutboxUsageError(
         `cannot retire ${mutationId} from ${record.state}: only an applied entry retires after covering truth`,
       )
     }
-    this.records = this.records.filter((r) => r.mutationId !== mutationId)
-    await this.persist()
-    this.emit({ type: 'retired', mutationId })
+    await this.mutate((draft) => {
+      draft.remove(mutationId, 'covering-truth')
+      draft.emit({ type: 'retired', mutationId })
+    }, span)
   }
 
   /** Age out everything past `maxAgeMs`, whether or not a drain is running
    *  (D10: `queued`/`sending` → `expired` → `dead-letter`, reason `max-age`). */
   async sweepExpired(): Promise<readonly MutationId[]> {
-    const doomed = this.records.filter(
+    const doomed = this.mine().filter(
       (r) => (r.state === 'queued' || r.state === 'sending') && this.isAgedOut(r),
     )
     for (const record of doomed) await this.expire(record)
@@ -410,14 +580,12 @@ export class Outbox {
         : {}),
       ...('confirmed' in satisfaction ? CONFIRMED : {}),
     }
-    const requeued = await this.transition(record, 'user-retried', {
+    return await this.transition(record, 'user-retried', {
       ...patch,
       reason: undefined,
       deadLetteredAt: undefined,
       parkedFrom: undefined,
     })
-    this.emit({ type: 'requeued', mutationId: requeued.mutationId })
-    return requeued
   }
 
   /**
@@ -439,12 +607,9 @@ export class Outbox {
    *  `queued`: invariant 1 licenses "gone" on user action, and cancelling a
    *  write you can still see pending is the plainest form of that. */
   async discard(mutationId: MutationId): Promise<OutboxRecord> {
-    const record = this.require(mutationId)
-    const cancelled = await this.transition(record, 'user-discarded', {
+    return await this.transition(this.require(mutationId), 'user-discarded', {
       cancelledAt: this.config.now(),
     })
-    this.emit({ type: 'cancelled', mutationId })
-    return cancelled
   }
 
   /** Drop a `cancelled` record from the store. Separate from `discard` so that
@@ -455,58 +620,63 @@ export class Outbox {
     if (record.state !== 'cancelled') {
       throw new OutboxUsageError(`cannot purge ${mutationId} from ${record.state}`)
     }
-    this.records = this.records.filter((r) => r.mutationId !== mutationId)
-    await this.persist()
+    await this.mutate((draft) => {
+      draft.remove(mutationId, 'user-discarded')
+    })
   }
 
   // ADR 2 D7 — "discard the cache, re-bootstrap, KEEP THE OUTBOX" — is upheld
   // here by ABSENCE: no method on this class takes a re-bootstrap, a rung, an
-  // epoch or a rescope as its subject, and none clears the queue. See the note
-  // in ports.ts for why that is stronger than a contractual no-op would be.
+  // epoch or a rescope as its subject, and no code path can remove a record
+  // without one of D9 invariant 1's two licences (see OutboxDraft). See the note
+  // in ports.ts for why absence beats a contractual no-op.
 
   // ---- internals ----------------------------------------------------------
 
+  /** This principal's slice of the store. */
+  private mine(): readonly OutboxRecord[] {
+    return this.records.filter((r) => belongsTo(r, this.principal))
+  }
+
   private async reconcileOnOpen(): Promise<void> {
-    let changed = false
-    for (const record of [...this.records]) {
+    for (const record of this.mine()) {
       if (record.state === 'sending' || record.state === 'accepted') {
-        this.replace({ ...record, state: applyOutboxTransition(record.state, 'transport-failed') })
-        changed = true
+        await this.transition(record, 'transport-failed', {})
       }
     }
-    if (changed) await this.persist()
     // Invariant 2 straggler: a crash between the verdict and the parking must
     // not leave an entry resolved but unrecoverable.
-    for (const record of [...this.records]) {
+    for (const record of this.mine()) {
       if (record.state === 'rejected' || record.state === 'expired') await this.park(record)
     }
   }
 
+  /** D10 measures from `queuedAt` — the moment the USER authored the intent —
+   *  and never from `lastAttemptAt`. Measuring from the last attempt would let a
+   *  busy entry renew its own horizon on every retry and never expire, which
+   *  defeats D11's inequality: the whole point of expiry is to refuse a send
+   *  whose receipt may already have been pruned. `queuedAt` is immutable. */
   private isAgedOut(record: OutboxRecord): boolean {
     return this.config.now() - record.queuedAt > this.config.maxAgeMs
   }
 
   private async expire(record: OutboxRecord): Promise<void> {
     const expired = await this.transition(record, 'aged-out', { reason: MAX_AGE_REASON })
-    this.emit({ type: 'expired', mutationId: expired.mutationId, reason: MAX_AGE_REASON })
     await this.park(expired)
   }
 
   private async reject(record: OutboxRecord, reason: OutboxRejectionReason): Promise<void> {
     const rejected = await this.transition(record, 'authority-rejected', { reason })
-    this.emit({ type: 'rejected', mutationId: rejected.mutationId, reason })
     await this.park(rejected)
   }
 
   /** D9 invariant 2: `rejected` / `expired` ALWAYS enter dead-letter, with a
    *  reason code the UI can render. There is no branch here that skips it. */
   private async park(record: OutboxRecord): Promise<void> {
-    const from = record.state === 'expired' ? 'expired' : 'rejected'
-    const parked = await this.transition(record, 'parked', {
+    await this.transition(record, 'parked', {
       deadLetteredAt: this.config.now(),
-      parkedFrom: from,
+      parkedFrom: record.state === 'expired' ? 'expired' : 'rejected',
     })
-    this.emit({ type: 'dead-lettered', record: toDeadLetterRecord(parked) })
   }
 
   private async reissue(
@@ -514,31 +684,50 @@ export class Outbox {
     mutationId: MutationId,
     request: EditRequest,
   ): Promise<OutboxRecord> {
-    const fresh: OutboxRecord = {
-      mutationId,
-      command: old.command,
-      input: request.input,
-      ...(request.expectedRevision === undefined
-        ? {}
-        : { expectedRevision: request.expectedRevision }),
-      partitionKey: old.partitionKey,
-      attribution: old.attribution,
-      state: 'queued',
-      queuedAt: this.config.now(),
-      attempts: 0,
+    // D11.4 is a MUST: a re-issue may not reuse the retired id, because a
+    // receipt for it may still exist and the replay would return that stored
+    // result instead of running the new intent.
+    if (mutationId === old.mutationId) {
+      throw new OutboxUsageError(
+        `re-issue of ${old.mutationId} must mint a NEW mutationId (D11.4): a receipt for the old id may still exist`,
+      )
     }
-    this.replace({
-      ...old,
-      state: applyOutboxTransition(old.state, 'user-discarded'),
-      cancelledAt: this.config.now(),
+    return await this.mutate((draft) => {
+      // Global uniqueness, across every principal in the store: the id is the
+      // Authority's dedupe key.
+      if (draft.find(mutationId)) {
+        throw new OutboxUsageError(
+          `cannot re-issue as ${mutationId}: that mutationId already exists`,
+        )
+      }
+      const fresh: OutboxRecord = {
+        mutationId,
+        command: old.command,
+        input: request.input,
+        ...(request.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: request.expectedRevision }),
+        partitionKey: old.partitionKey,
+        attribution: old.attribution,
+        state: 'queued',
+        queuedAt: this.config.now(),
+        attempts: 0,
+      }
+      draft.put({
+        ...old,
+        state: applyOutboxTransition(old.state, 'user-discarded'),
+        cancelledAt: this.config.now(),
+      })
+      draft.put(fresh)
+      draft.emit({ type: 'cancelled', mutationId: old.mutationId })
+      draft.emit({ type: 'local-ack', mutationId })
+      return fresh
     })
-    this.records.push(fresh)
-    await this.persist()
-    this.emit({ type: 'cancelled', mutationId: old.mutationId })
-    this.emit({ type: 'local-ack', mutationId })
-    return fresh
   }
 
+  /** Resolve one of THIS PRINCIPAL's records. A foreign id reads as unknown —
+   *  the same answer as a nonexistent one, so the bound view is not an existence
+   *  oracle for another user's queue either. */
   private require(mutationId: MutationId): OutboxRecord {
     const record = this.find(mutationId)
     if (!record) throw new OutboxUsageError(`unknown outbox entry: ${mutationId}`)
@@ -546,42 +735,134 @@ export class Outbox {
   }
 
   /**
-   * The only writer. Every state change goes through the pure table (an illegal
-   * cell throws rather than coercing), is PERSISTED, and only then observed —
-   * durability before observability, per ADR 6 D4.3.
+   * One state change: through the pure table (an illegal cell throws rather than
+   * coercing), staged, persisted, adopted, and only then observed.
    */
   private async transition(
     record: OutboxRecord,
-    transition: Parameters<typeof applyOutboxTransition>[1],
+    transition: OutboxTransition,
     patch: Partial<OutboxRecord> & { reason?: OutboxRejectionReason | undefined },
   ): Promise<OutboxRecord> {
-    const next: OutboxRecord = {
-      ...record,
-      ...patch,
-      state: applyOutboxTransition(record.state, transition),
+    return await this.mutate((draft) => {
+      const next: OutboxRecord = {
+        ...record,
+        ...patch,
+        state: applyOutboxTransition(record.state, transition),
+      }
+      // `undefined` in a patch means "clear it" — spread leaves the key present
+      // with an undefined value, which would serialise into the durable record.
+      const cleaned = Object.fromEntries(
+        Object.entries(next).filter(([, v]) => v !== undefined),
+      ) as unknown as OutboxRecord
+      draft.put(cleaned)
+      for (const event of eventsForTransition(cleaned, transition)) draft.emit(event)
+      return cleaned
+    })
+  }
+
+  /**
+   * The ONLY writer. Serializes, stages, commits, adopts, then emits.
+   *
+   * The order is the whole point: the in-memory record set is replaced only after
+   * the store write RESOLVES, so a quota denial or a closed database leaves
+   * memory untouched (ADR 6 D4.4: the failing operation does not partially
+   * apply), and events — which are observability — never precede durability
+   * (D4.3). Serializing means two concurrent callers cannot stage from the same
+   * base and commit out of order.
+   */
+  private async mutate<T>(body: (draft: OutboxDraft) => T, span?: SyncSpan): Promise<T> {
+    const run = this.mutations.then(async () => {
+      const before = this.records
+      const draft = new OutboxDraft(before)
+      const result = body(draft)
+      const next = draft.sealed()
+      try {
+        await this.commit(next, before, draft, span)
+      } catch (error) {
+        // Belt and braces: the span's `onAbort` should already have restored
+        // this, but a rollback that depends on an adapter calling us back is not
+        // a rollback.
+        this.records = before
+        throw error
+      }
+      return result
+    })
+    // The chain must survive a rejection, or one failed write would wedge every
+    // later mutation.
+    this.mutations = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return await run
+  }
+
+  /**
+   * Persist, joining an ambient transaction when one is wired (ADR 2 D10 / ADR 6
+   * D4.1). Without a `unitOfWork` each write is its own transaction, exactly as
+   * before — the seam changes nothing for callers who do not use it.
+   */
+  private async commit(
+    next: readonly OutboxRecord[],
+    before: readonly OutboxRecord[],
+    draft: OutboxDraft,
+    ambient?: SyncSpan,
+  ): Promise<void> {
+    /** Adopt the draft and publish its events. Staged until the span commits:
+     *  POD-369's amendment 2 — an event that escapes to a subscriber before the
+     *  outer transaction commits cannot be un-emitted. */
+    const publish = (): void => {
+      this.records = next
+      for (const event of draft.events) this.emit(event)
     }
-    // `undefined` in a patch means "clear it" — spread leaves the key present
-    // with an undefined value, which would serialise into the durable record.
-    const cleaned = Object.fromEntries(
-      Object.entries(next).filter(([, v]) => v !== undefined),
-    ) as unknown as OutboxRecord
-    this.replace(cleaned)
-    await this.persist()
-    return cleaned
-  }
-
-  private replace(record: OutboxRecord): void {
-    const idx = this.records.findIndex((r) => r.mutationId === record.mutationId)
-    if (idx === -1) this.records.push(record)
-    else this.records[idx] = record
-  }
-
-  private async persist(): Promise<void> {
-    await this.store.write([...this.records])
+    const enroll = async (span: SyncSpan): Promise<void> => {
+      span.onCommit(publish)
+      span.onAbort(() => {
+        this.records = before
+      })
+      await this.store.write(next, span)
+    }
+    // A caller-supplied span wins: it is the one already covering the entity
+    // write and the cursor advance, and opening a second transaction inside it
+    // is exactly the torn window this seam closes.
+    if (ambient) return await enroll(ambient)
+    const uow = this.config.unitOfWork
+    if (uow) return await uow.transact(enroll)
+    // No unit of work wired: one transaction per write. Legal only as ADR 2's
+    // surfaced degraded mode (SyncUnitOfWork rule 3), never as POD-373 wiring.
+    await this.store.write(next)
+    publish()
   }
 
   private emit(event: OutboxEvent): void {
     for (const listener of this.listeners) listener(event)
+  }
+}
+
+/** The observable consequence of each transition. Kept beside the table rather
+ *  than at each call site so a new edge cannot land silently unobservable. */
+const eventsForTransition = (
+  record: OutboxRecord,
+  transition: OutboxTransition,
+): readonly OutboxEvent[] => {
+  const mutationId = record.mutationId
+  switch (transition) {
+    case 'drain-started':
+      return [{ type: 'sending', mutationId }]
+    case 'authority-accepted':
+      return [{ type: 'accepted', mutationId }]
+    case 'authority-applied':
+      return [{ type: 'applied', mutationId }]
+    case 'transport-failed':
+    case 'user-retried':
+      return [{ type: 'requeued', mutationId }]
+    case 'authority-rejected':
+      return record.reason ? [{ type: 'rejected', mutationId, reason: record.reason }] : []
+    case 'aged-out':
+      return record.reason ? [{ type: 'expired', mutationId, reason: record.reason }] : []
+    case 'parked':
+      return [{ type: 'dead-lettered', record: toDeadLetterRecord(record) }]
+    case 'user-discarded':
+      return [{ type: 'cancelled', mutationId }]
   }
 }
 

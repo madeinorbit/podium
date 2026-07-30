@@ -11,6 +11,8 @@ import type {
   OutboxStorePort,
   OutboxSubmitOutcome,
   OutboxSubmitPort,
+  SyncSpan,
+  SyncUnitOfWork,
 } from './ports'
 import type { OutboxRecord } from './records'
 
@@ -41,15 +43,110 @@ export class InMemoryOutboxStore implements OutboxStorePort {
     return JSON.parse(this.snapshot) as OutboxRecord[]
   }
 
-  async write(records: readonly OutboxRecord[]): Promise<void> {
+  /**
+   * `delayNextWrites` makes the store resolve writes OUT OF ORDER — the probe that
+   * caught the original serialization bug, where two concurrent enqueues ended
+   * with memory holding [m1, m2] while durable storage held only [m1].
+   */
+  delayNextWrites = 0
+
+  async write(records: readonly OutboxRecord[], span?: SyncSpan): Promise<void> {
     if (this.failWrite !== undefined) throw this.failWrite
-    this.snapshot = JSON.stringify(records)
-    this.writes += 1
+    const apply = (): void => {
+      this.snapshot = JSON.stringify(records)
+      this.writes += 1
+    }
+    if (this.delayNextWrites > 0) {
+      this.delayNextWrites -= 1
+      // Yield twice, so a caller that does not serialize will interleave.
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+    // Enroll in the span when one is supplied: the write lands with the entity
+    // rows and the cursor advance, or not at all (ADR 2 D10).
+    const enlistable = span as
+      | (SyncSpan & { enlist?: (w: () => Promise<void>) => void })
+      | undefined
+    if (enlistable?.enlist) {
+      enlistable.enlist(async () => apply())
+      return
+    }
+    apply()
   }
 
   /** What a cold start would find — i.e. what actually survived. */
   durable(): readonly OutboxRecord[] {
     return JSON.parse(this.snapshot) as OutboxRecord[]
+  }
+}
+
+/**
+ * A real unit of work over the in-memory store — POD-369's amendment 3: the
+ * in-memory adapter implements the same `SyncUnitOfWork` as the durable ones, so
+ * the conformance suite exercises the atomic path rather than the degraded
+ * one-transaction-per-write fallback.
+ *
+ * `enrolled` collects every write in the span and applies them together, so a
+ * failure anywhere in the body leaves the store exactly as it was and the
+ * participants' `onAbort` reverts run.
+ */
+export class InMemoryUnitOfWork implements SyncUnitOfWork {
+  /** Spans opened, for asserting that participants shared ONE transaction. */
+  spans = 0
+  /** Set to make the durable commit fail, e.g. a quota denial mid-span. */
+  failCommit: unknown | undefined
+  private depth = 0
+  private current: InMemorySpan | undefined
+
+  async transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T> {
+    // Nested calls JOIN the ambient span rather than opening a second one.
+    if (this.current) return await body(this.current)
+    const span = new InMemorySpan()
+    this.current = span
+    this.spans += 1
+    this.depth += 1
+    try {
+      const result = await body(span)
+      if (this.failCommit !== undefined) throw this.failCommit
+      await span.commit()
+      return result
+    } catch (error) {
+      await span.abort()
+      throw error
+    } finally {
+      this.depth -= 1
+      if (this.depth === 0) this.current = undefined
+    }
+  }
+}
+
+class InMemorySpan implements SyncSpan {
+  private readonly commits: (() => void)[] = []
+  private readonly aborts: (() => void)[] = []
+  private readonly writes: (() => Promise<void>)[] = []
+
+  onCommit(effect: () => void): void {
+    this.commits.push(effect)
+  }
+
+  onAbort(revert: () => void): void {
+    this.aborts.push(revert)
+  }
+
+  /** Adapters enroll their durable work here; it lands only if the span commits. */
+  enlist(write: () => Promise<void>): void {
+    this.writes.push(write)
+  }
+
+  async commit(): Promise<void> {
+    for (const write of this.writes) await write()
+    // Registration order after the durable commit.
+    for (const effect of this.commits) effect()
+  }
+
+  async abort(): Promise<void> {
+    // Reverse order after the durable abort. No enrolled write was applied.
+    for (const revert of [...this.aborts].reverse()) revert()
   }
 }
 

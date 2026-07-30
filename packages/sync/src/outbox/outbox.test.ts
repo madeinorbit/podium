@@ -1,7 +1,19 @@
 import { asSessionId, type MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { type EnqueueRequest, envelopeFor, Outbox, OutboxUsageError } from './outbox'
-import type { OutboxEnvelope, OutboxEvent, OutboxSubmitOutcome } from './ports'
+import {
+  type EnqueueRequest,
+  envelopeFor,
+  Outbox,
+  OutboxInvariantError,
+  OutboxUsageError,
+} from './outbox'
+import type {
+  OutboxEnvelope,
+  OutboxEvent,
+  OutboxSubmitOutcome,
+  SyncSpan,
+  SyncUnitOfWork,
+} from './ports'
 import type { AuthorityRefusal } from './reasons'
 import {
   CONFIRMATION_FIELD,
@@ -11,6 +23,7 @@ import {
 } from './records'
 import {
   InMemoryOutboxStore,
+  InMemoryUnitOfWork,
   ManualClock,
   ScriptedAuthority,
   sequentialMutationIds,
@@ -62,7 +75,13 @@ async function harness(
     envelope: OutboxEnvelope,
     attempt: number,
   ) => OutboxSubmitOutcome | Promise<OutboxSubmitOutcome> = () => applied,
-  init: { store?: InMemoryOutboxStore; clock?: ManualClock } = {},
+  init: {
+    store?: InMemoryOutboxStore
+    clock?: ManualClock
+    principal?: string
+    unitOfWork?: SyncUnitOfWork
+    idPrefix?: string
+  } = {},
 ): Promise<Harness> {
   const store = init.store ?? new InMemoryOutboxStore()
   const clock = init.clock ?? new ManualClock()
@@ -72,10 +91,12 @@ async function harness(
   const outbox = await Outbox.open({
     store,
     submit: authority,
+    principal: init.principal ?? 'u-ada',
     now: clock.now,
     maxAgeMs: MAX_AGE_MS,
-    newMutationId: sequentialMutationIds(),
+    newMutationId: sequentialMutationIds(init.idPrefix ?? 'm'),
     onStoreUnreadable: (error) => unreadable.push(error),
+    ...(init.unitOfWork ? { unitOfWork: init.unitOfWork } : {}),
   })
   outbox.subscribe((event) => events.push(event))
   return { outbox, store, authority, clock, events, unreadable }
@@ -155,7 +176,7 @@ describe('D9 invariant 4 — network failure is not a rejection', () => {
 
     expect(state(outbox, record.mutationId)).toBe('queued')
     expect(outbox.find(record.mutationId)?.reason).toBeUndefined()
-    expect(outbox.deadLetters({ forUser: 'u-ada' })).toEqual([])
+    expect(outbox.deadLetters()).toEqual([])
     expect(types(events).filter((t) => t === 'rejected' || t === 'dead-lettered')).toEqual([])
     // Retried without limit until the age limit — three passes, three attempts.
     expect(outbox.find(record.mutationId)?.attempts).toBe(3)
@@ -222,7 +243,7 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
     // D10: zero automatic retries for a definitive rejection.
     expect(authority.attempts(record.mutationId)).toBe(1)
 
-    const [parked] = outbox.deadLetters({ forUser: 'u-ada' })
+    const [parked] = outbox.deadLetters()
     expect(parked?.reason).toEqual({ code: 'conflict' })
     expect(parked?.recovery).toEqual({ retry: 'rebase', edit: true, discard: true })
     expect(parked?.input).toEqual({ issueId: 'POD-1', comment: 'shipping this' })
@@ -239,7 +260,7 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
     await outbox.retry(record.mutationId, { expectedRevision: 9 })
     expect(state(outbox, record.mutationId)).toBe('queued')
     expect(outbox.find(record.mutationId)?.reason).toBeUndefined()
-    expect(outbox.deadLetters({ forUser: 'u-ada' })).toEqual([])
+    expect(outbox.deadLetters()).toEqual([])
 
     await outbox.drain()
     expect(state(outbox, record.mutationId)).toBe('applied')
@@ -274,7 +295,7 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
     const record = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
 
-    const [parked] = outbox.deadLetters({ forUser: 'u-ada' })
+    const [parked] = outbox.deadLetters()
     expect(parked?.reason).toEqual({ code: 'invalid', details: ['comment'] })
     // Validation poison cannot be retried as-is; only an edit can succeed.
     expect(parked?.recovery.retry).toBe('never')
@@ -286,7 +307,7 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
     expect(fresh.mutationId).not.toBe(record.mutationId)
     expect(fresh.state).toBe('queued')
     expect(state(outbox, record.mutationId)).toBe('cancelled')
-    expect(outbox.deadLetters({ forUser: 'u-ada' })).toEqual([])
+    expect(outbox.deadLetters()).toEqual([])
   })
 
   it('recovers by DISCARD to cancelled — from dead-letter and straight from queued', async () => {
@@ -320,7 +341,7 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
 
     const second = await harness(() => applied, { store })
     expect(state(second.outbox, record.mutationId)).toBe('dead-letter')
-    expect(second.outbox.deadLetters({ forUser: 'u-ada' })).toHaveLength(1)
+    expect(second.outbox.deadLetters()).toHaveLength(1)
   })
 })
 
@@ -336,7 +357,7 @@ describe('D10 — age limit', () => {
     expect(expired).toEqual([record.mutationId])
     expect(state(outbox, record.mutationId)).toBe('dead-letter')
     expect(types(events).slice(-2)).toEqual(['expired', 'dead-lettered'])
-    const [parked] = outbox.deadLetters({ forUser: 'u-ada' })
+    const [parked] = outbox.deadLetters()
     expect(parked?.reason).toEqual({ code: 'max-age' })
     expect(parked?.parkedFrom).toBe('expired')
   })
@@ -360,7 +381,7 @@ describe('D10 — age limit', () => {
     clock.advance(MAX_AGE_MS + 1)
     await outbox.sweepExpired()
 
-    const [parked] = outbox.deadLetters({ forUser: 'u-ada' })
+    const [parked] = outbox.deadLetters()
     expect(parked?.recovery.retry).toBe('new-mutation-id')
     // The old id may still have a receipt, so reusing it is refused.
     await expect(outbox.retry(record.mutationId, { rightsFixed: true })).rejects.toThrow(
@@ -410,7 +431,7 @@ describe('apply-time re-authorization is a first-class rejection path (D8 / amen
     await outbox.drain()
 
     expect(state(outbox, record.mutationId)).toBe('dead-letter')
-    const [parked] = outbox.deadLetters({ forUser: 'u-ada' })
+    const [parked] = outbox.deadLetters()
     expect(parked?.reason).toEqual({ code: 'unauthorized' })
     expect(parked?.recovery.retry).toBe('rights-fix')
     // Distinguishable from a conflict, which is the whole point of D16.4.
@@ -431,7 +452,7 @@ describe('apply-time re-authorization is a first-class rejection path (D8 / amen
     await outbox.noteRejected(record.mutationId, { kind: 'unauthorized' })
 
     expect(state(outbox, record.mutationId)).toBe('dead-letter')
-    expect(outbox.deadLetters({ forUser: 'u-ada' })[0]?.reason).toEqual({ code: 'unauthorized' })
+    expect(outbox.deadLetters()[0]?.reason).toEqual({ code: 'unauthorized' })
   })
 
   it('retries after a rights fix, and only then', async () => {
@@ -459,7 +480,7 @@ describe('apply-time re-authorization is a first-class rejection path (D8 / amen
     const record = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
 
-    expect(outbox.deadLetters({ forUser: 'u-ada' })[0]?.recovery.retry).toBe('confirmation')
+    expect(outbox.deadLetters()[0]?.recovery.retry).toBe('confirmation')
     await outbox.retry(record.mutationId, { confirmed: true })
     await outbox.drain()
 
@@ -488,7 +509,7 @@ describe('no existence oracle in the failure surface (amendment D20 / property 1
     }
 
     const shape = (h: Harness): string =>
-      JSON.stringify({ ...h.outbox.deadLetters({ forUser: 'u-ada' })[0], mutationId: '<id>' })
+      JSON.stringify({ ...h.outbox.deadLetters()[0], mutationId: '<id>' })
 
     expect(shape(invisible)).toBe(shape(missing))
     expect(shape(invisible)).toContain('"code":"unauthorized"')
@@ -525,7 +546,7 @@ describe('no existence oracle in the failure surface (amendment D20 / property 1
     await outbox.enqueue(close('POD-secret'))
     await outbox.drain()
 
-    const [parked] = outbox.deadLetters({ forUser: 'u-ada' })
+    const [parked] = outbox.deadLetters()
     expect(parked?.reason).toEqual({ code: 'unauthorized' })
     expect(JSON.stringify(parked)).not.toContain('u-grace')
     expect(JSON.stringify(events)).not.toContain('u-grace')
@@ -555,7 +576,7 @@ describe('the evicted-target case resolves inside D9s existing state set', () =>
     await outbox.drain()
 
     expect(state(outbox, record.mutationId)).toBe('dead-letter')
-    expect(outbox.deadLetters({ forUser: 'u-ada' })[0]?.reason).toEqual({ code: 'unauthorized' })
+    expect(outbox.deadLetters()[0]?.reason).toEqual({ code: 'unauthorized' })
     // No ninth state was invented for it, and nothing vanished.
     expect(types(events)).not.toContain('store-unreadable')
     expect(outbox.all()).toHaveLength(1)
@@ -599,7 +620,7 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
     await outbox.drain()
 
     expect(state(outbox, record.mutationId)).toBe('dead-letter')
-    expect(outbox.deadLetters({ forUser: 'u-ada' })[0]?.reason).toEqual({ code: 'conflict' })
+    expect(outbox.deadLetters()[0]?.reason).toEqual({ code: 'conflict' })
   })
 
   it('offers no method through which a re-bootstrap could reach the queue', async () => {
@@ -607,6 +628,14 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
     // contractual no-op out of this module, because a no-op whose subject is the
     // queue is one edit away from data loss on the normal path — a rescope fires
     // whenever anybody's shares change.
+    //
+    // This name check is the SECONDARY guard and is deliberately weak: review
+    // round 1 pointed out that a future `destroy`/`flush`, or a deletion slipped
+    // inside a maintenance path, sails straight through a regex over method
+    // names. The primary guard is structural — every id that disappears from a
+    // draft must carry one of D9 invariant 1's two licences (see the
+    // "removal without a licence" case below). Both are kept: the cheap one
+    // catches the obvious naming, the structural one catches the rest.
     const surface = Object.getOwnPropertyNames(Outbox.prototype).filter((n) => n !== 'constructor')
     expect(
       surface.filter((n) => /rebootstrap|rescope|epoch|cache|clear|reset|wipe|drop/i.test(n)),
@@ -631,6 +660,7 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
       submit: new ScriptedAuthority(() => applied),
       now: new ManualClock().now,
       maxAgeMs: MAX_AGE_MS,
+      principal: 'u-ada',
       newMutationId: sequentialMutationIds('r'),
       onStoreUnreadable: (error) => seen.push(error),
       onEvent: (event) => events.push(event),
@@ -675,27 +705,85 @@ describe('every entry records its principal as a pair, taken from the transport'
     expect(store.durable()[0]?.attribution).toEqual(ADAS_AGENT)
     // The forged fields survive as inert payload (D7.1: informational only) —
     // they simply have no path into the attribution.
-    expect(outbox.deadLetters({ forUser: 'u-grace' })).toEqual([])
+    expect(record.attribution.actor).toEqual({ kind: 'agent-session', sessionId: 'sess-7' })
+  })
+
+  it('refuses to enqueue on behalf of anyone but the principal it is bound to', async () => {
+    const { outbox, store } = await harness()
+    await expect(outbox.enqueue(close('POD-1', { attribution: GRACE }))).rejects.toThrow(
+      /bound to u-ada/,
+    )
+    expect(store.durable()).toEqual([])
   })
 })
 
 describe('dead-letter records are private to their author', () => {
-  it('never surfaces one author entry in another author recovery UI', async () => {
-    const { outbox } = await harness(() => denied)
-    await outbox.enqueue(close('POD-1', { attribution: ADA }))
-    await outbox.enqueue(close('POD-2', { attribution: GRACE }))
-    await outbox.enqueue(close('POD-3', { attribution: ADAS_AGENT }))
-    await outbox.drain()
+  it('cannot be ASKED for by another principal, not merely filtered out', async () => {
+    // The instance is bound to its authenticated principal, so a hostile caller
+    // has no query to phrase: `deadLetters()` takes no argument at all. Two
+    // principals sharing one physical store get two bound views.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => denied, { store, clock })
+    await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+    await ada.outbox.enqueue(close('POD-3', { attribution: ADAS_AGENT }))
+    await ada.outbox.drain()
+    expect(ada.outbox.deadLetters()).toHaveLength(2)
 
-    const adas = outbox.deadLetters({ forUser: 'u-ada' })
-    const graces = outbox.deadLetters({ forUser: 'u-grace' })
+    const grace = await harness(() => denied, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'g',
+    })
 
-    // The agent's work belongs to the human it acted for (§3.1.3 A4).
-    expect(adas.map((r) => (r.input as { issueId: string }).issueId).sort()).toEqual([
-      'POD-1',
-      'POD-3',
-    ])
-    expect(graces.map((r) => (r.input as { issueId: string }).issueId)).toEqual(['POD-2'])
+    // Every observation API is scoped, not just the recovery surface.
+    expect(grace.outbox.deadLetters()).toEqual([])
+    expect(grace.outbox.all()).toEqual([])
+    expect(grace.outbox.pending()).toEqual([])
+    expect(grace.outbox.boundTo()).toBe('u-grace')
+    for (const id of ada.outbox.all().map((r) => r.mutationId)) {
+      // A foreign id reads as unknown — the same answer as a nonexistent one, so
+      // the bound view is not an existence oracle for another user's queue.
+      expect(grace.outbox.find(id)).toBeUndefined()
+      await expect(grace.outbox.discard(id)).rejects.toThrow(/unknown outbox entry/)
+      await expect(grace.outbox.retry(id, { rightsFixed: true })).rejects.toThrow(
+        /unknown outbox entry/,
+      )
+      await expect(grace.outbox.retireApplied(id)).rejects.toThrow(/unknown outbox entry/)
+    }
+    // And Grace's presence did not eat Ada's work: those are Ada's unsent
+    // writes, and only her own bound instance may resolve them.
+    await grace.outbox.enqueue(close('POD-2', { attribution: GRACE }))
+    await grace.outbox.drain()
+    expect(
+      store
+        .durable()
+        .map((r) => r.attribution.onBehalfOf)
+        .sort(),
+    ).toEqual(['u-ada', 'u-ada', 'u-grace'])
+    expect(ada.outbox.deadLetters()).toHaveLength(2)
+  })
+
+  it('does not leak another principal work through drain or events', async () => {
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => unreachable, { store, clock })
+    const adas = await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+
+    const grace = await harness(() => applied, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'g',
+    })
+    await grace.outbox.drain()
+
+    // Grace's drain never submitted Ada's envelope over Grace's transport...
+    expect(grace.authority.envelopes).toEqual([])
+    // ...and no event about Ada's entry reached Grace's listener.
+    expect(JSON.stringify(grace.events)).not.toContain(adas.mutationId)
+    expect(store.durable().find((r) => r.mutationId === adas.mutationId)?.state).toBe('queued')
   })
 
   it('recovers the author own intent even when the target is no longer visible', async () => {
@@ -703,7 +791,7 @@ describe('dead-letter records are private to their author', () => {
     await outbox.enqueue(close('POD-shared'))
     await outbox.drain()
 
-    const [parked] = outbox.deadLetters({ forUser: 'u-ada' })
+    const [parked] = outbox.deadLetters()
     // Everything in the record is the author's own input or a code — there is no
     // authority-supplied target content to re-expose.
     expect(parked?.input).toEqual({ issueId: 'POD-shared', comment: 'shipping this' })
@@ -841,5 +929,266 @@ describe('single-flight drain', () => {
     await Promise.all([outbox.drain(), outbox.drain(), outbox.drain()])
 
     expect(authority.attempts(record.mutationId)).toBe(1)
+  })
+})
+
+describe('review round 1 — the blockers, each with the test that would have caught it', () => {
+  it('blocker 1a: a transport-failed FIFO head does NOT let its successor run', async () => {
+    // The mutant that survived: `attempt()` returning true on `unreachable`. The
+    // head did not get through, so submitting the entry behind it would silently
+    // reorder two writes to the same aggregate (D12: FIFO within a partition).
+    const { outbox, authority } = await harness((envelope) =>
+      (envelope.input as { comment: string }).comment === 'head' ? unreachable : applied,
+    )
+    const head = await outbox.enqueue({ ...close('POD-1'), input: { comment: 'head' } })
+    const behind = await outbox.enqueue({ ...close('POD-1'), input: { comment: 'behind' } })
+
+    await outbox.drain()
+
+    expect(state(outbox, head.mutationId)).toBe('queued')
+    expect(state(outbox, behind.mutationId)).toBe('queued')
+    expect(authority.attempts(behind.mutationId)).toBe(0)
+    expect(authority.envelopes).toHaveLength(1)
+
+    // Still blocked on later passes, and it unblocks in ORDER once the head lands.
+    await outbox.drain()
+    expect(authority.attempts(behind.mutationId)).toBe(0)
+    authority.reprogram(() => applied)
+    await outbox.drain()
+    expect(authority.envelopes.map((e) => e.mutationId).slice(-2)).toEqual([
+      head.mutationId,
+      behind.mutationId,
+    ])
+  })
+
+  it('blocker 1b: repeated attempts never extend the D10 horizon', async () => {
+    // The mutant that survived: `isAgedOut` measuring from `lastAttemptAt`. A busy
+    // entry would renew its own horizon on every retry and never expire, which
+    // defeats the whole point of expiry — refusing a send whose receipt may
+    // already have been pruned (D11.8).
+    const { outbox, clock } = await harness(() => unreachable)
+    const record = await outbox.enqueue(close('POD-1'))
+
+    // Attempt repeatedly, right up to the horizon, so `lastAttemptAt` is recent.
+    for (let i = 0; i < 5; i++) {
+      clock.advance(MAX_AGE_MS / 5)
+      await outbox.drain()
+    }
+    expect(outbox.find(record.mutationId)?.attempts).toBe(5)
+    expect(outbox.find(record.mutationId)?.lastAttemptAt).toBe(clock.now())
+
+    clock.advance(1)
+    expect(await outbox.sweepExpired()).toEqual([record.mutationId])
+    expect(outbox.deadLetters()[0]?.reason).toEqual({ code: 'max-age' })
+    // The record's own queuedAt is what decided it, and it never moved.
+    expect(outbox.find(record.mutationId)?.queuedAt).toBe(record.queuedAt)
+  })
+
+  it('blocker 2: a lost apply notification is recoverable WITHOUT reopening', async () => {
+    const { outbox, authority, events } = await harness(() => ({ kind: 'accepted' }))
+    const head = await outbox.enqueue(close('POD-1'))
+    const behind = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+    expect(state(outbox, head.mutationId)).toBe('accepted')
+    // It blocks its partition, which is why waiting for a restart is not a
+    // recovery path.
+    expect(authority.attempts(behind.mutationId)).toBe(0)
+
+    await outbox.noteTransportLost(head.mutationId)
+
+    expect(state(outbox, head.mutationId)).toBe('queued')
+    expect(types(events)).toContain('requeued')
+    authority.reprogram(() => applied)
+    await outbox.drain()
+    expect(state(outbox, head.mutationId)).toBe('applied')
+    expect(state(outbox, behind.mutationId)).toBe('applied')
+    // The replay reused the SAME id, so the receipt dedupes it (D11.7).
+    expect(new Set(authority.envelopes.map((e) => e.mutationId)).size).toBe(2)
+  })
+
+  it('blocker 2: a stalled in-flight entry is swept back to queued', async () => {
+    const { outbox, clock } = await harness(() => ({ kind: 'accepted' }))
+    const record = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+
+    expect(await outbox.requeueStalled({ stalledForMs: 60_000 })).toEqual([])
+    clock.advance(60_000)
+    expect(await outbox.requeueStalled({ stalledForMs: 60_000 })).toEqual([record.mutationId])
+    expect(state(outbox, record.mutationId)).toBe('queued')
+  })
+
+  it('blocker 2: refuses to requeue something that is not in flight', async () => {
+    const { outbox } = await harness(() => applied)
+    const record = await outbox.enqueue(close('POD-1'))
+    await expect(outbox.noteTransportLost(record.mutationId)).rejects.toThrow(
+      /nothing is in flight/,
+    )
+    await outbox.drain()
+    await expect(outbox.noteTransportLost(record.mutationId)).rejects.toThrow(/from applied/)
+  })
+
+  it('blocker 3: concurrent enqueues commit in order, memory matching durable', async () => {
+    // The probe that caught it ended with memory [m1, m2] and durable [m1]: the
+    // first write resolved LAST and clobbered the second.
+    const { outbox, store } = await harness()
+    store.delayNextWrites = 1
+
+    const [a, b] = await Promise.all([
+      outbox.enqueue(close('POD-1')),
+      outbox.enqueue(close('POD-2')),
+    ])
+
+    expect(outbox.all().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
+    expect(store.durable().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
+    expect(store.writes).toBe(2)
+  })
+
+  it('blocker 3: a failed write leaves memory untouched and emits nothing', async () => {
+    const { outbox, store, events } = await harness()
+    const first = await outbox.enqueue(close('POD-1'))
+    store.failWrite = new Error('QuotaExceededError')
+
+    await expect(outbox.enqueue(close('POD-2'))).rejects.toThrow(/QuotaExceeded/)
+
+    // ADR 6 D4.4: the failing operation does not partially apply — not durably,
+    // and not in memory either.
+    expect(outbox.all().map((r) => r.mutationId)).toEqual([first.mutationId])
+    expect(store.durable().map((r) => r.mutationId)).toEqual([first.mutationId])
+    expect(types(events)).toEqual(['local-ack'])
+
+    // And the failure does not wedge the mutation chain.
+    store.failWrite = undefined
+    const third = await outbox.enqueue(close('POD-3'))
+    expect(store.durable().map((r) => r.mutationId)).toEqual([first.mutationId, third.mutationId])
+  })
+
+  it('blocker 3: a failed write mid-lifecycle does not lose the state change either', async () => {
+    const { outbox, store } = await harness(() => applied)
+    const record = await outbox.enqueue(close('POD-1'))
+    store.failWrite = new Error('database closed')
+
+    await expect(outbox.drain()).rejects.toThrow(/database closed/)
+
+    expect(state(outbox, record.mutationId)).toBe('queued')
+    expect(store.durable()[0]?.state).toBe('queued')
+  })
+
+  it('blocker 4: a retirement enrolled in a span lands with it, and rolls back with it', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const record = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+    expect(state(outbox, record.mutationId)).toBe('applied')
+
+    // The shape POD-369 required: the span is threaded in explicitly, so the
+    // store write enrolls in the SAME transaction as the entity + cursor work a
+    // replica would do in the same body.
+    const replicaWrites: string[] = []
+    await uow.transact(async (span) => {
+      replicaWrites.push('entity+cursor')
+      await outbox.retireApplied(record.mutationId, span)
+      // Not visible yet: effects publish from onCommit, so nothing escapes to an
+      // observer before the span is durable (POD-369's amendment 2).
+      expect(outbox.all()).toHaveLength(1)
+    })
+    expect(outbox.all()).toEqual([])
+    expect(store.durable()).toEqual([])
+    expect(replicaWrites).toEqual(['entity+cursor'])
+
+    // Now the abort half: a failure anywhere in the body leaves BOTH sides as
+    // they were — the crash window ADR 2 D10 forbids.
+    const second = await outbox.enqueue(close('POD-2'))
+    await outbox.drain()
+    await expect(
+      uow.transact(async (span) => {
+        await outbox.retireApplied(second.mutationId, span)
+        throw new Error('replica write failed')
+      }),
+    ).rejects.toThrow(/replica write failed/)
+
+    expect(outbox.find(second.mutationId)?.state).toBe('applied')
+    expect(store.durable().map((r) => r.mutationId)).toEqual([second.mutationId])
+  })
+
+  it('blocker 4: one span, not two, when the outbox mutates inside an open transaction', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox } = await harness(() => applied, { unitOfWork: uow })
+    const record = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+    const spansBefore = uow.spans
+
+    await uow.transact(async (span) => {
+      await outbox.retireApplied(record.mutationId, span)
+    })
+
+    // Nested transact JOINS rather than opening a second transaction.
+    expect(uow.spans).toBe(spansBefore + 1)
+  })
+
+  it('blocker 5: a re-issue may not reuse the retired id, nor collide with any existing one', async () => {
+    const { outbox, clock } = await harness(() => applied)
+    const other = await outbox.enqueue(close('POD-2'))
+    const doomed = await outbox.enqueue(close('POD-1'))
+    clock.advance(MAX_AGE_MS + 1)
+    await outbox.sweepExpired()
+
+    // D11.4 is a MUST: the old id may still have a receipt.
+    await expect(
+      outbox.retry(doomed.mutationId, { mutationId: doomed.mutationId }),
+    ).rejects.toThrow(/must mint a NEW mutationId/)
+    // And an id already in the store would make the Authority's dedupe key
+    // ambiguous.
+    await expect(outbox.retry(doomed.mutationId, { mutationId: other.mutationId })).rejects.toThrow(
+      /already exists/,
+    )
+
+    // Neither refusal mutated anything.
+    expect(state(outbox, doomed.mutationId)).toBe('dead-letter')
+    expect(outbox.all().filter((r) => r.mutationId === other.mutationId)).toHaveLength(1)
+
+    const reissued = await outbox.retry(doomed.mutationId, { mutationId: 'm-fresh' })
+    expect(reissued.mutationId).toBe('m-fresh')
+  })
+
+  it('blocker 7: a removal without a licence cannot reach the store', async () => {
+    // The regex this replaces would pass a method called `flush`, and would miss a
+    // deletion inserted inside a maintenance path. This is the guard that does
+    // not care what the code is called: every id that disappears from a draft
+    // must have been removed with one of D9 invariant 1's two licences.
+    const { outbox, store } = await harness()
+    const record = await outbox.enqueue(close('POD-1'))
+
+    // Reach past the public API the way a future `destroy()`/`flush()` would.
+    const internals = outbox as unknown as {
+      mutate: (body: (draft: { remove: unknown; put: unknown }) => void) => Promise<void>
+    }
+    await expect(
+      internals.mutate((draft) => {
+        // Deleting without claiming a licence — exactly what an innocent-looking
+        // `records.filter(...)` inside a maintenance routine would do.
+        const d = draft as unknown as { records: OutboxRecord[] }
+        d.records = []
+      }),
+    ).rejects.toThrow(OutboxInvariantError)
+
+    expect(outbox.all().map((r) => r.mutationId)).toEqual([record.mutationId])
+    expect(store.durable().map((r) => r.mutationId)).toEqual([record.mutationId])
+  })
+
+  it('blocker 7: the two licensed removals still work, and only from their own state', async () => {
+    const { outbox, store } = await harness(() => applied)
+    const retired = await outbox.enqueue(close('POD-1'))
+    const cancelled = await outbox.enqueue(close('POD-2'))
+    await outbox.drain()
+
+    await outbox.retireApplied(retired.mutationId) // licence: covering-truth
+    await expect(outbox.purgeCancelled(cancelled.mutationId)).rejects.toThrow(/from applied/)
+    // Reaching `cancelled` requires the user's decision first.
+    await expect(outbox.discard(cancelled.mutationId)).rejects.toThrow(/illegal/)
+
+    const queued = await outbox.enqueue(close('POD-3'))
+    await outbox.discard(queued.mutationId)
+    await outbox.purgeCancelled(queued.mutationId) // licence: user-discarded
+    expect(store.durable().map((r) => r.mutationId)).toEqual([cancelled.mutationId])
   })
 })

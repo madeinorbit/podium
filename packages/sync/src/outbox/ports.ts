@@ -78,7 +78,11 @@ export interface OutboxStorePort {
    *  case where user work is lost (ADR 2 D7), and the Outbox makes it loud
    *  rather than starting quietly empty. */
   read(): Promise<readonly OutboxRecord[]>
-  write(records: readonly OutboxRecord[]): Promise<void>
+  /** Enroll this write in `span` when one is supplied, so it lands in the same
+   *  native transaction as the entity rows and the cursor advance (ADR 2 D10).
+   *  Without a span it is its own transaction — see `SyncUnitOfWork` rule 3 on
+   *  why that is a surfaced degraded mode rather than the normal path. */
+  write(records: readonly OutboxRecord[], span?: SyncSpan): Promise<void>
 }
 
 /**
@@ -123,6 +127,19 @@ export type OutboxEvent =
 export interface OutboxConfig {
   readonly store: OutboxStorePort
   readonly submit: OutboxSubmitPort
+  /**
+   * The AUTHENTICATED principal this Outbox instance belongs to — the human whose
+   * work it may see, drain and recover (ADR 3 D7/D14: derived from the transport
+   * by the caller, never from a payload).
+   *
+   * Binding the instance is what makes privacy structural rather than filtered
+   * (readiness §3.1.1): every observation API is scoped to this value, so there
+   * is no query another principal could phrase to reach this author's dead
+   * letters or pending work. A physical store shared by two principals yields two
+   * bound instances, each blind to the other's entries and neither able to drop
+   * them.
+   */
+  readonly principal: UserRef
   readonly now: () => number
   /**
    * Age ceiling from `queuedAt` (ADR 3 D10). REQUIRED, with no default here:
@@ -151,6 +168,96 @@ export interface OutboxConfig {
    * nobody can observe is not a report.
    */
   readonly onEvent?: (event: OutboxEvent) => void
+  /**
+   * Optional: join the Replica's commit so entity rows, the cursor advance and an
+   * outbox retirement are ONE atomic span (ADR 2 D10 / ADR 6 D4.1). Absent, every
+   * write is its own transaction — exactly the previous behaviour, which is why
+   * wiring this changes no kernel contract.
+   */
+  readonly unitOfWork?: SyncUnitOfWork
+}
+
+/**
+ * The shared unit-of-work seam for the crash window ADR 2 D10 forbids.
+ *
+ * The defect it closes is invisible from inside either kernel module: the Replica
+ * commits entity + cursor and retires its overlay post-commit, while the Outbox
+ * retires an applied entry in a separate write. Each is correct against its own
+ * ADR clauses; the torn state exists only in the JOIN — a crash between them
+ * leaves a replica past a revision whose command the outbox still believes is in
+ * flight, or the reverse.
+ *
+ * **Shape agreed by POD-370 and POD-369** (coordinator ruling, POD-279 fan-out;
+ * POD-369's three amendments to POD-370's opening proposal were accepted):
+ *
+ * 1. **Enrollment is EXPLICIT.** The span is threaded into the participant call
+ *    and on into the store write — `outbox.retireApplied(id, span)` →
+ *    `store.write(records, span)`. POD-369's objection to the original ambient
+ *    shape is decisive: wrapping unchanged kernel methods in `transact` does not
+ *    make their inner store calls join the native transaction, and there is no
+ *    portable ambient transaction in a browser runtime. A seam that silently
+ *    fails to enroll is worse than one that changes a signature. Both span
+ *    parameters are OPTIONAL, so no existing caller breaks.
+ * 2. **`onCommit` as well as `onAbort`.** Participants STAGE their in-memory
+ *    effects and publish them from `onCommit`; `onAbort` is the escape hatch for
+ *    state that had to mutate eagerly. Without `onCommit` an observation escapes
+ *    to an external subscriber before the outer span commits, and an emitted
+ *    event cannot be un-emitted. Commit callbacks run in registration order after
+ *    the durable commit; abort callbacks in reverse order after the durable
+ *    abort; a callback failure is surfaced but cannot rewrite the already-decided
+ *    durable outcome.
+ * 3. **No silent per-write fallback on the durable path.** Leaving each write in
+ *    its own transaction IS the D10 non-compliance, so it is legal only as ADR 2's
+ *    explicitly surfaced degraded mode, never as normal POD-373 wiring. The
+ *    in-memory adapter implements a real unit of work (see
+ *    `InMemoryUnitOfWork`). The transaction body is constrained to same-span
+ *    LOCAL STORAGE work: every authority/network await finishes before the span
+ *    opens, because an IndexedDB transaction auto-closes on an unrelated await.
+ *
+ * Other properties: it is a PORT with no concrete storage in it, and neither
+ * kernel module imports the other — both import only the neutral span type. It
+ * carries no cause, rung, rescope or re-bootstrap parameter, and it never will:
+ * it is not a place to smuggle back the replica→outbox edge that POD-369 and
+ * POD-370 deliberately removed, and it is not a licence to widen either module's
+ * authority. The Replica still never arbitrates; the Outbox still holds no
+ * authorization state. Cache-only discard stays a separate capability and never
+ * receives an outbox mutation.
+ *
+ * POD-305 (Authority) and POD-373 (cross-hop conformance) WIRE it; the kernel
+ * modules only declare it and enroll into it. The crash-between-writes case
+ * belongs in POD-373's suite against a real transaction — see
+ * `docs/design/outbox-lifecycle-state-machine.md` for the case both halves owe it.
+ */
+export interface SyncUnitOfWork {
+  /**
+   * Run `body` as ONE atomic span over the local store. Every write enrolled with
+   * the span it receives is durable together or not at all. Nested calls join the
+   * ambient span rather than opening a second one.
+   *
+   * The body does LOCAL STORAGE WORK ONLY: an authority round trip inside it
+   * would let an IndexedDB transaction auto-close (POD-369's amendment 3).
+   */
+  transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T>
+}
+
+export interface SyncSpan {
+  /**
+   * Publish in-memory effects (state adoption, event emission) that must become
+   * visible only once the span is durably committed. Runs in registration order
+   * after the commit.
+   */
+  onCommit(effect: () => void): void
+  /**
+   * Revert in-memory state a participant had to mutate eagerly. Runs in REVERSE
+   * order after a durable abort.
+   *
+   * Durability alone is not enough: without these, an aborted span leaves the
+   * participants consistent on disk and divergent in RAM. The Outbox stages
+   * everything and needs only `onCommit`, but it registers an `onAbort` too —
+   * a rollback that depends on an adapter calling you back is not a rollback, so
+   * it also restores its own snapshot if `transact` rejects.
+   */
+  onAbort(revert: () => void): void
 }
 
 /**
@@ -179,6 +286,7 @@ export interface OutboxConfig {
  * never the reverse.
  */
 
-/** Everything a caller may ask for by user — the dead-letter surface is
- *  principal-scoped by construction (see `Outbox.deadLetters`). */
-export type DeadLetterQuery = { readonly forUser: UserRef }
+/* The dead-letter surface takes no query object: `Outbox.deadLetters()` is scoped
+ * to the instance's bound principal, so there is no caller-chosen `forUser` to
+ * supply. The removed `DeadLetterQuery` type existed to be filtered by; a bound
+ * view cannot be asked the wrong question in the first place. */
