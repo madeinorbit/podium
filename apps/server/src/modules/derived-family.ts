@@ -59,8 +59,10 @@
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
+import type { Capability } from '../issue-authz'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
+import { soleHumanPrincipal } from './sessions/presence-registry'
 import { type Context, mods, t } from '../trpc'
 
 /**
@@ -122,6 +124,45 @@ export interface FamilyState {
    * at construction. Defaulting in two places is how the two diverge.
    */
   readonly cloud?: Context['cloud']
+  /**
+   * WHO IS ASKING — IDENTITY ONLY, and the shape is narrow on purpose.
+   *
+   * Four reads need to know whose rows to return or whose access to log:
+   * `pins.list`, `snoozes.list`, `tabs.listOrders` (POD-380 keyed these per user
+   * — the list is the CALLER's pins, not the instance's) and the read-toolkit
+   * procs, which stamp the reader into their event log.
+   *
+   * THIS IS DELIBERATELY NOT `PresencePrincipal`, which was the first draft and
+   * was wrong: that type CARRIES THE CAPABILITY inside it, so putting it here
+   * would have handed every handler the authority object while a comment above it
+   * claimed the opposite. Two fields, both names, no scope, no role, no override
+   * flag — a handler can say whose row it wants and cannot decide whether it may
+   * have it. If a handler ever wants to make a DECISION from this, that is the
+   * signal the decision belongs in a contract or a service, not that this member
+   * should grow back toward the capability.
+   */
+  readonly caller: {
+    readonly userId: string
+    /** The capability's OWN field type, not a widened `string | null`. The first
+     *  draft widened it and tsgo caught the consequence immediately: the read
+     *  toolkit takes a branded `ReaderRef`, so a widened id would have forced a
+     *  cast at three call sites — which is how a brand quietly stops meaning
+     *  anything. */
+    readonly actorSessionId: Capability['actorSessionId']
+  }
+  /** Request-scoped world used by websocket publication and sync catch-up; the
+   *  one read (`sync.changesSince`) passes it straight through to the service. */
+  readonly publicationAuthority?: Context['publicationAuthority']
+  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
+   *  callers that do not exercise discovery need not construct one — which is
+   *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
+   *  than throwing when it is absent. */
+  readonly discovery?: Context['discovery']
+  /** The superagent service. On the bundle because it is a request-context
+   *  service like the others and two reads need it; it is NOT on
+   *  `RegistryModules`, which is why it is named here rather than selected
+   *  through the module seam. */
+  readonly superagent: Context['superagent']
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +369,13 @@ const familyState = (ctx: Context): FamilyState => ({
   telemetry: ctx.telemetry,
   store: ctx.registry.sessionStore,
   cloud: ctx.cloud,
+  caller: {
+    userId: soleHumanPrincipal(ctx.capability).userId,
+    actorSessionId: ctx.capability.actorSessionId,
+  },
+  publicationAuthority: ctx.publicationAuthority,
+  discovery: ctx.discovery,
+  superagent: ctx.superagent,
 })
 
 export function derivedFamilyProcedures<
@@ -357,4 +405,30 @@ export function derivedFamilyProcedures<
 
   assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)
   return built as FamilyProcedures<C, Q>
+}
+
+/**
+ * A QUERY-ONLY SURFACE — the same builder with an empty contract table.
+ *
+ * Most of what `router.ts` still declares is reads: routers whose writes another
+ * issue already derived (`superagent`, `specs`, `settings`, `automations`,
+ * `repos`, `discovery`), and routers that only ever had reads (`search`, `git`,
+ * `usage`, `quota`, `features`, `sync`). They go through the SAME code path as
+ * every derived family — same state bundle, same both-directions membership
+ * check — rather than a second, laxer one, because a query-only shortcut is
+ * exactly where a mutation would eventually be added without anyone noticing.
+ *
+ * The empty commands table is written out rather than defaulted, so "this family
+ * has no writes" is a statement rather than an omission.
+ */
+export function queryProcedures<Q extends Record<string, AnyDerivedQuery>>(
+  family: string,
+  queries: Q,
+): QueryProcedures<Q> {
+  return derivedFamilyProcedures({
+    family,
+    service: (state) => state,
+    commands: {},
+    queries,
+  }) as QueryProcedures<Q>
 }

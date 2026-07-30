@@ -375,6 +375,26 @@ export const NOT_A_REPRESENTATION: readonly {
       'representation of an entity.',
   })),
 
+  // --- The cloud-egress SOURCE ADDRESS (POD-314). Same category as the L1
+  // transport frames above, and it became visible for the reason POD-1180
+  // exists: the declaration did not change, its ADDRESS did. It lived in
+  // `apps/server/src/router.ts` as an inline procedure input, which this
+  // detector does not scan; POD-314 moved it to its contract at L1, where the
+  // detector does. Recorded as an exclusion rather than silently rebaselined,
+  // because "new debt" and "debt that moved into view" must not look alike.
+  {
+    file: 'packages/commands/src/cloud/contracts.ts',
+    symbol: 'cloudSourceSessionInput',
+    reason:
+      'A cloud-egress SOURCE ADDRESS, not a representation of a session (inventory §2.3 and §6.5 ' +
+      'rule 2). It names which session a new runtime is seeded FROM — the wire half of ' +
+      '`CloudAgentSourceSession`, whose one documented mapper `toCloudAgentSourceSession` is ' +
+      'already "the one place the two external spellings are written". Its entity-shaped subset ' +
+      'owes §6.4 rule 1 — a Pick from model plus transport keys only — which is POD-308 wire work, ' +
+      'exactly as recorded for the L1 transport frames above. Keyed on the (file, symbol) pair, so ' +
+      'a genuinely new session shape in this file is still counted.',
+  },
+
   // --- The per-user PROJECTION OVERLAYS (POD-1076). Not representations, and
   // structurally the OPPOSITE of the defect `per-user-singletons` counts.
   ...(

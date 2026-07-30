@@ -54,7 +54,9 @@ import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
+import { queryProcedures } from './modules/derived-family'
 import { fileFamilyProcedures } from './modules/files/trpc'
+import { DISCOVERY_QUERIES, REPO_QUERIES } from './modules/fleet/queries'
 import { hostFamilyProcedures } from './modules/hosts/trpc'
 import {
   authFamilyProcedures,
@@ -65,8 +67,26 @@ import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
+import {
+  AUTOMATION_QUERIES,
+  FEATURE_QUERIES,
+  GIT_QUERIES,
+  QUOTA_QUERIES,
+  SEARCH_QUERIES,
+  SETTINGS_QUERIES,
+  SPEC_QUERIES,
+  SUPERAGENT_QUERIES,
+  USAGE_QUERIES,
+} from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
+import {
+  PIN_QUERIES,
+  SESSION_QUERIES,
+  SNOOZE_QUERIES,
+  SYNC_QUERIES,
+  TAB_QUERIES,
+} from './modules/sessions/queries'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
@@ -217,45 +237,6 @@ const settingsFamily = settingsFamilyProcedures()
 
 import type { PinState, SnoozeMap } from './store/types'
 
-const cloudRepoInput = z.object({
-  provider: z.literal('github'),
-  owner: z.string().min(1),
-  name: z.string().min(1),
-  ref: z.string().min(1).optional(),
-})
-const cloudRuntimeSizeInput = z.enum(['small', 'medium', 'large'])
-const cloudSourceSessionInput = z.object({
-  sessionId: z.string().min(1).pipe(SessionIdField),
-  agent: z.enum(['claude-code', 'codex']),
-  resumeRef: z.string().min(1).optional(),
-  cwd: z.string().min(1).optional(),
-  machineId: z.string().min(1).optional(),
-})
-const cloudAgentInput = z.object({
-  tenantId: z.string().min(1),
-  displayName: z.string().min(1),
-  size: cloudRuntimeSizeInput.optional(),
-  repo: cloudRepoInput,
-  issueId: IssueIdField.optional(),
-  purpose: z.string().optional(),
-  sourceSession: cloudSourceSessionInput.optional(),
-})
-const cloudMachineInput = z.object({
-  tenantId: z.string().min(1),
-  displayName: z.string().min(1),
-  size: cloudRuntimeSizeInput,
-  repo: cloudRepoInput.optional(),
-  purpose: z.string().optional(),
-})
-const cloudMoveSessionInput = z.object({
-  sessionId: z.string().min(1).pipe(SessionIdField),
-  tenantId: z.string().min(1),
-  size: cloudRuntimeSizeInput.optional(),
-  repo: cloudRepoInput.optional(),
-  hibernateLocal: z.boolean().optional(),
-})
-const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
-
 /**
  * THE DERIVED FLEET-FAMILY PROCEDURES (POD-384), built once at module load and
  * spread into the `machines` / `repos` / `discovery` routers below.
@@ -280,63 +261,6 @@ const fleet = fleetProcedures({
   },
 })
 
-function cloudProvider(ctx: Context): CloudRuntimeProvider {
-  return ctx.cloud ?? disabledCloudRuntimeProvider
-}
-
-function cloudAgentKind(agentKind: string): CloudAgentKind {
-  // Capability lookup (#158): cloud-movable kinds are declared in the protocol
-  // capability table (claude-code, codex today).
-  if (isAgentKind(agentKind) && agentSupportsCloud(agentKind)) return agentKind as CloudAgentKind
-  throw new TRPCError({
-    code: 'BAD_REQUEST',
-    message: `agent kind ${agentKind} cannot be moved to cloud yet`,
-  })
-}
-
-function githubRepoFromOrigin(originUrl: string | null | undefined): CloudRepoRequest | null {
-  const normalized = normalizeOriginUrl(originUrl)
-  const match = normalized?.match(/^github\.com\/([^/]+)\/([^/]+)$/)
-  const owner = match?.[1]
-  const name = match?.[2]
-  if (!owner || !name) return null
-  return { provider: 'github', owner, name }
-}
-
-function inferCloudRepoForSession(
-  ctx: Context,
-  session: ReturnType<RegistryModules['sessions']['listSessions']>[number],
-): CloudRepoRequest {
-  const repoPath = ctx.repos.inferFromPath(session.cwd, session.machineId)
-  if (!repoPath) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'session cwd is not inside a registered repo; pass repo explicitly',
-    })
-  }
-
-  const repoRow =
-    ctx.registry.sessionStore.repos
-      .listRepos(session.machineId)
-      .find((row) => row.path === repoPath) ??
-    ctx.registry.sessionStore.repos.listRepos().find((row) => row.path === repoPath)
-  const repo = githubRepoFromOrigin(repoRow?.originUrl)
-  if (!repo) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'registered repo has no GitHub origin; pass repo explicitly',
-    })
-  }
-  return repo
-}
-
-function cloudError(error: unknown): never {
-  if (error instanceof CloudRuntimeUnavailableError) {
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
-  }
-  throw error
-}
-
 export const appRouter = t.router({
   /**
    * THE CLOUD SURFACE IS DERIVED (POD-314) — provisioning and lifecycle for
@@ -347,199 +271,67 @@ export const appRouter = t.router({
    */
   cloud: t.router(cloudFamilyProcedures()),
   sessions: t.router({
-    // ---- WRITES: THE DERIVED SURFACE (POD-382) ----
-    //
-    // create · resume · kill · handoff · continue · sendText · answerAskUserQuestion ·
-    // resumeAndSend · hibernate · stop · resurrect · uploadImage · ask · rename ·
-    // setArchived · markRead · markUnread · setIssueId · setWorkState, every one of
-    // them built from its contract by modules/sessions/trpc.ts. Which commands exist
-    // is the CONTRACT TABLE's answer now, not this literal's — including which
-    // transports serve them, which is why `setDraft` is not here (it declares `ws`).
+    // WRITES — THE DERIVED SURFACE (POD-382). create · resume · kill · handoff ·
+    // continue · sendText · answerAskUserQuestion · resumeAndSend · hibernate ·
+    // stop · resurrect · uploadImage · rename · setArchived · markRead ·
+    // markUnread · setIssueId · setWorkState, every one built from its contract
+    // by modules/sessions/trpc.ts. Which commands exist is the CONTRACT TABLE's
+    // answer, including which transports serve them — which is why `setDraft` is
+    // absent (it declares `ws`).
     ...sessionFamily.sessions,
-
-    // ---- READS ----
-    list: t.procedure.query(({ ctx }) => mods(ctx).sessions.listSessions()),
-    // On-demand transcript window for the chat view — a pure disk read via the
-    // daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
-    // `limit` items before (older) or after (newer) it. No anchor = the latest
-    // window. Serves both initial load and scroll-to-top paging, for live AND parked
-    // sessions alike — independent of the server's recent-delta cache.
-    transcriptRead: t.procedure
-      .input(
-        z.object({
-          sessionId: SessionIdField,
-          anchor: z.string().optional(),
-          direction: z.enum(['before', 'after']),
-          limit: z.number().int().positive().max(2000),
-        }),
-      )
-      .query(({ ctx, input }) => mods(ctx).rpc.readTranscript(input)),
-    // Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
-    // issue stage/todos, last commits, files touched, unacked count — NO
-    // transcript text) and a bounded transcript window. The /trpc surface is
-    // operator-authority; agents reach the same procs via the daemon relay's
-    // scope-gated sessions arm. Every read is event-logged by the toolkit.
-    status: t.procedure
-      .input(z.object({ ref: z.string() }))
-      .query(({ ctx, input }) =>
-        mods(ctx).readToolkit.status(input.ref, ctx.capability.actorSessionId ?? 'operator'),
-      ),
-    read: t.procedure
-      .input(
-        z.object({
-          sessionId: SessionIdField,
-          turns: z.coerce.number().int().positive().optional(),
-          cursor: z.string().optional(),
-        }),
-      )
-      .query(({ ctx, input }) =>
-        mods(ctx).readToolkit.read(input, ctx.capability.actorSessionId ?? 'operator'),
-      ),
-    // Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
-    // since a watermark — repeated check-ins pay only for the delta (the
-    // watermark persists per (reader, target)).
-    recap: t.procedure
-      .input(z.object({ sessionId: SessionIdField, since: z.string().optional() }))
-      .query(({ ctx, input }) =>
-        mods(ctx).readToolkit.recap(input, ctx.capability.actorSessionId ?? 'operator'),
-      ),
-    // Read toolkit tier 4 (#237) [spec:SP-34d7 read-toolkit]: the seance — a
-    // question message (next-turn + wake, ack expected) + a bounded ack wait.
-    //
-    // THE ONE SESSION WRITE NOT BUILT BY `sessionFamilyProcedures()`, and the merge
-    // is why. POD-382 had given `ask` a command-plane contract in order to delete the
-    // last hand-written body; POD-729 landed first with `ask` cut over to the MAIL
-    // table, because it reaches DELIVERY and a send path no contract governs is the
-    // hole that cutover closed. Two contracts for one command is a fork, so the
-    // duplicate was deleted and this stays the mail family's — derived from its
-    // contract by `mailMutation`, recorded in the session-surface manifest with
-    // source `mail` so the audit still refuses a hand-written one here.
+    // READS — the query table (POD-314). Declared in modules/sessions/queries.ts;
+    // they carry no contract because a visibility class describes what a command
+    // WRITES, and audit-session-commands.ts checks procedure TYPE so a write
+    // cannot hide among them.
+    ...queryProcedures('sessions', SESSION_QUERIES),
+    // THE ONE SESSION WRITE NOT BUILT BY `sessionFamilyProcedures()`, and the
+    // merge is why. POD-382 had given `ask` a command-plane contract to delete
+    // the last hand-written body; POD-729 landed first with `ask` cut over to the
+    // MAIL table, because it reaches DELIVERY and a send path no contract governs
+    // is the hole that cutover closed. Two contracts for one command is a fork,
+    // so the duplicate was deleted and this stays the mail family's — derived by
+    // `mailMutation`, recorded in the session-surface manifest with source `mail`
+    // so the audit still refuses a hand-written one here.
     ask: mailMutation('ask'),
   }),
-  sync: t.router({
-    // Metadata-oplog catch-up (docs/spec/oplog-read-path.md): null cursor = bootstrap
-    // snapshot; a valid cursor = the changes after it; a compacted/future cursor
-    // falls back to snapshot. The client heals every WS (re)connect through this.
-    changesSince: t.procedure
-      .input(z.object({ cursor: z.number().int().nonnegative().nullable() }))
-      .query(({ ctx, input }) =>
-        mods(ctx).sessions.syncChangesSince(input.cursor, ctx.publicationAuthority),
-      ),
-  }),
-  pins: t.router({
-    // PER-USER STATE (POD-380): the list is the CALLER's pins, not the instance's.
-    list: t.procedure.query(({ ctx }) =>
-      ctx.registry.sessionStore.sessions.listPins(presencePrincipal(ctx).userId),
-    ),
-    ...sessionFamily.pins,
-  }),
-  snoozes: t.router({
-    // PER-USER STATE (POD-380): the caller's snoozes.
-    list: t.procedure.query(({ ctx }) =>
-      ctx.registry.sessionStore.sessions.listSnoozes(presencePrincipal(ctx).userId),
-    ),
-    // set: until === null => "until next message"; ISO string => timed.
-    ...sessionFamily.snoozes,
-  }),
+  sync: t.router(queryProcedures('sync', SYNC_QUERIES)),
+  // PER-USER STATE (POD-380): each list is the CALLER's, not the instance's.
+  pins: t.router({ ...queryProcedures('pins', PIN_QUERIES), ...sessionFamily.pins }),
+  // set: until === null => "until next message"; ISO string => timed.
+  snoozes: t.router({ ...queryProcedures('snoozes', SNOOZE_QUERIES), ...sessionFamily.snoozes }),
+  /**
+   * DERIVED (POD-383) plus its two reads. `superagent.send` USED TO LIVE HERE, a
+   * byte-identical alias of `sendTurn` forwarding to the same service method. It
+   * is deleted: eleven callers name `sendTurn` and none has ever named `send`, so
+   * POD-1075's rule — persistence decides between two names for one thing —
+   * retires the alias rather than the entry.
+   */
   superagent: t.router({
-    // THE TWO READS. Everything else on this router is DERIVED from the seven
-    // superagent contracts (POD-383) by `superagentFamilyProcedures()` — these
-    // stay hand-written because a `visibility` class describes what a command
-    // WRITES and a read writes nothing, the same line modules/workflows/queries.ts
-    // draws. The audit checks procedure TYPE, so a read cannot hide a write here.
-    //
-    // `superagent.send` USED TO LIVE HERE, a byte-identical alias of `sendTurn`
-    // forwarding to the same service method. It is deleted: eleven callers name
-    // `sendTurn` (web, mobile, the client engine, the browser e2e) and none has
-    // ever named `send`, so POD-1075's rule — persistence decides between two
-    // names for one thing — retires the alias rather than the entry.
-    //
-    // The global orchestrator thread plus per-session 'btw' threads.
-    listThreads: t.procedure.query(({ ctx }) => ctx.superagent.listThreads()),
-    history: t.procedure
-      .input(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }))
-      .query(({ ctx, input }) => ctx.superagent.history(input.threadId)),
+    ...queryProcedures('superagent', SUPERAGENT_QUERIES),
     ...superagentFamily,
   }),
-  /**
-   * THE CONVERSATION SURFACE IS DERIVED (POD-314) — `setMeta` from its contract,
-   * `search` from the query table. Keyword search over the durable index (FTS5
-   * where available); curation written by the command center.
-   */
   conversations: t.router(conversationFamilyProcedures()),
-  search: t.router({
-    // Omni-search (docs/spec/search-v1.md §2.4): one ranked, typed result list
-    // across transcripts/issues/conversations/sessions/settings. Wire shape:
-    // SearchResultWire (@podium/protocol).
-    query: t.procedure
-      .input(
-        z.object({
-          text: z.string().min(1).max(256),
-          limit: z.number().int().positive().max(100).optional(),
-        }),
-      )
-      .query(({ ctx, input }) =>
-        searchAll(
-          ctx.registry.sessionStore,
-          { listSessions: () => mods(ctx).sessions.listSessions(), issues: ctx.registry.issues },
-          input,
-        ),
-      ),
-  }),
-  /**
-   * THE SETTINGS WRITE SURFACE IS PART DERIVED (POD-420, 3.7c).
-   *
-   * `updatePersonal · updateInstance · setSecret · clearSecret` come from
-   * `SETTINGS_CONTRACTS` via `settingsFamilyProcedures()`, one contract per ADR 1
-   * matrix row — which is the whole point: the blob's members sit on three rows
-   * with three different visibility classes and two different offline classes,
-   * and one command cannot answer for all of them.
-   *
-   * WHAT STAYS HAND-WRITTEN, and why each is not an oversight:
-   *  - `get` is a READ; a `visibility` class describes what a command WRITES, and
-   *    what this one returns changes shape under POD-419 and POD-421.
-   *  - `set` is the legacy blob write, still called by the sidebar, the
-   *    auto-continue dialog and the engine — and it now REFUSES a secret change
-   *    (`assertNoSecretChange`), so the only way to write credential material is
-   *    the online-sensitive, admin-grade, never-queued pair above.
-   *  - `telegramSetupStart` / `telegramSetupPoll` are a stateful pairing ceremony
-   *    over a third-party API, not a settings write with a payload.
-   *
-   * `scripts/audit-settings-commands.ts` names those three exceptions BY KEY and
-   * fails on any other hand-written `.mutation(` here, in both directions.
-   */
+  search: t.router(queryProcedures('search', SEARCH_QUERIES)),
   settings: t.router({
-    get: t.procedure.query(({ ctx }) => mods(ctx).settings.getSettings()),
+    ...queryProcedures('settings', SETTINGS_QUERIES),
     // Whole-object set: the client always round-trips the full blob, so there is
     // no partial-merge ambiguity. PodiumSettings fills defaults for missing keys.
+    // REFUSES a secret change (`assertNoSecretChange`), so the only way to write
+    // credential material is the derived, online-sensitive, admin-grade pair.
     set: t.procedure
       .input(PodiumSettings)
       .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
     ...settingsFamily,
+    // A stateful pairing ceremony over a third-party API, not a settings write
+    // with a payload.
     telegramSetupStart: t.procedure.mutation(({ ctx }) => mods(ctx).settings.startTelegramSetup()),
     telegramSetupPoll: t.procedure
       .input(z.object({ setupId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
   }),
-  /**
-   * THE PERF SURFACE IS DERIVED (POD-314) — switch-latency instrumentation
-   * [POD-701]: rolling server-side timings (every rpc via the trpc.ts middleware
-   * plus named internal phases) and the client switch-trace ring. Always on;
-   * `snapshot`/`reset` are diagnostics.
-   */
   perf: t.router(perfFamilyProcedures()),
   // Experimental feature flags [spec:SP-f4b9] — same auth as settings.get.
-  features: t.router({
-    state: t.procedure.query(({ ctx }) =>
-      getFeatureStates(mods(ctx).settings.getSettings(), loadConfig()),
-    ),
-  }),
-  /**
-   * THE TELEMETRY SURFACE IS DERIVED (POD-314) — opt-in telemetry
-   * [spec:SP-f933], Settings → Privacy's backing surface. Reads/writes
-   * config.json (D8), NOT the settings blob, so the web toggles and
-   * `podium telemetry off` are the same switch.
-   */
+  features: t.router(queryProcedures('features', FEATURE_QUERIES)),
   telemetry: t.router(telemetryFamilyProcedures()),
   /**
    * THE ACCOUNT SURFACE IS DERIVED (POD-314) — the Accounts & Keys hub
@@ -548,86 +340,14 @@ export const appRouter = t.router({
    * and never returning a credential — only its masked `identity`.
    */
   accounts: t.router(accountFamilyProcedures()),
-  tabs: t.router({
-    // PER-USER STATE (POD-380): the caller's saved orders.
-    listOrders: t.procedure.query(({ ctx }) =>
-      ctx.registry.sessionStore.sessions.listTabOrders(presencePrincipal(ctx).userId),
-    ),
-    ...sessionFamily.tabs,
-  }),
-  repos: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.repos.list()),
-    // Full registered-repo rows incl. the human-facing prefix (#474) — the web's
-    // source for the linkify prefix set and the prefix editor.
-    listDetailed: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.repos.listRepos()),
-    // setPrefix · add · addMany · remove — DERIVED (POD-384). Store-level
-    // validation (^[A-Z]{2,5}$, server-wide prefix uniqueness, absolute paths)
-    // is unchanged and still surfaces as BAD_REQUEST with the store's message.
-    ...fleet.repos,
-    // cwd → repo inference for the CLI: longest registered root that contains `path`.
-    inferFromPath: t.procedure
-      .input(z.object({ path: z.string() }))
-      .query(({ ctx, input }) => ({ repoPath: ctx.repos.inferFromPath(input.path) ?? null })),
-    // Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
-    // With `machineId` the listing comes from THAT machine's daemon — the only
-    // filesystem the user means. Without it, the legacy server-local browse: kept
-    // strictly for old clients that predate the machine-aware picker, which reads
-    // the hub host's own disk (wrong tree, and empty-to-absent in mode=server).
-    browse: t.procedure
-      .input(
-        z
-          .object({
-            path: z.string().optional(),
-            includeHidden: z.boolean().optional(),
-            machineId: z.string().optional(),
-          })
-          .optional(),
-      )
-      .query(async ({ ctx, input }) => {
-        if (input?.machineId) {
-          const res = await mods(ctx).rpc.browseDirs(
-            input.path,
-            {
-              ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }),
-            },
-            input.machineId,
-          )
-          if (!res.listing)
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: res.error ?? 'directory browse failed',
-            })
-          return res.listing
-        }
-        try {
-          return await browseDirectories(input?.path, { includeHidden: input?.includeHidden })
-        } catch (e) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-      }),
-  }),
-  usage: t.router({
-    // Hour×model token buckets for the last 7 days, harvested from harness
-    // transcripts on the dev machine. Window math (5h/weekly/cost) is client-side.
-    summary: t.procedure.query(({ ctx }) => mods(ctx).rpc.usage()),
-  }),
-  quota: t.router({
-    // Per-agent plan-quota (5h/weekly % used + reset times), read live on the
-    // daemon host from each agent's own usage endpoint. Fans out to every online
-    // machine (each runs its agents under its own account) — one entry per
-    // machine. Distinct from `usage`, transcript-harvested token-cost analytics.
-    summary: t.procedure.query(({ ctx }) => mods(ctx).rpc.agentQuotaAll()),
-  }),
-  /**
-   * THE MODEL SURFACE IS DERIVED (POD-314) — live per-agent model lists
-   * (grok/cursor/opencode `models`). Stale-while-revalidate: `catalog` returns
-   * instantly from cache and refreshes in the background, `refresh` forces and
-   * awaits a fresh probe. Both reach SettingsService, which has always owned the
-   * catalog — see modules/models/registry.ts for why the keys differ.
-   */
+  // PER-USER STATE (POD-380): the caller's saved orders.
+  tabs: t.router({ ...queryProcedures('tabs', TAB_QUERIES), ...sessionFamily.tabs }),
+  // setPrefix · add · addMany · remove — DERIVED (POD-384). Store-level
+  // validation (^[A-Z]{2,5}$, server-wide prefix uniqueness, absolute paths) is
+  // unchanged and still surfaces as BAD_REQUEST with the store's message.
+  repos: t.router({ ...queryProcedures('repos', REPO_QUERIES), ...fleet.repos }),
+  usage: t.router(queryProcedures('usage', USAGE_QUERIES)),
+  quota: t.router(queryProcedures('quota', QUOTA_QUERIES)),
   models: t.router(modelFamilyProcedures()),
   /**
    * THE HOST SURFACE IS DERIVED (POD-314) — who owns the used memory right now.
@@ -640,39 +360,35 @@ export const appRouter = t.router({
   discovery: t.router({
     // CONVERSATION discovery, not repo discovery — `rpc.scan()` returns
     // `{ conversations, diagnostics }`. It shares this router's name and nothing
-    // else, so POD-384 deliberately left it out of the fleet contract table.
+    // else, so POD-384 deliberately left it out of the fleet contract table and
+    // the census allowlists it BY KEY on this router only.
     scan: t.procedure.mutation(({ ctx }) => mods(ctx).rpc.scan()),
-    // refreshRepos · scanFolder · scanMachine — DERIVED (POD-384). The three
-    // `machineVerb: 'use'` commands in the fleet family: each places a
-    // filesystem walk on the target machine's daemon.
+    // refreshRepos · scanFolder · scanMachine — DERIVED (POD-384): the three
+    // `machineVerb: 'use'` commands, each placing a filesystem walk on the target
+    // machine's daemon.
     ...fleet.discovery,
-    // Most recent finished discovery for a machine (e.g. the automatic connect scan),
-    // so the picker can show results without re-scanning.
-    lastMachineScan: t.procedure
-      .input(z.object({ machineId: z.string() }))
-      .query(({ ctx, input }) => ctx.discovery?.lastResult(input.machineId) ?? null),
+    ...queryProcedures('discovery', DISCOVERY_QUERIES),
   }),
   machines: t.router({
-    // Registered machines (online flag + last-seen), shown in Settings → Machines and
-    // the machine dropdown. Single-machine: just the one 'local' machine. CORE —
-    // a node reads its own (and its hub-mirrored) fleet; only ADMITTING and
-    // administering machines is the hub's job. That gate is no longer a `hubProc`
-    // written here: POD-384 moved it into `modules/fleet/trpc.ts`, where the base
-    // procedure follows each contract's `serverRole` instead of a call-site habit.
-    // The spawn picker's source. Scoped to what THIS principal may see, with
-    // its `use` decision attached, so a machine it cannot execute on is never
-    // OFFERED (readiness §3.1.4 M5) and one it cannot see is simply absent.
+    /**
+     * THE ONE READ LEFT HAND-WRITTEN IN THIS FILE, and the reason is worth
+     * stating because everything else moved. `visibleMachinesFor` is an
+     * AUTHORIZATION PROJECTION: it scopes the list to what this principal may
+     * see and attaches each machine's `use` decision, so that one it cannot
+     * execute on is never OFFERED (readiness §3.1.4 M5) and one it cannot see is
+     * simply absent. It therefore needs the CAPABILITY, which the derived state
+     * bundle deliberately withholds — a handler that could read the capability
+     * could make an authorization decision, which is precisely what
+     * modules/derived-family.ts exists to prevent. Widening the bundle for this
+     * single read would trade that property away; leaving one procedure here
+     * costs four lines. When POD-1075 lands a real principal this is where it
+     * belongs.
+     */
     list: t.procedure.query(({ ctx }) => visibleMachinesFor(mods(ctx), ctx.capability)),
     // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,
   }),
-  /**
-   * THE SETUP SURFACE IS DERIVED (POD-314) — first-run "make this instance
-   * reachable" (Tailscale-first). The web setup screen reaches these instead of
-   * importing @podium/runtime/setup directly, which would pull node:fs (via
-   * ./config) into the browser bundle.
-   */
   setup: t.router(setupFamilyProcedures()),
   /**
    * THE AUTH SURFACE IS DERIVED (POD-314) — the human-client login password on
@@ -727,43 +443,7 @@ export const appRouter = t.router({
     spawnAgent: mailMutation('spawnAgent'),
     awaitAgent: mailMutation('awaitAgent'),
   }),
-  // Git dock panel [POD-114] — read-only checkout inspection for the web
-  // RightDock: working-tree status, recent commits, one file's diff. Same
-  // repo-root allowlist gate as `files`; each query maps to a fixed lock-free
-  // daemon repo op (never a shell string).
-  git: t.router({
-    status: t.procedure
-      .input(z.object({ machineId: z.string().optional(), root: z.string() }))
-      .query(({ ctx, input }) => {
-        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
-        }
-        return mods(ctx).rpc.repoOp('statusProbe', input.root, undefined, input.machineId)
-      }),
-    log: t.procedure
-      .input(z.object({ machineId: z.string().optional(), root: z.string() }))
-      .query(({ ctx, input }) => {
-        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
-        }
-        return mods(ctx).rpc.repoOp('logPanel', input.root, undefined, input.machineId)
-      }),
-    diffFile: t.procedure
-      .input(z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }))
-      .query(({ ctx, input }) => {
-        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
-        }
-        return mods(ctx).rpc.repoOp('diffFile', input.root, { path: input.path }, input.machineId)
-      }),
-  }),
-  /**
-   * THE FILE SURFACE IS DERIVED (POD-314) — `write` from its contract, `read` and
-   * `list` from the query table. All three run the SAME repo-root allowlist,
-   * shared from modules/files/registry.ts so they cannot drift into three notions
-   * of "an allowed root"; artifact snapshots ([spec:SP-0fc9] #441) serve from the
-   * server-local store with no root and no daemon round-trip.
-   */
+  git: t.router(queryProcedures('git', GIT_QUERIES)),
   files: t.router(fileFamilyProcedures()),
   // pspec — the living spec tree in <repo>/pspec/ (modules/specs over
   // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
@@ -798,50 +478,18 @@ export const appRouter = t.router({
    * refusal with a positive control beside it.
    */
   automations: t.router({
-    list: t.procedure.query(({ ctx }) => mods(ctx).automations.list()),
-    runs: t.procedure
-      .input(
-        z.object({
-          automationId: z.string().min(1).pipe(AutomationIdField),
-          limit: z.number().int().optional(),
-        }),
-      )
-      .query(({ ctx, input }) => mods(ctx).automations.runs(input.automationId, input.limit)),
+    ...queryProcedures('automations', AUTOMATION_QUERIES),
     ...automationProcedures(),
   }),
   /**
-   * THE APPROVAL SURFACE IS DERIVED (POD-314) — the operator decision surface of
-   * the approval broker [spec:SP-edbb] (#410). The agent side (request/get) rides
-   * the issue relay and has never been a procedure here.
-   *
-   * `approve` and `deny` come from `APPROVAL_CONTRACTS`; `list` comes from the
-   * query table. Both are built by the one derived-family builder, so there is
-   * deliberately no procedure written out here.
+   * THE SPEC SURFACE IS DERIVED (POD-386, the 3.3d cutover). `create · save ·
+   * remove` are built from `SPEC_CONTRACTS` by `specFamilyProcedures()`; the
+   * three reads carry no contract — a `visibility` class describes what a command
+   * WRITES — and are authorized by the identical `requireRepoRoot` call inside
+   * the service.
    */
+  specs: t.router({ ...queryProcedures('specs', SPEC_QUERIES), ...specFamily }),
   approvals: t.router(approvalFamilyProcedures()),
-  /**
-   * THE SPEC SURFACE IS DERIVED (POD-386, the 3.3d cutover).
-   *
-   * `create · save · remove` — the three writes POD-385 contracted — are built
-   * from `SPEC_CONTRACTS` by `specFamilyProcedures()`, so there is deliberately
-   * no `.mutation(` written out here and `scripts/audit-spec-commands.ts` fails
-   * the build if one appears.
-   *
-   * THE READS STAY. `list`, `get` and `search` have no contract — a `visibility`
-   * class describes what a command WRITES — and they are authorized by the
-   * identical `requireRepoRoot` call inside the service. The audit checks
-   * procedure TYPE, so a write cannot hide among them by being called a query.
-   */
-  specs: t.router({
-    list: t.procedure
-      .input(specsInputs.list)
-      .query(({ ctx, input }) => mods(ctx).specs.list(input)),
-    get: t.procedure.input(specsInputs.get).query(({ ctx, input }) => mods(ctx).specs.get(input)),
-    ...specFamily,
-    search: t.procedure
-      .input(specsInputs.search)
-      .query(({ ctx, input }) => mods(ctx).specs.search(input)),
-  }),
 })
 
 export type AppRouter = typeof appRouter
