@@ -12,7 +12,7 @@
     "durable-host-sync-async-twins": 4,
     "instance-partitions": 0,
     "issue-shapes": 0,
-    "local-placeholders": 13,
+    "local-placeholders": 16,
     "mobile-client-value": 1,
     "panel-mode-duality": 3,
     "per-user-singletons": 8,

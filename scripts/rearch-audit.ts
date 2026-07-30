@@ -259,10 +259,27 @@ export function isTestFile(file: string): boolean {
   return /\.(test|spec|bun\.test)\.tsx?$/.test(file) || /\/(test|tests|__tests__)\//.test(file)
 }
 
-/** Generated or historical files no phase issue can edit: past migrations are
- *  immutable history, and generated manifests are rebuilt from them. */
+/**
+ * Generated or historical files no phase issue can edit: past migrations are
+ * immutable history, and generated manifests are rebuilt from them.
+ *
+ * FROZEN IS `/migrations/drizzle/`, NOT `/migrations/` (POD-1166, found by
+ * POD-1162's P4 probe). The timestamped SQL folders under `drizzle/` are the
+ * immutable history. `apps/server/src/migrations/` ALSO holds live, editable
+ * source — most importantly `schema.ts`, which declares all 57 physical tables —
+ * and freezing the whole directory made that file invisible to every detector
+ * here. An `instance_id` column planted on the `sessions` table was green across
+ * the audit, the model suite, tsgo, the migration suites and store.test.ts, so
+ * ADR 1 D5's "multi-user is not multi-tenancy" had no enforcement at the one
+ * place a tenant partition would actually be introduced.
+ *
+ * Note POD-368's registry lists `sessions` at `migrations/schema.ts` as the R3
+ * physical table — so the registry knew about a file the audit could not read.
+ * That mismatch is the tell: a path-scoped skip whose reason ("history is
+ * immutable") does not apply to everything the path matches.
+ */
 export function isFrozenFile(file: string): boolean {
-  return file.includes('/migrations/') || file.endsWith('.generated.ts')
+  return file.includes('/migrations/drizzle/') || file.endsWith('.generated.ts')
 }
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.expo', 'coverage', 'target'])
