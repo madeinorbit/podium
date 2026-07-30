@@ -6,6 +6,7 @@
  */
 
 import type { MutationId } from '@podium/protocol'
+import type { SyncSpan } from '../span'
 import type { AuthorityRefusal, OutboxRejectionReason } from './reasons'
 import type { DeadLetterRecord, EnvelopeConfirmation, OutboxRecord, UserRef } from './records'
 import type { OutboxState } from './states'
@@ -157,25 +158,17 @@ export type OutboxApplyResult =
   | { readonly ok: false; readonly conflicts: readonly MutationId[] }
 
 /**
- * A precondition that could only be evaluated at COMMIT time did not hold.
+ * ADR 2 D10's unit of work is defined ONCE, in `../span`, and re-exported here so
+ * the Outbox's own modules keep importing it from their ports file (POD-1146).
  *
- * This exists because an adapter enrolled in a span often cannot answer when the
- * write is handed to it: the check has to happen inside the native transaction, by
- * which point there is no caller left to return `{ok: false}` to. So the span
- * rejects — and it must reject with THIS type rather than a generic error, because
- * a conflict is an ordinary concurrent-writer outcome that participants resolve by
- * re-staging, while a generic failure is not resolvable and must surface. A typed
- * channel is what lets both kernels tell those apart.
- *
- * Neutral on purpose: it lives beside the span types so the Replica can raise and
- * recognise it too, without either kernel importing the other.
+ * It used to be declared here as well, under the same name and with a different
+ * shape — `onCommit(adopt)` against the Replica's `join(participant)`. Both were
+ * this seam; neither was a whole port. See `../span` for the role and phase split
+ * that made them one, and for why the outbox's `onCommit`-only asymmetry survives
+ * intact next to a participant `discard` hook.
  */
-export class SyncCommitConflict extends Error {
-  constructor(readonly conflicts: readonly string[]) {
-    super(`transaction rolled back: precondition failed at commit on ${conflicts.join(', ')}`)
-    this.name = 'SyncCommitConflict'
-  }
-}
+export type { OwnedSyncSpan, SyncSpan, SyncSpanParticipant, SyncUnitOfWork } from '../span'
+export { SyncCommitConflict } from '../span'
 
 /**
  * The observable lifecycle. Three of these exist because ADR 3 D9 distinguishes
@@ -265,129 +258,6 @@ export interface OutboxConfig {
   // `retireAllApplied` — see `SyncUnitOfWork`. A configured coordinator would be a
   // port with no reads: the kernel opens no transaction of its own, so wiring one
   // here would have no effect while the config told an integrator otherwise.
-}
-
-/**
- * The shared unit-of-work seam for the crash window ADR 2 D10 forbids.
- *
- * The defect it closes is invisible from inside either kernel module: the Replica
- * commits entity + cursor and retires its overlay post-commit, while the Outbox
- * retires an applied entry in a separate write. Each is correct against its own
- * ADR clauses; the torn state exists only in the JOIN — a crash between them
- * leaves a replica past a revision whose command the outbox still believes is in
- * flight, or the reverse.
- *
- * **Shape agreed by POD-370 and POD-369** (coordinator ruling, POD-279 fan-out;
- * POD-369's three amendments to POD-370's opening proposal were accepted):
- *
- * 1. **Enrollment is EXPLICIT.** The span is threaded into the participant call
- *    and on into the store write — `outbox.retireApplied(id, span)` →
- *    `store.apply(delta, span)`. POD-369's objection to the original ambient
- *    shape is decisive: wrapping unchanged kernel methods in `transact` does not
- *    make their inner store calls join the native transaction, and there is no
- *    portable ambient transaction in a browser runtime. A seam that silently
- *    fails to enroll is worse than one that changes a signature. Both span
- *    parameters are OPTIONAL, so no existing caller breaks.
- * 2. **`onCommit` ONLY — there is deliberately no abort hook.** Participants stage
- *    their in-memory effects and adopt them from `onCommit`, which runs in
- *    registration order after the durable commit. POD-370 first proposed an abort
- *    hook; POD-369 argued it out, on the reasoning both modules keep applying:
- *    compare the failure mode of FORGETTING. Forget an `onAbort` and memory ends
- *    up AHEAD of durable truth — a silent divergence that survives until
- *    something trips over it, asserting a fact from a transaction that never
- *    committed. Forget an `onCommit` and memory ends up BEHIND durable truth — a
- *    stale read the next apply or rehydrate corrects, which can invent nothing.
- *    The unsafe direction is therefore unreachable rather than merely forbidden,
- *    and the shape matches what both kernels already did independently (stage,
- *    write, adopt) instead of adding a second mechanism. A callback failure is
- *    surfaced but cannot rewrite the already-decided durable outcome.
- *
- *    An adapter MUST be atomic across enrolled writes: staging or validating them
- *    against a transaction-local view and publishing only once every one succeeds,
- *    or restoring the pre-span state on failure. An implementation that applies
- *    enrolled writes in sequence and cannot undo one already applied is not a unit
- *    of work — it is a partially committed transaction, which is precisely what
- *    ADR 2 D10 forbids. When a late precondition fails it rejects with
- *    `SyncCommitConflict` so participants can re-stage.
- *
- *    **Events are enrolled too, not just state** (POD-369's addition): emission
- *    sits behind the same `onCommit` gate as adoption, because inside a shared
- *    span "after my commit" means after the OUTER commit, and an emitted event
- *    cannot be un-emitted by any hook. That is what makes "no observation escapes
- *    on abort" a mechanism rather than a hope.
- *
- *    The cost POD-369 named against their own proposal is read-your-writes inside
- *    a span. It does not bind the Outbox: a second batch in one span needs this
- *    participant's OWN STAGED DRAFT, which is local and needs no hook — not a read
- *    of uncommitted store state.
- * 3. **No silent per-write fallback on the durable path.** Leaving each write in
- *    its own transaction IS the D10 non-compliance, so it is legal only as ADR 2's
- *    explicitly surfaced degraded mode, never as normal POD-373 wiring. The
- *    in-memory adapter implements a real unit of work (see
- *    `InMemoryUnitOfWork`). The transaction body is constrained to same-span
- *    LOCAL STORAGE work: every authority/network await finishes before the span
- *    opens, because an IndexedDB transaction auto-closes on an unrelated await.
- *
- * Other properties: it is a PORT with no concrete storage in it, and neither
- * kernel module imports the other — both import only the neutral span type. It
- * carries no cause, rung, rescope or re-bootstrap parameter, and it never will:
- * it is not a place to smuggle back the replica→outbox edge that POD-369 and
- * POD-370 deliberately removed, and it is not a licence to widen either module's
- * authority. The Replica still never arbitrates; the Outbox still holds no
- * authorization state. Cache-only discard stays a separate capability and never
- * receives an outbox mutation.
- *
- * **Only RETIREMENT enrolls, on the outbox side.** The span exists to cover the
- * Replica's entity write, its cursor advance, and the retirement that follows from
- * them, so `retireApplied` is the one outbox operation that takes a span. Enqueue,
- * discard, retry and edit are USER actions: they are not part of an entity commit,
- * they take no span, and they do NOT join one that happens to be open: a user action
- * issued while somebody else's transaction is in flight commits independently and
- * immediately, and survives that transaction's abort. That is the point of clause 4
- * of the transaction rule — a call with no span must never fulfil on the strength of
- * another caller's uncommitted work, nor be rolled back by their abort.
- *
- * POD-305 (Authority) and POD-373 (cross-hop conformance) WIRE it; the kernel
- * modules only declare it and enroll into it. The crash-between-writes case
- * belongs in POD-373's suite against a real transaction — see
- * `docs/design/outbox-lifecycle-state-machine.md` for the case both halves owe it.
- */
-export interface SyncUnitOfWork {
-  /**
-   * Run `body` as ONE atomic span over the local store. Every write enrolled with
-   * the span it receives is durable together or not at all.
-   *
-   * INDEPENDENT CALLS ARE SERIALIZED, and joining is expressed ONLY by threading the
-   * span explicitly. There must be no ambient "current transaction" to join: a
-   * process-wide flag cannot tell lexical NESTING from an unrelated CONCURRENT
-   * caller, so a mutation arriving mid-body was silently absorbed into someone
-   * else's transaction — reported as durable before it was, then lost when that
-   * unrelated transaction aborted. A browser-portable unit of work has no way to
-   * infer nesting, which is why the seam passes the span by hand.
-   *
-   * Corollary for participants: do not open a transaction for a mutation that
-   * touches ONE store and has nothing to be atomic with. A single record-level
-   * `apply` is already atomic and precondition-checked; the transaction exists to
-   * join a MULTI-PARTICIPANT commit, and that always arrives as an explicit span.
-   *
-   * The body does LOCAL STORAGE WORK ONLY: an authority round trip inside it would
-   * let an IndexedDB transaction auto-close (POD-369's amendment 3).
-   */
-  transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T>
-}
-
-export interface SyncSpan {
-  /**
-   * Adopt in-memory state — and publish observations — for work this participant
-   * staged inside the span. Registered adoptions run in registration order AFTER
-   * the span commits.
-   *
-   * A participant that registers nothing simply does not update its memory, which
-   * is a stale read that the next apply or rehydrate corrects; it cannot
-   * manufacture a fact that never became durable. That asymmetry is why this is
-   * the ONLY hook — see `SyncUnitOfWork` rule 2.
-   */
-  onCommit(adopt: () => void): void
 }
 
 /**

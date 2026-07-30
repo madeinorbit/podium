@@ -288,6 +288,13 @@ export interface StoreView {
 class InMemorySpan implements OwnedSyncSpan {
   private readonly participants: SyncSpanParticipant[] = []
   /**
+   * In-memory adoptions and event emissions, run in registration order strictly
+   * AFTER every region has published. A participant that registers nothing is
+   * safe by construction — its memory is merely stale until the next apply or
+   * rehydrate — which is why there is no abort counterpart to this list.
+   */
+  private readonly adoptions: (() => void)[] = []
+  /**
    * Three states, not a boolean. A caller commits inside `try` and aborts in
    * `catch`, so an abort that follows a VETOED commit is the normal error path and
    * must be a no-op — the drafts were already discarded by the veto. A single
@@ -304,6 +311,11 @@ class InMemorySpan implements OwnedSyncSpan {
     if (!this.participants.includes(participant)) this.participants.push(participant)
   }
 
+  onCommit(adopt: () => void): void {
+    if (this.state !== 'open') throw new Error('cannot enrol in a span that has already settled')
+    this.adoptions.push(adopt)
+  }
+
   commit(): void {
     if (this.state !== 'open') throw new Error('span already settled')
     try {
@@ -317,6 +329,9 @@ class InMemorySpan implements OwnedSyncSpan {
     for (const participant of this.participants) participant.publish()
     // ONE transaction for the whole span, not one per participant (D10 clause 5).
     this.onPublished()
+    // Strictly after durability: an observation that outran its own commit would
+    // be a lie no later hook could retract.
+    for (const adopt of this.adoptions) adopt()
   }
 
   abort(): void {
@@ -331,6 +346,10 @@ class InMemorySpan implements OwnedSyncSpan {
   private discardAll(): void {
     this.state = 'discarded'
     for (const participant of this.participants) participant.discard?.()
+    // Adoptions are dropped rather than run: nothing was published, so adopting
+    // would put memory AHEAD of durable truth — the one direction this seam makes
+    // unreachable.
+    this.adoptions.length = 0
   }
 }
 

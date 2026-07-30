@@ -150,6 +150,25 @@ export interface OwnedSyncSpan extends SyncSpan {
  * The transaction seam POD-305 and POD-373 wire; the kernel modules only declare
  * it and enrol into it.
  *
+ * The defect it closes is invisible from inside either kernel module: the Replica
+ * commits entity + cursor and retires its overlay post-commit, while the Outbox
+ * retires an applied entry in a separate write. Each is correct against its own
+ * ADR clauses; the torn state exists only in the JOIN — a crash between them
+ * leaves a replica past a revision whose command the outbox still believes is in
+ * flight, or the reverse.
+ *
+ * Enrollment is EXPLICIT, and the alternative was tried and rejected: wrapping
+ * unchanged kernel methods in `transact` does not make their inner store calls
+ * join the native transaction, and there is no portable ambient transaction in a
+ * browser runtime. A seam that silently fails to enrol is worse than one that
+ * changes a signature — so the span is threaded into the participant call and on
+ * into the store write (`outbox.retireApplied(id, span)` → `store.apply(delta,
+ * span)`), and every span parameter is OPTIONAL so no existing caller breaks.
+ *
+ * The cost named against this shape is read-your-writes inside a span. It does not
+ * bind the Outbox: a second batch in one span needs that participant's OWN STAGED
+ * DRAFT, which is local and needs no hook — not a read of uncommitted store state.
+ *
  * An explicit shared span is REQUIRED when one logical commit spans more than one
  * region: entities/cache + cursor + the outbox/overlay. A lone single-region
  * operation MAY autocommit and need not open one (D10 clause 2). A span resolves
@@ -179,6 +198,10 @@ export interface SyncUnitOfWork {
    * touches ONE store and has nothing to be atomic with. A single record-level,
    * precondition-checked write is already atomic; the transaction exists to join a
    * MULTI-PARTICIPANT commit, and that always arrives as an explicit span.
+   *
+   * The crash-between-writes case belongs in POD-373's suite against a real
+   * transaction — see `docs/design/outbox-lifecycle-state-machine.md` for the case
+   * both halves owe it.
    */
   transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T>
 }
