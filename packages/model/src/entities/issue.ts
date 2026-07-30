@@ -458,13 +458,15 @@ export type DoctorReport = z.infer<typeof DoctorReport>
  *  - hide-the-edge needs no shape at all — the authority omits the node and its
  *    edges from `IssueGraph`, and every member below is required, so a hidden
  *    node cannot be half-emitted;
- *  - opaque-reference needs a node with identity and NOTHING else, which is
- *    `IssueGraphNode.pick({ id: true })` — a narrowing of this same head, not a
- *    second projection.
- * What would preclude the second answer is folding a CONTENT member (title,
- * stage, priority) into the identity head rather than adding it by mask, because
- * then an opaque node could not be emitted without leaking content. It is not;
- * `IssueRefHead` is identity-only. Do not fold content into it.
+ *  - opaque-reference needs an edge whose endpoint is withheld, which works because
+ *    `IssueGraph` enforces NO referential integrity between `edges` and `nodes`,
+ *    plus an id-only node via `IssueGraphNode.pick({ id: true })`.
+ * What would preclude the second answer is adding a cross-field REFINEMENT — either
+ * one enforcing edge/node integrity, or any refinement at all, since a refined
+ * schema is a ZodEffects with no `.pick`, so the id-only narrowing would have to be
+ * written as a second projection. Keep these plain object schemas.
+ * (`IssueRefHead` is a shared *ref* head — id, seq, title — not an identity-only
+ * one; an earlier revision of this comment claimed otherwise.)
  */
 export const IssueGraphNode = IssueRefHead.extend(
   IssueWireCore.pick({

@@ -104,15 +104,34 @@ describe('the graph projection keeps BOTH cross-boundary edge answers open', () 
     expect(IssueGraph.safeParse({ nodes: [visible], edges: [] }).success).toBe(true)
   })
 
-  it('opaque-reference is a NARROWING of the same head, not a second projection', () => {
-    // The identity-only node an opaque reference needs is a pick of this very
-    // projection. If any content member were folded into the identity head, this
-    // pick would be impossible without leaking that content — which is why the
-    // head is identity-only.
-    const opaque = IssueGraphNode.pick({ id: true })
-    expect(Object.keys(opaque.shape)).toStrictEqual(['id'])
-    expect(opaque.safeParse({ id: 'iss_hidden' }).success).toBe(true)
-    // And it carries no content: a title on an opaque node is not part of the shape.
-    expect(Object.keys(opaque.shape)).not.toContain('title')
+  it('an edge may name an id absent from nodes — no referential integrity is enforced', () => {
+    // THIS is what keeps the opaque-reference answer available: the projection does
+    // NOT require that every edge endpoint appear in `nodes`. So the authority can
+    // emit "blocked by an issue you cannot see" as an edge whose target it withheld,
+    // without inventing a second projection function.
+    //
+    // Mutation-testable: add a cross-field refinement enforcing integrity and this
+    // reds. (The earlier version of this test asserted
+    // `Object.keys(IssueGraphNode.pick({id:true}).shape) === ['id']`, which is a
+    // fact about zod's `pick` rather than about this schema — no product change
+    // could red it. Replaced rather than supplemented, so the vacuous claim does
+    // not survive wearing the old name.)
+    const visible = { id: 'iss_a', seq: 1, title: 'A', stage: 'backlog', priority: 2, type: 'task', ready: true, blocked: false }
+    expect(
+      IssueGraph.safeParse({
+        nodes: [visible],
+        edges: [{ from: 'iss_a', to: 'iss_withheld', type: 'blocks' }],
+      }).success,
+    ).toBe(true)
+  })
+
+  it('the projection stays a plain object schema, so it CAN be narrowed', () => {
+    // The narrowing an opaque reference uses (`IssueGraphNode.pick({id:true})`)
+    // only exists while IssueGraphNode is a plain ZodObject. Wrapping it in a
+    // cross-field refinement makes it a ZodEffects, which has no `.pick` — at
+    // which point expressing an opaque node WOULD need a second, separately
+    // written projection, which is what the criterion forbids.
+    expect(typeof (IssueGraphNode as { pick?: unknown }).pick).toBe('function')
+    expect(IssueGraphNode.pick({ id: true }).safeParse({ id: 'iss_withheld' }).success).toBe(true)
   })
 })
