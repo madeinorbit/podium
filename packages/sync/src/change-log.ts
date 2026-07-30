@@ -30,7 +30,11 @@ export interface ChangeLogStore {
     cursor: number,
   ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[]
   /** Snapshot the head-only retention threshold once per job. */
-  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan
+  planChangePrune(opts: {
+    keepRows: number
+    maxAgeMs: number
+    now: number
+  }): ChangePrunePlan
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
   /** Latest retained row per (entity, id) — the boot seed for the baseline. */
