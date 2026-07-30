@@ -385,6 +385,20 @@ export const NOT_A_REPRESENTATION: readonly {
       'shape; the representation is `SessionMeta`, which IS registered.',
   },
   {
+    file: 'packages/model/src/entities/handoff.ts',
+    symbol: 'HANDOFF_BUNDLE_CORE',
+    reason:
+      'the shape BOTH format arms of `HandoffManifest` spread (POD-1153), so the manifest can be ' +
+      'versioned as a file without v2 drifting from v1 on a shared member. Same class as ' +
+      '`SessionMetaEntity` and `IssueWireCore`: a composition base, not a second representation — ' +
+      'the representation is `HandoffManifest`, which IS registered, and it is the union over the ' +
+      'two arms. Nothing here is hand-RESTATED: every member is the shared field instance reached ' +
+      "through POD-365's groups, which `entities/handoff.test.ts` asserts by reference identity " +
+      'for both arms. That is the distinction this detector structurally cannot draw — it reads ' +
+      'key NAMES in a declaration and cannot see whether the values beside them are the shared ' +
+      'schemas or fresh restatements (reported to POD-368, which owns the detector).',
+  },
+  {
     file: 'packages/model/src/entities/issue.ts',
     symbol: 'IssueWireCore',
     reason:
