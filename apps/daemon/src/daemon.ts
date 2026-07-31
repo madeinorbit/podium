@@ -474,16 +474,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(repoRoot ? { repoRoot } : {}),
         ...(explicit ? { explicit: true } : {}),
       }),
-    observe: async (sessionId, channel, value) => {
-      await bindingStore.observe({
-        sessionId,
-        channel,
-        value,
-        confidence: 'exact',
-        source: channel === 'worktree-pin' ? 'launch-marker' : 'adapter-observer',
-        observedAt: new Date().toISOString(),
-      })
-    },
   })
 
   // Reattach fan-out gates (POD-612): wide gate for bridge wiring, narrow
@@ -504,31 +494,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // agent is idle — fed from the agent-state tracker's phase transitions.
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onExactCodexBinding: async (sessionId, nativeId) => {
-      await bindingStore.observe({
-        sessionId,
-        channel: 'resume-ref',
-        value: nativeId,
-        nativeKind: 'codex-thread',
-        confidence: 'exact',
-        source: 'adapter-observer',
-        observedAt: new Date().toISOString(),
-        pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
-      })
       if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
       // Replay sends ackRequested:true. If the socket is offline, the receipt
       // remains and the authentication path replays it after reconnect.
       await codexIdentityReceipts.replay(send)
-    },
-    onAliasObservation: (observation) => {
-      void bindingStore
-        .observe(observation)
-        .catch((error) =>
-          console.warn(
-            '[podium] could not persist alias observation',
-            observation.sessionId,
-            error,
-          ),
-        )
     },
     tailSeedGate: gates.tailSeedGate,
   })

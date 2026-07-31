@@ -52,7 +52,6 @@ export type BindingObservationChannel =
   | 'process-ownership'
   | 'cwd'
   | 'worktree-pin'
-  | 'durable-label'
 
 export interface BindingObservation {
   observationId: string
@@ -838,7 +837,10 @@ export class BindingStore {
         sessionId: snapshot.sessionId,
         agentKind: snapshot.agentKind,
         claimantMachineId: machineId,
-        attemptId: snapshot.attemptId,
+        // Today's durable host label is the only surviving identity of the
+        // process attempt. It seeds the new attempt field; it is not a native
+        // artifact observation (POD-414 W3 / §3.4.3).
+        attemptId: snapshot.attemptId ?? snapshot.control?.durableLabel ?? null,
         conversationId: snapshot.conversationId,
         observationGeneration: snapshot.observationGeneration,
         createdAt: migratedAt,
@@ -851,14 +853,6 @@ export class BindingStore {
           parentBindingId: null,
         },
       })
-      if (snapshot.control?.durableLabel) {
-        await observeLegacy(
-          snapshot.sessionId,
-          'durable-label',
-          snapshot.control.durableLabel,
-          'legacy-control',
-        )
-      }
       if (snapshot.control?.cwd) {
         await observeLegacy(snapshot.sessionId, 'cwd', snapshot.control.cwd, 'legacy-control')
       }

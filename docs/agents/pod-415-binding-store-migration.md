@@ -23,19 +23,25 @@ On first open, the migrator inventories the real daemon state root and imports:
 
 - `session-observers.ts` provider identity and path pins supplied by the live cutover
   snapshot;
-- `control/session.ts` durable labels, cwd and resume aliases;
+- `control/session.ts` durable-host labels (seeded as attempt identity), cwd and
+  resume aliases;
 - adapter-owned native ids, transcript/rollout paths, cwd and worktree pins;
 - `daemon.json`'s machine id as the claimant-machine reference (the identity file and
   token remain in place); and
 - regular and `.ack` Codex identity receipts, including
   `PodiumProcessBinding` process-ownership evidence.
 
-Every alias becomes an append-only observation with its own `observedAt`; no current
-alias scalar is stored. Reopening after the completed marker never re-runs the lift.
+Every native alias becomes an append-only observation with its own `observedAt`; no
+current alias scalar is stored. The durable-host label is not a native artifact and
+therefore seeds `attemptId` instead. Reopening after the completed marker never
+re-runs the lift.
 
 Legacy bindings require the Phase 1 first-admin `UserId` supplied by
 `FIRST_ADMIN_USER_ID`. If binding facts exist and that value is unavailable, migration
 throws before writing a binding; it never invents a user or stores a placeholder.
+That assignment is migration-only. Normal spawn and reattach must carry the delegation
+minted by the server-side binding transition in POD-416; the daemon must never synthesize
+one from `FIRST_ADMIN_USER_ID` when a control frame arrives.
 
 ## Receipt constraint
 

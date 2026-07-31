@@ -201,8 +201,6 @@ export function createSessionCwdTracker(opts: {
    *  the real (uncached) git call. */
   branch?: (root: string) => Promise<string | null>
   send: (update: SessionCwdUpdate) => void
-  /** Persist cwd/worktree aliases as append-only binding observations. */
-  observe?: (sessionId: SessionId, channel: 'cwd' | 'worktree-pin', value: string) => Promise<void>
 }): SessionCwdTracker {
   const lastRawCwd = new Map<string, string>()
   const lastSentRoot = new Map<string, string>()
@@ -239,7 +237,6 @@ export function createSessionCwdTracker(opts: {
       // the subdirectory it was working in (POD-741). Observing is not re-homing.
       const known = lastRawCwd.get(sessionId) === cwd
       lastRawCwd.set(sessionId, cwd)
-      if (opts.observe) await opts.observe(sessionId, 'cwd', cwd)
       if (pinned.has(sessionId)) return
       if (known) return
       const mySeq = (seq.get(sessionId) ?? 0) + 1
@@ -268,7 +265,6 @@ export function createSessionCwdTracker(opts: {
       lastRawCwd.delete(sessionId)
       pinned.add(sessionId)
       const info = await opts.resolver.resolve(path)
-      if (opts.observe) await opts.observe(sessionId, 'worktree-pin', info.root)
       // Explicit declarations ALWAYS send (no root dedup): beyond regrouping,
       // the server stamps the worktree onto the session's attached issue — which
       // must happen even when the session is already grouped under this root.
@@ -290,11 +286,7 @@ export function createSessionCwdTracker(opts: {
       // still resume in apps/web (POD-741). Never overwrites a hook that raced ahead —
       // that reports a LATER position than this launch.
       if (!lastRawCwd.has(sessionId)) lastRawCwd.set(sessionId, cwd)
-      if (opts.observe) await opts.observe(sessionId, 'cwd', cwd)
       const info = await opts.resolver.resolve(cwd)
-      if (info.kind === 'worktree' && opts.observe) {
-        await opts.observe(sessionId, 'worktree-pin', info.root)
-      }
       // Exited while we resolved: clear() dropped this session's state, so adding a
       // pin now would resurrect it — an entry no clear() will ever come back for.
       // A racing hook only BUMPS the sequence, so this tells the two apart.

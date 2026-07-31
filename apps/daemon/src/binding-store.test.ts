@@ -73,6 +73,24 @@ describe('BindingStore schema lifecycle', () => {
     })
   })
 
+  it('refuses a future store manifest without rewriting it', async () => {
+    const root = await tempRoot()
+    const dir = join(root, 'runtime', 'session-bindings')
+    await mkdir(join(dir, 'bindings'), { recursive: true })
+    const path = join(dir, 'manifest.json')
+    const bytes = '{"schemaVersion":999,"createdAt":"2026-01-01T00:00:00.000Z"}\n'
+    await writeFile(path, bytes)
+
+    await expect(BindingStore.open({ dir })).rejects.toEqual(
+      expect.objectContaining<Partial<BindingStoreVersionError>>({
+        name: 'BindingStoreVersionError',
+        found: 999,
+        supported: BINDING_STORE_SCHEMA_VERSION,
+      }),
+    )
+    expect(await readFile(path, 'utf8')).toBe(bytes)
+  })
+
   it('refuses a future record for the version reason without rewriting or degrading it', async () => {
     const root = await tempRoot()
     const dir = join(root, 'runtime', 'session-bindings')
@@ -333,36 +351,42 @@ describe('legacy daemon-state migration', () => {
     const claimBytes = await readFile(claim)
     const receiptMode = (await stat(receipt)).mode
     const now = () => '2026-07-31T12:00:00.000Z'
+    const legacyBindings = [
+      {
+        sessionId: asSessionId('observed-pane'),
+        agentKind: 'claude-code' as const,
+        observationGeneration: 9,
+        control: {
+          durableLabel: 'podium-observed-pane',
+          cwd: '/repo/worktree',
+          resume: { kind: 'claude-session', value: 'claude-native' },
+        },
+        observer: {
+          providerSessionId: 'claude-native',
+          resumeKind: 'claude-session',
+          pathHint: '/home/u/.claude/thread.jsonl',
+        },
+        adapter: {
+          nativeId: 'claude-native',
+          resumeKind: 'claude-session',
+          transcriptPath: '/home/u/.claude/thread.jsonl',
+          cwd: '/repo/worktree/apps/daemon',
+          worktreePin: '/repo/worktree',
+        },
+      },
+    ]
+    // This is the non-vacuity pin: zero rows migrated from zero source rows is
+    // not evidence that a migration moves state.
+    expect(legacyBindings.length).toBeGreaterThan(0)
+    expect((await readdir(receiptDir)).length).toBeGreaterThan(0)
+
     const store = await BindingStore.open({
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
       singleOperatorUserId: FIRST_ADMIN_USER_ID,
       now,
-      legacyBindings: [
-        {
-          sessionId: asSessionId('observed-pane'),
-          agentKind: 'claude-code',
-          observationGeneration: 9,
-          control: {
-            durableLabel: 'podium-observed-pane',
-            cwd: '/repo/worktree',
-            resume: { kind: 'claude-session', value: 'claude-native' },
-          },
-          observer: {
-            providerSessionId: 'claude-native',
-            resumeKind: 'claude-session',
-            pathHint: '/home/u/.claude/thread.jsonl',
-          },
-          adapter: {
-            nativeId: 'claude-native',
-            resumeKind: 'claude-session',
-            transcriptPath: '/home/u/.claude/thread.jsonl',
-            cwd: '/repo/worktree/apps/daemon',
-            worktreePin: '/repo/worktree',
-          },
-        },
-      ],
+      legacyBindings,
     })
 
     expect(store.legacyMigration?.inventory).toEqual({
@@ -375,9 +399,9 @@ describe('legacy daemon-state migration', () => {
     })
     const observed = await store.read(asSessionId('observed-pane'))
     expect(observed?.claimantMachineId).toBe('machine-real')
+    expect(observed?.attemptId).toBe('podium-observed-pane')
     expect(store.currentDelegation(requiredBinding(observed))?.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
     expect(observed?.observations.map((entry) => entry.channel)).toEqual([
-      'durable-label',
       'cwd',
       'resume-ref',
       'provider-session',
@@ -403,6 +427,9 @@ describe('legacy daemon-state migration', () => {
     expect(await readFile(receipt)).toEqual(receiptBytes)
     expect((await stat(receipt)).mode).toBe(receiptMode)
     expect(await readFile(claim)).toEqual(claimBytes)
+    expect(
+      (await readdir(join(storeDir, 'bindings'))).filter((name) => name.endsWith('.json')),
+    ).toHaveLength(3)
 
     // The completed marker makes the lift one-shot. New legacy facts and a new
     // receipt on a later open are left for the normal runtime/POD-737 path.
