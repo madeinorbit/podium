@@ -3873,3 +3873,72 @@ better for it: find a thing's home BEFORE writing it — because if you cannot s
 where it belongs, you do not yet know whether it already exists. That is the same
 insight as the absence-reads-as-an-answer entry, turned into a habit that runs
 before the work rather than a check that runs after it.
+
+## A TYPECHECK IS SYNTAX-ONLY WHILE ANY CONFLICT MARKER EXISTS — measured
+
+POD-1246's finding, and the most consequential instrument result of this run. I
+reproduced it independently on integration before believing it, because it
+invalidates a class of evidence rather than a single claim.
+
+THE MEASUREMENT, on `packages/model` (a zero-dependency leaf):
+
+    a file containing `export const __probe: number = 'not a number'`
+      -> TS2322 reported. Instrument live.
+
+    the SAME file, plus one unrelated file containing conflict markers
+      -> TS2322 reported ZERO times. Only 3 x TS1185 (marker syntax).
+
+One marker anywhere in the project and semantic checking stops entirely. The run
+still exits non-zero, still prints errors, still looks like a typecheck — and it
+is not looking at types at all.
+
+WHAT THIS INVALIDATES, in POD-1246's own accounting of its own work:
+
+  "@podium/model typechecks clean" (group a)   VALID — marker-free graph, and it
+                                               probed the instrument.
+  "zero errors from packages/sync itself,      NOT EVIDENCE. Re-tested: a blatant
+   only protocol markers" (group b)            type error in ledger.ts goes
+                                               unreported; the run emits 36 x
+                                               TS1185 and nothing else. The
+                                               sentence was literally true and
+                                               completely meaningless.
+  "conflict.ts resolves, no error" (group c)   NOT EVIDENCE, same reason.
+
+IT IS THE INSTRUMENT-MUST-SAY-YES-FIRST FAILURE, MADE IN THE DOCUMENT THAT CITES
+THAT PRINCIPLE. A green from an instrument that cannot go red is not a weak signal
+— it is NO signal, and it is worse than no check because it is quoted as evidence.
+
+HOW IT WAS CAUGHT is the transferable part: a tripwire it had just installed
+FAILED TO FIRE, and instead of assuming its own type was wrong it ran a positive
+control on the typechecker. The control said THE TYPECHECKER WAS NOT LOOKING —
+a different diagnosis entirely, and not one reachable by staring at the type.
+When a new guard does not fire, suspect the instrument BEFORE the guard.
+
+CONSEQUENCES THAT CHANGE THE PLAN, not just the wording:
+
+  - "A group is not done until its consumers compile" is UNACHIEVABLE mid-merge.
+    The compile signal is syntax-only until the last marker in the dependency
+    graph is gone. Still worth running — it catches syntax damage — but it is not
+    verification.
+  - A COMPILER-DRIVEN ENUMERATION CANNOT RUN MID-MERGE EITHER. The registry
+    tripwire (a constraint making a mutation whose contract omits `conflict` fail
+    to compile) is installed, INERT and UNPROVEN until markers clear.
+  - SEQUENCE: clear every remaining marker in the affected projects FIRST,
+    provisionally if necessary, and only THEN apply declarations that the compiler
+    is supposed to enumerate. Applying them first is exactly the memory test the
+    mechanism exists to prevent.
+
+WHAT STILL WORKS MID-MERGE: syntax errors, `lint:shadowing` (textual), unit tests
+in marker-free packages, and the `git show main:<f> | grep -vxFf` audits.
+
+THE RULE: BEFORE QUOTING ANY TYPECHECK AS EVIDENCE DURING A MERGE, PROBE IT —
+append an obvious type error and confirm it is reported. If it is not, the run is
+syntax-only and proves nothing.
+
+COORDINATOR NOTE ON THIS RUN'S OWN EVIDENCE: the integration-branch typechecks
+quoted in every merge commit here were run on a CLEAN tree — the standing
+procedure is resolve, `git add`, verify `git status --porcelain` has no unmerged
+entries, then run gates and `typecheck --force`. No marker was present for any of
+them, so those claims stand. That is luck as much as design; the procedure existed
+for a different reason (verifying the commit rather than the working tree) and
+happened to close this hole too.
