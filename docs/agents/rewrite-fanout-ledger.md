@@ -2932,3 +2932,47 @@ Two corollaries earned here:
   - Belongs beside [[instrument-must-say-yes-first]] as its mirror image: this run's
     defect class has been instruments that cannot say NO; this is an instrument that says
     NO *for the wrong reason* and is believed because the failure looks like the code.
+
+## A failure that passes every available check — the outbox nothing drains
+
+POD-1220 found this by refusing an instruction I had written, and it is the worst
+shape this run has dealt with.
+
+The obvious way to satisfy "get mobile's queue off AsyncStorage and give the
+attribution gate a caller" is: open the SQLite store, call the migration, skip
+the facade. It would have written the user's queued work into a SQLite outbox
+THAT NOTHING DRAINS, because the engine still reads the legacy AsyncStorage
+outbox. Strictly worse than the state it replaces — and it reports SUCCESS at
+every level either of us could check. The migration returns `adopted=N`. The
+store really does hold the rows. The audit count really does drop.
+
+Everything observable says it worked. The user's queued writes are simply never
+sent.
+
+THE MIRROR, from the same analysis: skipping the outbox import instead leaves the
+gate with a caller and NO EFFECT, because entities and the cursor are discarded
+unconditionally regardless of attribution — the outbox is the only family the
+gate governs on mobile. So `unattributed-store-read` could go 5 -> 4 with the
+security property still entirely absent.
+
+TWO RULES.
+
+  - THE COUNT AND THE PROPERTY ARE DIFFERENT CLAIMS. A ratchet moving is evidence
+    that a SITE changed, never that the BEHAVIOUR did. Ask what would observably
+    break if the property were still missing; if the answer is "nothing", the
+    ratchet is measuring the edit rather than the fix. This run built its gates
+    precisely so counts could be trusted, which makes this the failure mode those
+    gates invite.
+  - ASK WHAT DRAINS THE QUEUE, not what makes the check pass. POD-1220 found both
+    traps by following the data to its consumer instead of following the
+    acceptance criteria to their checkbox.
+
+AND THE COORDINATOR ERROR THAT PRODUCED IT. My restatement of the task said "bind
+the outbox through init.outbox" AND "do not construct the assembly" — impossible,
+since `init.outbox` is a field of `KernelReplicaInit`. I wrote it by copying the
+implementer's own earlier phrasing forward without re-checking it against the
+facade, which is exactly the "a brief records a belief about a plan, not a fact
+about the tree" failure POD-1228 named. The implementer raised it, my restatement
+crossed with their reply, and I restated it a second time. An instruction from
+the coordinator is not evidence; when the tree contradicts it, the tree wins, and
+stopping to say so is the correct move — POD-376 did the same thing over `evict`.
