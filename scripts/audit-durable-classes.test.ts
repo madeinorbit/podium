@@ -121,4 +121,25 @@ describe('the runtime-table scanner reads the forms the repo actually uses', () 
     // not be read as a table called `IF`, which is what the first draft did.
     expect(runtimeTables('created at runtime with `CREATE TABLE IF NOT EXISTS`')).toEqual([])
   })
+
+  it('ignores a CREATE TABLE inside a comment, and still reads executed SQL', () => {
+    // POD-1246: `restore.ts` documents at length why `CREATE TABLE IF NOT EXISTS
+    // feed_identity` is the WRONG fix and does not do it. The scanner read that
+    // prose as a create site and demanded a declaration for a table the file never
+    // creates — so documenting a rejected alternative became a lint failure.
+    //
+    // Both halves matter, and the second is the one that keeps this honest: a
+    // stripper that ate too much would silently stop seeing real create sites, and
+    // this whole gate would go quiet while reporting success.
+    expect(runtimeTables('/* the tempting fix — CREATE TABLE IF NOT EXISTS feed_identity — */')).toEqual([])
+    expect(runtimeTables('// CREATE TABLE commented_out (x)')).toEqual([])
+    expect(
+      runtimeTables("/* explains CREATE TABLE decoy */\ndb.exec('CREATE TABLE real_one (x)')"),
+    ).toEqual(['real_one'])
+    // A URL's `//` is not a line comment: eating from it to end-of-line would drop
+    // whatever executed SQL shared that line.
+    expect(runtimeTables("// see https://x/y\ndb.exec('CREATE TABLE after_url (x)')")).toEqual([
+      'after_url',
+    ])
+  })
 })

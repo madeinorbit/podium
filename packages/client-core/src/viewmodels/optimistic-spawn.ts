@@ -129,15 +129,15 @@ export function optimisticDraftIssue(args: {
     createdAt: args.nowIso,
     updatedAt: args.nowIso,
     archived: false,
-    // Just created by this user → read, not unread (mirrors the session above).
+    // Just created by this user → read. `unread` is NOT set: it left the wire
+    // with the session embed (POD-797) and the reader derives it from `readAt`
+    // against the sessions it holds.
     readAt: args.nowIso,
-    unread: false,
     origin: 'human',
     audience: 'human',
     draft: true,
-    // Derived server-side; the sidebar reads membership from the global session
-    // list (by issueId), not this embedded array, so empty is correct.
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
+    // No `sessions` / `sessionSummary`: the embed left the wire (POD-797). The
+    // sidebar already read membership from the global session list by issueId,
+    // which is why nothing here needs a replacement.
   }
 }

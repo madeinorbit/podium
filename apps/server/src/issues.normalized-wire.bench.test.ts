@@ -130,7 +130,14 @@ it('session-free residue at live scale never couples session changes back to iss
   timeout: 120_000,
 }, () => {
   const { registry, sessionIds, attachBuilds, attachScans } = world()
-  expect(attachBuilds).toBe(ISSUE_COUNT)
+  // BOUNDED, not pinned at ISSUE_COUNT. Main measures one build per issue at
+  // attach; here it is typically ZERO, because the POD-723 memo is populated at
+  // registry construction and the attach paints from it. Pinning the exact number
+  // would be pinning WHEN the list was built rather than how much it costs, and
+  // it would fail on either side of a legitimate change. What must never happen
+  // is a build PER SESSION — that is the coupling under test, and it would blow
+  // this bound by two orders of magnitude.
+  expect(attachBuilds).toBeLessThanOrEqual(ISSUE_COUNT)
   expect(attachScans).toBe(0)
 
   resetIssueWireBuildCount()

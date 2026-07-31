@@ -715,7 +715,15 @@ describe('SessionsService publication worker integration', () => {
     registry.modules.sessions.flushBroadcasts()
     await until(() => publications.every((encoded) => encoded.length === 2))
 
-    expect(listSessions).toHaveBeenCalledTimes(1)
+    // AT MOST ONE listing for four same-ViewKey clients — the multiply this case
+    // exists to catch would show four. It is now ZERO rather than one, and that is
+    // POD-797 rather than a lost assertion: the single call this used to observe
+    // came from the ISSUE publish tail, whose `toWire` defaulted to a fresh
+    // `listSessions()` while `IssueWire` still embedded sessions. The embed is
+    // gone and so is the call. Bounded rather than pinned at 0 so a legitimate
+    // one-per-flush listing does not fail here while a per-client one still does.
+    expect(listSessions.mock.calls.length).toBeLessThanOrEqual(1)
+    // The load-bearing half, unchanged: ONE projection job for four clients.
     expect(registry.modules.sessions.publicationMetrics().completedJobs - completedBefore).toBe(1)
   })
 })

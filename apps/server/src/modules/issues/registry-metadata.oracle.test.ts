@@ -104,6 +104,55 @@ function measure(name: string): Cell {
 const RECORDED = before.defs as unknown as Record<string, Cell>
 const RECORDED_NAMES = Object.keys(RECORDED).sort()
 
+/**
+ * THE ONE SANCTIONED DRIFT, AND THE RECORDING IS NOT REGENERATED TO ABSORB IT.
+ *
+ * The catch-up merge with main (POD-1246) brought POD-793's stale-write check,
+ * which adds an `expectedRevision` key to the input of every issue MUTATION —
+ * these twenty-three and no others. Re-capturing the fixture would have made the
+ * suite green in one step and thrown away the thing it exists to hold: a
+ * recording of the registry BEFORE the POD-311 split. An oracle you re-record
+ * whenever it disagrees with you is a diary, not an oracle.
+ *
+ * So the recording stays as captured and the expectation is derived from it. The
+ * list is written out rather than computed from `def.action` because the property
+ * is "exactly these commands gained exactly this key": a twenty-fourth command
+ * growing an `expectedRevision`, or any of these growing a SECOND key, still
+ * fails. And because the key is only ever ADDED here, a mutation that LOSES it —
+ * silently disarming conflict detection for that command — fails too.
+ */
+const GAINED_EXPECTED_REVISION = new Set([
+  'answerQuestion',
+  'applySuggestion',
+  'archive',
+  'claim',
+  'clearNeedsHuman',
+  'close',
+  'defer',
+  'delete',
+  'depAdd',
+  'depRemove',
+  'dismissSuggestion',
+  'duplicate',
+  'panelApply',
+  'promote',
+  'reparent',
+  'restore',
+  'setCoordinator',
+  'setLabels',
+  'setNeedsHuman',
+  'setState',
+  'supersede',
+  'undefer',
+  'update',
+])
+
+/** The recorded key set, plus `expectedRevision` where the merge added it. */
+function expectedInputKeys(name: string, was: Cell): string[] | string {
+  if (!GAINED_EXPECTED_REVISION.has(name) || !Array.isArray(was.inputKeys)) return was.inputKeys
+  return [...was.inputKeys, 'expectedRevision'].sort()
+}
+
 describe('issue registry metadata is unchanged by the POD-311 split', () => {
   /**
    * NON-VACUITY, ASSERTED BEFORE ANYTHING IS COMPARED. Every loop below iterates the
@@ -135,7 +184,7 @@ describe('issue registry metadata is unchanged by the POD-311 split', () => {
       expect(now.hasTarget, `${name}.hasTarget`).toBe(was.hasTarget)
       expect(now.targetOfProbe, `${name}.target(probe)`).toBe(was.targetOfProbe)
       expect(now.inputType, `${name}.inputType`).toBe(was.inputType)
-      expect(now.inputKeys, `${name}.inputKeys`).toEqual(was.inputKeys)
+      expect(now.inputKeys, `${name}.inputKeys`).toEqual(expectedInputKeys(name, was))
     }
   })
 
@@ -150,7 +199,7 @@ describe('issue registry metadata is unchanged by the POD-311 split', () => {
    * (an interrupted mutation script strands the product broken).
    */
   describe('the comparison can fail', () => {
-    const compare = (was: Cell, now: Cell): string[] => {
+    const compare = (was: Cell, now: Cell, name?: string): string[] => {
       const bad: string[] = []
       if (now.kind !== was.kind) bad.push('kind')
       if (now.action !== was.action) bad.push('action')
@@ -158,7 +207,8 @@ describe('issue registry metadata is unchanged by the POD-311 split', () => {
       if (now.hasTarget !== was.hasTarget) bad.push('hasTarget')
       if (now.targetOfProbe !== was.targetOfProbe) bad.push('targetOfProbe')
       if (now.inputType !== was.inputType) bad.push('inputType')
-      if (JSON.stringify(now.inputKeys) !== JSON.stringify(was.inputKeys)) bad.push('inputKeys')
+      const wantKeys = name ? expectedInputKeys(name, was) : was.inputKeys
+      if (JSON.stringify(now.inputKeys) !== JSON.stringify(wantKeys)) bad.push('inputKeys')
       return bad
     }
 
@@ -166,7 +216,7 @@ describe('issue registry metadata is unchanged by the POD-311 split', () => {
       // The YES the ledger insists on seeing first: the predicate is capable of
       // agreeing, on real data, for every command.
       for (const name of RECORDED_NAMES) {
-        expect(compare(RECORDED[name] as Cell, measure(name)), name).toEqual([])
+        expect(compare(RECORDED[name] as Cell, measure(name), name), name).toEqual([])
       }
     })
 
@@ -194,7 +244,25 @@ describe('issue registry metadata is unchanged by the POD-311 split', () => {
         JSON.stringify(mutated[expectedField as keyof Cell]),
         `${command}.${expectedField}: mutant did not apply`,
       ).not.toBe(JSON.stringify(was[expectedField as keyof Cell]))
-      expect(compare(was, mutated)).toContain(expectedField)
+      expect(compare(was, mutated, command)).toContain(expectedField)
+    })
+
+    /**
+     * The sanctioned drift is still a comparison, not a hole punched in one.
+     *
+     * `GAINED_EXPECTED_REVISION` widens what the oracle accepts, so it has to be
+     * shown REFUSING on the same axis — otherwise "the key is only ever added, so
+     * losing it still fails" is a claim in a comment. Dropping `expectedRevision`
+     * from a mutation is precisely how conflict detection would be disarmed for
+     * that command without any other cell moving.
+     */
+    it('catches the stale-write key dropped from a mutation', () => {
+      const live = measure('close')
+      const without = (live.inputKeys as string[]).filter((k) => k !== 'expectedRevision')
+      // THE MUTANT APPLIED: the key really was there to lose.
+      expect(without, 'close: expectedRevision was not present to drop').not.toEqual(live.inputKeys)
+      const mutated = { ...live, inputKeys: without } as Cell
+      expect(compare(RECORDED.close as Cell, mutated, 'close')).toContain('inputKeys')
     })
 
     it('catches a command disappearing from the table', () => {

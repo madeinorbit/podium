@@ -71,11 +71,16 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     const w1b = second.find((w) => w.id === i1)!
     const w2b = second.find((w) => w.id === i2)!
 
-    // Issue 2 was untouched: same cached instance, no rebuild.
+    // NEITHER issue rebuilds. This assertion INVERTED at POD-797 and the reason
+    // is the point of the slice: the memo key used to carry a per-member
+    // fingerprint because `IssueWire.sessions` embedded each `SessionMeta`
+    // verbatim, so a member's `workState` really did change issue 1's payload.
+    // The embed is gone, the payload cannot reflect a member change, and a memo
+    // that still rebuilt on one would be paying the O(issues x sessions) cost
+    // this slice exists to remove while producing a byte-identical result.
     expect(w2b).toBe(w2a)
-    // Issue 1 rebuilt fresh and reflects the member's new work state.
-    expect(w1b).not.toBe(w1a)
-    expect(w1b.sessions[0]!.workState).toBe('testing')
+    expect(w1b).toBe(w1a)
+    expect(w1b).not.toHaveProperty('sessions')
   })
 
   it('an issue-row change republishes that issue (fresh payload)', () => {
@@ -92,7 +97,7 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     expect(w1b.labels).toContain('urgent')
   })
 
-  it('a member joining an issue rebuilds it (membership is part of the key)', () => {
+  it('a member JOINING an issue no longer rebuilds it (membership left the key)', () => {
     const sessions: SessionMeta[] = []
     const { svc } = harness(sessions)
     const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
@@ -104,7 +109,10 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     sessions.push(member(asSessionId('sess-1'), i1))
     const w1b = svc.allWire().find((w) => w.id === i1)!
 
-    expect(w1b).not.toBe(w1a)
-    expect(w1b.sessions.map((s) => s.sessionId)).toContain('sess-1')
+    // The counterfactual for the case above: a JOIN is the largest membership
+    // change there is, and it still does not move the payload — so "no rebuild"
+    // is a property of the key, not an artefact of a small edit.
+    expect(w1b).toBe(w1a)
+    expect(w1b).not.toHaveProperty('sessions')
   })
 })

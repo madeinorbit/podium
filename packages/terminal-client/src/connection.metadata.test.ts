@@ -74,12 +74,9 @@ const issue = (id: string, title: string): IssueWire => ({
   updatedAt: '2026-07-01T00:00:00.000Z',
   archived: false,
   readAt: null,
-  unread: false,
   origin: 'human',
   audience: 'human',
   draft: false,
-  sessions: [],
-  sessionSummary: { total: 0, byPhase: {} },
 })
 
 const automation = (
@@ -565,13 +562,23 @@ describe('SocketHub metadata delta mode', () => {
   })
 
   it('cold snapshot installs normalized issue, dep, and repo collections', async () => {
+    // Main spreads the legacy wire straight into `IssueProjection.parse` — its
+    // projection is a superset of the wire. Not so here: `description` is the ADR
+    // 1 Am1 D12 op-stream DOCUMENT rather than a string, the ownership triple
+    // (`owner`/`visibility`/`createdBy`) is REQUIRED on R1, and per-user `readAt`
+    // is absent by construction. So the fixture states those four rather than
+    // inheriting them, and `parse` — not a cast — is what proves it.
+    const { description: _description, readAt: _readAt, ...legacy } = issue('iss_1', 'projected')
     const projected = IssueProjection.parse({
-      ...issue('iss_1', 'projected'),
+      ...legacy,
+      description: { value: '' },
+      owner: 'user_1',
+      visibility: 'personal',
+      createdBy: { actor: { kind: 'user', id: 'user_1' }, onBehalfOf: 'user_1' },
       repoId: 'repo_1',
       revision: 1,
       worktreePath: undefined,
       branch: undefined,
-      readAt: undefined,
     })
     const repo = RepoProjection.parse({ id: 'repo_1', prefix: 'POD' })
     const applied = vi.fn()

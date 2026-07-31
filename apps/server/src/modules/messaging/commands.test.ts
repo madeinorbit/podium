@@ -1,3 +1,4 @@
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildIssuesMessage,
@@ -141,11 +142,11 @@ describe('issue formatters', () => {
   })
 
   it('picks the live session for btw wiring', () => {
-    const withSessions = issue({
-      id: asIssueId('e'),
-      seq: 5,
-      title: 'Epic',
-      sessions: [
+    // `sessions` left `IssueWire` with the POD-797 embed removal, and
+    // `pickIssueSession` already takes the HELD list as its own argument — so the
+    // fixture states the two separately instead of nesting one inside the other.
+    const withSessions = issue({ id: asIssueId('e'), seq: 5, title: 'Epic' })
+    const held = [
         {
           sessionId: asSessionId('old'),
           issueId: asIssueId('e'),
@@ -182,11 +183,9 @@ describe('issue formatters', () => {
           readAt: null,
           unread: false,
         },
-      ],
-      sessionSummary: { total: 2, byPhase: {} },
-    })
+    ] as SessionMeta[]
     // The held-session list is now a SEPARATE argument: membership moved off the
     // embedded array, so the caller supplies the sessions it holds.
-    expect(pickIssueSession(withSessions, withSessions.sessions)?.sessionId).toBe('live')
+    expect(pickIssueSession(withSessions, held)?.sessionId).toBe('live')
   })
 })

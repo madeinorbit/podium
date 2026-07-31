@@ -59,40 +59,54 @@ red is not a weak signal — it is no signal.
    packages, and targeted `git show main:<f> | grep -vxFf` audits.
 
 
-## 0c. THE EXP-REV CHAIN HAS FIVE LINKS. INTEGRATION HAS ONE, AND IT IS THE WRONG ONE.
+## 0c. THE EXP-REV CHAIN HAS FIVE LINKS, AND THEY MUST LAND TOGETHER
 
-Every earlier note in this document said "preserve main's enforcement". That
-undersells it and could produce a WORSE outcome than dropping exp-rev entirely.
-Measured across the merged tree:
+> **STATUS: the chain is COMPLETE as of `78c4d15b`. The hazard below was checked
+> against this tree and does NOT apply.** This section used to carry a state table
+> concluding that links 2 and 3 were missing and the tree therefore held a frozen
+> counter. That was measured and true when written — both files were still `UU` —
+> and it stopped being true when POD-1257's port and the `store/issues.ts`
+> resolution landed. The table and its "integration has one link" arithmetic are
+> struck. The hazard is kept: a silently deleted warning is one somebody
+> rediscovers the hard way.
+>
+> Verified on the merged tree:
+>
+> - **Link 1** — `issues.revision` column, migration `20260717092407`.
+> - **Link 2** — `apps/server/src/store/issues.ts:80`,
+>   `row.revision = (current?.revision ?? 0) + 1` in `upsertIssue`, the table's
+>   only SQL writer.
+> - **Link 3** — `packages/model/src/aggregates/issue.ts:80`, labelled "link 3" in
+>   the file itself, carried through to the wire projection.
+> - **Link 4** — `conflict: 'exp-rev'` on 23 contracts.
+> - **Link 5** — enforcement, wired into `IssueCommandDispatcher.run` (POD-1246).
+>   Until that landed it had ZERO callers: the field parsed, validated, and was
+>   then ignored.
+>
+> The decisive evidence is not the greps — it is case `(a2)` in
+> `issues.expected-revision.test.ts`, which retries at `base + 1` and is ACCEPTED.
+> A retry above revision 1 cannot succeed over a frozen counter, so that one
+> passing test falsifies the whole trap. `issues.ledger.test.ts:327-328`
+> independently asserts revision 2 then 3 through the real store.
 
-| # | Link | Where | State in the merged tree |
-|---|---|---|---|
-| 1 | `issues.revision` COLUMN | migration `20260717092407` | **PRESENT** — additive, survives the merge, `DEFAULT 1 NOT NULL` |
-| 2 | The INCREMENT on every write | `apps/server/src/store/issues.ts` | main only — **CONFLICTED**, resolvable now. Main calls it "THE revision assignment (ADR 2 D3) … the issues table's only SQL … a fresh revision with no call-site cooperation". Integration's copy: `grep revision` → nothing. |
-| 3 | The FIELD on the entity/wire | main: `IssueWire.revision: Revision.optional()` | main only — integration's `packages/model` has **no revision field anywhere** on the issue entity, wire or projection |
-| 4 | The DECLARATION per command | `conflict: 'exp-rev'` on the contract | main only — integration declares **0 of 43** |
-| 5 | The ENFORCEMENT → 409 | registry dispatcher → `conflict.ts` | main only |
+**THE HAZARD, WHICH REMAINS GENERAL.** Enforcement over a frozen counter accepts
+every write carrying `expectedRevision: 1` and refuses all others — the guard
+passes exactly the writes it exists to catch, while looking like it works. That is
+why the links land together or not at all, and why POD-1247 must VERIFY rather
+than assume. Nothing in the tree reports this shape: no conflict (it is a
+resolution), no shadowing (one definition), no typecheck (semantic checking is off
+— §0b), and `issues.expected-revision.test.ts` cannot run while markers remain.
 
-**The column exists and nothing writes it, nothing reads it, and nothing declares
-against it.** That is not a neutral half-state — it is a trap:
+**Rule for whoever resolves the rest:** if context runs out mid-chain, say which
+links are in and which are not — a chain described as "exp-rev preserved" when
+link 2 is missing is the most expensive sentence this handover could contain.
 
-- `DEFAULT 1 NOT NULL` means **every row reads revision 1, forever**, because
-  nothing increments it.
-- If a later change wires enforcement (POD-1247) without link 2, every write
-  carrying `expectedRevision: 1` MATCHES and every other value is refused. The
-  guard would pass exactly the writes it exists to catch, and look like it is
-  working — a green concurrency check over a frozen counter.
-
-**So a PARTIAL preservation is worse than none.** Resolving `store/issues.ts` to
-integration's side, on its own, is the single most damaging call available in this
-merge, and nothing in the tree would report it: no conflict (it is a resolution),
-no shadowing (one definition), no typecheck (semantic checking is off — §0b), and
-`issues.expected-revision.test.ts` cannot run while markers remain.
-
-**Rule for whoever resolves the rest:** links 2–5 land together or not at all. If
-context runs out mid-chain, say which links are in and which are not — a chain
-described as "exp-rev preserved" when link 2 is missing is the most expensive
-sentence this handover could contain.
+**AND A RULE THIS SECTION LEARNED BY BREAKING IT.** It was marked *measured*, and
+that is what made it durable — an inferred claim invites a recheck, a measured one
+reads as settled — but neither bit carries an expiry. A measurement of a tree under
+active merge is true only as of a commit. **State claims in this document carry a
+SHA or an "as of".** The failure mode is not being wrong; it is ceasing to be right
+while still reading as verified.
 
 
 ## 0d. `protocol/messages/sync.ts` IS BLOCKED — and the block is the second partial-mechanism trap
@@ -385,6 +399,12 @@ nothing about WHICH TREE it read.
 **EXP-REV CHAIN (§0c): THIS PORT MOVED NO LINK, and one of them now has a second
 site.** Stated explicitly because 69→68 says nothing about which properties
 survived:
+
+> **AS OF THIS PORT ONLY — SUPERSEDED BY `78c4d15b`.** The table below was true
+> when this port ran and is kept as that port's record, not as the tree's state.
+> Links 2, 3 and 5 have since landed and the chain is complete; see the STATUS
+> block at the head of §0c. Read the "Changed by it?" column, which is what this
+> table is actually evidence for — not the "State" column.
 
 | # | Link | State after this port | Changed by it? |
 |---|---|---|---|

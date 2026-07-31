@@ -237,6 +237,32 @@ export abstract class IssueServiceCore {
     return lastActivity > readMs
   }
 
+  /**
+   * Is `id` unread FOR THE BROADCAST VIEWER — the derivation above, as a READ.
+   *
+   * WHY THIS EXISTS [POD-1246]. `unread` left the wire with the session embed
+   * (POD-797): it was a function of the issue's own `updatedAt` joined against
+   * its member sessions' `lastActiveAt`, which is precisely what made every
+   * session change dirty every issue payload. The client derives it now, from
+   * the `readAt` it holds and the session list it already has.
+   *
+   * The DERIVATION did not leave with the field, and that is the whole reason for
+   * this method. `sweepAutoArchive` still gates on it — a done-but-re-touched
+   * issue must not be archived out from under the operator — so removing the
+   * field removed the only place the rule could be OBSERVED while leaving the
+   * rule itself load-bearing. A slice that deletes a payload and its oracle in
+   * one move leaves behind exactly the shape this codebase keeps getting bitten
+   * by: a rule that still runs and can no longer say NO.
+   *
+   * Returns false for an issue this service does not hold.
+   */
+  unreadFor(id: IssueId): boolean {
+    const row = this.rows.get(id)
+    if (row === undefined) return false
+    const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
+    return this.computeUnread(row, sessions)
+  }
+
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
   protected computeBlocked(row: IssueRow): boolean {
     const blocksTargets = this.deps.store.issues
@@ -252,15 +278,18 @@ export abstract class IssueServiceCore {
    *  GROUP BY map; single-issue paths run one scalar COUNT. Comment BODIES never
    *  ride the wire anymore — fetch via comments(id).
    *
-   *  MAIN'S SIGNATURE, WITH THE SESSION LIST MOVED INSIDE {@link IssueWireBatch}.
-   *  POD-796 dropped `sessionList` because it also dropped `sessions` from the
-   *  wire; on this branch `IssueWire.sessions` and `.sessionSummary` are still
-   *  REQUIRED (the normalized `IssueProjection` is what carries no session at
-   *  all), so the list is still needed — but every caller in the merged body is
-   *  main's three-argument form, and leaving the old positional parameter would
-   *  have silently bound `commentCounts` to `sessionList`. Batching it is what
-   *  keeps the boot-storm fix (66 sessions x 60 issues per broadcast) while
-   *  matching the callers that exist. */
+   *  NO SESSION LIST IS READ HERE ANY MORE [POD-797]. `sessions`,
+   *  `sessionSummary` and `unread` left the wire, and they were the only reason
+   *  this projection ever needed one — so the `listSessions()` call went with
+   *  them. That is the O(issues x sessions) coupling the slice exists to remove,
+   *  and removing the FIELDS without removing the CALL would have kept every
+   *  cost and shipped none of the benefit. `IssueWireBatch.sessions` survives for
+   *  the callers that still batch it; nothing in this method reads it.
+   *
+   *  What a caller wanting membership does instead: read it from the SESSION
+   *  side (`sessionId -> issueId`), which is where it is stored. `unreadFor`
+   *  above is the one derivation that still joins the two, and it fetches its
+   *  own list. */
   toWire(row: IssueRow, commentCounts?: Map<string, number>, batch?: IssueWireBatch): IssueWire {
     // Transitional builds remain observable; the D7.2 membership-scan counter
     // has no increment site after the old membership assembly is deleted.
@@ -271,8 +300,6 @@ export abstract class IssueServiceCore {
     // ONE documented pair (ADR 4 §4.1). `row` is still passed to the predicates
     // and store lookups below, which take rows by design.
     const issue = fromStorage(row)
-    const sessionList = batch?.sessions ?? this.deps.listSessions()
-    const sessions = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
     const gitState = row.deletedAt ? undefined : this.gitStates.get(row.id)
     const labels = batch
       ? (batch.labelsByIssue.get(row.id) ?? [])
@@ -404,9 +431,13 @@ export abstract class IssueServiceCore {
       archived: issue.archived,
       readAt: this.issueOverlay(row.id).readAt,
       ...(issue.deletedAt ? { deletedAt: issue.deletedAt } : {}),
-      unread: this.computeUnread(row, sessions),
-      sessions,
-      sessionSummary: summarizeSessions(sessions),
+      // NO `sessions` / `sessionSummary` / `unread` [POD-797, taken from main at
+      // the POD-1246 catch-up]. Dropping them from the schema alone would not have
+      // been enough: zod strips unknown keys, so a producer that kept computing
+      // them would keep paying the O(issues x sessions) rollup on every publish
+      // and throw the result away — the cost this slice exists to remove, hidden
+      // behind a passing wire test. They are removed HERE too, which is what makes
+      // the removal real.
       ...(gitState ? { gitState } : {}),
       // D-2's two renames, read back: the wire keeps the unqualified names until
       // POD-308, and this pair is the one place they map.
@@ -439,6 +470,17 @@ export abstract class IssueServiceCore {
       if (children) children.push(row)
       else childrenByParent.set(row.parentId, [row])
     }
+    // Resolved once per repoPath (few repos) — it rides the memo key because
+    // `displayRef` reads it and it changes out-of-band of any issue mutation.
+    const prefixByPath = new Map<string, string>()
+    const prefixFor = (p: string): string => {
+      let v = prefixByPath.get(p)
+      if (v === undefined) {
+        v = this.deps.store.repos.prefixForPath(p) ?? ''
+        prefixByPath.set(p, v)
+      }
+      return v
+    }
     const batch: IssueWireBatch = {
       sessions: this.deps.listSessions(),
       labelsByIssue,
@@ -454,7 +496,41 @@ export abstract class IssueServiceCore {
         const gb = b.repoId ?? b.repoPath
         return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
       })
-      .map((r) => this.toWire(r, commentCounts, batch))
+      .map((r) => this.toWireMemo(r, commentCounts, batch, prefixFor(r.repoPath)))
+  }
+
+  /**
+   * Cached {@link toWire} for the multi-issue list path [POD-723].
+   *
+   * THE KEY NO LONGER CARRIES A MEMBERSHIP FINGERPRINT [POD-797]. It used to:
+   * `IssueWire.sessions` embedded each `SessionMeta` verbatim, so any member
+   * field change had to invalidate the payload, and the key joined a per-session
+   * projection to catch it. The embed is gone, so the payload is a function of
+   * the issue's OWN inputs plus its repo prefix — and keying on membership would
+   * now mean rebuilding on a change the output cannot reflect. That rebuild is
+   * the O(issues x sessions) coupling this slice removes; keeping the key would
+   * have removed the field and kept the cost.
+   *
+   * What remains in the key is exactly what the payload reads: `issueInputsGen`
+   * (bumped by every issue-side mutation — rows, labels, deps, comments, read
+   * state, hierarchy, archive, delete) and the repo `prefix`, which feeds
+   * `displayRef` and changes out-of-band of any issue mutation.
+   *
+   * Single-issue `toWire` callers deliberately bypass this — they always want a
+   * fresh build.
+   */
+  private toWireMemo(
+    row: IssueRow,
+    commentCounts: Map<string, number>,
+    batch: IssueWireBatch,
+    prefix: string,
+  ): IssueWire {
+    const key = `${this.issueInputsGen}\u0000${prefix}`
+    const cached = this.wireCache.get(row.id)
+    if (cached && cached.key === key) return cached.wire
+    const wire = this.toWire(row, commentCounts, batch)
+    this.wireCache.set(row.id, { key, wire })
+    return wire
   }
 
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
@@ -770,6 +846,13 @@ export abstract class IssueServiceCore {
       if (backup) Object.assign(row, backup)
       throw err
     }
+    // The commit changed an issue-side input feeding toWire (row / label / dep /
+    // comment via extraWrite, or read state) — invalidate the wire memo
+    // [POD-723]. LOST IN THE POD-1246 MERGE and restored here: without it a
+    // label or dep write served the previous payload from cache, which no test
+    // outside `wire-memo.test.ts` could see because every other suite reads the
+    // single-issue path that bypasses the memo.
+    this.bumpIssueInputs()
     // Install into the map only AFTER the commit succeeded (#247): a throw in
     // the transact span (write or change append) rolls the durable state back,
     // and the map must not keep a row the store never accepted — a phantom row
@@ -809,6 +892,10 @@ export abstract class IssueServiceCore {
    * because one row's computed field changed. The reconcile keeps delta clients
    * and the durable change log aligned with the legacy single-row snapshot. */
   protected broadcastIssue(row: IssueRow): void {
+    // Same restoration as in persist: the write-less derived publish (git state)
+    // changes a computed field with no row write behind it, so nothing else bumps
+    // the generation and the next list() would serve the stale payload.
+    this.bumpIssueInputs()
     const spec = this.deps.publishSpecs.issueUpdated(this.toWire(row))
     // capture, NOT reconcile: reconcile treats its rows as the FULL truth for
     // the entity kind and diffs removes against the whole baseline — fed a

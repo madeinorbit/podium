@@ -143,19 +143,24 @@ const NOT_COMPOSED: Readonly<Record<string, string>> = {
   deferred: 'derived rollup; optionality differs',
   childCount: 'derived rollup; optionality differs',
   childDoneCount: 'derived rollup; optionality differs',
-  unread: 'derived rollup; optionality differs',
-  sessionSummary: 'derived rollup; optionality differs',
   gitState: 'derived rollup; optionality differs',
   // Wire tolerance (`.catch`) the group does not carry.
   color: 'wire adds .catch(undefined) tolerance',
   audience: 'wire adds .catch tolerance',
   // The brand flip, owned by POD-362/POD-363, not by this issue.
   startedBySession: 'group brands it SessionId; wire is still z.string()',
-  // Derived edges, the deprecated array, the embed, provenance, timestamps.
+  // `unread`, `sessionSummary` and `sessions` USED TO BE LISTED HERE and are not
+  // any more: POD-797 took all three off the wire (taken from main at the
+  // POD-1246 catch-up), so there is no wire key left to except. They are removed
+  // rather than kept with a "no longer on the wire" note, because this table's
+  // whole contract is that it accounts for the wire's keys EXACTLY ONCE — an
+  // entry for a key that does not exist would make the accounting pass while
+  // being wrong in the other direction.
+  //
+  // Derived edges, the deprecated array, provenance, timestamps.
   deps: 'derived from issue_deps',
   dependents: 'derived from issue_deps',
   comments: 'DEPRECATED off the wire (#175)',
-  sessions: "the entity-in-entity embed; POD-308's, not this issue's",
   viaHub: 'flat provenance encoding',
   upstreamStale: 'flat provenance encoding',
   pendingSync: 'flat provenance encoding',
@@ -197,10 +202,12 @@ describe('IssueWire composes the shared field groups', () => {
       }
     }
     // Verify the instrument: a loop that compared nothing would pass silently.
-    // 15 of the uncomposed keys have a same-named member (16 before POD-362
-    // composed `assignee`; the rest are keys
-    // no group declares at all, e.g. `createdAt`, `deps`, `tuckedAt`).
-    expect(checked, 'the uncomposed-key scan compared nothing').toBe(15)
+    // 13 of the uncomposed keys have a same-named member (16 before POD-362
+    // composed `assignee`; 15 until POD-797 took `unread` and `sessionSummary`
+    // off the wire — `sessions` was the third key removed but had no same-named
+    // group member, so it never counted here. The rest are keys no group declares
+    // at all, e.g. `createdAt`, `deps`, `tuckedAt`).
+    expect(checked, 'the uncomposed-key scan compared nothing').toBe(13)
   })
 })
 

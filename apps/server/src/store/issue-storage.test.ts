@@ -227,8 +227,12 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
       .filter((k) => !covered.has(k) && !['asked', 'askedLegacy'].includes(k))
       .sort()
     // What is left has no field group to be an instance OF: the two op-stream
-    // documents (asserted by shape below) and the aggregate's own two timestamps.
-    expect(unchecked).toEqual(['createdAt', 'description', 'notes', 'updatedAt'])
+    // documents (asserted by shape below), the aggregate's own two timestamps,
+    // and `revision` — recovered from main at the POD-1246 catch-up as ADR 2 D3's
+    // sync token. It is a member of `IssueConcurrency` on the WIRE side; on the
+    // stored row it is the authority's own counter and composes no group, so it
+    // belongs in this list rather than in `cases`.
+    expect(unchecked).toEqual(['createdAt', 'description', 'notes', 'revision', 'updatedAt'])
   })
 
   it('description and notes carry the op-stream document shape, not a plain string', () => {

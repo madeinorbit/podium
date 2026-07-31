@@ -9,11 +9,12 @@
  * whose seq is perfectly valid on a timeline that no longer exists.
  */
 
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { Ledger, SyncRepository } from '@podium/sync'
+import { type FeedIdentity, FeedIdentityRegistry, Ledger, SyncRepository } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { backupDatabase } from './backup'
 import { applyBaselineSchema } from './index'
@@ -33,30 +34,46 @@ function authority(): { db: SqlDatabase; dbPath: string; dir: string; ledger: Le
   const dbPath = join(dir, 'podium.sqlite')
   const db = openDatabase(dbPath)
   applyBaselineSchema(db)
-  return { db, dbPath, dir, ledger: ledgerOver(db) }
+  const ledger = ledgerOver(db)
+  // Mint NOW, before any backup is taken. Minting is lazy — in production it
+  // happens on the first feed subscribe — so an authority that has ever served a
+  // client has one persisted, which is the situation every case here describes.
+  // Left lazy, the first `feedIdentity()` call in a test would mint AFTER its
+  // backup, and the restore would then be re-minting over a backup that carries
+  // no identity at all: a different scenario, and not the one under test.
+  ledger.feedIdentity()
+  return { db, dbPath, dir, ledger }
 }
 
 /**
  * POD-1246: main's `Ledger` carried a `feedIdentity()` method; this branch keeps
  * feed identity on the repository (`SyncRepository.readFeedIdentity`) rather than
  * on the ledger. The test's assertions are unchanged — only where they read the
- * identity from. The throw is deliberate: every call site here has already written
- * an identity, so a null means the restore under test lost it, which is the thing
- * these cases exist to catch.
+ * identity from.
+ *
+ * Main's `feedIdentity()` minted on first read, which is exactly what cases like
+ * "the Ledger mints into it" assert. `FeedIdentityRegistry.current()` is that same
+ * mint-if-absent read on this branch, and it is the call `restore.ts` itself makes
+ * — so this helper goes through the production path rather than a test-only
+ * imitation of it.
  */
-type LedgerWithIdentity = Ledger & { feedIdentity: () => { feedId: string; epoch: string } }
+type LedgerWithIdentity = Ledger & { feedIdentity: () => FeedIdentity }
 
 function ledgerOver(db: SqlDatabase): LedgerWithIdentity {
+  const repo = new SyncRepository(db)
   const ledger = new Ledger({
-    repo: new SyncRepository(db),
+    repo,
     now: () => 1_000,
     transact: (fn) => transaction(db, fn),
   }) as LedgerWithIdentity
-  ledger.feedIdentity = () => {
-    const identity = new SyncRepository(db).readFeedIdentity()
-    if (!identity) throw new Error('no feed identity on this database')
-    return identity
-  }
+  const registry = new FeedIdentityRegistry(
+    {
+      readIdentity: () => repo.readFeedIdentity(),
+      writeIdentity: (identity) => repo.writeFeedIdentity(identity, Date.now()),
+    },
+    () => randomUUID(),
+  )
+  ledger.feedIdentity = () => registry.current()
   return ledger
 }
 
@@ -85,9 +102,14 @@ function columnNames(db: SqlDatabase, table: string): string[] {
 }
 
 describe('the migration creates the feed-identity table', () => {
-  it('sync_feed exists on a freshly migrated database and the Ledger mints into it', () => {
+  it('feed_identity exists on a freshly migrated database and the Ledger mints into it', () => {
     // If the migration did not ship the table, the Ledger's mint would throw on
     // first boot — so this pins the migration and the mint together.
+    //
+    // POD-1246: named `sync_feed` before the merge. That is integration's earlier
+    // table, and it is now DEAD — `SyncRepository` reads main's `feed_identity`.
+    // The test was already exercising `feed_identity` through the repository, so
+    // the name was the only thing still pointing at the old table.
     const { db, ledger } = authority()
     const identity = ledger.feedIdentity()
     expect(identity.feedId).toBeTruthy()
@@ -95,11 +117,22 @@ describe('the migration creates the feed-identity table', () => {
     expect(new SyncRepository(db).readFeedIdentity()).toEqual(identity)
   })
 
-  it('sync_feed refuses a second row — one database is one feed', () => {
+  it('one database is one feed — a bump REPLACES the identity rather than appending', () => {
+    // POD-1246: this used to assert that `sync_feed` refused a second row, which
+    // its `CHECK(id = 1)` enforced. The live table is `feed_identity`, whose
+    // `singleton INTEGER PRIMARY KEY` carries NO such CHECK — so the old case was
+    // pinning a constraint on a table nothing reads, and the invariant on the
+    // table that IS read was unguarded. #1266 tracks restoring the CHECK.
+    //
+    // What holds it up today is the writer's upsert on the singleton key, so that
+    // is what this asserts: two writes, one row, the second value winning.
     const { db } = authority()
-    expect(() =>
-      db.prepare('INSERT INTO sync_feed (id, feed_id, epoch) VALUES (2, ?, ?)').run('f', 'e'),
-    ).toThrow()
+    const repo = new SyncRepository(db)
+    repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
+    repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
+    const rows = db.prepare('SELECT feed_id, epoch FROM feed_identity').all()
+    expect(rows).toEqual([{ feed_id: 'feed_a', epoch: 'epoch_2' }])
+    expect(repo.readFeedIdentity()).toEqual({ feedId: 'feed_a', epoch: 'epoch_2' })
   })
 })
 
@@ -389,22 +422,22 @@ describe('restoreCliMain (the command-shaped entry)', () => {
  */
 describe('restoring a backup from before feed identity existed', () => {
   /**
-   * A database exactly as it looked before 20260717092407 — every effect of that
-   * migration undone, and its ledger row removed so it is genuinely PENDING.
+   * A database exactly as it looked before 20260730181721 — the `feed_identity`
+   * table dropped and that migration's ledger row removed, so it is genuinely
+   * PENDING.
    *
-   * Both effects must go, not just the table: a first draft dropped only
-   * sync_feed and left `issues.revision` behind, and the re-applied migration
-   * then died on "duplicate column name: revision". That was the fixture lying,
-   * not the product — but it is worth keeping the whole undo explicit, because a
-   * half-undone fixture silently tests a state no backup can actually be in.
+   * POD-1246: this used to undo 20260717092407 (`sync_feed` + `issues.revision`)
+   * instead. After the merge with main, `sync_feed` is no longer the table the
+   * product reads — `SyncRepository` reads `feed_identity`, created by main's
+   * later migration — so dropping `sync_feed` left the restore path looking at a
+   * table that was still there, and "predates feed identity" could never fire.
+   * The fixture has to undo the migration that creates the table the code under
+   * test actually reads, not the one that shares its name.
    */
   function preFeedIdentityAuthority(): { db: SqlDatabase; dbPath: string; dir: string } {
     const { db, dbPath, dir } = authority()
-    db.exec('DROP TABLE sync_feed')
-    db.exec('ALTER TABLE issues DROP COLUMN revision')
-    db.prepare(
-      "DELETE FROM __drizzle_migrations WHERE name LIKE '%issue-revision-and-feed-identity%'",
-    ).run()
+    db.exec('DROP TABLE feed_identity')
+    db.prepare("DELETE FROM __drizzle_migrations WHERE name LIKE '%add-feed-identity-table%'").run()
     return { db, dbPath, dir }
   }
 
@@ -413,15 +446,11 @@ describe('restoring a backup from before feed identity existed', () => {
     // drifts from what a real pre-migration backup looks like, everything after
     // it is theatre.
     const { db, dbPath } = preFeedIdentityAuthority()
-    expect(hasTable(db, 'sync_feed')).toBe(false)
-    expect(columnNames(db, 'issues')).not.toContain('revision')
+    expect(hasTable(db, 'feed_identity')).toBe(false)
     db.close()
     const reopened = openDatabase(dbPath)
-    expect(applyBaselineSchema(reopened)).toContain(
-      '20260717092407_issue-revision-and-feed-identity',
-    )
-    expect(hasTable(reopened, 'sync_feed')).toBe(true)
-    expect(columnNames(reopened, 'issues')).toContain('revision')
+    expect(applyBaselineSchema(reopened)).toContain('20260730181721_add-feed-identity-table')
+    expect(hasTable(reopened, 'feed_identity')).toBe(true)
     reopened.close()
   })
 

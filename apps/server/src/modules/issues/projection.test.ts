@@ -99,25 +99,27 @@ describe('issueRowToProjection [POD-796]', () => {
     // by construction); what this asserts is that the ADAPTER feeds it honestly.
     expect(p).toMatchObject({
       id: 'iss_1',
-      repoPath: '/repo',
       repoId: 'repo_1',
       seq: 13,
       title: 'a title',
       stage: 'in_progress',
       type: 'feature',
       priority: 2,
-      pinned: true,
       color: 'violet',
       estimateMin: 45,
       worktreePath: '/repo/.worktrees/x',
       branch: 'issue/13',
       machineId: 'mach_1',
       linearIdentifier: 'POD-13',
-      blockedBy: ['some-branch'],
+      // RENAMED on composition (model `fields/issue.ts`): main's `blockedBy` was
+      // free-text notes, while the real edges live in `issue_deps` as IssueDep
+      // rows. The notes keep the field; the name stops claiming to be the edges.
+      blockedByNotes: ['some-branch'],
       needsHuman: true,
-      humanQuestion: 'which way?',
-      humanQuestionOptions: ['left', 'right'],
-      humanQuestionAskedBy: 'sess_1',
+      // NESTED on this branch (model `fields/issue.ts` NeedsHuman). Main's four
+      // flat `humanQuestion*` keys let "when" arrive without "who"; the nested
+      // object is required as a whole, so that shape no longer typechecks.
+      asked: { question: 'which way?', options: ['left', 'right'], by: 'sess_1' },
       parentId: 'iss_parent',
       dueAt: '2026-08-01T00:00:00.000Z',
       // RENAMED on this branch (model `fields/issue.ts` IssueIntent): `origin`
@@ -136,6 +138,19 @@ describe('issueRowToProjection [POD-796]', () => {
     // against, so a projection that dropped it would silently disarm conflict
     // detection for every cap client.
     expect(p.revision).toBe(7)
+
+    // POD-1246: main asserted `repoPath` and `pinned` HERE, and the merge does not
+    // simply drop those assertions — their absence is the property. `repoPath` is
+    // derived (`IssueDerived`), joined replica-side over the `Repo` rows the feed
+    // now carries; putting it back would make `toWire` depend on another entity
+    // and break D7.2 — a repo rename would dirty every issue projection.
+    // `pinned` is per-user state (POD-1076 moved it to `issue_user_state`); a
+    // column on the shared row asserts that exactly one person exists.
+    //
+    // The fixture row still HAS both columns, so these fail if the adapter starts
+    // passing them through again.
+    expect(p).not.toHaveProperty('repoPath')
+    expect(p).not.toHaveProperty('pinned')
   })
 
   it('decodes the panel JSON column into the structured value', () => {
@@ -326,12 +341,20 @@ describe('issueDep projection [POD-822]', () => {
   it('returns undefined — NOT a partial list — when an edge id cannot be composed', () => {
     // Same reconcile-remove hazard as issueProjectionRows: a partial list would
     // diff every missing edge as a REMOVE, flipping genuinely-blocked issues to
-    // blocked=false on every replica. A `|` in an id is the only reachable throw.
+    // blocked=false on every replica.
+    //
+    // POD-1246: this used to poison the batch with a `|` in an id, because main's
+    // `issueDepId` refused a separator inside a part. This branch's `issueDepId`
+    // ESCAPES instead (`joinKeyParts`), so a `|` composes fine and the ambiguity
+    // main's throw was protecting against is now a property of the join —
+    // `keys.test.ts` covers the injectivity directly. That makes the old input a
+    // test that would pass while asserting nothing. An empty part is refused by
+    // `requireNonEmpty` and still exercises the degradation this case is about.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const rows = issueDepProjectionRows([
         { fromId: 'iss_1', toId: 'iss_2', type: 'blocks' },
-        { fromId: 'iss_a|b', toId: 'iss_2', type: 'blocks' },
+        { fromId: 'iss_a', toId: 'iss_2', type: '' },
       ])
       expect(rows).toBeUndefined()
       expect(warn).toHaveBeenCalled()

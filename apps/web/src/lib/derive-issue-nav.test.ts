@@ -47,8 +47,6 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
     draft: false,
     childCount: 0,

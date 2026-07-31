@@ -233,7 +233,12 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // --- IssueTriage (labels live in issue_labels, not on the row) --------
     priority: row.priority,
     type: row.type as IssueType,
-    ...(row.assignee ? { assignee: row.assignee } : {}),
+    // POD-1246: `opt`, not a truthiness spread. A stored `assignee: ''` is a real
+    // value and dropping it makes the round-trip lossy — it reaches the wire
+    // absent and reads back as null. Every other free-text column here already
+    // omits on `== null` for that reason; this one was the holdout, and main had
+    // settled the same question the same way before the merge.
+    ...opt('assignee', row.assignee),
     ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
     // Guarded so a corrupt/unknown stored slot degrades to "no colour" rather
     // than failing the issue [spec:SP-b4d1] — the behaviour `toWire` had.

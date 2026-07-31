@@ -9,6 +9,7 @@ import {
   type SessionMetaInput,
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { sessionsForIssue } from './issue-util'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
@@ -124,17 +125,20 @@ describe('IssueService CRUD', () => {
     expect(svc.list('/r').length).toBe(1)
   })
 
-  it('toWire derives members + summary from live sessions', () => {
-    const { svc } = harness([
-      sess('/r/wt', 'working'),
-      sess('/r/wt/pkg', 'idle'),
-      sess('/elsewhere'),
-    ])
+  it('does NOT embed members or a summary on the wire — the POD-797 residue', () => {
+    // Main deleted `sessions` / `sessionSummary` from `IssueWire`; this is that
+    // deletion, asserted rather than assumed. The MEMBERSHIP RULE is unchanged
+    // and still lives in `sessionsForIssue` (two of these three sessions are
+    // members) — what changed is that the issue payload no longer carries the
+    // answer, so a session's `lastActiveAt` cannot dirty it.
+    const sessions = [sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/elsewhere')]
+    const { svc } = harness(sessions)
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    // simulate a started issue by updating the worktree path
     const updated = svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
-    expect(updated.sessions.length).toBe(2)
-    expect(updated.sessionSummary.total).toBe(2)
+    expect(updated).not.toHaveProperty('sessions')
+    expect(updated).not.toHaveProperty('sessionSummary')
+    // The rule the embed used to express, read from the session side instead.
+    expect(sessionsForIssue('/r/wt', sessions, updated.id)).toHaveLength(2)
   })
 
   it('update patches fields; archive sets the flag', () => {
@@ -241,8 +245,13 @@ describe('IssueService CRUD', () => {
  * client is actually served from, and no longer able to disagree with it.
  */
 describe('IssueService single-issue publish (#22)', () => {
+  /** The LEGACY `issue` rows only. Every issue write is additive since POD-796 —
+   *  it declares an `issueProjection` row beside the `issue` one — and these
+   *  cases are about how many ISSUES a write publishes, not how many kinds. */
   const rows = (deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> }) =>
-    deps.broadcast.mock.calls.map((c) => c[0] as { id: string; op: string; value?: unknown })
+    deps.broadcast.mock.calls
+      .map((c) => c[0] as { entity?: string; id: string; op: string; value?: unknown })
+      .filter((row) => row.entity === undefined || row.entity === 'issue')
 
   it('a self-contained update serializes ONE wire and publishes ONE row', () => {
     const { svc, deps } = harness()
@@ -285,25 +294,25 @@ describe('IssueService unread (#124)', () => {
   it('a never-read issue with activity is unread; markIssueRead clears it', () => {
     const { svc } = harness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    expect(w.unread).toBe(true)
+    expect(svc.unreadFor(w.id)).toBe(true)
     expect(w.readAt).toBeNull()
     const read = svc.markIssueRead(w.id)
     expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
-    expect(read.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     // The freshly-derived wire reflects it too.
-    expect(svc.get(w.id)!.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
   })
 
   it('markIssueUnread nulls readAt so the row re-reads as unread + emits issue.unread (#138)', () => {
     const { svc, store } = harness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.markIssueRead(w.id)
-    expect(svc.get(w.id)!.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     const un = svc.markIssueUnread(w.id)
     expect(un.readAt).toBeNull()
-    expect(un.unread).toBe(true)
+    expect(svc.unreadFor(w.id)).toBe(true)
     // Freshly-derived wire agrees, and the transition event mirrors issue.read.
-    expect(svc.get(w.id)!.unread).toBe(true)
+    expect(svc.unreadFor(w.id)).toBe(true)
     expect(store.events.listEventsSince(0, { kinds: ['issue.unread'] }).length).toBe(1)
   })
 
@@ -317,10 +326,15 @@ describe('IssueService unread (#124)', () => {
     // spread onto the row: it is written to the viewer's `(userId, issueId)` row
     // and the service reloads it. That is the point of the re-key, and it is why
     // this test drives the store rather than a row literal.
+    // `unread` left the wire with the embed (POD-797) but the DERIVATION stayed —
+    // `sweepAutoArchive` gates on it — so this drives the store for `updatedAt`
+    // the same way it already had to for `readAt`, and reads the surviving
+    // observation point. Same three cases, same rule.
     const withReadAt = (readAt: string, updatedAt: string) => {
+      store.issues.upsertIssue({ ...row, updatedAt })
       store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, w.id, { readAt })
       svc.reload()
-      return svc.toWire({ ...row, updatedAt }).unread
+      return svc.unreadFor(w.id)
     }
     // readAt AFTER all activity → read.
     expect(withReadAt('2026-06-06T00:00:00.000Z', '2026-06-01T00:00:00.000Z')).toBe(false)
@@ -337,31 +351,31 @@ describe('IssueService unread (#124)', () => {
     const { svc, store } = harness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.markIssueRead(w.id)
-    expect(svc.get(w.id)!.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     const readAt = store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id)!.readAt
     const updatedAt = store.issues.getIssue(w.id)!.updatedAt
 
     const pinned = svc.update(w.id, { pinned: true })
     expect(pinned.pinned).toBe(true)
-    expect(pinned.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     expect(pinned.readAt).toBe(readAt)
     expect(pinned.updatedAt).toBe(updatedAt)
 
     const unpinned = svc.update(w.id, { pinned: false })
     expect(unpinned.pinned).toBe(false)
-    expect(unpinned.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     expect(unpinned.updatedAt).toBe(updatedAt)
 
     const reordered = svc.update(w.id, { sortKey: 'x2c' })
     expect(reordered.sortKey).toBe('x2c')
-    expect(reordered.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     expect(reordered.updatedAt).toBe(updatedAt)
 
     // Combined organizational patch (pin + reorder) also stays read.
     const both = svc.update(w.id, { pinned: true, sortKey: 'x2d' })
     expect(both.pinned).toBe(true)
     expect(both.sortKey).toBe('x2d')
-    expect(both.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     expect(both.updatedAt).toBe(updatedAt)
   })
 
@@ -396,17 +410,17 @@ describe('IssueService unread (#124)', () => {
     const svc = new IssueService(deps)
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.markIssueRead(w.id)
-    expect(svc.get(w.id)!.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:01.000Z'
     const renamed = svc.update(w.id, { title: 'Y' })
     expect(renamed.title).toBe('Y')
-    expect(renamed.unread).toBe(true)
+    expect(svc.unreadFor(w.id)).toBe(true)
     // Same clock step: pin alone must still leave a re-read issue read.
     svc.markIssueRead(w.id)
-    expect(svc.get(w.id)!.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:02.000Z'
     const pinned = svc.update(w.id, { pinned: true })
-    expect(pinned.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
     expect(pinned.updatedAt).toBe('2026-06-30T00:00:01.000Z')
   })
 })
@@ -451,8 +465,19 @@ describe('IssueService tuck-away (POD-333)', () => {
     // The single-issue publish path — the same delivery every issue field uses,
     // which is precisely what the ui-state key could never reach.
     const sent = deps.broadcast.mock.calls
-      .map((c) => c[0] as { id: string; op: string; value?: { tuckedAt?: string | null } })
-      .filter((row) => row.id === w.id && row.op === 'upsert')
+      .map(
+        (c) =>
+          c[0] as { entity?: string; id: string; op: string; value?: { tuckedAt?: string | null } },
+      )
+      // LEGACY rows only: the write is additive since POD-796 and declares an
+      // `issueProjection` row beside the `issue` one. `tuckedAt` is per-user state
+      // and rides the legacy wire, so this is the row the assertion is about.
+      .filter(
+        (row) =>
+          row.id === w.id &&
+          row.op === 'upsert' &&
+          (row.entity === undefined || row.entity === 'issue'),
+      )
     expect(sent).toHaveLength(1)
     expect(sent[0]?.value?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
   })
@@ -550,7 +575,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     // The tuck patch must not disturb the read marker — the two share a row now
     // (POD-1076), so this also covers the partial-patch rule at the service level.
     expect(tucked.readAt).toBe(beforeReadAt)
-    expect(tucked.unread).toBe(false)
+    expect(svc.unreadFor(w.id)).toBe(false)
   })
 })
 
@@ -590,7 +615,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     const h = harness()
     const w = h.svc.create({ repoPath: '/r', title: 'Unseen result', startNow: false })
     h.svc.close(w.id) // done, but never read → unread
-    expect(h.svc.get(w.id)!.unread).toBe(true)
+    expect(h.svc.unreadFor(w.id)).toBe(true)
     const archived = h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
     expect(archived).toEqual([])
     expect(h.svc.get(w.id)!.archived).toBe(false)

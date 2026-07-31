@@ -84,8 +84,6 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,
@@ -766,7 +764,6 @@ describe('groupUnifiedWorkRows', () => {
         // Fresh finish: still inside the grace window so only an explicit tuck
         // places a row in Closed (POD-293).
         closedAt: new Date(NOW - HOUR).toISOString(),
-        unread: false,
         readAt: new Date(NOW - HOUR).toISOString(),
         ...over,
       }),
@@ -828,7 +825,6 @@ describe('groupUnifiedWorkRows', () => {
         id,
         stage: 'done',
         closedReason: 'done',
-        unread: false,
         readAt: new Date(NOW - HOUR).toISOString(),
         closedAt: new Date(NOW - daysAgo * 24 * HOUR).toISOString(),
         tuckedAt: new Date(NOW - HOUR).toISOString(),
@@ -962,7 +958,6 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
           stage: 'done',
           closedReason: 'done',
           audience: 'human',
-          unread: false,
           readAt: old,
           closedAt: old,
         }),
@@ -998,7 +993,6 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
   it('M3: post-close churn (updatedAt) does not restart the 24h read grace — closedAt anchors', () => {
     const churned = issue({
       stage: 'done',
-      unread: false,
       readAt: new Date(NOW - 3 * DAY).toISOString(),
       closedAt: new Date(NOW - 3 * DAY).toISOString(),
       updatedAt: new Date(NOW - HOUR).toISOString(), // steward touch after close
@@ -1006,7 +1000,6 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     expect(issueVisibleInSidebar(churned, NOW)).toBe(false)
     const fresh = issue({
       stage: 'done',
-      unread: false,
       readAt: new Date(NOW - 2 * HOUR).toISOString(),
       closedAt: new Date(NOW - 3 * DAY).toISOString(),
     })

@@ -81,23 +81,53 @@ describe('POD-170 present-to-absent, on the new apply path', () => {
 })
 
 describe('the replica row → model aggregate seam (the POD-796 cutover path)', () => {
+  /**
+   * THE SUBJECT FIELD IS `worktreePath`, NOT `deferUntil` [POD-1246].
+   *
+   * `restoreNullValues` restores a null only for a NULLABLE member — that is its
+   * whole rule, and it is the right one: a field whose durable spelling of "no
+   * value" is ABSENCE has nothing to restore, and writing a null into it would
+   * invent a value the authority never sent.
+   *
+   * On main `deferUntil` is nullable, so main's cases use it. In this tree it is
+   * `z.string().optional()` (model `fields/issue.ts` — defer is a claim about the
+   * WORK, and unset is spelled by absence), so asserting a null there would have
+   * been asserting against the aggregate rather than against the convention.
+   * MEASURED, not assumed: the aggregate's nullable members are exactly
+   * `worktreePath` and `branch`, and the cases below moved to the first of them.
+   *
+   * The POD-170 half of this file — a field going present → ABSENT must CLEAR,
+   * not go stale — is unaffected and still runs on `deferUntil` above, which is
+   * the transition that shipped broken.
+   */
+  const NULLABLE_FIELD = 'worktreePath'
+
   /** The two shapes a cleared nullable can take at this seam. They are the same
    *  value and MUST map to the same aggregate — that is the whole property. */
   const clearedForms: Array<[string, Record<string, unknown>]> = [
     ['absent (persisted / straight off the wire)', { ...unsnoozed }],
-    ['present-with-undefined (live, post-proxy)', { ...unsnoozed, deferUntil: undefined }],
+    ['present-with-undefined (live, post-proxy)', { ...unsnoozed, [NULLABLE_FIELD]: undefined }],
   ]
 
   for (const [label, wire] of clearedForms) {
-    it(`restoreNullValues reads a cleared deferUntil as null — ${label}`, () => {
+    it(`restoreNullValues reads a cleared ${NULLABLE_FIELD} as null — ${label}`, () => {
       const restored = restoreNullValues(wire, issueDurableShape)
-      expect(restored.deferUntil).toBeNull()
+      expect(restored[NULLABLE_FIELD]).toBeNull()
     })
   }
 
+  it('leaves an OPTIONAL-but-not-nullable member absent rather than inventing a null', () => {
+    // The counterfactual that keeps the cases above from passing vacuously: if
+    // `restoreNullValues` restored every unset key, the assertions would hold for
+    // a field whose convention it has no business touching. `deferUntil` is that
+    // field in this tree, and it must come back absent.
+    const restored = restoreNullValues({ ...unsnoozed }, issueDurableShape)
+    expect(restored.deferUntil).toBeUndefined()
+  })
+
   it('the two forms are INDISTINGUISHABLE after restore — the pin', () => {
     // This is the assertion the collision breaks. Without the fix, the
-    // present-with-undefined form leaves `deferUntil: undefined` and the
+    // present-with-undefined form leaves the key holding `undefined` and the
     // aggregate parse fails with "expected string, received undefined" — while
     // JSON.stringify renders both forms identically, so nothing upstream sees it.
     const [absent, undef] = clearedForms.map(([, wire]) =>
@@ -106,29 +136,38 @@ describe('the replica row → model aggregate seam (the POD-796 cutover path)', 
     expect(undef).toEqual(absent)
   })
 
-  it('a REAL unsnoozed replica row restores its cleared field to null', () => {
+  it('a REAL replica row restores its cleared nullable field to null', () => {
     // The replica half of the chain, end to end through the actual apply path:
     // store snoozed, unsnooze, read the row back, hand it to the mapping seam.
     // This is the exact step POD-796's cutover runs on every delta, and it is
     // the one that threw. (The aggregate-level round trip lives in
     // model/src/issue/issue.unsnooze.test.ts, next to the fixtures it needs.)
+    // Same present → absent transition as the POD-170 cases above, run on the
+    // NULLABLE member so the restore half has something to do.
+    const withPath = { ...snoozed, [NULLABLE_FIELD]: '/repo/.worktrees/x' }
+    const withoutPath = { ...snoozed }
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [snoozed as unknown as IssueWire])
-    replica.applySnapshot('issues', [unsnoozed as unknown as IssueWire])
+    replica.applySnapshot('issues', [withPath as unknown as IssueWire])
+    replica.applySnapshot('issues', [withoutPath as unknown as IssueWire])
     const row = replica.rows('issues')[0] as unknown as Record<string, unknown>
 
     // The row really is in the hard-to-see form: the key is THERE, holding
     // undefined. If this ever stops being true the pin below is testing nothing.
-    expect('deferUntil' in row).toBe(true)
-    expect(row.deferUntil).toBeUndefined()
-    expect(restoreNullValues(row, issueDurableShape).deferUntil).toBeNull()
+    expect(NULLABLE_FIELD in row).toBe(true)
+    expect(row[NULLABLE_FIELD]).toBeUndefined()
+    expect(restoreNullValues(row, issueDurableShape)[NULLABLE_FIELD]).toBeNull()
   })
 
   it('a POPULATED nullable still restores to its value — the fix must not null everything', () => {
     // The failure mode of an over-broad fix: if `undefined` were confused with
     // "always clear", a set value would be silently wiped. A test that only
     // exercises the cleared case cannot see that.
-    const restored = restoreNullValues({ ...snoozed }, issueDurableShape)
+    const restored = restoreNullValues(
+      { ...snoozed, [NULLABLE_FIELD]: '/repo/.worktrees/x' },
+      issueDurableShape,
+    )
+    expect(restored[NULLABLE_FIELD]).toBe('/repo/.worktrees/x')
+    // And the optional member it must not touch keeps its value too.
     expect(restored.deferUntil).toBe('2026-08-01T00:00:00.000Z')
   })
 })

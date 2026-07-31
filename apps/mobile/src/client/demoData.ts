@@ -153,10 +153,7 @@ function proposal(
     origin: 'agent',
     audience: 'human',
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     readAt: null,
-    unread: true,
     ...partial,
   } as IssueWire
 }
@@ -248,10 +245,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 1, byPhase: { needs_user: 1 } },
     readAt: null,
-    unread: false,
   } as IssueWire,
   {
     id: asIssueId('demo-issue-header'),
@@ -287,43 +281,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [
-      {
-        sessionId: 'demo-perf',
-        agentKind: 'claude-code',
-        title: 'Profile slow dashboard query',
-        name: 'claude — header polish',
-        cwd: '/home/dev/src/podium',
-        status: 'live',
-        controllerId: null,
-        geometry: { cols: 80, rows: 24 },
-        epoch: 0,
-        clientCount: 0,
-        createdAt: min(240),
-        lastActiveAt: min(4),
-        origin: { kind: 'spawn' },
-        archived: false,
-        readAt: null,
-        unread: false,
-        issueId: 'demo-issue-header',
-        offer: {
-          message:
-            'Login screen ready to merge\n43 tests green, header matches the mock; git chip stays on the dark recipe.',
-          actions: [
-            { label: '✓ Merge', prompt: 'Merge the branch to main.' },
-            {
-              label: 'Send back…',
-              prompt: 'Do not merge yet. Address this feedback:',
-              input: true,
-            },
-          ],
-          createdAt: min(4),
-        },
-      } as unknown as SessionMeta,
-    ],
-    sessionSummary: { total: 1, byPhase: { idle: 1 } },
     readAt: null,
-    unread: false,
   } as IssueWire,
   {
     id: asIssueId('demo-issue-ci'),
@@ -361,10 +319,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     readAt: null,
-    unread: false,
   } as IssueWire,
 ]
 

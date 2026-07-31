@@ -933,6 +933,11 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // ladder terminates in a re-bootstrap, and this is where a replica learns
     // which generation it landed on.
     const registry = makeRegistry()
+    // One append first, exactly as the two cases below do. `minAvailableSeq` is
+    // the FIRST SERVABLE SEQ, so on an empty log it is honestly 0 and the `>= 1`
+    // check would be asserting that the log is non-empty rather than that the
+    // floor is published. Seeding makes the floor a real one.
+    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const boot = registry.modules.sessions.syncChangesSince(null)
     expect(boot.kind).toBe('snapshot')
     expect(boot.feedId).toBeTruthy()
@@ -965,32 +970,52 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     expect(registry.modules.sessions.syncChangesSince(0).kind).toBe('delta')
   })
 
-  it('stamps the delta FRAME only for clients that asked (ADR 2 D4: additive by capability)', () => {
+  it('leaves the v1 delta FRAME unstamped for EVERY client — identity rides wire v2 here', () => {
+    // MAIN STAMPS THE v1 FRAME behind a `syncFeedIdentity` capability. This tree
+    // does not, and the difference is a decision rather than a gap: POD-1203 moved
+    // framing to the serving edge, and `deliverEntityMessage`'s own doc records
+    // that the capability check left that layer on purpose ("a peer that did not
+    // announce the delta capability is handed full lists by its version's
+    // adapter"). The identity a replica needs is carried by the WIRE v2
+    // `feedDelta` frame (`gateway/feed-serving.ts` `toWireFrame`), which carries
+    // `feedId`, `epoch`, `fromSeq` and `minAvailableSeq` unconditionally — a
+    // stronger guarantee than a capability-gated v1 stamp, because there is no
+    // client that can ask for the frame and not get the identity.
+    //
+    // What survives from main's case is its second half, unchanged and still
+    // load-bearing: the v1 frame is byte-for-byte today's frame. That is why
+    // WIRE_VERSION stays at 1, and asserting the exact key set is what would
+    // catch a stamp leaking back onto it.
     const registry = makeRegistry()
-    const withIdentity = client(registry, ['metadataDelta', 'syncFeedIdentity'])
+    const asked = client(registry, ['metadataDelta', 'syncFeedIdentity'])
     const legacy = client(registry, ['metadataDelta'])
-    withIdentity.inbox.length = 0
+    asked.inbox.length = 0
     legacy.inbox.length = 0
 
     registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.funnel.flushDeltas()
 
-    const mine = deltas(withIdentity.inbox)
+    const mine = deltas(asked.inbox)
     const theirs = deltas(legacy.inbox)
     expect(mine.length).toBeGreaterThan(0)
     expect(theirs.length).toBe(mine.length)
 
-    const identity = registry.modules.sessions.syncChangesSince(null)
-    expect(mine[0]?.feedId).toBe(identity.feedId)
-    expect(mine[0]?.epoch).toBe(identity.epoch)
-    expect(mine[0]?.minAvailableSeq).toBeGreaterThanOrEqual(1)
+    // `fromExclusive` is this tree's v1 frame field (the contiguity anchor the
+    // client's gap rule reads); it is the SAME for both clients, which is the
+    // point. What must not appear is any identity member.
+    for (const frame of [mine[0], theirs[0]]) {
+      expect(Object.keys(frame ?? {}).sort()).toEqual([
+        'changes',
+        'fromExclusive',
+        'seq',
+        'type',
+      ])
+    }
 
-    // The legacy client's frame is today's frame, byte-for-byte. This is the
-    // whole reason WIRE_VERSION stays at 1.
-    expect(theirs[0]?.feedId).toBeUndefined()
-    expect(theirs[0]?.epoch).toBeUndefined()
-    expect(theirs[0]?.minAvailableSeq).toBeUndefined()
-    expect(Object.keys(theirs[0] ?? {}).sort()).toEqual(['changes', 'seq', 'type'])
+    // The identity is still SERVED — over the query arm, unconditionally.
+    const identity = registry.modules.sessions.syncChangesSince(null)
+    expect(identity.feedId).toBeTruthy()
+    expect(identity.epoch).toBeTruthy()
   })
 
   it('both clients receive the SAME changes in the SAME order — the cap changes the envelope, never the feed', () => {

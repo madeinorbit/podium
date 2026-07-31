@@ -253,11 +253,14 @@ const IssueWireCore = z.object({
    *  THIS READER last opened the issue, or null if they never opened it. Read
    *  from their `(userId, issueId)` row, not from the issue. */
   readAt: z.string().nullable().catch(null).default(null),
-  /** Server-DERIVED: there is activity newer than `readAt` — the issue's most
-   *  recent activity (latest of updatedAt / member-session lastActiveAt) postdates
-   *  `readAt`, or `readAt` is null and the issue has ever had activity. Defaulted so
-   *  a pre-field cached payload still validates (unread → false). */
-  unread: z.boolean().catch(false).default(false),
+  // `unread` IS GONE from the wire [POD-797, taken from main at the POD-1246
+  // catch-up]. It was server-DERIVED from the issue's own `updatedAt` joined
+  // against its member sessions' `lastActiveAt` — i.e. a function of OTHER
+  // entities, which is what made every session change dirty every issue payload.
+  // The reader derives it now: `readAt` (per-user, still here) against the
+  // sessions the client already holds. Removed rather than made optional so a
+  // consumer that still reads it fails to compile instead of silently reading
+  // `undefined` as "read".
   /** Whose INTENT this issue captures (issue-as-workspace). Defaulted at parse
    *  so pre-field cached payloads still validate. */
   origin: z.enum(['human', 'agent']).catch('human').default('human'),
@@ -270,11 +273,13 @@ const IssueWireCore = z.object({
   /** Draft = placeholder-titled vessel created by the low-friction spawn flow;
    *  retitling clears it. Drafts show in the sidebar but not on the board. */
   draft: z.boolean().catch(false).default(false),
-  // Derived server-side at serialization (not persisted):
-  /** ENTITY-IN-ENTITY EMBED — the one ADR 4 D7's normalization law deletes. See
-   *  this file's header note 1: relocated as-is, deliberately not hardened. */
-  sessions: z.array(SessionMeta),
-  sessionSummary: IssueSessionSummary,
+  // THE ENTITY-IN-ENTITY EMBED IS GONE [POD-797, taken from main at the POD-1246
+  // catch-up] — `sessions: SessionMeta[]` and its `sessionSummary` rollup. This
+  // file's header note 1 called it "the one ADR 4 D7's normalization law
+  // deletes"; this is that deletion. A session's `lastActiveAt` no longer dirties
+  // an issue payload, which is the O(issues x sessions) rebuild the normalized
+  // feed exists to remove. Membership is read from the SESSION side (`issueId`)
+  // by a client that already holds the session list.
   /** Git status of the task's checkout [POD-98]. Absent = no checkout to probe
    *  (or a pre-field peer). Tolerant: malformed from a newer peer parses as
    *  unset rather than failing the whole issue. */

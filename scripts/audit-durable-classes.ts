@@ -301,6 +301,13 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'applied_mutations', kind: 'drizzle-table', row: 'applied-mutations' },
   { store: 'feed_identity', kind: 'drizzle-table', row: 'feed-identity' },
   {
+    store: 'sync_feed',
+    kind: 'drizzle-table',
+    row: null,
+    notEntityState:
+      'SUPERSEDED, and still created because migrations are history. This branch shipped `sync_feed` (migration 20260717092407) as the feed-identity store; main shipped `feed_identity` (20260730181721) for the same concept, and the POD-1246 catch-up merge brought both migrations into one chain — so a fresh database gets both tables and only `feed_identity` is ever read or written (`SyncRepository`). It is not a second class of durable state; it is one class with a dead second table. Removing it is a migration, tracked as #1267 — the row stays here until then rather than being deleted from the inventory, because an undeclared table is exactly what this gate exists to catch.',
+  },
+  {
     store: 'upstream_outbox',
     kind: 'drizzle-table',
     row: null,
@@ -390,6 +397,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Materializes the embedded `abduco` BINARY under `<stateDir>/bin` so a PTY can be attached. An executable extracted from the shipped bundle is not state: it is byte-identical for every install and is re-extracted if deleted.',
     },
     {
+      file: 'apps/server/src/migrations/restore.ts',
+      reason:
+        'Restores a backup by COPYING database files — the backup over the live database, and the replaced database to a timestamped sibling. A copy of a classified store is that store, not a new one, and the only row it writes is the re-minted `feed_identity` (classified above, ADR 2 D1). Deliberately creates no schema: the doc comment on `remintRestoredEpoch` records why `CREATE TABLE IF NOT EXISTS` here would leave the restored server unable to boot.',
+    },
+    {
       file: 'packages/telemetry/src/queue.ts',
       reason:
         'The opt-in telemetry spool, whose contents are events already leaving the instance under the telemetry consent gate rather than durable product state. It is drained and truncated, and an empty queue is indistinguishable from a fresh one.',
@@ -476,17 +488,35 @@ export function drizzleTables(source: string): string[] {
 }
 
 /**
+ * Strip `//` and block comments before scanning for EXECUTED SQL.
+ *
+ * POD-1246: `restore.ts` explains at length why `CREATE TABLE IF NOT EXISTS
+ * feed_identity` is the WRONG fix and does not do it — and the scanner read that
+ * prose as a create site, demanding a declaration for a table the file never
+ * creates. A detector that cannot tell code from a comment about code turns
+ * "document the rejected alternative" into a lint failure, which teaches people
+ * to stop writing the explanation.
+ *
+ * Comments cannot create tables, so nothing real is lost. String literals are
+ * left alone: `db.exec('CREATE TABLE …')` is exactly what this must still see.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+}
+
+/**
  * Table names in an executed `CREATE TABLE` / `CREATE VIRTUAL TABLE`, including
  * the `${CONST}` form — the mobile replica names all four of its tables that
  * way, and a scanner that only understood literals would report a clean file.
  */
 export function runtimeTables(source: string): string[] {
+  const code = stripComments(source)
   const consts = new Map<string, string>()
-  for (const m of source.matchAll(/(?:export\s+)?const\s+(\w+)\s*=\s*['"]([^'"]+)['"]/g)) {
+  for (const m of code.matchAll(/(?:export\s+)?const\s+(\w+)\s*=\s*['"]([^'"]+)['"]/g)) {
     consts.set(m[1] as string, m[2] as string)
   }
   const names: string[] = []
-  for (const m of source.matchAll(
+  for (const m of code.matchAll(
     /CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\b\s*)?(\$\{(\w+)\}|[`"']?(?!IF\b)(\w+)[`"']?)/gi,
   )) {
     const viaConst = m[2] ? consts.get(m[2]) : undefined

@@ -1430,14 +1430,22 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
     )
 
     expect(listCalls.n).toBe(1)
-    expect(issueGetLists).toEqual([sessions])
+    // The lookup no longer TAKES a session list. `IssueService.get` used to
+    // default `sessionList` to a fresh `listSessions()` inside `toWire`, which is
+    // why threading one mattered; POD-797 took the session embed off the wire and
+    // `toWire` stopped reading sessions at all. `undefined` here is the stronger
+    // property — not "the one listing was threaded" but "no listing is needed".
+    expect(issueGetLists).toEqual([undefined])
   })
 
-  // POD-817 round 2: IssueService.get(id) DEFAULTS its sessionList to a fresh
-  // listSessions() inside toWire — so the sweep's per-row issue lookup was
-  // still O(sessions) per queued row after the first hoist (live: 8.4s → only
-  // 3.3s). The sweep must thread its one listing into every issue lookup.
-  it('threads the one session listing into every per-row issue lookup', () => {
+  // POD-817 round 2 asked the sweep to THREAD its one session listing into every
+  // per-row issue lookup, because `IssueService.get(id)` defaulted `sessionList`
+  // to a fresh `listSessions()` inside `toWire` (live: 8.4s → 3.3s). POD-797
+  // removed the reason: the session embed left the wire, `toWire` reads no
+  // sessions, and `get` takes no list. The property is kept as its successor —
+  // the per-row lookup is O(1) in sessions — asserted by the absence of a list
+  // rather than by its identity, so a re-introduced default fails here.
+  it('needs NO session listing for the per-row issue lookup', () => {
     const sessions: SessionMeta[] = []
     const { svc, issueGetLists } = harness(sessions)
     for (let i = 0; i < 3; i++) {
@@ -1449,7 +1457,7 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
     issueGetLists.length = 0
     svc.sweep()
     expect(issueGetLists).toHaveLength(3)
-    for (const list of issueGetLists) expect(list).toBe(sessions)
+    for (const list of issueGetLists) expect(list).toBeUndefined()
   })
 
   // Expiry candidates stay durable for the WAL-reading janitor. The retry backstop
