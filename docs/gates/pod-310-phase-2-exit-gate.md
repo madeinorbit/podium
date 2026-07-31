@@ -404,3 +404,45 @@ bun --bun node_modules/vitest/vitest.mjs run --config vitest.unit.config.ts \
 bun run test:web                                # 179/179 in isolation (POD-1238 under contention)
 bun scripts/oracle.ts                           # exit 1 — unit, via RepoScanFlow only
 ```
+
+---
+
+## §7 — COORDINATOR RESOLUTION (2026-07-31, measured on `407115aa`)
+
+**VERDICT REVISED: the verification half PASSES. Phase 2 exits. The live rehearsal is
+carved out as #1281 and does not hold the phase.**
+
+The four refusals in §1 were all correct when measured at `7f01445d`. Three of them were
+resolved by work that landed *after* that commit, and the fourth was resolved here. Each is
+re-measured below rather than assumed — the gate's own standard.
+
+| § | Refusal | Resolution, on `407115aa` |
+|---|---|---|
+| R1 | AC1 (runbook) and AC3 (thresholds) UNWRITTEN | **Written.** POD-1253 (`7f7451d7`) committed the runbook into the Phase 2 section — numbered operator steps, abort criteria, rollback step 9, evidence list — and fixed the thresholds as NUMBERS with justifications, drift-gated by `scripts/release-thresholds.test.ts`. Verified by reading the section, not the commit message. |
+| R2 | `audit:phase2-client` RED, 4 sites, no owner | **All four items ZERO.** `unattributed-store-read` closed by POD-1252. The survivor, `world-assumption`, was a REAL finding and is fixed in `407115aa`: the paragraph justified the replica-side join by claiming the client holds every row there is, which the 2026-07-29 scoped-feed decision makes false while the code stayed correct. |
+| R3 | AC4's literal sentence unsatisfiable by design | **Both mappings already corrected.** `legacy-wire-v1-adapter` reads `phase: 'POD-337'`; `change-row-typings` was re-phased to `POD-1251`. Both landed after the gate measured. No re-phasing was done *by* this resolution — the gate was right that a gate re-phasing to let itself close is a detector that cannot say NO. |
+| R4 | Oracle RED on a named flake | **Did not reproduce.** Full unit lane on `407115aa`: 9138 passed, 19 skipped, **0 failed**, 619 files. `RepoScanFlow.machine.test.tsx` passes. |
+
+**Additionally fixed here, because R2's investigation surfaced it (§3.2's finding, which the
+gate filed rather than fixed):** `audit:seam`'s presence checks tested `source.includes(token)`
+against raw file text, so a MENTION of `causationId` in a comment satisfied the check that the
+schema field exists — the field the check's own docstring names as most likely to be dropped.
+`stripComments` is now extracted and applied to all four presence checks.
+
+> **PROVEN BY COUNTERFACTUAL, on the real tree.** Renaming only the schema field to `causeRef`,
+> leaving the comment intact, now fires `S2-origin-causation`. Reverted atomically; grep-back
+> confirms restoration. A first mutant renamed it to `causationIdXX` and the audit stayed
+> green — **a mutant that never applied**, because `includes()` matches substrings and the
+> superstring still contains the token. Recorded because that green looked exactly like a
+> failed fix. It also means a rename to a SUPERSTRING would still pass; word-boundary matching
+> would close that, and is not done here.
+
+**WHAT IS NOT CLAIMED.** AC2 — the live rehearsal on the real fleet — is NOT executed and is
+not claimed. It needs a VPS, deploy credentials and a physical phone; an agent cannot
+self-serve it. It is now **#1281**, with the runbook it needs already written. Phases 3-6 are
+released from waiting on a device.
+
+The reason POD-310 originally deferred the rehearsal — that the rewrite was not reconciled
+with main, so a rehearsal would be invalidated by its own prerequisite — **no longer holds**:
+the catch-up landed, integration is `407115aa`, clean, typecheck 23/23 with 0 cached, 9138
+unit tests passing. That is why the carve-out is safe now and was not before.
