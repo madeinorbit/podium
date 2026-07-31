@@ -189,6 +189,66 @@ describe('phase-2 client audit — the composition-root detector', () => {
     expect(discoverCompositionRoots(root, ['apps/web/src'])).toEqual([])
   })
 
+  it('does NOT grade a root CLEAN on a mere MENTION of the gate', () => {
+    // POD-1239's finding, and it is the sharper half of the mention-is-not-a-call
+    // family: call shape was required to be graded a ROOT, but a bare mention was
+    // enough to be graded CLEAN. The gate's names are exactly the words a comment
+    // ABOUT the gate contains, so a root can certify itself with a TODO describing
+    // the consumer it does not have — and the lenient half is the one that decides
+    // whether a security property is REPORTED AS HELD.
+    write(
+      'a/root.ts',
+      [
+        '// TODO: call migrateLegacyReplica here before we read anything',
+        'const replica = createReplica({ storage })',
+      ].join('\n'),
+    )
+    expect(unattributedStoreRead(root, ['a/root.ts'])).toHaveLength(1)
+  })
+
+  it('does NOT grade a root CLEAN on an unused `import type` of the evidence', () => {
+    // `LegacyIdentityEvidence` is a TYPE. A type mention is not an act, and an
+    // unused `import type` is precisely the shape that passes a name test while
+    // spending no evidence. A root that genuinely attributes necessarily CALLS one
+    // of the two functions.
+    write(
+      'a/root.ts',
+      [
+        "import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'",
+        'const replica = createReplica({ storage })',
+      ].join('\n'),
+    )
+    expect(unattributedStoreRead(root, ['a/root.ts'])).toHaveLength(1)
+  })
+
+  it('does NOT promote a file into the population on a COMMENTED-OUT construction', () => {
+    // The same blanking, in the other direction — this one fell out of POD-1239's
+    // probe rather than being looked for. An innocent file that merely SHOWS the
+    // construction in a comment was being reported as an unattributed root.
+    write('a/root.ts', '// const replica = createReplica({ storage })')
+    expect(discoverCompositionRoots(root, ['a'])).toEqual([])
+  })
+
+  it('reports the REAL line number even when a block comment precedes the call', () => {
+    // Blanking comments renumbered every line after a block comment in the first
+    // draft, so findings pointed at real files and fictional lines. Nothing caught
+    // it — the count was right and the suite was green; only diffing the printed
+    // output against a known-good run showed 135 had become 98. A report whose line
+    // numbers are confidently wrong sends the reader to an innocent line, which
+    // costs more trust than having no line number at all.
+    write(
+      'a/root.ts',
+      [
+        '/**',
+        ' * A header that spans',
+        ' * several lines.',
+        ' */',
+        'const replica = createReplica({ storage })',
+      ].join('\n'),
+    )
+    expect(unattributedStoreRead(root, ['a/root.ts'])[0]?.line).toBe(5)
+  })
+
   it('does NOT grade tests or perf harnesses as product roots', () => {
     write('apps/web/src/x.test.ts', 'const r = createReplica({ storage })')
     write('apps/web/src/perf/bench.tsx', 'const r = createReplica({ storage })')

@@ -117,8 +117,84 @@ const BUILDS_A_REPLICA = /\bcreateReplica\s*\(|\bcreateKernelReplica\s*\(|SyncSt
  */
 const IS_A_DEFINITION = /\b(export\s+)?(async\s+)?function\s+(createReplica|createKernelReplica)\b/
 
-/** The attribution gate, by any of its three names. */
-const ASKS_WHO_OWNS_IT = /decideLegacyAdoption|migrateLegacyReplica|LegacyIdentityEvidence/
+/**
+ * The gate IN CALL POSITION, not by mention (POD-1239).
+ *
+ * This was `/decideLegacyAdoption|migrateLegacyReplica|LegacyIdentityEvidence/`
+ * tested against whole file contents, and the names of a gate are exactly the words
+ * a comment ABOUT the gate contains. So a root carrying
+ *
+ *     // TODO: call migrateLegacyReplica here before we read anything
+ *
+ * graded as attributed — a declaration with no consumer, certified by the prose
+ * describing the consumer it does not have.
+ *
+ * It is the same mention-is-not-a-call shape this file already fixed on the OTHER
+ * side of the same function, and the asymmetry is what made it worse: call shape was
+ * required to be graded a ROOT, but a bare mention was enough to be graded CLEAN.
+ * The lenient half is the one that decides whether a security property is REPORTED
+ * AS HELD.
+ *
+ * `LegacyIdentityEvidence` is deliberately dropped. It is a TYPE; a type mention is
+ * not an act, and an unused `import type` is precisely the shape that would pass. A
+ * root that genuinely attributes necessarily CALLS one of the two functions.
+ *
+ * THE GATE MUST BE NAMED AT THE ROOT — a judgement POD-1239 left open, decided here.
+ * If a client wraps the gate in a helper and the root calls the helper, this reports
+ * the root unattributed. That is a false positive and it is the direction to fail in:
+ * over-reporting costs an investigation, under-reporting reports a fail-closed
+ * security decision as enforced when nothing enforces it (§3.1.1 rule 1 —
+ * forgetting must fail toward privacy). Resolving one import hop was the
+ * alternative and it invites "why not two", plus a resolver that needs its own
+ * probe.
+ *
+ * POD-1220, as the author of the repo's first real `migrateLegacyReplica` call,
+ * reached the same answer independently and gave a better reason than the grader's:
+ * "the question a reader arrives with is 'does this client attribute its store
+ * before adopting it?', which is asked OF the file that composes the store. A helper
+ * is better factoring for almost anything else and worse for this: it moves the
+ * answer one hop from where it is looked for, and one hop is enough for the next
+ * person to assume it does not happen."
+ *
+ * THEIR CAVEAT MATTERS MORE THAN THEIR AGREEMENT, and it is a limit on this rule
+ * rather than a cheer for it: "I would not extend that to a general rule. 'Inline it
+ * so the audit can see it' is a bad principle applied broadly — it shapes code
+ * around a detector. What justifies it here is that the root IS the right home for
+ * the call, and the detector happens to agree. WHEN THOSE TWO COME APART, FIX THE
+ * DETECTOR."
+ *
+ * So: if the helper pattern ever becomes the right factoring, widen this to name the
+ * helper — never add an allowlist, which is where a genuine finding would hide, and
+ * never contort a composition root to keep this regex happy.
+ */
+const CALLS_THE_GATE = /\b(?:decideLegacyAdoption|migrateLegacyReplica)\s*\(/
+
+/**
+ * Source with comments and string literals blanked.
+ *
+ * BOTH halves of this detector read it, because the mistake runs both ways: a
+ * MENTION of the gate in a comment must not grade a root clean, and a COMMENTED-OUT
+ * `createReplica(` must not promote an innocent file INTO the population. The second
+ * direction fell out of POD-1239's probe rather than being looked for.
+ *
+ * Blanking only ever REMOVES text, so it cannot invent a finding — a real call is
+ * never inside a comment or a string literal.
+ */
+function withoutCommentsOrStrings(source: string): string {
+  return (
+    source
+      // NEWLINES PRESERVED, and this was wrong in the first draft. Collapsing a block
+      // comment to a single space renumbers every line after it, so the findings
+      // pointed at real files and fictional lines — `desktopReplica.ts:135` became
+      // `:98`. A report whose line numbers are confidently wrong is worse than one
+      // with none: it sends the reader to an innocent line and costs them the trust
+      // they need to act on the next finding.
+      .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ' '))
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+      .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+      .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+  )
+}
 
 /**
  * Files that build a replica and are NOT product composition roots.
@@ -160,9 +236,12 @@ export function discoverCompositionRoots(
   const found: string[] = []
   for (const [file, lines] of byFile) {
     if (NOT_A_PRODUCT_ROOT.test(file)) continue
-    const constructs = lines.some(
-      (text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text),
-    )
+    // Blanked WHOLE-FILE, not per raw line: a block comment spans lines, so a
+    // line-at-a-time blank cannot see that it is inside one.
+    const source = withoutCommentsOrStrings(lines.join('\n'))
+    const constructs = source
+      .split('\n')
+      .some((text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text))
     if (constructs) found.push(file)
   }
   return found.sort()
@@ -329,7 +408,8 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
       // which is why `COMPOSITION_ROOTS` is asserted non-empty by the test.
       continue
     }
-    const callSites = contents
+    const source = withoutCommentsOrStrings(contents)
+    const callSites = source
       .split('\n')
       .filter((text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text))
     if (callSites.length === 0) continue
@@ -337,10 +417,12 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
     // `migrateLegacyReplica` is the caller that runs it, and `LegacyIdentityEvidence`
     // is the input it cannot be called without — a root naming ANY of the three
     // has been through the question.
-    const attributed = ASKS_WHO_OWNS_IT.test(contents)
+    const attributed = CALLS_THE_GATE.test(source)
     if (attributed) continue
+    // Reported against the BLANKED source. Blanking preserves newlines exactly (see
+    // `withoutCommentsOrStrings`), so this number still points at the real line.
     const line =
-      contents
+      source
         .split('\n')
         .findIndex((text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text)) + 1
     out.push({
