@@ -104,6 +104,11 @@ census still allowlists two hand-written mutations in `apps/server/src/router.ts
 `settings.set` and `discovery.scan`. The Phase-3 exit audit also still reports transport
 reach-throughs, so the universal-write-surface cut is not yet complete.
 
+For the session `CommandDef` family, the source gate now requires both `visibility` and
+`exposure` declarations. Their runtime accessors remain independently default-closed to
+`personal` and served-nowhere; POD-424 proved both directions by mutating the real contract
+and both live fallback helpers.
+
 The multi-user policy vocabulary exists in the model and command contracts (visibility
 classes, owner/grant scopes, attribution pairs, machine verbs, default-closed exposure),
 but the production authentication edge still resolves human tRPC/MCP calls through the

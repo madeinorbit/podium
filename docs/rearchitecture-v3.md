@@ -2185,12 +2185,14 @@ It inherited the same-commit landing run from POD-1246/POD-1273 (forced typechec
 9,138 node tests, 1,456 web tests, 34 mobile tests, 14 Bun SQLite tests, clean shadowing,
 and the exact 31-item/197-site architecture baseline), rather than duplicating that work.
 
-**The counterfactual guards fired, but the guarded production subjects are incomplete.**
-The session, router, mail, workflow, machine-grant, Telegram, scoped-feed, settings,
-automation, client-secret, and durable-class probe modes all rejected their planted bad
-fixtures. Current clean audits nevertheless report two named hand-written mutations, and
-POD-314's deletion audit is red with 18 surviving `router-triple-access` sites. The two
-required zeros therefore have not been reached.
+**The real-tree counterfactuals fired, with one detector repaired.** Twelve hash-guarded
+production mutations challenged visibility, exposure, runtime defaults, durable-class
+membership, machine authorization, Telegram refusal, secret scrubbing, router mutations,
+per-user keying, and the instance/tenant fence. Removing `rename.exposure` initially left
+the session source audit green; POD-424 added the missing sibling totality check and the
+same mutation then produced exactly one finding. Current clean audits nevertheless report
+two named hand-written mutations, and POD-314's deletion audit is red with 18 surviving
+`router-triple-access` sites. The two required zeros therefore have not been reached.
 
 **The authorization matrix proves a policy model, not four authenticated production
 transports.** Production tRPC and MCP still mint the ambient `OPERATOR` principal, the
