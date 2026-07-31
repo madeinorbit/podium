@@ -387,6 +387,114 @@ describe('the side cache', () => {
     expect(side.outboxStorage().load()).toHaveLength(1)
   })
 
+  describe('queued offline writes survive the flag flip', () => {
+    // The defect this covers: turning `kernel-replica` on moves the engine's
+    // outbox to a new key, so a rename queued offline under the legacy path
+    // would sit in a blob nothing reads again — user-authored work lost at the
+    // moment somebody flips a flag, with no notice.
+    const queued = (mutationId: string) => ({
+      mutationId,
+      kind: 'rename',
+      input: { sessionId: 's1', name: 'offline' },
+      queuedAt: 1,
+    })
+
+    it('folds in the PRE-collection array blob', () => {
+      const storage = memoryStorage()
+      storage.setItem('podium.outbox.v1', JSON.stringify([queued('m1')]))
+      const side = createSideCache({ storage, enumerateKeys: () => [] })
+      expect(
+        side
+          .outboxStorage()
+          .load()
+          .map((e) => e.mutationId),
+      ).toEqual(['m1'])
+    })
+
+    it('folds in the COLLECTION blob, whose shape is an object of rows', () => {
+      const storage = memoryStorage()
+      storage.setItem(
+        'podium.replica.outbox.v1',
+        JSON.stringify({ m2: { ...queued('m2'), seq: 0, $key: 'm2' } }),
+      )
+      const side = createSideCache({ storage, enumerateKeys: () => [] })
+      expect(
+        side
+          .outboxStorage()
+          .load()
+          .map((e) => e.mutationId),
+      ).toEqual(['m2'])
+    })
+
+    it('LEAVES the legacy blobs in place, so turning the flag back off loses nothing', () => {
+      const storage = memoryStorage()
+      const raw = JSON.stringify([queued('m1')])
+      storage.setItem('podium.outbox.v1', raw)
+      createSideCache({ storage, enumerateKeys: () => [] })
+      expect(storage.getItem('podium.outbox.v1')).toBe(raw)
+    })
+
+    it('is idempotent by mutationId — a second boot does not duplicate the queue', () => {
+      const storage = memoryStorage()
+      storage.setItem('podium.outbox.v1', JSON.stringify([queued('m1'), queued('m2')]))
+      createSideCache({ storage, enumerateKeys: () => [] })
+      const second = createSideCache({ storage, enumerateKeys: () => [] })
+      expect(
+        second
+          .outboxStorage()
+          .load()
+          .map((e) => e.mutationId),
+      ).toEqual(['m1', 'm2'])
+    })
+
+    it('never clobbers entries this path already queued', () => {
+      const storage = memoryStorage()
+      storage.setItem('podium.outbox.v1', JSON.stringify([queued('legacy-1')]))
+      storage.setItem(
+        'podium.kernel-replica.outbox.v1',
+        JSON.stringify([queued('kernel-already-here')]),
+      )
+      const side = createSideCache({ storage, enumerateKeys: () => [] })
+      expect(
+        side
+          .outboxStorage()
+          .load()
+          .map((e) => e.mutationId),
+      ).toEqual(['kernel-already-here', 'legacy-1'])
+    })
+
+    it('ignores rows that are not entries, rather than queueing garbage', () => {
+      const storage = memoryStorage()
+      storage.setItem(
+        'podium.replica.outbox.v1',
+        JSON.stringify({
+          good: queued('m1'),
+          notAnEntry: { sessionId: 's1', name: 'a session row' },
+          alsoNot: 42,
+          nope: null,
+        }),
+      )
+      const side = createSideCache({ storage, enumerateKeys: () => [] })
+      expect(
+        side
+          .outboxStorage()
+          .load()
+          .map((e) => e.mutationId),
+      ).toEqual(['m1'])
+    })
+
+    it('an unreadable legacy blob yields nothing and does not throw', () => {
+      const storage = memoryStorage()
+      storage.setItem('podium.outbox.v1', '{not json')
+      expect(() => createSideCache({ storage, enumerateKeys: () => [] })).not.toThrow()
+      expect(
+        createSideCache({ storage, enumerateKeys: () => [] })
+          .outboxStorage()
+          .load(),
+      ).toEqual([])
+    })
+  })
+
   it('reads a poisoned blob as empty instead of wedging', () => {
     const storage = memoryStorage()
     storage.setItem('podium.kernel-replica.uistate.v1', '{not json')

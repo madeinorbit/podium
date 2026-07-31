@@ -32,7 +32,7 @@
  */
 
 import type { TranscriptItem } from '@podium/model'
-import type { OutboxEntry, OutboxStorage } from '../../outbox'
+import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage } from '../../outbox'
 import {
   LEGACY_UI_KEYS,
   LEGACY_UI_MAP_PREFIXES,
@@ -52,6 +52,8 @@ export interface SideCacheInit {
   enumerateKeys?: () => string[]
   keyPrefix?: string
   now?: () => number
+  /** Overridable for tests; defaults to the two homes the legacy path uses. */
+  legacyOutboxKeys?: readonly string[]
 }
 
 /** The read/write surface `facade.ts` delegates its non-entity duties to. */
@@ -74,6 +76,59 @@ function readJson<T>(storage: StorageApi, key: string, fallback: T): T {
   } catch {
     return fallback
   }
+}
+
+/**
+ * Where a queued write can be sitting when the flag flips.
+ *
+ * Two homes, because the legacy path itself has two: the PRE-collection JSON
+ * array at `podium.outbox.v1` (`OUTBOX_LS_KEY`, which the legacy replica folds
+ * in on its own first use), and the collection blob at
+ * `podium.replica.outbox.v1` once it has. A migration that read only one of them
+ * would lose whichever the user happened to have.
+ */
+const DEFAULT_LEGACY_OUTBOX_KEYS = [OUTBOX_LS_KEY, 'podium.replica.outbox.v1'] as const
+
+/**
+ * Read a legacy outbox blob WITHOUT knowing which of the two shapes it is in.
+ *
+ * The pre-collection blob is a JSON ARRAY of entries. The collection blob is
+ * TanStack's own on-disk format — an object whose values are the rows — and its
+ * exact envelope is the library's private business, not a contract this module
+ * may depend on. So the read is structural rather than format-aware: walk one
+ * level of whatever is there and keep the values that LOOK like an entry
+ * (`mutationId` + `kind` + `queuedAt`). A shape it cannot recognise yields
+ * nothing, which is the same outcome as today's silent loss and never worse.
+ *
+ * This is duck-typing a foreign format on purpose, and the reason it is
+ * acceptable here is the failure direction: a false negative loses nothing that
+ * was not already lost, and a false positive replays a mutation the server
+ * dedupes by `mutationId`.
+ */
+function readLegacyOutbox(storage: StorageApi, key: string): OutboxEntry[] {
+  let parsed: unknown
+  try {
+    const raw = storage.getItem(key)
+    if (raw === null) return []
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  const candidates: unknown[] = Array.isArray(parsed)
+    ? parsed
+    : parsed !== null && typeof parsed === 'object'
+      ? Object.values(parsed as Record<string, unknown>)
+      : []
+  const entries: OutboxEntry[] = []
+  for (const candidate of candidates) {
+    if (candidate === null || typeof candidate !== 'object') continue
+    const row = candidate as Partial<OutboxEntry>
+    if (typeof row.mutationId !== 'string') continue
+    if (typeof row.kind !== 'string') continue
+    if (typeof row.queuedAt !== 'number') continue
+    entries.push(row as OutboxEntry)
+  }
+  return entries
 }
 
 /** Best-effort: a quota failure degrades persistence, it does not break the UI. */
@@ -186,6 +241,50 @@ export function createSideCache(init: SideCacheInit): SideCache {
   const transcripts = readJson<Record<string, TranscriptWindow>>(storage, transcriptKey, {})
 
   // ---- outbox storage ----------------------------------------------------
+  //
+  // FOLD THE LEGACY QUEUE IN ON FIRST USE, because the alternative is losing
+  // user-authored work at the moment somebody flips a flag.
+  //
+  // Turning `kernel-replica` on moves the engine's outbox from the legacy
+  // replica's collection to this module's key. Anything queued OFFLINE under
+  // the old path — a rename, an archive, a snooze the user made on a train —
+  // would otherwise sit in a blob nothing reads again, and the user would never
+  // be told. ADR 6 D4.3 puts queued entries in the same durability class as
+  // entity rows, and POD-377's brief is explicit that queued work is never
+  // silently discarded. A cache can be re-derived; this cannot.
+  //
+  // The old blobs are READ AND LEFT IN PLACE, never deleted: turning the flag
+  // back off must find the legacy path exactly as it was. That risks a
+  // double-drain, which is the safe direction — every outboxed mutation carries
+  // a stable `mutationId` and the server dedupes on it (docs/spec/
+  // outbox-write-path.md), so a replayed entry is a no-op at the Authority.
+  // Losing the write is not recoverable; sending it twice is.
+  migrateLegacyOutbox()
+
+  function migrateLegacyOutbox(): void {
+    if (storage.getItem(`${outboxKey}.migrated`) !== null) return
+    const found: OutboxEntry[] = []
+    for (const key of init.legacyOutboxKeys ?? DEFAULT_LEGACY_OUTBOX_KEYS) {
+      for (const entry of readLegacyOutbox(storage, key)) {
+        if (!found.some((e) => e.mutationId === entry.mutationId)) found.push(entry)
+      }
+    }
+    if (found.length > 0) {
+      const existing = readJson<OutboxEntry[]>(storage, outboxKey, [])
+      const merged = [...existing]
+      for (const entry of found) {
+        if (!merged.some((e) => e.mutationId === entry.mutationId)) merged.push(entry)
+      }
+      writeJson(storage, outboxKey, merged)
+    }
+    try {
+      storage.setItem(`${outboxKey}.migrated`, '1')
+    } catch {
+      // A storage that cannot record the fold re-runs it; the fold is
+      // idempotent by mutationId, so re-running adds nothing twice.
+    }
+  }
+
   const outboxAt = (key: string): OutboxStorage => ({
     load: () => readJson<OutboxEntry[]>(storage, key, []) as OutboxEntry[],
     save: (entries: OutboxEntry[]) => writeJson(storage, key, entries),
