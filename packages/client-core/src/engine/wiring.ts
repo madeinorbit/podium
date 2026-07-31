@@ -7,7 +7,7 @@
  */
 
 import type { SessionId, WorkState } from '@podium/model'
-import { SocketHub } from '@podium/terminal-client'
+import { type FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import { Outbox, type OutboxEntry, platformIsOnline, platformOnlineEvents } from '../outbox'
 import type { Replica } from '../replica/replica'
@@ -41,9 +41,30 @@ export function createEngineHub(args: {
   replica: Replica
   onFatalError: (message: string) => void
   createHub?: CreateHub
+  /**
+   * WIRE v2 (POD-1223): when supplied, this hub advertises wire 2 and hands
+   * every frame to the kernel Replica's consumer.
+   *
+   * THE BRANCH IS TOTAL, and the `else` half is why. The v1 options below are
+   * not merely unnecessary on the feed path — `fetchChangesSince` is REFUSED
+   * alongside `feed` at SocketHub construction, and `onMetadataApplied` would
+   * drive `applySnapshot` into a replica whose kernel facade throws on it. So
+   * this is not "add a field": the two option sets are mutually exclusive, and
+   * they are written as one ternary so no future edit can hand a hub both
+   * halves and discover the refusal at runtime.
+   */
+  feed?: FeedSinkPort
 }): SocketHub {
   const { api, replica } = args
   const make: CreateHub = args.createHub ?? ((opts) => new SocketHub(opts))
+  if (args.feed !== undefined) {
+    return make({
+      url: args.wsClientUrl,
+      viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
+      onError: (message) => args.onFatalError(message),
+      feed: args.feed,
+    })
+  }
   return make({
     url: args.wsClientUrl,
     viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
