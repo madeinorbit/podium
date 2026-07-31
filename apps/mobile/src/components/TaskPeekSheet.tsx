@@ -2,10 +2,11 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
-import { useRouter } from 'expo-router'
+import { usePathname, useRouter } from 'expo-router'
 import { useEffect } from 'react'
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -31,6 +32,7 @@ export function TaskPeekSheet({
   onClose: () => void
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const insets = useSafeAreaInsets()
 
   useEffect(() => {
@@ -115,7 +117,7 @@ export function TaskPeekSheet({
               style={[styles.btn, styles.btnSecondary]}
               onPress={() => {
                 onClose()
-                router.push(`/session/${session.sessionId}`)
+                router.push(sessionHref(session.sessionId, pathname))
               }}
             >
               <Text style={styles.btnSecondaryText}>Open session</Text>

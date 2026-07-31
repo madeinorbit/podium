@@ -11,6 +11,7 @@ import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { EmptyState } from '../components/ui'
+import { sessionHref } from '../lib/session-route'
 import { color, font, mono, monoLabel, space } from '../theme/theme'
 
 /**
@@ -80,7 +81,7 @@ export function SessionsScreen() {
               model={sessionCardModel(session, issue, now)}
               issue={issue}
               agentColor={session.agentColor}
-              onPress={() => router.push(`/session/${session.sessionId}`)}
+              onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
               onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
             />
           )

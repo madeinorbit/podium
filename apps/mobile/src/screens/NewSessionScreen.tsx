@@ -12,6 +12,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { useMobileClient } from '../client/MobileClientProvider'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
+import { sessionBackTarget, sessionHref } from '../lib/session-route'
 import { color, font, radius, sans, space } from '../theme/theme'
 
 const AGENT_KINDS: { key: AgentKind | undefined; label: string }[] = [
@@ -31,9 +32,14 @@ function param(value: string | string[] | undefined): string | undefined {
 export function NewSessionScreen() {
   const router = useRouter()
   const client = useMobileClient()
-  const params = useLocalSearchParams<{ cwd?: string | string[]; issueId?: string | string[] }>()
+  const params = useLocalSearchParams<{
+    cwd?: string | string[]
+    issueId?: string | string[]
+    backTo?: string | string[]
+  }>()
   const presetCwd = param(params.cwd)
   const issueId = param(params.issueId)
+  const backTarget = sessionBackTarget(params.backTo)
 
   const repos = useMemo(() => {
     const sections = sidebarSections(
@@ -91,7 +97,7 @@ export function NewSessionScreen() {
           agentKind: resolveDefaultAgent(agentKind, client.sessions),
           ...(text ? { firstPrompt: text } : {}),
         })
-        router.replace(`/session/${created.sessionId}`)
+        router.replace(sessionHref(created.sessionId, backTarget))
         return
       }
 
@@ -105,7 +111,7 @@ export function NewSessionScreen() {
         ...(issueId ? { issueId } : { draftIssue: { repoPath: target.repoPath } }),
       })
       if (text) await client.sendMessage(created.sessionId, text)
-      router.replace(`/session/${created.sessionId}`)
+      router.replace(sessionHref(created.sessionId, backTarget))
     } catch (e) {
       setBusy(false)
       setError(e instanceof Error ? e.message : String(e))

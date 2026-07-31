@@ -14,6 +14,7 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
+import { sessionHref } from '../lib/session-route'
 import { effectiveIssueColorHex, FLOW_SLATE, flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
@@ -124,7 +125,7 @@ export function TrayScreen() {
 
   const cardActions: TrayCardActions = {
     onOfferAction: (session, prompt) => void client.sendMessage(session.sessionId, prompt),
-    onOpenSession: (session) => router.push(`/session/${session.sessionId}`),
+    onOpenSession: (session) => router.push(sessionHref(session.sessionId, '/')),
     onOpenIssue: (issue) => router.push(`/issue/${encodeURIComponent(issue.id)}`),
     onResolve: (issue) => void client.trpc.issues.clearNeedsHuman.mutate({ id: issue.id }),
     onOpenArtifact: (issue, artifact: IssuePanelArtifact) => {
@@ -174,7 +175,7 @@ export function TrayScreen() {
               issues={client.issues}
               now={now}
               onAnswer={(choices) => client.answerQuestion(session.sessionId, choices)}
-              onOpenSession={() => router.push(`/session/${session.sessionId}`)}
+              onOpenSession={() => router.push(sessionHref(session.sessionId, '/'))}
             />
           ))}
           {erroredSessions.map((session) => (
@@ -199,7 +200,7 @@ export function TrayScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Open session"
-                  onPress={() => router.push(`/session/${session.sessionId}`)}
+                  onPress={() => router.push(sessionHref(session.sessionId, '/'))}
                   hitSlop={8}
                 >
                   <Text style={styles.sessionLinkText}>session →</Text>

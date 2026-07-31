@@ -8,10 +8,11 @@ import {
   spawnTargetForRepo,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/protocol'
-import { useRouter } from 'expo-router'
+import { usePathname, useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { useMobileClient } from '../client/MobileClientProvider'
+import { sessionHref } from '../lib/session-route'
 import { color } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { Icon } from './Icon'
@@ -34,6 +35,7 @@ type PickerStep = 'harness' | 'repo' | 'machine' | null
  * draft issue and receives the same issue-prime lifecycle as desktop.
  */
 export function NewWorkButton() {
+  const pathname = usePathname()
   const router = useRouter()
   const client = useMobileClient()
   const [step, setStep] = useState<PickerStep>(null)
@@ -59,7 +61,7 @@ export function NewWorkButton() {
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
     const { sessionId } = client.spawnDraftAgent({ target: worktree, agentKind: harness })
     setStep(null)
-    router.push(`/session/${sessionId}`)
+    router.push(sessionHref(sessionId, pathname))
   }
 
   const actions: SheetAction[] = (() => {
@@ -80,7 +82,7 @@ export function NewWorkButton() {
         {
           label: 'Session options…',
           hint: 'Title, first prompt, or a custom working directory',
-          onPress: () => router.push('/new-session'),
+          onPress: () => router.push(`/new-session?backTo=${encodeURIComponent(pathname)}`),
         },
       ]
     }

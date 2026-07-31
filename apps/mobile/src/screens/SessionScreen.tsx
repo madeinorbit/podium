@@ -23,6 +23,7 @@ import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
+import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { TerminalPane } from '../terminal/TerminalPane'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -37,8 +38,13 @@ const WORK_STATES: (WorkState | null)[] = [
 ]
 
 export function SessionScreen() {
-  const params = useLocalSearchParams<{ sessionId: string | string[] }>()
+  const params = useLocalSearchParams<{
+    sessionId: string | string[]
+    backTo?: string | string[]
+  }>()
   const sessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
+  const backTarget = sessionBackTarget(params.backTo)
+  const hasBackTarget = hasSessionBackTarget(params.backTo)
   const router = useRouter()
   const client = useMobileClient()
   const session = sessionId ? client.sessionById(sessionId) : undefined
@@ -63,6 +69,13 @@ export function SessionScreen() {
       return () => setScreenFocused(false)
     }, []),
   )
+  const goBack = useCallback(() => {
+    if (hasBackTarget) {
+      router.dismissTo(backTarget)
+      return
+    }
+    router.replace('/work')
+  }, [backTarget, hasBackTarget, router])
   const [peekIssue, setPeekIssue] = useState<import('@podium/protocol').IssueWire | null>(null)
   const { readTranscript, subscribeTranscript } = client
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
@@ -145,8 +158,8 @@ export function SessionScreen() {
     if (ids.length === 0) return
     const at = ids.indexOf(sessionId)
     const next = ids[(at + 1) % ids.length]
-    if (next && next !== sessionId) router.replace(`/session/${next}`)
-  }, [client.focusSessionIds, router, sessionId])
+    if (next && next !== sessionId) router.replace(sessionHref(next, backTarget))
+  }, [backTarget, client.focusSessionIds, router, sessionId])
 
   const title = session ? sessionTitle(session) : 'Session'
   const issue = session?.issueId ? client.issueById(session.issueId) : undefined
@@ -211,7 +224,7 @@ export function SessionScreen() {
 
   if (!sessionId || !session) {
     return (
-      <Screen title="Session" onBack={() => router.back()}>
+      <Screen title="Session" onBack={goBack}>
         <EmptyState
           title="Session not found."
           body={
@@ -232,7 +245,7 @@ export function SessionScreen() {
           ? `${panelLabel(session.agentKind)} · ${agentBadge(session)?.label ?? session.status}${session.queuedMessageCount ? ` · ${session.queuedMessageCount} queued` : ''}`
           : undefined
       }
-      onBack={() => router.back()}
+      onBack={goBack}
       backLabel="Back"
       accent={accent}
       leading={
