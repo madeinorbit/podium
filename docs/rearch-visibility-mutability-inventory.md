@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **37 of 59 classes have mutable visibility.** This is the majority of
+1. **44 of 75 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -64,6 +64,9 @@ disappearance a scoped feed must be able to signal.
 | `session-live-ephemeral` | Live-only / ephemeral — PTY handles, controller set, in-flight handoff overlay | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE (as a ROOM, not a feed row): presence/attach membership is derived from live connections, so a revoke must evict an attached principal rather than wait for a revision. |
 | `host-metrics` | Live-only / ephemeral — host metrics | owned-compute | `grant-see` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: appears/disappears with the machine’s `see` grant. |
 | `provenance-envelope` | Provenance envelope (`viaHub`, `upstreamStale`, `pendingSync`) | personal | `share` `unshare` `revoke` | Follows whatever it envelopes; it never changes visibility on its own. |
+| `agent-offers` | Agent action offers (`offers`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its session. `offers()` reads EVERY row in one statement today, with no principal in the query. |
+| `session-uploads` | Session uploads (`<stateDir>/uploads/<sessionId>/`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its session, and the path is GUESSABLE by construction (`uploads/<sessionId>/<id>`), so whatever serves these bytes must check the session grant rather than the path. |
+| `headless-turn-spool` | Durable headless turn spool (`<stateDir>/headless-turns/<hash>/`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its session. Nothing serves these files over the wire today; the risk is a future diagnostic that does. |
 | `issue-core` | Issue core (title, design, acceptance, type, priority, stage, assignee, due/defer, origin, audience, draft, panel, …) | personal | `share` `unshare` `revoke` `transfer-owner` `reparent` | PHASE 2 MUST HANDLE: `reparent` is in this list because subtree scope is a MOVING SET — reparenting under an epic widens a working agent’s visibility with nobody having decided it (O3). That is recorded, not resolved. |
 | `issue-document-fields` | Issue document fields (`description`, `notes` / activity notes) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the issue. |
 | `needs-human-group` | Needs-human group (`needsHuman`, `humanQuestion`, options, `humanQuestionAskedBy`, `humanQuestionAskedAt`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the issue. |
@@ -71,11 +74,15 @@ disappearance a scoped feed must be able to signal.
 | `issue-comments` | Issue comments | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the issue. |
 | `issue-messages` | Issue messages (tracker mail, `issue_messages`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: read visibility follows the issue. |
 | `artifacts` | Artifacts (snapshotted files) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its parent. |
+| `activity-events` | Activity event log (`podium_events`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE, and this is the row’s sharpest edge: `issues.events` is a CURSOR READ OVER EVERY SUBJECT IN THE INSTANCE with no per-principal filter, so the scoped feed must filter it by subject the way it filters the change log — a filter without a watermark here is a silently short page rather than a protocol break, which makes it easier to get wrong and harder to notice. |
+| `event-subscriptions` | Event subscriptions (`subscriptions`) | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE on TWO axes: the subscription list must be scoped to its subscriber, and a revoke on the SOURCE entity must stop delivery — a subscription that outlives the subscriber’s access to what it watches is a leak with a schedule. |
 | `conversation-registry` | Conversation registry | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the session. |
 | `segments` | Segments / native evidence | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the conversation. |
 | `blobs` | Blobs (content-addressed) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: reachability changes with every referencing entity’s grants, so a blob can become visible without any blob row changing. |
 | `repo-prefix` | Repo / prefix (`repos`, `repo_prefixes`) | owned-compute | `grant-see` `grant-use` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: the whole per-machine fact set appears/disappears with one machine grant. |
 | `pspec-component` | Project spec component (pspec v1) | owned-compute | `grant-see` `grant-use` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: like every per-machine fact, the whole spec tree appears or disappears with one machine grant — no per-component act changes who can see it. |
+| `harness-discovery-cache` | Harness discovery cache (`<stateDir>/discovery.db`) | owned-compute | `grant-see` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: appears and disappears with the machine grant, like every other per-machine fact. |
+| `harness-hook-settings` | Harness hook settings (`<stateDir>/hooks/`) | owned-compute | `grant-see` `grant-manage` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: follows the machine, and `manage` rather than `see` is the verb that matters — editing hooks changes what every agent on that host does. |
 | `approval-requests` | Approval requests | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its subject entity. |
 | `automations-and-runs` | Automations / runs | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability. |
 | `workflow-definitions` | Workflow definitions (`workflows`) | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE: disabling an owner’s ACCOUNT must stop their in-flight runs — a live intersection at every apply (ADR 9 D5 A1), not a stored capability. |
@@ -101,7 +108,9 @@ disappearance a scoped feed must be able to signal.
 | `daemon-identity-file` | Daemon local identity file | owned-compute | — | A local file; not replicated, so replica visibility never changes. |
 | `session-read-at` | Session `readAt` (moved out of the labels group by Amendment 1 D10) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `snooze` | Snooze (`snoozes` / `snoozedUntil`) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
+| `session-observation-bookkeeping` | Session observation leases, rebinds and terminal candidates (`session_observation_checkpoints`, `session_observation_rebinds`, `session_terminal_candidates`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
 | `issue-message-read-at` | Issue message / issue `readAt` (moved by Amendment 1 D10) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
+| `subscription-deliveries` | Subscription delivery receipts (`subscription_deliveries`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
 | `pins` | Pins | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `tab-order` | Tab order / sidebar layout | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `preferences-personal-keys` | Preferences — PERSONAL keys (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic, …) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
@@ -110,6 +119,13 @@ disappearance a scoped feed must be able to signal.
 | `managed-credentials` | Managed credentials / accounts (`accounts`) | secret | — | Values never replicate; `manage` is admin-grade. |
 | `config-features` | Operator `config.features` (feature flags) | deployment-substrate | — | Tenant-visible from creation. |
 | `advisory-locks` | Advisory locks (`locks`, `lock_waiters`) | deployment-substrate | — | Tenant-visible from creation — that is the point of a coordination name. |
+| `maintenance-lease` | Janitor maintenance lease (`maintenance_leases`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
+| `maintenance-command-receipts` | Janitor command receipts (`maintenance_commands`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
+| `steward-state` | Steward cursor KV (`steward_state`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
+| `notification-facts` | Notification arbiter claims (`notification_facts`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
+| `message-wake-cooldowns` | Message wake cooldowns (`message_wake_cooldowns`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
+| `id-allocation-counters` | Id allocation counters (`repo_draft_seq`, `issue_ref_letters`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
+| `feed-identity` | Feed identity (`feed_identity`) — `(feedId, epoch)` beside the log | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
 | `applied-mutations` | Applied mutations | deployment-substrate | — | Never replicated to the general replica, so no principal’s view of it can change. Substrate at rest and invisible on the wire is the one combination with nothing for Phase 2 to signal. |
 | `client-outbox` | Client outbox | per-user-state | — | Device-local and never replicated. |
 | `replica-cursor` | Replica cursor / collections | per-user-state | — | NOT mutable, and the distinction matters: only its owner ever sees this row, so no verb changes WHO CAN SEE IT. What a grant changes is WHAT THE CURSOR POINTS AT — so this is where a rescope LANDS, not a class whose visibility moves. PHASE 2 (POD-1077) still touches it: a scoped bootstrap reads the principal’s slice at `(feedId, epoch, seq)`, and the shape of ADR 2 D6’s chunked bootstrap is unaffected. |
