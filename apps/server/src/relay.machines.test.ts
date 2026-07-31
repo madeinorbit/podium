@@ -1,7 +1,7 @@
-import { asRepoId, asSessionId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asRepoId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -9,8 +9,20 @@ import { SessionStore } from './store'
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
-  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'one',
+    hostname: 'one',
+    tokenHash: 'x',
+    ownerUserId: 'user:sole',
+  })
+  store.machines.upsertMachine({
+    id: 'm2',
+    name: 'two',
+    hostname: 'two',
+    tokenHash: 'y',
+    ownerUserId: 'user:sole',
+  })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',
@@ -73,6 +85,7 @@ describe('multi-daemon routing', () => {
       type: 'sessionResumeRefAck',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-a' },
+      ownerId: FIRST_ADMIN_USER_ID,
     })
     expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
   })
@@ -212,8 +225,20 @@ async function handoffRegistry(
   } = {},
 ) {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x', ownerUserId: 'user:sole' })
-  store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'source',
+    hostname: 'source',
+    tokenHash: 'x',
+    ownerUserId: 'user:sole',
+  })
+  store.machines.upsertMachine({
+    id: 'm2',
+    name: 'target',
+    hostname: 'target',
+    tokenHash: 'y',
+    ownerUserId: 'user:sole',
+  })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',

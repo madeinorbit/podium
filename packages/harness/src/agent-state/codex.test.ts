@@ -1,4 +1,3 @@
-import { asSessionId } from '@podium/model'
 import {
   appendFile,
   mkdir,
@@ -11,6 +10,7 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { asSessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -330,14 +330,12 @@ describe('codexStateProvider', () => {
         endpointUrl: 'http://x',
         settingsPath: '/tmp/s',
         socketPath: '/run/podium/hooks.sock',
-        receiptDir: '/state/podium/codex-receipts',
       }),
     ).toEqual({
       args: [],
       env: {
         PODIUM_CODEX_HOOK_URL: 'http://x',
         PODIUM_CODEX_HOOK_SOCKET: '/run/podium/hooks.sock',
-        PODIUM_CODEX_HOOK_RECEIPT_DIR: '/state/podium/codex-receipts',
       },
     })
   })
@@ -709,12 +707,16 @@ describe('findProcessBoundCodexRollout', () => {
     await process(101, paneA, [rolloutA, guardian])
     await process(202, paneB, [rolloutB])
 
-    await expect(findProcessBoundCodexRollout(sessions, asSessionId(paneA), proc)).resolves.toMatchObject({
+    await expect(
+      findProcessBoundCodexRollout(sessions, asSessionId(paneA), proc),
+    ).resolves.toMatchObject({
       id: 'native-a',
       path: rolloutA,
       confidence: 'exact',
     })
-    await expect(findProcessBoundCodexRollout(sessions, asSessionId(paneB), proc)).resolves.toMatchObject({
+    await expect(
+      findProcessBoundCodexRollout(sessions, asSessionId(paneB), proc),
+    ).resolves.toMatchObject({
       id: 'native-b',
       path: rolloutB,
       confidence: 'exact',

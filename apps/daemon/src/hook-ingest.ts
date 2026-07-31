@@ -1,9 +1,9 @@
-import { asSessionId } from '@podium/model'
-import type { SessionId } from '@podium/model'
 import { chmod, mkdir, rm } from 'node:fs/promises'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { createConnection } from 'node:net'
 import { dirname } from 'node:path'
+import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 
 /**
  * Receives Claude Code `type: "http"` hook POSTs at /hooks/<podiumSessionId>.
@@ -41,6 +41,8 @@ export const HOOK_BODY_MAX_BYTES = 2 * 1024 * 1024
 
 export async function startHookIngest(opts: {
   onPayload: (sessionId: SessionId, payload: unknown) => void
+  /** Optional durable write that must finish before HTTP 200 acknowledges the hook. */
+  beforeAck?: (sessionId: SessionId, payload: unknown) => Promise<void>
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_HOOK_PORT. */
   port?: number
   /** Stable, instance-scoped Unix socket used by Codex hooks. */
@@ -94,52 +96,64 @@ export async function startHookIngest(opts: {
         res.end('{}')
         return
       }
-      // State tracking always fires, fire-and-forget (never blocks the agent).
-      try {
-        opts.onPayload(sessionId, payload)
-      } catch {
-        // observer must never throw into the response path
-      }
-      const respondTo = opts.respondTo
-      if (!respondTo) {
-        res.writeHead(200, { 'content-type': 'application/json' })
-        res.end('{}')
-        return
-      }
-      // Optional bounded response: await respondTo, but never delay the agent past the timeout.
-      const timeoutMs = opts.respondTimeoutMs ?? 3000
-      let settled = false
-      const finish = (bodyText: string): void => {
-        if (settled) return
-        settled = true
+      void (async () => {
         try {
-          res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(bodyText)
+          await opts.beforeAck?.(sessionId, payload)
         } catch {
-          // The client (agent) may have disconnected during the respondTo await
-          // window; a late write onto a destroyed socket throws. Nothing to send,
-          // so swallow it — the settled guard still prevents any double-send.
+          // A 2xx would let the hook process forget evidence that is not durable.
+          res.writeHead(503, { 'content-type': 'application/json' })
+          res.end('{}')
+          return
         }
-      }
-      const timer = setTimeout(() => finish('{}'), timeoutMs)
-      timer.unref?.()
-      // A client disconnect mid-await cancels the pending response so the
-      // timer/promise callback becomes a no-op instead of writing to a closed
-      // socket (which would otherwise throw uncaught out of the timer callback).
-      res.on('close', () => {
-        settled = true
-        clearTimeout(timer)
-      })
-      Promise.resolve()
-        .then(() => respondTo(sessionId, payload))
-        .then((body) => {
+
+        // State tracking fires only after the durability boundary, then remains
+        // fire-and-forget so translation cannot hold the hook process open.
+        try {
+          opts.onPayload(sessionId, payload)
+        } catch {
+          // observer must never throw into the response path
+        }
+        const respondTo = opts.respondTo
+        if (!respondTo) {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end('{}')
+          return
+        }
+        // Optional bounded response: await respondTo, but never delay the agent past the timeout.
+        const timeoutMs = opts.respondTimeoutMs ?? 3000
+        let settled = false
+        const finish = (bodyText: string): void => {
+          if (settled) return
+          settled = true
+          try {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(bodyText)
+          } catch {
+            // The client (agent) may have disconnected during the respondTo await
+            // window; a late write onto a destroyed socket throws. Nothing to send,
+            // so swallow it — the settled guard still prevents any double-send.
+          }
+        }
+        const timer = setTimeout(() => finish('{}'), timeoutMs)
+        timer.unref?.()
+        // A client disconnect mid-await cancels the pending response so the
+        // timer/promise callback becomes a no-op instead of writing to a closed
+        // socket (which would otherwise throw uncaught out of the timer callback).
+        res.on('close', () => {
+          settled = true
           clearTimeout(timer)
-          finish(typeof body === 'string' && body.length > 0 ? body : '{}')
         })
-        .catch(() => {
-          clearTimeout(timer)
-          finish('{}')
-        })
+        Promise.resolve()
+          .then(() => respondTo(sessionId, payload))
+          .then((body) => {
+            clearTimeout(timer)
+            finish(typeof body === 'string' && body.length > 0 ? body : '{}')
+          })
+          .catch(() => {
+            clearTimeout(timer)
+            finish('{}')
+          })
+      })()
     })
   }
 

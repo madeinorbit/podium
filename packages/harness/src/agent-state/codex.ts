@@ -1019,15 +1019,15 @@ export const codexStateProvider: AgentStateProvider = {
   // Codex hooks are installed GLOBALLY (hooks.json lives in CODEX_HOME, not per
   // spawn — see the daemon ensurePodiumCodexHooks. New sessions prefer the
   // stable, instance-scoped socket; URL remains for one rolling upgrade.
-  // Exact binding receipts survive daemon or server reconnects. Theme seeding
+  // Exact bindings are durably recorded by the daemon ingest before its HTTP
+  // acknowledgement, then survive daemon or server reconnects. Theme seeding
   // uses the official per-invocation config override [spec:SP-a04d].
-  instrumentation({ endpointUrl, socketPath, receiptDir, seedTheme }) {
+  instrumentation({ endpointUrl, socketPath, seedTheme }) {
     return {
       args: seedTheme ? ['-c', 'tui.theme=ansi'] : [],
       env: {
         [PODIUM_CODEX_HOOK_URL_ENV]: endpointUrl,
         ...(socketPath ? { [PODIUM_CODEX_HOOK_SOCKET_ENV]: socketPath } : {}),
-        ...(receiptDir ? { [PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV]: receiptDir } : {}),
       },
     }
   },
@@ -1039,8 +1039,6 @@ export const codexStateProvider: AgentStateProvider = {
 export const PODIUM_CODEX_HOOK_URL_ENV = 'PODIUM_CODEX_HOOK_URL'
 /** Stable, instance-scoped Unix socket used by new Codex hook commands. */
 export const PODIUM_CODEX_HOOK_SOCKET_ENV = 'PODIUM_CODEX_HOOK_SOCKET'
-/** Instance-scoped directory containing at most one pending identity receipt per pane. */
-export const PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV = 'PODIUM_CODEX_HOOK_RECEIPT_DIR'
 
 export interface CodexCausalStateOptions {
   podiumSessionId: SessionId

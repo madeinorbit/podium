@@ -111,8 +111,8 @@ Normative rules, generalizing [spec:SP-fccf]:
    window, path shape). §4 decides what each may do.
 5. **Absence is a state, not a licence to guess.** `unbound` is expected and legitimate.
 
-`apps/daemon/src/codex-identity-receipts.ts` is the **reference implementation** of
-observation-with-history durability. §12 states what a generalization may not change.
+`apps/daemon/src/binding-store.ts` is the implementation of observation-with-history
+durability, including retain-until-server-ack delivery state on each observation.
 
 ### 3.2 Minting responsibilities
 
@@ -150,7 +150,8 @@ resume-ref and `sessionResumeRefAck` over it re-homes identity and breaks
 unacked observation across its own crash and replays it; the server persists idempotently
 and only then acks; only the ack removes the host copy. An ack **names the exact value**
 acknowledged, so a newer observation that arrived while an older ack was in flight
-**stays pending**. This is `CodexIdentityReceipts.acknowledge`, generalized.
+**stays pending**. `BindingStore.acknowledgePendingReceipt` enforces the exact-value
+and owner match before clearing delivery state.
 
 **W10 — Acks are gated on confidence; retention is not.** Only an `exact` observation is
 **acknowledged**, because an ack promises the server's durable state now names that value.
@@ -300,9 +301,8 @@ Linux process→rollout binding naming different threads for one session).
 | Two exact claims, **different values, unordered** — no proven succession (hook says X, process ownership says Y) | **Visible fail.** The binding enters `conflicted`, the **head stops advancing** (the last agreed value remains the head), both observations are retained, and **no ack is sent for either**. |
 
 The unordered case must not be resolved by source precedence ("hooks beat process
-ownership"). Both are `exact` by construction — the shipped spool records the process
-binding through the *same* acked path as the hook (`CodexIdentityReceipts.record`, payload
-`hook_event_name: 'PodiumProcessBinding'`) — so a precedence rule would be an invented
+ownership"). Both are `exact` by construction — the binding store records process
+ownership and native-hook evidence through the same pending-ack observation path — so a precedence rule would be an invented
 authority ranking, which is exactly the W6 prohibition.
 
 **W12 — Never "newest".** Selecting the newest artifact *is* the cross-wiring bug. Codex
@@ -844,11 +844,11 @@ has not reported a successful import, abort** (§6.7) — fail closed toward the
 still has the work. `phase == 'committed'` is complete by definition; the claimant already
 moved atomically.
 
-**R6 — Crash between a receipt claim and its delete.** The shipped recovery is ratified:
-`.ack` claim files are restored with `link()`, which is create-if-absent and therefore
-cannot overwrite a newer receipt the way `rename()` could
-(`CodexIdentityReceipts.pending`/`restoreClaim`). A stale ack **restores rather than
-deletes**, so a newer native id observed while an older ack was in flight stays pending.
+**R6 — Crash during receipt acknowledgement.** Acknowledgement is a serialized atomic
+rewrite of that session's binding file. A stale ack clears only observations whose
+`pendingServerAck` exactly matches its native kind and value, so a newer native id
+observed while an older ack was in flight stays pending. Legacy `.ack` claims are
+accepted only by the one-shot v3 migration and are removed after durable import.
 
 **R7 — Recovery never guesses.** Any recovery path that cannot prove a binding leaves it
 `unbound` or `conflicted` and surfaces it. POD-417's SIGKILL-plus-restart test asserts
@@ -872,7 +872,7 @@ Required by POD-323 Step 1; POD-415 implements from this table. **Disposition** 
 | Observation leases / durable checkpoint | `docs/reattachment-design.md` (POD-1015) | **unchanged and adjacent** — the checkpoint is not the binding (§11 C4); the binding holds the generation, the checkpoint holds cursors and turn state | **keep, do not merge** |
 | `session-observers.ts` in-memory maps | `apps/daemon/src/session-observers.ts` | rebuilt from the binding on attach; no persistence added | **drop (rebuild)** |
 | `~/.podium/daemon.json` (`DaemonIdentity`) | `apps/daemon/src/identity.ts` | **unchanged** — the machine join key; the binding references it | **keep, do not migrate** |
-| Codex receipts + `.ack` claims | `apps/daemon/src/codex-identity-receipts.ts` | the general observation spool, preserving all five properties of §12 | **fold — POD-737** |
+| Codex receipts + `.ack` claims | historical `runtime/codex-identity-receipts` directory | `SessionBinding.observations[].pendingServerAck`; directory removed after durable import | **folded — POD-737** |
 | `HandoffManifest` | `packages/protocol/src/messages/handoff.ts` | unchanged on the wire; `sessionId` reused verbatim (H1), `resume` re-observed (H3) | **keep** |
 | `spawnedBy: string` | 5 reps | `SessionBinding.delegation` | **replace** (P8) |
 
@@ -966,16 +966,15 @@ choice must be made with:
 - The **server-side `schema_version` concept is retired** (drizzle journal).
 - The binding store is therefore **new persistence**, and per S1 its version is its own.
 
-**S4 — Do not force a retrofit of the shipped spool.** `codex-identity-receipts.ts` is
-live, durable and crash-tested; POD-737 folds it in. Any abstraction that changes the
-following is a **retrofit**, and this is a design constraint on POD-415:
+**S4 — Receipt fold outcome.** POD-737 folded the shipped spool into the v3 binding
+store while preserving these constraints:
 
 | Shipped property | Why a generalization must keep it |
 |---|---|
-| **One file per Podium `SessionId`** | A shared file or table makes two sessions' receipts contend, and a partial write loses an unrelated session's binding. Per-session files are why crash recovery is a rename and a link. |
-| Payload key `session_id` = the **native** id | Renaming breaks in-flight receipts written by an older shell hook. The hook is not upgraded atomically with the daemon. |
+| **One binding file per Podium `SessionId`** | Two sessions' receipts never contend; a partial write cannot lose another session's binding. |
+| Legacy payload key `session_id` = the **native** id | The v3 migrator accepts in-flight files written by an older shell hook. |
 | **Ack-gated deletion**, ack naming the exact value | Deleting on send loses a binding across a crash; deleting on a stale ack loses the *newer* binding silently (W9). |
-| Atomic `.ack` claim files + `link()` restore | `link()` is create-if-absent, so restoring a claim can never overwrite a newer receipt — `rename()` could. Read-modify-write reintroduces the lost update. |
+| Atomic per-session binding rewrite | Recording and acknowledgement serialize per session and replace the binding file atomically. |
 | At-least-once replay, idempotent server apply | The only durability contract that survives an unacked crash without a distributed transaction. |
 
 Adding channels beyond `codex-thread` is **additive**. Introducing a relational schema, a
@@ -1086,7 +1085,7 @@ that record unblocks POD-415, POD-416, POD-417, POD-644 and POD-737.
 - [spec:SP-fccf] Codex session identity · [spec:SP-15aa] instance runtime namespace
   (`c28463a6`) · [spec:SP-3f7a] portable session package · [spec:SP-eb60] naming doctrine
 - Code: `packages/domain/src/session-identity.ts` (`51b136fe`) ·
-  `apps/daemon/src/codex-identity-receipts.ts` · `apps/daemon/src/identity.ts` ·
+  `apps/daemon/src/binding-store.ts` · `apps/daemon/src/identity.ts` ·
   `apps/server/src/modules/sessions/service.ts` (`sessionResumeRef`) ·
   `apps/server/src/store/conversations.ts` (`repairSubagentSegmentPaths`) ·
   `packages/agent-bridge/src/agent-state/codex.ts` (`resolvePinnedCodexRollout`, candidate

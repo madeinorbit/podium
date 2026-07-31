@@ -195,7 +195,6 @@ async function spawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
         // Absent = the setting default (on); older servers still get [spec:SP-a04d].
         seedTheme: msg.seedCliTheme ?? true,
         ...(ctx.hookSocketPath ? { socketPath: ctx.hookSocketPath } : {}),
-        receiptDir: ctx.codexReceiptDir,
       })
       if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
       extraArgs = instr.args
@@ -484,8 +483,8 @@ export const sessionHandlers: Pick<
     ctx.observers.onProviderRebindAck(msg)
   },
   sessionResumeRefAck: (ctx, msg) => {
-    void ctx.codexIdentityReceipts
-      .acknowledge(msg.sessionId, msg.resume)
+    void ctx.bindingStore
+      .acknowledgePendingReceipt(msg.ownerId, msg.sessionId, msg.resume)
       .catch((err) => console.warn('[podium] could not acknowledge Codex identity receipt:', err))
   },
   sessionPriority: (ctx, msg) => {

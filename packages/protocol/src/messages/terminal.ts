@@ -1,4 +1,4 @@
-import { AgentKind, Geometry, ResumeRef, SessionIdField } from '@podium/model'
+import { AgentKind, Geometry, ResumeRef, SessionIdField, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import { FeedCursorField } from './feed'
 
@@ -202,6 +202,8 @@ export const SessionResumeRefAckMessage = z.object({
   type: z.literal('sessionResumeRefAck'),
   sessionId: SessionIdField,
   resume: ResumeRef,
+  /** Binding owner resolved by the server; absent from older rolling peers. */
+  ownerId: UserIdField.optional(),
 })
 
 // ---- Browser client -> server: terminal control frames ----

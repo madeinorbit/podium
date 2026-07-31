@@ -819,12 +819,13 @@
         "resume": {
           "kind": "resume.kind",
           "value": "resume.value"
-        }
+        },
+        "ownerId": "ownerId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
+      "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"ownerId\":\"ownerId\"}"
     },
     {
       "schema": "SetSessionDraftMessage",

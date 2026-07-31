@@ -1,4 +1,3 @@
-import { sessionSpawnerParentId } from '../../steward'
 import type {
   AccountId,
   ActorRef,
@@ -15,6 +14,7 @@ import type {
   WorkState,
 } from '@podium/model'
 import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
+import { sessionSpawnerParentId } from '../../steward'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -32,11 +32,6 @@ import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
  */
 export type SessionWirePrincipal = ActorRef
 
-import type { MachinePrincipal } from '@podium/protocol'
-import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
-import type { ClientPrincipal } from '../../gateway/client-principal'
-import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
-import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
@@ -47,6 +42,7 @@ import {
   repoNameFromOrigin,
   type SessionUserOverlay,
 } from '@podium/model'
+import type { MachinePrincipal } from '@podium/protocol'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
@@ -55,29 +51,35 @@ import {
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
-  FEED_MESSAGE_TYPES,
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
   type DraftEditMessage,
+  FEED_MESSAGE_TYPES,
   formatSessionRef,
+  type IssueDepProjection,
+  type IssueProjection,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type IssueDepProjection,
-  type IssueProjection,
-  type RepoProjection,
   type ObservationInputOrigin,
   type ObservationProvider,
+  type RepoProjection,
   type ServerMessage,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
+import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
+import type { ClientPrincipal } from '../../gateway/client-principal'
+import { feedPrincipalOf } from '../../gateway/client-principal'
+import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 // OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
 // binding, so importing it from both is a duplicate identifier rather than two
 // different capabilities — verified before deduping, because two same-named symbols
@@ -88,7 +90,6 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
@@ -112,7 +113,6 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import { feedPrincipalOf } from '../../gateway/client-principal'
 import { perfPrincipal } from '../perf/principal'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
@@ -497,7 +497,8 @@ export class SessionsService {
       // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
       // so it is resolved for a user. See `settingsViewer` below for why that
       // user is spelled out rather than defaulted.
-      isEnabled: () => this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
+      isEnabled: () =>
+        this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
       sendContinue: (sessionId) => {
         this.continueSession({ sessionId })
       },
@@ -1438,9 +1439,7 @@ export class SessionsService {
   }
 
   clearSnooze(userId: string, sessionId: SessionId): void {
-    this.persistPerUserState(sessionId, () =>
-      this.store.sessions.clearSnooze(userId, sessionId),
-    )
+    this.persistPerUserState(sessionId, () => this.store.sessions.clearSnooze(userId, sessionId))
   }
 
   /**
@@ -1454,7 +1453,7 @@ export class SessionsService {
    * ONE place that transitional answer is given, so POD-1075 changes it here
    * rather than in eleven handlers.
    */
-  sessionOwner(sessionId: SessionId): { owner: string | null; grants: string[] } | undefined {
+  sessionOwner(sessionId: SessionId): { owner: UserId | null; grants: string[] } | undefined {
     if (!this.sessions.has(sessionId)) return undefined
     return { owner: FIRST_ADMIN_USER_ID, grants: [] }
   }
@@ -3862,7 +3861,9 @@ export class SessionsService {
     const accountId =
       input.agentKind === 'shell'
         ? undefined
-        : (input.accountId ?? resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId)
+        : (input.accountId ??
+          resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding')
+            .accountId)
     const session = new Session({
       sessionId,
       agentKind: input.agentKind,
@@ -4007,7 +4008,10 @@ export class SessionsService {
    *  special-cases shell for the same reason of shape: a shell is not an agent.) */
   private accountEnv(
     agentKind: AgentKind,
-    accountId = resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId,
+    accountId = resolveRole(
+      this.store.settings.getSettingsFor(this.settingsViewer()),
+      'coding',
+    ).accountId,
   ): { env?: Record<string, string> } {
     if (agentKind === 'shell') return {}
     return resolveAccountEnv(this.store.accounts, accountId)
@@ -4317,7 +4321,12 @@ export class SessionsService {
         )
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.attach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
+        perf.record(
+          'phase',
+          'ws.attach',
+          performance.now() - t0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         break
       }
       case 'detach': {
@@ -4326,7 +4335,12 @@ export class SessionsService {
         this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id), false)
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.detach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
+        perf.record(
+          'phase',
+          'ws.detach',
+          performance.now() - t0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         break
       }
       case 'input':
@@ -5066,10 +5080,13 @@ export class SessionsService {
         // Ack only after the exact mapping is already in durable server state.
         // Delivery is at-least-once, so an unchanged mapping is also acknowledged.
         if (msg.ackRequested && msg.confidence === 'exact') {
+          const owner = this.sessionOwner(msg.sessionId)?.owner
+          if (!owner) break
           this.toMachine(machineId, {
             type: 'sessionResumeRefAck',
             sessionId: msg.sessionId,
             resume: msg.resume,
+            ownerId: owner,
           })
         }
         break
@@ -5275,14 +5292,24 @@ export class SessionsService {
       // POD-308 deletes the snapshot fan-out.
       const tSkip0 = performance.now()
       if (!issueProjectionChanged) {
-        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'sessionsBroadcast.publishIssuesSkipped',
+          performance.now() - tSkip0,
+          DEPLOYMENT,
+        )
       } else {
         const tIssues0 = performance.now()
         this.deps.publishIssues(sessions)
         // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
         // so the next broadcast re-publishes instead of silently skipping.
         this.lastIssueProjectionGeneration = this.issueProjectionGeneration
-        perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'sessionsBroadcast.publishIssues',
+          performance.now() - tIssues0,
+          DEPLOYMENT,
+        )
       }
       this.lastSessionsBroadcastGeneration = generation
     } finally {
@@ -5290,7 +5317,6 @@ export class SessionsService {
     }
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
   }
-
 
   private globalPublicationIds(): readonly string[] {
     const cached = this.globalPublicationIdsCache

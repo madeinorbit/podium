@@ -10,6 +10,8 @@ one damaged or interrupted write cannot discard another session's binding histor
 
 - Store v1 established the manifest and per-session record directory.
 - Store v2 added the durable one-shot legacy-migration receipt.
+- Store v3 folded retain-until-server-ack Codex receipts into binding observations
+  and records completion of legacy receipt-directory removal.
 - Session records currently use record schema v1. A newer store or record version is
   refused without rewriting or deleting its bytes.
 
@@ -45,11 +47,12 @@ one from `FIRST_ADMIN_USER_ID` when a control frame arrives.
 
 ## Receipt constraint
 
-Importing a Codex receipt records `pendingServerAck` on the observation but leaves the
-legacy receipt or `.ack` claim byte-identical on disk. The old spool remains the active
-delivery/deletion mechanism until POD-737 moves it onto the general store. That later
-fold can preserve exact-value acknowledgement, at-least-once replay, and per-session
-atomic isolation without changing the binding schema.
+Importing a Codex receipt records `pendingServerAck` on the observation. Store v3 then
+writes its fold marker and removes the legacy receipt directory, in that order. New hook
+and process-ownership observations write the per-session binding file directly; replay
+and owner-stamped exact-value acknowledgement clear only `pendingServerAck`, never the
+observation history. A late file written by an old process during rolling upgrade is
+drained idempotently on the next open and the directory is removed again.
 
 ## Multi-user boundary
 

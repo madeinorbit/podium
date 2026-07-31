@@ -56,8 +56,6 @@ export interface AgentStateProvider {
     seedTheme?: boolean
     /** Instance-scoped stable socket for hook commands that support it. */
     socketPath?: string
-    /** Instance-scoped directory for durable exact-identity receipts. */
-    receiptDir?: string
   }): AgentInstrumentation
   /** Translate one harness-native payload into zero or more normalized events.
    *  Async because some translations read the transcript (idle classification). */
