@@ -16,6 +16,28 @@
   acceptance: 1/1 passed.
 - Scope reclaim, cgroup placement/survival, detach-key remapping, alt-screen stripping,
   list-state parsing, detach survival, reattach, and explicit reap remain covered by those lanes.
+- The list-state parser is `parseAbducoList` in `packages/pty/src/abduco.ts`. It preserves
+  abduco's incident-critical mapping: `+` is terminated, `*` is attached and alive, and a
+  leading space is detached and alive. Async `listSessions` applies it to both successful
+  stdout and stdout carried by version-dependent non-zero exits.
+
+## Review regression
+
+- `composer-sync.smoke.test.ts` initially reproduced the review failure 3/3. The PTY
+  collaborator's process probe and Unicode argv relied on Bun/node-pty callback ordering;
+  `onExit` can arrive before queued `onData`, leaving the engine with no frame.
+- The collaborator now uses a FIFO rendezvous: the exact `cat` PID blocks until data and exit
+  listeners exist, the test awaits actual frame publication rather than sleeping, and `finally`
+  terminates and awaits that PID. Three consecutive focused reruns passed, with zero fixture
+  processes left alive.
+- Direct callers in both managed-account spawn harnesses now await the async session handler.
+  The Bun.Terminal harness passes 3/3 and the Vitest integration harness passes 3/3.
+- After rebasing onto POD-415 at `b082bc52`, the old five `*Async` names have zero references
+  in `apps/daemon` and `packages/pty`; every surviving daemon invocation is directly awaited
+  or belongs to an awaited `Promise.all`. The combined pty, daemon durability, and
+  binding-aware managed-account integration selection passes 99/99.
+- The reviewer's exact direct command, `bun --bun vitest run
+  apps/daemon/src/composer-sync.smoke.test.ts`, passes three consecutive runs on the rebased tree.
 
 ## Loop responsiveness
 
@@ -28,6 +50,12 @@
 
 ## Repository gates
 
+- Pre-rebase `bun run test:unit`: 619 files passed, 3 skipped; 9,138 tests passed, 19 skipped.
+- Two post-rebase full unit runs each completed 619 files and found one different unrelated
+  shared-host timing failure: `loop-metrics.test.ts` exceeded its long-tick allowance by one,
+  then `terminal-view.keyboard.test.ts` exceeded its 10 s hook deadline. Each failing file
+  subsequently passed three consecutive isolated runs (loop metrics 1/1 each; keyboard 13/13
+  each). No durable-host, binding, or composer test failed in either run.
 - `bun run test`: node 619 files / 9,138 tests passed; web 182 files / 1,456 tests
   passed; mobile 34 tests passed; Bun sqlite 14 tests passed.
 - `bun run typecheck` reaches the pre-existing ambiguous `Geometry` model-barrel export

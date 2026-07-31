@@ -208,7 +208,7 @@ async function spawnAndDumpEnv(
     ),
   )
 
-  sessionHandlers.spawn(h.ctx, msg)
+  await sessionHandlers.spawn(h.ctx, msg)
 
   const bind = h.sent.find((m) => m.type === 'bind')
   const spawnError = h.sent.find((m) => m.type === 'spawnError')
