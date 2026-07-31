@@ -1641,7 +1641,8 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     title: 'Preferences — PERSONAL keys (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic, …)',
     sites: [
       'packages/model/src/settings/preferences.ts (`PersonalPreferences` — keyed `(userId)`, POD-418)',
-      'packages/runtime/src/settings.ts (`PodiumSettings` — one instance-wide blob today, COMPOSED from the split groups)',
+      "`user_preferences` — the VALUES at rest, keyed `(user_id, key)` (POD-1213). They were members of the instance-wide `meta['settings']` blob until then, which is why this row read as a claim about a shape rather than about storage.",
+      'packages/runtime/src/settings.ts (`PodiumSettings` — the blob the wire still uses, COMPOSED from the split groups; its personal members are resolved PER READER and no longer stored on it)',
     ],
     conflictNote:
       'Moved out of field-LWW by Amendment 1 D10. `notifications.telegramChatId` moves here explicitly (ADR 9 D8 S4): it is ROUTING CONFIG, not a secret, and classifying it as a secret would break the per-user notification routing S3 depends on.',

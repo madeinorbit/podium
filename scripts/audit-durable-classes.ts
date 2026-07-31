@@ -230,6 +230,12 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // -- §6 Settings, secrets, accounts ---------------------------------------
   { store: 'server_secrets', kind: 'drizzle-table', row: 'server-owned-secrets' },
   { store: 'settings_audit_events', kind: 'drizzle-table', row: 'settings-audit-trail' },
+  // POD-1213. The row is `preferences-personal-keys` — an EXISTING row, already
+  // `per-user-state`, whose values these rows now hold. It is deliberately NOT
+  // `settings-audit-trail`'s answer (`secret`) and deliberately NOT `personal`:
+  // see docs/agents/pod-1213-preference-class-membership.md, which argues both
+  // directions rather than inheriting either.
+  { store: 'user_preferences', kind: 'drizzle-table', row: 'preferences-personal-keys' },
   { store: 'accounts', kind: 'drizzle-table', row: 'managed-credentials' },
   { store: 'execution_profiles', kind: 'drizzle-table', row: 'workflow-execution-profiles' },
   {
