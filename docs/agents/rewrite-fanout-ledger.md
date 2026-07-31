@@ -2019,3 +2019,33 @@ code will be weakened until it fires on nothing.
 **And the control that makes the whole guard meaningful:** a declared entrypoint on the real repo must
 stay SILENT, "because a rule that refused everything would prove browser-safety by making the adapters
 unreachable again."
+
+## Verifying the WORKING TREE and committing the INDEX are two different acts
+
+During the POD-1080 merge I resolved seven conflicts, `git add`ed them, then
+kept working: I edited `rearch-audit-baseline.json` down to the measured 18,
+regenerated the census, and repaired a stale test fixture. Every gate and the
+whole 311-file lane ran green — against the working tree. Then `git commit -F`
+wrote the INDEX, which still held the *pre-edit* versions of all three files.
+
+The commit that resulted was green nowhere. It carried `router-triple-access:
+20` against a measured 18 (which `rearch-audit` fails as not-exact), a census
+saying 4 against a router carrying 2, and the fixture that made five ownership
+tests throw before their assertion. It looked like a verified merge because
+the verification was real — it just was not a verification OF THE COMMIT.
+
+Under `git merge --no-commit` this is the default outcome, not an edge case:
+conflict resolutions get staged, and everything you fix AFTERWARDS does not.
+The two states diverge silently and `git commit` never warns.
+
+The check costs one command and it is not optional:
+
+    git status --porcelain   # MUST be empty before `git commit` on a merge
+
+Empty means what you tested is what you are about to record. Anything listed
+is a change you verified and are about to leave behind. `git diff --stat` from
+the same clean-tree discipline would have shown all three files.
+
+This is the same shape as the `tail`-swallowed exit status and the
+mistyped-branch-inside-a-loop: the instrument answered a question adjacent to
+the one I was asking, and the answer to the adjacent question was yes.
