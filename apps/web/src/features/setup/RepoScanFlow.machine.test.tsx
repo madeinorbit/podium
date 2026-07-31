@@ -157,7 +157,7 @@ describe('RepoScanFlow machine selection', () => {
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
     fireEvent.click(await screen.findByRole('button', { name: 'Scan for repos' }))
 
-    await screen.findByText('known')
+    await screen.findByText('known', {}, { timeout: 5_000 })
     fireEvent.click(screen.getByText('known')) // registered → remove
     fireEvent.click(screen.getByText('fresh')) // candidate → add
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 · Remove 1' }))

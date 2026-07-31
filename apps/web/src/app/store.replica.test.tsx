@@ -1,5 +1,5 @@
-import { asIssueId, asSessionId } from '@podium/model'
-import type { IssueProjection, IssueWire, SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, IssueProjection } from '@podium/model'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -66,11 +66,27 @@ class FakeWS {
 
 function projection(id: string, readAt: string | null): IssueProjection {
   return {
-    id,
-    seq: 1,
-    repoPath: '/w',
-    stage: 'in_progress',
-    updatedAt: '2026-07-01T00:00:00.000Z',
+    ...IssueProjection.parse({
+      id,
+      seq: 1,
+      title: id,
+      description: { value: '' },
+      stage: 'in_progress',
+      archived: false,
+      priority: 2,
+      type: 'task',
+      labels: [],
+      parentBranch: 'main',
+      defaultAgent: 'claude-code',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+      needsHuman: false,
+      createdBy: { actor: { kind: 'user', id: 'user-1' }, onBehalfOf: null },
+      owner: 'user-1',
+      visibility: 'personal',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }),
     readAt,
   } as unknown as IssueProjection
 }

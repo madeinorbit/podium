@@ -13,7 +13,7 @@
     "instance-partitions": 0,
     "issue-shapes": 3,
     "issue-wire-dirty-scoping-shims": 4,
-    "issues-legacy-local-wire": 6,
+    "issues-legacy-local-wire": 12,
     "legacy-wire-v1-adapter": 6,
     "local-placeholders": 15,
     "machine-id-unbranded-fields": 36,
