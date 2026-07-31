@@ -114,13 +114,36 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 /** Machine-readable version probe — distinct from /health (which stays plaintext "ok"). */
-export function registerVersionRoute(app: Hono): void {
+export function registerVersionRoute(
+  app: Hono,
+  deps: {
+    /**
+     * The grade of the visibility policy this server actually runs (POD-376).
+     *
+     * ON THE PRE-BOOT PROBE, and that placement is the decision. The client must
+     * resolve its replica-path flag BEFORE it constructs a replica or opens a
+     * socket, so the answer has to be available at the one request it already
+     * makes first. Advertising it on a frame instead would be too late: the flag
+     * would already have chosen a path, and "correct it afterwards" means the
+     * wrong path ran.
+     *
+     * Optional so a caller assembling a server without a feed edge (unit tests,
+     * the version-route suite) keeps working; ABSENT is reported as
+     * `device-unscoped` because that is the state of a server with no scoped feed
+     * at all, and it is also the answer the client treats as permissive — a
+     * default that had to be the other way would be a gate whose refusing arm
+     * fires on every stripped-down deployment.
+     */
+    visibilityGrade?: () => string
+  } = {},
+): void {
   app.get('/version', (c) =>
     c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
       appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
       instanceId: resolveInstanceId(),
+      feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
     }),
   )
 }
@@ -279,7 +302,11 @@ export async function startServer(
   const cloud = createCloudRuntimeProviderFromEnv()
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
-  registerVersionRoute(app)
+  registerVersionRoute(app, {
+    // Straight through to the Authority, which delegates to the policy object it
+    // was constructed with. No copy on the path (POD-376).
+    visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
+  })
   registerMaintenanceRoute(app, {
     authenticateToken: (token) => store.machines.getMachineByToken(LOCAL_MACHINE_ID, token),
     service: new MaintenanceService(store, registry.modules.funnel, {

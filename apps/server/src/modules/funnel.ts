@@ -1,5 +1,11 @@
 import type { MetadataChange } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL, type AuthorityPort, type ScopedChange, type ScopedDelivery } from '@podium/sync'
+import {
+  DEVICE_GRADE_PRINCIPAL,
+  type AuthorityPort,
+  type FeedScopingGrade,
+  type ScopedChange,
+  type ScopedDelivery,
+} from '@podium/sync'
 import type { EventBus } from './bus'
 
 export interface WriteFunnelDeps {
@@ -167,6 +173,12 @@ export class WriteFunnel {
 
   cursor(): number {
     return this.deps.authority.cursor()
+  }
+
+  /** What kind of answer this server's visibility policy gives (POD-376). A
+   *  passthrough, so there is one source and no copy. */
+  visibilityGrade(): FeedScopingGrade {
+    return this.deps.authority.visibilityGrade()
   }
 
   /**
