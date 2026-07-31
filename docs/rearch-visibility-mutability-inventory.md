@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **44 of 75 classes have mutable visibility.** This is the majority of
+1. **44 of 76 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -118,6 +118,7 @@ disappearance a scoped feed must be able to signal.
 | `server-owned-secrets` | Server-owned secrets (`apiKeys.*`, `integrations.linearApiKey`, `notifications.telegramBotToken`) | secret | — | Never replicated, so replica visibility cannot change. What multi-user changes is WHO MAY ROTATE: management is ADMIN-GRADE once there is more than one human (D15) — "any authenticated principal may replace the org’s provider key" is a privilege escalation with a billing blast radius. |
 | `managed-credentials` | Managed credentials / accounts (`accounts`) | secret | — | Values never replicate; `manage` is admin-grade. |
 | `config-features` | Operator `config.features` (feature flags) | deployment-substrate | — | Tenant-visible from creation. |
+| `settings-audit-trail` | Settings audit trail (`settings_audit_events`) — who changed what, and who was refused | secret | — | Never replicated and not grantable, so no principal’s view of it can change. What multi-user changes is WHO MAY READ IT, which is admin-grade and is the open item below rather than a mutability event. |
 | `advisory-locks` | Advisory locks (`locks`, `lock_waiters`) | deployment-substrate | — | Tenant-visible from creation — that is the point of a coordination name. |
 | `maintenance-lease` | Janitor maintenance lease (`maintenance_leases`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
 | `maintenance-command-receipts` | Janitor command receipts (`maintenance_commands`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |

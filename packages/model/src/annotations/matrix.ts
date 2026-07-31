@@ -107,6 +107,7 @@ export const ROW = {
   serverSecrets: id('server-owned-secrets'),
   managedCredentials: id('managed-credentials'),
   configFeatures: id('config-features'),
+  settingsAuditTrail: id('settings-audit-trail'),
 
   locks: id('advisory-locks'),
   approvals: id('approval-requests'),
@@ -1781,6 +1782,57 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     inheritanceOnCreate: { kind: 'not-applicable', reason: 'Substrate: no owner, no grants.' },
     visibilityMutability: { mutable: false, verbs: [], note: 'Tenant-visible from creation.' },
     open: [],
+  },
+  // -------------------------------------------------------------------------
+  // POD-1211, second pass. POD-421 merged to the integration branch AFTER this
+  // issue branched and brought a new durable table with it; the membership gate
+  // built here caught it on its first contact with the world. Classified to the
+  // same standard as the fourteen rather than to make the gate go green.
+  // -------------------------------------------------------------------------
+  {
+    id: ROW.settingsAuditTrail,
+    section: 'settings-secrets-accounts',
+    title: 'Settings audit trail (`settings_audit_events`) — who changed what, and who was refused',
+    sites: ['`settings_audit_events`', 'apps/server/src/store/settings-audit.ts', 'apps/server/src/modules/settings/audit.ts', 'POD-421'],
+    home: 'server',
+    idMinting: 'Server `id` AUTOINCREMENT — append order is the only order it has',
+    writers: ['system'],
+    replication: 'none',
+    replicationNote:
+      'NEVER REPLICATED, and that is a PROHIBITION here rather than a description of today. The class is `secret`, so `packages/sync/src/feed/visibility.ts` refuses it with `secret-never-replicates` — a reader added to this table later cannot reach it through the feed by accident, which is the property the trail most needs and the one a `personal` declaration would not have given it.',
+    conflict: 'append',
+    conflictNote: 'Append-only, by the server alone, including the REFUSALS — a trail that recorded only successes could not answer "who tried to rotate this key", which is among the first questions asked of one. Nothing merges and nothing is amended.',
+    tombstone: 'never-delete',
+    tombstoneNote:
+      'An audit trail that can be pruned by the principals it audits is not one. No retention policy exists yet; when one is written it is an ADMIN-GRADE act (D15) and belongs with the same governance as secret rotation, not with the event-log retention sweep.',
+    offline: 'never-enqueue',
+    secret: 'secret-presence',
+    secretNote:
+      'Values never reach it: `detail_json` is written through the CONTRACT’s own `redaction` metadata and `redacted_paths` records what was withheld, so a redaction is a stated fact rather than an absence a reader must infer. What the row DOES hold is secret IDENTITY — which key was rotated, by whom, when — which is `secret-presence` exactly, and is precisely what the row is for.',
+    owner: {
+      kind: 'none',
+      reason: 'secret',
+      note:
+        'THE REASON THIS IS NOT `personal`: there is no owner to be private TO. A row names an ACTOR and an ON-BEHALF-OF, and describes a write to a setting that may be instance-scoped or another person’s — three different principals, none of which owns the record of the act. `personal` would additionally have made it grantable, and "share my audit trail" is not a thing anybody should be able to do. Reading an audit trail is an ADMIN act (D15), which is the governance `secret` carries and `personal` does not.',
+    },
+    visibility: 'secret',
+    grants: NO_GRANTS_SECRET,
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'THE ROW IS THE PAIR. Both halves are stamped from the authenticated transport and neither is reachable from an input (ADR 3 D7), and `on_behalf_of` is NULL for a `system` principal BY CONSTRUCTION — enforced twice, in the writer and by a CHECK constraint, because ADR 9 D8 S5 says a system act must never acquire a human.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'Secret: no owner and no grants to inherit (D15). A trail entry inherits nothing from the setting it records — that is what keeps a refused write auditable when the target was never touched.' },
+    visibilityMutability: {
+      mutable: false,
+      verbs: [],
+      note: 'Never replicated and not grantable, so no principal’s view of it can change. What multi-user changes is WHO MAY READ IT, which is admin-grade and is the open item below rather than a mutability event.',
+    },
+    open: ['O1'],
+    openNote:
+      'O1, AND THE PART THAT IS NOT THIS ISSUE’S TO DECIDE. The table has NO READER today, deliberately and in writing (POD-421, the `workflow_events` standing). WHO may read it when a reader is added — instance admins only, or also the person whose setting was changed, or the actor — is a D15 governance call with an existence-leak edge: the trail discloses which secrets exist and whose preferences changed, to whoever can see it. This row makes the surface impossible to add unnoticed (the class refuses replication) and answers none of it. POD-421 also recorded the coupled condition: if a reader is added, the per-user rows become a cross-user surface and `PREFERENCE_REDACTION` must be revisited before it ships.',
   },
 ]
 

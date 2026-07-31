@@ -229,6 +229,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
 
   // -- §6 Settings, secrets, accounts ---------------------------------------
   { store: 'server_secrets', kind: 'drizzle-table', row: 'server-owned-secrets' },
+  { store: 'settings_audit_events', kind: 'drizzle-table', row: 'settings-audit-trail' },
   { store: 'accounts', kind: 'drizzle-table', row: 'managed-credentials' },
   { store: 'execution_profiles', kind: 'drizzle-table', row: 'workflow-execution-profiles' },
   {

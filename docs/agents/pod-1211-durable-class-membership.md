@@ -115,6 +115,53 @@ The per-user rows' `sites` also stopped saying "a singleton today" about tables 
 already re-keyed. `snooze` is now explicitly labelled as **the one member still keyed on the
 entity alone**.
 
+## The gate's first contact with the world: `settings_audit_events`
+
+POD-421 merged to the integration branch **after** this issue branched, and brought a new durable
+table with it. The coordinator merged this branch and ran this gate; it went red:
+
+```
+drizzle-table-undeclared  apps/server/src/migrations/schema.ts -> settings_audit_events
+```
+
+That is the result, not an interruption to it. The gate caught a sibling's unclassified class
+within minutes of existing — the exact hole POD-385 proved was invisible, closing on live traffic
+rather than on a fixture. Nothing else in the repo noticed: `visibilityClassOf('settings-audit-…')`
+answered `personal` and every classification test was green.
+
+### The classification, made to the same standard
+
+`settings_audit_events` is an append-only trail of settings-family commands — applied **and
+refused** — carrying the attribution pair, with `detail_json` written through the contract's own
+redaction metadata and `redacted_paths` naming what was withheld. It has **no reader at all**,
+deliberately and in writing (POD-421, the `workflow_events` standing).
+
+**Row `settings-audit-trail`, visibility `secret`.** Not `personal`, and not by default:
+
+- **There is no owner to be private TO.** A row names an ACTOR and an ON-BEHALF-OF and describes a
+  write to a setting that may be instance-scoped or another person's — three principals, none of
+  which owns the record of the act.
+- **`personal` would have made it grantable**, and "share my audit trail" is not a thing anybody
+  should be able to do. Reading an audit trail is an ADMIN act (ADR 1 D15), which is the
+  governance `secret` carries and `personal` does not.
+- **`secret` is a live prohibition, not a label.** `packages/sync/src/feed/visibility.ts` refuses a
+  declared-`secret` class with `secret-never-replicates`, so a reader added to this table later
+  cannot reach the feed by accident. That is the property the trail most needs, and the one
+  `personal` would not have given it.
+- **`deployment-substrate` was never a candidate**: substrate means tenant-visible, and a trail
+  that discloses which secrets exist and whose preferences changed is the widening direction the
+  coordinator warned about.
+- The SecretClass column says `secret-presence`, not `secret-value`, because values genuinely
+  cannot reach the table. Secret IDENTITY — which key was rotated, by whom, when — is what the row
+  is *for*.
+
+**What this row does NOT decide, marked O1 rather than answered.** WHO may read the trail once a
+reader exists — instance admins only, also the person whose setting changed, also the actor — is a
+D15 governance call with an existence-leak edge. This classification makes that surface impossible
+to add unnoticed and answers none of it. POD-421's own coupled condition is carried on the row: if
+a reader is added, the per-user rows become a cross-user surface and `PREFERENCE_REDACTION` must be
+revisited before it ships.
+
 ## The gate
 
 `scripts/audit-durable-classes.ts`, run by `scripts/audit-durable-classes.test.ts` — in the unit
@@ -150,8 +197,10 @@ against the real repo:
 | Added a table to `schema.ts` | `drizzle-table-undeclared` |
 | Added a module calling `writeFileSync` | `write-site-unaccounted` |
 | Added a module executing `CREATE TABLE IF NOT EXISTS shadow_index` | `runtime-table-undeclared` |
+| Mistyped `settings-audit-trail` after classifying it | `store-names-a-row-that-does-not-exist` |
 
-And the historical one: against the pre-POD-1211 matrix, 21 findings.
+And two unplanted ones: against the pre-POD-1211 matrix, 21 findings; and against integration
+HEAD, POD-421's `settings_audit_events` — a real class, found by the gate, not by a person.
 
 ### What the gate still cannot see
 
