@@ -2392,3 +2392,30 @@ instructive one: the kind ROUND-TRIP test stayed GREEN under it, because all fiv
 entity names happen to pluralise that way. The assertion that killed it was the
 leniency case — `+ 's'` claims to know every entity in the world. That is written
 into the test file, so nobody reads the round-trip as the mapping's guard.
+
+**Addendum (POD-1223, defect 1): a suite that cannot fail for either reason the
+file is wrong.** The kernel side cache wrote the outbox through the same
+best-effort `writeJson` as ui-state — empty catch — so a quota denial lost a
+user's queued offline write silently. ADR 6 D4.3 puts queued entries on the same
+footing as entity rows; this was a correctness bug wearing degraded-UX clothes.
+
+The interesting part is not the fix (`writeQueued`: log, surface, RETHROW) but
+why no test caught it and why a test written afterwards would still have proved
+nothing. `facade.test.ts` runs over `memoryStorage()`, which never denies a
+quota, so the catch was unreachable in that suite BY CONSTRUCTION — a case
+written against it would have been green before the fix existed. The suite could
+not fail for either reason the file was wrong: not for the missing rethrow, and
+not for the missing surface.
+
+So the requirement the coordinator imposed was the right one, and it generalises:
+**when a fix changes behaviour on a path your existing doubles cannot reach,
+adding a test is not evidence — changing the double is.** The case needed a
+`StorageApi` that denies, and then the mutant (revert `writeQueued` to
+`writeJson`) to prove the new case is load-bearing. Both halves, or neither
+counts.
+
+A second line worth keeping: the same commit added a counterfactual asserting
+ui-state and transcripts stay best-effort. Without it, "the outbox rethrows"
+drifts into "everything rethrows" on the next reading, and a preference write
+that takes the app down is a worse defect than the one being fixed. A rule that
+says only what to do, and never where it stops, gets over-applied.
