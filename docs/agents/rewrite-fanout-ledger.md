@@ -3162,3 +3162,33 @@ This is the same move as the ratchets, the membership gate and the census floors
 applied to a MERGE RESOLUTION rather than to product code — and merge resolutions
 are where it is least common and most needed, because a half-finished merge has
 no owner and no test until it lands.
+
+## "Session finished" and "session working" can both be wrong — the cursor decides
+
+The harness reported POD-1246's session finished (done). `podium session status`
+reported `live/working` at the same moment. Three explicit `session stop` calls
+had already returned without stopping it.
+
+Two contradictory signals, one of which had to be believed before I could start
+the next session on a worktree holding an in-flight merge — and starting a second
+session on that worktree while the first was really alive would have collided on
+90 unresolved conflicts.
+
+The rule from earlier in this run resolved it: READ THE TRANSCRIPT CURSOR TWICE.
+
+    a=$(podium session read <id> --turns 1 | grep -oE 'cursor Wy[A-Za-z0-9+/=]+')
+    sleep 45
+    b=$(... same ...)
+    [ "$a" = "$b" ]  # unchanged => genuinely idle
+
+Unchanged across 45 seconds meant idle, and the restart was safe. That is the
+only signal in this system that measures the thing itself rather than a state
+label someone else maintains.
+
+GENERALISATION: when two status sources disagree, do not pick the more
+authoritative-sounding one — find the one that is a MEASUREMENT rather than a
+REPORT. `finished (done)` and `live/working` are both reports. Transcript bytes
+are a measurement. Same distinction as "the audit's output versus the committed
+baseline file", and as "the lockfile versus the typecheck": prefer the artifact
+the system produces incidentally over the one it maintains deliberately, because
+only the first cannot be stale.
