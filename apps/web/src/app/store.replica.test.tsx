@@ -5,7 +5,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { createReplica } from './replica'
+import { createWebReplica } from '@/lib/webReplica'
 
 // ---------------------------------------------------------------------------
 // Store ↔ replica wiring (docs/spec/thin-client-replica.md §2.2): hydrate-first
@@ -14,6 +14,22 @@ import { createReplica } from './replica'
 // reconcile-on-snapshot (server truth replaces the seed once it answers).
 // The real StoreProvider + SocketHub + replica run; only tRPC and the browser
 // WebSocket are faked.
+//
+// WHY THESE SEED/REREAD REPLICAS ARE BUILT BY `createWebReplica` (POD-1239).
+// Each "previous session of the app" and each post-hoc reread below is a SECOND
+// replica that has to see the first one's rows — that is the whole point of a
+// hydrate-first or survives-a-reload assertion. They used to be `createReplica()`
+// with no arguments, and the sharing worked because the replica reached for
+// `window.localStorage` on its own whenever no storage was injected. That reach
+// is the defect this issue removes: it is the mechanism by which the previous
+// PERSON's rows became the next person's history, and it cannot be deleted from
+// the product while the tests still depend on it.
+//
+// So the sharing is now DELIBERATE rather than ambient: these construct through
+// the browser's real composition root, the same function `StoreProvider` uses,
+// which passes `window.localStorage` explicitly. The assertions are unchanged —
+// what changed is that two replicas now share a store because a web file said
+// so, not because client-core guessed it was running in a browser.
 // ---------------------------------------------------------------------------
 
 const changesSinceCalls: Array<number | null> = []
@@ -169,7 +185,7 @@ function render(): void {
 describe('store ↔ replica', () => {
   it('hydrate-first: a seeded replica paints store state before any hub event, then the snapshot reconciles', async () => {
     // Persist a replica as a previous session of the app would have.
-    const previous = createReplica()
+    const previous = createWebReplica()
     previous.applySnapshot('sessions', [session('s-local', 'from replica')])
     previous.setCursor(7)
     await settle()
@@ -196,7 +212,7 @@ describe('store ↔ replica', () => {
     expect(latest.sessions.map((s) => s.title)).toEqual(['from server'])
 
     // And the applied snapshot persisted back into the replica (data + cursor).
-    const reread = createReplica()
+    const reread = createWebReplica()
     const h = await reread.hydrate()
     expect(h.sessions.map((s) => s.title)).toEqual(['from server'])
     expect(h.cursor).toBe(9)
@@ -212,7 +228,7 @@ describe('store ↔ replica', () => {
   })
 
   it('optimistic rename paints via the pending-outbox overlay and survives an offline reload', async () => {
-    const previous = createReplica()
+    const previous = createWebReplica()
     previous.applySnapshot('sessions', [session('s1', 't1')])
     previous.setCursor(3)
     await settle()
@@ -251,7 +267,7 @@ describe('store ↔ replica', () => {
       expect(latest.sessions[0]?.name).toBe('renamed')
 
       // …while the replica stays server truth only.
-      const reread = createReplica()
+      const reread = createWebReplica()
       const h = await reread.hydrate()
       expect(h.sessions[0]?.name).toBeUndefined()
     } finally {
@@ -264,7 +280,7 @@ describe('store ↔ replica', () => {
   // echo lands (its OWN readAt clock) the overlay retires with no flicker and
   // the persisted replica carries the server truth.
   it('markSessionRead optimistically clears unread and reconciles with the server echo', async () => {
-    const previous = createReplica()
+    const previous = createWebReplica()
     previous.applySnapshot('sessions', [{ ...session('s1'), unread: true, readAt: null }])
     previous.setCursor(3)
     await settle()
@@ -296,13 +312,13 @@ describe('store ↔ replica', () => {
     expect(latest.sessions).toHaveLength(1)
     expect(latest.sessions[0]?.unread).toBe(false)
     expect(latest.sessions[0]?.readAt).toBe('2026-07-09T12:00:00.000Z')
-    const reread = createReplica()
+    const reread = createWebReplica()
     const h = await reread.hydrate()
     expect(h.sessions[0]?.unread).toBe(false)
   })
 
   it('markIssueRead patches projection readAt and clears the derived unread rollup', async () => {
-    const previous = createReplica()
+    const previous = createWebReplica()
     previous.applySnapshot('issues', [makeIssue({ id: 'iss_1' })])
     previous.applySnapshot('issueProjections', [projection('iss_1', null)])
     previous.applySnapshot('sessions', [
@@ -332,7 +348,7 @@ describe('store ↔ replica', () => {
     await settle()
     expect(latestReplicaIssues[0]?.unread).toBe(false)
     expect(latestStore?.issueProjections[0]?.readAt).toBe('2026-07-10T12:00:00.000Z')
-    const reread = createReplica()
+    const reread = createWebReplica()
     const h = await reread.hydrate()
     expect(h.issueProjections[0]?.readAt).toBe('2026-07-10T12:00:00.000Z')
   })

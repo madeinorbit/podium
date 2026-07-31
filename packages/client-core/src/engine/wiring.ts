@@ -6,10 +6,19 @@
  * shares ONE construction path with zero React involvement.
  */
 
+import type { ConfirmationRule } from '@podium/commands'
 import type { SessionId, WorkState } from '@podium/model'
+import { ENQUEUEABLE_DELIVERY, type OutboxCommand } from '@podium/sync/outbox'
 import { type FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
-import { Outbox, type OutboxEntry, platformIsOnline, platformOnlineEvents } from '../outbox'
+import {
+  Outbox,
+  type OutboxDeadLetterEntry,
+  type OutboxEntry,
+  platformIsOnline,
+  platformOnlineEvents,
+} from '../outbox'
+import { reasonSummary } from '../outbox-recovery-copy'
 import { advanceCursor, identityVerdict } from '../replica/feed'
 import type { Replica } from '../replica/replica'
 import type { StoreNotices } from './types'
@@ -32,6 +41,62 @@ export type OutboxKinds = {
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }
 }
+
+/** `ENQUEUEABLE_DELIVERY` narrowed and nothing else — the same value, reused
+ *  rather than re-spelled, so a rename of the class reaches this table. */
+const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
+
+/**
+ * The CONTRACT TABLE, which `readLegacyReplica`, the outbox binding and the
+ * dead-letter recovery surface all refuse to invent (ADR 3 D9): a client entry
+ * carries a bare `kind` and an `OutboxCommand` needs `{name, version, delivery}`,
+ * so guessing a version would re-author a queued write under a contract its
+ * input may not satisfy.
+ *
+ * It is typed `Record<keyof OutboxKinds, …>` deliberately. That is the only
+ * thing standing between this table and silent drift: adding a drainable kind
+ * to the engine's queue without a contract here is a TYPE ERROR, rather than an
+ * `unknown-command` rejection a user discovers when their offline work fails to
+ * migrate.
+ *
+ * IT LIVES HERE, beside `OutboxKinds`, rather than in one app (POD-316). It used
+ * to live in the mobile provider, and the web recovery surface needs the same
+ * mapping — two copies would drift, and the thing that drifts is which contract
+ * a queued write is replayed under.
+ *
+ * `confirmation` is the contract's own `policy.confirmation` (ADR 3 D2), carried
+ * here so the recovery surface can tell whether an inline confirmation could
+ * possibly satisfy a `confirmation-required` refusal WITHOUT importing the whole
+ * command registry into the browser bundle (`audit:browser-reach`). It is a copy,
+ * and `outbox-contract-table.test.ts` pins it EQUAL to the contract's value.
+ *
+ * Every version is 1 because every one of these contracts has only ever had one.
+ * That is a statement about today, and the day one of them changes, the entry
+ * here changes with it.
+ */
+export const OUTBOX_COMMANDS: Record<
+  keyof OutboxKinds,
+  OutboxCommand & { confirmation: ConfirmationRule }
+> = {
+  resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery, confirmation: 'none' },
+  rename: { name: 'sessions.rename', version: 1, delivery, confirmation: 'none' },
+  setArchived: { name: 'sessions.setArchived', version: 1, delivery, confirmation: 'none' },
+  setWorkState: { name: 'sessions.setWorkState', version: 1, delivery, confirmation: 'none' },
+  snoozeSet: { name: 'snoozes.set', version: 1, delivery, confirmation: 'none' },
+  snoozeClear: { name: 'snoozes.clear', version: 1, delivery, confirmation: 'none' },
+  sessionMarkRead: { name: 'sessions.markRead', version: 1, delivery, confirmation: 'none' },
+  sessionMarkUnread: { name: 'sessions.markUnread', version: 1, delivery, confirmation: 'none' },
+  issueMarkRead: { name: 'issues.markRead', version: 1, delivery, confirmation: 'none' },
+  issueMarkUnread: { name: 'issues.markUnread', version: 1, delivery, confirmation: 'none' },
+  issueSetTucked: { name: 'issues.setTucked', version: 1, delivery, confirmation: 'none' },
+}
+
+/** The contract behind one queued kind, or `undefined` for a kind with no
+ *  executor. */
+export const outboxCommandFor = (
+  kind: string,
+): (OutboxCommand & { confirmation: ConfirmationRule }) | undefined =>
+  OUTBOX_COMMANDS[kind as keyof OutboxKinds]
 
 /** SocketHub construction seam — injectable so engine unit tests run a fake hub. */
 export type CreateHub = (opts: ConstructorParameters<typeof SocketHub>[0]) => SocketHub
@@ -166,9 +231,13 @@ export function createEngineOutbox(args: {
    *  keeps the entry durably in storage as state:'awaiting-truth' (#263
    *  review finding 1) until the engine retires it. */
   onApplied?: (entry: OutboxEntry) => unknown
-  /** Poison drop — fired AFTER the toast; the engine repaints without the
-   *  entry's overlay (retirement rule (b)). */
+  /** A definitive refusal — the engine repaints without the entry's overlay
+   *  (retirement rule (b)). The entry itself is PARKED, not dropped; this is
+   *  only the overlay's retirement. */
   onDropped?: (entry: OutboxEntry) => void
+  /** The entry parked for recovery, with its reason code. Fired after the
+   *  toast. */
+  onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
 }): Outbox<OutboxKinds> {
   const { api } = args
   return new Outbox<OutboxKinds>({
@@ -181,6 +250,7 @@ export function createEngineOutbox(args: {
     // reading the queued collection never re-drains held entries.
     storage: args.replica.outboxStorage(),
     awaitingStorage: args.replica.outboxAwaitingStorage(),
+    deadLetterStorage: args.replica.outboxDeadLetterStorage(),
     executors: {
       resumeAndSend: (i) => api.sessions.resumeAndSend.mutate(i),
       rename: (i) => api.sessions.rename.mutate(i),
@@ -195,11 +265,19 @@ export function createEngineOutbox(args: {
       issueSetTucked: (i) => api.issues.setTucked.mutate(i),
     },
     onApplied: args.onApplied,
-    // A poison entry (server-side validation reject) can never sync — it's
-    // dropped, and the toast is the honesty about that.
+    // A definitively-refused entry can never sync AS IT IS — but it is no longer
+    // dropped (POD-316), so the old copy ("and dropped") had become a lie about
+    // work that is in fact sitting in the recovery surface. A toast that tells
+    // you your writing is gone, when it is recoverable two clicks away, is worse
+    // than no toast: it teaches people to re-type instead of to look.
     onPoison: (entry) => {
-      args.notices.error(`A queued change (${entry.kind}) was rejected by the server and dropped`)
       args.onDropped?.(entry)
+    },
+    onDeadLetter: (parked) => {
+      args.notices.error(
+        `A queued change (${parked.entry.kind}) needs your attention — ${reasonSummary(parked.reason.code)}`,
+      )
+      args.onDeadLetter?.(parked)
     },
   })
 }

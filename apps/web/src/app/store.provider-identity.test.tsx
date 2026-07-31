@@ -4,6 +4,7 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { Engine } from '@podium/client-core/engine'
 import { StoreProvider, useStore } from '@podium/client-core/react'
+import { createReplica } from '@podium/client-core/replica'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -79,7 +80,17 @@ async function render(config: Config, api: PodiumClientApi): Promise<void> {
     root.render(
       // Inline onFatalError ON PURPOSE: callback identity churn must not
       // rebuild the engine (callbacks are ref-routed, not keyed).
-      <StoreProvider config={config} api={api} onFatalError={() => {}}>
+      // `createReplicaFn` is required since POD-1239 — the engine no longer
+      // builds one for itself off ambient localStorage. This suite is about
+      // engine IDENTITY, so it takes a memory replica (createReplica with no
+      // storage seam), and passes it inline for the same reason onFatalError is
+      // inline: neither is part of the engine's rebuild key.
+      <StoreProvider
+        config={config}
+        api={api}
+        onFatalError={() => {}}
+        createReplicaFn={() => createReplica()}
+      >
         <Probe />
       </StoreProvider>,
     )

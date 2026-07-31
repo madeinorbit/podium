@@ -624,9 +624,32 @@ export const CHECKS: AuditCheck[] = [
      * ratchet shows the cost of the window growing if anyone adds a dependency
      * on it.
      */
+    /*
+     * RE-PHASED POD-308 -> POD-337 by the POD-279 coordinator, with the reason
+     * recorded here because a re-phase is the move that can launder debt.
+     *
+     * POD-310's Phase 2 exit gate found a CONTRADICTION IN THE PLAN, not a
+     * defect in the tree: POD-308's job was to BIRTH this adapter, its expiry
+     * is declared as DATA (expiresWhenMinSupportedReaches: 2, deleteByPhase
+     * Phase 7) and that condition has not arrived because MIN_SUPPORTED_VERSION
+     * is still 1 — yet the item was mapped to a Phase-2 issue graded by a rule
+     * saying its phase may not close while the count is non-zero. So a closed,
+     * correct child could never pass its own phase-close gate, and the only ways
+     * out were to falsify the gate or to leave Phase 2 permanently unclosable.
+     *
+     * POD-310 did NOT re-phase it to let itself close, escalating instead — an
+     * exit gate that edits this mapping to pass is a detector that cannot say NO
+     * one level up. This edit is the coordinator's answer, not the gate's, which
+     * is the same separation POD-423 established for per-user-singletons.
+     *
+     * POD-337 is the right owner: it is where the expiry condition is actually
+     * evaluated, and it CANNOT close while this is non-zero — so the
+     * anti-laundering property is preserved rather than spent. Check with
+     * `bun scripts/rearch-audit.ts --phase POD-337`.
+     */
     id: 'legacy-wire-v1-adapter',
     title: 'Concrete pre-cutover (wire v1) translation adapter',
-    phase: 'POD-308',
+    phase: 'POD-337',
     unit: 'declaration or reference to the expiring LegacyWireV1Adapter',
     collect: (ctx) =>
       grep(ctx, {
@@ -817,7 +840,15 @@ export const CHECKS: AuditCheck[] = [
     // measures restatement, so composing a field list registers as the deletion
     // it is. See `scripts/change-row-audit.ts` for the two spellings it covers
     // and `change-row-audit.test.ts` for the planted violation of each.
-    phase: 'POD-308',
+    phase: 'POD-1251',
+    // RE-PHASED POD-308 -> POD-1251 by the POD-279 coordinator. POD-310's Phase 2
+    // exit gate found this mapped to a CLOSED issue, so 12 sites of real debt had
+    // no owner and POD-308 could not pass its own phase-close rule. POD-1251 owns
+    // composing them and cannot close while the count is non-zero, so the
+    // anti-laundering property is preserved rather than spent. NOTE the count is
+    // NOT a regression against main: main runs a different detector under this key
+    // (exported names in one file, no change-row-audit.ts at all) — one instrument
+    // over both trees gives integration 12, MAIN 22.
     unit: "a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model's change field schemas",
     collect: (ctx) => changeRowRestatements(ctx),
   },

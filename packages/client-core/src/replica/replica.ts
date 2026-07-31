@@ -151,13 +151,22 @@ export interface PersistedReplicaInit {
 }
 
 export interface ReplicaInit {
-  /** Storage seam (mirrors outbox.ts): tests inject a fake; defaults to window.localStorage. */
+  /** Storage seam (mirrors outbox.ts). NO AMBIENT DEFAULT (POD-1239): omitting it
+   *  gives an in-memory replica, never `window.localStorage` — a replica that
+   *  resolved global storage itself adopted the previous user's rows with no
+   *  composition root to grade. See {@link legacyMigrationStorage} for the one
+   *  remaining reach (SQLite mode's legacy-blob migration source). */
   storage?: StorageApi
   /** Key enumerator for the one-time ui-state migration (prefix-matched legacy
-   *  keys can't be probed individually). Defaults to Object.keys(localStorage)
-   *  when running on the real window.localStorage; empty otherwise. */
+   *  keys can't be probed individually). Empty unless supplied — the browser
+   *  passes it explicitly from `webReplica.ts`. (It still falls back to
+   *  Object.keys(localStorage) in SQLite mode, whose legacy-blob migration is the
+   *  one place the replica may still reach ambient storage — POD-1239.) */
   enumerateKeys?: () => string[]
-  /** Cross-tab sync events; defaults to window. Tests usually omit both. */
+  /** Cross-tab sync events. NOOP unless supplied — the browser passes `window`
+   *  explicitly from `webReplica.ts`. This used to default to `window` whenever
+   *  `storage` was absent, which coupled two unrelated decisions: injecting a
+   *  store silently switched cross-tab sync off (POD-1239). */
   storageEventApi?: StorageEventApi
   /** Key namespace, `podium.replica` by default (keys get `.<kind>.v1` suffixes). */
   keyPrefix?: string
@@ -332,6 +341,7 @@ class TanstackReplica implements Replica {
    *  entity replica's clearAll never wipes queued writes. */
   private outboxBacking: OutboxStorage | undefined
   private outboxAwaitingBacking: OutboxStorage | undefined
+  private outboxDeadLetterBacking: OutboxStorage | undefined
   /** Lazily-built ui-state backing — separate from `cols` for the same reason. */
   private uiBacking: UiState | undefined
   private readonly enumerateKeys: () => string[]
@@ -362,8 +372,12 @@ class TanstackReplica implements Replica {
     this.schemaKey = `${prefix}.schema.v1`
     this.now = init.now ?? Date.now
     this.persistedInit = init.persisted
-    const storage =
-      init.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined)
+    const storage = init.storage ?? legacyMigrationStorage(init)
+    // TRUE ONLY IN SQLITE MODE, and that is what makes the reach below safe:
+    // `legacyMigrationStorage` returns a store ONLY when `init.persisted` is set,
+    // so this says "the store we hold is the OLD blob store the one-time
+    // migration reads", never "the store the collections persist into".
+    const readingMigrationStore = init.storage === undefined && storage !== undefined
     // Web storage usability, probed even in SQLite mode (migration reads it).
     const webStorageUsable = probeStorage(storage)
     // SQLite mode is durable by construction (the caller already opened the
@@ -372,18 +386,29 @@ class TanstackReplica implements Replica {
     // Unusable storage (private mode / quota / SSR) → the SAME collections run
     // over an in-memory adapter: everything works, nothing survives a reload.
     this.storage = webStorageUsable && storage ? storage : memoryStorage()
-    // Cross-tab wiring only when we're really on a shared window.localStorage
-    // AND it backs the collections (SQLite mode has one window, no events).
+    // Cross-tab wiring only when the caller supplied an event source AND that
+    // source backs the collections (SQLite mode has one window, no events).
+    // The `window` fallback that used to sit here is GONE, and it was already
+    // unreachable: it required `init.storage === undefined && webStorageUsable`,
+    // and `probeStorage(undefined)` is false unless `legacyMigrationStorage`
+    // produced a store — which happens only in `persisted` mode, which this
+    // branch excludes. Dead either way; keeping it left a second ambient reach
+    // for a later edit to widen back into an adoption.
     this.storageEventApi =
       webStorageUsable && !init.persisted
-        ? (init.storageEventApi ??
-          (init.storage === undefined && typeof window !== 'undefined'
-            ? window
-            : NOOP_STORAGE_EVENTS))
+        ? (init.storageEventApi ?? NOOP_STORAGE_EVENTS)
         : NOOP_STORAGE_EVENTS
+    // The migration's key enumerator, not the replica's. Prefix-matched legacy
+    // ui-state keys cannot be probed individually, so the SQLite migration needs
+    // to list the old localStorage — the same store, and the same one-time job,
+    // as {@link legacyMigrationStorage}. Keyed on that store now rather than on
+    // `init.storage === undefined`: injecting a store must not silently also
+    // decide anything about enumeration. Nothing here ADOPTS — in every path
+    // where no store is injected outside SQLite mode, `this.storage` is
+    // `memoryStorage()` and this returns `[]`.
     this.enumerateKeys =
       init.enumerateKeys ??
-      (webStorageUsable && init.storage === undefined && typeof window !== 'undefined'
+      (webStorageUsable && readingMigrationStore
         ? () => Object.keys(window.localStorage)
         : () => [])
     this.nonce = ++instanceSeq
@@ -904,7 +929,7 @@ class TanstackReplica implements Replica {
   /** Build one outbox-family collection (queued or awaiting) and start its
    *  storage sync. SQLite mode persists per-row like every other collection —
    *  loudness lives in track('outbox') there, not a storage wrapper. */
-  private makeOutboxCollection(name: 'outbox' | 'outbox-awaiting') {
+  private makeOutboxCollection(name: 'outbox' | 'outbox-awaiting' | 'outbox-dead-letter') {
     const loud = this.persistedInit ? undefined : this.outboxLoudStorage()
     const col = loud
       ? this.makeCollection<OutboxRow>(
@@ -950,6 +975,16 @@ class TanstackReplica implements Replica {
                 input: r.input,
                 queuedAt: r.queuedAt,
                 ...(r.state !== undefined ? { state: r.state } : {}),
+                // THE PARK METADATA, which this list forgot (found by POD-1252
+                // giving the web root's refusal a place to put an unattributable
+                // queue). `toDeadLetter` treats an entry with `state:'dead-letter'`
+                // and no `deadLetter` as NOT A PARK, so every entry POD-316 parked
+                // on the localStorage path came back unrecognised after a reload —
+                // durable in storage, invisible in the recovery UI, which is the
+                // silent poison-drop D9 invariant 1 forbids by name, one layer
+                // down. Explicit reconstruction is the right shape; it just has to
+                // list every field the entry actually carries.
+                ...(r.deadLetter !== undefined ? { deadLetter: r.deadLetter } : {}),
                 ...(r.resolvedAt !== undefined ? { resolvedAt: r.resolvedAt } : {}),
                 ...(r.baseline !== undefined ? { baseline: r.baseline } : {}),
                 ...(r.chained !== undefined ? { chained: r.chained } : {}),
@@ -1022,6 +1057,18 @@ class TanstackReplica implements Replica {
     }
     this.outboxBacking = this.outboxCollectionBacking(col)
     return this.outboxBacking
+  }
+
+  outboxDeadLetterStorage(): OutboxStorage {
+    if (this.outboxDeadLetterBacking) return this.outboxDeadLetterBacking
+    // POD-316: the recovery home. Third collection, for the same reason the
+    // awaiting home is second — `<prefix>.outbox-dead-letter.v1` is a key old
+    // builds never read, so a rollback cannot re-drain a mutation the Authority
+    // definitively refused.
+    const col = this.makeOutboxCollection('outbox-dead-letter')
+    if (this.persistedInit) this.migrateOutboxBlob(col, `${this.prefix}.outbox-dead-letter.v1`)
+    this.outboxDeadLetterBacking = this.outboxCollectionBacking(col)
+    return this.outboxDeadLetterBacking
   }
 
   outboxAwaitingStorage(): OutboxStorage {
@@ -1632,6 +1679,33 @@ function probeStorage(storage: StorageApi | undefined): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * The ONE surviving ambient reach for `window.localStorage`, and why it survives.
+ *
+ * A replica that resolves global storage on its own adopts whatever the last
+ * person on this device left behind, with no composition root existing to be
+ * graded for having asked (POD-307 / POD-1239). So when no store is injected there
+ * is no store: {@link probeStorage} rejects `undefined` and the collections run on
+ * {@link memoryStorage} — nothing adopted, nothing persisted, `persistent` false.
+ *
+ * SQLite mode is the exception and NOT an oversight. There `storage` does not back
+ * the replica at all; it is the LEGACY web storage the one-time
+ * localStorage→SQLite migration reads blobs from and then retires (see
+ * `ReplicaInit.persisted`). Removing it would silently strip that migration of its
+ * source, so the reach stays where it is a read-and-retire of the old blobs rather
+ * than an adoption of them.
+ *
+ * That legacy read is itself unattributed, and this function is not the place to
+ * fix it: the persisted roots are named composition roots, so the client audit's
+ * unattributed-store item already grades them and they get a caller there. What is
+ * closed here is the reach that belongs to NOBODY — the one no root owns and no
+ * audit population contains, because it happens when nothing was constructed.
+ */
+function legacyMigrationStorage(init: ReplicaInit): StorageApi | undefined {
+  if (init.persisted === undefined) return undefined
+  return typeof window !== 'undefined' ? window.localStorage : undefined
 }
 
 export function createReplica(init: ReplicaInit = {}): Replica {

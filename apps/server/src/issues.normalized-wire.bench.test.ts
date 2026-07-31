@@ -127,7 +127,8 @@ function world() {
 }
 
 it('session-free residue at live scale never couples session changes back to issues', {
-  timeout: 120_000,
+  // The 622-file node lane contends for CPU; isolated live-scale runs take about 75s.
+  timeout: 180_000,
 }, () => {
   const { registry, sessionIds, attachBuilds, attachScans } = world()
   // BOUNDED, not pinned at ISSUE_COUNT. Main measures one build per issue at

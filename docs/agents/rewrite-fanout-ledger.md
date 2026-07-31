@@ -3055,6 +3055,1407 @@ my mention-vs-call. This one was them believing a detector's POPULATION instead 
 running it. Every time, THE INSTRUMENT WAS TRUSTED ABOUT WHERE IT POINTED RATHER
 THAN WHAT IT DECIDED. The verdict gets checked; the coordinates do not.
 
+## A conflicted package.json breaks the tool you would use to report it
+
+POD-1246 hit this in the main catch-up and it is worth knowing before you need
+it: while `package.json` carries conflict markers, the `podium` CLI itself will
+not run. So the moment the merge goes wrong is also the moment you lose the
+ability to mail anyone about it — its replies failed silently until it worked
+that out.
+
+RULE: in any catch-up or large merge, RESOLVE package.json FIRST, before anything
+else, even before reading the rest of the conflicts. It is almost always a union
+(keep both sides' scripts and deps), it takes a minute, and it keeps your
+reporting channel alive for the several hours the rest will take.
+
+The same logic extends to anything the toolchain reads to boot: lockfiles,
+tsconfig, vitest config. Resolve the tree's ABILITY TO RUN before resolving its
+content.
+
+Two more from the same tranche, both about the unit of judgement:
+
+  - THE UNIT IS THE HUNK, NOT THE FILE. I told POD-1246 that main's ADR 4 had
+    content integration lacked and to take it. True, and not sufficient: three
+    hunks were main's and belonged, but the HandoffManifest decision went the
+    other way, because integration's supersedes it — POD-300 had moved the
+    manifest, so taking main's would have re-pointed a landed decision at a file
+    the manifest no longer lives in. "Which side is ahead" is not a property a
+    FILE has.
+  - MAKE EVERY LINE OF THE OTHER SIDE EXPLAIN ITSELF. POD-1246's method beats the
+    one I briefed: after resolving, run
+        git show main:<file> | grep -vxFf <resolved-file>
+    so any line from the other side that did NOT survive has to be justified out
+    loud. A three-way merge you cannot audit afterwards is a confident side-take
+    wearing better clothes.
+
+## The rewrite branch is not ahead on every axis — measured, against my own claim
+
+I told POD-1246 that integration's deletion-audit numbers are lower than main's
+"because the rewrite genuinely removed the debt", and to check each key. It
+checked, and I was wrong as a generalisation. Measured across all 21 shared keys:
+
+    change-row-typings   integration 12   main 7
+    local-placeholders   integration 16   main 12
+
+Those two, and only those two.
+
+**CORRECTED — the change-row-typings half of that was NOT A COMPARISON.** POD-310
+caught it: THE TWO BRANCHES RUN DIFFERENT DETECTORS UNDER THE SAME KEY NAME.
+Main's counts exported NAMES in a single file
+(`packages/protocol/src/messages/sync.ts`) and main has no `change-row-audit.ts`
+at all; this branch's counts hand-restated field lists REPO-WIDE, redefined at
+POD-305. Verified here: `git show main:scripts/change-row-audit.ts` does not
+exist, and main's item unit reads "exported name in the change-row family".
+
+Run ONE tool over BOTH trees — main checked out into a throwaway detached
+worktree — and the real numbers are integration 12, MAIN 22. The rewrite REMOVED
+ten restatements. The "regression" was an artifact of comparing two different
+measurements that happened to share a key.
+
+`local-placeholders` HAS now been re-measured and it was overstated FOURFOLD.
+Its detector IS byte-identical on both branches, so that comparison is at least
+well-formed — but under one instrument it is integration 16 / main 15. A gap of
+ONE, not four. "Absorbs a regression on both" does not survive measurement on
+either key.
+
+AND THE DEEPEST PART IS NOT THE NUMBERS. Main's 12 is a TRUE count under MAIN's
+instrument — main's own audit on main's own tree reports "22 items, 259 sites,
+baseline exact", exit 0 — while integration's instrument counts 15 on that same
+unmodified tree. The +3 is THE MEASURING APPARATUS (grep roots, loadContext), not
+drift in the code. So even a byte-identical detector is not portable between
+trees: it carries its harness with it.
+
+THE RULE, which is the ratchet-files-are-measurements rule one turn further: TO
+COMPARE TWO RATCHET FILES YOU MUST RUN ONE TOOL OVER BOTH TREES. Two baseline
+JSONs are two instruments' outputs, not two readings of one instrument, and a
+shared key name is not evidence they measure the same thing. Where the detector
+IS shared, the harness may still differ, so the only sound comparison is one
+binary, two checkouts, run back to back.
+
+WHAT SURVIVES: the causal story may still describe the CODE correctly — main's
+POD-797 deleted the legacy local issues wire and integration rebuilt it. What the
+measurement refutes is the INFERENCE from those two numbers, because they were
+never produced by the same instrument. A true story and an invalid measurement
+can point the same direction and only one of them is evidence.
+
+WHY, and it is the whole shape of this catch-up: main's POD-797 DELETED the
+legacy local issues wire, and integration REBUILT it. Two independent correct
+answers to the same question, landed on two branches, and the one with more
+recent work is not automatically the one with less debt.
+
+THREE THINGS THAT FOLLOW, all of which POD-1246 got right and my brief did not:
+
+  - THE DETECTOR SETS DIFFER (30 integration / 23 main / 32 union), so
+    "lower per key" is not even well-defined until the SCRIPT merges. A baseline
+    comparison presumes a shared vocabulary of what is being counted.
+  - THE BASELINE IS A MEASUREMENT OF THE MERGED TREE, NOT A MERGE DECISION. Same
+    for the boundary allowlist: integration deleted three entries because it FIXED
+    the debt (ternaries became record lookups); main still has the ternaries.
+    Which entries belong depends on which CODE wins, which is a later tranche. A
+    provisional value taken only so a gate can run must be flagged and must not
+    ship.
+  - A DETECTOR READING 0 IS STILL A RATCHET and must survive the merge. Main's
+    two extra detectors both belong, and one of them is not a counting detector at
+    all but a registered-residue entry whose array, type, reporting and test
+    integration lacks entirely.
+
+THE META-POINT, and it is now twice in one run: BOTH TIMES MY OWN HAZARD NOTE WAS
+HALF RIGHT, and both times an implementer caught it by measuring rather than
+reasoning. First `docs/adr` ("integration supersedes main" — false, main had
+content integration lacked, and the unit of judgement turned out to be the HUNK
+rather than the file). Now the baseline. A coordinator's note about a hazard is a
+belief about a plan, not a fact about the tree, and it decays exactly like a brief
+does. Write them so they can be checked, and expect them to be.
+
+## Write a TRIPWIRE, not a note — the provisional value that cannot ship silently
+
+POD-1246 had to take a provisional value to make progress: it adopted
+integration's `boundary-allowlist.ts` only so the boundary gate could RUN at all,
+knowing the correct contents depend on which code wins a later tranche.
+
+The obvious safeguard is what I had been doing all run: flag it in the handover
+document. This run has now repeatedly proved that is the weakest available
+option — a plan in a mailbox, a constraint in an unowned doc, a count that only
+existed in a scratchpad. Each was nearly lost, and one (POD-756's lane) was lost
+for weeks behind a CLOSED issue.
+
+What POD-1246 proposed instead:
+
+    after the vertical, run `bun run lint:boundaries` and
+    `bun scripts/rearch-audit.ts` and DIFF THE OUTPUT against the committed
+    files. If the audit reports a count the file does not have, the file is
+    STALE BY CONSTRUCTION.
+
+That is a check the TREE performs on itself. It cannot be forgotten, it does not
+depend on anyone re-reading a document, and it fails loudly at exactly the moment
+the provisional value stops being true.
+
+THE RULE, in POD-1246's own words, which are better than mine: A NOTE POINTS AT
+WHERE TO MEASURE, AND WHERE A NOTE IS NOT ENOUGH, LEAVE A TRIPWIRE THE TREE TRIPS
+ON ITS OWN. Ask "what would be true if this value were still provisional?" and
+assert the negation. A note is a request that someone remember; a tripwire is a
+fact the build checks.
+
+This is the same move as the ratchets, the membership gate and the census floors,
+applied to a MERGE RESOLUTION rather than to product code — and merge resolutions
+are where it is least common and most needed, because a half-finished merge has
+no owner and no test until it lands.
+
+## "Session finished" and "session working" can both be wrong — the cursor decides
+
+The harness reported POD-1246's session finished (done). `podium session status`
+reported `live/working` at the same moment. Three explicit `session stop` calls
+had already returned without stopping it.
+
+Two contradictory signals, one of which had to be believed before I could start
+the next session on a worktree holding an in-flight merge — and starting a second
+session on that worktree while the first was really alive would have collided on
+90 unresolved conflicts.
+
+The rule from earlier in this run resolved it: READ THE TRANSCRIPT CURSOR TWICE.
+
+    a=$(podium session read <id> --turns 1 | grep -oE 'cursor Wy[A-Za-z0-9+/=]+')
+    sleep 45
+    b=$(... same ...)
+    [ "$a" = "$b" ]  # unchanged => genuinely idle
+
+Unchanged across 45 seconds meant idle, and the restart was safe. That is the
+only signal in this system that measures the thing itself rather than a state
+label someone else maintains.
+
+GENERALISATION: when two status sources disagree, do not pick the more
+authoritative-sounding one — find the one that is a MEASUREMENT rather than a
+REPORT. `finished (done)` and `live/working` are both reports. Transcript bytes
+are a measurement. Same distinction as "the audit's output versus the committed
+baseline file", and as "the lockfile versus the typecheck": prefer the artifact
+the system produces incidentally over the one it maintains deliberately, because
+only the first cannot be stale.
+
+## An artifact is only preserved if it can be committed INDEPENDENTLY of the work in progress
+
+POD-1246 wrote its handover map, its 28-gate baseline and a patch of its staged
+resolutions into its own worktree — the natural place — and none of them could be
+committed there, because that worktree held a half-resolved merge. Committing
+anything would have committed the merge. So the three artifacts that existed
+specifically to survive the session were sitting in the one location that could
+not preserve them.
+
+They were caught only because a stray-file check showed the handover untracked in
+a tree with MERGE_HEAD set. All three are now committed on integration.
+
+THE GENERAL CASE, and it is not about merges: an artifact is preserved only if it
+lives somewhere that can be committed INDEPENDENTLY of the work in progress. A
+mid-merge worktree cannot. Neither can a mailbox, a scratchpad, or an unowned doc
+on a branch nobody will land. This run has now lost or nearly lost four things
+that way — POD-756's lane plan, POD-378's deletion constraints, POD-1246's
+handover, and a count that existed only in a scratchpad.
+
+THE TEST: before a session ends, ask of every artifact it produced — "if this
+worktree were deleted right now, does this survive?" If the answer depends on the
+work in progress being finished first, move it: commit it to a branch that CAN
+commit, or attach it to the issue. Saving the expensive analysis separately from
+the cheap mechanical state is the same instinct — POD-1246 also saved its staged
+resolutions as a patch, and said the 19 resolutions were cheap to redo while the
+analysis was not. That judgement is what made the recovery trivial.
+
+## Two brands with the same NAME and different domains — they disagree about 0
+
+POD-1246's `packages/model` union turned up the sharpest merge trap of the
+catch-up, and it is one no gate in this repo would have caught.
+
+Main's `fields.ts` has `Revision`. Integration has `ChangeRevisionField`. Both
+are "a revision number", both are branded, and the obvious move when unioning two
+packages is to notice the overlap and collapse them.
+
+They are not the same type:
+
+  - `Revision` is POSITIVE — an entity that exists has been written at least
+    once. It is the token the whole expected-revision contract is written
+    against.
+  - `ChangeRevisionField` is NONNEGATIVE — a position in the change stream,
+    which legitimately starts at 0.
+
+THEY DISAGREE ABOUT EXACTLY ONE VALUE, and it is the value a fresh stream has.
+Collapsing them would have made every new change stream's position 0 fail
+validation, or — depending which direction the collapse went — allowed an entity
+to claim it had never been written. Both failures are at the boundary, both are
+rare in a test fixture and universal in production.
+
+THE RULE: when unioning two independently invented vocabularies, NAME COLLISION
+IS NOT TYPE IDENTITY. Two brands over `number` with the same name and different
+bounds are more dangerous than two with different names, because the collision
+invites the merge.
+
+AND THE TEST THAT ACTUALLY SEPARATES THEM — POD-1246's refinement, which is
+better than comparing predicates: ASK WHAT QUESTION EACH SYMBOL ANSWERS. Both of
+these assert "integer with a bound", so reading the predicates alone shows a
+bounds difference and invites splitting the difference. Asking the question —
+"has this entity ever been written?" versus "where am I in the stream?" — makes 0
+obviously legal for one and obviously illegal for the other, and makes them
+UN-UNIONABLE rather than nearly-reconcilable.
+
+The same test settles the mirror case from the other direction: `Timestamp` and
+`Instant` answer the IDENTICAL question at different layers (field schema versus
+runtime representation), so both survive. Predicates would have made them look
+like rivals.
+
+The same handoff got the mirror case right in the other direction: main's
+`Timestamp` looks like a rival to integration's `clock.ts` and is not — `clock.ts`
+is the RUNTIME representation (epoch-ms plus adapters), `Timestamp` is the FIELD
+SCHEMA, and integration had been inlining `z.string()` at every `*At` field, which
+is the restatement `Timestamp` exists to collapse. Same-name-different-thing and
+different-name-same-layer both live in this merge; only reading the predicate
+tells them apart.
+
+Operational repeat, one level down from the earlier entry: a conflicted WORKSPACE
+`package.json` breaks `bun install` exactly as the root one breaks the `podium`
+CLI. Resolve every conflicted `package.json` in a group before anything else in
+that group.
+
+## The merge hazard git cannot see: a CLEAN file broken by a module the other side moved
+
+POD-1246 hit this twice in one group, and it is the most under-appreciated risk in
+a large catch-up because it is invisible in the artefact everyone works from — the
+conflict list.
+
+A file merges CLEAN. No marker, no conflict, git is satisfied. And it imports a
+module the OTHER side moved or deleted:
+
+  - `packages/sync/src/feed-identity.test.ts` (main's) imported `./test-support`,
+    which integration had moved to `adapters/sqlite/test-support.ts`. Caught only
+    by checking the import graph rather than the conflict list.
+  - `apps/server/src/migrations/restore.ts` (main's) consumes `ensureFeedIdentity`
+    from main's `feed-identity.ts`, which this merge retires in favour of
+    integration's `feed/identity.ts`. Nothing flags it until the server fails to
+    build, several groups later.
+
+GIT REPORTS CONFLICTS, NOT BREAKAGE. Conflict = both sides edited the same lines.
+Breakage = one side edited lines the other side's file DEPENDS ON. The second is
+strictly larger, it is the interesting set in a semantic merge, and a conflict
+count of zero says nothing about it.
+
+THE CHECK, and it must be per-group rather than at the end: after resolving a
+group, TYPECHECK THE PACKAGES THAT DEPEND ON IT, not just the ones you edited. A
+group is not done when its own files compile — it is done when its consumers
+still do. POD-1246 ran `bun run --cwd packages/sync typecheck` and got zero errors
+from sync itself, with the only failures in `packages/protocol` where group (c)
+lives. That is the shape to want: a clean edge, and a known frontier.
+
+Corollary for the "explain every line that did not survive" method: it audits
+DELETIONS you made deliberately. It cannot see a file you never touched that
+depended on one. Both need doing.
+
+Two smaller things from the same group, both about misreading a diff's size:
+
+  - MAIN'S "+30 LINES ON A FILE INTEGRATION DELETED" WAS NOT CAPABILITY. They were
+    defensive no-op arms (`case 'issueDep': break`) added only to keep a
+    `satisfies never` exhaustiveness check passing after new entity kinds
+    arrived. The real content was an interlock COMMENT, and it dies with the
+    module it guarded. Line count overstated the stakes; reading them settled it
+    in minutes.
+  - "THE MODULE IS GONE" AND "THE RETIREMENT IS COHERENT" ARE DIFFERENT CLAIMS.
+    Integration's POD-309 retirement won because it ships a dead-letter path for
+    anything an operator had already queued — a retirement WITH a migration,
+    per ADR 5 D8, rather than an amputation. Absence of the module was never the
+    evidence.
+
+## Two audits, two inputs — the diff audit is structurally blind to the import graph
+
+POD-1246's own conclusion after finding the second F1 hazard by luck, and it
+sharpens the entry above into something procedural.
+
+The "explain every line that did not survive" method — `git show main:<f> |
+grep -vxFf <resolved>` — is a good audit and it audits ONE thing: the deletions
+you made DELIBERATELY. Its input is the diff. It is structurally incapable of
+seeing a file you never touched that IMPORTED one of the things you deleted,
+because that file is not in the diff.
+
+Those are two checks with two different inputs:
+
+    reads the DIFF          -> did I lose content I meant to keep?
+    reads the IMPORT GRAPH  -> did I break something I never opened?
+
+Only the second finds the class where a file merges clean, carries no marker, and
+is broken by a module the other side moved. POD-1246 ran it once by instinct —
+noticing an importer while verifying an unrelated deletion — and caught
+`feed-identity.test.ts`. It did NOT run for `restore.ts`, which is still
+outstanding and will fail the server build several groups later.
+
+THE RULE: for every module a group deletes or moves, GREP THE TREE FOR ITS
+IMPORTERS BEFORE MOVING ON. Make it a step in the procedure, not a thing a
+careful person happens to do. Its own author's phrasing: "it should be a step,
+not an instinct."
+
+This is the same shape as everything else this run has learned about instruments:
+a check that only runs when someone remembers is a check that reports whatever
+the last person's attention allowed. The diff audit was written down and ran
+every time; the import sweep was not and ran once.
+
+## A THIRD merge category: two definitions of the same function, auto-merged as adjacent blocks
+
+The conflicts-vs-breakage split above is incomplete. POD-1246 found the third
+case in group (c), and it is worse than either:
+
+`packages/sync/src/adapters/sqlite/sync-repository.ts` ended up carrying
+`readFeedIdentity()` TWICE — main's reading the `sync_feed` table, integration's
+reading `feed_identity`. Git auto-merged them as ADJACENT ADDITIONS: no conflict
+marker, because neither side edited the other's lines. TypeScript did not
+complain. THE SECOND DEFINITION SILENTLY WINS.
+
+So the taxonomy is:
+
+    CONFLICT   both sides edited the same lines        git tells you
+    BREAKAGE   one side edited lines the other depends on   git is silent,
+                                                       the typechecker tells you
+    SHADOWING  both sides ADDED the same symbol        git is silent,
+                                                       the typechecker is silent,
+                                                       and it runs
+
+The third is the only one where a green tree is actively wrong. It is also the
+most likely outcome when two branches independently implement the same function
+against different schemas — which is exactly what a long-lived rewrite branch and
+a main branch that rebuilt the same surfaces will do.
+
+DETECTION: it is not a diff property and not a type error, so neither audit above
+finds it. What finds it is asking, per module touched, "is any symbol defined
+more than once here?" — a duplicate-export/duplicate-declaration sweep over the
+merged file. Worth building rather than remembering.
+
+FOUND BY THE IMPORT-GRAPH SWEEP, which is the second time that step paid for
+itself in one group and the reason it was made a step rather than an instinct.
+
+## And the coordinator propagated a wrong symbol into the brief that mandated it
+
+The carry-forward I put in the group (c) brief said `restore.ts` imports
+`ensureFeedIdentity`. It does not. Measured:
+
+    git show main:apps/server/src/migrations/restore.ts | grep ensureFeedIdentity
+    (nothing)
+    line 71: import { remintEpoch, SyncRepository } from '@podium/sync'
+
+The original grep had hit two COMMENTS mentioning `ensureFeedIdentity`, and the
+symbol was attributed from the mention. That is this run's oldest defect —
+a mention is not a call — arriving in a coordinator's brief, in the very sentence
+telling an implementer to read the import graph rather than trust a grep.
+
+It was caught because the implementer ran the step the brief mandated instead of
+trusting the brief's own symbol. A brief is a belief about the tree, exactly like
+a handover note and a hazard memory, and it decays the same way. Third instance
+this run of my own guidance being half right; every one was caught by measuring.
+
+## A claim TRUE on both sides separately, and FALSE in the union
+
+The deepest merge hazard this catch-up has produced, and it is a fourth category:
+no side is wrong, the COMBINATION is.
+
+`packages/protocol/version.ts` carried a comment on main stating the invariant
+
+    MIN_SUPPORTED_VERSION === WIRE_VERSION === 1
+
+True on main. Integration's `WIRE_VERSION = 2` survives the merge, so in the
+merged tree the window is `[1, 2]` — and the two checks the comment said were
+equivalent now genuinely disagree, for a v1 peer the server still serves.
+
+Nobody edited the comment. It conflicted with nothing. Every audit above is blind
+to it:
+
+  - the DIFF audit sees no lost line — the comment survived intact;
+  - the IMPORT-GRAPH sweep sees no broken import;
+  - the DUPLICATE-DECLARATION sweep sees one declaration;
+  - the typechecker sees a comment.
+
+The only thing that finds it is reading the surviving prose against the merged
+constants and asking whether it is still true. POD-1246 rewrote it to state the
+real window and why the checks differ.
+
+THE RULE: in a semantic merge, PROSE THAT ASSERTS AN INVARIANT IS AS MERGEABLE AS
+CODE AND IS NEVER CHECKED. Comments, docblocks and ADR sentences that quantify
+("=== 1", "the only", "always", "never", "both") are claims about a tree that no
+longer exists. Grep the merged result for the constants such claims name, and
+re-read every sentence that names them.
+
+This is the same family as the stale `sites` prose POD-1213 found in a matrix row
+and as POD-421's obsolete privacy caveat — documentation asserting a fact the code
+has moved past. What is new here is that NEITHER SIDE WROTE ANYTHING FALSE. The
+merge manufactured the falsehood, which means there is no author to have caught
+it and no review that would have.
+
+Corollary, from the same file: `isProtocolCompatible` has ZERO production callers
+while `versionSupport` is the live gate, so main's `@deprecated` was correct and
+integration's objection was not. Measurement settled a disagreement that reading
+could not — the same move as counting the consumers rather than arguing about the
+declaration.
+
+## ABSENCE READS AS A FINISHED ANSWER — the name-collision rule run backwards
+
+POD-1246 wrote the "compare the question, not the name" rule after the
+Revision/ChangeRevisionField trap, then walked into its mirror image two groups
+later, and its analysis of why is the most useful methodological point of this
+run.
+
+It grepped integration's registry for the NAME `concurrency`, got zero, and
+concluded integration had no concurrency vocabulary — reporting that the next
+session would have to BUILD one. Integration has a better one. It did not lose
+`protocol/commands.ts`; it ABSORBED it into `framework.ts`, which declares
+
+    export type ConflictClass =
+      | 'exp-rev' | 'field-LWW' | 'single-writer' | 'append' | 'cmd' | 'op-stream'
+
+Six ADR 1 classes against main's three. Same question, richer answer, different
+name. Resurrecting main's vocabulary would have added a fourth-generation
+restatement of a concept the target branch already models better.
+
+WHY THE RULE DID NOT FIRE, in its author's words: "compare the question, not the
+name" is easy to apply when two symbols COLLIDE and sit side by side. It is much
+harder when one side's symbol is ABSENT under the name you searched — BECAUSE
+ABSENCE READS AS A FINISHED ANSWER, AND THERE IS NOTHING TO COMPARE. A collision
+prompts a judgement; a zero result feels like one.
+
+THE HABIT THAT ACTUALLY CATCHES IT is not comparing at all. It is asking WHERE
+THE OTHER SIDE PUT THE CONCEPT before concluding it does not have one. For a
+deleted-and-absorbed module the absorbing file usually says so in its own header —
+this one did — and the way in is to go looking for a home to put the thing in
+rather than to grep for its name.
+
+GENERALISATION: a zero from a name-keyed search is the weakest possible evidence
+of absence, and this run has now been bitten by it at every level — a detector
+blind to a third spelling (POD-1212), a gate whose population was a hardcoded
+list (POD-378), a coordinator brief citing a symbol that appeared only in comments
+(mine), and now a merge conclusion drawn from a grep miss. THE SEARCH TERM IS AN
+ASSUMPTION ABOUT HOW THE ANSWER IS SPELLED.
+
+AND THE COUNTERMEASURE IS NOT "SEARCH HARDER" — POD-1246's refinement, which is
+the actionable half. Those four are not four people being careless; they are the
+SAME SHAPE AT FOUR ALTITUDES: detector, gate, brief, merge conclusion. So the fix
+is procedural: NEVER LET A ZERO TERMINATE AN INQUIRY. A zero routes to a second
+question — "where would this live if it existed?" — the way a failing test routes
+to a diagnosis rather than to a verdict.
+
+That is cheap, and it is CHECKABLE IN REVIEW: if a report concludes absence, ask
+what the second search was. A report that cannot name one has not established
+absence; it has established that one spelling is missing.
+
+The follow-on call is also right and worth keeping: integration's `conflict?` is
+OPTIONAL, which is exactly the hole main's `registry.ts:161` conditional type
+closes. Re-declaring that type over `ConflictClass` keeps the compiler enumerating
+the mutation defs that lack a declaration — without it, 35 mechanical edits turn
+back into 35 manual judgements, which is the difference between a checklist that
+cannot be silently incomplete and one that can.
+
+## A DETECTOR WITH A HIGH FALSE-POSITIVE RATE IS WORSE THAN NO DETECTOR
+
+POD-1246's shadowing sweep almost shipped in a form that would have been actively
+harmful, and its own account of why is the rule.
+
+First draft returned 164 FINDINGS — mostly object-literal properties inside method
+bodies, because the member regex allowed any indent of two or more spaces. It ran.
+It exited non-zero. By every check this run normally applies, it "worked".
+
+Its author's verdict, which is correct: a detector with that false-positive rate
+is WORSE THAN NONE, because it gets ignored — and then it is a green tick over an
+unread list. That is strictly worse than an absent check, which at least nobody
+cites as evidence.
+
+Tightened to exactly-two-space indent (the class-body convention here) it went to
+ZERO across 2018 files with both positive controls still firing.
+
+THE LINE THAT MATTERS: "the noisy version and the tight version both PASSED in the
+sense of running; only the controls distinguish them." A detector's output volume
+is not a quality signal in either direction — 164 findings and 0 findings look
+equally like working software. What separates them is whether the thing still
+fires on a KNOWN defect after being tightened. Tighten against the controls, never
+against the noise.
+
+Its controls were the right set, and the second is the one most people skip:
+
+  positive 1  a synthetic duplicate member                       -> FIRES
+  positive 2  THE REAL DEFECT, reconstructed from git by splicing
+              main's trio back into integration's class          -> FIRES,
+              naming lines 26 and 299
+  negative    the fixed file                                     -> clean
+
+Reconstructing the actual historical defect and proving the detector would have
+caught it AT THE MOMENT IT WAS SHIPPED is a far stronger claim than a synthetic
+fixture. I re-verified independently on integration: clean across 1997 files, and
+planting a duplicate class member drives it to exit 1 naming both line numbers.
+
+ONE DESIGN CONSEQUENCE WORTH COPYING: it SKIPS files that still carry conflict
+markers, deliberately — both sides' text is present there by construction, so
+every duplicate is expected and reporting them buries the real hits. The
+operational corollary is that the sweep is only meaningful on RESOLVED files, so
+it must run PER GROUP rather than once at the end. Which is the same conclusion
+the import-graph sweep reached: the defect was introduced in group (b) and found
+in group (c), and an end-of-merge run would have found it with seventy other
+files' worth of context gone.
+
+Landed on integration as `lint:shadowing` rather than left inside the merge,
+because a script that exists only in an in-flight merge dies with it — and this
+one is useful to the repo whether or not that merge ever lands.
+
+## The noise is right there; the controls are something you have to go and build
+
+POD-1246's account of WHY "tighten against the controls, never against the noise"
+is hard to follow — and it is the better half of that rule.
+
+Tuning a detector against its 164 visible findings FEELS like progress on every
+iteration, because each tightening genuinely reduces the number. The feedback is
+immediate, monotonic, and completely uninformative: nothing in that loop can tell
+you the moment you stopped catching the real defect. The count goes down whether
+you are removing false positives or removing the finding you built the thing for.
+
+The controls are the only element in the loop that can say "you have now broken
+it" — and they only exist if you wrote them BEFORE you started tuning. After
+tuning has begun there is no un-tuned reference to write them against.
+
+Its own summary, which places this exactly: the same shape as this run's oldest
+rule, PROVE IT CAN FIRE BEFORE BELIEVING ITS PASS, met from the TUNING side
+rather than the trusting side. The tuning side is the more dangerous one, because
+trusting a green gate at least feels like an assumption, whereas tightening a
+noisy one feels like work.
+
+## A stop is worth exactly what the handover is worth
+
+Correcting my own framing, on POD-1246's objection, because the wrong version of
+this is actively harmful.
+
+I wrote that three sessions "stopped rather than rushed" and each handed over
+further along — implying the stopping was the virtue. Its correction: stopping at
+37/109 helped only because the map was specific enough to act on. The forced
+tranche order, the two tripwire locations, the compiler-driven method, the named
+carry-forward. A stop with a vaguer handover is just a slower restart, and pays
+the context-rebuild cost twice for nothing.
+
+THE THING THAT COMPOUNDED WAS THE HANDOVER, NOT THE STOPPING. Do not read
+"stopping is good" and stop without leaving a method behind. The test for whether
+a stop is worth taking: can the next session ACT from what you wrote, without
+re-deriving what you learned? If not, the honest options are to keep going or to
+spend the remaining context writing the map rather than resolving two more files.
+
+## Postscript: the detector's own landing produces a duplicate to reconcile
+
+Predicted and verified rather than discovered later. `check-merge-shadowing.ts`
+now exists byte-identical on integration (landed directly, so it survives whether
+or not the catch-up lands) and inside the catch-up merge, and both added the same
+`lint:shadowing` line to `package.json`. When the catch-up finishes and merges the
+newer integration on top, both collide: add/add on the script, one line in
+package.json. Both resolve to "identical, keep one".
+
+Trivial, named here so nobody spends time on it — and a fair joke at the shadowing
+detector's expense, since its own arrival creates a duplicate declaration to
+reconcile.
+
+Also expected, not a finding: the file count differs between trees (1997 on
+integration, 2018 in the catch-up worktree) because the latter has main merged
+into it.
+## The brief and the kernel disagreed about one sentence, and both were right (POD-316)
+
+POD-316's acceptance list asks that a loss-of-access rejection reach dead-letter
+"with an actionable explanation", and offers the example string *"you no longer
+have access to this issue"*. POD-370's kernel forbids exactly that: `unauthorized`
+merges rights-denied, target-invisible and target-NONEXISTENT into one code, and a
+test pins the invisible and the nonexistent records BYTE-IDENTICAL, affordances
+included. Amendment property 15 states it unconditionally.
+
+Both survive, because they speak at different levels, and naming the level is the
+whole resolution:
+
+  - ACTIONABLE AT THE REASON-CODE LEVEL. "This needs a permissions change, not an
+    edit" tells the user what to DO, and is equally true whether the grant was
+    revoked, the entity was deleted, or the id never existed.
+  - SILENT AT THE TARGET LEVEL. No title, no id, no existence claim.
+
+The example string fails only because it asserts the target exists. A principal
+who never had access learns an id is real by reading it. The brief's own
+reasoning — that a dead-letter item is the opposite of the send path, since the
+author demonstrably had access when they queued the write — is sound for the
+case it describes and does NOT generalise: `unauthorized` also covers the write
+whose target id was never valid, and the copy has to be true for all three at
+once because the code cannot tell them apart by design.
+
+THE WORDING DECISION, made without a human (none available) and recorded here as
+the brief required. Picked the safe wording; the OPEN question — whether the
+product may ever distinguish "the share was revoked" from "the entity was
+deleted", and whether the answer changes for a write queued by a delegated agent
+rather than by the person reading the list — stays open at ADR 3 Amendment 1 §3
+O1, where it belongs. It is a human's call, not a default to settle in a UI
+string. Copy lives in ONE module (`outbox-recovery-copy.ts`) so the merge the
+kernel performs cannot be undone by a well-meaning sentence in a second surface.
+
+## The affordance set is part of the oracle, and a label-matching test cannot see it
+
+Same issue, and it caught me. The rule is that two situations sharing a reason
+code must offer byte-identical recovery, because a withheld button leaks the
+distinction the reason code blurred. I wrote the guard as
+
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull()
+
+and it SURVIVED the mutant that rendered the retry button unconditionally —
+because the button's label comes from the same code-derived copy, so with no
+label there is no accessible name, so the name did not match, so an
+always-present button read as absent. The instrument could not say no about the
+exact property it existed to guard, and it passed for a reason that had nothing
+to do with the property.
+
+RULE: when the thing under test is a control's PRESENCE, assert the presence
+(`queryByTestId`), never a property the same code path also removes. A test whose
+subject and whose matcher are derived from one source can only ever agree with
+itself.
+
+## `git checkout <file>` reverted past uncommitted work TWICE in one session
+
+The mutation-hygiene rule "COMMIT before mutating" already says this; what I had
+not internalised is how it fails. Both times the revert LOOKED like it worked —
+the mutant was gone and the suite went green-then-red for a reason I misread —
+because `git checkout` restores the file to HEAD, taking every uncommitted edit
+made since with it. The second time it silently deleted an entire moved table
+and the failure surfaced three steps later as "0 tests".
+
+RULE: mutate only files with a clean `git status`, and re-run `git status` after
+the revert rather than trusting it. A revert that removes more than the mutant is
+indistinguishable from a correct one at the moment you do it.
+
+## A cross-package drift guard can only live DOWNHILL of the dependency
+
+The client outbox carries a copy of each queued command's `policy.confirmation`,
+because importing the command registry to read one field would pull it into the
+browser bundle. A copy needs an equality guard, so I put the guard in
+`packages/commands`, where every registry is already imported, and had it import
+`@podium/client-core/engine`.
+
+That is a dependency CYCLE — commands is L1 and client-core depends on it — and
+it does not fail as a boundary error. The import resolved to `undefined` at
+module init and the suite failed with *"Object.entries requires that input
+parameter not be null"*: a message about nothing, three levels away from the
+cause.
+
+RULE: a guard comparing two packages belongs in the one that already depends on
+the other. If neither does, the comparison needs a third package, not an import
+that happens to resolve.
+
+## A shared KEY is not a shared definition — the symbol rule, one level up
+
+POD-1246's own diagnosis of how its baseline finding survived four sessions, and
+it unifies several entries above into one statement.
+
+It spent this run writing the rule that A SHARED NAME IS NOT A SHARED DEFINITION
+for symbols — `Revision` and `ChangeRevisionField`, `Timestamp` and `Instant`.
+Then it read two committed baseline JSONs side by side and treated A SHARED KEY as
+a shared definition for MEASUREMENTS. Same trap, one level up: the artefacts were
+two instruments' outputs, not two readings of one instrument.
+
+Its stored rule, deliberately blunt: NEVER COMPARE TWO COMMITTED BASELINES. Check
+out each tree in turn and run the SAME detector over both. A number is only
+comparable to another number the same instrument produced.
+
+WHY IT SURVIVED SO LONG, which is the part worth generalising. The near-miss it
+caught earlier — a parser reporting 15 mutations with no declaration when main's
+own conditional type makes one mandatory — was caught because THE DATA
+CONTRADICTED THE TYPE, and a visible contradiction prompts a check. Here the data
+contradicted nothing: both numbers were plausible, and the instrument difference
+was invisible in the artefact. Nothing looked wrong, so nothing prompted a check,
+and it took POD-310 actually running the tool to surface it.
+
+THE GENERALISABLE FORM: WHEN TWO NUMBERS DISAGREE, ASK WHETHER ONE INSTRUMENT
+PRODUCED BOTH BEFORE REASONING ABOUT WHAT THE DIFFERENCE MEANS. The reasoning
+about the difference is the trap — it is exactly what produced a confident causal
+story ("main deleted the wire, integration rebuilt it") that was plausible, may
+even be true of the code, and was not supported by the numbers cited for it.
+
+And POD-310 sharpened it once more: even a BYTE-IDENTICAL detector is not portable
+between trees. `local-placeholders` reads 12 under main's instrument on main's
+tree and 15 under integration's instrument on that SAME unmodified tree. The +3
+is the harness — grep roots, loadContext — not the code. So "same detector" is not
+sufficient either; only one binary, two checkouts, run back to back.
+
+## Going looking for a home keeps revealing the architecture
+
+Third time this move has paid in one merge, and it is worth naming as a technique
+rather than luck.
+
+  - Searching for where to PUT main's concurrency vocabulary is what revealed
+    integration had already absorbed `protocol/commands.ts` into `framework.ts`
+    with a richer `ConflictClass` — the grep for the NAME had returned zero and
+    read as a finished answer.
+  - Searching for where to PUT the `conflict` field is what revealed that
+    `CommandContractBase` has no such field and that `def()` merges from the L1
+    contract — so the tripwire both a coordinator and an implementer had specified
+    would have been applied to a parallel type and enforced NOTHING while looking
+    exactly like enforcement.
+  - Searching for an importer of a deleted module is what found the two F1 breaks.
+
+The common shape: asking "where does this belong?" forces you to read the
+structure, whereas asking "does this exist?" only reads an index. The first
+question cannot be answered by a grep, which is precisely why it finds what greps
+miss.
+
+## A grep for what you already believe is a detector that can only CONFIRM
+
+POD-310's correction to my framing of its own mistake, and it is sharper than the
+version I wrote.
+
+It reported that on its first pass it GREPPED the ledger rather than reading it,
+and I recorded that as treating the run's memory as a lookup table. Its
+correction: that is too kind and misses the mechanism. A grep returns the first
+thing matching MY EXISTING BELIEF and stops. It is structurally incapable of
+returning the thing I did not think to search for — so as an instrument it can
+only ever CONFIRM. The section that eventually changed its finding contained none
+of the words it had searched for.
+
+That places it precisely: it is the same defect as everything else in this run's
+dominant class, applied to reading rather than to testing. A test that can only
+pass, a gate whose population is fixed, a probe in the wrong file, a name-keyed
+search over a concept spelled differently — and now a search of the run's own
+memory, keyed on the belief being checked.
+
+THE COROLLARY FOR THIS DOCUMENT SPECIFICALLY: it is not a reference. Grepping it
+for the term you are already worried about returns the entry you already
+remembered. The entries that would change your mind are the ones whose vocabulary
+you do not yet have — which is exactly why several sessions have found that
+reading the last N entries end to end changed a finding, and grepping never did.
+
+## Verifying a re-phase: the totals must not move
+
+POD-310 checked my re-phase of POD-308's two items rather than accepting it, on
+the grounds that "the gate closed after someone edited a mapping" is the one
+outcome its own verdict said to distrust. The check it ran is the right one and
+worth reusing:
+
+    POD-308   exit 0   clear to close
+    POD-337   exit 1   naming legacy-wire-v1-adapter (6) + issue-wire shims (4)
+    POD-1251  exit 1   naming change-row-typings (12)
+    full audit: 30 items, 180 sites, BASELINE EXACT — unchanged before and after
+
+THE TOTALS NOT MOVING IS THE PROOF. Every one of the eighteen sites is still
+counted and still ratcheted; only the owner changed. A re-phase that reduces the
+total is a rebaseline wearing a re-phase's clothes, and a re-phase whose targets
+are CLOSED reproduces the original defect — which is precisely how
+change-row-typings became unowned in the first place. Both new owners are open.
+
+It also checked that the gate test kept BOTH directions rather than trusting the
+commit message that said so, because deleting the assertion would have been the
+quiet way through. Verifying the claim in the commit message against the tree is
+the same move as verifying a handoff against the tree, and it is the one that
+catches a coordinator.
+
+## A plausible mechanism attached to an invalid comparison is stickier than a bare wrong number
+
+POD-1246's own account of why its baseline finding survived four sessions, and it
+is the deepest thing this run has produced about how a wrong belief persists.
+
+Having read 12 against 7, it did not stop at "main is lower". It EXPLAINED it —
+the rewrite has not yet removed this class of debt — and the explanation was
+coherent, consistent with everything else it knew, and may even be true of the
+code. It was simply not supported by the numbers cited for it.
+
+That is what made it durable. A bare wrong number is fragile: the next person who
+looks it up finds a different value and the belief dies. A wrong number WITH A
+MECHANISM recruits everything else you believe into defending it — each new
+observation gets fitted to the story rather than tested against the measurement,
+and the story keeps working because it was never the story that was wrong.
+
+Which is why it needed someone RUNNING THE TOOL rather than someone re-reading the
+report. Re-reading confirms the mechanism; only measurement touches the number.
+
+THE SECOND-ORDER CASE, from the same message and worth as much: POD-1246's first
+correction to its own rule was "run the SAME detector over both trees". That fix
+is ALSO wrong — POD-310's `local-placeholders` result refutes it, since a
+byte-identical detector reads 12 under one harness and 15 under the other on the
+same unmodified tree. So the corrected procedure would itself have produced an
+invalid comparison AND LOOKED RIGOROUS DOING IT. A fix that adopts the vocabulary
+of rigour without closing the hole is harder to challenge than the original
+mistake.
+
+The procedure that actually holds: ONE BINARY, TWO CHECKOUTS, RUN BACK TO BACK.
+
+COROLLARY on "go looking for a home", stated the other way round by its author and
+better for it: find a thing's home BEFORE writing it — because if you cannot say
+where it belongs, you do not yet know whether it already exists. That is the same
+insight as the absence-reads-as-an-answer entry, turned into a habit that runs
+before the work rather than a check that runs after it.
+
+## A TYPECHECK IS SYNTAX-ONLY WHILE ANY CONFLICT MARKER EXISTS — measured
+
+POD-1246's finding, and the most consequential instrument result of this run. I
+reproduced it independently on integration before believing it, because it
+invalidates a class of evidence rather than a single claim.
+
+THE MEASUREMENT, on `packages/model` (a zero-dependency leaf):
+
+    a file containing `export const __probe: number = 'not a number'`
+      -> TS2322 reported. Instrument live.
+
+    the SAME file, plus one unrelated file containing conflict markers
+      -> TS2322 reported ZERO times. Only 3 x TS1185 (marker syntax).
+
+One marker anywhere in the project and semantic checking stops entirely. The run
+still exits non-zero, still prints errors, still looks like a typecheck — and it
+is not looking at types at all.
+
+WHAT THIS INVALIDATES, in POD-1246's own accounting of its own work:
+
+  "@podium/model typechecks clean" (group a)   VALID — marker-free graph, and it
+                                               probed the instrument.
+  "zero errors from packages/sync itself,      NOT EVIDENCE. Re-tested: a blatant
+   only protocol markers" (group b)            type error in ledger.ts goes
+                                               unreported; the run emits 36 x
+                                               TS1185 and nothing else. The
+                                               sentence was literally true and
+                                               completely meaningless.
+  "conflict.ts resolves, no error" (group c)   NOT EVIDENCE, same reason.
+
+IT IS THE INSTRUMENT-MUST-SAY-YES-FIRST FAILURE, MADE IN THE DOCUMENT THAT CITES
+THAT PRINCIPLE. A green from an instrument that cannot go red is not a weak signal
+— it is NO signal, and it is worse than no check because it is quoted as evidence.
+
+HOW IT WAS CAUGHT is the transferable part: a tripwire it had just installed
+FAILED TO FIRE, and instead of assuming its own type was wrong it ran a positive
+control on the typechecker. The control said THE TYPECHECKER WAS NOT LOOKING —
+a different diagnosis entirely, and not one reachable by staring at the type.
+When a new guard does not fire, suspect the instrument BEFORE the guard.
+
+CONSEQUENCES THAT CHANGE THE PLAN, not just the wording:
+
+  - "A group is not done until its consumers compile" is UNACHIEVABLE mid-merge.
+    The compile signal is syntax-only until the last marker in the dependency
+    graph is gone. Still worth running — it catches syntax damage — but it is not
+    verification.
+  - A COMPILER-DRIVEN ENUMERATION CANNOT RUN MID-MERGE EITHER. The registry
+    tripwire (a constraint making a mutation whose contract omits `conflict` fail
+    to compile) is installed, INERT and UNPROVEN until markers clear.
+  - SEQUENCE: clear every remaining marker in the affected projects FIRST,
+    provisionally if necessary, and only THEN apply declarations that the compiler
+    is supposed to enumerate. Applying them first is exactly the memory test the
+    mechanism exists to prevent.
+
+WHAT STILL WORKS MID-MERGE: syntax errors, `lint:shadowing` (textual), unit tests
+in marker-free packages, and the `git show main:<f> | grep -vxFf` audits.
+
+THE RULE: BEFORE QUOTING ANY TYPECHECK AS EVIDENCE DURING A MERGE, PROBE IT —
+append an obvious type error and confirm it is reported. If it is not, the run is
+syntax-only and proves nothing.
+
+COORDINATOR NOTE ON THIS RUN'S OWN EVIDENCE: the integration-branch typechecks
+quoted in every merge commit here were run on a CLEAN tree — the standing
+procedure is resolve, `git add`, verify `git status --porcelain` has no unmerged
+entries, then run gates and `typecheck --force`. No marker was present for any of
+them, so those claims stand. That is luck as much as design; the procedure existed
+for a different reason (verifying the commit rather than the working tree) and
+happened to close this hole too.
+
+## PARTIAL PRESERVATION IS WORSE THAN NONE — a green guard over a frozen counter
+
+POD-1246's exp-rev finding, and it corrects every note on the subject in this
+run, mine included. "Preserve main's enforcement" undersells it and could produce
+a WORSE result than dropping optimistic concurrency entirely.
+
+THE CHAIN HAS FIVE LINKS. Integration has ONE, and it is the wrong one:
+
+  1 COLUMN       issues.revision, DEFAULT 1 NOT NULL   PRESENT (additive migration)
+  2 INCREMENT    apps/server/src/store/issues.ts       MAIN ONLY — verified here:
+                                                       integration's copy mentions
+                                                       revision ZERO times, main's
+                                                       thirteen
+  3 FIELD        revision on the issue entity/wire     MAIN ONLY — integration's
+                                                       model has no such field
+  4 DECLARATION  conflict: 'exp-rev' per contract      MAIN ONLY, 0 of 43
+  5 ENFORCEMENT  dispatcher -> conflict.ts -> 409      MAIN ONLY
+
+THE TRAP: the column exists and NOTHING WRITES IT. `DEFAULT 1 NOT NULL` plus no
+increment means every row reads revision 1 forever. Add wire enforcement without
+link 2 and every write carrying `expectedRevision: 1` MATCHES, while every other
+value is refused. THE GUARD PASSES EXACTLY THE WRITES IT EXISTS TO CATCH, and
+presents as working. A green concurrency check over a frozen counter.
+
+So resolving `store/issues.ts` to integration's side on its own is the single most
+damaging call available in this merge — and it is the call a reasonable person
+makes, because integration's structure is generally the target architecture.
+
+AND NOTHING IN THE TREE WOULD REPORT IT. No conflict, because it is a resolution.
+No shadowing, because there is one definition. No typecheck, because semantic
+checking is off while markers remain. And `issues.expected-revision.test.ts`
+cannot run for the same reason. FOUR INSTRUMENTS, ALL SILENT, on the most
+dangerous available change.
+
+THE RULE: LINKS 2-5 LAND TOGETHER OR NOT AT ALL, and if context runs out
+mid-chain, SAY WHICH LINKS ARE IN. "exp-rev preserved" written while link 2 is
+missing is the most expensive sentence a handover could contain — it is a claim
+that the property holds, made about a system where the property is not merely
+absent but actively counterfeit.
+
+GENERALISATION beyond this merge: a mechanism assembled from N links can be
+DEFEATED by preserving N-1 of them, and the failure mode of the partial assembly
+is usually SILENT SUCCESS rather than obvious breakage — because the surviving
+links keep producing the shape of a working system. Before preserving "half of X",
+ask what the half does ON ITS OWN. Sometimes the honest options are all-or-nothing.
+
+This also revises what POD-1247 inherits: not "wire the engine to existing
+enforcement" but "wire the engine to a chain whose links 2 and 3 may or may not be
+present". Its first act must be to verify all five rather than assume the merge
+preserved them.
+
+## A threshold with no instrument silently becomes "not checked"
+
+POD-1253's finding while fixing the release criteria, and it is the release-gate
+form of this run's dominant defect.
+
+It fixed 15 threshold rows and then separately reported that SIX of the ten
+criteria are wholly or partly unmeasurable today: no boot timing exists anywhere;
+nothing samples DB size over time; `perf.snapshot` measures the SERVER'S SHARE of
+sync lag rather than end-to-end; render counts wait on an unbuilt probe.
+
+Fixing a number does NOT create an instrument. A criterion with a threshold and
+no measurement reads, in every report and every gate summary, exactly like a
+criterion that passed — because nothing runs, nothing fails, and the row has a
+number in it. THE THRESHOLD IS THE PART PEOPLE CHECK FOR; ITS ABSENCE IS LOUD AND
+ITS UNMEASURABILITY IS SILENT.
+
+So the measurement gap has to be stated SEPARATELY from the threshold, in its own
+list, or the act of fixing thresholds actively conceals it.
+
+THREE ROWS IT REFUSED TO FIX, and the reasoning generalises:
+  - gap-heal time — the conformance suite runs on a FIXTURE CLOCK and cannot
+    produce a wall-clock number even in principle. Not "hard to measure": the
+    instrument is incapable of the units.
+  - DB growth RATE — "a rate without its load is not a number".
+  - render counts — blocked on an unbuilt probe, and "fixing a number for an
+    instrument nobody built fixes nothing".
+
+An honest UNDETERMINED with the experiment written out is a better deliverable
+than a plausible number, because the number would have been graded against and
+the experiment can actually be run.
+
+TWO MORE HABITS WORTH COPYING. It LABELLED ITS OWN WEAKEST ROW (the desktop
+memory ceiling — bounded above by a past leak incident, bounded below by nothing),
+which tells the next reader where to push first. And it noted that INHERITING A
+NUMBER IS NOT THE SAME AS JUSTIFYING IT: several constants it adopted have no
+recorded original justification in their own files, so the chain of reasoning
+terminates in a value someone once chose.
+
+AND THE GUARD ASSERTS MATCH-COUNT BEFORE VALUE. Pinning a doc row against a source
+constant is only sound if the regex actually found the constant — otherwise a
+rename produces the same green as agreement. Renaming the constant fires the
+match-count row FIRST. That is the anti-vacuity discipline applied to a
+documentation guard, where it is least expected and most needed.
+
+## Same name, different KIND — a function that shadows a type in a name search
+
+Third instance of same-name-different-thing in this merge, and the first where the
+collision crosses KINDS rather than sitting between two types.
+
+Integration's `packages/sync/src/change-log.ts:134` exports
+
+    export function issueProjection(value: unknown): string
+
+which strips volatile fields to compute a dirty key. Main has an
+`IssueProjection` TYPE — a normalized entity on the change feed. A name search
+over integration returns a hit, and the hit reads as "integration has this".
+
+It does not. The function answers "what is this row's dirty key?"; the type
+answers "what shape does a normalized issue take on the wire?". Different
+questions, different kinds, one string.
+
+WHY THIS ONE IS WORSE than the earlier two: a type-versus-type collision at least
+puts two comparable things side by side, and the question test separates them. A
+FUNCTION returning `string` and a TYPE describing an entity do not look alike at
+all — but a grep does not report kinds, so the confusion happens entirely inside
+the search result, before any comparison begins. The instrument flattens the
+distinction that would have resolved it.
+
+The run's rule already covers it and needed no amendment — ask what question the
+symbol answers — but the CASE is worth having, because the earlier examples were
+both type-versus-type and a reader could reasonably have thought that was the
+shape of the hazard.
+
+## "Links in / links out" used on a session's own report
+
+POD-1246 closed a session at 40/109 with this, unprompted:
+
+    Of the exp-rev chain, links 2-5 are ALL STILL OUT. Nothing I did this session
+    added any of them. Link 1 is in because it was always in. DO NOT LET ANYONE
+    READ 40/109 AS PROGRESS ON EXP-REV.
+
+That is the rule from the five-link entry applied to its own progress number, and
+it is the harder direction: the rule was written to stop a HANDOVER overclaiming,
+and here it is used to stop a COUNT overclaiming. A merge-progress figure is a
+count of resolved conflicts; it says nothing about which properties survived, and
+the two get conflated by everyone reading a status line — including the
+coordinator writing one.
+
+Worth generalising: when reporting a progress metric alongside a property the
+work is supposed to preserve, state the property's status SEPARATELY and in its
+own terms. "40/109" and "exp-rev links 2-5 are out" are both true, and only the
+second answers the question anyone actually has.
+
+## A COMPLIANCE CLAIM IN A FILE HEADER, answering the wrong clause
+
+The sharpest architectural finding of this run, and the most dangerous kind of
+wrong comment: one that asserts a design property has been satisfied.
+
+`packages/model/src/entities/issue.ts` declares `IssueWireCore` — the R4 wire
+projection — carrying `prefix`, `displayRef`, `blockedBy`, `deps`, `dependents`
+and `blocked`. Its header states, of the derived members:
+
+    "computed server-side at serialization, never stored — D7's derivation
+     locality, already satisfied"
+
+Verified here: the claim is in the header and every field it covers is on the
+projection. AND THE CLAIM IS WRONG — not because the facts are wrong, but because
+it ANSWERS THE WRONG CLAUSE. "Never stored" is a D6 property (storage encoding).
+D7.2 is derivation locality: no code on the write, publish or fan-out path may
+perform work O(number of entities) per change. Computing at serialization IS
+fan-out-path work. The two properties are independent and the header treats one
+as evidence of the other.
+
+The consequences are concrete, not theoretical:
+
+  - `prefix` sits on EVERY issue's wire. Changing one repo's prefix is a change to
+    entity `repo` that invalidates the wire of every issue in that repo — O(issues)
+    on the fan-out path from a one-row edit. Structurally identical to the embedded
+    `SessionMeta[]` that D7 was written to make unrepresentable.
+  - `blocked` derives from the state of the issues an issue depends on, so closing
+    issue A makes `blocked` stale on everything depending on A — recomputing
+    projections of OTHER entities from a change to A, which D7.2 forbids.
+
+WHY A FALSE COMPLIANCE CLAIM IS WORSE THAN NO COMMENT: an absent claim invites a
+reader to check. A present one — citing the right ADR, in the right file, in
+confident terms — STOPS the check. It is the documentation form of a gate that
+cannot say NO, and it survived multiple readings of this file by multiple agents
+during this run, including mine.
+
+THE TEST: when a comment asserts compliance with a numbered clause, READ THE
+CLAUSE, not the comment. Then check that the property the comment demonstrates is
+the property the clause requires. "Never stored" and "not O(world)" are both true
+statements about this code and only one of them is what D7.2 asks.
+
+## The right answer for the wrong reason will mis-handle the next case
+
+POD-1246's care in separating WHY `issueDep` becomes first-class from THAT it does,
+and it is the difference between a decision and a precedent.
+
+The easy route is the epic's own slogan: a kind on the change feed is an entity, so
+integration's wire-shape-without-an-entity is the defined-but-unused half-state
+Move 1 exists to end. That reaches the right answer.
+
+It is the wrong reason. D7.1 does NOT forbid integration's embedded
+`deps: [{id, type}]` — that is reference-by-branded-id, which D7.1 explicitly
+PERMITS; it is entity-in-entity NESTING that is forbidden. The edge must become an
+entity because `blocked` has to move to the replica under D7.3, and A REPLICA CAN
+ONLY JOIN OVER EDGES IT HAS BEEN SENT. So `issueDep` is the ENABLER of D7.3
+compliance, not itself a D7.1 violation.
+
+In POD-1246's words: anyone re-deriving this from "a kind on the feed is an entity"
+reaches the right answer for the wrong reason AND WILL MIS-HANDLE THE NEXT EDGE
+TYPE — because the slogan makes every feed kind an entity, while the actual rule
+makes an edge an entity only when a replica-side join needs it.
+
+A decision recorded with the wrong justification is a precedent that misfires. The
+justification is the reusable part; the answer is not.
+
+## SMALL IN THE FILE, LARGE IN THE TREE — a usable trigger for "scope this separately"
+
+POD-1246's generalisation after the third occurrence, and it converts a judgement
+call into something you can notice.
+
+Three times in this catch-up a merge resolution turned out to smuggle a
+system-wide behaviour change:
+
+  POD-1247  switching to integration's default-closed arbitration engine changes
+            behaviour for every caller that omits `expectedRevision` — today, all
+            of them.
+  POD-1250  making `conflict` required on `CommandContractBase` cascades to every
+            namespace: sessions, mail, workflows.
+  null-encoding  porting main's `shape.ts` to unblock two sync.ts hunks would
+            decide null-encoding for the whole tree as a side effect.
+
+EACH TIME THE TELL WAS THE SAME: the change was SMALL IN THE FILE and LARGE IN THE
+TREE. A few lines in one resolution, and a semantic change everywhere the type or
+default reaches. That asymmetry is noticeable at the moment of the edit, which is
+what makes it a trigger rather than a lesson.
+
+THE RULE: when a resolution is small in the diff and large in the blast radius,
+STOP AND SCOPE IT SEPARATELY. Not because it is wrong — all three of these are
+probably right eventually — but because inside a large merge it is invisible, and
+"invisible behaviour change buried in 109 conflicts on the branch replacing a live
+system" is the worst place for a correct decision to be made.
+
+Filed separately, each becomes a decision with a test. Made inline, each is a
+line someone has to notice in a diff nobody can hold in their head.
+
+THE CAVEAT, WHICH MATTERS AS MUCH AS THE TRIGGER — POD-1246's, correcting a
+sentence of mine that invites exactly the wrong reading. "40/109 with three
+system-wide decisions correctly refused beats 70/109 with any one silently made"
+is true and is NOT A LICENCE TO REFUSE. Refusal has a real cost: each of these
+lengthened the critical path, and the null-encoding call now blocks four
+downstream things. A session that refused ten decisions on caution would produce a
+WORSE artifact than one that made all ten, because the map would be a list of
+things nobody decided.
+
+What made these three defensible is that each came with the argument laid out and
+a separate issue to hold it — so refusing MOVED the decision rather than deferring
+it.
+
+THE TEST, and it is better than "is this big?": CAN I STATE THE DECISION
+PRECISELY ENOUGH THAT SOMEONE ELSE CAN MAKE IT? If yes, file it. IF NO, IT IS NOT
+RIPE TO REFUSE EITHER — it needs more measurement first, and refusing it just
+converts a hard decision into a vague one with a ticket number.
+
+## The reason must be recorded even when the answer is uncontroversial
+
+POD-1246's addition to the right-answer-wrong-reason entry, and it explains why
+that failure is so hard to catch.
+
+THE FAILURE IS INVISIBLE AT THE MOMENT OF THE DECISION, because the outcome is
+right. Nothing looks wrong; the reviewer agrees; the work proceeds. It surfaces
+only at the NEXT case, when someone applies the recorded reason and gets an answer
+the actual rule would not have given.
+
+Which is exactly why the reason belongs in the record even when the answer is
+uncontroversial — the answer is what everyone checks, and the reason is what gets
+reused.
+
+## Treat "complies with X" as a claim with a pointer attached
+
+POD-1246's practical form of the compliance-claim entry, small enough to actually
+do: a comment saying "complies with X" is an UNVERIFIED CLAIM, and the citation is
+the gift — it tells you exactly which clause to open. Open X. Then check that the
+property the comment demonstrates is the property the clause requires.
+
+That is the only thing separating a real compliance note from a confident one, and
+it costs one file-open. The alternative is what happened here: everyone who read
+`issue.ts`, this coordinator included, treated the citation as evidence THE CHECK
+HAD ALREADY HAPPENED.
+
+## The one durable conclusion: every error that survived had a plausible stand-in for a measurement
+
+POD-1246's closing synthesis, and the right last entry for this run.
+
+Six corrections passed between a coordinator and one implementer in a single day.
+Four went one way, two the other, and the direction is not the point:
+
+  NONE of the six was caught by anyone being more careful.
+  ALL SIX were caught by someone RUNNING something.
+
+And each error survived for the same reason — SOMETHING PLAUSIBLE STOOD IN FOR A
+MEASUREMENT:
+
+  a COMPLIANCE COMMENT stood in for reading the clause
+      ("never stored — D7's derivation locality, already satisfied", which
+       answers D6 and not D7.2)
+  TWO COMMITTED BASELINE JSONs stood in for running one detector over both trees
+      (12 vs 7 was never a comparison; one instrument gives 12 vs 22)
+  A GREEN TYPECHECK stood in for semantic checking
+      (syntax-only while any conflict marker exists, so it could not go red)
+  A SYMBOL FROM A GREP stood in for reading the import
+      (`ensureFeedIdentity` appeared only in comments; the real import was
+       `remintEpoch`)
+  A NAME SEARCH RETURNING ZERO stood in for asking where the concept lives
+      (integration had absorbed the vocabulary under a different name, richer)
+  A CONFLICT LIST stood in for the dependency graph
+      (files that merged clean and were broken by a moved module)
+
+Every one of them LOOKED like evidence. That is what made them durable: a
+stand-in that announces itself gets checked, and a stand-in that reads exactly
+like the real thing gets cited.
+
+THE RULE THE WHOLE RUN REDUCES TO: before believing a result, ask WHAT PRODUCED
+IT — and whether that thing could have produced a different answer. A comment
+cannot. A baseline file cannot. A typechecker with markers in the tree cannot. A
+grep for a name you chose cannot. None of them can say NO, so none of their
+greens carry information.
+
+Which is the same sentence this run started with, arrived at from the other end:
+prove it can fire before believing its pass. What changed over the day is the
+range of things that turned out to be instruments — comments, counts, briefs,
+handovers, hazard notes, progress metrics and the run's own memory all behaved
+exactly like detectors, and all of them failed in the same way when nobody
+checked they could report a one.
+
+## "Which approach wins" versus "is there actually a contest"
+
+POD-1246's last act on the catch-up, and it is a better question than the one I
+briefed.
+
+I dispatched a decision: main solved null-encoding one way, integration another,
+pick one. It ran a bounded EVIDENCE pass instead and found the premise was likely
+false — and that the premise was ITS OWN, from group (a), where it had written
+"both sides solved null-encoding differently".
+
+Measured, that sentence collapsed TWO DIFFERENT CONCERNS AT TWO LAYERS under one
+label:
+
+  durable<->wire nullability MAPPING (a representation concern, ADR 4)
+      main         SYSTEMATIC — `shape.ts`: `wireShape` for the type half,
+                   `dropNullValues`/`restoreNullValues` for the value half,
+                   keyed on `=== null` / `=== undefined` rather than falsiness
+      integration  AD HOC PER FIELD, e.g. `tuckedAt:
+                   z.string().nullable().optional().catch(undefined)`
+
+  replica STORE-UPDATE semantics on a nulled field (a reactivity concern)
+      integration  `replica.ts:246` — assign `undefined`, never `delete`,
+                   because a delete is untracked and the stale value survives
+      main         does not address this at all
+
+Neither implements the other. Integration has no rival to the first — it has
+per-field handling that a convention would SUBSUME rather than contradict. So
+there is probably no decision to make, and the critical path loses a link.
+
+THE POINT, generalised: "which approach wins" PRESUPPOSES A CONTEST, and a brief
+that names two approaches manufactures one. The cheaper question, and the one to
+ask first, is IS THERE ACTUALLY A CONTEST — do these two things answer the same
+question at the same layer? This run's own name-collision rule already says to ask
+that of SYMBOLS; the failure here was not applying it to PROBLEMS. Two mechanisms
+described by the same phrase are exactly as suspicious as two types sharing a name.
+
+AND IT FLAGGED ITS OWN EVIDENCE AS WEAK IN THE RIGHT DIRECTION. Its conclusion is
+"no contest", which is an ABSENCE claim, reached by a name grep — the precise
+instrument it had spent the day proving unreliable. So it stated the finding as
+PROBABLE, not settled, and asked for confirmation from the other direction: not
+re-running the search, but asking WHERE INTEGRATION WOULD PUT such a convention
+and reading that file.
+
+I ran that confirming read. `packages/model/src/representations/registry.ts` and
+`checks.ts` are the candidate home, and they govern WHICH representations exist and
+why each is justified — not nullability mechanics. No shape-level null<->undefined
+mapping exists anywhere in integration's model by structure either. The absence
+holds on a second, differently-keyed look.
+
+That sequence — conclude absence, distrust it BECAUSE it is an absence from a
+search, and hand someone else a different way to check rather than the same one —
+is the practice this whole ledger keeps reaching for, done unprompted on its
+author's own result.
+
+## THE HANDOVER IS AN INSTRUMENT TOO — a label I wrote earlier is not evidence
+
+POD-1246's closing observation, and it is the one that cuts at the practice this
+whole ledger recommends.
+
+The blocker it spent the day working around WAS NOT REAL, AND IT CREATED IT. In
+group (a) it wrote "both sides solved null-encoding differently" — a sentence that
+collapsed a representation concern and a reactivity concern under one label. That
+sentence then:
+
+  - survived four sessions,
+  - passed through two coordinator briefs (mine, twice),
+  - and cost the critical path a link for the whole day,
+
+and nobody re-derived it PRECISELY BECAUSE IT WAS WRITTEN DOWN. A handover note
+behaving exactly like the compliance comment dissected above: a claim that reads as
+a check having already happened.
+
+Its own framing: "the map I keep being thanked for is also the thing that
+propagated this."
+
+THE COROLLARY, and it belongs beside every other entry here: A LABEL YOU WROTE
+EARLIER IS AN INSTRUMENT LIKE ANY OTHER. It was five hours old, load-bearing for
+four sessions, and never measured until it blocked something someone wanted. The
+run's recurring rule — ask what produced this, and whether it could have produced a
+different answer — applies to your own prose with no exemption. A summary is a
+detector whose output is a sentence.
+
+That does NOT argue for fewer handovers; six sessions handing over is why this
+issue got as far as it did with a usable map. It argues that handover content
+carries the same burden as a gate: state what was MEASURED and what was INFERRED,
+so a later reader can tell which sentences are load-bearing claims and which are
+recorded observations. "Both sides solved X differently" was written as an
+observation and read as a finding for four sessions.
+
+## Three independent routes, one answer — and none of them the one that erred
+
+The null-encoding absence was confirmed by three differently-keyed checks, which
+is what made an ABSENCE claim safe to act on:
+
+  by NAME              grep for dropNull/restoreNull/wireShape — empty
+                       (the weakest, and the route that produced the ORIGINAL error)
+  by WHERE-IT-WOULD-LIVE  read representations/README.md and registry.ts: a
+                       GOVERNANCE layer (which shapes exist, why justified), not a
+                       TRANSFORM layer
+  by STRUCTURE         search for a null<->undefined mapping however spelled — none
+
+Plus one more rivalry ruled out explicitly rather than left implicit: `wireShape`
+versus integration's composition mechanism. Not rivals — integration composes by
+Picking from shared field groups (WHICH FIELDS a shape has), `wireShape`
+transforms nullability (`T | null -> T | undefined`). Different operations, and
+composable with each other.
+
+THE RULE FOR ABSENCE CLAIMS: one route is a search, two is a coincidence, three
+differently-keyed routes is evidence — and at least one of them must not share a
+key with the route that first produced the answer. Naming which route erred is
+part of the report.
+
+## ONE BIT PER CLAIM: mark every handover statement MEASURED or INFERRED
+
+The constructive form of the handover-is-an-instrument entry, and the cheapest
+practice in this document.
+
+The defect it fixes: "both sides solved null-encoding differently" was written as
+an OBSERVATION and read as a FINDING for four sessions, and THE TWO ARE
+INDISTINGUISHABLE IN PROSE. Nothing about the sentence signals which it was. So a
+reader has no way to know whether to test it, and a claim that blocks work goes
+untested precisely because it is already written down.
+
+THE PRACTICE: one bit per claim. MEASURED means someone ran something and this is
+the output. INFERRED means someone reasoned from what they saw. Both are useful and
+neither is shameful — the bit is not a quality grade, it is a routing instruction.
+
+WHAT IT BUYS: AN INFERRED CLAIM THAT BLOCKS WORK IS THE FIRST THING THE NEXT
+SESSION SHOULD TEST, and it cannot be if it reads identically to a measured one.
+That single sentence, marked INFERRED, would have been re-checked on the next
+session's first pass instead of the fifth — and the null-encoding blocker would
+never have reached a coordinator brief, let alone two.
+
+It applies to this ledger too. Entries here that say "measured", "verified here"
+or quote a command are the first kind; entries that generalise from a case are the
+second. Where an entry does both, the measurement is the part to trust and the
+generalisation is the part to re-derive when it next matters.
+
+COMPANION RULE, for the other direction — reporting an ABSENCE: one route is a
+search, two is a coincidence, three differently-keyed routes is evidence, and at
+least one must NOT share a key with the route that first produced the answer.
+NAME WHICH ROUTE ERRED as part of the report; POD-1246 did it by instinct and it
+is better as a requirement, because the erring route is the one the next person
+will otherwise reach for first.
+
+## A CLEAN AUDIT COUNT IS NOT THE PROPERTY — demonstrated twice, in both directions
+
+POD-1220 warned that `unattributed-store-read` could reach 0 with the security
+property still absent. POD-1252 was told to test that rather than inherit it, and
+did, on the branch that closed the item. MEASURED, three mutants, one at a time,
+each reverted before the next:
+
+  FORCE `decideLegacyAdoption` TO `adopt = true`. Nine cases go red across the two
+    real composition roots — three refusal arms and the effect assertion on each,
+    plus the outbox park. The five adopting cases stay green, which is what says
+    the suite is measuring the DECISION rather than asserting a constant.
+
+  MAKE THE DISCARD A NO-OP — the `discardCache()` that quietly does nothing, which
+    is the failure POD-1223 named. THE AUDIT STILL REPORTS ZERO. The gate is still
+    called, still at the root, still in call position; only its effect is gone, and
+    the count cannot see an effect. The only red is the counterfactual that re-opens
+    the same store and requires the rows to be GONE.
+
+  SWAP THE SHADOW HARNESS'S `memoryStorage()` FOR `window.localStorage`. The audit
+    fires on that exact file and line. This is the other direction and it matters
+    just as much: the exemption this issue added is not a blanket, and the file
+    that carries it cannot silently become a persisted root.
+
+THE GENERAL SHAPE, and it is not specific to this audit: A DETECTOR OVER CALL SHAPE
+CAN ONLY EVER GRADE CALL SHAPE. It answers "was the question asked", never "did the
+answer change anything" — those are two claims, and closing an item on the first
+while reporting the second is the substitution this whole run keeps finding. When a
+gate's finding is closed, the commit needs BOTH: the count, and a test that fails
+when the gate's effect is removed while the call stays.
+
+AND THE DIRECTION TO FIX A FALSE POSITIVE. Two of this item's four findings were
+the detector grading CONSTRUCTION where the item says PERSISTED — replicas over a
+private Map that dies with the function. The two tempting fixes are both wrong in a
+way the audit's own header predicts: calling the gate in a root that decides nothing
+teaches the next reader that the call is ceremony, and an allowlist of names is
+where a real finding hides. What was done instead is POD-1220's own rule applied to
+their own caveat — "when those two come apart, FIX THE DETECTOR" — with the
+exemption written as a POSITIVE declaration resolved per call site, so unknown
+storage still fails closed. INFERRED, and worth stating as a default: a false
+positive is a defect IN THE INSTRUMENT, and paying it off in the subject code buys
+a green at the cost of the next reader's trust in every other green.
 ## RIGHT INSTRUMENT, WRONG TREE — the third member of the family
 
 §0b of the POD-1246 handover records an instrument that cannot say no about the

@@ -170,6 +170,116 @@ const IS_A_DEFINITION = /\b(export\s+)?(async\s+)?function\s+(createReplica|crea
 const CALLS_THE_GATE = /\b(?:decideLegacyAdoption|migrateLegacyReplica)\s*\(/
 
 /**
+ * A construction that provably persists NOTHING (POD-1252).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS EXISTS, WHICH IS NOT "TWO FILES WERE INCONVENIENT"
+ * ---------------------------------------------------------------------------
+ *
+ * The item is "a PERSISTED store adopted without establishing the current
+ * principal". The detector could only see the CONSTRUCTION, so it reported two
+ * roots that construct a replica over a private in-memory Map: the shadow
+ * comparison harness (`shadow/runner.ts`, whose second replica must not touch the
+ * user's collections at all — that is its whole design) and the fixture capture
+ * (`legacy-snapshot.ts`, which drives the real writer over a Map to record what it
+ * wrote). Neither can adopt anyone's rows, because there are no rows to adopt: the
+ * store dies with the function.
+ *
+ * The alternatives were both worse than fixing the detector. Calling the gate in
+ * those two roots would be the thing this file's own header forbids — "never
+ * contort a composition root to keep this regex happy" — and would leave the tree
+ * with two `decideLegacyAdoption` calls that decide nothing, which is how a reader
+ * learns that the call is ceremony. An allowlist of the two names is where a real
+ * finding would later hide. POD-1220's caveat is the governing sentence and it is
+ * about exactly this moment: "what justifies it here is that the root IS the right
+ * home for the call, and the detector happens to agree. WHEN THOSE TWO COME APART,
+ * FIX THE DETECTOR."
+ *
+ * ---------------------------------------------------------------------------
+ * IT FAILS CLOSED, WHICH IS THE ONLY REASON IT IS SAFE
+ * ---------------------------------------------------------------------------
+ *
+ * Exemption requires a POSITIVE declaration: the construction's `storage` must
+ * resolve, in the same file, to `memoryStorage()` — the shipped ephemeral seam,
+ * whose contract says nothing survives. Everything else is a finding, including
+ * every store this audit has never heard of. The inverse rule — "exempt unless the
+ * storage looks durable" — was the first draft and it is the unknown-input-fails-
+ * open shape: a root over a store named neither `localStorage` nor `persisted`
+ * would have graded clean by never being recognised.
+ *
+ * Resolution is one hop and deliberately no more: `storage: memoryStorage()`
+ * inline, or `const s = memoryStorage()` in the same file passed as `storage: s`
+ * or `{ storage }` shorthand. An import hop is not followed, for the reason this
+ * file already gives about the gate: it invites "why not two", and it needs a
+ * resolver that needs its own probe.
+ *
+ * The anti-spoof case is pinned in the probe suite: a root that builds over
+ * `window.localStorage` is STILL a finding when the same file happens to call
+ * `memoryStorage()` somewhere else, because the check is against the storage of
+ * THAT construction, not against the file's vocabulary.
+ */
+/** {@link BUILDS_A_REPLICA} with offsets, so a call can be located in the file
+ *  rather than only in a line — the argument list spans lines. */
+const BUILDS_A_REPLICA_GLOBAL = new RegExp(BUILDS_A_REPLICA.source, 'g')
+
+/** Where each construction call starts, definitions excluded. */
+function constructionOffsets(source: string): number[] {
+  const out: number[] = []
+  for (const match of source.matchAll(BUILDS_A_REPLICA_GLOBAL)) {
+    const index = match.index ?? 0
+    // The definition exclusion is a LINE property (`export function createReplica(`),
+    // so it is asked of the line the match sits on.
+    const lineStart = source.lastIndexOf('\n', index) + 1
+    const lineEnd = source.indexOf('\n', index)
+    const line = source.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
+    if (IS_A_DEFINITION.test(line)) continue
+    out.push(index)
+  }
+  return out
+}
+
+const DECLARES_EPHEMERAL = /\bstorage\s*:\s*memoryStorage\s*\(/
+const BINDS_EPHEMERAL = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*memoryStorage\s*\(/g
+const STORAGE_IS_NAME = /\bstorage\s*:\s*([A-Za-z_$][\w$]*)\s*[,}\n]/
+const STORAGE_SHORTHAND = /[{,]\s*storage\s*[,}]/
+
+/**
+ * The argument text of the construction call starting at `from`, by balancing
+ * parens rather than by stopping at the first `)`.
+ *
+ * The naive version stops inside `enumerateKeys: () => storage.keys()`, which is
+ * where the two exempt roots put the very thing being looked for — the same
+ * first-closing-paren mistake `CLIENT_VISIBILITY_FILTER` records above, and it
+ * would have failed in the direction that reports MORE rather than less, so it
+ * would have looked like the detector working.
+ */
+function callArguments(source: string, from: number): string {
+  const open = source.indexOf('(', from)
+  if (open === -1) return ''
+  let depth = 0
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === '(') depth += 1
+    else if (source[i] === ')') {
+      depth -= 1
+      if (depth === 0) return source.slice(open + 1, i)
+    }
+  }
+  return source.slice(open + 1)
+}
+
+/** True when this construction's store is the shipped ephemeral seam. */
+function buildsEphemeralReplica(source: string, callIndex: number): boolean {
+  const args = callArguments(source, callIndex)
+  if (DECLARES_EPHEMERAL.test(args)) return true
+  const bound = new Set<string>()
+  for (const match of source.matchAll(BINDS_EPHEMERAL)) bound.add(match[1] as string)
+  if (bound.size === 0) return false
+  if (STORAGE_SHORTHAND.test(args) && bound.has('storage')) return true
+  const named = STORAGE_IS_NAME.exec(args)
+  return named !== null && bound.has(named[1] as string)
+}
+
+/**
  * Source with comments and string literals blanked.
  *
  * BOTH halves of this detector read it, because the mistake runs both ways: a
@@ -409,10 +519,14 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
       continue
     }
     const source = withoutCommentsOrStrings(contents)
-    const callSites = source
-      .split('\n')
-      .filter((text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text))
-    if (callSites.length === 0) continue
+    // Per CALL rather than per file, because the exemption is a property of one
+    // construction's storage: a file holding an ephemeral replica beside a
+    // persisted one owes the question for the persisted one, and a file-level
+    // check would let the ephemeral half answer for both.
+    const persisted = constructionOffsets(source).filter(
+      (offset) => !buildsEphemeralReplica(source, offset),
+    )
+    if (persisted.length === 0) continue
     // The gate, by any of its names. `decideLegacyAdoption` is the decision,
     // `migrateLegacyReplica` is the caller that runs it, and `LegacyIdentityEvidence`
     // is the input it cannot be called without — a root naming ANY of the three
@@ -420,11 +534,10 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
     const attributed = CALLS_THE_GATE.test(source)
     if (attributed) continue
     // Reported against the BLANKED source. Blanking preserves newlines exactly (see
-    // `withoutCommentsOrStrings`), so this number still points at the real line.
-    const line =
-      source
-        .split('\n')
-        .findIndex((text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text)) + 1
+    // `withoutCommentsOrStrings`), so this number still points at the real line —
+    // and it is the first PERSISTED construction's line, not the first construction
+    // of any kind, so a reader sent here finds the call the finding is about.
+    const line = source.slice(0, persisted[0]).split('\n').length
     out.push({
       file,
       line,

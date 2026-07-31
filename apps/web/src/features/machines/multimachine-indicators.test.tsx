@@ -43,6 +43,9 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({
     hostMetrics: [host('podium-host', 'podium-host'), host('vmi', 'vmi34')],
     outboxSize: 0,
+    // POD-316: the strip now also carries the dead-letter recovery chip, which
+    // reads this. Empty = nothing parked = the chip renders nothing.
+    outboxDeadLetters: [],
     sessions: [],
     // POD-838: vmi trails the server build; podium-host matches it.
     machines: [

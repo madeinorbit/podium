@@ -249,6 +249,60 @@ describe('phase-2 client audit — the composition-root detector', () => {
     expect(unattributedStoreRead(root, ['a/root.ts'])[0]?.line).toBe(5)
   })
 
+  it('does NOT fire on a construction over the shipped EPHEMERAL seam', () => {
+    // POD-1252. The item is about a PERSISTED store; the detector could only see
+    // the construction, so it reported the shadow harness and the fixture capture —
+    // two replicas over a private Map that dies with the function. The exemption is
+    // a POSITIVE declaration (`memoryStorage()`), never a name list: an allowlist is
+    // where a real finding would hide, and calling the gate in a root that decides
+    // nothing teaches the next reader that the call is ceremony.
+    write('a/root.ts', 'const replica = createReplica({ storage: memoryStorage() })')
+    expect(unattributedStoreRead(root, ['a/root.ts'])).toEqual([])
+  })
+
+  it('resolves the ephemeral seam through a same-file binding', () => {
+    // `legacy-snapshot.ts`'s shape: the store is named because the capture writes
+    // to it and reads it back. One hop, in the same file — an IMPORT hop is not
+    // followed, for the reason this audit already gives about the gate.
+    write(
+      'a/root.ts',
+      [
+        'const storage = memoryStorage()',
+        'const replica = createReplica({ storage, enumerateKeys: () => storage.keys() })',
+      ].join('\n'),
+    )
+    expect(unattributedStoreRead(root, ['a/root.ts'])).toEqual([])
+  })
+
+  it('STILL fires on a persisted construction in a file that also names the ephemeral seam', () => {
+    // THE ANTI-SPOOF CASE, and the reason the exemption is per CALL rather than per
+    // file. A file-level check would let one honest in-memory replica certify a
+    // sibling construction over the user's real store — the partial-mechanism shape,
+    // where N-1 of N links looks exactly like the whole thing working.
+    write(
+      'a/root.ts',
+      [
+        'const scratch = createReplica({ storage: memoryStorage() })',
+        'const real = createReplica({ storage: window.localStorage })',
+      ].join('\n'),
+    )
+    const found = unattributedStoreRead(root, ['a/root.ts'])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.line).toBe(2)
+  })
+
+  it('does NOT exempt a construction whose ARGUMENTS merely mention the seam', () => {
+    // The balanced-paren read is what makes this work: a naive scan stopping at the
+    // first `)` would end inside the arrow's own parameter list, and a substring
+    // search over the whole file would accept a mention anywhere. Neither would be
+    // a claim about where THIS replica persists.
+    write(
+      'a/root.ts',
+      'const r = createReplica({ storage: window.localStorage, onFallback: () => memoryStorage() })',
+    )
+    expect(unattributedStoreRead(root, ['a/root.ts'])).toHaveLength(1)
+  })
+
   it('does NOT grade tests or perf harnesses as product roots', () => {
     write('apps/web/src/x.test.ts', 'const r = createReplica({ storage })')
     write('apps/web/src/perf/bench.tsx', 'const r = createReplica({ storage })')

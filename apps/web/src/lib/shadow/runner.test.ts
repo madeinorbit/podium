@@ -234,4 +234,29 @@ describe('the two-connection shadow runner', () => {
     expect(report.counts['scoped-out']).toBe(1)
     runner.stop()
   })
+
+  it('PERSISTS NOTHING — the shadow replica never touches the store the app ships on', () => {
+    // Stated in the module header ("a user who turns the flag on, runs the shadow,
+    // and turns it off again must find their legacy replica exactly as they left
+    // it"), and until POD-1252 nothing measured it. It is measured now because the
+    // claim became load-bearing twice over: the app's guarantee to the user, and
+    // the fact the client audit's `unattributed-store-read` item reads off this
+    // root's construction to decide it owes no attribution question. A future edit
+    // swapping `memoryStorage()` for `window.localStorage` would silence both — the
+    // harness would start adopting the user's rows AND the audit would start
+    // grading it — so the swap has to be a red test, not a quiet one.
+    const before = { ...window.localStorage }
+    const { runner, hubs, live } = build({ kernelRows: [], sliceKeys: [] })
+    live()
+    hubs.get().applyMetadata({
+      cursor: 99,
+      sessions: [{ sessionId: 's1', name: 'One' }],
+      issues: [{ id: 'i1' }],
+      conversations: [],
+      automations: [],
+      automationRuns: [],
+    })
+    expect({ ...window.localStorage }).toEqual(before)
+    runner.stop()
+  })
 })

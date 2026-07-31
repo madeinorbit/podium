@@ -100,7 +100,11 @@ export interface KernelReplicaInit {
    * correct placement, and a cutover that changes two things at once cannot be
    * bisected when one of them is wrong.
    */
-  readonly outbox?: { readonly queued: OutboxStorage; readonly awaiting: OutboxStorage }
+  readonly outbox?: {
+    readonly queued: OutboxStorage
+    readonly awaiting: OutboxStorage
+    readonly deadLetter?: OutboxStorage
+  }
 }
 
 /** What the composition root drives, beyond the `Replica` interface itself. */
@@ -316,6 +320,8 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     outboxStorage: (): OutboxStorage => init.outbox?.queued ?? side.outboxStorage(),
     outboxAwaitingStorage: (): OutboxStorage =>
       init.outbox?.awaiting ?? side.outboxAwaitingStorage(),
+    outboxDeadLetterStorage: (): OutboxStorage =>
+      init.outbox?.deadLetter ?? side.outboxDeadLetterStorage(),
     uiState: (): UiState => side.uiState(),
 
     async flush(): Promise<void> {

@@ -27,6 +27,15 @@
  * in-memory storage also makes each sample start from a known cold client, so a
  * divergence cannot be inherited from a previous session's leftovers.
  *
+ * `memoryStorage()` IS NOW LOAD-BEARING IN A SECOND WAY (POD-1252), and an edit
+ * that swapped it for `window.localStorage` would break more than it looks.
+ * The client audit's `unattributed-store-read` item grades composition roots that
+ * adopt a PERSISTED store without establishing whose it is; this root is exempt
+ * because its store demonstrably persists nothing, and the exemption is read off
+ * this construction rather than granted by name. So the swap would both start
+ * adopting the user's rows and re-arm the audit against this file. `runner.test.ts`
+ * asserts localStorage is untouched across a sample, so it goes red first.
+ *
  * ---------------------------------------------------------------------------
  * WHEN A SAMPLE IS TAKEN, AND WHY `could-not-sample` IS A FAILURE
  * ---------------------------------------------------------------------------
