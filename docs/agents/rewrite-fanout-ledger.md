@@ -2419,3 +2419,38 @@ chatter is discarded rather than the one banner we saw), refusal preserved and r
 **"It fails only on my box" and "it fails on every box that has not run sudo yet" produce the
 same sentence and opposite obligations**; the tiebreaker is to reproduce it outside the
 product, which took one line.
+
+## The membership gate has now caught two siblings, both invisible to everything else
+
+POD-1211 shipped `scripts/audit-durable-classes.ts` — an assertion that every
+durable class has a row on the ownership matrix, kept separate from the
+assertion that the row is CORRECT. It has fired twice on live traffic, both
+times on a table a sibling landed after POD-1211 branched:
+
+  - POD-421's `settings_audit_events`, minutes after the gate existed;
+  - POD-1213's `user_preferences`, two merges later.
+
+In both cases NOTHING ELSE IN THE REPO NOTICED. `visibilityClassOf` is total and
+default-closed, so a class it has never heard of resolves to `personal` — which
+means an unclassified table and a deliberately-personal one return the same
+value, and every classification test is green about both. The gate is the only
+instrument that can tell them apart, because it asks a different question:
+membership, not classification.
+
+Two things this run should take from it.
+
+FIRST, THE SHAPE GENERALISES BEYOND VISIBILITY. Wherever a lookup is TOTAL and
+default-closed, "never declared" and "declared as the default" are
+indistinguishable at the call site, so the default silently absorbs every
+omission. The safety axis works exactly as designed while the DETECTION axis
+reads green forever. Anywhere this rewrite has a total function over a declared
+vocabulary, membership needs its own assertion.
+
+SECOND, A GATE'S VALUE IS MEASURED IN SIBLINGS, NOT IN ITS OWN BACKLOG. POD-1211
+classified fourteen known classes — useful, and finite. The gate it added has
+since caught two classes NOBODY KNEW ABOUT, from issues that had no idea it
+existed, and it will keep doing so for every table landed from here. When
+scoping this kind of work, the sweep is the smaller half of the deliverable.
+
+Both were sent back rather than classified by the coordinator: a row chosen to
+make a gate go green is the same defect one level up. Both came back argued.
