@@ -76,10 +76,28 @@ import {
  * broken fixture contract to prove `classificationErrors` fires, and a fixture
  * authored to be invalid is not part of the fleet's population.
  */
-const MODULES = import.meta.glob(['./**/*.ts', '!./**/*.test.ts'], { eager: true }) as Record<
-  string,
-  Record<string, unknown>
->
+/**
+ * `import.meta.glob` is Vite's, and this package does not pull in
+ * `vite/client`'s ambient types, so the capability is declared locally rather
+ * than by widening the package's type surface for one test file.
+ *
+ * IT MUST BE CALLED BY ITS FULL LITERAL NAME. Aliasing it through a typed cast
+ * (`const m = import.meta as {...}; m.glob(...)`) type-checks perfectly and then
+ * fails at RUN time with *"import.meta.glob is statically replaced during file
+ * transformation"* — the transform is syntactic, so it never sees the alias.
+ * A green `tsgo` on a suite that cannot load is worth the four lines of
+ * declaration.
+ */
+declare global {
+  interface ImportMeta {
+    glob(
+      patterns: readonly string[],
+      options: { eager: true },
+    ): Record<string, Record<string, unknown>>
+  }
+}
+
+const MODULES = import.meta.glob(['./**/*.ts', '!./**/*.test.ts'], { eager: true })
 
 /** Structural recognition — a contract is what has the required fields, not what
  *  is named `*Contract`. Naming is a convention; this is the type's shape. */
@@ -224,11 +242,15 @@ describe('classification is TOTAL over the whole population (ADR 3 D3 rule 1)', 
    */
   it('a violation planted in a REAL discovered contract is caught', () => {
     const real = POPULATION[0]
-    expect(real).toBeDefined()
-    const broken: AnyCommandContract = {
+    if (real === undefined) throw new Error('empty population — the scan found nothing')
+    const broken = {
       ...real,
-      redaction: { ...real.redaction, reviewed: false },
-    }
+      // `reviewed` is typed `true`, which is itself part of the design: the
+      // unreviewed state is unrepresentable in a well-typed contract. Reaching
+      // it needs a cast, and that cast is the point of this test — it proves the
+      // RUNTIME lint still fires for anything constructed outside the type.
+      redaction: { ...real.redaction, reviewed: false as unknown as true },
+    } satisfies AnyCommandContract
     const errs = registryClassificationErrors([...POPULATION.slice(1), broken])
     expect(errs).toEqual([`${real.name}: redaction must be explicitly reviewed`])
   })
