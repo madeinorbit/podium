@@ -2081,7 +2081,6 @@ Two rules:
 The repair is `git rebase --onto <integration> <orphan> <branch>` — replay only
 the child's own commits. It is safe while the child's tree is clean, which is
 another reason to check `git status` in the CHILD's worktree, not just yours.
-||||||| f63e0581
 ## The declaration mistaken for the mechanism — three artifacts, one shape
 
 POD-421 found two and POD-352 named the third, and together they are this run's
@@ -2214,7 +2213,6 @@ and the assertion must be scoped to the state-dependent part of the page. Static
 class copy that reads identically on every instance and for every account leaks
 nothing — asserting against the whole screen just teaches you to weaken the
 assertion.
-||||||| f63e0581
 ## THE AUTHZ CONTRACT (POD-315)
 
 `apps/server/src/authz-matrix.test.ts` is the canonical statement of what
@@ -2401,7 +2399,6 @@ Filed as POD-1227, scoped to a script, a NON-BLOCKING job, and a truthful census
 of how many of the 70 actually pass — with the brief stating that "41 of 70
 fail" is a successful outcome. Closing it by skipping to green would reproduce
 the original defect exactly.
-||||||| 1c192dcc
 ## POD-423 — Phase 1 exit gate CLOSED, and the answer to "grep for the CONSUMER"
 
 Phase 1 exits at `1c192dcc`. Verdict and full evidence:
@@ -2526,7 +2523,6 @@ Corollary caught in the same exchange: a matrix row's `sites` prose is a CLAIM
 about the tree. POD-1213's row still said these keys live in "one instance-wide
 blob today", which its own migration made false. Stale `sites` is
 representation-registry rot one level up, in the docs, where no detector reads.
-||||||| fbdc8e56
 ---
 
 ## POD-1223 — the brief said another issue owned the blocker, and it did not
@@ -2900,7 +2896,6 @@ Two corollaries earned here:
     session's context or an unowned doc is lost at stop. POD-378 carried its five
     constraints INLINE into the follow-up rather than pointing at the document —
     this run has twice paid for a fix that lived only in a mailbox.
-||||||| fbdc8e56
 - **2026-07-31 05:45 — POD-1227, the browser lane, and a measurement trap worth the whole entry.**
   70 `*.browser.e2e.ts` suites had no script, no lane and no CI job. POD-756 counted them
   (56 → 54, a real correction) and marked itself DONE; the lane in its title was never
