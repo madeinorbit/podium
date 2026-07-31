@@ -3788,3 +3788,52 @@ The common shape: asking "where does this belong?" forces you to read the
 structure, whereas asking "does this exist?" only reads an index. The first
 question cannot be answered by a grep, which is precisely why it finds what greps
 miss.
+
+## A grep for what you already believe is a detector that can only CONFIRM
+
+POD-310's correction to my framing of its own mistake, and it is sharper than the
+version I wrote.
+
+It reported that on its first pass it GREPPED the ledger rather than reading it,
+and I recorded that as treating the run's memory as a lookup table. Its
+correction: that is too kind and misses the mechanism. A grep returns the first
+thing matching MY EXISTING BELIEF and stops. It is structurally incapable of
+returning the thing I did not think to search for — so as an instrument it can
+only ever CONFIRM. The section that eventually changed its finding contained none
+of the words it had searched for.
+
+That places it precisely: it is the same defect as everything else in this run's
+dominant class, applied to reading rather than to testing. A test that can only
+pass, a gate whose population is fixed, a probe in the wrong file, a name-keyed
+search over a concept spelled differently — and now a search of the run's own
+memory, keyed on the belief being checked.
+
+THE COROLLARY FOR THIS DOCUMENT SPECIFICALLY: it is not a reference. Grepping it
+for the term you are already worried about returns the entry you already
+remembered. The entries that would change your mind are the ones whose vocabulary
+you do not yet have — which is exactly why several sessions have found that
+reading the last N entries end to end changed a finding, and grepping never did.
+
+## Verifying a re-phase: the totals must not move
+
+POD-310 checked my re-phase of POD-308's two items rather than accepting it, on
+the grounds that "the gate closed after someone edited a mapping" is the one
+outcome its own verdict said to distrust. The check it ran is the right one and
+worth reusing:
+
+    POD-308   exit 0   clear to close
+    POD-337   exit 1   naming legacy-wire-v1-adapter (6) + issue-wire shims (4)
+    POD-1251  exit 1   naming change-row-typings (12)
+    full audit: 30 items, 180 sites, BASELINE EXACT — unchanged before and after
+
+THE TOTALS NOT MOVING IS THE PROOF. Every one of the eighteen sites is still
+counted and still ratcheted; only the owner changed. A re-phase that reduces the
+total is a rebaseline wearing a re-phase's clothes, and a re-phase whose targets
+are CLOSED reproduces the original defect — which is precisely how
+change-row-typings became unowned in the first place. Both new owners are open.
+
+It also checked that the gate test kept BOTH directions rather than trusting the
+commit message that said so, because deleting the assertion would have been the
+quiet way through. Verifying the claim in the commit message against the tree is
+the same move as verifying a handoff against the tree, and it is the one that
+catches a coordinator.
