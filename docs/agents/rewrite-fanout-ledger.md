@@ -3129,3 +3129,36 @@ content integration lacked, and the unit of judgement turned out to be the HUNK
 rather than the file). Now the baseline. A coordinator's note about a hazard is a
 belief about a plan, not a fact about the tree, and it decays exactly like a brief
 does. Write them so they can be checked, and expect them to be.
+
+## Write a TRIPWIRE, not a note — the provisional value that cannot ship silently
+
+POD-1246 had to take a provisional value to make progress: it adopted
+integration's `boundary-allowlist.ts` only so the boundary gate could RUN at all,
+knowing the correct contents depend on which code wins a later tranche.
+
+The obvious safeguard is what I had been doing all run: flag it in the handover
+document. This run has now repeatedly proved that is the weakest available
+option — a plan in a mailbox, a constraint in an unowned doc, a count that only
+existed in a scratchpad. Each was nearly lost, and one (POD-756's lane) was lost
+for weeks behind a CLOSED issue.
+
+What POD-1246 proposed instead:
+
+    after the vertical, run `bun run lint:boundaries` and
+    `bun scripts/rearch-audit.ts` and DIFF THE OUTPUT against the committed
+    files. If the audit reports a count the file does not have, the file is
+    STALE BY CONSTRUCTION.
+
+That is a check the TREE performs on itself. It cannot be forgotten, it does not
+depend on anyone re-reading a document, and it fails loudly at exactly the moment
+the provisional value stops being true.
+
+THE RULE: when you must take a provisional value, do not flag it — make the tree
+detect it. Ask "what would be true if this value were still provisional?" and
+assert the negation. A note is a request that someone remember; a tripwire is a
+fact the build checks.
+
+This is the same move as the ratchets, the membership gate and the census floors,
+applied to a MERGE RESOLUTION rather than to product code — and merge resolutions
+are where it is least common and most needed, because a half-finished merge has
+no owner and no test until it lands.
