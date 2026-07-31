@@ -2664,3 +2664,46 @@ The coordinator's merge note for POD-377 cites that refusal as a property the
 client now has. It does not have it. A handoff that says "X was verified" is
 describing an instrument, not the tree — and the check is one grep for the
 caller.
+
+## A guard that CANNOT SAY YES gets silenced, and the silencing takes the reporting with it
+
+The mirror of this run's dominant defect, and the first time someone caught it
+on themselves before shipping.
+
+POD-1220 wrote a `settled` flag in `save()` meant to refuse any adapter whose
+`apply()` was not durable on return — the write-behind failure ADR 6 D1 rejects
+AsyncStorage for. It could never say yes. `apply` is an async function, so its
+promise settles on a later microtask on EVERY adapter, correct ones included, and
+the guard fired against real SQLite.
+
+It was caught by the author's own "the guard stays silent on the real adapter"
+case — the yes-first check, doing exactly what it exists for, on the same commit
+that introduced the guard.
+
+THE DELETION IS THE LESSON, not the bug. The tempting fix is to weaken the guard
+until it stops firing. Do not: a check that cannot pass gets silenced by whoever
+meets it next, and the silencing removes the REAL reporting along with the false
+alarm. A guard that always fires and a guard that never fires are the same
+instrument — neither carries information — and the always-fires one is more
+dangerous because it looks vigilant.
+
+What replaced it pins the actual property instead of the proxy: `save()`, then
+open a SECOND connection over the same file with NOTHING awaited in between, and
+require the row to be there. That is durability-on-return stated as an
+observation rather than as a promise-timing assertion. Proven able to fail by a
+mutant deferring the commit one microtask — an async-commit adapter in effect —
+which turns 5 of 8 cases red.
+
+Two smaller things from the same handoff worth keeping:
+
+  - The extra overlay fields (`baseline`, `chained`, `resolvedAt`) survive the
+    SQLite adapter because it stores with `JSON.stringify` and reads back
+    verbatim. That is a property of the ADAPTER'S IMPLEMENTATION, not of the
+    port's CONTRACT — so it is asserted through a second store over the same
+    file rather than assumed. Round-tripping you rely on but nobody promised
+    needs a test at the level where it is actually true.
+  - `writeQueued`'s synchronous rethrow is NOT reproducible over an async port:
+    `StorageApi.setItem` is synchronous, `apply` is not, so a storage failure
+    reaches `onDegraded` and the UI rather than the caller. Said plainly in the
+    file header instead of dressed up as equivalent. A documented asymmetry is
+    worth more than a symmetric-looking lie.
