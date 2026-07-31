@@ -4324,3 +4324,61 @@ That sequence — conclude absence, distrust it BECAUSE it is an absence from a
 search, and hand someone else a different way to check rather than the same one —
 is the practice this whole ledger keeps reaching for, done unprompted on its
 author's own result.
+
+## THE HANDOVER IS AN INSTRUMENT TOO — a label I wrote earlier is not evidence
+
+POD-1246's closing observation, and it is the one that cuts at the practice this
+whole ledger recommends.
+
+The blocker it spent the day working around WAS NOT REAL, AND IT CREATED IT. In
+group (a) it wrote "both sides solved null-encoding differently" — a sentence that
+collapsed a representation concern and a reactivity concern under one label. That
+sentence then:
+
+  - survived four sessions,
+  - passed through two coordinator briefs (mine, twice),
+  - and cost the critical path a link for the whole day,
+
+and nobody re-derived it PRECISELY BECAUSE IT WAS WRITTEN DOWN. A handover note
+behaving exactly like the compliance comment dissected above: a claim that reads as
+a check having already happened.
+
+Its own framing: "the map I keep being thanked for is also the thing that
+propagated this."
+
+THE COROLLARY, and it belongs beside every other entry here: A LABEL YOU WROTE
+EARLIER IS AN INSTRUMENT LIKE ANY OTHER. It was five hours old, load-bearing for
+four sessions, and never measured until it blocked something someone wanted. The
+run's recurring rule — ask what produced this, and whether it could have produced a
+different answer — applies to your own prose with no exemption. A summary is a
+detector whose output is a sentence.
+
+That does NOT argue for fewer handovers; six sessions handing over is why this
+issue got as far as it did with a usable map. It argues that handover content
+carries the same burden as a gate: state what was MEASURED and what was INFERRED,
+so a later reader can tell which sentences are load-bearing claims and which are
+recorded observations. "Both sides solved X differently" was written as an
+observation and read as a finding for four sessions.
+
+## Three independent routes, one answer — and none of them the one that erred
+
+The null-encoding absence was confirmed by three differently-keyed checks, which
+is what made an ABSENCE claim safe to act on:
+
+  by NAME              grep for dropNull/restoreNull/wireShape — empty
+                       (the weakest, and the route that produced the ORIGINAL error)
+  by WHERE-IT-WOULD-LIVE  read representations/README.md and registry.ts: a
+                       GOVERNANCE layer (which shapes exist, why justified), not a
+                       TRANSFORM layer
+  by STRUCTURE         search for a null<->undefined mapping however spelled — none
+
+Plus one more rivalry ruled out explicitly rather than left implicit: `wireShape`
+versus integration's composition mechanism. Not rivals — integration composes by
+Picking from shared field groups (WHICH FIELDS a shape has), `wireShape`
+transforms nullability (`T | null -> T | undefined`). Different operations, and
+composable with each other.
+
+THE RULE FOR ABSENCE CLAIMS: one route is a search, two is a coincidence, three
+differently-keyed routes is evidence — and at least one of them must not share a
+key with the route that first produced the answer. Naming which route erred is
+part of the report.
