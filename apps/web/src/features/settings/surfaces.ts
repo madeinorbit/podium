@@ -41,30 +41,22 @@ export type SettingsSurface = (typeof SETTINGS_SURFACES)[number]
 /**
  * The heading, and the sentence under it.
  *
- * THE PREFERENCES BLURB DELIBERATELY DOES NOT PROMISE PRIVACY, and that is the
- * most considered line in this file. The brief asked for copy saying that
- * editing these affects nobody else. On this build that is FALSE: POD-418
- * classified the tier as per-user and POD-1213 owns the storage move, so the
- * values still live in one instance-wide blob served whole to every
- * authenticated client. One user's session defaults, sidebar order, ntfy topic
- * and Telegram chat id are readable by every other user right now.
+ * THE PREFERENCES BLURB NOW STATES THE STORAGE GUARANTEE POD-1213 SHIPPED.
+ * Each personal leaf is stored under `(user_id, key)`, reads resolve for the
+ * authenticated caller, and the shared blob no longer holds personal values.
+ * This is deliberately narrower than a generic privacy promise.
  *
- * A "nobody else can see this" line on that build is the product asserting a
- * guarantee it does not keep, on the one surface where a user would act on the
- * assurance by typing something they consider private. So the copy states the
- * declared class AND what is true today, and names the issue. POD-352 backed
- * this call explicitly: an honest gap on screen gets fixed, a false promise on
- * screen gets believed and never re-read.
+ * The previous caveat said the opposite while classification preceded storage.
+ * Keeping it after POD-1213 would turn an honest warning into a false current
+ * claim, so tests require it to disappear when this statement appears.
  */
 export const SURFACE_COPY: Readonly<
   Record<SettingsSurface, { label: string; hint: string; caveat?: string }>
 > = {
   'your-preferences': {
     label: 'Your preferences',
-    hint: 'How Podium behaves for you — defaults for new sessions, notifications, appearance.',
-    caveat:
-      'These are classified as per-user, but this instance still stores them once for everyone: ' +
-      'changing them changes them for every member. Per-user storage is tracked as POD-1213.',
+    hint:
+      'How Podium behaves for you — saved for your account, with other members’ preference values kept separate.',
   },
   instance: {
     label: 'Instance settings',

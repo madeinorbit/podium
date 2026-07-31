@@ -46,9 +46,10 @@ test.describe.configure({ timeout: 90_000 })
 const PLANTED = 'sk-e2e-planted-material-9f3a1c'
 
 const IS_MEMBER = process.env.PODIUM_E2E_ACCOUNT_ROLE === 'member'
+const HTTP_ORIGIN = `http://localhost:${Number(process.env.PORT ?? 8799)}`
 
 async function seedSecret(): Promise<boolean> {
-  const trpc = makeTrpc('http://localhost:8799')
+  const trpc = makeTrpc(HTTP_ORIGIN)
   try {
     await trpc.settings.setSecret.mutate({ key: 'apiKeys.openai', value: PLANTED })
     return true
@@ -86,16 +87,14 @@ test.describe('the three surfaces are legible on screen', () => {
     await expect(nav.getByText('Secrets', { exact: true }).first()).toBeVisible()
   })
 
-  test('each tab states its class, and the preferences caveat is on screen', async ({ page }) => {
+  test('each tab states its class, and the per-user storage guarantee is on screen', async ({ page }) => {
     await openSettings(page, 'sessions')
-    await expect(settings(page).getByTestId('surface-banner-your-preferences')).toBeVisible()
-    // THE HONESTY CHECK. POD-1213 has not landed, so these values are still one
-    // instance-wide blob and the screen must not claim otherwise. This asserts
-    // the caveat is RENDERED, not merely present in a constants file.
-    const caveat = settings(page).getByTestId('surface-caveat')
-    await expect(caveat).toBeVisible()
-    await expect(caveat).toContainText('POD-1213')
-    await expect(caveat).toContainText('every member')
+    const banner = settings(page).getByTestId('surface-banner-your-preferences')
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText('saved for your account')
+    await expect(banner).toContainText('other members’ preference values kept separate')
+    // The pre-POD-1213 warning must be absent, not merely hidden beside the new answer.
+    await expect(settings(page).getByTestId('surface-caveat')).toHaveCount(0)
   })
 
   test('an instance tab reads as instance, not as personal', async ({ page }) => {

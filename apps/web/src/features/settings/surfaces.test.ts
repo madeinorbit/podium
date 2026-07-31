@@ -148,17 +148,14 @@ describe('pathIsUnder matches on a DOT BOUNDARY', () => {
   })
 })
 
-describe('the preferences copy does not promise a privacy this build does not keep', () => {
-  it('carries a caveat naming the outstanding storage work', () => {
-    // POD-1213: the per-user tier is classified but not yet STORED per user, so
-    // these values are still one instance-wide blob. The caveat is the whole
-    // reason this surface does not say "only you can see this", and a test
-    // pins it so it cannot be tidied away by someone who reads the class name
-    // and assumes the storage followed.
+describe('the preferences copy states the storage guarantee this build keeps', () => {
+  it('says accounts are separate and retires the pre-POD-1213 caveat', () => {
+    // Both directions: the new guarantee is visible, and the obsolete warning
+    // cannot survive beside it and leave the user with contradictory answers.
     const copy = SURFACE_COPY['your-preferences']
-    expect(copy.caveat).toBeDefined()
-    expect(copy.caveat).toContain('POD-1213')
-    expect(`${copy.hint} ${copy.caveat}`).not.toMatch(/only you|nobody else|private to you/i)
+    expect(copy.hint).toMatch(/saved for your account/i)
+    expect(copy.hint).toMatch(/other members.*kept separate/i)
+    expect(copy.caveat).toBeUndefined()
   })
 
   it('the instance surface says a member can SEE but not change', () => {
