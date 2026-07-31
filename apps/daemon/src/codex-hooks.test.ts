@@ -124,7 +124,6 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
         PODIUM_SESSION_ID: '',
         PODIUM_CODEX_HOOK_URL: '',
         PODIUM_CODEX_HOOK_SOCKET: '',
-        PODIUM_CODEX_HOOK_RECEIPT_DIR: '',
       },
       stdio: ['pipe', 'ignore', 'ignore'],
     })
@@ -138,7 +137,7 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
   })
 
   it.skipIf(process.platform === 'win32')(
-    'retains the exact official payload when the daemon socket is unavailable',
+    'fails open without recreating the retired receipt spool when the daemon is unavailable',
     async () => {
       const dir = trackTmp('podium-codex-hook-command-')
       const receiptDir = join(dir, 'receipts')
@@ -149,6 +148,7 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
           PODIUM_SESSION_ID: 'pane-a',
           PODIUM_CODEX_HOOK_URL: '',
           PODIUM_CODEX_HOOK_SOCKET: join(dir, 'daemon-down.sock'),
+          // A stale inherited value must not reactivate the removed writer.
           PODIUM_CODEX_HOOK_RECEIPT_DIR: receiptDir,
         },
         stdio: ['pipe', 'ignore', 'ignore'],
@@ -157,9 +157,7 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
       const [exitCode, signal] = await once(child, 'close')
 
       expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
-      expect(JSON.parse(await readFile(join(receiptDir, 'pane-a.json'), 'utf8'))).toEqual(
-        JSON.parse(payload),
-      )
+      expect(existsSync(receiptDir)).toBe(false)
     },
   )
 
@@ -168,7 +166,6 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
     async () => {
       const dir = trackTmp('podium-codex-hook-command-')
       const socketPath = join(dir, 'hook.sock')
-      const receiptDir = join(dir, 'receipts')
       let resolvePayload!: (payload: unknown) => void
       const received = new Promise<unknown>((resolve) => {
         resolvePayload = resolve
@@ -194,7 +191,6 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
             PODIUM_SESSION_ID: 'pane-a',
             PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1/hooks/wrong-pane',
             PODIUM_CODEX_HOOK_SOCKET: socketPath,
-            PODIUM_CODEX_HOOK_RECEIPT_DIR: receiptDir,
           },
           stdio: ['pipe', 'ignore', 'ignore'],
         })
@@ -202,7 +198,6 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
         const [exitCode, signal] = await once(child, 'close')
         expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
         expect(await received).toEqual(payload)
-        expect(JSON.parse(await readFile(join(receiptDir, 'pane-a.json'), 'utf8'))).toEqual(payload)
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()))
       }

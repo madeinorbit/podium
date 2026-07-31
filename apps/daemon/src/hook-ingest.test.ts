@@ -1,8 +1,8 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import { access, mkdtemp, rm } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HOOK_BODY_MAX_BYTES, type HookIngest, startHookIngest } from './hook-ingest'
 
@@ -31,7 +31,9 @@ describe('hook ingest', () => {
 
   it('endpointFor embeds the session id and the actual port', async () => {
     ingest = await startHookIngest({ port: 0, onPayload: () => {} })
-    expect(ingest.endpointFor(asSessionId('abc-123'))).toBe(`http://127.0.0.1:${ingest.port}/hooks/abc-123`)
+    expect(ingest.endpointFor(asSessionId('abc-123'))).toBe(
+      `http://127.0.0.1:${ingest.port}/hooks/abc-123`,
+    )
   })
 
   it('rejects non-POST and unknown paths with 404, malformed JSON is acked but dropped', async () => {
@@ -42,7 +44,8 @@ describe('hook ingest', () => {
       (await fetch(`http://127.0.0.1:${ingest.port}/other`, { method: 'POST', body: '{}' })).status,
     ).toBe(404)
     expect(
-      (await fetch(ingest.endpointFor(asSessionId('s1')), { method: 'POST', body: 'not json' })).status,
+      (await fetch(ingest.endpointFor(asSessionId('s1')), { method: 'POST', body: 'not json' }))
+        .status,
     ).toBe(200)
     await new Promise((r) => setTimeout(r, 10))
     expect(got).toEqual([])
@@ -72,6 +75,46 @@ describe('hook ingest', () => {
     expect(res.status).toBe(200)
     await new Promise((r) => setTimeout(r, 10))
     expect(got).toEqual([{ a: filler }])
+  })
+
+  it('waits for the durable receipt write before observing or acknowledging the hook', async () => {
+    const order: string[] = []
+    ingest = await startHookIngest({
+      port: 0,
+      beforeAck: async () => {
+        order.push('write-started')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        order.push('write-durable')
+      },
+      onPayload: () => order.push('observed'),
+    })
+
+    const res = await fetch(ingest.endpointFor(asSessionId('s1')), {
+      method: 'POST',
+      body: JSON.stringify({ session_id: 'native-a' }),
+    })
+    order.push('http-ack')
+
+    expect(res.status).toBe(200)
+    expect(order).toEqual(['write-started', 'write-durable', 'observed', 'http-ack'])
+  })
+
+  it('returns 503 and does not observe a hook whose durable write failed', async () => {
+    const got: unknown[] = []
+    ingest = await startHookIngest({
+      port: 0,
+      beforeAck: async () => {
+        throw new Error('disk unavailable')
+      },
+      onPayload: (_sessionId, payload) => got.push(payload),
+    })
+
+    const res = await fetch(ingest.endpointFor(asSessionId('s1')), {
+      method: 'POST',
+      body: JSON.stringify({ session_id: 'native-a' }),
+    })
+    expect(res.status).toBe(503)
+    expect(got).toEqual([])
   })
 
   it('rejects startup when the stable preferred port is taken', async () => {
@@ -124,7 +167,9 @@ describe('hook ingest Unix socket', () => {
         onPayload: (sessionId, payload) => got.push({ sessionId, payload }),
       })
       try {
-        expect(await postSocket(socketPath, asSessionId('pane-a'), { session_id: 'thread-a' })).toEqual({
+        expect(
+          await postSocket(socketPath, asSessionId('pane-a'), { session_id: 'thread-a' }),
+        ).toEqual({
           status: 200,
           text: '{}',
         })

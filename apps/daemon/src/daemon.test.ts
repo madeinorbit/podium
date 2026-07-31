@@ -1,10 +1,14 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
+import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import type { DaemonHandshakeReply } from '@podium/protocol'
+import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import {
   abducoHasSession,
   isAbducoAvailable,
@@ -14,10 +18,6 @@ import {
   reapAbducoTestSessions,
   tmuxHasSession,
 } from '@podium/pty'
-import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
-import type { DaemonHandshakeReply } from '@podium/protocol'
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
-import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1915,16 +1915,24 @@ describe('Codex identity receipt recovery', () => {
               msg.ackRequested === true,
           ),
         )
-        expect(existsSync(receiptPath)).toBe(true)
+        expect(existsSync(receiptPath)).toBe(false)
+        const bindingPath = join(
+          settingsDir,
+          'session-bindings',
+          'bindings',
+          `${Buffer.from('pane-a').toString('base64url')}.json`,
+        )
+        expect(await readFile(bindingPath, 'utf8')).toContain('pendingServerAck')
 
         serverSocket.send(
           encode({
             type: 'sessionResumeRefAck',
             sessionId: asSessionId('pane-a'),
             resume: { kind: 'codex-thread', value: 'thread-a' },
+            ownerId: FIRST_ADMIN_USER_ID,
           }),
         )
-        await waitFor(() => !existsSync(receiptPath))
+        await waitFor(() => !readFileSync(bindingPath, 'utf8').includes('pendingServerAck'))
       } finally {
         await daemon.close()
         await new Promise<void>((resolve) => wss.close(() => resolve()))

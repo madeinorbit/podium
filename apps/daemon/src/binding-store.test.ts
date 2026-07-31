@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -50,6 +50,7 @@ describe('BindingStore schema lifecycle', () => {
     expect(JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'))).toMatchObject({
       schemaVersion: BINDING_STORE_SCHEMA_VERSION,
       legacyMigration: null,
+      codexReceiptFold: null,
     })
     expect(await readdir(join(dir, 'bindings'))).toEqual([])
   })
@@ -70,6 +71,7 @@ describe('BindingStore schema lifecycle', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       futureNote: 7,
       legacyMigration: null,
+      codexReceiptFold: null,
     })
   })
 
@@ -288,6 +290,110 @@ describe('BindingStore records', () => {
     expect(await readFile(path, 'utf8')).toBe(bytes)
   })
 
+  it('keeps receipt replay and exact-value ack owner-scoped inside observation history', async () => {
+    const root = await tempRoot()
+    const store = await BindingStore.open({ dir: join(root, 'runtime', 'session-bindings') })
+    const aliceSession = asSessionId('alice-receipt')
+    const bobSession = asSessionId('bob-receipt')
+    for (const [sessionId, owner, actor] of [
+      [aliceSession, alice, 'agent-alice'],
+      [bobSession, bob, 'agent-bob'],
+    ] as const) {
+      await store.ensureBinding({
+        sessionId,
+        agentKind: 'codex',
+        claimantMachineId: machine,
+        delegation: {
+          actor: asAgentIdentityId(actor),
+          onBehalfOf: owner,
+          grantedScope: { kind: 'owned', userId: owner },
+          parentBindingId: null,
+        },
+      })
+      await store.recordPendingCodexReceipt(
+        sessionId,
+        `${owner}-thread`,
+        sessionId === aliceSession ? 'process' : 'native-hook',
+      )
+    }
+
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([
+      { sessionId: aliceSession, nativeKind: 'codex-thread', value: `${alice}-thread` },
+    ])
+    expect(await store.pendingReceiptsForOwner(bob)).toEqual([
+      { sessionId: bobSession, nativeKind: 'codex-thread', value: `${bob}-thread` },
+    ])
+    expect(await store.ownersWithPendingReceipts()).toEqual([alice, bob])
+
+    expect(
+      await store.acknowledgePendingReceipt(bob, aliceSession, {
+        kind: 'codex-thread',
+        value: `${alice}-thread`,
+      }),
+    ).toBe(false)
+    expect(await store.pendingReceiptsForOwner(alice)).toHaveLength(1)
+    expect(
+      await store.acknowledgePendingReceipt(alice, aliceSession, {
+        kind: 'codex-thread',
+        value: 'stale-thread',
+      }),
+    ).toBe(false)
+    expect(
+      await store.acknowledgePendingReceipt(alice, aliceSession, {
+        kind: 'codex-thread',
+        value: `${alice}-thread`,
+      }),
+    ).toBe(true)
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([])
+
+    const bobBinding = requiredBinding(await store.read(bobSession))
+    expect(bobBinding.observations[0]).toMatchObject({
+      channel: 'resume-ref',
+      source: 'native-hook',
+      pendingServerAck: { nativeKind: 'codex-thread', value: `${bob}-thread` },
+    })
+    const receipt = bobBinding.observations[0]?.pendingServerAck as Record<string, unknown>
+    expect(Object.keys(receipt).sort()).toEqual(['nativeKind', 'value'])
+    expect(receipt).not.toHaveProperty('actor')
+    expect(receipt).not.toHaveProperty('onBehalfOf')
+    expect(receipt).not.toHaveProperty('capability')
+    expect(receipt).not.toHaveProperty('rights')
+    expect(receipt).not.toHaveProperty('permission')
+  })
+
+  it('isolates identical session receipts in separate instance runtime stores', async () => {
+    const root = await tempRoot()
+    const sessionId = asSessionId('same-session')
+    const makeInstance = async (instance: string, owner: typeof alice, nativeId: string) => {
+      const store = await BindingStore.open({
+        dir: join(root, 'instances', instance, 'runtime', 'session-bindings'),
+      })
+      await store.ensureBinding({
+        sessionId,
+        agentKind: 'codex',
+        claimantMachineId: machine,
+        delegation: {
+          actor: asAgentIdentityId(`agent-${instance}`),
+          onBehalfOf: owner,
+          grantedScope: { kind: 'owned', userId: owner },
+          parentBindingId: null,
+        },
+      })
+      await store.recordPendingCodexReceipt(sessionId, nativeId, 'process')
+      return store
+    }
+    const first = await makeInstance('one', alice, 'thread-one')
+    const second = await makeInstance('two', bob as typeof alice, 'thread-two')
+
+    expect(await first.pendingReceiptsForOwner(alice)).toEqual([
+      { sessionId, nativeKind: 'codex-thread', value: 'thread-one' },
+    ])
+    expect(await first.pendingReceiptsForOwner(bob)).toEqual([])
+    expect(await second.pendingReceiptsForOwner(bob)).toEqual([
+      { sessionId, nativeKind: 'codex-thread', value: 'thread-two' },
+    ])
+  })
+
   it('round-trips unknown record and observation fields on rewrite', async () => {
     const root = await tempRoot()
     const store = await BindingStore.open({ dir: join(root, 'store') })
@@ -347,9 +453,6 @@ describe('legacy daemon-state migration', () => {
       claim,
       JSON.stringify({ session_id: 'thread-claimed', hook_event_name: 'SessionStart' }),
     )
-    const receiptBytes = await readFile(receipt)
-    const claimBytes = await readFile(claim)
-    const receiptMode = (await stat(receipt)).mode
     const now = () => '2026-07-31T12:00:00.000Z'
     const legacyBindings = [
       {
@@ -424,15 +527,15 @@ describe('legacy daemon-state migration', () => {
       value: 'thread-claimed',
       pendingServerAck: { nativeKind: 'codex-thread', value: 'thread-claimed' },
     })
-    expect(await readFile(receipt)).toEqual(receiptBytes)
-    expect((await stat(receipt)).mode).toBe(receiptMode)
-    expect(await readFile(claim)).toEqual(claimBytes)
+    expect(store.codexReceiptFold?.inventory).toEqual({ receipts: 1, claims: 1 })
+    await expect(access(receiptDir)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(
       (await readdir(join(storeDir, 'bindings'))).filter((name) => name.endsWith('.json')),
     ).toHaveLength(3)
 
-    // The completed marker makes the lift one-shot. New legacy facts and a new
-    // receipt on a later open are left for the normal runtime/POD-737 path.
+    // The completed marker makes the initial lift one-shot. A late receipt from
+    // an old, still-running hook is drained without re-running other migration.
+    await mkdir(receiptDir, { recursive: true })
     await writeFile(
       join(receiptDir, 'later-pane.json'),
       JSON.stringify({ session_id: 'thread-later', hook_event_name: 'SessionStart' }),
@@ -445,8 +548,55 @@ describe('legacy daemon-state migration', () => {
       now,
       legacyBindings: [{ sessionId: asSessionId('later-snapshot'), agentKind: 'grok' }],
     })
-    expect(await reopened.read(asSessionId('later-pane'))).toBeNull()
+    expect(await reopened.read(asSessionId('later-pane'))).toMatchObject({
+      observations: [
+        expect.objectContaining({
+          value: 'thread-later',
+          pendingServerAck: { nativeKind: 'codex-thread', value: 'thread-later' },
+        }),
+      ],
+    })
     expect(await reopened.read(asSessionId('later-snapshot'))).toBeNull()
+    await expect(access(receiptDir)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('keeps a superseded ack claim as history without replaying it over a newer receipt', async () => {
+    const stateDir = await tempRoot()
+    const receiptDir = join(stateDir, 'runtime', 'codex-identity-receipts')
+    const storeDir = join(stateDir, 'runtime', 'session-bindings')
+    await mkdir(receiptDir, { recursive: true })
+    await writeFile(join(stateDir, 'daemon.json'), JSON.stringify({ machineId: 'machine-real' }))
+    await writeFile(
+      join(receiptDir, 'same-pane.json.123.11111111-1111-4111-8111-111111111111.ack'),
+      JSON.stringify({ session_id: 'thread-old', hook_event_name: 'SessionStart' }),
+    )
+    await writeFile(
+      join(receiptDir, 'same-pane.json'),
+      JSON.stringify({ session_id: 'thread-new', hook_event_name: 'SessionStart' }),
+    )
+
+    const store = await BindingStore.open({
+      dir: storeDir,
+      legacyStateDir: stateDir,
+      codexReceiptDir: receiptDir,
+      singleOperatorUserId: FIRST_ADMIN_USER_ID,
+    })
+
+    const binding = requiredBinding(await store.read(asSessionId('same-pane')))
+    expect(binding.observations.find((entry) => entry.value === 'thread-old')).not.toHaveProperty(
+      'pendingServerAck',
+    )
+    expect(binding.observations.find((entry) => entry.value === 'thread-new')).toMatchObject({
+      pendingServerAck: { nativeKind: 'codex-thread', value: 'thread-new' },
+    })
+    expect(await store.pendingReceiptsForOwner(FIRST_ADMIN_USER_ID)).toEqual([
+      {
+        sessionId: 'same-pane',
+        nativeKind: 'codex-thread',
+        value: 'thread-new',
+      },
+    ])
+    await expect(access(receiptDir)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('fails loudly before writing a placeholder owner when POD-1075 identity is absent', async () => {

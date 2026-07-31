@@ -210,6 +210,8 @@ export const SessionResumeRefAckMessage = z.object({
   type: z.literal('sessionResumeRefAck'),
   sessionId: SessionIdField,
   resume: ResumeRef,
+  /** Binding owner resolved by the server; absent from older rolling peers. */
+  ownerId: UserIdField.optional(),
 })
 
 // ---- Browser client -> server: terminal control frames ----

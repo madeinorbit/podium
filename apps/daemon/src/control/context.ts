@@ -6,7 +6,6 @@ import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BindingStore } from '../binding-store'
 import type { BrowserOpenManager } from '../browser-open'
-import type { CodexIdentityReceipts } from '../codex-identity-receipts'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
@@ -68,10 +67,6 @@ export interface DaemonContext {
   // -- services --------------------------------------------------------------
   /** Stable instance-scoped Codex hook endpoint; absent on Windows. */
   hookSocketPath: string | undefined
-  /** Owner-only directory inherited by Codex hook subprocesses. */
-  codexReceiptDir: string
-  /** Pending exact Podium ID -> native Codex ID bindings. */
-  codexIdentityReceipts: CodexIdentityReceipts
   /** Durable per-machine SessionBinding and append-only alias history. */
   bindingStore: BindingStore
   /** Canonical lifecycle API; handlers never reconstruct binding mutations. */

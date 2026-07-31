@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
-import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import {
   AgentDelegation,
@@ -15,13 +15,14 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import type { DaemonMessage } from '@podium/protocol'
 
 /**
  * This is the DAEMON binding-store version. It is deliberately unrelated to the
  * server database's drizzle journal: the two stores have different owners,
  * lifecycles and migration lineages (ADR 6 D5.2 / POD-414 S1).
  */
-export const BINDING_STORE_SCHEMA_VERSION = 2
+export const BINDING_STORE_SCHEMA_VERSION = 3
 export const SESSION_BINDING_SCHEMA_VERSION = 1
 
 const MANIFEST_NAME = 'manifest.json'
@@ -180,6 +181,20 @@ interface StoreManifestV2 {
   schemaVersion: 2
   createdAt: string
   legacyMigration: LegacyMigrationResult | null
+  [key: string]: unknown
+}
+
+export interface CodexReceiptFoldResult {
+  completedAt: string
+  sourceReceiptDir: string
+  inventory: { receipts: number; claims: number }
+}
+
+interface StoreManifestV3 {
+  schemaVersion: 3
+  createdAt: string
+  legacyMigration: LegacyMigrationResult | null
+  codexReceiptFold: CodexReceiptFoldResult | null
   [key: string]: unknown
 }
 
@@ -620,7 +635,7 @@ async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8')) as unknown
 }
 
-function parseManifest(value: unknown): StoreManifestV1 | StoreManifestV2 {
+function parseManifest(value: unknown): StoreManifestV1 | StoreManifestV2 | StoreManifestV3 {
   if (!isRecord(value)) throw new Error('binding store manifest must be an object')
   if (!Number.isSafeInteger(value.schemaVersion)) {
     throw new Error('binding store manifest schemaVersion must be an integer')
@@ -629,16 +644,19 @@ function parseManifest(value: unknown): StoreManifestV1 | StoreManifestV2 {
   if (version > BINDING_STORE_SCHEMA_VERSION) {
     throw new BindingStoreVersionError(version, BINDING_STORE_SCHEMA_VERSION)
   }
-  if (version !== 1 && version !== 2)
+  if (version !== 1 && version !== 2 && version !== 3)
     throw new Error(`unsupported binding store version ${version}`)
   return {
     ...value,
     schemaVersion: version,
     createdAt: requiredString(value.createdAt, 'manifest.createdAt'),
-    ...(version === 2
+    ...(version >= 2
       ? { legacyMigration: (value.legacyMigration ?? null) as LegacyMigrationResult | null }
       : {}),
-  } as StoreManifestV1 | StoreManifestV2
+    ...(version === 3
+      ? { codexReceiptFold: (value.codexReceiptFold ?? null) as CodexReceiptFoldResult | null }
+      : {}),
+  } as StoreManifestV1 | StoreManifestV2 | StoreManifestV3
 }
 
 async function readDirectory(dir: string): Promise<Dirent<string>[]> {
@@ -655,11 +673,12 @@ interface LegacyReceipt {
   nativeId: string
   processOwned: boolean
   claimed: boolean
+  pendingServerAck: boolean
   observedAt: string
 }
 
 async function legacyReceipts(dir: string): Promise<LegacyReceipt[]> {
-  const receipts: LegacyReceipt[] = []
+  const receipts: Omit<LegacyReceipt, 'pendingServerAck'>[] = []
   for (const entry of await readDirectory(dir)) {
     if (!entry.isFile()) continue
     const regular = RECEIPT_NAME.exec(entry.name)
@@ -680,11 +699,27 @@ async function legacyReceipts(dir: string): Promise<LegacyReceipt[]> {
         observedAt: info.mtime.toISOString(),
       })
     } catch {
-      // CodexIdentityReceipts.pending() already ignores malformed spool files.
-      // Migration mirrors that tolerance and, importantly, never deletes them.
+      // The shipped spool reader ignored malformed files. Migration mirrors that
+      // tolerance; the retired directory is removed after valid facts are durable.
     }
   }
+  const sessionsWithRegularReceipt = new Set(
+    receipts.filter((receipt) => !receipt.claimed).map((receipt) => receipt.sessionId),
+  )
   return receipts
+    .map((receipt) => ({
+      ...receipt,
+      // The retired spool recovered a lone crash-claim, but discarded it when
+      // a newer regular receipt already existed for the same session. Keep the
+      // claim as history without replaying it over the newer observation.
+      pendingServerAck: !receipt.claimed || !sessionsWithRegularReceipt.has(receipt.sessionId),
+    }))
+    .sort(
+      (a, b) =>
+        a.observedAt.localeCompare(b.observedAt) ||
+        a.sessionId.localeCompare(b.sessionId) ||
+        a.nativeId.localeCompare(b.nativeId),
+    )
 }
 
 async function daemonMachineId(stateDir: string): Promise<MachineId | null> {
@@ -704,12 +739,12 @@ function migrationObservationId(parts: readonly string[]): string {
 
 export class BindingStore {
   private readonly now: () => string
-  private manifest: StoreManifestV2
+  private manifest: StoreManifestV3
   private readonly writes = new Map<SessionId, Promise<unknown>>()
 
   private constructor(
     readonly dir: string,
-    manifest: StoreManifestV2,
+    manifest: StoreManifestV3,
     now: () => string,
   ) {
     this.manifest = manifest
@@ -720,12 +755,17 @@ export class BindingStore {
     const now = options.now ?? (() => new Date().toISOString())
     await mkdir(join(options.dir, BINDINGS_DIR), { recursive: true, mode: 0o700 })
     const manifestPath = join(options.dir, MANIFEST_NAME)
-    let manifest: StoreManifestV1 | StoreManifestV2
+    let manifest: StoreManifestV1 | StoreManifestV2 | StoreManifestV3
     try {
       manifest = parseManifest(await readJson(manifestPath))
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      manifest = { schemaVersion: 2, createdAt: now(), legacyMigration: null }
+      manifest = {
+        schemaVersion: 3,
+        createdAt: now(),
+        legacyMigration: null,
+        codexReceiptFold: null,
+      }
       await atomicJsonWrite(manifestPath, manifest)
     }
 
@@ -733,6 +773,10 @@ export class BindingStore {
     // represented in, or derived from, the server drizzle journal.
     if (manifest.schemaVersion === 1) {
       manifest = { ...manifest, schemaVersion: 2, legacyMigration: null }
+      await atomicJsonWrite(manifestPath, manifest)
+    }
+    if (manifest.schemaVersion === 2) {
+      manifest = { ...manifest, schemaVersion: 3, codexReceiptFold: null }
       await atomicJsonWrite(manifestPath, manifest)
     }
     const store = new BindingStore(options.dir, manifest, now)
@@ -746,6 +790,15 @@ export class BindingStore {
           join(options.legacyStateDir, 'runtime', 'codex-identity-receipts'),
       })
     }
+    if (options.legacyStateDir) {
+      await store.foldLegacyCodexReceipts({
+        stateDir: options.legacyStateDir,
+        codexReceiptDir:
+          options.codexReceiptDir ??
+          join(options.legacyStateDir, 'runtime', 'codex-identity-receipts'),
+        singleOperatorUserId: options.singleOperatorUserId,
+      })
+    }
     return store
   }
 
@@ -755,6 +808,10 @@ export class BindingStore {
 
   get legacyMigration(): LegacyMigrationResult | null {
     return this.manifest.legacyMigration
+  }
+
+  get codexReceiptFold(): CodexReceiptFoldResult | null {
+    return this.manifest.codexReceiptFold
   }
 
   pathFor(sessionId: SessionId): string {
@@ -779,6 +836,124 @@ export class BindingStore {
       if (this.currentDelegation(row)?.onBehalfOf === owner) rows.push(row)
     }
     return rows.sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+  }
+
+  private bindingOwner(binding: SessionBindingRecord): UserId | null {
+    return binding.delegationHistory.at(-1)?.onBehalfOf ?? null
+  }
+
+  private async allBindings(): Promise<SessionBindingRecord[]> {
+    const rows: SessionBindingRecord[] = []
+    for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+      rows.push(parseBinding(await readJson(join(this.dir, BINDINGS_DIR, entry.name))))
+    }
+    return rows.sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+  }
+
+  /** Owner ids only; policy decides whether a machine principal may enumerate them. */
+  async ownersWithPendingReceipts(): Promise<UserId[]> {
+    const owners = new Set<UserId>()
+    for (const binding of await this.allBindings()) {
+      if (!binding.observations.some((entry) => entry.pendingServerAck)) continue
+      const owner = this.bindingOwner(binding)
+      if (owner) owners.add(owner)
+    }
+    return [...owners].sort()
+  }
+
+  /** Receipt reads are owner-scoped before any session/native value leaves the store. */
+  async pendingReceiptsForOwner(
+    owner: UserId,
+  ): Promise<Array<{ sessionId: SessionId; nativeKind: string; value: string }>> {
+    const receipts = new Map<string, { sessionId: SessionId; nativeKind: string; value: string }>()
+    for (const binding of await this.allBindings()) {
+      if (this.bindingOwner(binding) !== owner) continue
+      for (const observation of binding.observations) {
+        const pending = observation.pendingServerAck
+        if (!pending) continue
+        const receipt = { sessionId: binding.sessionId, ...pending }
+        receipts.set(
+          `${receipt.sessionId}\u0000${receipt.nativeKind}\u0000${receipt.value}`,
+          receipt,
+        )
+      }
+    }
+    return [...receipts.values()]
+  }
+
+  /** Persist exact Codex evidence and its delivery state in the binding record itself. */
+  async recordPendingCodexReceipt(
+    sessionId: SessionId,
+    nativeId: string,
+    source: 'native-hook' | 'process',
+    observedAt = this.now(),
+  ): Promise<boolean> {
+    const binding = await this.read(sessionId)
+    if (
+      !nativeId ||
+      !binding ||
+      binding.agentKind !== 'codex' ||
+      this.bindingOwner(binding) === null
+    ) {
+      return false
+    }
+    await this.observe({
+      sessionId,
+      channel: source === 'process' ? 'process-ownership' : 'resume-ref',
+      value: nativeId,
+      nativeKind: 'codex-thread',
+      confidence: 'exact',
+      source,
+      observedAt,
+      pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
+    })
+    return true
+  }
+
+  async replayPendingReceiptsForOwner(
+    owner: UserId,
+    send: (msg: DaemonMessage) => void,
+  ): Promise<number> {
+    const receipts = await this.pendingReceiptsForOwner(owner)
+    for (const receipt of receipts) {
+      send({
+        type: 'sessionResumeRef',
+        sessionId: receipt.sessionId,
+        resume: { kind: receipt.nativeKind, value: receipt.value },
+        confidence: 'exact',
+        ackRequested: true,
+      })
+    }
+    return receipts.length
+  }
+
+  /** Clear only the exact receipt on the binding owned by the acknowledged human. */
+  async acknowledgePendingReceipt(
+    owner: UserId | undefined,
+    sessionId: SessionId,
+    resume: { kind: string; value: string },
+  ): Promise<boolean> {
+    if (!owner || resume.kind !== 'codex-thread') return false
+    const binding = await this.read(sessionId)
+    if (!binding || this.bindingOwner(binding) !== owner) return false
+    let acknowledged = false
+    await this.update(sessionId, (current) => {
+      if (!current || this.bindingOwner(current) !== owner) return current ?? binding
+      const observations = current.observations.map((entry) => {
+        if (
+          entry.pendingServerAck?.nativeKind !== resume.kind ||
+          entry.pendingServerAck.value !== resume.value
+        ) {
+          return entry
+        }
+        acknowledged = true
+        const { pendingServerAck: _pendingServerAck, ...rest } = entry
+        return rest as BindingObservation
+      })
+      return acknowledged ? { ...current, observations } : current
+    })
+    return acknowledged
   }
 
   currentDelegation(binding: SessionBindingRecord): BindingDelegationObservation | null {
@@ -1218,6 +1393,113 @@ export class BindingStore {
     })
   }
 
+  /**
+   * Move the shipped receipt directory into binding observations, then remove
+   * the directory only after every valid receipt and the fold marker are
+   * durable. Re-running is intentional: an old, still-live Codex process can
+   * write one last legacy receipt during a rolling daemon upgrade.
+   */
+  private async foldLegacyCodexReceipts(input: {
+    stateDir: string
+    codexReceiptDir: string
+    singleOperatorUserId?: UserId
+  }): Promise<void> {
+    const receipts = await legacyReceipts(input.codexReceiptDir)
+    if (receipts.length > 0) {
+      const machineId = await daemonMachineId(input.stateDir)
+      for (const receipt of receipts) {
+        let binding = await this.read(receipt.sessionId)
+        if (!binding) {
+          if (!input.singleOperatorUserId) {
+            throw new LegacyBindingMigrationError(
+              'legacy Codex receipts exist but POD-1075 first-admin UserId was not supplied',
+            )
+          }
+          if (!machineId) {
+            throw new LegacyBindingMigrationError(
+              `legacy Codex receipts exist but ${join(input.stateDir, 'daemon.json')} has no machineId`,
+            )
+          }
+          binding = await this.ensureBinding({
+            sessionId: receipt.sessionId,
+            agentKind: 'codex',
+            claimantMachineId: machineId,
+            createdAt: receipt.observedAt,
+            delegation: {
+              actor: asAgentIdentityId(receipt.sessionId),
+              onBehalfOf: input.singleOperatorUserId,
+              grantedScope: { kind: 'all' },
+              parentBindingId: null,
+            },
+          })
+        }
+        if (binding.agentKind !== 'codex' || this.bindingOwner(binding) === null) {
+          throw new LegacyBindingMigrationError(
+            `legacy Codex receipt ${receipt.sessionId} does not point at an owned Codex binding`,
+          )
+        }
+        const source = receipt.processOwned ? 'process' : 'native-hook'
+        if (receipt.pendingServerAck) {
+          await this.recordPendingCodexReceipt(
+            receipt.sessionId,
+            receipt.nativeId,
+            source,
+            receipt.observedAt,
+          )
+        } else {
+          await this.observe({
+            sessionId: receipt.sessionId,
+            channel: receipt.processOwned ? 'process-ownership' : 'resume-ref',
+            value: receipt.nativeId,
+            nativeKind: 'codex-thread',
+            confidence: 'exact',
+            source,
+            observedAt: receipt.observedAt,
+          })
+        }
+      }
+
+      // POD-415 may already have lifted these files into schema v2 before the
+      // fold. Reconcile superseded claims that v2 marked pending, without
+      // clearing a same-value regular receipt that remains genuinely pending.
+      const activeKeys = new Set(
+        receipts
+          .filter((receipt) => receipt.pendingServerAck)
+          .map((receipt) => `${receipt.sessionId}\u0000${receipt.nativeId}`),
+      )
+      for (const receipt of receipts) {
+        const key = `${receipt.sessionId}\u0000${receipt.nativeId}`
+        if (receipt.pendingServerAck || activeKeys.has(key)) continue
+        const binding = await this.read(receipt.sessionId)
+        const owner = binding && this.bindingOwner(binding)
+        if (owner) {
+          await this.acknowledgePendingReceipt(owner, receipt.sessionId, {
+            kind: 'codex-thread',
+            value: receipt.nativeId,
+          })
+        }
+      }
+    }
+
+    if (!this.manifest.codexReceiptFold) {
+      this.manifest = {
+        ...this.manifest,
+        codexReceiptFold: {
+          completedAt: this.now(),
+          sourceReceiptDir: input.codexReceiptDir,
+          inventory: {
+            receipts: receipts.filter((receipt) => !receipt.claimed).length,
+            claims: receipts.filter((receipt) => receipt.claimed).length,
+          },
+        },
+      }
+      await atomicJsonWrite(join(this.dir, MANIFEST_NAME), this.manifest)
+    }
+
+    // The marker and binding rows are durable before the old store disappears.
+    await rm(input.codexReceiptDir, { recursive: true, force: true })
+  }
+
   async migrateLegacyState(input: {
     stateDir: string
     bindings: readonly LegacyBindingSnapshot[]
@@ -1395,7 +1677,14 @@ export class BindingStore {
         {
           nativeKind: 'codex-thread',
           observedAt: receipt.observedAt,
-          pendingServerAck: { nativeKind: 'codex-thread', value: receipt.nativeId },
+          ...(receipt.pendingServerAck
+            ? {
+                pendingServerAck: {
+                  nativeKind: 'codex-thread',
+                  value: receipt.nativeId,
+                },
+              }
+            : {}),
         },
       )
     }

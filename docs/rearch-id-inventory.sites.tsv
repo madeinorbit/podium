@@ -37,10 +37,6 @@ apps/daemon/src/agent-relay.ts	48	composite-key	C-stringly-on-purpose	router+pro
 apps/daemon/src/browser-open.ts	17	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/daemon/src/browser-open.ts	18	ts-property	C-stringly-on-purpose	requestId	correlation/transport handle, not a durable entity identity	requestId: string
 apps/daemon/src/browser-open.ts	138	composite-key	B-helper-adoption	sessionId+requestId	ad-hoc composite key; adopts a typed key helper	`${sessionId}:${requestId}`
-apps/daemon/src/codex-identity-receipts.test.ts	80	ts-property	A-schema-flip	session_id	type member; gains the brand with its schema	session_id: string
-apps/daemon/src/codex-identity-receipts.test.ts	83	ts-property	A-schema-flip	session_id	type member; gains the brand with its schema	session_id: string
-apps/daemon/src/codex-identity-receipts.ts	11	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
-apps/daemon/src/codex-identity-receipts.ts	12	ts-property	A-schema-flip	nativeId	type member; gains the brand with its schema	nativeId: string
 apps/daemon/src/composer-sync.test.ts	29	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
 apps/daemon/src/composer-sync.test.ts	450	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
 apps/daemon/src/control/context.ts	30	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId: string

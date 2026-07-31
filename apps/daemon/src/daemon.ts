@@ -44,7 +44,6 @@ import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { ensurePodiumCodexHooks } from './codex-hooks'
-import { CodexIdentityReceipts } from './codex-identity-receipts'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
@@ -203,7 +202,7 @@ export interface DaemonHooksOptions {
   settingsDir?: string
   /** Stable Codex hook socket. Defaults in the instance runtime dir on POSIX. */
   socketPath?: string
-  /** Pending exact Codex bindings. Defaults in the instance runtime dir. */
+  /** Legacy receipt-directory migration override. No new receipts are written here. */
   receiptDir?: string
 }
 
@@ -382,7 +381,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     opts.hooks?.socketPath ??
     (process.platform === 'win32' ? undefined : join(runtimeDir, 'codex-hooks.sock'))
   const codexReceiptDir = opts.hooks?.receiptDir ?? join(runtimeDir, 'codex-identity-receipts')
-  const codexIdentityReceipts = new CodexIdentityReceipts(codexReceiptDir)
   const identityStateDir = opts.identityDir ?? stateDir()
   const identity = loadIdentity({ dir: identityStateDir })
   // The bundled local daemon overrides this with the server's stable local id so it
@@ -423,6 +421,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     } catch (err) {
       warnDroppedControlFrame(err, 'outbound')
     }
+  }
+  const replayPendingBindingReceipts = async (): Promise<number> => {
+    let replayed = 0
+    for (const owner of await bindingStore.ownersWithPendingReceipts()) {
+      replayed += await bindingStore.replayPendingReceiptsForOwner(owner, send)
+    }
+    return replayed
   }
 
   // Draft Sync v2 (POD-859): read-only/inject composer engine. Publishes scraped
@@ -506,10 +511,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         observedAt: new Date().toISOString(),
         pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
       })
-      if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
+      if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'process'))) {
+        // POD-416 supplies bindings before the process observer can fire. During
+        // a mixed-version rollout, keep the native rebind useful but do not mint
+        // a delegation or a second durable store locally.
+        send({
+          type: 'sessionResumeRef',
+          sessionId,
+          resume: { kind: 'codex-thread', value: nativeId },
+          confidence: 'exact',
+          ackRequested: true,
+        })
+        return
+      }
       // Replay sends ackRequested:true. If the socket is offline, the receipt
       // remains and the authentication path replays it after reconnect.
-      await codexIdentityReceipts.replay(send)
+      await replayPendingBindingReceipts()
     },
     tailSeedGate: gates.tailSeedGate,
   })
@@ -558,6 +575,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // Bounded, timeout-safe: prime injection first (SessionStart/UserPromptSubmit),
     // then mail delivery at Stop; first non-null wins.
     respondTo,
+    // The HTTP 200 is the hook's durability boundary: exact Codex identity is
+    // in the versioned binding record before the hook process may return.
+    beforeAck: async (sessionId, payload) => {
+      const binding = await bindingStore.read(sessionId)
+      if (binding?.agentKind !== 'codex') return
+      const nativeId =
+        payload && typeof payload === 'object'
+          ? (payload as Record<string, unknown>).session_id
+          : undefined
+      if (typeof nativeId !== 'string' || nativeId.length === 0) return
+      if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'native-hook'))) {
+        throw new Error(`Codex receipt ${sessionId} has no owned binding`)
+      }
+    },
     onPayload: (sessionId, payload) => observers.onHookPayload(sessionId, payload),
   })
   // Install/refresh the global codex hook instrumentation once per boot —
@@ -651,8 +682,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     tailSeedGate: gates.tailSeedGate,
     runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
     hookSocketPath,
-    codexReceiptDir,
-    codexIdentityReceipts,
     bindingStore,
     sessionBinding,
     hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
@@ -839,9 +868,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       void reportInventory(ctx)
       // At-least-once recovery: send every exact native binding still awaiting
       // a server persistence acknowledgement after each successful reconnect.
-      void codexIdentityReceipts
-        .replay(send)
-        .catch((err) => console.warn('[podium] Codex identity receipt replay failed:', err))
+      void replayPendingBindingReceipts().catch((err) =>
+        console.warn('[podium] Codex identity receipt replay failed:', err),
+      )
       // Open requests captured during a transport outage are replayed after auth;
       // the server deduplicates them by session/request id. [spec:SP-a43e]
       browserOpen.replay()
@@ -897,7 +926,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // daemon is down and what to do, instead of a bare "down".
       recordConnectivity({ state: 'blocked', blockedReason: `${type}: ${reason}` })
       closing = true
-        void disposeAll()
+      void disposeAll()
       // A terminally-blocked daemon must not keep its loopback servers holding the
       // process (and a test's event loop) alive — handle.close() will never run.
       void ingest.close().catch(() => {})

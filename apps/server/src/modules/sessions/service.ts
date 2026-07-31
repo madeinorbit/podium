@@ -1454,7 +1454,7 @@ export class SessionsService {
    * ONE place that transitional answer is given, so POD-1075 changes it here
    * rather than in eleven handlers.
    */
-  sessionOwner(sessionId: SessionId): { owner: string | null; grants: string[] } | undefined {
+  sessionOwner(sessionId: SessionId): { owner: UserId | null; grants: string[] } | undefined {
     if (!this.sessions.has(sessionId)) return undefined
     return { owner: FIRST_ADMIN_USER_ID, grants: [] }
   }
@@ -5100,10 +5100,13 @@ export class SessionsService {
         // Ack only after the exact mapping is already in durable server state.
         // Delivery is at-least-once, so an unchanged mapping is also acknowledged.
         if (msg.ackRequested && msg.confidence === 'exact') {
+          const owner = this.sessionOwner(msg.sessionId)?.owner
+          if (!owner) break
           this.toMachine(machineId, {
             type: 'sessionResumeRefAck',
             sessionId: msg.sessionId,
             resume: msg.resume,
+            ownerId: owner,
           })
         }
         break
