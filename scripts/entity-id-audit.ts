@@ -276,6 +276,114 @@ export function brandOfSymbol(
   return best
 }
 
+/**
+ * Which brand a FILE'S PATH denotes — the THIRD spelling of "an entity id field",
+ * added at POD-1212.
+ *
+ * The two spellings above both read a NAME: the field's own (`sessionId`) or its
+ * declaration's (`SessionMeta.id`). A command contract has neither. In
+ * `packages/commands/src/issues/contracts.ts` the id of an issue is written
+ *
+ *     const byId = z.object({ id: z.string() })
+ *
+ * and every one of the ten commands built from it takes an `IssueId`. The key is
+ * `id`, so {@link brandOfKey} is silent; the declaration is `byId`, so
+ * {@link brandOfSymbol} is silent. POD-1212 planted `parentId: z.string()` in
+ * that file and the detector stayed GREEN — a survivor, and the same class as
+ * every "detector covers one syntax form" defect in this run: the concept had a
+ * third way of being written and the instrument knew two.
+ *
+ * The inference is the TENANT, and it is derived from the same brand vocabulary
+ * rather than listed: a path segment that singularises to a brand names the
+ * entity that directory is about. `commands/src/issues/` → Issue,
+ * `modules/conversations/` → Conversation. A tenant with no brand
+ * (`mail`, `specs`, `fleet`, `workflows`) yields null and its `id` fields stay
+ * unmeasured HERE — correctly, because this item counts fields whose brand
+ * EXISTS, and inventing one is POD-318's kind of work, not this key's.
+ */
+export function brandOfPath(file: string, brandNames: readonly string[] = ID_BRANDS): string | null {
+  for (const seg of file.replace(/\.[jt]sx?$/, '').split('/')) {
+    const pascal = seg
+      .split('-')
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join('')
+    // Singular and plural alike; a directory is conventionally plural and a
+    // module file conventionally singular, and both name the same tenant.
+    for (const cand of [pascal.replace(/ies$/, 'y'), pascal.replace(/s$/, ''), pascal]) {
+      const hit = brandNames.find((b) => b.toLowerCase() === cand.toLowerCase())
+      if (hit !== undefined) return hit
+    }
+  }
+  return null
+}
+
+/**
+ * Keys that name the SAME entity the enclosing tenant is about, rather than a
+ * different one.
+ *
+ * `parentId` on an issue is an `IssueId`; this is the self-referential edge of a
+ * tree and it is a relationship word, not an entity name, which is why no
+ * `<brand>Id` rule can reach it. Enumerated as a CONCEPT (the words a
+ * self-reference is written with) rather than as the two lines that happen to
+ * exist today.
+ */
+const SELF_REFERENTIAL_KEYS = /^(?:parent|child|root|ancestor|predecessor|successor)Id$/
+
+/**
+ * WHY THERE IS NO STRUCTURAL "POLYMORPHIC ID" RULE HERE, THOUGH IT WAS TRIED.
+ *
+ * Limit 2 holds that a polymorphic id is out of scope by design. Under the first
+ * two spellings that fell out for free (`targetId`/`toId` carry no brand token).
+ * Tenant inference does not get it for free: it reads
+ * `z.object({ kind: PinKind, id: z.string(), … })` in `commands/src/sessions/`
+ * as a `SessionId`, and `PinKind` is `panel | worktree | repo`, so it is none of
+ * them.
+ *
+ * The obvious fix — exclude a bare `id` whose object declares a `kind`/`type`
+ * sibling — was implemented at POD-1212 and REVERTED, because it silently
+ * excluded three sites that are not polymorphic at all:
+ *
+ *     startInput      { id, agentKind }                  ← agentKind is an ATTRIBUTE
+ *     addSessionInput { id, agentKind }                  ← same
+ *     actionInput     { id, kind: 'rebase'|'pr'|'merge' } ← kind is the ACTION
+ *
+ * In every one of those the `id` is an `IssueId`. What makes `pinSetInput`
+ * different is SEMANTIC — its enum members name entity kinds, where these name
+ * an attribute or a verb — and that is not legible at the declaration without
+ * resolving an imported enum. An exclusion rule that cannot tell them apart
+ * fails in the direction this whole issue exists to prevent: quietly not looking.
+ *
+ * So the polymorphic site is excluded by the `UNBRANDED` marker instead, which is
+ * a reasoned, in-source, RATCHETED exclusion rather than a line-number ignore
+ * list — the mechanism {@link unbrandedByDecisionFields} exists for.
+ */
+
+/**
+ * Whether a declaration name is a deliberate NO rather than a silence.
+ *
+ * {@link brandOfSymbol} returns null for two very different reasons, and tenant
+ * inference must only override ONE of them:
+ *
+ *   - `byId`, `getInput`, `reparentInput` — the name says NOTHING about which
+ *     entity it addresses. The directory is the only evidence there is, so
+ *     spelling 3 should speak.
+ *   - `IssueComment`, `SessionObservationCheckpoint` — the name says this is a
+ *     DIFFERENT entity that merely begins with a brand. That is a considered
+ *     judgement (see {@link REPRESENTATION_SUFFIXES}) and letting the enclosing
+ *     directory outvote it would re-introduce, through the back door, exactly
+ *     the `IssueComment.id === IssueId` lie the suffix list exists to prevent.
+ *
+ * Caught by `entity-id-audit.test.ts` — spelling 3 fired on `IssueComment`
+ * inside `commands/src/issues/` before this existed.
+ */
+export function declaresOtherEntity(
+  symbol: string,
+  brandNames: readonly string[] = ID_BRANDS,
+): boolean {
+  if (brandOfSymbol(symbol, brandNames) !== null) return false
+  return brandNames.some((b) => symbol.startsWith(b))
+}
+
 const DECL_AT_COL_0 = /^export (?:const|type|interface|class) (\w+)/
 
 /**
@@ -434,12 +542,17 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
       let brand = brandOfKey(key)
       let symbol = ''
       if (brand === null) {
-        // Spelling 2: a bare `id` at the top level of a declaration whose NAME
-        // denotes a brand. Depth 1 only — a nested object's `id` belongs to that
-        // inner shape, not to the declaration.
-        if (key !== 'id' || depthAt(at) !== 1) continue
+        // Spellings 2 and 3, both at depth 1 only — a nested object's `id`
+        // belongs to that inner shape, not to the declaration.
+        const selfRef = SELF_REFERENTIAL_KEYS.test(key)
+        if ((key !== 'id' && !selfRef) || depthAt(at) !== 1) continue
+        // Spelling 2: a bare `id` on a declaration whose NAME denotes a brand.
         symbol = symbolAt(m.index ?? 0)
-        brand = brandOfSymbol(symbol)
+        brand = key === 'id' ? brandOfSymbol(symbol) : null
+        // Spelling 3: the file's TENANT names the entity. Second, so a
+        // declaration that names its own brand always wins over the directory —
+        // and a declaration that names a DIFFERENT entity vetoes it outright.
+        if (brand === null && !declaresOtherEntity(symbol)) brand = brandOfPath(f.file)
         if (brand === null) continue
       }
       const form = classifyRhs(rhsText(text, at))

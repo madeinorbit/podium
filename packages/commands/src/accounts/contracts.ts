@@ -32,6 +32,7 @@
  * by the type rather than promised in a comment.
  */
 
+import { AccountIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -161,7 +162,7 @@ export const accountsConnectContract = {
   } satisfies ErrorConsistency,
 } as const satisfies CommandContract<typeof accountsConnectInput>
 
-export const accountsDisconnectInput = z.object({ id: z.string() })
+export const accountsDisconnectInput = z.object({ id: AccountIdField })
 
 export const accountsDisconnectContract = {
   name: 'accounts.disconnect',

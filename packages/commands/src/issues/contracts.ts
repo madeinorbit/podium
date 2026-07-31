@@ -96,7 +96,23 @@ import {
 // ---------------------------------------------------------------------------
 
 const repoScoped = z.object({ repoPath: z.string().optional() })
-const byId = z.object({ id: z.string() })
+
+/**
+ * The id-addressed input, for the fifteen commands whose `id` IS an issue id.
+ *
+ * Split from the subscription commands at POD-1212. This schema was shared with
+ * `subscriptionRemove`, whose handler resolves the id against the SUBSCRIPTION
+ * table (`registry.ts` — `subscriptionList().some((s) => s.id === input.id)`),
+ * so branding the shared shape would have made a subscription id assignable
+ * wherever an `IssueId` is required — the well-typed lie `brands.ts` warns about
+ * at `controllerId`. Branding is compile-time only (`idField` adds no
+ * validation), so the split and the brand are both runtime no-ops.
+ */
+const byIssueId = z.object({ id: IssueIdField })
+
+/** UNBRANDED: a SUBSCRIPTION id, not an issue id — see {@link byIssueId}. The
+ *  subscription table has its own id space and no brand in `packages/model`. */
+const bySubscriptionId = z.object({ id: z.string() })
 
 // ---------------------------------------------------------------------------
 // THE INPUT SCHEMAS — moved from `registry.ts`, byte-for-byte where they were
@@ -114,14 +130,14 @@ export const blockedInput = repoScoped
 
 export const graphInput = repoScoped
 
-export const epicStatusInput = byId
+export const epicStatusInput = byIssueId
 
-export const childrenInput = z.object({ id: z.string(), recursive: z.boolean().optional() })
+export const childrenInput = z.object({ id: IssueIdField, recursive: z.boolean().optional() })
 
-export const treeInput = byId
+export const treeInput = byIssueId
 
 export const depReportInput = z.object({
-  id: z.string().optional(),
+  id: IssueIdField.optional(),
   repoPath: z.string().optional(),
 })
 
@@ -158,9 +174,9 @@ export const statsInput = repoScoped
 
 export const orphansInput = z.object({ repoPath: z.string() })
 
-export const getInput = byId
+export const getInput = byIssueId
 
-export const commentsInput = byId
+export const commentsInput = byIssueId
 
 export const eventsInput = z.object({
   since: z.number().int().min(0).default(0),
@@ -171,10 +187,10 @@ export const eventsInput = z.object({
 
 export const linearSearchInput = z.object({ query: z.string() })
 
-export const setStateInput = z.object({ id: z.string(), text: z.string() })
+export const setStateInput = z.object({ id: IssueIdField, text: z.string() })
 
 export const panelApplyInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   op: z.enum([
     'todo-add',
     'todo-done',
@@ -223,7 +239,7 @@ export const createInput = z.object({
 })
 
 export const startInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   agentKind: z.string().optional(),
   forceUnknownModel: z.boolean().optional(),
 })
@@ -262,7 +278,7 @@ export const updateInput = z.object({
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
-export const promoteInput = z.object({ id: z.string() })
+export const promoteInput = z.object({ id: IssueIdField })
 
 export const attachSessionInput = z.object({
   sessionId: SessionIdField,
@@ -275,41 +291,41 @@ export const attachSessionInput = z.object({
   newSpinoff: z.object({ title: z.string().min(1) }).optional(),
 })
 
-export const archiveInput = byId
+export const archiveInput = byIssueId
 
-export const deleteInput = byId
+export const deleteInput = byIssueId
 
-export const restoreInput = byId
+export const restoreInput = byIssueId
 
-export const actionInput = z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) })
+export const actionInput = z.object({ id: IssueIdField, kind: z.enum(['rebase', 'pr', 'merge']) })
 
-export const cleanupInput = byId
+export const cleanupInput = byIssueId
 
 export const stopInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   force: z.boolean().optional(),
 })
 
-export const integrateInput = byId
+export const integrateInput = byIssueId
 
 export const addSessionInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   agentKind: z.string().optional(),
   forceUnknownModel: z.boolean().optional(),
 })
 
-export const addShellInput = byId
+export const addShellInput = byIssueId
 
-export const applySuggestionInput = byId
+export const applySuggestionInput = byIssueId
 
-export const dismissSuggestionInput = byId
+export const dismissSuggestionInput = byIssueId
 
-export const refreshAssistantInput = byId
+export const refreshAssistantInput = byIssueId
 
-export const setLabelsInput = z.object({ id: z.string(), labels: z.array(z.string()) })
+export const setLabelsInput = z.object({ id: IssueIdField, labels: z.array(z.string()) })
 
 export const addCommentInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   author: z.string(),
   body: z.string().min(1),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
@@ -327,28 +343,28 @@ export const depRemoveInput = z.object({
   type: z.string().optional(),
 })
 
-export const deferInput = z.object({ id: z.string(), until: z.string().nullable() })
+export const deferInput = z.object({ id: IssueIdField, until: z.string().nullable() })
 
-export const undeferInput = byId
+export const undeferInput = byIssueId
 
 export const markReadInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const markUnreadInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const setTuckedInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   tucked: z.boolean(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const setNeedsHumanInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   question: z.string().optional(),
   // Structured question metadata (issue #53): suggested answers rendered as
   // Tray chips + the asking session (defaults to the caller's own session).
@@ -356,16 +372,16 @@ export const setNeedsHumanInput = z.object({
   askedBy: SessionIdField.optional(),
 })
 
-export const answerQuestionInput = z.object({ id: z.string(), answer: z.string().trim().min(1) })
+export const answerQuestionInput = z.object({ id: IssueIdField, answer: z.string().trim().min(1) })
 
-export const clearNeedsHumanInput = byId
+export const clearNeedsHumanInput = byIssueId
 
-export const reparentInput = z.object({ id: z.string(), parentId: z.string().nullable() })
+export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })
 
-export const claimInput = z.object({ id: z.string(), assignee: UserIdField })
+export const claimInput = z.object({ id: IssueIdField, assignee: UserIdField })
 
 export const setCoordinatorInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   /** Explicit session id to set; null clears. Mutually exclusive with claim. */
   sessionId: SessionIdField.nullable().optional(),
   /** When true, set coordinator to the calling session (actorSessionId). */
@@ -373,22 +389,22 @@ export const setCoordinatorInput = z.object({
 })
 
 export const closeInput = z.object({
-  id: z.string(),
+  id: IssueIdField,
   reason: z.string().optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const supersedeInput = z.object({ oldId: z.string(), newId: z.string() })
 
-export const duplicateInput = z.object({ id: z.string(), canonicalId: z.string() })
+export const duplicateInput = z.object({ id: IssueIdField, canonicalId: z.string() })
 
-export const mailSendInput = z.object({ id: z.string(), body: z.string().min(1) })
+export const mailSendInput = z.object({ id: IssueIdField, body: z.string().min(1) })
 
-export const mailInboxInput = z.object({ id: z.string().optional() }).optional()
+export const mailInboxInput = z.object({ id: IssueIdField.optional() }).optional()
 
 export const mailClaimInput = z.object({ messageId: z.string() })
 
-export const mailPendingInput = z.object({ id: z.string().optional() }).optional()
+export const mailPendingInput = z.object({ id: IssueIdField.optional() }).optional()
 
 export const subscriptionAddInput = z.object({
   event: z.string().min(1),
@@ -403,9 +419,15 @@ export const subscriptionAddInput = z.object({
   subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
 })
 
-export const subscriptionRemoveInput = byId
+export const subscriptionRemoveInput = bySubscriptionId
 
-export const subscriptionSetEnabledInput = z.object({ id: z.string(), enabled: z.boolean() })
+export const subscriptionSetEnabledInput = z.object({
+  /** UNBRANDED: a SUBSCRIPTION id. `IssueService.subscriptionSetEnabled` passes
+   *  it to `store.events.setSubscriptionEnabled`, which resolves it in the
+   *  subscription table — this is not the enclosing tenant.s entity. */
+  id: z.string(),
+  enabled: z.boolean(),
+})
 
 export const subscriptionListInput = z.void()
 

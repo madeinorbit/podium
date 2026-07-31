@@ -23,6 +23,7 @@
  * reachability decides nothing about who may rename it.
  */
 
+import { ConversationIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -114,7 +115,7 @@ const CONVERSATION_ERRORS: ErrorConsistency = {
 /** `id` addresses an existing registry row; both fields are optional and an absent
  *  one means "leave it", kept exactly as the shipped procedure validated. */
 export const conversationsSetMetaInput = z.object({
-  id: z.string(),
+  id: ConversationIdField,
   name: z.string().max(200).optional(),
   summary: z.string().max(2000).optional(),
 })

@@ -208,7 +208,18 @@ const snoozeClear: CommandDef = {
   conflict: 'single-writer',
 }
 
-const pinSetInput = z.object({ kind: pinKind, id: z.string(), pinned: z.boolean(), mutationId })
+const pinSetInput = z.object({
+  kind: pinKind,
+  /** UNBRANDED: POLYMORPHIC by design (Limit 2 / POD-362). `PinKind` is
+   *  `panel | worktree | repo`, so this id names whichever of those `kind` says
+   *  and is never a `SessionId` — branding it at the declaration would force a
+   *  false choice. The tenant directory is `sessions/`, so the audit's tenant
+   *  inference reaches this site and must be answered here rather than by a
+   *  structural rule, which could not tell this `kind` from `agentKind`. */
+  id: z.string(),
+  pinned: z.boolean(),
+  mutationId,
+})
 
 const pinSet: CommandDef = {
   input: pinSetInput,
