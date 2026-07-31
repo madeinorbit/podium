@@ -13,8 +13,20 @@
  * payload.
  *
  * They are all re-derived here instead, and here the join is free: the client
- * already holds the world, so membership is an index over sessions it has rather
- * than a fan-out over issues it must rebuild.
+ * already holds every session IN ITS SCOPE, so membership is an index over
+ * sessions it has rather than a fan-out over issues it must rebuild.
+ *
+ * SCOPE, NOT EVERYTHING, AND THE DIFFERENCE IS LOAD-BEARING. This paragraph used
+ * to justify the derivation by saying the client held every row there is —
+ * POD-310's Phase-2 gate flagged it, and the `world-assumption` detector still
+ * guards this file for that phrasing. Under the 2026-07-29 multi-user decision
+ * the feed is scoped per principal and defaults to PRIVATE, so that justification
+ * became false while the code stayed correct.
+ *
+ * What actually makes the join free is weaker and still sufficient: the replica
+ * holds every session it is ENTITLED to see, and an issue's membership can only
+ * contain those. Rows outside the scope were never sent, so they cannot go
+ * missing from an index over what was.
  *
  * ## Two derivation shapes, and why they are not the same shape
  *

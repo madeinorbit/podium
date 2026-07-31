@@ -96,6 +96,24 @@ const isTestFile = (rel: string): boolean =>
   rel.endsWith('/test-doubles.ts') ||
   rel.endsWith('/test-plumbing.ts')
 
+/**
+ * Strip comments before a PRESENCE check reads the source.
+ *
+ * POD-310 §3.2 measured the defect this closes: `changeProvenancePresent` tested
+ * `source.includes(token)` against raw file text, so a mere MENTION of a field in
+ * a comment satisfied the check. Deleting `causationId` from the live schema left
+ * `audit:seam` GREEN, because line 119 of `fields/change.ts` happens to say the
+ * word. Two of S2's four tokens were shadowed that way — and `causationId` is the
+ * one the check's own docstring names as most likely to be dropped. A check that
+ * names its own most likely failure and then cannot see it is worse than no check.
+ *
+ * `retirementHolds` already stripped comments; the technique simply was not
+ * applied to the presence checks. It lives here once so the two cannot drift.
+ */
+export function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+}
+
 // ---------------------------------------------------------------------------
 // S1 — authority / feed identity is nameable on every change
 // ---------------------------------------------------------------------------
@@ -110,9 +128,10 @@ const isTestFile = (rel: string): boolean =>
  * a reviewer skimming a rename would wave through.
  */
 export function feedIdentityPresent(source: string, where: string): Finding[] {
+  const code = stripComments(source)
   const findings: Finding[] = []
   for (const token of ['interface FeedIdentity', 'readonly feedId', 'readonly epoch']) {
-    if (!source.includes(token)) {
+    if (!code.includes(token)) {
       findings.push({
         check: 'S1-feed-identity',
         where,
@@ -134,9 +153,10 @@ export function feedIdentityPresent(source: string, where: string): Finding[] {
  * cleanup, and it is precisely the field a future hub needs for loop prevention.
  */
 export function changeProvenancePresent(source: string, where: string): Finding[] {
+  const code = stripComments(source)
   const findings: Finding[] = []
   for (const token of ['ChangeProvenanceFields', 'originId', 'causationId', 'mutationId']) {
-    if (!source.includes(token)) {
+    if (!code.includes(token)) {
       findings.push({
         check: 'S2-origin-causation',
         where,
@@ -157,8 +177,9 @@ export function changeProvenancePresent(source: string, where: string): Finding[
  * making it return `ok: true` ships H2 by accident.
  */
 export function nodeRoleReservedAndInert(source: string, where: string): Finding[] {
+  const code = stripComments(source)
   const findings: Finding[] = []
-  if (!source.includes("role: 'node'")) {
+  if (!code.includes("role: 'node'")) {
     findings.push({
       check: 'S3-node-reserved',
       where,
@@ -166,7 +187,7 @@ export function nodeRoleReservedAndInert(source: string, where: string): Finding
         "the reserved 'node' peer role is gone. ADR 5 D4 keeps it so a future node can declare itself without a flag day.",
     })
   }
-  if (!source.includes("reason: 'role-not-implemented'")) {
+  if (!code.includes("reason: 'role-not-implemented'")) {
     findings.push({
       check: 'S3-node-inert',
       where,
@@ -244,8 +265,9 @@ export function kernelPortsAreNeutral(source: string, where: string): Finding[] 
  * certifying its own fixture.
  */
 export function suiteStaysParameterized(source: string, where: string): Finding[] {
+  const code = stripComments(source)
   const findings: Finding[] = []
-  if (!source.includes('SyncInstantiation')) {
+  if (!code.includes('SyncInstantiation')) {
     findings.push({
       check: 'S5-parameterized-suite',
       where,
@@ -304,7 +326,7 @@ const RETIRED_FORMS: readonly { pattern: RegExp; detail: string }[] = [
 ]
 
 export function retirementHolds(source: string, where: string): Finding[] {
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const code = stripComments(source)
   const findings: Finding[] = []
   for (const { pattern, detail } of RETIRED_FORMS) {
     const m = pattern.exec(code)
