@@ -30,6 +30,11 @@
       "types": "./src/outbox.ts",
       "import": "./src/outbox.ts"
     },
+    "./outbox-recovery-copy": {
+      "@podium/source": "./src/outbox-recovery-copy.ts",
+      "types": "./src/outbox-recovery-copy.ts",
+      "import": "./src/outbox-recovery-copy.ts"
+    },
     "./store": {
       "@podium/source": "./src/store.ts",
       "types": "./src/store.ts",

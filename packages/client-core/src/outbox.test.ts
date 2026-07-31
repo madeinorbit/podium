@@ -1,12 +1,11 @@
-import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createOutbox,
   type Outbox,
   type OutboxEntry,
   type OutboxStorage,
-
   parseOutboxEntries,
 } from './outbox'
 
@@ -302,7 +301,11 @@ describe('storage-neutral outbox', () => {
       onApplied: () => true,
     })
     outboxes.push(ob)
-    const a = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' }, { baseline: '{"n":0}' })
+    const a = ob.enqueue(
+      'rename',
+      { sessionId: asSessionId('s1'), name: 'one' },
+      { baseline: '{"n":0}' },
+    )
     await ob.drain()
     // Out of the QUEUE (subscriber-visible size), but not out of storage.
     expect(ob.size()).toBe(0)
@@ -501,11 +504,19 @@ describe('definitive refusals park for recovery instead of retrying forever', ()
   // refuse it identically — a wedged partition, forever, with the user's work
   // invisible behind it.
   it.each([
-    ['UNAUTHORIZED (rights revoked while offline — D8/D16)', { code: 'UNAUTHORIZED' }, 'unauthorized'],
+    [
+      'UNAUTHORIZED (rights revoked while offline — D8/D16)',
+      { code: 'UNAUTHORIZED' },
+      'unauthorized',
+    ],
     ['FORBIDDEN', { httpStatus: 403 }, 'unauthorized'],
     ['NOT_FOUND (merged with unauthorized — property 15)', { code: 'NOT_FOUND' }, 'unauthorized'],
     ['CONFLICT (stale expectedRevision — D13.3)', { code: 'CONFLICT' }, 'conflict'],
-    ['PRECONDITION_FAILED (out-of-scope — D8 outcome 3)', { httpStatus: 412 }, 'confirmation-required'],
+    [
+      'PRECONDITION_FAILED (out-of-scope — D8 outcome 3)',
+      { httpStatus: 412 },
+      'confirmation-required',
+    ],
     ['BAD_REQUEST (validation poison — D10)', { code: 'BAD_REQUEST' }, 'invalid'],
   ])('parks %s as %s with zero automatic retries', async (_label, data, expectedCode) => {
     const { ob, calls } = parkOn(refusal(data))

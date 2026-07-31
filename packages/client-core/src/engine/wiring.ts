@@ -16,9 +16,9 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
+import { reasonSummary } from '../outbox-recovery-copy'
 import type { Replica } from '../replica/replica'
 import type { StoreNotices } from './types'
-import { reasonSummary } from '../outbox-recovery-copy'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
  *  §2.3). Each executor replays with the entry's stable mutationId, so the

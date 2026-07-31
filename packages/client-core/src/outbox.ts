@@ -26,8 +26,8 @@ import {
   normalizeRefusal,
   type OutboxRejectionReason,
   type RecoveryPlan,
-  recoveryPlanFor,
   type RetrySatisfaction,
+  recoveryPlanFor,
   satisfies,
 } from '@podium/sync/outbox'
 import { randomUUID } from './id'

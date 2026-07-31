@@ -6,11 +6,26 @@
  * client).
  */
 
-import type { AgentKind, ArtifactId, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueId, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import type {
+  AgentKind,
+  ArtifactId,
+  AutomationRunWire,
+  AutomationWire,
+  ConversationSummaryWire,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  HostMetricsWire,
+  IssueId,
+  IssueWire,
+  MachineWire,
+  SessionId,
+  SessionMeta,
+  WorkState,
+} from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
-import type { SocketHub } from '@podium/terminal-client'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
+import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { Replica, UiState } from '../replica/replica'
