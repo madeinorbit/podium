@@ -101,11 +101,16 @@ describe('test lane configuration', () => {
 
     const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
     expect(ci, 'ci.yml has no job invoking the browser lane').toMatch(
-      /^\s*run: bun run test:browser$/m,
+      /^\s*run: bun run test:browser\b/m,
     )
     // Playwright is not preinstalled on the runner: without this the whole lane
     // errors on setup and reads as "0 failures" under continue-on-error.
     expect(ci).toMatch(/playwright install --with-deps/)
+    // Every project the config declares needs a leg, or a whole device class goes
+    // unrun while the job still reports. Mobile-only suites (`test.skip(({ isMobile
+    // }) => !isMobile)`) exist ONLY on the pixel/webkit legs.
+    for (const project of ['chromium-desktop', 'chromium-pixel', 'webkit-iphone'])
+      expect(ci, `browser lane has no CI leg for ${project}`).toContain(project)
 
     // Quarantine must name suites that exist. A stale entry excludes nothing while
     // still reading as a deliberate exclusion — the runner exits 2 on one, and this

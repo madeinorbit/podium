@@ -199,7 +199,16 @@ jobs:
   # The POD-744 lesson still applies and is why this job is its own leg with one
   # step: nothing blocking may ever be folded in beside a swallowed red.
   browser:
-    name: browser suites (non-blocking)
+    # One leg per Playwright project, because the config runs every suite against
+    # all three (suites self-select with `test.skip(({ isMobile }) => …)`) and
+    # `workers: 1` makes that strictly serial: the first census took ~10s per test
+    # plus fixture overhead, which is hours in one leg and under an hour in three.
+    strategy:
+      # One red project must not cancel the others — the census is the point.
+      fail-fast: false
+      matrix:
+        project: [chromium-desktop, chromium-pixel, webkit-iphone]
+    name: browser suites — ${{ matrix.project }} (non-blocking)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -223,12 +232,12 @@ jobs:
         run: bunx playwright install --with-deps chromium webkit
       - name: browser lane (non-blocking — see census doc)
         continue-on-error: true
-        run: bun run test:browser
+        run: bun run test:browser --project=${{ matrix.project }}
       - name: upload playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-lane-results
+          name: browser-lane-results-${{ matrix.project }}
           path: tests/e2e/test-results/
           if-no-files-found: ignore
           retention-days: 7
