@@ -151,6 +151,27 @@ records how each was proved able to fail.
 
 ---
 
+## 4a. What the live runs actually found (added after the fact)
+
+Three defects survived design, review and a green unit matrix, and were only produced by running the
+consumer against a booted server. Recording them here because each one is a general shape, not a
+typo:
+
+1. **The bootstrap source deadlocked on a *synchronous* push.** It asked for a world before
+   registering its waiter, so a caller that pushed synchronously — every harness; not a real socket —
+   had the world parked in the slot with nobody waiting. Reachable only from the fast path.
+2. **A re-bootstrap killed the very walk that requested it.** A re-bootstrap asks the transport for a
+   fresh world; the transport supplies one by *reconnecting*; the reconnect's socket-close was read as
+   "abandon the walk". The Replica then retried, asked again, and looped until `settled()` gave up
+   with *"the ladder is not resolving downward"*. A self-inflicted close and a real drop had to become
+   two cases. The sink also had to stop re-entering `Replica.connect()` while a walk is in flight.
+3. **The v2 catch-up reply was built with the v1 row mapper.** `toBusChange` emits `id`; the v2 row's
+   field is `entityId`. Every *healed* row therefore installed as `entity:undefined` — a silent
+   corruption on the rung-1 path, invisible to anything that only exercised the push path.
+
+The common thread: all three live on the rare path (reconnect, re-bootstrap, heal), which is exactly
+where a cutover's risk is and exactly what a happy-path suite cannot see.
+
 ## 5. What this issue can and cannot evidence
 
 `CLIENT_PRINCIPAL_GRADE` is still `device`: `packages/runtime/src/auth-store.ts` is one shared
@@ -160,14 +181,23 @@ cannot be evidenced against the shipped authenticator, because the shipped authe
 two users. Claiming it from a fixture would be exactly the fixture-certifying-itself shape POD-1077
 called out.
 
-What is evidenced instead, and stated as two separate claims:
+What is evidenced, in three separate claims that must not be run together:
 
-- **Shipped and runtime-verified:** the cutover itself, the flag and its enforcement, the shadow
-  comparison, and the same-user offline → reconnect → drain → convergence check in the real UI.
-- **Shipped against the mechanism, not against a real authenticator:** the grant/revoke/rescope
-  matrix, driven through the stub policy at the kernel seam. This proves the *mechanism* carries the
-  distinction end to end into the UI; it does not prove per-person isolation, which is not yet
-  expressible.
-
-The second-account check is blocked on per-user login and is recorded as such rather than as a
-passing box.
+1. **Shipped and verified against a live server** (`tests/e2e/feed-v2.e2e.test.ts`): a real socket
+   announcing wire v2, the shipped client consumer, a real kernel Replica over a real IndexedDB
+   store. A v2 peer is served feed frames and installs exactly the authority slice; a live write
+   arrives as a delta; and offline → world moves → reconnect → **both clients converge on the
+   authority slice** (compared against `sync.feedSlice`, not merely against each other — two clients
+   agreeing on the wrong answer is not convergence). Verified to fail: deleting the `wireVersion`
+   advertisement makes the server serve v1 and all three feed cases time out.
+2. **Shipped against the mechanism, with a stub policy** (`divergence-matrix.test.ts`): grant,
+   revoke-as-eviction with a real deletion beside it as the counterfactual, a 200-frame watermark
+   stretch, and a scoped re-bootstrap with the outbox surviving. This proves the mechanism carries
+   the remove/evict distinction end to end; it does not prove per-person isolation.
+3. **NOT evidenced, and not claimed:**
+   - **The real UI.** The engine swap that would put this consumer behind the app's read model needs
+     a store-neutral client `Replica` facade over `{cache, outbox}`. POD-377 claimed and owns that
+     file (`packages/client-core/src/replica/`), so it is not on this branch. Everything up to and
+     including the wire is verified on the real stack; the last hop into the rendered UI is not.
+   - **The second-account check.** Blocked on per-user login, and recorded as blocked rather than as
+     a passing box.
