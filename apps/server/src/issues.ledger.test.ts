@@ -24,10 +24,10 @@ function harness() {
     now: () => 1_000,
     transact: (fn) => store.transact(fn),
   })
-  // What reaches clients: legacy snapshots via publishComputed; delta batches
-  // via the ledger's onAppended pipe (#256 — publishComputed carries no changes
-  // any more, the funnel's ordered pipe is THE metadataDelta emitter).
-  const published: { snapshot: ServerMessage }[] = []
+  // WHAT REACHES CLIENTS, since POD-1203: the appended rows, and nothing else.
+  // There was a second list here — the legacy snapshots `publishComputed` fanned
+  // out — and the fact that it is gone is the deliverable: a snapshot could
+  // disagree with the rows below, and that is what a dual read path IS.
   const appended: MetadataChange[][] = []
   ledger.onAppended((changes) => appended.push(changes))
   const plumbing = issueTestPlumbing()
@@ -47,7 +47,6 @@ function harness() {
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: {
       run: plumbing.funnel.run,
-      publishComputed: (snapshot) => published.push({ snapshot }),
     },
     ledger,
     publishSpecs: plumbing.publishSpecs,
@@ -56,7 +55,6 @@ function harness() {
   return {
     store,
     ledger,
-    published,
     appended,
     svc: new IssueService(deps),
     setNow: (iso: string) => {
@@ -77,14 +75,16 @@ function fold(changes: MetadataChange[]): Map<string, unknown> {
 
 describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   it('commits the upsert change row atomically with the issue row write', () => {
-    const { ledger, svc, published, appended } = harness()
+    const { ledger, svc, appended } = harness()
     const wire = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const recorded = ledger.changesSince(0) ?? []
     expect(recorded.some((c) => c.id === wire.id && c.op === 'upsert')).toBe(true)
-    // The committed change entered the delta pipe (durable before fan-out) and
-    // the legacy snapshot fanned out alongside it.
-    expect(appended.flat().some((c) => c.id === wire.id && c.op === 'upsert')).toBe(true)
-    expect(published.length).toBeGreaterThan(0)
+    // The committed change entered the delta pipe (durable before fan-out), and
+    // it carries the VALUE a client is served — which the deleted snapshot used
+    // to carry separately.
+    const row = appended.flat().find((c) => c.id === wire.id && c.op === 'upsert')
+    expect(row).toBeDefined()
+    expect((row as { value?: { title?: string } }).value?.title).toBe('A')
   })
 
   it('a throw between the row write and the change append rolls BOTH back', () => {
@@ -281,7 +281,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       now: () => 2_000,
       transact: (fn) => store.transact(fn),
     })
-    const published2: { snapshot: ServerMessage }[] = []
     const plumbing2 = issueTestPlumbing()
     const svc2 = new IssueService({
       store,
@@ -291,7 +290,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       repoOp: async () => ({ ok: true, output: '' }),
       funnel: {
         run: plumbing2.funnel.run,
-        publishComputed: (snapshot) => published2.push({ snapshot }),
       },
       ledger: ledger2,
       publishSpecs: plumbing2.publishSpecs,
@@ -299,7 +297,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     })
     const cursorBefore = ledger2.cursor()
     svc2.boot()
-    expect(published2).toEqual([]) // boot reconcile never fans out
+    // WAS: `published2` was empty — "boot reconcile never fans out". There is no
+    // snapshot list to be empty any more, so the claim is made where it is now
+    // decidable: the reconcile appends its rows and a client learns of them the
+    // same way it learns of everything else.
     const healed = ledger2.changesSince(cursorBefore) ?? []
     const change = healed.find((c) => c.id === wire.id && c.op === 'upsert') as
       | { value?: { title?: string } }

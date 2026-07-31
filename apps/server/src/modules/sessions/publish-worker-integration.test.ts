@@ -1,3 +1,4 @@
+import type { MetadataChange } from '@podium/protocol'
 import { asSessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -267,7 +268,7 @@ describe('SessionsService publication worker integration', () => {
     })
 
     const cursor = registry.modules.sessions.syncChangesSince(null).cursor
-    registry.modules.sessions.sendMetadataDelta([
+    deliverToEveryClient(registry, [
       { seq: cursor + 1, entity: 'issue', id: 'hidden-issue', op: 'remove' },
       {
         seq: cursor + 2,
@@ -718,3 +719,30 @@ describe('SessionsService publication worker integration', () => {
     expect(registry.modules.sessions.publicationMetrics().completedJobs - completedBefore).toBe(1)
   })
 })
+
+/**
+ * Deliver ONE `metadataDelta` to every connected client through the real sink.
+ *
+ * WAS `sessions.sendMetadataDelta(changes)`, which both framed the batch and
+ * routed it. Framing moved to the serving edge at POD-1203; ROUTING — which is
+ * what these cases are about, since they assert what a SCOPED publication client
+ * receives — is still the sessions service's, so this drives exactly that half
+ * with exactly the message a v1 delta peer's adapter produces.
+ */
+function deliverToEveryClient(
+  registry: { modules: { sessions: { deliverEntityMessage: (conn: never, msg: never) => void } } },
+  changes: MetadataChange[],
+): void {
+  const sessions = registry.modules.sessions as unknown as {
+    deliverEntityMessage: (conn: unknown, msg: unknown) => void
+    onFeedPublished: (seq: number) => void
+    clients: { values(): IterableIterator<unknown> }
+  }
+  const seq = changes[changes.length - 1]?.seq ?? 0
+  // Position first, delivery second — the funnel's order, and the reason a
+  // scoped client's worker has a range to publish at all.
+  sessions.onFeedPublished(seq)
+  for (const conn of [...sessions.clients.values()]) {
+    sessions.deliverEntityMessage(conn, { type: 'metadataDelta', seq, changes })
+  }
+}

@@ -46,7 +46,7 @@
  * mechanism/selection split and for what POD-1077 still has to build.
  */
 
-import type { ClientMessage } from '@podium/protocol'
+import { CAP_METADATA_DELTA, type ClientMessage } from '@podium/protocol'
 import {
   type ClientPortId,
   clientPlaneClassFor,
@@ -55,8 +55,9 @@ import {
 } from './client-frame-routing'
 import type { ClientFeaturePorts } from './client-ports'
 import type { ClientPrincipal } from './client-principal'
-import { deviceClientPrincipal } from './client-principal'
+import { deviceClientPrincipal, feedPrincipalOf } from './client-principal'
 import type { ClientConn, ClientRegistry } from './client-registry'
+import type { FeedServing } from './feed-serving'
 import type { ClientPublicationAuthority } from '../modules/sessions/session'
 
 /**
@@ -126,6 +127,15 @@ const transportOf = (
 export interface ClientMuxDeps {
   readonly ports: ClientFeaturePorts
   readonly registry: ClientRegistry
+  /**
+   * THE SERVING EDGE (POD-1203) — where entity truth leaves this server.
+   *
+   * A gateway object and not a feature port: it owns the connection's WIRE
+   * VERSION, which is a transport fact, and it is the mux that knows when a
+   * connection appears, announces itself, and goes away. What the sessions port
+   * still owns is how a message reaches one connection (`deliverEntityMessage`).
+   */
+  readonly feed: FeedServing
 }
 
 export class ClientMux {
@@ -168,6 +178,8 @@ export class ClientMux {
       // (a delta client uses them as its initial paint, then takes a cursor via
       // sync.changesSince and rides the metadataDelta stream).
       caps: new Set(),
+      // Wire 1 until `hello` says otherwise — see `renegotiate`.
+      wireVersion: 1,
       transcriptSubs: new Set(),
       // Fail-safe toward notifying: a client counts as NOT watching until it
       // tells us otherwise (every browser client sends `presence` right after
@@ -188,6 +200,13 @@ export class ClientMux {
     // value rather than a client-chosen one.
     this.deps.registry.deliver(conn, { type: 'welcome', clientId: id })
     this.deps.ports.sessions.onClientAttached(conn.principal, conn)
+    // THE FEED, LAST, and at wire 1 without the delta capability — because that
+    // is everything this server honestly knows about a socket that has not spoken
+    // yet, and it is the same assumption the pre-cutover code stated ("a pre-hello
+    // client is treated as legacy"). `hello` moves it (see `routeClientFrame`).
+    // AFTER the port call, so the bootstrap lands after the non-feed world in the
+    // same order a client saw before the cutover.
+    this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal))
     return id
   }
 
@@ -206,6 +225,7 @@ export class ClientMux {
     const conn = this.deps.registry.get(id)
     if (!conn) return
     this.deps.registry.delete(id)
+    this.deps.feed.detach(id)
     this.deps.ports.sessions.onClientDetached(conn.principal, conn)
   }
 
@@ -232,6 +252,67 @@ export class ClientMux {
       msg: ClientMessage,
     ) => void
     dispatch(this, conn, msg)
+    // NEGOTIATION, AFTER THE PORT AND ONLY FOR `hello`. The port is what applies
+    // `hello.caps` to the connection, so reading them before it ran would
+    // renegotiate against the previous state. This is the ONLY frame the gateway
+    // acts on for itself beyond the routing table, and it acts on the two
+    // transport facts `hello` carries: the wire version and the delta capability.
+    if (msg.type === 'hello') this.renegotiate(conn, msg.wireVersion)
+  }
+
+  /**
+   * Move a connection to the wire version its `hello` announced, or refuse it.
+   *
+   * REFUSAL IS SILENCE ON THE ENTITY PLANE, deliberately. There is no `426`
+   * ServerMessage to send — the browser's own guard already polls `/version` and
+   * hard-reloads a bundle outside the window (`apps/web/.../version-guard.ts`),
+   * which is the working half of the backstop. What this must not do is serve a
+   * peer frames it cannot parse, so a refused peer is left registered (its
+   * control-plane traffic still works) and receives no entity frames at all
+   * until it reloads into a supported build.
+   */
+  private renegotiate(conn: ClientConn, announced: number | undefined): void {
+    // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
+    // with, so the absence is the advertisement.
+    conn.wireVersion = announced ?? 1
+    const refusal = this.deps.feed.renegotiate(this.peerOf(conn), feedPrincipalOf(conn.principal))
+    if (refusal === null) return
+    // DROPPED FROM THE SERVING SET, not merely un-resolvable. Until `hello` a
+    // socket is admitted at wire 1 — the only honest reading of silence — so a
+    // beyond-window peer has already been served a v1 world and holds a framing
+    // position. Leaving it there would keep the publisher certifying ranges for a
+    // connection nothing can translate for, and the first adapter that DID cover
+    // its version would start mid-stream.
+    this.deps.feed.detach(conn.id)
+    // The prepared-publication worker is a SEPARATE delivery path (it serves a
+    // scoped connection its own filtered session view) and the edge cannot reach
+    // it. Without this flag a refused peer keeps receiving the worker's v1
+    // `sessionsChanged` — measured, as a flake in the wire-window test that
+    // passed or failed on scheduling order alone.
+    conn.entityServingRefused = true
+    console.warn('[podium] client outside the supported wire window; not serving the feed', {
+      client: conn.id,
+      refusal,
+    })
+  }
+
+  /**
+   * The connection, as the serving edge sees it: an id, a version, whether it
+   * takes deltas, and a sink.
+   *
+   * Built fresh per call rather than stored, because every field is read off the
+   * connection — a cached peer is a second copy of a connection's negotiated
+   * state, and the two would drift at exactly the moment one of them changed.
+   */
+  private peerOf(conn: ClientConn) {
+    return {
+      id: conn.id,
+      wireVersion: conn.wireVersion,
+      acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
+      send: (msg: Parameters<typeof this.deps.ports.sessions.deliverEntityMessage>[1]) => {
+        this.deps.ports.sessions.deliverEntityMessage(conn, msg)
+      },
+    }
   }
 
   /** The principal a connection routes under — exposed for the routing audit. */

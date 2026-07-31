@@ -37,8 +37,15 @@ export interface ChangeLogStore {
   }): ChangePrunePlan
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
-  /** Latest retained row per (entity, id) — the boot seed for the baseline. */
-  latestChangeStates(): { entity: string; entityId: string; op: string; payload: string | null }[]
+  /** Latest retained row per (entity, id) — the boot seed for the baseline, and
+   *  the bootstrap read (see `ChangeStorePort.latestChangeStates`). */
+  latestChangeStates(): {
+    seq: number
+    entity: string
+    entityId: string
+    op: string
+    payload: string | null
+  }[]
 }
 
 /** Retention: keep the newest 20k rows, and nothing older than 3 days —

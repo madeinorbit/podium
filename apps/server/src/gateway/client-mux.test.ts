@@ -16,6 +16,7 @@ import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
 import { ClientMux } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
 import { CLIENT_PRINCIPAL_GRADE } from './client-principal'
+import { feedTestPlumbing } from './feed-test-plumbing'
 import { ClientRegistry } from './client-registry'
 
 /**
@@ -42,9 +43,13 @@ function harness() {
       onClientAttached: vi.fn(),
       onClientDetached: vi.fn(),
       onSessionClientFrame: vi.fn(),
+      // The no-publication branch of the real sink, which is what these
+      // fixtures' connections are.
+      deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
+      onFeedPublished: vi.fn(),
     },
   }
-  const mux = new ClientMux({ registry, ports })
+  const mux = new ClientMux({ registry, ports, feed: feedTestPlumbing().serving })
   const sent: ServerMessage[] = []
   const id = mux.attachClient((msg) => sent.push(msg))
   return { registry, ports, mux, sent, id }
@@ -226,8 +231,11 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
           onClientAttached: vi.fn(),
           onClientDetached: vi.fn(),
           onSessionClientFrame: vi.fn(),
+          deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
+          onFeedPublished: vi.fn(),
         },
       },
+      feed: feedTestPlumbing().serving,
     })
     const inboxes = new Map<string, ServerMessage[]>()
     const ids = ['a', 'b', 'c'].map(() => {
@@ -297,8 +305,11 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
           onClientAttached: vi.fn(),
           onClientDetached: vi.fn(),
           onSessionClientFrame: vi.fn(),
+          deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
+          onFeedPublished: vi.fn(),
         },
       },
+      feed: feedTestPlumbing().serving,
     })
     const prepared: string[] = []
     const id = mux.attachClient({

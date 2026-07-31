@@ -33,10 +33,18 @@ export interface ConversationsDeps {
    *  full-list publish reconciles the full-truth diff, removes included — exactly
    *  what the legacy broadcast-seam oplog recorded. */
   ledger: ConversationLedger
-  /** Legacy snapshot fan-out (funnel.publishComputed): the changes were already
-   *  durably appended at the write seam, so this carries NO metadataDelta —
-   *  delta clients get theirs via the funnel's ordered onAppended pipe. */
-  publishSnapshot(snapshot: ServerMessage, opts?: { snapshotToCapClients?: boolean }): void
+  /**
+   * The conversation SCAN DIAGNOSTICS moved (POD-1203).
+   *
+   * Conversation rows themselves need no publish call at all now: they are
+   * appended at the write seam and served from the feed. What is left is the
+   * diagnostics, which were never an entity and never had a change row — the v1
+   * `conversationsChanged` message just happened to carry them, so a change in
+   * them used to force a full-list snapshot at every client. This says the fact
+   * instead of the message, and the connection boundary decides which wire
+   * versions still need to hear it (only v1 does; v2 does not carry them).
+   */
+  onDiagnosticsChanged(): void
   /** The registry's shared daemon request/response plumbing. */
   daemonRequest<T>(
     pending: Map<string, (r: T) => void>,
@@ -74,10 +82,16 @@ export interface LakeReadSession {
 export class ConversationsService {
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
-  // Diagnostics ride the conversationsChanged snapshot, not the delta stream — track
-  // their last serialization so cap clients still get a snapshot when ONLY diagnostics
-  // changed (rare: scan problems), without re-sending the list on every conversation delta.
-  private lastDiagnosticsBroadcast = ''
+  // Diagnostics are not feed content — track their last serialization so a
+  // re-serve happens when ONLY they changed (rare: scan problems), and not on
+  // every conversation delta.
+  //
+  // SEEDED WITH THE EMPTY STATE, not ''. An unseeded marker makes the FIRST scan
+  // "a diagnostics change" even when there are no diagnostics at all, so a v1
+  // peer received the conversation list twice on the first scan of every boot:
+  // once as the feed's translation and once as the advisory that followed it.
+  // "Nothing to report" is a value, and it is the value this starts at.
+  private lastDiagnosticsBroadcast = JSON.stringify([])
   private readonly pendingMirrorReads = new Map<
     string,
     (r: { data: string; fileSize: number; eof: boolean; error?: string }) => void
@@ -266,20 +280,15 @@ export class ConversationsService {
    *  delta clients via the funnel's ordered onAppended pipe — feeding the
    *  legacy oplog here again would double-append every conversation change. */
   private broadcastConversations(): void {
-    const conversations = this.allConversations()
-    const msg: ServerMessage = {
-      type: 'conversationsChanged',
-      conversations,
-      diagnostics: this.latestConversationDiagnostics,
-    }
-    // Diagnostics don't ride the delta stream (they're scan-level, not per-entity):
-    // when they changed, cap clients need the snapshot too. Applying it as a full
-    // replace on the client is safe — it's built from the same state as any delta
-    // in flight, and later deltas re-apply idempotently by id.
+    // The conversation rows themselves need nothing here: `indexConversations`,
+    // `setConversationMeta` and `publishConversationList` have already appended
+    // them at the write seam, and the feed serves them. This method survives for
+    // the ONE thing that is not feed content — diagnostics don't ride the delta
+    // stream because they are scan-level rather than per-entity.
     const diagKey = JSON.stringify(this.latestConversationDiagnostics)
-    const diagnosticsChanged = diagKey !== this.lastDiagnosticsBroadcast
+    if (diagKey === this.lastDiagnosticsBroadcast) return
     this.lastDiagnosticsBroadcast = diagKey
-    this.deps.publishSnapshot(msg, { snapshotToCapClients: diagnosticsChanged })
+    this.deps.onDiagnosticsChanged()
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {

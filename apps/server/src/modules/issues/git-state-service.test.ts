@@ -166,7 +166,10 @@ describe('POD-98 git-state service wiring', () => {
 
     await svc.refreshGitState(id, '/repo')
     expect(repoOp).toHaveBeenCalledTimes(4)
-    expect(broadcast.mock.calls.map(([msg]) => msg.type)).toEqual(['issueUpdated'])
+    // ONE published row for the probed issue — `['issueUpdated']` before
+    // POD-1203, the same "exactly one targeted publish" claim read off the
+    // change log the client is served from.
+    expect(broadcast.mock.calls.map(([row]) => [row.id, row.op])).toEqual([[id, 'upsert']])
   })
 
   it('a targeted git-state publish never journals removes for other issues [POD-210]', async () => {
@@ -224,7 +227,9 @@ describe('POD-98 git-state service wiring', () => {
     expect(statusCalls).toBe(2)
     expect(repoOp).toHaveBeenCalledTimes(8)
     expect(svc.get(id)?.gitState?.commits).toEqual(['late-sha'])
-    expect(broadcast.mock.calls.map(([msg]) => msg.type)).toEqual(['issueUpdated'])
+    // One published row, carrying the TRAILING probe's result — read off the
+    // change log since POD-1203 deleted the `issueUpdated` snapshot.
+    expect(broadcast.mock.calls.map(([row]) => [row.id, row.op])).toEqual([[id, 'upsert']])
   })
 
   it('drops archived or removed sessions from file and commit attribution', async () => {

@@ -151,6 +151,61 @@ export function scopeBatch(
 }
 
 /**
+ * THE INSTALLED WORLD for ONE principal, at ONE definite position (POD-1203).
+ *
+ * A separate type from {@link ScopedDelivery} and not a third arm of it, because
+ * the two answer different questions and a caller must not be able to hand one
+ * where the other is expected: a delivery says "here is what happened in the
+ * range I evaluated", a bootstrap says "here is everything you may see, as of
+ * `throughSeq`". `FeedPublisher.publish` takes the first and would silently frame
+ * a bootstrap as a delta — a frame certifying `(fromSeq, seq]` whose rows are
+ * the whole world — which is a contiguity break that no golden fixture could see.
+ */
+export interface ScopedBootstrap {
+  /** The position the world was read at. The delta stream resumes here. */
+  readonly throughSeq: number
+  /** Positive state only, in seq order. Every row this principal may see. */
+  readonly changes: readonly ScopedChange[]
+}
+
+/**
+ * Evaluate the CURRENT STATE for one principal (ADR 2 D6 / Amendment 1 D15).
+ *
+ * SAME POLICY, DIFFERENT QUESTION, AND THE ANCHOR HALF IS DELIBERATELY ABSENT.
+ * `scopeBatch` asks two things of every row: may you see it, and did it MOVE
+ * anyone's visibility (D14.3, which derives `evict`/re-admit rows and can take
+ * D14.4's terminal path). Neither derivation is meaningful here. A bootstrap has
+ * no "before": there is no cache to evict from — the replica is installing one —
+ * and a `rescope` telling a replica to re-bootstrap in the middle of its
+ * bootstrap is a loop. Running the anchor half over a whole world would also trip
+ * the rescope threshold on any instance large enough to have grant edges, so the
+ * omission is load-bearing rather than an economy.
+ *
+ * What is NOT duplicated is the decision itself: `mayDeliver` is the same policy
+ * object, called the same way, so there is still exactly one answer to "may this
+ * principal see this row" in the kernel. `authority.scoped.test.ts` pins that a
+ * row suppressed on the live path is suppressed here too.
+ */
+export function scopeBootstrap(
+  deps: Pick<ScopingDeps, 'policy'>,
+  principal: FeedPrincipal,
+  state: readonly SequencedChange[],
+  throughSeq: number,
+): ScopedBootstrap {
+  const changes: ScopedChange[] = []
+  for (const row of state) {
+    // Positive state ONLY (D15): a bootstrap installs what exists. A `remove` or
+    // an `evict` in a bootstrap is malformed — there is nothing to delete from a
+    // cache that does not exist yet, and a replica that applied one would be
+    // holding a tombstone for an entity it was never told about.
+    if (row.op !== 'upsert') continue
+    if (!deps.policy.mayDeliver(principal, row)) continue
+    changes.push(row as ScopedChange)
+  }
+  return { throughSeq, changes: changes.sort((a, b) => a.seq - b.seq) }
+}
+
+/**
  * One anchored row, with the OP DERIVED FROM THE POLICY.
  *
  * Re-admission (D14.2) needs the entity's current value; when the port has none —

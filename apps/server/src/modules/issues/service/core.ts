@@ -604,9 +604,6 @@ export abstract class IssueServiceCore {
     // (Update paths mutate the map's own row object in place, so for them this
     // set is a no-op either way; the guard matters for NEW rows, i.e. create.)
     this.rows.set(row.id, row)
-    // Delta clients got the committed change via the funnel's onAppended pipe;
-    // this carries only the legacy single-issue snapshot (#256).
-    this.deps.funnel.publishComputed(this.deps.publishSpecs.issueUpdated(wire).snapshot)
     return wire
   }
 
@@ -628,7 +625,6 @@ export abstract class IssueServiceCore {
     this.bumpIssueInputs()
     const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
     this.deps.ledger.reconcile('issue', spec.rows)
-    this.deps.funnel.publishComputed(spec.snapshot)
   }
 
   /** Publish one write-less derived issue update (for example ephemeral Git
@@ -652,7 +648,6 @@ export abstract class IssueServiceCore {
         value: r.value,
       })),
     )
-    this.deps.funnel.publishComputed(spec.snapshot)
   }
 
   /** @internal */

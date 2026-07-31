@@ -6,19 +6,36 @@ import { SessionStore } from '../store'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
 
+/** A serving edge that records what it was handed. The funnel's whole output. */
+function recordingServing() {
+  const published: ScopedDelivery[] = []
+  return {
+    published,
+    port: { publish: (_principal: unknown, delivery: ScopedDelivery) => published.push(delivery) },
+    /** Every row across every published delivery, in publication order. */
+    rows: () =>
+      published.flatMap((d) => (d.kind === 'batch' ? d.changes : [])),
+  }
+}
+
 function makeFunnel() {
   const store = new SessionStore(':memory:')
   const bus = new EventBus()
-  const fanOutSnapshot = vi.fn()
-  const sendDelta = vi.fn()
+  const serving = recordingServing()
+  const onPublished = vi.fn()
   const ledger = new Ledger({
     repo: store.sync,
     now: () => 1_000,
     transact: (fn) => store.transact(fn),
   })
   // THE SAME Authority the Ledger wraps — the wiring production uses (POD-305).
-  const funnel = new WriteFunnel({ bus, fanOutSnapshot, sendDelta, authority: ledger.authority })
-  return { store, bus, fanOutSnapshot, sendDelta, ledger, funnel }
+  const funnel = new WriteFunnel({
+    bus,
+    serving: serving.port,
+    onPublished,
+    authority: ledger.authority,
+  })
+  return { store, bus, serving, onPublished, ledger, funnel }
 }
 
 /**
@@ -47,8 +64,20 @@ function fakeAuthority() {
   } as unknown as AuthorityPort
   const toKernel = (c: MetadataChange): ScopedChange =>
     ({ seq: c.seq, entity: c.entity, entityId: c.id, op: c.op, value: (c as { value?: unknown }).value }) as ScopedChange
+  const deliver = (delivery: ScopedDelivery) => {
+    for (const fn of listeners) fn(delivery)
+  }
   return {
     authority,
+    /** Kernel rows verbatim — for the ops the v1 wire vocabulary cannot spell. */
+    emitKernel: (changes: ScopedChange[]) =>
+      deliver({
+        kind: 'batch',
+        throughSeq: changes[changes.length - 1]?.seq ?? 0,
+        changes,
+      }),
+    emitRescope: (throughSeq: number, reason: string) =>
+      deliver({ kind: 'rescope', throughSeq, reason }),
     emit: (changes: MetadataChange[]) => {
       const kernel = changes.map(toKernel)
       // The delivery carries the evaluated range beside the rows (D13), so this
@@ -59,7 +88,7 @@ function fakeAuthority() {
         throughSeq: kernel[kernel.length - 1]?.seq ?? 0,
         changes: kernel,
       }
-      for (const fn of listeners) fn(delivery)
+      deliver(delivery)
     },
   }
 }
@@ -112,52 +141,107 @@ describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
   })
 })
 
-describe('WriteFunnel.publishComputed ([spec:SP-3fe2] #255/#256)', () => {
-  it('fans out ONLY the legacy snapshot — no change append, no metadataDelta', () => {
-    const { funnel, fanOutSnapshot, sendDelta, bus } = makeFunnel()
-    const appended = vi.fn()
-    bus.on('oplog.appended', appended)
-    const snapshot = { type: 'issueUpdated', issue: {} } as never
-    funnel.publishComputed(snapshot)
+/**
+ * THE ASSERTION THAT FLIPPED (POD-1203).
+ *
+ * This block used to be `WriteFunnel.publishComputed`, and its first case
+ * asserted that a snapshot handed to the funnel reached `fanOutSnapshot` — the
+ * SECOND serving path. There is no such method and no such dep, so the case is
+ * replaced by its positive form rather than deleted: the funnel's ONLY output is
+ * the coalesced delivery it hands the serving edge, and a caller has no way to
+ * push a message of its own through it. `expect(funnel).not.toHaveProperty` is
+ * the half that would fail if the tail came back under another name.
+ */
+describe('the funnel has ONE output, and it is the feed', () => {
+  it('exposes no way to publish a message beside the feed', () => {
+    const { funnel, serving } = makeFunnel()
+    expect(funnel).not.toHaveProperty('publishComputed')
+    expect(funnel).not.toHaveProperty('fanOutSnapshot')
+    // And nothing reaches the edge without an append behind it.
     funnel.flushDeltas()
-    expect(fanOutSnapshot).toHaveBeenCalledWith(snapshot, {})
-    expect(sendDelta).not.toHaveBeenCalled() // deltas come from the subscribe pipe only
-    expect(funnel.cursor()).toBe(0) // no change-log append
-    expect(appended).not.toHaveBeenCalled()
+    expect(serving.published).toEqual([])
+    expect(funnel.cursor()).toBe(0)
   })
 
-  it('bridges Authority appends onto the bus AND into the delta pipe', () => {
+  it('bridges Authority appends onto the bus AND into the delivery pipe', () => {
     const bus = new EventBus()
     const fake = fakeAuthority()
     const appended = vi.fn()
-    const sendDelta = vi.fn()
+    const serving = recordingServing()
     bus.on('oplog.appended', appended)
     const funnel = new WriteFunnel({
       bus,
-      fanOutSnapshot: vi.fn(),
-      sendDelta,
+      serving: serving.port,
+      onPublished: vi.fn(),
       authority: fake.authority,
     })
     const changes = [{ seq: 1, entity: 'issue', id: 'iss_1', op: 'remove' }] as MetadataChange[]
     fake.emit(changes)
     expect(appended).toHaveBeenCalledWith({ changes })
     funnel.flushDeltas()
-    expect(sendDelta).toHaveBeenCalledWith(changes)
+    expect(serving.rows().map((c) => c.entityId)).toEqual(['iss_1'])
+  })
+
+  it('an evict appends NO bus row — a visibility move is not an entity transition', () => {
+    // The bus event drives message-delivery eligibility, which asks "did this
+    // entity change?". An evict answers no: the entity is unchanged and one
+    // principal's view of it moved. Feeding it through as a remove would be the
+    // ADR 2 Am1 D14.5 error in a second place.
+    const bus = new EventBus()
+    const fake = fakeAuthority()
+    const appended = vi.fn()
+    const serving = recordingServing()
+    bus.on('oplog.appended', appended)
+    const funnel = new WriteFunnel({
+      bus,
+      serving: serving.port,
+      onPublished: vi.fn(),
+      authority: fake.authority,
+    })
+    fake.emitKernel([{ seq: 1, entity: 'session', entityId: 's1', op: 'evict' }] as ScopedChange[])
+    expect(appended).not.toHaveBeenCalled()
+    // It still reaches the EDGE, which is the whole point of the cutover: v2 can
+    // express it, and the v1 adapter is where the refusal now lives.
+    funnel.flushDeltas()
+    expect(serving.rows().map((c) => c.op)).toEqual(['evict'])
+  })
+
+  it('a rescope is passed through, in order, instead of throwing', () => {
+    // POD-1077 had to THROW here: the pre-cutover wire had no frame for "your
+    // rights changed, re-bootstrap", and degrading it to silence is the
+    // invisible-gap failure. This is that tripwire in its positive form.
+    const bus = new EventBus()
+    const fake = fakeAuthority()
+    const serving = recordingServing()
+    const funnel = new WriteFunnel({
+      bus,
+      serving: serving.port,
+      onPublished: vi.fn(),
+      authority: fake.authority,
+    })
+    fake.emitKernel([{ seq: 1, entity: 'session', entityId: 's1', op: 'upsert', value: {} }] as ScopedChange[])
+    fake.emitRescope(2, 'rights-changed')
+    fake.emitKernel([{ seq: 3, entity: 'session', entityId: 's2', op: 'upsert', value: {} }] as ScopedChange[])
+    funnel.flushDeltas()
+    // THREE deliveries, not two: a rescope may not be merged into a batch, so it
+    // breaks the coalescing run rather than being swallowed by it.
+    expect(serving.published.map((d) => d.kind)).toEqual(['batch', 'rescope', 'batch'])
   })
 })
 
-describe('the ordered metadataDelta pipe (#256)', () => {
+describe('the ordered, coalesced delivery pipe (#256)', () => {
   function pipedFunnel() {
     const bus = new EventBus()
-    const sendDelta = vi.fn()
+    const serving = recordingServing()
+    const onPublished = vi.fn()
     const fake = fakeAuthority()
     const funnel = new WriteFunnel({
       bus,
-      fanOutSnapshot: vi.fn(),
-      sendDelta,
+      serving: serving.port,
+      onPublished,
       authority: fake.authority,
     })
-    return { funnel, sendDelta, appended: fake.emit }
+    return { funnel, serving, onPublished, appended: fake.emit }
   }
 
   const up = (
@@ -167,17 +251,20 @@ describe('the ordered metadataDelta pipe (#256)', () => {
   ): MetadataChange => ({ seq, entity, id, op: 'upsert', value: { id } }) as MetadataChange
 
   it('a synchronous burst of ledger batches — all three entity kinds — emits as ONE batch in append (= seq) order', () => {
-    const { funnel, sendDelta, appended } = pipedFunnel()
+    const { funnel, serving, appended } = pipedFunnel()
     appended([up(1, 'session', 's1')])
     appended([up(2, 'issue', 'i1'), up(3, 'issue', 'i2')])
     appended([up(4, 'conversation', 'c1')]) // conversations ride the same pipe (#257)
     appended([up(5, 'session', 's1')])
-    expect(sendDelta).not.toHaveBeenCalled() // coalescing: nothing mid-burst
+    expect(serving.published).toEqual([]) // coalescing: nothing mid-burst
     funnel.flushDeltas()
-    expect(sendDelta).toHaveBeenCalledTimes(1)
-    const [batch] = sendDelta.mock.calls[0] as [MetadataChange[]]
+    expect(serving.published).toHaveLength(1)
+    // COALESCED BEFORE FRAMING, which is what keeps a boot reconcile one frame
+    // per connection instead of one per commit: the merged delivery certifies
+    // through the LAST range evaluated.
+    expect(serving.published[0]?.throughSeq).toBe(5)
     // Strict append order, batches interleaved — the pipe NEVER reorders.
-    expect(batch.map((c) => `${c.entity}:${c.id}`)).toEqual([
+    expect(serving.rows().map((c) => `${c.entity}:${c.entityId}`)).toEqual([
       'session:s1',
       'issue:i1',
       'issue:i2',
@@ -187,10 +274,20 @@ describe('the ordered metadataDelta pipe (#256)', () => {
   })
 
   it('flushes on the microtask boundary without an explicit flush', async () => {
-    const { sendDelta, appended } = pipedFunnel()
+    const { serving, appended } = pipedFunnel()
     appended([up(1, 'session', 's1')])
     await Promise.resolve()
-    expect(sendDelta).toHaveBeenCalledTimes(1)
+    expect(serving.published).toHaveLength(1)
+  })
+
+  it('tells the publication worker the feed advanced, ONCE per coalesced batch', () => {
+    // Not once per recipient and not once per commit: the worker's cursor is a
+    // fact about the feed's position. Four appends, one advance, at the head.
+    const { funnel, onPublished, appended } = pipedFunnel()
+    appended([up(1, 'session', 's1')])
+    appended([up(2, 'issue', 'i1')])
+    funnel.flushDeltas()
+    expect(onPublished.mock.calls).toEqual([[2]])
   })
 
   it('queues the batch into the pipe BEFORE the bus emit — a reentrant commit cannot reorder it (#247)', () => {
@@ -199,7 +296,7 @@ describe('the ordered metadataDelta pipe (#256)', () => {
     // first, the inner commit's batch would enter the pipe before the outer
     // one — [N+1, N] — and a delta client's cursor would jump past N without
     // healing. Pipe-first makes arrival order equal append order.
-    const { funnel, bus, sendDelta, ledger } = makeFunnel()
+    const { funnel, bus, serving, ledger } = makeFunnel()
     let reentered = false
     bus.on('oplog.appended', () => {
       if (reentered) return
@@ -214,21 +311,31 @@ describe('the ordered metadataDelta pipe (#256)', () => {
       changes: () => [{ entity: 'issue', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
     })
     funnel.flushDeltas()
-    const emitted = sendDelta.mock.calls.flatMap(([batch]) => batch as MetadataChange[])
-    expect(emitted.map((c) => c.id)).toEqual(['outer', 'inner'])
+    const emitted = serving.rows()
+    expect(emitted.map((c) => c.entityId)).toEqual(['outer', 'inner'])
     // Strict seq order with no gaps — exactly what the client gap rule requires.
     const seqs = emitted.map((c) => c.seq)
     for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)
   })
 
-  it('a flushed pipe stays quiet until new appends arrive; empty batches never emit', () => {
-    const { funnel, sendDelta, appended } = pipedFunnel()
+  it('an EMPTY evaluated range is published as a watermark, not swallowed', () => {
+    // THE OTHER ASSERTION THAT FLIPPED. The old pipe dropped an empty batch
+    // ("empty batches never emit"), which was safe only because nothing was ever
+    // filtered: under private-by-default an empty range is the normal path, and
+    // dropping it is the permanent invisible gap D13 exists to close. The funnel
+    // now hands it on; whether it certifies anything is the publisher's decision,
+    // made against each connection's own position.
+    const { funnel, serving, appended } = pipedFunnel()
     appended([])
     funnel.flushDeltas()
-    expect(sendDelta).not.toHaveBeenCalled()
+    expect(serving.published.map((d) => [d.kind, d.throughSeq])).toEqual([['batch', 0]])
+  })
+
+  it('a flushed pipe stays quiet until new appends arrive', () => {
+    const { funnel, serving, appended } = pipedFunnel()
     appended([up(1, 'session', 's1')])
     funnel.flushDeltas()
     funnel.flushDeltas() // second flush: nothing pending
-    expect(sendDelta).toHaveBeenCalledTimes(1)
+    expect(serving.published).toHaveLength(1)
   })
 })

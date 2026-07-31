@@ -1264,6 +1264,112 @@ someone wires a real policy without the cutover is a loud failure. D13.5's water
 CADENCE is a measured threshold and stays POD-337's; `Authority.watermark(principal)` is
 the operation it will call. Real share/unshare commands stay Phase 3's (POD-290).
 
+#### LEDGER ENTRY — POD-1203 (2.4b serving-path cutover to the feed edge): which half shipped
+
+**WHICH HALF: the DELETION POD-308 sized and declined.** POD-308 built both ends —
+the v2 frame family and the version-adapter registry at the wire, the scoped feed
+and `FeedPublisher` at the kernel — and stopped at the boundary rather than
+half-applying the deletion. This is the middle. `publishComputed` and
+`fanOutSnapshot` are gone with all thirteen call sites, and entity truth leaves
+through ONE path: Authority (decide) → FeedPublisher (frame, per connection) →
+WireFeedEdge (translate, per negotiated version) → the connection's sink.
+`gateway/feed-serving.ts` is the composition and owns none of the three roles,
+which is the point: a second filtering site or a second framing site would be a
+second definition of "now".
+
+**BOOTSTRAP IS A FEED OPERATION, and that is a kernel addition.**
+`Authority.bootstrap(principal)` reads the latest retained row per (entity, id)
+and evaluates it through the same visibility policy the live path uses, at the
+same `cursor()` the next delta certifies from — one synchronous pass, so nothing
+can land between the read and the attach. Folding a world out of
+`changesSince(0)` would look equivalent and would be wrong the moment anything is
+pruned. The anchor half of `scopeBatch` is deliberately absent from
+`scopeBootstrap`: a bootstrap has no "before", there is no cache to evict from,
+and a `rescope` mid-bootstrap tells a replica to re-bootstrap while it is
+bootstrapping. The new suite proves the difference rather than restating it — its
+rescope case uses threshold 2 over 4 anchored subjects, data on which the LIVE
+path does rescope.
+
+**TWO REFUSALS MOVED RATHER THAN WEAKENED, which was POD-308's explicit
+instruction.** POD-1077 made the funnel THROW on a `rescope` (the old wire had no
+frame for it) and on an `evict`. Wire v2 carries both, so they ride the ordered
+pipe — and the evict refusal now lives in `legacy-wire-v1-adapter.ts`, the one
+boundary where an evict is genuinely inexpressible. Loud at the edge that cannot
+express it, instead of loud for everyone. A THIRD refusal is new: a v2 frame
+reaching a SCOPED publication connection throws, because that connection's
+filtering lives in the prepared worker, which speaks only the v1 shapes.
+
+**THE ENTANGLEMENT WAS PRESERVED BY TRANSCRIPTION, NOT RE-DERIVATION.**
+`deliverEntityMessage` is the two deleted methods' branches, unchanged: a
+publication client never receives `sessionsChanged`; a scoped one receives nothing
+but its worker's output; a global one receives deltas as prepared bytes or has
+them buffered while its view rebuilds. What LEFT is the capability check — which
+shape a client gets is the edge's now, so this sink can no longer disagree with
+the wire. `onFeedPublished` carries the worker's cursor advance, which is a fact
+about the feed's position rather than about any recipient, and it runs BEFORE
+delivery because the deleted `sendMetadataDelta` did: a connection whose view is
+rebuilding buffers a batch instead of receiving it. Measured, as two
+scoped-publication suites timing out when the order was reversed.
+
+**COALESCING MOVED BEFORE FRAMING, and that order is the decision.** A certified
+range may be merged only by range extension and only when at most one side carries
+rows (D13.2/D13.3), so coalescing after framing would emit one frame per commit
+and multiply a boot reconcile by the connection count. Merging two evaluated
+ranges is sound in the way the publisher's own watermark slot is: `(a, b]` then
+`(b, c]` is `(a, c]`, rows keep their seq order, and no seq goes uncertified.
+
+**FORK RESOLVED — the peer's version is known at `hello`, not at socket attach.**
+A socket that has not spoken is admitted at wire 1 without the delta capability,
+which is what the pre-cutover code already assumed ("a pre-hello client is treated
+as legacy"). A version announced at `hello` then RE-SERVES the world, because a
+world expressed in a dialect the peer never advertised is exactly what the window
+exists to prevent; the publisher is re-armed via `rearm`, its own
+"this replica re-bootstrapped" call, so there is one way for a position to be set.
+The cost is one duplicated world per non-v1 connection, bounded and
+self-cancelling — when `MIN_SUPPORTED_VERSION` reaches 2 the pre-hello default
+rises with it. The alternative, bootstrapping only at `hello`, withholds the world
+from every peer that never sends one.
+
+**FORK RESOLVED — every connection maps to `DEVICE_GRADE_PRINCIPAL`
+(`feedPrincipalOf`).** Not a simplification: `auth-store.ts` is one shared password
+and `CLIENT_PRINCIPAL_GRADE` is `'device'`, so per-connection feed principals would
+produce slices that LOOK per-user while being decided by a shared credential —
+POD-1077's "worse than an honestly unscoped one, because it reads as privacy". It
+is also what makes serving work at all: the funnel subscribes for that principal,
+and a connection registered under another would never be published to.
+
+**FORK RESOLVED — the conversation scan diagnostics.** Never an entity, never a
+change row; the v1 message merely carried them, and a change forced a full-list
+snapshot at every client. The service now states the FACT
+(`onDiagnosticsChanged`) and the edge re-serves it to the versions that still need
+it — v1 only, held to the expiring adapter by duck typing so the permanent
+`WireVersionAdapter` interface does not grow a member whose only implementor
+expires. It is deferred by one microtask: an advisory is not feed content and must
+not overtake the rows committed with it.
+
+**THE 426 IS VERIFIED AGAINST THE PRODUCT, which POD-308 correctly refused to
+do.** `wire-window.integration.test.ts` drives a real `startServer` with three real
+sockets — a stale PWA whose `hello` has no `wireVersion` field, a current build,
+and one beyond the window — and it found what unit tests could not: a v2 client
+being served its world in v1, and a refused peer still being fed by the
+prepared-publication worker, which the edge cannot reach. `entityServingRefused`
+gates that path at BOTH scheduling and SEND time, because a publication is
+prepared asynchronously and a connection can announce an unsupported version in
+between. Measured: 3 of 4 runs red before the send-time check.
+
+**Evidence.** Deletion audit 13 → 0 on `publish-computed-fanout`, 225 → 212 total,
+every other item unchanged (VANISHED, not moved — see
+`docs/rearch-deletion-audit.md`). The zeroed detector carries its own anchor guard
+and joins `ZERO_BY_DESIGN` on the same terms as `upstream-sync-forwarder`.
+`bun run audit:serving-path` is the fifteenth gate, in two halves.
+
+**Deliberately NOT done.** The prepared-publication worker still emits v1 shapes
+whatever the connection negotiated. Rewriting it would have been a rewrite of the
+publication pipeline rather than a cutover — the "large surprise diff" this fan-out
+cannot afford — and no wire-2 client exists to observe the mismatch. Filed as
+POD-1208, `discovered-from` POD-1203, with the v2-frame-to-a-scoped-connection
+throw standing as its tripwire.
+
 #### LEDGER ENTRY — POD-309 (2.5 retire the upstream sync/forwarder): the two-directional claim
 
 **THE JOB WAS TWO OBLIGATIONS THAT FAIL IN OPPOSITE DIRECTIONS,** and naming that was the

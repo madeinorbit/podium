@@ -480,12 +480,29 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(originalSession).toBeDefined()
     const original = originalSession?.name
     const before = legacy.filter((message) => message.type === 'sessionsChanged').length
+    const cursorBefore = registry.modules.sessions.syncChangesSince(null).cursor
 
     registry.modules.sessions.renameSession({ sessionId, name: 'temporary' })
     registry.modules.sessions.renameSession({ sessionId, name: original ?? '' })
     registry.modules.sessions.flushBroadcasts()
 
-    expect(legacy.filter((message) => message.type === 'sessionsChanged')).toHaveLength(before + 2)
+    // THE COUNT MOVED AND THE PROPERTY DID NOT (POD-1203). It was `before + 2`,
+    // one snapshot per broadcast; the two renames now coalesce into ONE frame, so
+    // it is `before + 1`. Asserting the count alone would make this case about
+    // coalescing, which it never was — the defect it guards is a revert to
+    // IDENTICAL BYTES being swallowed by the dedup baseline, leaving the client
+    // showing 'temporary' forever. So assert the two things that name states:
+    const snapshots = legacy.filter((message) => message.type === 'sessionsChanged')
+    expect(snapshots).toHaveLength(before + 1)
+    // 1. the client's last word is the ORIGINAL name, not the intermediate one;
+    const last = snapshots.at(-1) as { sessions: { sessionId: string; name?: string }[] }
+    expect(last.sessions.find((s) => s.sessionId === sessionId)?.name).toBe(original)
+    // 2. and BOTH transitions are in the durable log — a dedup that swallowed the
+    //    second would leave one row here and 'temporary' on the wire.
+    const renames = registry.modules.sessions
+      .syncChangesSince(cursorBefore)
+    expect(renames.kind).toBe('delta')
+    expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
   })
 
   it('coalesces a resize burst into one async capture and one projection event', () => {

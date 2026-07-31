@@ -7,9 +7,17 @@ import type { IssuePublishSpecs } from './service/types'
  *  the same truth. Lived in modules/funnel while the broadcast-seam oplog
  *  consumed it; P2f (#258) moved it here — the issue publisher is its only
  *  producer and the ledger-reconcile tail its only consumer. */
+/**
+ * What an issue publish IS, since the serving-path cutover (POD-1203): the rows.
+ *
+ * `snapshot: ServerMessage` was the second half — an `issuesChanged` /
+ * `issueUpdated` message built beside the rows and fanned out on its own path.
+ * Nothing consumes it now, so it is gone rather than left as a field a future
+ * caller could revive: the rows go to the Authority, and a legacy client's
+ * `issuesChanged` is folded out of them at the connection boundary.
+ */
 export interface PublishSpec {
   rows: { id: string; value: unknown }[]
-  snapshot: ServerMessage
 }
 
 export interface IssuePublisherDeps {
@@ -18,8 +26,8 @@ export interface IssuePublisherDeps {
    *  via loadFromStore before that). */
   allWire(sessionList?: SessionMeta[]): IssueWire[] | undefined
   /** Full-list publish tail ([spec:SP-3fe2] #255): ledger reconcile of the
-   *  spec's rows (the durable change append, including removes) → funnel
-   *  fan-out of the snapshot. Wired in relay.ts. */
+   *  spec's rows — the durable change append, including removes, which IS the
+   *  fan-out since POD-1203. Wired in relay.ts. */
   publishIssueList(spec: PublishSpec): void
 }
 
@@ -63,14 +71,13 @@ export class IssuePublisher implements IssuePublishSpecs {
     this.currentLocalIssues = localIssues
     return {
       rows: issues.map((i) => ({ id: i.id, value: i })),
-      snapshot: { type: 'issuesChanged', issues },
     }
   }
 
   /** Spec for a single-issue delta (issue #22): the ledger commit already
-   *  appended the change at the write seam; delta-cap clients get it via the
-   *  ordered onAppended pipe, legacy clients get the issueUpdated message
-   *  they already merge by id. */
+   *  appended the change at the write seam and every client is served from it.
+   *  What survives here is the CURRENT-LIST bookkeeping, which the bootstrap read
+   *  and the next full-list reconcile both depend on. */
   issueUpdated(issue: IssueWire): PublishSpec {
     if (this.currentLocalIssues) {
       const index = this.currentLocalIssues.findIndex((candidate) => candidate.id === issue.id)
@@ -81,10 +88,7 @@ export class IssuePublisher implements IssuePublishSpecs {
               candidate.id === issue.id ? issue : candidate,
             )
     }
-    return {
-      rows: [{ id: issue.id, value: issue }],
-      snapshot: { type: 'issueUpdated', issue },
-    }
+    return { rows: [{ id: issue.id, value: issue }] }
   }
 
   /** Reconcile-and-fan-out of a full issue list — for pipelines with no issue

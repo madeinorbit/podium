@@ -460,13 +460,68 @@ export function upstreamRetirementControlMisses(patternSource: string): string[]
     .filter((control) => !re.test(control))
 }
 
+/** The roots the snapshot fan-out lived in. Every one of its thirteen sites was
+ *  in the server app; a home outside it would be a relocation, not a deletion. */
+export const PUBLISH_COMPUTED_ROOTS = ['apps/server/src'] as const
+
+export const PUBLISH_COMPUTED_PATTERN = /\bpublishComputed\b|\bfanOutSnapshot\b/
+
+/** Control strings, one per branch of the pattern. */
+export const PUBLISH_COMPUTED_CONTROLS: readonly string[] = [
+  'this.deps.funnel.publishComputed(spec.snapshot)',
+  'fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),',
+]
+
+/** Controls `patternSource` FAILS to match. Empty means the anchor is intact. */
+export function publishComputedControlMisses(patternSource: string): string[] {
+  const re = new RegExp(patternSource)
+  return PUBLISH_COMPUTED_CONTROLS.filter((control) => !re.test(control))
+}
+
 export const CHECKS: AuditCheck[] = [
   {
     id: 'publish-computed-fanout',
     title: 'publishComputed snapshot fan-out',
     phase: 'POD-308',
-    unit: 'reference to funnel.publishComputed (the legacy snapshot tail)',
-    collect: (ctx) => grep(ctx, { roots: ['apps/server/src'], pattern: /\bpublishComputed\b/ }),
+    unit: 'reference to funnel.publishComputed / fanOutSnapshot (the legacy snapshot tail)',
+    collect: (ctx) => {
+      // REACHED ZERO at POD-1203: `publishComputed`, `fanOutSnapshot` and all
+      // thirteen call sites are gone, and grepping their destinations finds no
+      // code home — VANISHED, not MOVED. The serving path they were half of is
+      // `gateway/feed-serving.ts`, which produces no message of its own: a
+      // legacy client's full lists are folded out of the feed by the expiring v1
+      // adapter, and `bun run audit:serving-path` holds that to two allowlisted
+      // sites.
+      //
+      // A ZEROED DETECTOR IS THE DANGEROUS KIND, because from here its count can
+      // only mean "nothing found" — which is what a BROKEN detector reports too.
+      // `send-turn-duplicate` set the rule and `upstream-sync-forwarder`
+      // followed it: an item may sit in the audit test's ZERO_BY_DESIGN list
+      // only if its `collect` THROWS when its anchor stops matching. With no
+      // surviving code to anchor on, this anchors on its own scan — the roots
+      // must match files, and the pattern must still match the control strings
+      // it was written to match.
+      const missing = publishComputedControlMisses(PUBLISH_COMPUTED_PATTERN.source)
+      if (missing.length > 0)
+        throw new Error(
+          `publish-computed-fanout: the pattern no longer matches ${missing.length} of its ` +
+            `control strings (${missing.map((c) => JSON.stringify(c)).join(', ')}). The ` +
+            'detector is broken; fix it rather than recording a phantom zero.',
+        )
+      const scanned = ctx.files.filter((f) =>
+        PUBLISH_COMPUTED_ROOTS.some((r) => f.file === r || f.file.startsWith(`${r}/`)),
+      )
+      if (scanned.length === 0)
+        throw new Error(
+          `publish-computed-fanout: the roots ${PUBLISH_COMPUTED_ROOTS.join(', ')} matched no ` +
+            'files. The detector is scanning nothing; its zero is a phantom, not the cutover ' +
+            'holding.',
+        )
+      return grep(ctx, {
+        roots: [...PUBLISH_COMPUTED_ROOTS],
+        pattern: PUBLISH_COMPUTED_PATTERN,
+      })
+    },
   },
   {
     /**

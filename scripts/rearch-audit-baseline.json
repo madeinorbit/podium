@@ -18,7 +18,7 @@
     "mobile-client-value": 1,
     "panel-mode-duality": 3,
     "per-user-singletons": 2,
-    "publish-computed-fanout": 13,
+    "publish-computed-fanout": 0,
     "raw-string-entity-ids": 0,
     "reexport-shims": 22,
     "representation-registry-rot": 0,

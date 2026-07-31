@@ -14,6 +14,9 @@ import {
   isFrozenFile,
   isTestFile,
   loadContext,
+  PUBLISH_COMPUTED_CONTROLS,
+  PUBLISH_COMPUTED_PATTERN,
+  publishComputedControlMisses,
   runAudit,
   UPSTREAM_RETIREMENT_CONTROLS,
   UPSTREAM_RETIREMENT_PATTERN,
@@ -658,6 +661,72 @@ describe('upstream-sync-forwarder: the anchor behind its ZERO_BY_DESIGN exemptio
   })
 })
 
+
+/**
+ * THE GUARD BEHIND `publish-computed-fanout`'s ZERO_BY_DESIGN EXEMPTION (POD-1203).
+ *
+ * Same shape and same reason as the suite above: the exemption removes the only
+ * assertion watching this detector, so the detector watches itself and this
+ * watches THAT. Each control is proven load-bearing SEPARATELY — two controls
+ * that can only fail together are one control wearing two names.
+ *
+ * The controls are the real deleted lines, copied from the diff that deleted
+ * them: a call site (`funnel.publishComputed(spec.snapshot)`) and the
+ * composition-root wiring (`fanOutSnapshot: … => sessionsSvc.fanOutSnapshot(…)`).
+ * A detector that no longer recognises the code it was written to find is broken,
+ * whatever its count says.
+ */
+describe('publish-computed-fanout: the anchor behind its ZERO_BY_DESIGN exemption', () => {
+  it('the SHIPPED pattern matches every control — the positive, first', () => {
+    // Without this, every "breaking X reports Y" case below is satisfiable by a
+    // pattern that matches nothing at all.
+    expect(publishComputedControlMisses(PUBLISH_COMPUTED_PATTERN.source)).toEqual([])
+    expect(PUBLISH_COMPUTED_CONTROLS).toHaveLength(2)
+  })
+
+  it('losing the publishComputed branch reports exactly its control', () => {
+    expect(publishComputedControlMisses('\\bfanOutSnapshot\\b')).toEqual([
+      'this.deps.funnel.publishComputed(spec.snapshot)',
+    ])
+  })
+
+  it('losing the fanOutSnapshot branch reports exactly its control', () => {
+    expect(publishComputedControlMisses('\\bpublishComputed\\b')).toEqual([
+      'fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),',
+    ])
+  })
+
+  it('a pattern that matches nothing reports BOTH, not the first', () => {
+    // A first-miss-wins implementation passes both branch cases above and fails
+    // exactly here.
+    expect(publishComputedControlMisses('zzz-matches-nothing')).toHaveLength(2)
+  })
+
+  it('collect THROWS on a context whose roots match no files', () => {
+    const check = CHECKS.find((c) => c.id === 'publish-computed-fanout')
+    expect(check).toBeDefined()
+    // The positive first, or this passes against a collect that always throws.
+    expect(() => check?.collect(ctxOf({ 'apps/server/src/a.ts': 'const x = 1' }))).not.toThrow()
+    expect(() => check?.collect(ctxOf({ 'docs/elsewhere.ts': 'const x = 1' }))).toThrow(
+      /scanning nothing/,
+    )
+  })
+
+  it('collect still FINDS a re-grown snapshot tail — the anchor did not replace the detector', () => {
+    const check = CHECKS.find((c) => c.id === 'publish-computed-fanout')
+    const sites = check?.collect(
+      ctxOf({
+        'apps/server/src/modules/funnel.ts': 'publishComputed(snapshot) {}',
+        'apps/server/src/modules/sessions/service.ts': 'fanOutSnapshot(snapshot) {}',
+      }),
+    )
+    expect(sites?.map((s) => s.file).sort()).toEqual([
+      'apps/server/src/modules/funnel.ts',
+      'apps/server/src/modules/sessions/service.ts',
+    ])
+  })
+})
+
 describe('against the live repo', () => {
   const repoRoot = new URL('..', import.meta.url).pathname
   const results = runAudit(loadContext(repoRoot))
@@ -709,6 +778,15 @@ describe('against the live repo', () => {
       // supposed to match. Both are asserted below, so an item added to this list
       // without that guard still reds.
       'upstream-sync-forwarder',
+      // POD-1203 deleted the snapshot fan-out: 13 → 0, all VANISHED (no file
+      // declares or calls either method, and grepping their destinations finds
+      // no code home — a legacy client's full lists are folded out of the feed
+      // by the expiring v1 adapter, which `bun run audit:serving-path` holds to
+      // two allowlisted sites). Exempt on the SAME terms as the two above and no
+      // looser: its `collect` THROWS when its roots match no files and when its
+      // pattern stops matching the control strings it was written to match, both
+      // asserted below.
+      'publish-computed-fanout',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

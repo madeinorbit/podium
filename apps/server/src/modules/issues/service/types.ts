@@ -17,21 +17,23 @@ import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
 import type { PublishSpec } from '../publish'
 
-/** The write-funnel face IssueService mutations run through (issue #190): the
- *  write-only sites (mail, subscriptions — no publishable change) enter `run`
- *  for its authorize → write ordering, and every issue fan-out enters
- *  `publishComputed` AFTER the ledger durably appended the changes at the write
- *  seam ([spec:SP-3fe2] #255). Structurally satisfied by
- *  {@link ../../funnel.WriteFunnel}; narrow so tests can fake it. Authorization
- *  happens UPSTREAM (router / issue-commands authz) — service-level ops pass no
- *  `authorize` stage of their own. */
+/**
+ * The write-funnel face IssueService mutations run through (issue #190): the
+ * write-only sites (mail, subscriptions — no publishable change) enter `run` for
+ * its authorize → write ordering. Structurally satisfied by
+ * {@link ../../funnel.WriteFunnel}; narrow so tests can fake it. Authorization
+ * happens UPSTREAM (router / issue-commands authz) — service-level ops pass no
+ * `authorize` stage of their own.
+ *
+ * ONE MEMBER NOW. `publishComputed` — the legacy full-list snapshot tail every
+ * issue fan-out also called — was deleted at the serving-path cutover
+ * (POD-1203). The change rows this feature declares at its write seam ARE the
+ * fan-out; a legacy client's `issuesChanged` is built from them at the
+ * connection boundary. Nothing was moved into this interface to replace it,
+ * because there is nothing left for the feature to do after it has committed.
+ */
 export interface IssueFunnel {
   run<T>(op: { authorize?: () => void; write: () => T }): T
-  /** Legacy-snapshot fan-out for a ledger-committed change. NO oplog append
-   *  and NO metadataDelta — the append happened atomically with the write
-   *  (Ledger.commit/reconcile) and delta clients receive it via the funnel's
-   *  ordered onAppended pipe ([spec:SP-3fe2] #256). */
-  publishComputed(snapshot: ServerMessage): void
 }
 
 /** The write-seam change log face ([spec:SP-3fe2] #255): `commit` binds an

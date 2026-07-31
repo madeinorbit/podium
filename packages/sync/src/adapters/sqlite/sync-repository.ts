@@ -125,15 +125,23 @@ export class SyncRepository {
    * the Ledger's dedup baseline, so a restart emits deltas for anything that
    * changed while the server was down instead of silently rebasing.
    */
-  latestChangeStates(): { entity: string; entityId: string; op: string; payload: string | null }[] {
+  latestChangeStates(): {
+    seq: number
+    entity: string
+    entityId: string
+    op: string
+    payload: string | null
+  }[] {
     const rows = this.db
       .prepare(
-        `SELECT c.entity, c.entity_id, c.op, c.payload FROM changes c
+        `SELECT c.seq, c.entity, c.entity_id, c.op, c.payload FROM changes c
          JOIN (SELECT entity, entity_id, MAX(seq) AS seq FROM changes GROUP BY entity, entity_id) m
-           ON m.entity = c.entity AND m.entity_id = c.entity_id AND m.seq = c.seq`,
+           ON m.entity = c.entity AND m.entity_id = c.entity_id AND m.seq = c.seq
+         ORDER BY c.seq`,
       )
       .all() as Record<string, unknown>[]
     return rows.map((r) => ({
+      seq: r.seq as number,
       entity: r.entity as string,
       entityId: r.entity_id as string,
       op: r.op as string,

@@ -30,15 +30,12 @@ import type {
   AutomationRunRow,
   AutomationsRepository,
 } from '../../store/automations'
-import type { WriteFunnel } from '../funnel'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
 
 export interface AutomationsDeps {
   store: AutomationsRepository
   /** Durable metadata transaction + ordered delta path [spec:SP-3fe2]. */
   ledger: Pick<Ledger, 'commit' | 'reconcile'>
-  /** Legacy snapshot tail after the ledger commit has landed. */
-  funnel: Pick<WriteFunnel, 'publishComputed'>
   /** SessionsService.createSession, narrowed to what a scheduled spawn needs.
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
   createSession(input: {
@@ -121,20 +118,6 @@ export class AutomationsService {
       'automationRun',
       deps.store.listAllRuns().map((run) => ({ id: run.id, value: run })),
     )
-  }
-
-  private publishAutomations(): void {
-    this.deps.funnel.publishComputed({
-      type: 'automationsChanged',
-      automations: this.deps.store.list(),
-    })
-  }
-
-  private publishRuns(): void {
-    this.deps.funnel.publishComputed({
-      type: 'automationRunsChanged',
-      automationRuns: this.deps.store.listAllRuns(),
-    })
   }
 
   private now(): Date {
@@ -235,7 +218,6 @@ export class AutomationsService {
         { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
       ],
     }).result
-    this.publishAutomations()
     return created
   }
 
@@ -299,7 +281,6 @@ export class AutomationsService {
         { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
       ],
     }).result
-    this.publishAutomations()
     return updated
   }
 
@@ -328,8 +309,6 @@ export class AutomationsService {
           : [],
     }).result
     if (removed) {
-      this.publishAutomations()
-      this.publishRuns()
     }
     return { removed }
   }
@@ -423,8 +402,6 @@ export class AutomationsService {
           },
         ],
       })
-      this.publishRuns()
-      this.publishAutomations()
       return
     }
 
@@ -477,8 +454,6 @@ export class AutomationsService {
         },
       ],
     })
-    this.publishRuns()
-    this.publishAutomations()
   }
 
   /**

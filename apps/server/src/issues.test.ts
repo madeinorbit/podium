@@ -21,6 +21,7 @@ function harness(sessions: SessionMeta[] = []) {
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
+  /** Every change row the service published — see `issueTestPlumbing`. */
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
@@ -230,11 +231,20 @@ describe('IssueService CRUD', () => {
   })
 })
 
-describe('IssueService single-issue broadcast (#22)', () => {
-  const broadcasts = (deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> }) =>
-    deps.broadcast.mock.calls.map((c) => c[0] as { type: string })
+/**
+ * WHAT A MUTATION PUBLISHES (#22, re-pointed at POD-1203).
+ *
+ * These cases asserted on the MESSAGE the snapshot tail sent — `issueUpdated`
+ * for a self-contained edit, `issueUpdated` then `issuesChanged` for a
+ * cross-issue ripple. The tail is deleted, so they assert on the change ROWS
+ * instead: the same distinction (one row versus several), observed where a
+ * client is actually served from, and no longer able to disagree with it.
+ */
+describe('IssueService single-issue publish (#22)', () => {
+  const rows = (deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> }) =>
+    deps.broadcast.mock.calls.map((c) => c[0] as { id: string; op: string; value?: unknown })
 
-  it('a self-contained update serializes ONE wire and broadcasts only issueUpdated', () => {
+  it('a self-contained update serializes ONE wire and publishes ONE row', () => {
     const { svc, deps } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -243,18 +253,31 @@ describe('IssueService single-issue broadcast (#22)', () => {
     svc.update(a.id, { notes: 'note' })
     // No full-list serialization: exactly one toWire (the mutated row).
     expect(wires).toHaveBeenCalledTimes(1)
-    const sent = broadcasts(deps)
-    expect(sent).toHaveLength(1)
-    expect(sent[0]).toMatchObject({ type: 'issueUpdated', issue: { id: a.id, notes: 'note' } })
+    const published = rows(deps)
+    expect(published).toHaveLength(1)
+    expect(published[0]).toMatchObject({ id: a.id, op: 'upsert' })
+    expect((published[0]?.value as { notes?: string }).notes).toBe('note')
+    // B is untouched — the bystander a full-list rebuild would have re-sent.
+    expect(published.some((row) => row.id !== a.id)).toBe(false)
   })
 
-  it('a closed-predicate flip additionally fans out the full list (cross-issue derivation)', () => {
+  it('a cross-issue derivation publishes the OTHER row too, with no write on it', () => {
+    // STRONGER THAN THE MESSAGE-COUNT IT REPLACES. `['issueUpdated',
+    // 'issuesChanged']` said a second message went out; it did not say the
+    // dependent's DERIVED state moved, which is the whole reason the full-list
+    // path exists. Closing the blocker flips the dependent's `blocked`/`ready`
+    // with no write touching it, and here that appears as its own row.
     const { svc, deps } = harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const blocker = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const dependent = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.addDep(dependent.id, blocker.id)
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
-    svc.close(a.id)
-    const types = broadcasts(deps).map((m) => m.type)
-    expect(types).toEqual(['issueUpdated', 'issuesChanged'])
+    svc.close(blocker.id)
+    const published = rows(deps)
+    expect(published.map((row) => row.id)).toContain(blocker.id)
+    expect(published.map((row) => row.id)).toContain(dependent.id)
+    const dependentRow = published.filter((row) => row.id === dependent.id).at(-1)
+    expect((dependentRow?.value as { blocked?: boolean }).blocked).toBe(false)
   })
 })
 
@@ -347,7 +370,8 @@ describe('IssueService unread (#124)', () => {
     // (computeUnread uses lastActivity > readAt, not >=).
     let clock = '2026-06-30T00:00:00.000Z'
     const store = new SessionStore(':memory:')
-    const broadcast = vi.fn()
+    /** Every change row the service published — see `issueTestPlumbing`. */
+  const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
       listSessions: () => [],
@@ -424,20 +448,21 @@ describe('IssueService tuck-away (POD-333)', () => {
 
     svc.setIssueTucked(w.id, true)
 
-    // The single-issue update path — the same delivery every issue field uses,
+    // The single-issue publish path — the same delivery every issue field uses,
     // which is precisely what the ui-state key could never reach.
     const sent = deps.broadcast.mock.calls
-      .map((c) => c[0] as { type: string; issue?: { id: string; tuckedAt: string | null } })
-      .filter((m) => m.type === 'issueUpdated')
+      .map((c) => c[0] as { id: string; op: string; value?: { tuckedAt?: string | null } })
+      .filter((row) => row.id === w.id && row.op === 'upsert')
     expect(sent).toHaveLength(1)
-    expect(sent[0]?.issue?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect(sent[0]?.value?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
   })
 
   it('untucks back to null, and a re-tuck keeps the ORIGINAL dismissal moment', () => {
     // Mutable clock so a repeated tuck could visibly move the stamp if it did.
     let clock = '2026-06-30T00:00:00.000Z'
     const store = new SessionStore(':memory:')
-    const broadcast = vi.fn()
+    /** Every change row the service published — see `issueTestPlumbing`. */
+  const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
       listSessions: () => [],

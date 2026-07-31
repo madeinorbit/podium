@@ -260,7 +260,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(changes.map((c) => c.id)).toEqual(['c1'])
   })
 
-  it('(e) diagnostics ride snapshots ONLY — never the delta stream', () => {
+  it('(e) diagnostics ride snapshots ONLY — never the delta stream', async () => {
     const registry = makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     const delta = client(registry, ['metadataDelta'])
@@ -270,6 +270,11 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       diagnostics: [{ severity: 'warning', message: 'scan hiccup' }],
     })
     registry.modules.sessions.flushBroadcasts()
+    // The diagnostics re-serve is deferred by one microtask ON PURPOSE (POD-1203):
+    // an advisory is not feed content and must not overtake the rows that were
+    // committed with it, or a v1 peer renders a list built from the projection as
+    // it was BEFORE them.
+    await Promise.resolve()
     const snap = delta.inbox.filter((m) => m.type === 'conversationsChanged').at(-1)
     if (snap?.type !== 'conversationsChanged')
       throw new Error('cap client missed the diagnostics snapshot')
@@ -281,6 +286,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       diagnostics: [{ severity: 'warning', message: 'scan hiccup' }],
     })
     registry.modules.sessions.flushBroadcasts()
+    await Promise.resolve()
     const since = delta.inbox.slice(before)
     expect(since.some((m) => m.type === 'conversationsChanged')).toBe(false)
     expect(deltaConversationChanges(since).some((c) => c.id === 'c1')).toBe(true)

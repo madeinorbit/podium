@@ -16,8 +16,8 @@
  * RECEIVES WHAT". That question is answered today by per-connection state —
  * `caps`, `publication`, `attached`, `viewVisible`, `focused`,
  * `transcriptSubs` — read by selectors that live in the SESSIONS feature
- * (`fanOutSnapshot`, `sendMetadataDelta`, the prepared-publication scheduler,
- * `onOpenUrl`'s focus preference).
+ * (`deliverEntityMessage`, the prepared-publication scheduler, `onOpenUrl`'s
+ * focus preference).
  *
  * MECHANISM moved here. SELECTION did not, and moving it would have been a
  * rewrite of the publication pipeline rather than an extraction — the exact
@@ -91,6 +91,25 @@ export interface ClientConn {
    *  hello arrives, so a pre-hello client is treated as legacy — it receives
    *  snapshot broadcasts, never deltas it hasn't asked for. */
   caps: Set<string>
+  /**
+   * The WIRE VERSION this connection negotiated (POD-1203).
+   *
+   * 1 until `hello` says otherwise, and the ABSENCE of the field in `hello` also
+   * means 1: a pre-cutover client cannot be made to send a field it was never
+   * built with, so the absence IS the advertisement. This is what the serving
+   * edge resolves an adapter from; the connection itself never interprets it.
+   */
+  wireVersion: number
+  /**
+   * This connection announced a wire version outside the supported window, and
+   * is served NO entity state at all (POD-1203).
+   *
+   * Not derivable from {@link wireVersion} here: the window is the gateway's
+   * (`WireFeedEdge.support()`), and re-deriving "is this supported?" in the
+   * feature that reads this flag would be a second answer to a question the edge
+   * already answers. It is set once, by the mux, from the edge's own refusal.
+   */
+  entityServingRefused?: boolean
   /** Session ids this client subscribed to the structured transcript of. Lets
    *  detach sweep just this client's subscriptions instead of scanning every
    *  session on the host (audit P2-18). */
