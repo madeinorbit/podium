@@ -3353,3 +3353,55 @@ This is the same shape as everything else this run has learned about instruments
 a check that only runs when someone remembers is a check that reports whatever
 the last person's attention allowed. The diff audit was written down and ran
 every time; the import sweep was not and ran once.
+
+## A THIRD merge category: two definitions of the same function, auto-merged as adjacent blocks
+
+The conflicts-vs-breakage split above is incomplete. POD-1246 found the third
+case in group (c), and it is worse than either:
+
+`packages/sync/src/adapters/sqlite/sync-repository.ts` ended up carrying
+`readFeedIdentity()` TWICE — main's reading the `sync_feed` table, integration's
+reading `feed_identity`. Git auto-merged them as ADJACENT ADDITIONS: no conflict
+marker, because neither side edited the other's lines. TypeScript did not
+complain. THE SECOND DEFINITION SILENTLY WINS.
+
+So the taxonomy is:
+
+    CONFLICT   both sides edited the same lines        git tells you
+    BREAKAGE   one side edited lines the other depends on   git is silent,
+                                                       the typechecker tells you
+    SHADOWING  both sides ADDED the same symbol        git is silent,
+                                                       the typechecker is silent,
+                                                       and it runs
+
+The third is the only one where a green tree is actively wrong. It is also the
+most likely outcome when two branches independently implement the same function
+against different schemas — which is exactly what a long-lived rewrite branch and
+a main branch that rebuilt the same surfaces will do.
+
+DETECTION: it is not a diff property and not a type error, so neither audit above
+finds it. What finds it is asking, per module touched, "is any symbol defined
+more than once here?" — a duplicate-export/duplicate-declaration sweep over the
+merged file. Worth building rather than remembering.
+
+FOUND BY THE IMPORT-GRAPH SWEEP, which is the second time that step paid for
+itself in one group and the reason it was made a step rather than an instinct.
+
+## And the coordinator propagated a wrong symbol into the brief that mandated it
+
+The carry-forward I put in the group (c) brief said `restore.ts` imports
+`ensureFeedIdentity`. It does not. Measured:
+
+    git show main:apps/server/src/migrations/restore.ts | grep ensureFeedIdentity
+    (nothing)
+    line 71: import { remintEpoch, SyncRepository } from '@podium/sync'
+
+The original grep had hit two COMMENTS mentioning `ensureFeedIdentity`, and the
+symbol was attributed from the mention. That is this run's oldest defect —
+a mention is not a call — arriving in a coordinator's brief, in the very sentence
+telling an implementer to read the import graph rather than trust a grep.
+
+It was caught because the implementer ran the step the brief mandated instead of
+trusting the brief's own symbol. A brief is a belief about the tree, exactly like
+a handover note and a hazard memory, and it decays the same way. Third instance
+this run of my own guidance being half right; every one was caught by measuring.
