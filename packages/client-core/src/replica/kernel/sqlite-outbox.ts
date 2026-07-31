@@ -57,14 +57,14 @@
  * `save` for why the rethrow was removed rather than faked.
  */
 
-import type { OutboxStorePort } from '@podium/sync/outbox'
+import type { MutationId } from '@podium/protocol'
 import type {
   OutboxAttribution,
   OutboxCommand,
   OutboxRecord,
   OutboxRecordExpectation,
+  OutboxStorePort,
 } from '@podium/sync/outbox'
-import type { MutationId } from '@podium/protocol'
 import type { OutboxEntry, OutboxStorage } from '../../outbox'
 
 /**
@@ -112,6 +112,38 @@ export interface KernelOutboxStorages {
  * path keep the two in separate stores.
  */
 const AWAITING_STATE = 'accepted' as const
+const QUEUED_STATE = 'queued' as const
+
+/**
+ * WHICH OF THE TWO CLIENT HOMES A KERNEL RECORD BELONGS TO, OR NEITHER.
+ *
+ * THE THIRD ANSWER IS THE WHOLE POINT, and its absence was a live privacy hole
+ * that POD-1220 found by calling the attribution gate for the first time. This
+ * used to be `(record.state === AWAITING_STATE) === awaiting`, i.e. a BOOLEAN:
+ * "awaiting, or else queued". D9 has EIGHT states, and the client Outbox knows
+ * two of them — so every other state fell into the queued home by default.
+ *
+ * The one that matters is `dead-letter`. When `decideLegacyAdoption` REFUSES an
+ * unattributable device it does not delete the entries; it parks them as dead
+ * letters with the payload redacted, so POD-316 can tell the user work was lost
+ * without showing them what it said. Under the boolean, those parked rows came
+ * straight back through `load()` as drainable queued work — the engine would have
+ * replayed, under the current user's name, the very mutations the gate refused to
+ * attribute to them, each with `input: null`. The gate had a caller and no effect,
+ * which is precisely the failure mode it was called to close.
+ *
+ * `neither` rows are therefore invisible to BOTH views and, just as importantly,
+ * untouchable by either `save()` — see the removal set below. A view that could
+ * delete rows it cannot see would turn "the client rewrote its queue" into "the
+ * dead-letter record of lost work disappeared".
+ */
+type OutboxHome = 'queued' | 'awaiting' | 'neither'
+
+const homeOf = (record: ClientOutboxRecord): OutboxHome => {
+  if (record.state === QUEUED_STATE) return 'queued'
+  if (record.state === AWAITING_STATE) return 'awaiting'
+  return 'neither'
+}
 
 function toRecord(
   entry: OutboxEntry,
@@ -158,10 +190,12 @@ export const CLIENT_PARTITION = 'client-outbox'
  * Hydrate the mirror and return the two homes.
  *
  * The two `OutboxStorage`s are VIEWS over ONE kernel store, split by state rather
- * than by table: `queued` owns everything that is not accepted, `awaiting` owns what
- * is. That is why each `save` may only add, replace and remove within its OWN half —
- * a whole-store write from one view would silently delete the other's rows, which is
- * exactly the clobbering `OutboxStorePort.apply`'s record-level contract warns about.
+ * than by table: `queued` owns D9's `queued`, `awaiting` owns D9's `accepted`, and
+ * the other six states belong to NEITHER — see {@link homeOf}, where the difference
+ * between that and "everything else is queued" was a privacy hole. That is why each
+ * `save` may only add, replace and remove within its OWN home — a whole-store write
+ * from one view would silently delete rows it cannot even see, which is exactly the
+ * clobbering `OutboxStorePort.apply`'s record-level contract warns about.
  */
 export async function createKernelOutboxStorage(
   init: KernelOutboxStorageInit,
@@ -171,13 +205,10 @@ export async function createKernelOutboxStorage(
     mirror.set(record.mutationId, record as ClientOutboxRecord)
   }
 
-  const inHome = (record: ClientOutboxRecord, awaiting: boolean): boolean =>
-    (record.state === AWAITING_STATE) === awaiting
-
-  const view = (awaiting: boolean): OutboxStorage => ({
+  const view = (home: 'queued' | 'awaiting'): OutboxStorage => ({
     load: () =>
       [...mirror.values()]
-        .filter((record) => inHome(record, awaiting))
+        .filter((record) => homeOf(record) === home)
         .sort((a, b) => a.queuedAt - b.queuedAt)
         .map(toEntry),
 
@@ -201,9 +232,10 @@ export async function createKernelOutboxStorage(
 
       const put = [...next.values()]
       // Only this home's rows may be removed — see the header on why a whole-store
-      // write would clobber the other view.
+      // write would clobber the other view, and `homeOf` on why a `neither` row
+      // (a parked dead letter) is not this view's to delete either.
       const remove = [...mirror.values()]
-        .filter((record) => inHome(record, awaiting) && !next.has(record.mutationId))
+        .filter((record) => homeOf(record) === home && !next.has(record.mutationId))
         .map((record) => record.mutationId)
 
       const expect: OutboxRecordExpectation[] = [
@@ -265,5 +297,5 @@ export async function createKernelOutboxStorage(
     },
   })
 
-  return { queued: view(false), awaiting: view(true) }
+  return { queued: view('queued'), awaiting: view('awaiting') }
 }
