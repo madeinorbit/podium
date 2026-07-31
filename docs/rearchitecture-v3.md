@@ -2178,6 +2178,39 @@ because "we used an HMAC" is a claim about source text a reviewer is already rea
 columns (POD-386's indentation defect and POD-301's line-split defect, both planted in the
 clean fixture as decoys).
 
+#### LEDGER ENTRY — POD-424 (3.8 Phase-3 exit gate): REFUSED at the production boundary
+
+The gate evaluated integration candidate `8672477077d87e9e6797e12a792d9c24d1bf6055`.
+It inherited the same-commit landing run from POD-1246/POD-1273 (forced typecheck 23/23,
+9,138 node tests, 1,456 web tests, 34 mobile tests, 14 Bun SQLite tests, clean shadowing,
+and the exact 31-item/197-site architecture baseline), rather than duplicating that work.
+
+**The counterfactual guards fired, but the guarded production subjects are incomplete.**
+The session, router, mail, workflow, machine-grant, Telegram, scoped-feed, settings,
+automation, client-secret, and durable-class probe modes all rejected their planted bad
+fixtures. Current clean audits nevertheless report two named hand-written mutations, and
+POD-314's deletion audit is red with 18 surviving `router-triple-access` sites. The two
+required zeros therefore have not been reached.
+
+**The authorization matrix proves a policy model, not four authenticated production
+transports.** Production tRPC and MCP still mint the ambient `OPERATOR` principal, the
+human principal resolves through the first-admin compatibility path, and mail/machine
+ports still default to single-user allow-all behavior. The synthetic person-scoped matrix
+does not substitute for a second authenticated human crossing the real boundaries.
+
+**Required policy subjects are absent.** There are no registry share/unshare commands or
+production rescope emitter; superagent state has no owner; scheduled automations have no
+creator attribution/current-rights execution; and no production steward, expiry, or boot
+reconcile path invokes the system principal. The web client still drains the legacy outbox,
+so the offline dead-letter interaction has not been verified in the real application.
+
+**No open policy choice was silently converted into a default.** The missing owner/grant
+inheritance, cross-owner grant authority, graph-edge disclosure, reparent confirmation,
+existence leakage, and loss-of-access dead-letter wording remain open. POD-1283 owns the
+blocking production-policy completion. Phase 4 and Phase 6 entry remain blocked, and
+POD-290 may not close. The detailed evidence is in
+`docs/gates/pod-424-phase-3-exit-gate.md`.
+
 ### Phase 4 — Node decomposition (POD-291) · exit gate POD-425
 
 **Scope:** gateway + plane inventory implementation (POD-317 → 387–391), fleet service

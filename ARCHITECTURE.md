@@ -23,12 +23,14 @@ package and lets each release independently.
 @podium/web              ->  @podium/terminal-client, @podium/client-core, @podium/runtime
 @podium/web              ~>  @podium/server   (type-only AppRouter; planned, no runtime dep)
 @podium/server           ->  @podium/runtime, @podium/model, @podium/protocol
+@podium/server           ->  @podium/commands, @podium/sync
 @podium/daemon           ->  @podium/agent-bridge, @podium/protocol, @podium/runtime
 @podium/client-core      ->  @podium/protocol, @podium/model, @podium/runtime, @podium/terminal-client
 @podium/agent-bridge     ->  @podium/protocol
 @podium/terminal-client  ->  @podium/protocol
 @podium/protocol         ->  (leaf — no internal deps)
 @podium/model           ->  (leaf — no internal deps, no @podium/protocol dep either)
+@podium/commands         ->  @podium/model, @podium/protocol (L1 contracts only)
 @podium/runtime          ->  @podium/protocol, @podium/model (near-leaf; nothing else)
 ```
 
@@ -70,6 +72,8 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 | Browser↔server message types (input, output frame, resize, takeover, transcript) | `@podium/protocol` |
 | xterm.js, mobile key toolbar, touch/scroll policy, reconnect | `@podium/terminal-client` |
 | Pure domain logic (issue stage machine, authz, snooze/defer, worktree/machine identity, session dedup + priority) | `@podium/model` |
+| Versioned command contracts (policy, exposure, offline class, redaction, ownership/attribution declarations); no feature handlers | `@podium/commands` |
+| Command handlers and transport derivation | Feature-owned `apps/server/src/modules/*/registry.ts` + `trpc.ts`, joined at the server composition root |
 | Node-runtime plumbing (config, sqlite shims, git identity, connectivity, auth-store, …) | `@podium/runtime` |
 | tRPC routers, auth, persistence, conversation index, daemon fan-out | `apps/server` |
 | Typed in-process event bus (module→module signals) | `apps/server` `src/modules/bus.ts` |
@@ -91,6 +95,27 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 | Per-machine agent lifecycle + discovery orchestration | `apps/daemon` |
 | Shared TS config | `tooling/tsconfig` |
 | Design/architecture docs | `docs/` |
+
+### Phase-3 command surface as built
+
+Most mutation families are derived from `@podium/commands` contracts into the server's
+tRPC surface; feature handlers stay with their L3 modules. The current repository-wide
+census still allowlists two hand-written mutations in `apps/server/src/router.ts`:
+`settings.set` and `discovery.scan`. The Phase-3 exit audit also still reports transport
+reach-throughs, so the universal-write-surface cut is not yet complete.
+
+The multi-user policy vocabulary exists in the model and command contracts (visibility
+classes, owner/grant scopes, attribution pairs, machine verbs, default-closed exposure),
+but the production authentication edge still resolves human tRPC/MCP calls through the
+single shared-password first-admin `OPERATOR`. Mail and workflow composition retain named
+single-user ceiling/machine-access defaults. Share/unshare commands and their rescope
+emitter do not exist yet; superagent and automation persistence is not owner-scoped; and
+system jobs do not yet construct system principals for their writes. Telegram binding is
+the exception: inbound chats resolve through the claim-code binding or are refused, while
+the bot token remains server-only.
+
+These are current-state facts, not deferred architecture. The authoritative gate record
+and remediation boundary are in `docs/gates/pod-424-phase-3-exit-gate.md`.
 
 ## Growth path (not yet scaffolded)
 
