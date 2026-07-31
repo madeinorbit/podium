@@ -1,4 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId, asUserId, type SessionId } from '@podium/model'
 import { execFileSync, execSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -17,7 +17,7 @@ import {
 import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
 import type { DaemonHandshakeReply } from '@podium/protocol'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
-import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
+import { type DaemonMessage, encode as protocolEncode, parseDaemonMessage } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -160,6 +160,42 @@ function recordingDeltaWorkerClient(delta: ConversationDelta): {
   return { client, fullFlags }
 }
 const G = { cols: 80, rows: 24 }
+const TEST_BINDING_USER = asUserId('daemon-runtime-test-user')
+
+/**
+ * Runtime tests exercise authenticated server traffic. Supply the binding
+ * instruction that production server composition writes; the dedicated
+ * session-binding control tests bypass this helper to prove absence refuses.
+ */
+function withTestBindingInstruction(message: unknown): unknown {
+  if (!message || typeof message !== 'object') return message
+  const frame = message as Record<string, unknown>
+  if (frame.binding !== undefined) return message
+  const sessionId = typeof frame.sessionId === 'string' ? frame.sessionId : 'unknown'
+  if (frame.type === 'spawn') {
+    return {
+      ...frame,
+      binding: {
+        transitionId: `test:spawn:${sessionId}`,
+        machineAccess: 'allowed',
+        principal: { kind: 'user', userId: TEST_BINDING_USER },
+      },
+    }
+  }
+  if (frame.type === 'reattach') {
+    return {
+      ...frame,
+      binding: {
+        transitionId: `test:reattach:${sessionId}:${String(frame.observationGeneration ?? 1)}`,
+        machineAccess: 'allowed',
+      },
+    }
+  }
+  return message
+}
+
+const encode: typeof protocolEncode = (message) =>
+  protocolEncode(withTestBindingInstruction(message) as never)
 const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
 // The daemon now relays PTY output as coalesced `agentFrameBatch` messages
 // (one batch per session per flush) rather than one `agentFrame` per frame.
