@@ -3112,11 +3112,31 @@ worktree — and the real numbers are integration 12, MAIN 22. The rewrite REMOV
 ten restatements. The "regression" was an artifact of comparing two different
 measurements that happened to share a key.
 
+`local-placeholders` HAS now been re-measured and it was overstated FOURFOLD.
+Its detector IS byte-identical on both branches, so that comparison is at least
+well-formed — but under one instrument it is integration 16 / main 15. A gap of
+ONE, not four. "Absorbs a regression on both" does not survive measurement on
+either key.
+
+AND THE DEEPEST PART IS NOT THE NUMBERS. Main's 12 is a TRUE count under MAIN's
+instrument — main's own audit on main's own tree reports "22 items, 259 sites,
+baseline exact", exit 0 — while integration's instrument counts 15 on that same
+unmodified tree. The +3 is THE MEASURING APPARATUS (grep roots, loadContext), not
+drift in the code. So even a byte-identical detector is not portable between
+trees: it carries its harness with it.
+
 THE RULE, which is the ratchet-files-are-measurements rule one turn further: TO
 COMPARE TWO RATCHET FILES YOU MUST RUN ONE TOOL OVER BOTH TREES. Two baseline
 JSONs are two instruments' outputs, not two readings of one instrument, and a
-shared key name is not evidence they measure the same thing. `local-placeholders`
-has not been re-measured this way and its comparison is therefore also unproven.
+shared key name is not evidence they measure the same thing. Where the detector
+IS shared, the harness may still differ, so the only sound comparison is one
+binary, two checkouts, run back to back.
+
+WHAT SURVIVES: the causal story may still describe the CODE correctly — main's
+POD-797 deleted the legacy local issues wire and integration rebuilt it. What the
+measurement refutes is the INFERENCE from those two numbers, because they were
+never produced by the same instrument. A true story and an invalid measurement
+can point the same direction and only one of them is evidence.
 
 WHY, and it is the whole shape of this catch-up: main's POD-797 DELETED the
 legacy local issues wire, and integration REBUILT it. Two independent correct
