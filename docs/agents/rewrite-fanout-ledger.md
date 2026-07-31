@@ -4086,3 +4086,68 @@ Worth generalising: when reporting a progress metric alongside a property the
 work is supposed to preserve, state the property's status SEPARATELY and in its
 own terms. "40/109" and "exp-rev links 2-5 are out" are both true, and only the
 second answers the question anyone actually has.
+
+## A COMPLIANCE CLAIM IN A FILE HEADER, answering the wrong clause
+
+The sharpest architectural finding of this run, and the most dangerous kind of
+wrong comment: one that asserts a design property has been satisfied.
+
+`packages/model/src/entities/issue.ts` declares `IssueWireCore` — the R4 wire
+projection — carrying `prefix`, `displayRef`, `blockedBy`, `deps`, `dependents`
+and `blocked`. Its header states, of the derived members:
+
+    "computed server-side at serialization, never stored — D7's derivation
+     locality, already satisfied"
+
+Verified here: the claim is in the header and every field it covers is on the
+projection. AND THE CLAIM IS WRONG — not because the facts are wrong, but because
+it ANSWERS THE WRONG CLAUSE. "Never stored" is a D6 property (storage encoding).
+D7.2 is derivation locality: no code on the write, publish or fan-out path may
+perform work O(number of entities) per change. Computing at serialization IS
+fan-out-path work. The two properties are independent and the header treats one
+as evidence of the other.
+
+The consequences are concrete, not theoretical:
+
+  - `prefix` sits on EVERY issue's wire. Changing one repo's prefix is a change to
+    entity `repo` that invalidates the wire of every issue in that repo — O(issues)
+    on the fan-out path from a one-row edit. Structurally identical to the embedded
+    `SessionMeta[]` that D7 was written to make unrepresentable.
+  - `blocked` derives from the state of the issues an issue depends on, so closing
+    issue A makes `blocked` stale on everything depending on A — recomputing
+    projections of OTHER entities from a change to A, which D7.2 forbids.
+
+WHY A FALSE COMPLIANCE CLAIM IS WORSE THAN NO COMMENT: an absent claim invites a
+reader to check. A present one — citing the right ADR, in the right file, in
+confident terms — STOPS the check. It is the documentation form of a gate that
+cannot say NO, and it survived multiple readings of this file by multiple agents
+during this run, including mine.
+
+THE TEST: when a comment asserts compliance with a numbered clause, READ THE
+CLAUSE, not the comment. Then check that the property the comment demonstrates is
+the property the clause requires. "Never stored" and "not O(world)" are both true
+statements about this code and only one of them is what D7.2 asks.
+
+## The right answer for the wrong reason will mis-handle the next case
+
+POD-1246's care in separating WHY `issueDep` becomes first-class from THAT it does,
+and it is the difference between a decision and a precedent.
+
+The easy route is the epic's own slogan: a kind on the change feed is an entity, so
+integration's wire-shape-without-an-entity is the defined-but-unused half-state
+Move 1 exists to end. That reaches the right answer.
+
+It is the wrong reason. D7.1 does NOT forbid integration's embedded
+`deps: [{id, type}]` — that is reference-by-branded-id, which D7.1 explicitly
+PERMITS; it is entity-in-entity NESTING that is forbidden. The edge must become an
+entity because `blocked` has to move to the replica under D7.3, and A REPLICA CAN
+ONLY JOIN OVER EDGES IT HAS BEEN SENT. So `issueDep` is the ENABLER of D7.3
+compliance, not itself a D7.1 violation.
+
+In POD-1246's words: anyone re-deriving this from "a kind on the feed is an entity"
+reaches the right answer for the wrong reason AND WILL MIS-HANDLE THE NEXT EDGE
+TYPE — because the slogan makes every feed kind an entity, while the actual rule
+makes an edge an entity only when a replica-side join needs it.
+
+A decision recorded with the wrong justification is a precedent that misfires. The
+justification is the reusable part; the answer is not.
