@@ -295,6 +295,7 @@ export function HeaderHostIndicators(): JSX.Element {
           </HealthPopover>
         )
       })}
+      <OutboxRecoveryIndicator compact />
       <QuotaIndicator header />
       {info && (
         <HostInfoView
