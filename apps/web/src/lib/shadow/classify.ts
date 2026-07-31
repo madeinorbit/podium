@@ -156,6 +156,24 @@ export function classifySample(input: ClassifyInput): ShadowSample {
 }
 
 /**
+ * Store bookkeeping, excluded from the digest on BOTH sides.
+ *
+ * FOUND BY THE HARNESS, not reasoned about in advance: the first two-connection
+ * run reported `content-drift` on a row both paths held identically, because the
+ * legacy row carried TanStack's `$collectionId` / `$key` / `$origin` / `$synced`
+ * alongside the wire fields — and `$collectionId` embeds a per-instance nonce,
+ * so it can NEVER agree. Including them would have made every row diverge, which
+ * is as useless a comparison as one that passes on everything.
+ *
+ * The exclusion is by PREFIX and symmetric. Symmetric matters: a filter applied
+ * to one side only could manufacture agreement in one direction. No authority
+ * row has a `$`-prefixed field — these are storage-layer bookkeeping, the same
+ * category as the provenance §2.1 already excludes — so nothing the Authority
+ * can say is being dropped here.
+ */
+const STORE_BOOKKEEPING_PREFIX = '$'
+
+/**
  * A stable content digest.
  *
  * Object keys are emitted in sorted order at every level, because two paths that
@@ -174,6 +192,7 @@ function canonical(value: unknown): string {
   const record = value as Record<string, unknown>
   const parts: string[] = []
   for (const key of Object.keys(record).sort()) {
+    if (key.startsWith(STORE_BOOKKEEPING_PREFIX)) continue
     // An absent field and a field explicitly set to `undefined` are the same
     // row; JSON.stringify already drops the latter, so this matches it.
     if (record[key] === undefined) continue

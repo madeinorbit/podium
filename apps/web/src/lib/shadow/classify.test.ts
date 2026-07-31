@@ -139,6 +139,26 @@ describe('the content digest', () => {
     expect(contentDigest({ a: { b: 1 } })).not.toBe(contentDigest({ a: { b: '1' } }))
   })
 
+  it('excludes store bookkeeping — the legacy row carries TanStack `$` fields', () => {
+    // The first live two-connection run reported content-drift on every row for
+    // exactly this reason: `$collectionId` embeds a per-instance nonce, so it
+    // can never agree between two replicas.
+    expect(
+      contentDigest({
+        sessionId: 's1',
+        name: 'One',
+        $collectionId: 'podium.shadow-legacy.sessions#4',
+        $key: 's1',
+        $origin: 'local',
+        $synced: false,
+      }),
+    ).toBe(contentDigest({ sessionId: 's1', name: 'One' }))
+    // …and it does NOT swallow a real difference beside them.
+    expect(contentDigest({ sessionId: 's1', name: 'One', $key: 's1' })).not.toBe(
+      contentDigest({ sessionId: 's1', name: 'Two' }),
+    )
+  })
+
   it('treats an absent field and an explicitly undefined one as the same row', () => {
     expect(contentDigest({ a: 1, b: undefined })).toBe(contentDigest({ a: 1 }))
   })
