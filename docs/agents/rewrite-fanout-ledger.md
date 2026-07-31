@@ -2976,3 +2976,45 @@ about the tree" failure POD-1228 named. The implementer raised it, my restatemen
 crossed with their reply, and I restated it a second time. An instruction from
 the coordinator is not evidence; when the tree contradicts it, the tree wins, and
 stopping to say so is the correct move — POD-376 did the same thing over `evict`.
+
+## A BOOLEAN where the domain has eight states — the dead-letter that came back as work
+
+POD-1220 predicted this shape before it started ("the count and the property are
+different claims") and then found it LIVE in already-merged code, which is the
+best possible outcome for a prediction.
+
+`createKernelOutboxStorage` split its two homes on a boolean: accepted, or else
+queued. ADR D9 has EIGHT states. Entries the attribution gate REFUSED are parked
+as dead-letter with the payload redacted — and "else queued" put every one of
+them back through `queued.load()` as drainable work.
+
+The consequence is the worst in this run. The engine would have replayed, under
+the CURRENT user's name, the mutations the gate had just declined to attribute to
+them, each carrying a null input. The gate would have had a caller, a passing
+audit, and no effect — and `unattributed-store-read` would have read 4.
+
+THE RULE: an `else` branch is a claim that the domain has exactly two states.
+When the type says otherwise, the fallback silently absorbs every state nobody
+enumerated, and it absorbs them into the MOST ACTIVE one, because the happy path
+is what people write in the `else`. Enumerate and return a third value —
+`'queued' | 'awaiting' | 'neither'` — so the unhandled states are visibly
+unhandled. Pair it with "no view may delete rows it cannot see", or a partial
+view becomes a deletion.
+
+It was found because THE REFUSAL CASES WERE WRITTEN TO FAIL FIRST AND DID. Not by
+review, not by the audit that was built for exactly this property: by a test
+written before the code, on the arm that refuses.
+
+Two more from the same handoff:
+
+  - A TRIPWIRE THAT COULD NOT FAIL, again: `const extra: Extra[] = []` is
+    satisfied by an empty array whatever `Extra` is, so the mutant adding a
+    REQUIRED field fired only on an unrelated fixture line and the OPTIONAL-field
+    variant would have sailed through entirely. A type constraint, not a typed
+    empty literal.
+  - A MANUAL CHECK THAT COULD NOT FAIL. The device smoke told a human to run
+    `select distinct principal from entities`, which on this design returns
+    NOTHING no matter what, because entities are not in SQLite at all. An empty
+    result read as a pass, in a human procedure where nobody would think to
+    question it. Human checklists need the yes-first rule as much as code does —
+    arguably more, because a person cannot mutate the product to test their step.
