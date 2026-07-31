@@ -25,7 +25,9 @@
   "dependencies": {
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "@podium/runtime": "workspace:*",
+    "@podium/runtime": "workspace:*"
+  },
+  "optionalDependencies": {
     "node-pty": "^1.0.0"
   },
   "scripts": {

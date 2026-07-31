@@ -339,11 +339,13 @@
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
-        "node-pty": "^1.0.0",
       },
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+      },
+      "optionalDependencies": {
+        "node-pty": "^1.0.0",
       },
     },
     "packages/runtime": {
@@ -481,10 +483,12 @@
         "@podium/pty": "workspace:*",
         "@types/node": "^25.9.1",
         "@types/react": "^19.0.0",
-        "node-pty": "^1.0.0",
         "tsx": "^4.22.4",
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
+      },
+      "optionalDependencies": {
+        "node-pty": "^1.0.0",
       },
     },
     "tooling/tsconfig": {
