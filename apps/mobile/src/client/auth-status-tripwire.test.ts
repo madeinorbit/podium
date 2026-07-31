@@ -31,33 +31,53 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { AuthStatus } from './auth'
+import { type AuthStatus, fetchAuthStatus } from './auth'
 
 /** Every field {@link AuthStatus} is allowed to have while `single-account` is a
  *  true statement about this client. Neither name is an identity. */
 const NON_IDENTITY_FIELDS = ['needsAuth', 'authed'] as const
 
+/**
+ * A type-level refusal.
+ *
+ * The obvious probe — `const extra: Extra[] = []` — CANNOT FAIL: an empty array
+ * satisfies every element type, so it stays green with `Extra = 'userId'`. A
+ * CONSTRAINT is what refuses: `AssertNever<'userId'>` does not satisfy `extends
+ * never` and the compiler says so, and it fires for an OPTIONAL field too, which
+ * the array probe would also have missed.
+ */
+type AssertNever<T extends never> = T
+
+/** No field beyond the shared-password pair. Fails to compile the day one appears. */
+type _NoExtraFields = AssertNever<Exclude<keyof AuthStatus, (typeof NON_IDENTITY_FIELDS)[number]>>
+/** And the mirror direction: this list must not name a field that has been removed. */
+type _NoMissingFields = AssertNever<Exclude<(typeof NON_IDENTITY_FIELDS)[number], keyof AuthStatus>>
+
 describe('the single-account evidence arm still has a true precondition', () => {
   it('AuthStatus declares NO field beyond the shared-password pair', () => {
-    // A compile-time probe: the day `AuthStatus` gains a member, `Extra` stops being
-    // `never` and this assignment is a TYPE error — caught by `bun run typecheck`
-    // before the runtime assertion below ever runs.
-    type Extra = Exclude<keyof AuthStatus, (typeof NON_IDENTITY_FIELDS)[number]>
-    const noExtraFields: Extra[] = []
-    expect(noExtraFields).toEqual([])
-
-    // And the mirror direction: a field REMOVED from AuthStatus must not leave this
-    // list silently naming something that no longer exists.
-    type Missing = Exclude<(typeof NON_IDENTITY_FIELDS)[number], keyof AuthStatus>
-    const noMissingFields: Missing[] = []
-    expect(noMissingFields).toEqual([])
+    // The assertion is the two type aliases above, which `bun run typecheck` grades
+    // before this file is ever executed. This case exists so the requirement is
+    // NAMED in the test report rather than living only in a type nobody lists.
+    const declared: (keyof AuthStatus)[] = [...NON_IDENTITY_FIELDS]
+    expect(declared).toHaveLength(NON_IDENTITY_FIELDS.length)
   })
 
-  it('a parsed AuthStatus carries no identity at runtime either', () => {
-    // Shaped exactly as `fetchAuthStatus` returns it. If the parser starts carrying
-    // a principal through, the key set moves and this fails even though the
-    // interface above may not have been updated yet.
-    const parsed: AuthStatus = { needsAuth: true, authed: true }
-    expect(Object.keys(parsed).sort()).toEqual([...NON_IDENTITY_FIELDS].sort())
+  it('the PARSER carries no identity through either, whatever the server sends', () => {
+    // The type probe cannot see a field the server sends that the interface has not
+    // declared. This drives the real `fetchAuthStatus` against a response that DOES
+    // carry an identity and requires it to be dropped — so widening the parser
+    // before widening the evidence arm is caught here rather than on a device.
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ needsAuth: true, authed: true, userId: 'alice' }), {
+        headers: { 'content-type': 'application/json' },
+      })) as typeof globalThis.fetch
+    try {
+      return fetchAuthStatus('http://example.invalid').then((status) => {
+        expect(Object.keys(status).sort()).toEqual([...NON_IDENTITY_FIELDS].sort())
+      })
+    } finally {
+      globalThis.fetch = original
+    }
   })
 })
