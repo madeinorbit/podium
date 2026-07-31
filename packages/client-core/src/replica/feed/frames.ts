@@ -33,20 +33,25 @@
 
 import type {
   FeedBootstrapMessage,
+  FeedChangeRow,
   FeedDeltaMessage,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
 } from '@podium/protocol'
-import type { BootstrapChunk, ChangeEnvelope, ChangeOp, ServerFrame } from '@podium/sync/replica'
+import type { BootstrapChunk, ChangeEnvelope, ServerFrame } from '@podium/sync/replica'
 
-/** One row of either frame family. Structural, so bootstrap and delta share it. */
-interface WireChange {
-  readonly seq: number
-  readonly entity: string
-  readonly entityId: string
-  readonly op: ChangeOp
-  readonly value?: unknown
-}
+/**
+ * One row of either frame family — the PROTOCOL's own row type, not a structural
+ * restatement of it.
+ *
+ * The first draft declared a local `interface WireChange { seq; entity; entityId;
+ * op; value? }`, which `rearch-audit`'s `change-row-typings` item counted as a
+ * hand-restated change-row field list, correctly. `FeedChangeRow` is the row the
+ * frames and the catch-up reply both carry, composed in `messages/feed.ts` from
+ * the model's change field schemas, so this mapper cannot drift from the wire it
+ * is mapping.
+ */
+type WireChange = FeedChangeRow
 
 /**
  * One change row.

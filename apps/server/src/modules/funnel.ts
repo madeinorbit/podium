@@ -1,4 +1,9 @@
-import type { MetadataChange } from '@podium/protocol'
+import type {
+  FeedChangesSinceReply,
+  FeedCursorField,
+  MetadataChange,
+} from '@podium/protocol'
+import { toFeedChange } from '../gateway/feed-serving'
 import {
   DEVICE_GRADE_PRINCIPAL,
   type AuthorityPort,
@@ -201,21 +206,7 @@ export class WriteFunnel {
    * different number lines. The replica's own rung 4 would catch it on the next
    * frame; catching it here means the wrong answer is never produced.
    */
-  feedChangesSince(cursor: { feedId: string; epoch: string; seq: number } | null): {
-    kind: 'delta'
-    feedId: string
-    epoch: string
-    fromSeq: number
-    seq: number
-    minAvailableSeq: number
-    changes: {
-      seq: number
-      entity: string
-      entityId: string
-      op: 'upsert' | 'remove' | 'evict'
-      value?: unknown
-    }[]
-  } | { kind: 'bootstrap-required'; reason: string } {
+  feedChangesSince(cursor: FeedCursorField | null): FeedChangesSinceReply {
     const identity = this.deps.serving.identity()
     if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
       return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
@@ -236,34 +227,16 @@ export class WriteFunnel {
       fromSeq: from ?? 0,
       seq: delivery.throughSeq,
       minAvailableSeq: this.deps.serving.retentionFloor(),
-      // THE v2 ROW SHAPE, DERIVED FROM `ScopedChange` — NOT `toBusChange`.
+      // NOT `toBusChange`, and this cost a live-server debugging session: that
+      // helper produces the v1 `MetadataChange`, whose target field is `id`. The
+      // v2 row's is `entityId`, so every healed row reached the replica with
+      // `entityId: undefined` and installed as `issue:undefined` — silent
+      // corruption on the RARE path (rung 1), invisible to any test exercising
+      // only the push path. `toBusChange` stays where it belongs, on the v1 pipe.
       //
-      // Measured against a live server rather than reasoned about: the first
-      // draft reused `toBusChange`, which produces the v1 `MetadataChange` whose
-      // target field is `id`. The v2 row's is `entityId`, so every healed row
-      // reached the replica with `entityId: undefined` and installed as
-      // `issue:undefined` — a silent corruption on the RARE path (rung 1 heal),
-      // invisible to any test that only exercised the push path. `toBusChange`
-      // stays where it belongs, on the v1 pipe.
-      //
-      // `evict` is expressible here and carries no value, which is the other
-      // reason this cannot borrow the v1 mapping: v1 has no such op.
-      changes: delivery.changes.map((change) =>
-        change.op === 'upsert'
-          ? {
-              seq: change.seq,
-              entity: change.entity,
-              entityId: change.entityId,
-              op: 'upsert' as const,
-              value: change.value,
-            }
-          : {
-              seq: change.seq,
-              entity: change.entity,
-              entityId: change.entityId,
-              op: change.op,
-            },
-      ),
+      // The mapping itself is `toFeedChange`, shared with the bootstrap the
+      // serving edge builds, so a catch-up row and a pushed row cannot differ.
+      changes: delivery.changes.map(toFeedChange),
     }
   }
 

@@ -27,7 +27,7 @@ export {
 export {
   FeedAuthorityClient,
   type FeedAuthorityClientDeps,
-  type FeedChangesSinceReply,
+  type FeedChangesSinceReplyLenient,
 } from './authority-client'
 export { toBootstrapChunk, toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
 export {

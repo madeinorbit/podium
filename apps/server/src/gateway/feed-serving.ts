@@ -66,6 +66,7 @@
 import type { ConversationDiagnosticWire } from '@podium/model'
 import type {
   FeedBootstrapMessage,
+  FeedChange,
   FeedDeltaMessage,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
@@ -384,15 +385,21 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
 /**
  * A bootstrap row, in the wire's spelling.
  *
+ * SHARED WITH THE CATCH-UP READ (POD-376). `WriteFunnel.feedChangesSince` maps
+ * its rows through this same function, so a row served over HTTP and the same row
+ * pushed as a frame cannot differ — which is not hypothetical: the first draft of
+ * that read used the V1 mapper and shipped every healed row with an undefined
+ * target id.
+ *
  * BOTH SIDES DERIVED, never restated: the input is the kernel's `ScopedChange`
  * and the output is one element of the frame's own `changes` array. A hand-written
  * field list here would be a third definition of a change row — invisible to
  * every golden fixture, because a restatement is byte-identical on the wire — and
  * `rearch-audit`'s `change-row-typings` item counts exactly that mistake.
  */
-function toFeedChange(change: ScopedChange): FeedBootstrapMessage['changes'][number] {
+export function toFeedChange(change: ScopedChange): FeedChange {
   const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
   return (
     change.op === 'upsert' ? { ...base, op: 'upsert', value: change.value } : { ...base, op: change.op }
-  ) as FeedBootstrapMessage['changes'][number]
+  ) as FeedChange
 }

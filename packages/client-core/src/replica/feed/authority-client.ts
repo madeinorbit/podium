@@ -19,6 +19,7 @@
  * count. Retrying here would make two ladders — one of which nothing observes.
  */
 
+import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import type {
   AuthorityReadPort,
   BootstrapChunk,
@@ -27,29 +28,25 @@ import type {
 } from '@podium/sync/replica'
 import type { PushedBootstrapSource } from './bootstrap-source'
 
-/** The wire answer to `sync.feedChangesSince`, structurally. Declared rather than
- *  imported from the server's router type so this package keeps no edge to it. */
-export type FeedChangesSinceReply =
-  | {
-      readonly kind: 'delta'
-      readonly feedId: string
-      readonly epoch: string
-      readonly fromSeq: number
-      readonly seq: number
-      readonly minAvailableSeq: number
-      readonly changes: readonly {
-        readonly seq: number
-        readonly entity: string
-        readonly entityId: string
-        readonly op: 'upsert' | 'remove' | 'evict'
-        readonly value?: unknown
-      }[]
-    }
-  | { readonly kind: 'bootstrap-required'; readonly reason?: string }
+/**
+ * The wire answer to `sync.feedChangesSince`.
+ *
+ * RE-EXPORTED FROM THE PROTOCOL, not restated here. The first draft declared it
+ * structurally to keep this package free of an edge to the server — but the
+ * server is not where it lived: it is a WIRE shape, so it belongs in
+ * `@podium/protocol` beside the frames whose rows it shares, and both ends
+ * compose it. Declaring it here was one of three hand-restated change-row field
+ * lists `rearch-audit` counted, and the copies had already drifted.
+ *
+ * The LENIENT variant, because this is the consuming end: ADR 2 D4 requires a
+ * replica to advance past an entity kind it does not know rather than quarantine
+ * it into an invisible permanent gap.
+ */
+export type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 
 export interface FeedAuthorityClientDeps {
   /** Bound to the `sync.feedChangesSince` tRPC query. */
-  fetchChangesSince(cursor: Cursor): Promise<FeedChangesSinceReply>
+  fetchChangesSince(cursor: Cursor): Promise<FeedChangesSinceReplyLenient>
   readonly bootstraps: PushedBootstrapSource
 }
 
