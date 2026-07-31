@@ -283,7 +283,7 @@ const resolveMobileCommand = (kind: string): OutboxCommand | undefined =>
  * its queued work in exactly that key and nowhere else, so hydrating the default
  * prefix alone would make the migration read an empty store and report success.
  */
-const LEGACY_HYDRATE_PREFIXES = [REPLICA_KEY_PREFIX, LEGACY_STANDALONE_OUTBOX_KEY] as const
+export const LEGACY_HYDRATE_PREFIXES = [REPLICA_KEY_PREFIX, LEGACY_STANDALONE_OUTBOX_KEY] as const
 
 export interface MobileReplicaDeps {
   /** The SQLite engine. Injected so a test drives a real file-backed database. */

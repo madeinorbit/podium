@@ -18,10 +18,10 @@
  * outbox is the only family the gate governs on mobile — so a wiring that ran the
  * gate and then ignored its verdict would still make the audit count drop, still
  * migrate, still report `adopted=N`, and still be a privacy hole. The mutation that
- * proves otherwise is `expectDrainable` under each refusing evidence arm: flip ONLY
- * the evidence, and the user's queued work must stop being drainable.
+ * proves otherwise is the refusal cases below: flip ONLY the evidence, and the user's
+ * queued work must stop being drainable.
  *
- * AND WHY `expectDrainable` READS THROUGH `outboxStorage()` RATHER THAN THE TABLE. A
+ * AND WHY THEY READ THROUGH `outboxStorage()` RATHER THAN THE TABLE. A
  * parked entry is still a ROW — dead-lettered, payload redacted, deliberately kept so
  * POD-316 can tell the user work was lost. Asserting the table is empty would fail on
  * correct behaviour; asserting the table is non-empty would pass on the hole. What
@@ -32,11 +32,14 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { StorageApi } from '@podium/client-core/replica'
-import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
+import { REPLICA_KEY_PREFIX, type StorageApi } from '@podium/client-core/replica'
+import {
+  LEGACY_STANDALONE_OUTBOX_KEY,
+  type LegacyIdentityEvidence,
+} from '@podium/sync/adapters/legacy-replica'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openMobileReplica } from './MobileClientProvider'
+import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
 
 // ---------------------------------------------------------------------------
 // A REAL ENGINE, OR NOTHING
@@ -331,6 +334,39 @@ describe('the mobile replica composition root', () => {
     const hydrated = await replica.hydrate()
     expect(hydrated.sessions).toEqual([])
     expect(hydrated.cursor).toBeNull()
+  })
+
+  it('carries the PRE-replica standalone outbox when the bridge hydrated it', async () => {
+    const file = freshDatabaseFile()
+    const device = legacyDevice({
+      [LEGACY_STANDALONE_OUTBOX_KEY]: JSON.stringify([QUEUED_RENAME]),
+    })
+
+    const { replica, outcome } = await open({ file, storage: device })
+
+    expect(outcome.adopted).toBe(1)
+    expect(
+      replica
+        .outboxStorage()
+        .load()
+        .map((e) => e.mutationId),
+    ).toEqual(['m-rename'])
+  })
+
+  it('and the bridge is TOLD to hydrate it — it is outside the default prefix', () => {
+    // Stated as a constant rather than a behaviour, and the limitation is named
+    // rather than dressed up: the only consumer of this list is `LiveProvider`'s
+    // effect, which needs React and the native module and so cannot run in this
+    // lane. What the case above proves is that the key MATTERS; what this one
+    // proves is that the root asks for it.
+    //
+    // `podium.outbox.v1` does not start with `podium.replica`, so
+    // `createAsyncStorageReplicaStorage`'s default prefix hydrates a snapshot with
+    // no trace of it — and the migration then honestly reports nothing to do. The
+    // device this strands upgraded straight from a build older than the replica
+    // collections, so this key is the ONLY place its queued work lives.
+    expect(LEGACY_HYDRATE_PREFIXES).toContain(LEGACY_STANDALONE_OUTBOX_KEY)
+    expect(LEGACY_HYDRATE_PREFIXES).toContain(REPLICA_KEY_PREFIX)
   })
 
   it('a device with nothing to migrate is not a migration', async () => {
