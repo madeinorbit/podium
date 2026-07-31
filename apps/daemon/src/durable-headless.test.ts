@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { abducoHasSessionAsync, isAbducoAvailable, killAbducoSession } from '@podium/pty'
+import { abducoHasSession, isAbducoAvailable, killAbducoSession } from '@podium/pty'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   acknowledgeDurableHeadlessTurn,
@@ -108,10 +108,10 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
         cursor: () => 'cursor-agent',
       })
       for (let attempt = 0; attempt < 100; attempt++) {
-        if (await abducoHasSessionAsync(label)) break
+        if (await abducoHasSession(label)) break
         await new Promise((resolve) => setTimeout(resolve, 20))
       }
-      expect(await abducoHasSessionAsync(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
       first.dispose?.()
 
       const reattached = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, {
@@ -121,7 +121,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       // Poll rather than one-shot: reattach latency varies under load.
       let stillAlive = false
       for (let attempt = 0; attempt < 100; attempt++) {
-        stillAlive = await abducoHasSessionAsync(label)
+        stillAlive = await abducoHasSession(label)
         if (stillAlive) break
         await new Promise((resolve) => setTimeout(resolve, 20))
       }
@@ -133,7 +133,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       // socket as a failed turn. Wait for the abduco session to actually end
       // instead of a fixed sleep.
       for (let attempt = 0; attempt < 300; attempt++) {
-        if (!(await abducoHasSessionAsync(label))) break
+        if (!(await abducoHasSession(label))) break
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
       await new Promise((resolve) => setTimeout(resolve, 200))
@@ -147,7 +147,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       })
       acknowledgeDurableHeadlessTurn(turnId)
     } finally {
-      killAbducoSession(label)
+      await killAbducoSession(label)
       process.env.PATH = previous.PATH
       if (previous.PODIUM_STATE_DIR === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = previous.PODIUM_STATE_DIR

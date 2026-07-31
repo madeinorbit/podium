@@ -700,7 +700,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
 
-  const disposeAll = (reapSessions = false): void => {
+  const disposeAll = async (reapSessions = false): Promise<void> => {
     discoveryLoop.stop()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
@@ -713,12 +713,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
     // unless the caller explicitly asked for a full reap (test harness teardown).
+    const durableReaps: Promise<unknown>[] = []
     for (const [sessionId, session] of ctx.bridges) {
       session.dispose()
       if (reapSessions && backend !== 'none') {
         const durableLabel = ctx.durableLabels.get(sessionId) ?? ctx.durableLabelFor(sessionId)
-        killAbducoSession(durableLabel)
-        killTmuxServer(durableLabel)
+        durableReaps.push(
+          Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)]),
+        )
       }
     }
     ctx.bridges.clear()
@@ -730,6 +732,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     ctx.runningHeadlessTurns.clear()
     observers.disposeObservers()
     composerEngine.disposeAll()
+    await Promise.all(durableReaps)
   }
 
   const handle: DaemonHandle = {
@@ -745,8 +748,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       observers.stopAllTails()
       await ingest.close()
       await agentRelay.close()
+      await disposeAll(closeOpts?.reapSessions ?? false)
       return new Promise<void>((resolve) => {
-        disposeAll(closeOpts?.reapSessions ?? false)
         detachLocalLink?.()
         const w = currentWs
         if (!w || w.readyState === WebSocket.CLOSED) {
@@ -881,7 +884,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // daemon is down and what to do, instead of a bare "down".
       recordConnectivity({ state: 'blocked', blockedReason: `${type}: ${reason}` })
       closing = true
-      disposeAll()
+        void disposeAll()
       // A terminally-blocked daemon must not keep its loopback servers holding the
       // process (and a test's event loop) alive — handle.close() will never run.
       void ingest.close().catch(() => {})
@@ -900,7 +903,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       w.once('open', () => {
         reconnectBackoffMs = RECONNECT_MIN_MS // healthy connect resets the backoff
         if (!sendHandshake(w)) {
-          disposeAll()
+          void disposeAll()
           reject(new Error('daemon has no token and no pair code; pair it first'))
           w.close()
         }
@@ -916,7 +919,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         } catch {
           // The server's first frame wasn't a valid handshake reply — refuse rather
           // than silently proceed unauthenticated.
-          disposeAll()
+          void disposeAll()
           reject(new Error('daemon handshake failed: malformed reply'))
           w.close()
           return

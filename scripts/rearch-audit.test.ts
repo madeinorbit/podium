@@ -866,6 +866,10 @@ describe('against the live repo', () => {
       // deletion. Asserted in 'per-user-singletons ERRORS when its control
       // stops matching' below.
       'per-user-singletons',
+      // POD-324 deleted all four exported sync/async durable-host pairs. The
+      // detector now proves its zero against both surviving source roots and a
+      // synthetic sync+async control pair, throwing if either anchor disappears.
+      'durable-host-sync-async-twins',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

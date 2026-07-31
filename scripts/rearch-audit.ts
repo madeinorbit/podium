@@ -978,6 +978,28 @@ export const CHECKS: AuditCheck[] = [
     unit: 'blocking function that has an async twin (X + XAsync)',
     collect: (ctx) => {
       const sites: AuditSite[] = []
+      const twinLines = (lines: string[]): Array<{ line: number; text: string }> => {
+        const asyncTwins = new Set<string>()
+        for (const line of lines) {
+          const m = line.match(/^export async function (\w+)Async\s*\(/)
+          if (m?.[1]) asyncTwins.add(m[1])
+        }
+        const twins: Array<{ line: number; text: string }> = []
+        for (const [idx, line] of lines.entries()) {
+          const m = line.match(/^export function (\w+)\s*\(/)
+          if (m?.[1] && asyncTwins.has(m[1])) twins.push({ line: idx + 1, text: line.trim() })
+        }
+        return twins
+      }
+      const control = twinLines([
+        'export function durableHostControl() {}',
+        'export async function durableHostControlAsync() {}',
+      ])
+      if (control.length !== 1)
+        throw new Error(
+          'durable-host-sync-async-twins: matcher no longer recognizes its sync/async control pair',
+        )
+      let durableHostFiles = 0
       for (const f of ctx.files) {
         // POD-396 moved the durable hosts (abduco.ts, tmux.ts) out of
         // agent-bridge into packages/pty. Both roots are listed rather than one
@@ -988,18 +1010,15 @@ export const CHECKS: AuditCheck[] = [
         const inDurableHostHome =
           f.file.startsWith('packages/pty/src/') || f.file.startsWith('packages/agent-bridge/src/')
         if (!inDurableHostHome || f.isTest) continue
-        const lines = f.stripped.split('\n')
-        const asyncTwins = new Set<string>()
-        for (const line of lines) {
-          const m = line.match(/^export async function (\w+)Async\s*\(/)
-          if (m?.[1]) asyncTwins.add(m[1])
-        }
-        for (const [idx, line] of lines.entries()) {
-          const m = line.match(/^export function (\w+)\s*\(/)
-          if (m?.[1] && asyncTwins.has(m[1]))
-            sites.push({ file: f.file, line: idx + 1, text: line.trim() })
+        durableHostFiles++
+        for (const twin of twinLines(f.stripped.split('\n'))) {
+          sites.push({ file: f.file, line: twin.line, text: twin.text })
         }
       }
+      if (durableHostFiles === 0)
+        throw new Error(
+          'durable-host-sync-async-twins: neither durable-host source root matched files; the zero is unmeasured',
+        )
       return sites
     },
   },

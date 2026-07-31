@@ -1,6 +1,17 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import { type AgentSession, abducoHasSessionAsync, attachAbducoAgent, attachTmuxAgent, killAbducoSessionAsync, killTmuxServerAsync, spawnAbducoAgent, spawnAgent, spawnTmuxAgent, tmuxHasSessionAsync } from '@podium/pty'
+import {
+  type AgentSession,
+  abducoHasSession,
+  attachAbducoAgent,
+  attachTmuxAgent,
+  killAbducoSession,
+  killTmuxServer,
+  spawnAbducoAgent,
+  spawnAgent,
+  spawnTmuxAgent,
+  tmuxHasSession,
+} from '@podium/pty'
 import { agentStateProviderFor, type LaunchFile } from '@podium/harness'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import type { AgentKind, SessionId } from '@podium/model'
@@ -134,8 +145,8 @@ export function wireBridge(
     // reaps the socket as it lists, so a just-exited master reads as gone.)
     const label = durableLabel
     void (async () => {
-      if (ctx.backend === 'abduco' && (await abducoHasSessionAsync(label))) return
-      if (ctx.backend === 'tmux' && (await tmuxHasSessionAsync(label))) return
+      if (ctx.backend === 'abduco' && (await abducoHasSession(label))) return
+      if (ctx.backend === 'tmux' && (await tmuxHasSession(label))) return
       // The agent has truly exited (master is gone). Uploads are one-shot prompt
       // inputs that were already consumed before the agent finished processing
       // them, so it's safe to remove the per-session upload dir on any real exit
@@ -149,7 +160,7 @@ export function wireBridge(
   })
 }
 
-function spawn(ctx: DaemonContext, msg: SpawnControl): void {
+async function spawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
@@ -222,9 +233,9 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
     }
     const session =
       ctx.backend === 'abduco'
-        ? spawnAbducoAgent(spawnOpts)
+        ? await spawnAbducoAgent(spawnOpts)
         : ctx.backend === 'tmux'
-          ? spawnTmuxAgent(spawnOpts)
+          ? await spawnTmuxAgent(spawnOpts)
           : spawnAgent(spawnOpts)
     wireBridge(ctx, msg.sessionId, session, msg.agentKind, label)
     // Stand up the agent-state tracker, harness observer, resume transcript tail
@@ -358,9 +369,9 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     let found: { session: AgentSession; cmd: string } | undefined
     // Backend-agnostic: try whichever durable host owns the label, so sessions
     // created under tmux before an abduco upgrade still reattach (no flag day).
-    if (ctx.backend !== 'none' && (await abducoHasSessionAsync(msg.durableLabel))) {
+    if (ctx.backend !== 'none' && (await abducoHasSession(msg.durableLabel))) {
       found = { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.durableLabel}` }
-    } else if (ctx.backend !== 'none' && (await tmuxHasSessionAsync(msg.durableLabel))) {
+    } else if (ctx.backend !== 'none' && (await tmuxHasSession(msg.durableLabel))) {
       found = { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
     }
     if (!found) {
@@ -430,16 +441,16 @@ export const sessionHandlers: Pick<
     // bridge (attachDaemon only re-binds 'reconnecting' sessions); if kill
     // skipped the reap there, hibernate/kill would leave the abduco/tmux
     // master (and its agent) running. Both reapers are cheap no-ops when the
-    // label isn't theirs. Async twins (audit P0-4): the sync reapers fork+exec
-    // `abduco`/`tmux` on the loop, and kills arrive in bursts (superagent,
-    // auto-hibernation) — serializing those would stall every other session.
+    // label isn't theirs. The async reapers keep burst kills (superagent,
+    // auto-hibernation) from stalling every other session.
     if (ctx.backend !== 'none') {
       const durableLabel =
         msg.durableLabel ??
         ctx.durableLabels.get(msg.sessionId) ??
         ctx.durableLabelFor(msg.sessionId)
-      void killAbducoSessionAsync(durableLabel)
-      void killTmuxServerAsync(durableLabel)
+      void (async () => {
+        await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+      })()
     }
     ctx.durableLabels.delete(msg.sessionId)
     removeSessionUploads(msg.sessionId)

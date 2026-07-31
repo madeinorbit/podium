@@ -5,7 +5,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { abducoHasSession, isAbducoAvailable, isTmuxAvailable, killAbducoSession, killTmuxServer, reapAbducoTestSessions, tmuxHasSession } from '@podium/pty'
+import {
+  abducoHasSession,
+  isAbducoAvailable,
+  isTmuxAvailable,
+  killAbducoSession,
+  killTmuxServer,
+  reapAbducoTestSessions,
+  tmuxHasSession,
+} from '@podium/pty'
 import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
 import type { DaemonHandshakeReply } from '@podium/protocol'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
@@ -36,14 +44,14 @@ function trackTmp(prefix: string): string {
   tmpDirs.push(dir)
   return dir
 }
-afterAll(() => {
+afterAll(async () => {
   // POD-107: the per-test killAbducoSession calls sit inside try/finally blocks
   // that a mid-phase assertion failure can bypass (ab-restart-seed's first phase
   // detaches WITHOUT killing by design). Sweep every label this file can create,
   // for this pid (this run, pass or fail) and for dead pids (crashed prior runs).
   // Before the tmp rm below: unlinking a socket dir orphans its master forever.
   if (isAbducoAvailable()) {
-    reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
+    await reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
   }
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
@@ -942,7 +950,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
 
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
@@ -983,10 +991,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // Closing the daemon only kills the attach client — the session survives.
       daemonClosed = true
       await daemon.close()
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
     } finally {
       if (!daemonClosed) await daemon.close()
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
@@ -1039,7 +1047,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
       received.length = 0
 
       // Kill ONLY the attach client, not the master (`abduco -n <label> …`). The
@@ -1070,10 +1078,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // Give a generous window for a (wrongful) agentExit to arrive over the open
       // channel, then assert the master is still alive and the daemon stayed silent.
       await new Promise((r) => setTimeout(r, 1000))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
       expect(received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId)).toBe(false)
     } finally {
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
     }
@@ -1139,13 +1147,13 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
     } finally {
       // Detach (do NOT reap) — the abduco master and its agent live on, idle.
       await daemonA.close()
       await new Promise<void>((r) => a.wss.close(() => r()))
     }
-    expect(abducoHasSession(label)).toBe(true)
+    expect(await abducoHasSession(label)).toBe(true)
 
     // Fresh daemon process: no leftover spawn handler to seed the tracker.
     const b = await startServer()
@@ -1179,7 +1187,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       expect(idleStates().at(-1)?.state.idle).toBeUndefined() // bare idle — no verdict invented
     } finally {
       await daemonB.close()
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await new Promise<void>((r) => b.wss.close(() => r()))
     }
   }, 20000)
@@ -1266,7 +1274,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       try {
         a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd, geometry: G })
         await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-        expect(abducoHasSession(label)).toBe(true)
+        expect(await abducoHasSession(label)).toBe(true)
       } finally {
         await daemonA.close()
         await new Promise<void>((r) => a.wss.close(() => r()))
@@ -1309,13 +1317,13 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         expect(items.some((i) => i.role === 'assistant')).toBe(true)
       } finally {
         await daemonB.close()
-        killAbducoSession(label)
+        await killAbducoSession(label)
         await new Promise<void>((r) => b.wss.close(() => r()))
       }
     } finally {
       if (prevHome === undefined) delete process.env.HOME
       else process.env.HOME = prevHome
-      killAbducoSession(label)
+      await killAbducoSession(label)
     }
   }, 20000)
 
@@ -1356,13 +1364,13 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         if (Date.now() - start > 5000) throw new Error('bind timed out')
         await new Promise((r) => setTimeout(r, 20))
       }
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
 
       await daemon.close({ reapSessions: true })
       await new Promise((r) => setTimeout(r, 300))
-      expect(abducoHasSession(label)).toBe(false)
+      expect(await abducoHasSession(label)).toBe(false)
     } finally {
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
@@ -1407,13 +1415,13 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
         if (Date.now() - start > 5000) throw new Error('bind timed out')
         await new Promise((r) => setTimeout(r, 20))
       }
-      expect(tmuxHasSession(label)).toBe(true)
+      expect(await tmuxHasSession(label)).toBe(true)
 
       // closing the daemon only detaches the tmux client — the agent server survives.
       await daemon.close()
-      expect(tmuxHasSession(label)).toBe(true)
+      expect(await tmuxHasSession(label)).toBe(true)
     } finally {
-      killTmuxServer(label)
+      await killTmuxServer(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   })
@@ -1460,7 +1468,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       // Spawn a session so a real podium-<id> tmux server exists.
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(tmuxHasSession(label)).toBe(true)
+      expect(await tmuxHasSession(label)).toBe(true)
 
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
@@ -1499,7 +1507,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       )
     } finally {
       await daemon.close()
-      killTmuxServer(label)
+      await killTmuxServer(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   })

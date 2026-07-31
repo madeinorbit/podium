@@ -11,7 +11,14 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { type AgentSession, abducoHasSessionAsync, attachAbducoAgent, killAbducoSession, shellQuote, spawnAbducoAgent } from '@podium/pty'
+import {
+  type AgentSession,
+  abducoHasSession,
+  attachAbducoAgent,
+  killAbducoSession,
+  shellQuote,
+  spawnAbducoAgent,
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import type { HarnessBins } from './harness-exec.js'
 import {
@@ -370,7 +377,7 @@ export function runDurableHeadlessTurn(
       // its journal before deciding that a vanished abduco socket is a failure.
       collect()
       if (settled || disposed) return
-      if (await abducoHasSessionAsync(label)) {
+      if (await abducoHasSession(label)) {
         attachment = attachAbducoAgent({ label, cols: 120, rows: 40 })
       } else if (existsSync(paths.running)) {
         // Close the race where the process writes its exit journal between the
@@ -385,7 +392,7 @@ export function runDurableHeadlessTurn(
         return
       } else {
         emit({ kind: 'status', status: 'starting' })
-        attachment = spawnAbducoAgent({
+        attachment = await spawnAbducoAgent({
           label,
           cmd: '/bin/sh',
           args: [paths.script],
@@ -416,7 +423,9 @@ export function runDurableHeadlessTurn(
   const createdAt = Number.parseInt(readFileSync(paths.createdAt, 'utf8'), 10)
   const remaining = Math.max(1, (spec.timeoutMs ?? 600_000) - (Date.now() - createdAt))
   timeout = setTimeout(() => {
-    killAbducoSession(label)
+    void (async () => {
+      await killAbducoSession(label)
+    })()
     finish({
       ok: false,
       error: 'turn timed out',
@@ -429,7 +438,9 @@ export function runDurableHeadlessTurn(
     turnId,
     done,
     interrupt() {
-      killAbducoSession(label)
+      void (async () => {
+        await killAbducoSession(label)
+      })()
       finish({
         ok: false,
         error: 'turn interrupted',

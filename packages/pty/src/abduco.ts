@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawnSync } from 'node:child_process'
+import { execFile, spawn, spawnSync, type SpawnOptions } from 'node:child_process'
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -96,16 +96,15 @@ export function scopeReclaimArgvs(unit: string): string[][] {
 /**
  * Free a stale scope squatting this label's unit name so the master can be (re)created
  * in its OWN scope. Guarded on there being NO live master for the label — we only ever
- * clear a zombie scope held open by orphaned grandchildren, never a live agent. Sync to
- * match {@link spawnAbducoAgent}; runs only on the (re)spawn path, not per frame.
+ * clear a zombie scope held open by orphaned grandchildren, never a live agent. Runs
+ * only on the (re)spawn path, not per frame.
  * Best-effort: a missing unit or absent systemd just makes the commands no-ops.
  */
-function reclaimStaleScope(label: string): void {
-  if (abducoHasSession(label)) return
+async function reclaimStaleScope(label: string): Promise<void> {
+  if (await abducoHasSession(label)) return
   for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
     try {
-      spawnSync('systemctl', args, {
-        stdio: 'ignore',
+      await execFileAsync('systemctl', args, {
         timeout: 8000,
         env: scopeEnv(liveEnv()),
       })
@@ -214,33 +213,14 @@ function liveEnv(): NodeJS.ProcessEnv {
   return { ...process.env }
 }
 
-function listSessions(): AbducoSessionEntry[] {
-  // `abduco` with no args lists sessions; it also reaps stale sockets as a side
-  // effect. Exit status varies by version, so parse whatever it printed.
-  const bin = resolveAbducoBin()
-  if (!bin) return []
-  const res = spawnSync(bin, [], { encoding: 'utf8', env: liveEnv() })
-  return parseAbducoList(res.stdout ?? '')
-}
-
-export function abducoHasSession(label: string): boolean {
-  try {
-    return listSessions().some((s) => s.name === label && s.alive)
-  } catch {
-    return false
-  }
-}
-
 const execFileAsync = promisify(execFile)
 
 /**
- * Async twin of {@link listSessions}. The sync version does a blocking `spawnSync`
- * on the main thread; on the daemon's reattach path that runs once per session and,
- * for ~30 durable sessions, back-to-back `fork+exec` calls starve the event loop so
- * the server can't accept connections. This variant lets the caller `await` it,
- * keeping the loop responsive.
+ * `abduco` with no args lists sessions and reaps stale sockets as a side effect.
+ * Exit status varies by version, so parse whatever it printed, including stdout
+ * attached to a non-zero exit.
  */
-async function listSessionsAsync(): Promise<AbducoSessionEntry[]> {
+async function listSessions(): Promise<AbducoSessionEntry[]> {
   const bin = resolveAbducoBin()
   if (!bin) return []
   try {
@@ -254,36 +234,22 @@ async function listSessionsAsync(): Promise<AbducoSessionEntry[]> {
   }
 }
 
-/** Non-blocking {@link abducoHasSession}. Prefer this on hot paths (reattach). */
-export async function abducoHasSessionAsync(label: string): Promise<boolean> {
+/** Whether a live abduco master owns this label. */
+export async function abducoHasSession(label: string): Promise<boolean> {
   try {
-    return (await listSessionsAsync()).some((s) => s.name === label && s.alive)
+    return (await listSessions()).some((s) => s.name === label && s.alive)
   } catch {
     return false
   }
 }
 
-/** SIGTERM the session master — verified to take the app down and clean the socket. */
-export function killAbducoSession(label: string): void {
-  try {
-    const entry = listSessions().find((s) => s.name === label && s.alive)
-    if (entry) process.kill(entry.pid, 'SIGTERM')
-  } catch {
-    // already gone
-  }
-}
-
 /**
- * Non-blocking {@link killAbducoSession}. The sync version does a blocking
- * `spawnSync(abduco)` (which forks+execs and reaps sockets while listing) on the
- * daemon loop; the `kill` control-message handler is a per-session action that arrives
- * in bursts (superagent killing several agents, auto-hibernation), so serializing
- * those fork+execs starves every other session. Prefer this on that hot path — the
- * sync version stays fine for one-shot shutdown teardown (disposeAll).
+ * SIGTERM the session master and sweep its systemd scope. The async list/process
+ * path keeps burst kills from starving every other session on the daemon loop.
  */
-export async function killAbducoSessionAsync(label: string): Promise<void> {
+export async function killAbducoSession(label: string): Promise<void> {
   try {
-    const entry = (await listSessionsAsync()).find((s) => s.name === label && s.alive)
+    const entry = (await listSessions()).find((s) => s.name === label && s.alive)
     if (entry) process.kill(entry.pid, 'SIGTERM')
   } catch {
     // already gone
@@ -295,7 +261,7 @@ export async function killAbducoSessionAsync(label: string): Promise<void> {
   // archived session never gets. `systemctl stop` signals the whole cgroup and
   // escalates to SIGKILL on its stop timeout; reset-failed clears leftover unit
   // state. Unconditional: a dead master with squatting orphans still needs it.
-  await stopSessionScopeAsync(label)
+  await stopSessionScope(label)
 }
 
 /**
@@ -304,7 +270,7 @@ export async function killAbducoSessionAsync(label: string): Promise<void> {
  * no systemd, an unscoped spawn (fallback path), or an already-gone unit all
  * make these no-ops. tmux labels never had a scope, so it's a no-op there too.
  */
-export async function stopSessionScopeAsync(label: string): Promise<void> {
+export async function stopSessionScope(label: string): Promise<void> {
   for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
     try {
       await execFileAsync('systemctl', args, { env: scopeEnv(liveEnv()), timeout: 8000 })
@@ -325,11 +291,11 @@ export async function stopSessionScopeAsync(label: string): Promise<void> {
  * pass or fail — or no longer alive — a previous crashed run. Sessions of a
  * concurrent test process survive: their embedded pid is alive and not ours.
  */
-export function reapAbducoTestSessions(patterns: RegExp[]): string[] {
+export async function reapAbducoTestSessions(patterns: RegExp[]): Promise<string[]> {
   const reaped: string[] = []
   let sessions: AbducoSessionEntry[]
   try {
-    sessions = listSessions()
+    sessions = await listSessions()
   } catch {
     return reaped
   }
@@ -358,7 +324,7 @@ export function reapAbducoTestSessions(patterns: RegExp[]): string[] {
   // connects to every socket, and that wake is when the quit flag is processed.
   if (reaped.length > 0) {
     try {
-      listSessions()
+      await listSessions()
     } catch {
       // best-effort nudge
     }
@@ -431,9 +397,9 @@ export interface AbducoSpawnOptions {
 }
 
 /**
- * execFileSync, but with the child's stderr preserved in the thrown error.
+ * Awaited process creation with the child's stderr preserved in the thrown error.
  *
- * execFileSync only reports `Command failed: <argv>`; the actual diagnosis is on
+ * A bare child-process failure only reports the command; the actual diagnosis is on
  * the child's stderr, which `stdio: 'ignore'` threw away. That blindness is what
  * turned an abduco create failing with the one-line "create-session: File name
  * too long" into a session that produced no output and an e2e timeout 20s later
@@ -441,19 +407,22 @@ export interface AbducoSpawnOptions {
  * the inner abduco's exit status. [spec:SP-0be7]
  *
  * stderr is redirected to a FILE, never a pipe: abduco daemonizes the master,
- * which inherits this fd, and execFileSync waits for pipe EOF — a pipe would
+ * which inherits this fd, and waiting for pipe EOF would
  * block the create call until the whole agent session exited.
  */
-function execCreateSync(
-  file: string,
-  args: string[],
-  options: Parameters<typeof execFileSync>[2],
-): void {
+async function execCreate(file: string, args: string[], options: SpawnOptions): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-err-'))
   const errPath = join(dir, 'stderr')
   const fd = openSync(errPath, 'w')
   try {
-    execFileSync(file, args, { ...options, stdio: ['ignore', 'ignore', fd] })
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(file, args, { ...options, stdio: ['ignore', 'ignore', fd] })
+      child.once('error', reject)
+      child.once('exit', (code, signal) => {
+        if (code === 0) resolve()
+        else reject(new Error(`${file} exited ${code ?? `from ${signal ?? 'an unknown signal'}`}`))
+      })
+    })
   } catch (err) {
     let detail = ''
     try {
@@ -477,11 +446,11 @@ function execCreateSync(
  * the attach client immediately resizes to cols×rows (abduco sends the size and
  * SIGWINCHes the app group on attach).
  */
-export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
+export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentSession> {
   const bin = resolveAbducoBin()
   if (!bin) throw new Error('abduco unavailable: not installed and the vendored build failed')
   const createArgs = abducoCreateArgv(opts.label, opts.cmd, opts.args ?? [])
-  // stdio is execCreateSync's to set: it captures stderr so a create failure
+  // stdio is execCreate's to set: it captures stderr so a create failure
   // reports abduco's own diagnosis instead of a bare "Command failed".
   const execOpts = {
     cwd: opts.cwd ?? process.cwd(),
@@ -501,9 +470,9 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
     // fails ("unit already exists") and the master falls into the daemon's cgroup —
     // where the next redeploy kills it (see scopeReclaimArgvs). Guarded on no live
     // master, so we only ever clear a zombie scope held open by orphaned grandchildren.
-    reclaimStaleScope(opts.label)
+    await reclaimStaleScope(opts.label)
     try {
-      execCreateSync(
+      await execCreate(
         'systemd-run',
         systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs]),
         execOpts,
@@ -530,7 +499,7 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
       '[podium] no systemd user manager reachable (XDG_RUNTIME_DIR/linger missing?); durable sessions will NOT survive a podium restart — run `loginctl enable-linger <user>`',
     )
   }
-  execCreateSync(bin, createArgs, execOpts)
+  await execCreate(bin, createArgs, execOpts)
   return attachAbducoAgent({
     label: opts.label,
     cols: opts.cols,
