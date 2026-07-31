@@ -614,14 +614,43 @@ export const CHECKS: AuditCheck[] = [
     collect: (ctx) => danglingRegistryEntries(ctx.repoRoot),
   },
   {
-    // A RATCHET, not a regression guard: seven ride the tree today. They are
-    // INHERITED — 1.4 added none and blessed none (POD-367 §3.5) — and each one
-    // left behind is later a table migration PLUS a wire change PLUS a replica
-    // migration. Mapped to POD-1076, which owns the (userId, entityId) re-key,
-    // NOT to POD-302: POD-302 must not be able to close by laundering it.
+    // A RATCHET, not a regression guard: seven rode the tree when this was
+    // written. They are INHERITED — 1.4 added none and blessed none (POD-367
+    // §3.5) — and each one left behind is later a table migration PLUS a wire
+    // change PLUS a replica migration. Originally mapped to POD-1076, which
+    // owned the (userId, entityId) re-key, and deliberately NOT to POD-302,
+    // because POD-302 must not be able to close by laundering it.
+    //
+    // RE-PHASED POD-1076 -> POD-1229 by the POD-279 coordinator, with the
+    // reason recorded here because a re-phase is exactly the move that can
+    // launder debt:
+    //
+    // POD-1076 shipped its mechanical extraction and closed with TWO sites
+    // surviving — IssueAutoArchiveObservation.readAt and
+    // SessionAutoArchiveObservation.readAt. Those two are not residue of an
+    // incomplete re-key. They are OUT OF SCOPE for a mechanical re-key by
+    // construction, and both the source and the issue tracker said so BEFORE
+    // this gate existed: maintenance.ts's own docblock names POD-1136, and
+    // POD-1136's brief says "this is a policy call, not a mechanical re-key,
+    // which is why it is not part of POD-1076's mechanical extraction". The
+    // steward is a SYSTEM principal (ADR 9 D8 S5) with no human behind it, so
+    // "archive it because it was read" cannot be re-keyed — someone has to
+    // DECIDE read-by-whom.
+    //
+    // POD-423's Phase 1 exit gate found the conflict and refused to re-phase
+    // it itself, which was right: an exit gate that edits this mapping in
+    // order to let itself close is a detector that cannot say NO, one level
+    // up, and is indistinguishable from a clean pass downstream. It escalated
+    // instead. This edit is the coordinator's answer, not the gate's.
+    //
+    // The anti-laundering property is PRESERVED, not spent: POD-1229 is an
+    // open, scheduled issue that owns the policy call and cannot close while
+    // these sites exist. It points at POD-1136 (still `proposed`; a
+    // coordinator cannot promote one) as its provenance. Check with
+    // `bun scripts/rearch-audit.ts --phase POD-1229`.
     id: 'per-user-singletons',
     title: 'Per-user state surviving as a singleton field on a representation',
-    phase: 'POD-1076',
+    phase: 'POD-1229',
     unit: 'one per-user key on one session/issue representation',
     collect: (ctx) => perUserSingletons(ctx),
   },
