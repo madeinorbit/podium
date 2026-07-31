@@ -17,8 +17,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  COMPOSITION_ROOTS,
   clientVisibilityFilter,
+  discoverCompositionRoots,
   perUserStateLocalHome,
   REPO_ROOT,
   readClientLines,
@@ -158,11 +158,41 @@ describe('phase-2 client audit — the composition-root detector', () => {
     expect(unattributedStoreRead(root, ['a/root.ts'])).toEqual([])
   })
 
-  it('grades a non-empty set of composition roots', () => {
-    // The detector skips a root it cannot read, so that a deleted root is not a
-    // finding. That tolerance is what would let the whole item pass by pointing
-    // at nothing, so the SET is asserted non-empty here rather than trusted.
-    expect(COMPOSITION_ROOTS.length).toBeGreaterThan(0)
+  it('DISCOVERS a new composition root instead of being told about it', () => {
+    // THE CASE THIS SUITE DID NOT HAVE, and the omission cost a real miss.
+    // Roots used to be a hardcoded list of two. POD-1223/1228 merged two more
+    // production roots and the audit went on reporting the same two findings —
+    // a reader would have concluded the new roots were clean when the detector
+    // had never looked at them. The old guard here was
+    // `COMPOSITION_ROOTS.length > 0`, which passes happily while the list is two
+    // names out of four; that is why it is gone and this is here.
+    write('apps/web/src/lib/brandNewRoot.ts', 'const r = createKernelReplica({ cache, side })')
+    expect(discoverCompositionRoots(root, ['apps/web/src'])).toContain(
+      'apps/web/src/lib/brandNewRoot.ts',
+    )
+  })
+
+  it('does NOT count the DEFINITION of a constructor as a call to it', () => {
+    // `export function createReplica(init: ReplicaInit = {}): Replica {` matches the
+    // construction pattern exactly, so the first discovery pass reported the two
+    // files that DECLARE the constructors. A mention is not a call. Fixed by
+    // requiring call shape — never by naming those two files, which would also
+    // skip a real call appearing in either later.
+    write(
+      'apps/web/src/lib/defs.ts',
+      [
+        'export function createReplica(init: ReplicaInit = {}): Replica {',
+        '  return impl(init)',
+        '}',
+      ].join('\n'),
+    )
+    expect(discoverCompositionRoots(root, ['apps/web/src'])).toEqual([])
+  })
+
+  it('does NOT grade tests or perf harnesses as product roots', () => {
+    write('apps/web/src/x.test.ts', 'const r = createReplica({ storage })')
+    write('apps/web/src/perf/bench.tsx', 'const r = createReplica({ storage })')
+    expect(discoverCompositionRoots(root, ['apps/web/src'])).toEqual([])
   })
 })
 

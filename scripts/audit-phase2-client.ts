@@ -97,11 +97,76 @@ export interface AuditItem {
 /** The client surface this audit governs. */
 export const CLIENT_ROOTS = ['apps/web/src', 'apps/mobile/src', 'packages/client-core/src'] as const
 
-/** Composition roots: the places a client replica is built over persisted storage. */
-export const COMPOSITION_ROOTS = [
-  'apps/web/src/lib/desktopReplica.ts',
-  'apps/mobile/src/client/MobileClientProvider.tsx',
-] as const
+/**
+ * How a composition root is RECOGNISED. Not a list — see {@link discoverCompositionRoots}.
+ *
+ * `createReplica` is the legacy adapter, `createKernelReplica` the facade, and
+ * `<X>SyncStore.open` any kernel store. A root is any product file that calls one.
+ */
+const BUILDS_A_REPLICA = /\bcreateReplica\s*\(|\bcreateKernelReplica\s*\(|SyncStore\.open\s*\(/
+
+/**
+ * A DEFINITION of one of those functions, which is not a call to it.
+ *
+ * `export function createReplica(init: ReplicaInit = {}): Replica {` matches
+ * {@link BUILDS_A_REPLICA} perfectly, so the first discovery pass reported
+ * `replica.ts` and `facade.ts` — the files that DECLARE the constructors — as roots
+ * that had failed to attribute a store. Mention-is-not-a-call: the fix is to require
+ * call shape, never to name those two files and skip them, because naming them would
+ * also skip a real call that later appears in either.
+ */
+const IS_A_DEFINITION = /\b(export\s+)?(async\s+)?function\s+(createReplica|createKernelReplica)\b/
+
+/** The attribution gate, by any of its three names. */
+const ASKS_WHO_OWNS_IT = /decideLegacyAdoption|migrateLegacyReplica|LegacyIdentityEvidence/
+
+/**
+ * Files that build a replica and are NOT product composition roots.
+ *
+ * Tests construct replicas constantly, and a benchmark harness builds one over a
+ * memory store to measure rendering. Neither adopts a user's persisted store, so
+ * neither owes the attribution question. This is the detector's one judgement, so it
+ * is a pattern with a stated reason rather than a list of names — a list is what goes
+ * stale, which is the defect this function replaced.
+ */
+const NOT_A_PRODUCT_ROOT = /\.(test|spec)\.tsx?$|(^|\/)perf\//
+
+/**
+ * Find every composition root, rather than being told where they are.
+ *
+ * THE FIRST VERSION WAS A HARDCODED LIST OF TWO AND IT WENT STALE IMMEDIATELY.
+ * POD-1223/1228 merged two new production roots — `apps/web/src/lib/kernelReplica.ts`
+ * and `apps/web/src/lib/shadow/runner.ts` — and the audit went on reporting the same
+ * two findings, so a reader would have concluded the new roots were fine when the
+ * detector had never looked at them.
+ *
+ * That is this run's dominant defect class wearing a different hat: not a gate that
+ * cannot refuse, but a gate pointed at the wrong wall. A list of sites is a standing
+ * bet that nobody adds a site, and the entire premise of this item is that the next
+ * client will. The probe suite's original guard — `COMPOSITION_ROOTS.length > 0` —
+ * passes happily while the list is two names out of four, which is exactly why it did
+ * not catch this and a discovery pass does.
+ */
+export function discoverCompositionRoots(
+  repoRoot: string,
+  roots: readonly string[] = CLIENT_ROOTS,
+): string[] {
+  const byFile = new Map<string, string[]>()
+  for (const line of readClientLines(repoRoot, roots)) {
+    const existing = byFile.get(line.file)
+    if (existing === undefined) byFile.set(line.file, [line.text])
+    else existing.push(line.text)
+  }
+  const found: string[] = []
+  for (const [file, lines] of byFile) {
+    if (NOT_A_PRODUCT_ROOT.test(file)) continue
+    const constructs = lines.some(
+      (text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text),
+    )
+    if (constructs) found.push(file)
+  }
+  return found.sort()
+}
 
 export interface SourceLine {
   readonly file: string
@@ -264,20 +329,20 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
       // which is why `COMPOSITION_ROOTS` is asserted non-empty by the test.
       continue
     }
-    const constructs = /\bcreateReplica\s*\(|SyncStore\.open\s*\(/.test(contents)
-    if (!constructs) continue
+    const callSites = contents
+      .split('\n')
+      .filter((text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text))
+    if (callSites.length === 0) continue
     // The gate, by any of its names. `decideLegacyAdoption` is the decision,
     // `migrateLegacyReplica` is the caller that runs it, and `LegacyIdentityEvidence`
     // is the input it cannot be called without — a root naming ANY of the three
     // has been through the question.
-    const attributed = /decideLegacyAdoption|migrateLegacyReplica|LegacyIdentityEvidence/.test(
-      contents,
-    )
+    const attributed = ASKS_WHO_OWNS_IT.test(contents)
     if (attributed) continue
     const line =
       contents
         .split('\n')
-        .findIndex((text) => /\bcreateReplica\s*\(|SyncStore\.open\s*\(/.test(text)) + 1
+        .findIndex((text) => BUILDS_A_REPLICA.test(text) && !IS_A_DEFINITION.test(text)) + 1
     out.push({
       file,
       line,
@@ -317,7 +382,7 @@ export function runPhase2ClientAudit(repoRoot: string): AuditItem[] {
       id: 'unattributed-store-read',
       title: 'a persisted store adopted without establishing the current principal',
       unit: 'composition root that never asks',
-      findings: unattributedStoreRead(repoRoot, COMPOSITION_ROOTS),
+      findings: unattributedStoreRead(repoRoot, discoverCompositionRoots(repoRoot)),
     },
   ]
 }
