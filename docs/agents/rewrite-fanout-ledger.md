@@ -2620,3 +2620,47 @@ TWO THINGS ABOUT REGENERATING, since the fix is always "regenerate":
 The person who changed the shape should regenerate, not the integrator: the
 fixture records what the wire used to be, and only the author can say the diff
 contains just the intended change.
+
+## A gate pointed at the WRONG WALL — the population is fixed while the tree grows
+
+A third variant, and it is not the same as the first two. Not an instrument that
+cannot say NO, and not one that says NO exactly once: one that refuses correctly,
+repeatedly, forever — over a population that stopped being the whole population.
+
+POD-378's composition-root audit carried a HARDCODED LIST OF TWO roots. The
+POD-1223 merge added two production roots. The audit went on reporting the same
+two findings, and the new roots read as clean because the detector had never
+looked at them. Its own probe suite contained the guard that cannot catch this:
+
+    COMPOSITION_ROOTS.length > 0
+
+which passes happily while the list is two names out of four. A non-emptiness
+check is not a coverage check.
+
+The fix is DISCOVERY, not a longer list — and discovery immediately over-reported,
+because `export function createReplica(` matches a construction pattern, so the
+files DECLARING the constructors were graded as roots that failed to attribute a
+store. That is "a mention is not a call" biting a THIRD independent agent this
+run, after POD-1203 measured it on its own gate's first run and POD-1224 defeated
+it deliberately. Fixed by requiring CALL SHAPE, not by naming the two declaring
+files — naming them would also have skipped a real call appearing in either later.
+
+THE RULE: any detector with an enumerated population needs to assert its
+population against the TREE, not against zero. Ask what makes the list complete,
+and make that the assertion. `length > 0`, `length === <the number I saw today>`,
+and a hand-maintained list are all the same defect wearing different clothes.
+
+AND THE FINDING IT WAS HIDING, which is why this matters. Once the roots were
+discovered rather than listed, the audit reported that the legacy-replica
+ATTRIBUTION GATE HAS NO CALLER ON EITHER CLIENT — POD-377 built it, POD-378
+verified it, POD-377 merged and closed on that basis, and six sites build a
+client replica over persisted storage without ever asking whether the store
+belongs to the current principal. It is the declaration-with-no-consumer entry
+arriving at a SECURITY site, where the thing with no consumer is POD-307's
+fail-closed rule that an unattributable store is discarded rather than adopted.
+Filed as POD-1239.
+
+The coordinator's merge note for POD-377 cites that refusal as a property the
+client now has. It does not have it. A handoff that says "X was verified" is
+describing an instrument, not the tree — and the check is one grep for the
+caller.
