@@ -32,6 +32,7 @@ import {
   classifyRhs,
   entityIdSites,
   ID_BRANDS,
+  idFieldsWithNoBrandVocabulary,
   MIN_ID_FIELD_SITES,
   machineIdUnbrandedFields,
   REPRESENTATION_SUFFIXES,
@@ -341,6 +342,28 @@ describe('tenant inference', () => {
         ctxOf(SCAFFOLD + src, 'packages/commands/src/sessions/presence.ts'),
       ),
     ).toHaveLength(1)
+  })
+})
+
+describe('the wider scope, reported but not ratcheted', () => {
+  const CONTRACTS = 'packages/commands/src/issues/contracts.ts'
+  const wider = (source: string, file = CONTRACTS): string[] =>
+    idFieldsWithNoBrandVocabulary(ctxOf(SCAFFOLD + source, file)).map((s) => s.text)
+
+  it('reports an id-shaped key that names no brand and no tenant', () => {
+    expect(wider('export const a = z.object({ requestId: z.string() })')).toHaveLength(1)
+  })
+
+  it('does NOT double-report what a counted spelling already reaches', () => {
+    // `issueId` is spelling 1 and `id` here is spelling 3; both are in a
+    // baseline key, so listing them again would overstate the uncounted class.
+    expect(
+      wider('export const byId = z.object({ id: z.string(), issueId: z.string() })'),
+    ).toHaveLength(0)
+  })
+
+  it('stays silent on a branded field', () => {
+    expect(wider('export const a = z.object({ requestId: RequestIdField })')).toHaveLength(0)
   })
 })
 

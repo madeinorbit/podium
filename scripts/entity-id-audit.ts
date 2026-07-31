@@ -607,6 +607,68 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
 
 const site = (s: EntityIdSite): AuditSite => ({ file: s.file, line: s.line, text: s.text })
 
+/** An id-SHAPED key: the population {@link brandOfKey} is a filter over. */
+const ID_SHAPED_KEY = /Id$|^id$|_id$/
+
+/**
+ * THE OTHER SCOPE, reported because it disagrees with the counted one.
+ *
+ * `rearch-audit`'s item counts id fields whose brand EXISTS — that is what its
+ * unit says and it is the only scope a ratchet can drive to zero, since a field
+ * with no brand has nothing to be flipped TO. But the fanout ledger is explicit
+ * that when two defensible scopes disagree you report BOTH rather than picking
+ * the kind one, and that "not counted" must never be allowed to read as "not
+ * there" (the reason Limit 1 prints db-columns and TS members too).
+ *
+ * So this is the wider scope: every id-shaped key typed as a bare zod string
+ * that NONE of the three spellings can reach, because its name names neither a
+ * brand nor a tenant. Measured at POD-1212: **191** sites across ~48 keys — of
+ * the 227 that were unreachable before spelling 3, 36 became reachable and were
+ * flipped or given a reason.
+ *
+ * It is deliberately NOT a baseline key, and the split is not flattery:
+ *
+ *   - MOST of it is not this item's debt. `requestId`, `runId`, `revisionId`,
+ *     `stepId`, `transitionId`, `fetchId` and ~40 more name entities that have
+ *     no brand in `packages/model` at all. Ratcheting them would demand brands
+ *     be minted, which is a modelling decision and its own piece of work.
+ *   - A FEW are genuinely this item's debt and simply unreachable by any rule
+ *     keyed on names: `duplicateInput.canonicalId` is an `IssueId`;
+ *     `causationId` is a `mutationId` under another name. They are listed here
+ *     rather than quietly omitted.
+ *
+ * Reporting-only, via `bun scripts/entity-id-audit.ts --unreachable`.
+ */
+export function idFieldsWithNoBrandVocabulary(ctx: AuditContext): AuditSite[] {
+  const seen = new Set<string>()
+  for (const s of sitesOnce(ctx)) seen.add(`${s.file}:${s.line}:${s.key}`)
+  const out: AuditSite[] = []
+  for (const f of ctx.files) {
+    if (f.isTest) continue
+    if (f.file.includes('/migrations/drizzle/') || f.file.endsWith('.generated.ts')) continue
+    if (f.file.endsWith('.fixtures.ts')) continue
+    const text = f.stripped
+    const nl: number[] = []
+    for (let k = 0; k < text.length; k++) if (text[k] === '\n') nl.push(k)
+    FIELD_POSITION.lastIndex = 0
+    for (const m of text.matchAll(FIELD_POSITION)) {
+      const key = (m[2] ?? m[3] ?? m[4]) as string
+      if (!ID_SHAPED_KEY.test(key)) continue
+      const at = (m.index ?? 0) + m[0].length
+      if (classifyRhs(rhsText(text, at)) !== 'zod-string') continue
+      const line = lineOf(nl, (m.index ?? 0) + m[0].indexOf(key))
+      // Anything the three spellings already reach is counted elsewhere.
+      if (seen.has(`${f.file}:${line}:${key}`)) continue
+      out.push({
+        file: f.file,
+        line,
+        text: `${key}: ${rhsText(text, at).replace(/\s+/g, ' ').trim().slice(0, 80)}`,
+      })
+    }
+  }
+  return out
+}
+
 /** The three checks below share one scan of the tree. Without this the deletion
  *  audit walks every file three times and its own CLI test — which spawns the
  *  real binary — starts timing out on a loaded host. */
@@ -685,6 +747,19 @@ if (import.meta.main) {
   console.log(
     `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && (s.form === 'zod-string' || s.form === 'carveout-marker')).length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
   )
+  if (argv.includes('--unreachable')) {
+    const wider = idFieldsWithNoBrandVocabulary(loadContext(process.cwd()))
+    const byKey = new Map<string, number>()
+    for (const s of wider) {
+      const k = s.text.slice(0, s.text.indexOf(':'))
+      byKey.set(k, (byKey.get(k) ?? 0) + 1)
+    }
+    console.log(`\nNOT COUNTED — id-shaped, raw, and unreachable by name: ${wider.length}`)
+    console.log('  (mostly names with NO brand in packages/model — nothing to flip TO)')
+    for (const [k, n] of [...byKey].sort((a, b) => b[1] - a[1])) {
+      console.log(`  ${String(n).padStart(4)}  ${k}`)
+    }
+  }
   if (argv.includes('--sites')) {
     for (const s of sites) {
       if (only !== undefined && s.form !== only) continue
