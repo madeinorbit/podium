@@ -329,6 +329,7 @@ class TanstackReplica implements Replica {
    *  entity replica's clearAll never wipes queued writes. */
   private outboxBacking: OutboxStorage | undefined
   private outboxAwaitingBacking: OutboxStorage | undefined
+  private outboxDeadLetterBacking: OutboxStorage | undefined
   /** Lazily-built ui-state backing — separate from `cols` for the same reason. */
   private uiBacking: UiState | undefined
   private readonly enumerateKeys: () => string[]
@@ -800,7 +801,7 @@ class TanstackReplica implements Replica {
   /** Build one outbox-family collection (queued or awaiting) and start its
    *  storage sync. SQLite mode persists per-row like every other collection —
    *  loudness lives in track('outbox') there, not a storage wrapper. */
-  private makeOutboxCollection(name: 'outbox' | 'outbox-awaiting') {
+  private makeOutboxCollection(name: 'outbox' | 'outbox-awaiting' | 'outbox-dead-letter') {
     const loud = this.persistedInit ? undefined : this.outboxLoudStorage()
     const col = loud
       ? this.makeCollection<OutboxRow>(
@@ -918,6 +919,18 @@ class TanstackReplica implements Replica {
     }
     this.outboxBacking = this.outboxCollectionBacking(col)
     return this.outboxBacking
+  }
+
+  outboxDeadLetterStorage(): OutboxStorage {
+    if (this.outboxDeadLetterBacking) return this.outboxDeadLetterBacking
+    // POD-316: the recovery home. Third collection, for the same reason the
+    // awaiting home is second — `<prefix>.outbox-dead-letter.v1` is a key old
+    // builds never read, so a rollback cannot re-drain a mutation the Authority
+    // definitively refused.
+    const col = this.makeOutboxCollection('outbox-dead-letter')
+    if (this.persistedInit) this.migrateOutboxBlob(col, `${this.prefix}.outbox-dead-letter.v1`)
+    this.outboxDeadLetterBacking = this.outboxCollectionBacking(col)
+    return this.outboxDeadLetterBacking
   }
 
   outboxAwaitingStorage(): OutboxStorage {

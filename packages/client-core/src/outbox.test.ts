@@ -6,7 +6,7 @@ import {
   type Outbox,
   type OutboxEntry,
   type OutboxStorage,
-  parseDeadLetterEntries,
+
   parseOutboxEntries,
 } from './outbox'
 
@@ -483,7 +483,7 @@ describe('definitive refusals park for recovery instead of retrying forever', ()
       executors,
       storage: memoryStorage().storage,
       deadLetterStorage: {
-        load: () => parseDeadLetterEntries(raw),
+        load: () => parseOutboxEntries(raw),
         save: (entries) => {
           raw = JSON.stringify(entries)
         },
@@ -542,9 +542,9 @@ describe('definitive refusals park for recovery instead of retrying forever', ()
         queuedRaw = JSON.stringify(e)
       },
     }
-    const dead = {
-      load: () => parseDeadLetterEntries(deadRaw),
-      save: (e: unknown) => {
+    const dead: OutboxStorage = {
+      load: () => parseOutboxEntries(deadRaw),
+      save: (e) => {
         deadRaw = JSON.stringify(e)
       },
     }

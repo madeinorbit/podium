@@ -86,6 +86,7 @@ function makeOutbox() {
   const replica = {
     outboxStorage: () => memoryStorage(),
     outboxAwaitingStorage: () => memoryStorage(),
+    outboxDeadLetterStorage: () => memoryStorage(),
   } as unknown as Replica
   const notices = {
     error: (message: string) => errors.push(message),
@@ -168,7 +169,7 @@ describe('oracle: the offline-queued write set', () => {
     outbox.dispose()
   })
 
-  it(`${MUST_NOT_CHANGE}: pins, tab order, sendText, ask and uploadImage are NOT offline-capable — an entry for them is poison-dropped, never sent`, async () => {
+  it(`${MUST_NOT_CHANGE}: pins, tab order, sendText, ask and uploadImage are NOT offline-capable — an entry for them is never sent, and PARKS for recovery rather than being dropped`, async () => {
     const { outbox, calls, poisoned, errors } = makeOutbox()
 
     // The full direct-only exclusion set. `ask` and `uploadImage` are here so
@@ -195,8 +196,22 @@ describe('oracle: the offline-queued write set', () => {
       'ask',
       'uploadImage',
     ])
-    // The user is TOLD, per kind — a dropped write is never silent.
+    // The user is TOLD, per kind — a refused write is never silent.
     expect(errors).toHaveLength(5)
+    // DELIBERATE CHANGE OF DISPOSAL (POD-316). The oracle's intent — these kinds
+    // never reach the server — is unchanged and still asserted above
+    // (`calls` is empty). What changed is what happens to the entry afterwards:
+    // it used to be shift()ed away, which is the silent poison-drop ADR 3 D9
+    // invariant 1 forbids. It now parks, and this assertion is what stops a
+    // future edit quietly restoring the drop while the name above still reads
+    // "never sent".
+    expect(outbox.deadLetters().map((d) => d.entry.kind)).toEqual([
+      'pinSet',
+      'tabSetOrder',
+      'sendText',
+      'ask',
+      'uploadImage',
+    ])
     outbox.dispose()
   })
 

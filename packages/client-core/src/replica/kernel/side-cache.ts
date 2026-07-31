@@ -80,6 +80,7 @@ export interface SideCache {
   putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
   outboxStorage(): OutboxStorage
   outboxAwaitingStorage(): OutboxStorage
+  outboxDeadLetterStorage(): OutboxStorage
 }
 
 /** Never throws: a poisoned or foreign blob reads as empty, like the legacy
@@ -202,6 +203,10 @@ export function createSideCache(init: SideCacheInit): SideCache {
   const transcriptKey = `${prefix}.transcripts.v1`
   const outboxKey = `${prefix}.outbox.v1`
   const awaitingKey = `${prefix}.outbox-awaiting.v1`
+  // POD-316: parked entries. A THIRD key old builds never read, for the same
+  // reason the awaiting home is separate — a build that predates the state would
+  // re-drain a definitively-refused mutation as live work.
+  const deadLetterKey = `${prefix}.outbox-dead-letter.v1`
   const { storage } = init
 
   // ---- ui-state ----------------------------------------------------------
@@ -373,5 +378,6 @@ export function createSideCache(init: SideCacheInit): SideCache {
     },
     outboxStorage: () => outboxAt(outboxKey),
     outboxAwaitingStorage: () => outboxAt(awaitingKey),
+    outboxDeadLetterStorage: () => outboxAt(deadLetterKey),
   }
 }

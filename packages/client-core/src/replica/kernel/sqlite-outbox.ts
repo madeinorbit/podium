@@ -102,6 +102,14 @@ export interface KernelOutboxStorageInit {
 export interface KernelOutboxStorages {
   readonly queued: OutboxStorage
   readonly awaiting: OutboxStorage
+  /** POD-316: D9's `dead-letter` — entries parked for user recovery. A THIRD
+   *  view over the same store, which is what turns `homeOf`'s `neither` from
+   *  "invisible to every view" into "visible to exactly the view whose job is
+   *  recovering it". Without it the parked rows are unreachable by the client:
+   *  correctly undrainable, and equally un-recoverable, which satisfies D9
+   *  invariant 1's letter (not dropped) while failing invariant 3 (the user gets
+   *  retry / edit / discard). */
+  readonly deadLetter: OutboxStorage
 }
 
 /**
@@ -112,6 +120,9 @@ export interface KernelOutboxStorages {
  * path keep the two in separate stores.
  */
 const AWAITING_STATE = 'accepted' as const
+
+/** D9's parked state. Its own home (POD-316) — never drained, never dropped. */
+const DEAD_LETTER_STATE = 'dead-letter' as const
 const QUEUED_STATE = 'queued' as const
 
 /**
@@ -137,11 +148,12 @@ const QUEUED_STATE = 'queued' as const
  * delete rows it cannot see would turn "the client rewrote its queue" into "the
  * dead-letter record of lost work disappeared".
  */
-type OutboxHome = 'queued' | 'awaiting' | 'neither'
+type OutboxHome = 'queued' | 'awaiting' | 'dead-letter' | 'neither'
 
 const homeOf = (record: ClientOutboxRecord): OutboxHome => {
   if (record.state === QUEUED_STATE) return 'queued'
   if (record.state === AWAITING_STATE) return 'awaiting'
+  if (record.state === DEAD_LETTER_STATE) return 'dead-letter'
   return 'neither'
 }
 
@@ -161,7 +173,15 @@ function toRecord(
     // edits of the same row — the thing `chained` exists to track.
     partitionKey: CLIENT_PARTITION,
     attribution: init.attribution,
-    state: entry.state === 'awaiting-truth' ? AWAITING_STATE : 'queued',
+    // ENUMERATED. `entry.state` is a three-value vocabulary now, and the old
+    // ternary would have written a PARKED entry back as `queued` — POD-1220's
+    // defect exactly, arriving from the other direction.
+    state:
+      entry.state === 'awaiting-truth'
+        ? AWAITING_STATE
+        : entry.state === 'dead-letter'
+          ? DEAD_LETTER_STATE
+          : 'queued',
     queuedAt: entry.queuedAt,
     attempts: 0,
     ...(entry.baseline === undefined ? {} : { clientBaseline: entry.baseline }),
@@ -205,7 +225,7 @@ export async function createKernelOutboxStorage(
     mirror.set(record.mutationId, record as ClientOutboxRecord)
   }
 
-  const view = (home: 'queued' | 'awaiting'): OutboxStorage => ({
+  const view = (home: 'queued' | 'awaiting' | 'dead-letter'): OutboxStorage => ({
     load: () =>
       [...mirror.values()]
         .filter((record) => homeOf(record) === home)
@@ -297,5 +317,5 @@ export async function createKernelOutboxStorage(
     },
   })
 
-  return { queued: view('queued'), awaiting: view('awaiting') }
+  return { queued: view('queued'), awaiting: view('awaiting'), deadLetter: view('dead-letter') }
 }

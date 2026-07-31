@@ -9,9 +9,16 @@
 import type { SessionId, WorkState } from '@podium/model'
 import { type FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
-import { Outbox, type OutboxEntry, platformIsOnline, platformOnlineEvents } from '../outbox'
+import {
+  Outbox,
+  type OutboxDeadLetterEntry,
+  type OutboxEntry,
+  platformIsOnline,
+  platformOnlineEvents,
+} from '../outbox'
 import type { Replica } from '../replica/replica'
 import type { StoreNotices } from './types'
+import { reasonSummary } from '../outbox-recovery-copy'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
  *  §2.3). Each executor replays with the entry's stable mutationId, so the
@@ -111,9 +118,13 @@ export function createEngineOutbox(args: {
    *  keeps the entry durably in storage as state:'awaiting-truth' (#263
    *  review finding 1) until the engine retires it. */
   onApplied?: (entry: OutboxEntry) => unknown
-  /** Poison drop — fired AFTER the toast; the engine repaints without the
-   *  entry's overlay (retirement rule (b)). */
+  /** A definitive refusal — the engine repaints without the entry's overlay
+   *  (retirement rule (b)). The entry itself is PARKED, not dropped; this is
+   *  only the overlay's retirement. */
   onDropped?: (entry: OutboxEntry) => void
+  /** The entry parked for recovery, with its reason code. Fired after the
+   *  toast. */
+  onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
 }): Outbox<OutboxKinds> {
   const { api } = args
   return new Outbox<OutboxKinds>({
@@ -126,6 +137,7 @@ export function createEngineOutbox(args: {
     // reading the queued collection never re-drains held entries.
     storage: args.replica.outboxStorage(),
     awaitingStorage: args.replica.outboxAwaitingStorage(),
+    deadLetterStorage: args.replica.outboxDeadLetterStorage(),
     executors: {
       resumeAndSend: (i) => api.sessions.resumeAndSend.mutate(i),
       rename: (i) => api.sessions.rename.mutate(i),
@@ -140,11 +152,19 @@ export function createEngineOutbox(args: {
       issueSetTucked: (i) => api.issues.setTucked.mutate(i),
     },
     onApplied: args.onApplied,
-    // A poison entry (server-side validation reject) can never sync — it's
-    // dropped, and the toast is the honesty about that.
+    // A definitively-refused entry can never sync AS IT IS — but it is no longer
+    // dropped (POD-316), so the old copy ("and dropped") had become a lie about
+    // work that is in fact sitting in the recovery surface. A toast that tells
+    // you your writing is gone, when it is recoverable two clicks away, is worse
+    // than no toast: it teaches people to re-type instead of to look.
     onPoison: (entry) => {
-      args.notices.error(`A queued change (${entry.kind}) was rejected by the server and dropped`)
       args.onDropped?.(entry)
+    },
+    onDeadLetter: (parked) => {
+      args.notices.error(
+        `A queued change (${parked.entry.kind}) needs your attention — ${reasonSummary(parked.reason.code)}`,
+      )
+      args.onDeadLetter?.(parked)
     },
   })
 }

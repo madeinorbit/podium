@@ -440,6 +440,7 @@ function withDurableOutbox(base: Replica, outboxes: KernelOutboxStorages): Repli
     // THE TWO OVERRIDES — the whole point of the decorator.
     outboxStorage: (): OutboxStorage => outboxes.queued,
     outboxAwaitingStorage: (): OutboxStorage => outboxes.awaiting,
+    outboxDeadLetterStorage: (): OutboxStorage => outboxes.deadLetter,
     uiState: (): UiState => base.uiState(),
     flush: () => base.flush(),
   }

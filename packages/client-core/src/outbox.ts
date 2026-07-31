@@ -44,9 +44,17 @@ export interface OutboxEntry {
    *  lands — it is excluded from the drain queue and deleted only by
    *  `retireAwaiting`. Surviving in storage is the point: a reload inside the
    *  resolution→truth window restores the optimistic overlay. */
-  state?: 'awaiting-truth'
+  state?: 'awaiting-truth' | 'dead-letter'
   /** Epoch ms when the executor resolved (stamped on the awaiting transition). */
   resolvedAt?: number
+  /** Present exactly when `state === 'dead-letter'`: why it parked and when.
+   *  Lives on the entry so the park reuses the one durable storage seam. */
+  deadLetter?: {
+    reason: OutboxRejectionReason
+    parkedFrom: 'rejected' | 'expired'
+    deadLetteredAt: number
+    attempts: number
+  }
   /** Opaque caller annotation captured at enqueue (#263 review finding 2): the
    *  engine stores the target row's replica fingerprint here so resolution can
    *  tell whether server truth already moved while the mutation was in flight. */
@@ -78,38 +86,55 @@ export interface OutboxDeadLetterEntry {
   readonly attempts: number
 }
 
-/** The dead-letter home. Separate from both the queued and awaiting collections
- *  for the reason spelled out on `OutboxStorage`: an older build reads a
- *  collection it understands and drains every row in it, so a parked entry left
- *  in the queued home would be replayed as live work — which is exactly the
- *  boolean-split defect POD-1220 caught in the kernel's storage adapter. */
-export interface OutboxDeadLetterStorage {
-  load(): OutboxDeadLetterEntry[]
-  save(entries: OutboxDeadLetterEntry[]): void
+/**
+ * The dead-letter home is an ordinary `OutboxStorage` over a THIRD collection,
+ * for the reason spelled out on `OutboxStorage`: an older build reads a
+ * collection it understands and drains every row in it, so a parked entry left
+ * in the queued home would be replayed as live work — exactly the boolean-split
+ * defect POD-1220 caught in the kernel's storage adapter.
+ *
+ * Reusing the existing seam rather than inventing a typed second one is
+ * deliberate: the replica already owns durable, cross-tab, SQLite-and-
+ * localStorage-backed homes of this exact shape, with a migration path and loud
+ * failure logging. A parallel store would have to re-earn all of that, and the
+ * durability is the whole point of parking.
+ */
+export function parseDeadLetterEntries(raw: string | null): OutboxDeadLetterEntry[] {
+  return parseOutboxEntries(raw).flatMap((e) => {
+    const parked = toDeadLetter(e)
+    return parked ? [parked] : []
+  })
 }
 
-/** A corrupt/foreign dead-letter blob reads as empty rather than wedging boot —
- *  same posture as `parseOutboxEntries`, and the loss is surfaced by the caller's
- *  `onStoreUnreadable`-shaped logging rather than swallowed here. */
-export function parseDeadLetterEntries(raw: string | null): OutboxDeadLetterEntry[] {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((e): e is OutboxDeadLetterEntry => {
-      const d = e as OutboxDeadLetterEntry | null
-      return (
-        !!d &&
-        typeof d === 'object' &&
-        !!d.entry &&
-        typeof d.entry.mutationId === 'string' &&
-        typeof d.entry.kind === 'string' &&
-        !!d.reason &&
-        typeof d.reason.code === 'string'
-      )
-    })
-  } catch {
-    return []
+/** The persisted form: an ordinary entry carrying its park metadata, marked with
+ *  a `state` no drain path accepts. */
+function toStoredEntry(parked: OutboxDeadLetterEntry): OutboxEntry {
+  return {
+    ...parked.entry,
+    state: 'dead-letter',
+    deadLetter: {
+      reason: parked.reason,
+      parkedFrom: parked.parkedFrom,
+      deadLetteredAt: parked.deadLetteredAt,
+      attempts: parked.attempts,
+    },
+  }
+}
+
+/** Reads the persisted form back, or `undefined` when the row is not a park.
+ *  Returning a third value rather than a boolean is the POD-1220 rule: an
+ *  unrecognised row must be visibly unhandled, never absorbed into the active
+ *  arm. */
+function toDeadLetter(entry: OutboxEntry): OutboxDeadLetterEntry | undefined {
+  const meta = entry.deadLetter
+  if (entry.state !== 'dead-letter' || !meta) return undefined
+  const { deadLetter: _omit, ...rest } = entry
+  return {
+    entry: { ...rest, state: undefined },
+    reason: meta.reason,
+    parkedFrom: meta.parkedFrom,
+    deadLetteredAt: meta.deadLetteredAt,
+    attempts: meta.attempts,
   }
 }
 
@@ -270,7 +295,7 @@ export interface OutboxInit<M extends Record<string, object>> {
    * always supply one; it is optional only so that existing test doubles and
    * older adapters keep compiling rather than silently losing the park.
    */
-  deadLetterStorage?: OutboxDeadLetterStorage
+  deadLetterStorage?: OutboxStorage
   /** Flat retry cadence while entries remain after a network failure. */
   retryMs?: number
   /** Injectable for tests/adapters; defaults to online when unknown. */
@@ -291,7 +316,7 @@ export class Outbox<M extends Record<string, object>> {
   private deadLetterEntries: OutboxDeadLetterEntry[]
   private readonly storage: OutboxStorage
   private readonly awaitingStorage: OutboxStorage | undefined
-  private readonly deadLetterStorage: OutboxDeadLetterStorage | undefined
+  private readonly deadLetterStorage: OutboxStorage | undefined
   private readonly retryMs: number
   private readonly now: () => number
   private readonly randomId: () => string
@@ -333,7 +358,10 @@ export class Outbox<M extends Record<string, object>> {
       this.storage.save(this.entries)
       this.saveAwaiting()
     }
-    this.deadLetterEntries = this.deadLetterStorage?.load() ?? []
+    this.deadLetterEntries = (this.deadLetterStorage?.load() ?? []).flatMap((e) => {
+      const parked = toDeadLetter(e)
+      return parked ? [parked] : []
+    })
     this.now = init.now ?? Date.now
     this.randomId = init.randomId ?? randomUUID
     this.attach()
@@ -519,7 +547,7 @@ export class Outbox<M extends Record<string, object>> {
 
   private saveDeadLetters(): void {
     if (this.disposed) return
-    this.deadLetterStorage?.save([...this.deadLetterEntries])
+    this.deadLetterStorage?.save(this.deadLetterEntries.map(toStoredEntry))
   }
 
   /** Reactive size for pending-changes indicators. */
