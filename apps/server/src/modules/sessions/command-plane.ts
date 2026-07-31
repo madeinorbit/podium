@@ -31,8 +31,13 @@
  * answer by the same path instead of by two coincidences.
  */
 
-import { type CommandDef, sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/commands'
+import {
+  type CommandDef,
+  sessionCommandPlane,
+  type sessionCommandPlaneInputs,
+} from '@podium/commands'
 import type { AgentKind, IssueId, SessionId } from '@podium/model'
+import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
 
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -189,7 +194,10 @@ export class SessionCommandCtx {
    * and hand back the row — or `undefined` when the target is absent, which is
    * the caller's cue to produce that command's pinned not-found shape.
    */
-  target(sessionId: SessionId, proc: string): (SessionTargetRow & { machineId?: string }) | undefined {
+  target(
+    sessionId: SessionId,
+    proc: string,
+  ): (SessionTargetRow & { machineId?: string }) | undefined {
     const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
     assertMayCommandSession(
@@ -225,6 +233,18 @@ export class SessionCommandCtx {
  */
 export function spawnedByFor(principal: CommandPrincipal): string {
   return principal.kind === 'user' ? 'user' : attributionOf(principal).actor
+}
+/** Binding authority from the already-resolved transport principal. There is no
+ * payload parameter from which a caller could forge either identity half. */
+export function bindingPrincipalFor(principal: CommandPrincipal): SessionBindingSpawnPrincipal {
+  switch (principal.kind) {
+    case 'user':
+      return { kind: 'user', userId: principal.user }
+    case 'agent':
+      return { kind: 'agent', parentBindingId: principal.agentSessionId }
+    case 'system':
+      return { kind: 'system' }
+  }
 }
 
 /**
@@ -425,6 +445,15 @@ export const SESSION_COMMAND_HANDLERS = {
       ...(issueId ? { issueId } : {}),
       use: ctx.machineUse,
       spawnedBy: spawnedByFor(ctx.principal),
+      binding: {
+        principal: bindingPrincipalFor(ctx.principal),
+        ...(ctx.overrideScope && ctx.principal.kind !== 'system'
+          ? {
+              requestedScope: ctx.principal.capability.scope,
+              scopeOverrideConfirmed: true,
+            }
+          : {}),
+      },
     })
   },
 

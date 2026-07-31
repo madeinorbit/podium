@@ -24,6 +24,7 @@ import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-a
 import { ownershipFromMachines } from '../../machine-access'
 import { machinesForPrincipal } from './command-ctx'
 import {
+  bindingPrincipalFor,
   createdOwnership,
   dispatchSessionCommand,
   SessionCommandCtx,
@@ -211,7 +212,11 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
 
     expect(
       await messageOf(() =>
-        dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), command, input),
+        dispatchSessionCommand(
+          ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }),
+          command,
+          input,
+        ),
       ),
     ).toBe("unknown machine 'box'")
   })
@@ -423,6 +428,20 @@ describe('invisible fails exactly like nonexistent', () => {
 })
 
 describe('attribution and ownership come from the principal', () => {
+  it('derives binding spawn authority from each authenticated principal arm', () => {
+    expect(bindingPrincipalFor(human(COLLEAGUE))).toEqual({
+      kind: 'user',
+      userId: COLLEAGUE,
+    })
+    expect(bindingPrincipalFor(agentFor('parent-agent', COLLEAGUE))).toEqual({
+      kind: 'agent',
+      parentBindingId: asSessionId('parent-agent'),
+    })
+    expect(bindingPrincipalFor({ kind: 'system', job: 'steward' })).toEqual({
+      kind: 'system',
+    })
+  })
+
   it('answerAskUserQuestion records WHICH human answered, and a payload identity is inert', async () => {
     // The colleague needs a machine they may actually use — on the local
     // sentinel they would be denied outright, which is M4 working and would make

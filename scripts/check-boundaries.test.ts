@@ -12,6 +12,7 @@ import {
   checkManifestFile,
   checkPrincipalFree,
   checkRuntimeBarrelPurity,
+  checkSessionBindingFieldAccess,
   checkSyncBrowserGraphAll,
   clauseIsTypeOnly,
   extractImports,
@@ -73,6 +74,28 @@ describe('clauseIsTypeOnly', () => {
 })
 
 describe('checkFile rules', () => {
+  it('keeps SessionBinding delegation fields out of observers and control handlers', () => {
+    for (const fieldAccess of [
+      'binding.onBehalfOf',
+      'binding.actor',
+      'binding.scope',
+      'const binding = { onBehalfOf: user }',
+      'const binding = { actor: agent }',
+      'const binding = { scope: requested }',
+    ]) {
+      expect(
+        checkSessionBindingFieldAccess('apps/daemon/src/session-observers.ts', fieldAccess).map(
+          (violation) => violation.rule,
+        ),
+      ).toEqual(['session-binding-field-access'])
+    }
+  })
+
+  it('allows the SessionBinding API name and prose mentioning delegation fields', () => {
+    const source = `// actor, onBehalfOf and scope stay opaque\nctx.sessionBinding.transition(input)`
+    expect(checkSessionBindingFieldAccess('apps/daemon/src/control/session.ts', source)).toEqual([])
+  })
+
   it('allows the grandfathered type-only web→server AppRouter import', () => {
     const v = checkFile('apps/web/src/trpc.ts', `import type { AppRouter } from '@podium/server'`)
     expect(v).toEqual([])
@@ -682,7 +705,6 @@ describe('checkDeclaredDeps', () => {
   })
 })
 
-
 describe('rule 9 — the Replica role is direction-locked (POD-369)', () => {
   const REPLICA = 'packages/sync/src/replica/replica.ts'
 
@@ -944,9 +966,9 @@ describe('rule 12a — browser-safe workspaces reach @podium/sync only through a
     // is the check that would have caught declaring an entrypoint and forgetting
     // the exports map, which fails at RUNTIME in the client and nowhere in CI.
     const repoRoot = fileURLToPath(new URL('..', import.meta.url))
-    const pkg = JSON.parse(
-      readFileSync(join(repoRoot, 'packages/sync/package.json'), 'utf8'),
-    ) as { exports: Record<string, { import?: string }> }
+    const pkg = JSON.parse(readFileSync(join(repoRoot, 'packages/sync/package.json'), 'utf8')) as {
+      exports: Record<string, { import?: string }>
+    }
     for (const [specifier, entry] of SYNC_BROWSER_ENTRYPOINTS) {
       const subpath = `.${specifier.slice('@podium/sync'.length)}`
       expect(pkg.exports[subpath], `${specifier} missing from packages/sync exports`).toBeDefined()
@@ -955,7 +977,7 @@ describe('rule 12a — browser-safe workspaces reach @podium/sync only through a
   })
 })
 
-describe('rule 12b — a declared entrypoint\'s TRANSITIVE closure is Node-free', () => {
+describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free", () => {
   /** A synthetic repo containing only the files a case needs, so the refusing
    *  arm is produced by the fixture rather than waited for. */
   function plant(files: Record<string, string>): string {
@@ -1017,7 +1039,9 @@ describe('rule 12b — a declared entrypoint\'s TRANSITIVE closure is Node-free'
       ...CLEAN,
       'packages/sync/src/replica/index.ts': `import { openDatabase } from '@podium/runtime/sqlite'\nexport const x = openDatabase\n`,
     })
-    expect(checkSyncBrowserGraphAll(root).map((x) => x.specifier)).toEqual(['@podium/runtime/sqlite'])
+    expect(checkSyncBrowserGraphAll(root).map((x) => x.specifier)).toEqual([
+      '@podium/runtime/sqlite',
+    ])
   })
 
   it('refuses an UNRESOLVABLE import — a truncated closure is green for the wrong reason', () => {

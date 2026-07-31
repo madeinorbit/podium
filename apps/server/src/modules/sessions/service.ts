@@ -1,4 +1,3 @@
-import { sessionSpawnerParentId } from '../../steward'
 import type {
   AccountId,
   ActorRef,
@@ -15,6 +14,7 @@ import type {
   WorkState,
 } from '@podium/model'
 import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
+import { sessionSpawnerParentId } from '../../steward'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -32,11 +32,6 @@ import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
  */
 export type SessionWirePrincipal = ActorRef
 
-import type { MachinePrincipal } from '@podium/protocol'
-import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
-import type { ClientPrincipal } from '../../gateway/client-principal'
-import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
-import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
@@ -47,6 +42,7 @@ import {
   repoNameFromOrigin,
   type SessionUserOverlay,
 } from '@podium/model'
+import type { MachinePrincipal } from '@podium/protocol'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
@@ -55,29 +51,36 @@ import {
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
-  FEED_MESSAGE_TYPES,
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
   type DraftEditMessage,
+  FEED_MESSAGE_TYPES,
   formatSessionRef,
+  type IssueDepProjection,
+  type IssueProjection,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type IssueDepProjection,
-  type IssueProjection,
-  type RepoProjection,
   type ObservationInputOrigin,
   type ObservationProvider,
+  type RepoProjection,
   type ServerMessage,
+  type SessionBindingSpawnInstruction,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
+import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
+import type { ClientPrincipal } from '../../gateway/client-principal'
+import { feedPrincipalOf } from '../../gateway/client-principal'
+import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 // OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
 // binding, so importing it from both is a duplicate identifier rather than two
 // different capabilities — verified before deduping, because two same-named symbols
@@ -88,7 +91,6 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
@@ -112,7 +114,6 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import { feedPrincipalOf } from '../../gateway/client-principal'
 import { perfPrincipal } from '../perf/principal'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
@@ -497,7 +498,8 @@ export class SessionsService {
       // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
       // so it is resolved for a user. See `settingsViewer` below for why that
       // user is spelled out rather than defaulted.
-      isEnabled: () => this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
+      isEnabled: () =>
+        this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
       sendContinue: (sessionId) => {
         this.continueSession({ sessionId })
       },
@@ -1438,9 +1440,7 @@ export class SessionsService {
   }
 
   clearSnooze(userId: string, sessionId: SessionId): void {
-    this.persistPerUserState(sessionId, () =>
-      this.store.sessions.clearSnooze(userId, sessionId),
-    )
+    this.persistPerUserState(sessionId, () => this.store.sessions.clearSnooze(userId, sessionId))
   }
 
   /**
@@ -1573,6 +1573,10 @@ export class SessionsService {
      *  so an IMPLICIT machine pick can never land on a machine the principal may
      *  not execute on — readiness §3.1.4 M5's "must not offer". */
     use?: MachineUseResolver
+    /** Authenticated transport principal translated at the command composition
+     * root. Internal pre-account callers default to the one authenticated user
+     * here on the server; the daemon never invents one. */
+    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
   }): SessionSpawnResult {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
@@ -1616,18 +1620,20 @@ export class SessionsService {
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
     const useArgv = taskPrompt !== undefined && agentSupportsInitialPrompt(agentKind)
+    const machineId = this.machines.resolveMachineForAgent(
+      input.machineId,
+      input.cwd,
+      agentKind,
+      input.use,
+    )
     const spawned = this.spawn({
       agentKind,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
       origin: { kind: 'spawn' },
-      machineId: this.machines.resolveMachineForAgent(
-        input.machineId,
-        input.cwd,
-        agentKind,
-        input.use,
-      ),
+      machineId,
+      bindingMachineAccess: input.use?.(machineId) === 'denied' ? 'denied' : 'allowed',
       ...(useArgv ? { initialPrompt: taskPrompt } : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
@@ -1640,6 +1646,7 @@ export class SessionsService {
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(issueId ? { issueId } : {}),
+      ...(input.binding ? { binding: input.binding } : {}),
       sessionId,
     })
     preparedInstructions.commit()
@@ -3841,6 +3848,8 @@ export class SessionsService {
     issueId?: IssueId
     /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
     sessionId?: SessionId
+    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
+    bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
   }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let `sessions.set` overwrite the live
@@ -3862,7 +3871,9 @@ export class SessionsService {
     const accountId =
       input.agentKind === 'shell'
         ? undefined
-        : (input.accountId ?? resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId)
+        : (input.accountId ??
+          resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding')
+            .accountId)
     const session = new Session({
       sessionId,
       agentKind: input.agentKind,
@@ -3904,6 +3915,16 @@ export class SessionsService {
       durableLabel: session.durableLabel,
       agentKind: input.agentKind,
       cwd: input.cwd,
+      ...(input.binding
+        ? {
+            binding: {
+              transitionId: `spawn:${sessionId}`,
+              machineAccess: input.bindingMachineAccess ?? 'allowed',
+              ...input.binding,
+              ...(input.issueId ? { issueId: input.issueId } : {}),
+            },
+          }
+        : {}),
       ...(observationLease
         ? {
             observationGeneration: observationLease.observationGeneration,
@@ -4007,7 +4028,10 @@ export class SessionsService {
    *  special-cases shell for the same reason of shape: a shell is not an agent.) */
   private accountEnv(
     agentKind: AgentKind,
-    accountId = resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId,
+    accountId = resolveRole(
+      this.store.settings.getSettingsFor(this.settingsViewer()),
+      'coding',
+    ).accountId,
   ): { env?: Record<string, string> } {
     if (agentKind === 'shell') return {}
     return resolveAccountEnv(this.store.accounts, accountId)
@@ -4317,7 +4341,12 @@ export class SessionsService {
         )
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.attach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
+        perf.record(
+          'phase',
+          'ws.attach',
+          performance.now() - t0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         break
       }
       case 'detach': {
@@ -4326,7 +4355,12 @@ export class SessionsService {
         this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id), false)
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.detach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
+        perf.record(
+          'phase',
+          'ws.detach',
+          performance.now() - t0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         break
       }
       case 'input':
@@ -5275,14 +5309,24 @@ export class SessionsService {
       // POD-308 deletes the snapshot fan-out.
       const tSkip0 = performance.now()
       if (!issueProjectionChanged) {
-        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'sessionsBroadcast.publishIssuesSkipped',
+          performance.now() - tSkip0,
+          DEPLOYMENT,
+        )
       } else {
         const tIssues0 = performance.now()
         this.deps.publishIssues(sessions)
         // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
         // so the next broadcast re-publishes instead of silently skipping.
         this.lastIssueProjectionGeneration = this.issueProjectionGeneration
-        perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'sessionsBroadcast.publishIssues',
+          performance.now() - tIssues0,
+          DEPLOYMENT,
+        )
       }
       this.lastSessionsBroadcastGeneration = generation
     } finally {
@@ -5290,7 +5334,6 @@ export class SessionsService {
     }
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
   }
-
 
   private globalPublicationIds(): readonly string[] {
     const cached = this.globalPublicationIdsCache

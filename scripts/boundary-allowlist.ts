@@ -173,13 +173,6 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   },
   {
     rule: 'harness-branching',
-    file: 'apps/daemon/src/control/session.ts',
-    count: 1,
-    phase: P5,
-    note: 'Codex-only draft-sync wiring on the session control path (783cd0c96 2026-07-18) — the `composerScrape` capability already describes this in AGENT_CAPABILITIES, so POD-325 turns it into that lookup.',
-  },
-  {
-    rule: 'harness-branching',
     file: 'apps/daemon/src/headless-drivers.ts',
     count: 2,
     phase: P5,

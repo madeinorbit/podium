@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { agentStateProviderFor, type LaunchFile } from '@podium/harness'
-import type { AgentKind, SessionId } from '@podium/model'
+import { type AgentKind, asMachineId, type SessionId } from '@podium/model'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import {
   type AgentSession,
@@ -16,6 +16,7 @@ import {
   tmuxHasSession,
 } from '@podium/pty'
 import { resolveInstanceId } from '@podium/runtime/config'
+import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import type { ReattachControl, SpawnControl } from '../session-observers'
@@ -160,7 +161,7 @@ export function wireBridge(
   })
 }
 
-async function spawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
@@ -268,6 +269,37 @@ async function spawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
     })
   }
 }
+async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+  // A missing instruction is an older-server compatibility path: launch as
+  // before, but never synthesize a human or write a fake delegation locally.
+  if (msg.binding) {
+    const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
+    const outcome = await ctx.sessionBinding.transition({
+      event: 'spawn',
+      transitionId: msg.binding.transitionId,
+      sessionId: msg.sessionId,
+      agentKind: msg.agentKind,
+      claimantMachineId: asMachineId(ctx.machineId),
+      machineAccess: msg.binding.machineAccess,
+      principal: msg.binding.principal,
+      ...(msg.binding.issueId ? { issueId: msg.binding.issueId } : {}),
+      ...(msg.binding.requestedScope ? { requestedScope: msg.binding.requestedScope } : {}),
+      ...(msg.binding.scopeOverrideConfirmed ? { scopeOverrideConfirmed: true } : {}),
+      attemptId: label,
+      observationGeneration: msg.observationGeneration,
+    })
+    const failure = bindingFailureMessage(outcome)
+    if (failure) {
+      ctx.send({
+        type: 'spawnError',
+        sessionId: msg.sessionId,
+        message: failure,
+      })
+      return
+    }
+  }
+  await launchSpawn(ctx, msg)
+}
 
 // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is
 // independent, so handle them off the synchronous message dispatch — async existence
@@ -275,6 +307,26 @@ async function spawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
 // reattach for sessions we already hold — re-confirm the bind instead of spawning a
 // duplicate client), and gated so the spawn fan-out can't fork everything in one tick.
 async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise<void> {
+  if (msg.binding) {
+    const outcome = await ctx.sessionBinding.transition({
+      event: 'reattach',
+      transitionId: msg.binding.transitionId,
+      sessionId: msg.sessionId,
+      claimantMachineId: asMachineId(ctx.machineId),
+      machineAccess: msg.binding.machineAccess,
+      requestedGeneration: msg.observationGeneration ?? 1,
+      attemptId: msg.durableLabel,
+    })
+    const failure = bindingFailureMessage(outcome)
+    if (failure) {
+      ctx.send({
+        type: 'reattachFailed',
+        sessionId: msg.sessionId,
+        reason: failure,
+      })
+      return
+    }
+  }
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced
@@ -424,7 +476,9 @@ export const sessionHandlers: Pick<
   | 'sessionOpenUrlCallback'
   | 'sessionOpenUrlDismiss'
 > = {
-  spawn,
+  spawn: (ctx, msg) => {
+    void handleSpawn(ctx, msg)
+  },
   reattach: (ctx, msg) => {
     void handleReattach(ctx, msg)
   },
@@ -555,5 +609,18 @@ export function browserOpenEnv(
   return {
     BROWSER: join(shimDir, 'podium-browser-open'),
     PATH: inheritedPath ? `${shimDir}:${inheritedPath}` : shimDir,
+  }
+}
+function bindingFailureMessage(outcome: SessionBindingTransitionOutcome): string | undefined {
+  switch (outcome.status) {
+    case 'applied':
+    case 'unchanged':
+      return undefined
+    case 'denied':
+      return 'you do not have access to this machine'
+    case 'unreachable':
+      return 'target machine is unreachable'
+    case 'rejected':
+      return `binding transition rejected: ${outcome.reason}`
   }
 }
