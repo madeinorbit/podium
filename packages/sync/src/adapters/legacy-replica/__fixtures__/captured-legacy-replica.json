@@ -1,0 +1,17 @@
+{
+  "collections": {
+    "podium.replica.automationRuns.v1": "{\"s:run_1\":{\"versionKey\":\"2e7ffd65-caf6-4b92-86f9-1b8eba4a4f40\",\"data\":{\"id\":\"run_1\",\"sessionId\":\"run_1\",\"title\":\"run_1\"}}}",
+    "podium.replica.automations.v1": "{\"s:auto_1\":{\"versionKey\":\"f4b6bca2-09d7-40b6-9dae-d878b5be57f5\",\"data\":{\"id\":\"auto_1\",\"sessionId\":\"auto_1\",\"title\":\"auto_1\"}}}",
+    "podium.replica.conversations.v1": "{\"s:conv_1\":{\"versionKey\":\"f710c88b-3dd4-4dad-b382-536068c66fa3\",\"data\":{\"id\":\"conv_1\",\"sessionId\":\"conv_1\",\"title\":\"conv_1\"}}}",
+    "podium.replica.cursor.v1": "4211",
+    "podium.replica.issues.v1": "{\"s:iss_1\":{\"versionKey\":\"4220f46b-5302-4a8c-b47a-4abf8f9cc7a6\",\"data\":{\"id\":\"iss_1\",\"title\":\"an issue\"}}}",
+    "podium.replica.outbox-awaiting.v1": "{\"s:mut_awaiting\":{\"versionKey\":\"32e3fda9-6e89-4c9d-92d8-6ed28c2f3544\",\"data\":{\"mutationId\":\"mut_awaiting\",\"kind\":\"sessions.rename\",\"input\":{\"title\":\"the-users-own-words (awaiting truth)\"},\"queuedAt\":15,\"state\":\"awaiting-truth\",\"seq\":0}}}",
+    "podium.replica.outbox.v1": "{\"s:mut_ancient\":{\"versionKey\":\"80af58b4-36c8-4beb-a76b-0af596d0256b\",\"data\":{\"mutationId\":\"mut_ancient\",\"kind\":\"sessions.rename\",\"input\":{\"title\":\"the-users-own-words (ancient)\"},\"queuedAt\":5,\"seq\":0}},\"s:mut_queued_1\":{\"versionKey\":\"12a25059-18ed-4c0e-8897-e46a88084f58\",\"data\":{\"mutationId\":\"mut_queued_1\",\"kind\":\"sessions.rename\",\"input\":{\"title\":\"the-users-own-words (queued first)\"},\"queuedAt\":10,\"seq\":1}},\"s:mut_queued_2\":{\"versionKey\":\"6091df8a-88d2-4331-aa86-db44bdf39906\",\"data\":{\"mutationId\":\"mut_queued_2\",\"kind\":\"issues.close\",\"input\":{\"id\":\"iss_1\",\"note\":\"the-users-own-words (queued second)\"},\"queuedAt\":20,\"seq\":2}}}",
+    "podium.replica.sessions.v1": "{\"s:sess_1\":{\"versionKey\":\"e4ef21ce-f00b-4587-9d3b-c3f02ae583bf\",\"data\":{\"sessionId\":\"sess_1\",\"title\":\"a session\",\"agentKind\":\"claude-code\"}}}",
+    "podium.replica.transcripts.v1": "{\"s:conv_1\":{\"versionKey\":\"c341bd55-3963-4b83-b3b5-afbd21e425a5\",\"data\":{\"key\":\"conv_1\",\"savedAt\":1785458869127,\"items\":[{\"id\":\"i1\",\"role\":\"user\",\"text\":\"a transcript line\"}]}}}",
+    "podium.replica.uistate.v1": "{\"s:podium.view\":{\"versionKey\":\"885b7716-698c-4c2c-bde5-687ab156263b\",\"data\":{\"key\":\"podium.view\",\"value\":\"home\"}}}"
+  },
+  "preReplica": {
+    "podium.outbox.v1": "[{\"mutationId\":\"mut_ancient\",\"kind\":\"sessions.rename\",\"input\":{\"title\":\"the-users-own-words (ancient)\"},\"queuedAt\":5}]"
+  }
+}

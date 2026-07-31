@@ -9,5 +9,6 @@
  * hydrated AsyncStorage bridge.
  */
 export * from './adoption'
+export * from './migrate'
 export * from './import'
 export * from './keys'
