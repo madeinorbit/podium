@@ -3153,8 +3153,9 @@ That is a check the TREE performs on itself. It cannot be forgotten, it does not
 depend on anyone re-reading a document, and it fails loudly at exactly the moment
 the provisional value stops being true.
 
-THE RULE: when you must take a provisional value, do not flag it — make the tree
-detect it. Ask "what would be true if this value were still provisional?" and
+THE RULE, in POD-1246's own words, which are better than mine: A NOTE POINTS AT
+WHERE TO MEASURE, AND WHERE A NOTE IS NOT ENOUGH, LEAVE A TRIPWIRE THE TREE TRIPS
+ON ITS OWN. Ask "what would be true if this value were still provisional?" and
 assert the negation. A note is a request that someone remember; a tripwire is a
 fact the build checks.
 
@@ -3192,3 +3193,30 @@ are a measurement. Same distinction as "the audit's output versus the committed
 baseline file", and as "the lockfile versus the typecheck": prefer the artifact
 the system produces incidentally over the one it maintains deliberately, because
 only the first cannot be stale.
+
+## An artifact is only preserved if it can be committed INDEPENDENTLY of the work in progress
+
+POD-1246 wrote its handover map, its 28-gate baseline and a patch of its staged
+resolutions into its own worktree — the natural place — and none of them could be
+committed there, because that worktree held a half-resolved merge. Committing
+anything would have committed the merge. So the three artifacts that existed
+specifically to survive the session were sitting in the one location that could
+not preserve them.
+
+They were caught only because a stray-file check showed the handover untracked in
+a tree with MERGE_HEAD set. All three are now committed on integration.
+
+THE GENERAL CASE, and it is not about merges: an artifact is preserved only if it
+lives somewhere that can be committed INDEPENDENTLY of the work in progress. A
+mid-merge worktree cannot. Neither can a mailbox, a scratchpad, or an unowned doc
+on a branch nobody will land. This run has now lost or nearly lost four things
+that way — POD-756's lane plan, POD-378's deletion constraints, POD-1246's
+handover, and a count that existed only in a scratchpad.
+
+THE TEST: before a session ends, ask of every artifact it produced — "if this
+worktree were deleted right now, does this survive?" If the answer depends on the
+work in progress being finished first, move it: commit it to a branch that CAN
+commit, or attach it to the issue. Saving the expensive analysis separately from
+the cheap mechanical state is the same instinct — POD-1246 also saved its staged
+resolutions as a patch, and said the 19 resolutions were cheap to redo while the
+analysis was not. That judgement is what made the recovery trivial.
