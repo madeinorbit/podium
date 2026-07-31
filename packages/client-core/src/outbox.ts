@@ -3,8 +3,33 @@
  * durable FIFO of covered mutations. Writes enqueue here after optimistic local
  * apply and drain sequentially with stable mutation IDs, so replay after reload
  * or reconnect is a server-side no-op.
+ *
+ * DEAD-LETTER RECOVERY (POD-316, ADR 3 D9). This queue used to `shift()` a
+ * poison entry and hand it to a toast — the "silent poison-drop" D9 invariant 1
+ * forbids by name, and POD-279 finding 8 calls the worst gap in the write path.
+ * A definitive refusal now PARKS the entry in a durable third home with a reason
+ * code, and the user recovers it (retry / edit / discard) instead of watching
+ * their words disappear.
+ *
+ * The reason and recovery vocabulary is IMPORTED from the sync kernel
+ * (`@podium/sync/outbox`, POD-370) rather than restated. That is the point: the
+ * kernel is where `unauthorized` is merged with `target-not-found` so the
+ * failure surface carries no existence oracle (amendment property 15), and a
+ * second copy of that merge on the client is a second place for it to drift
+ * open. This module classifies a transport error and delegates every judgement
+ * about what it MEANS.
  */
 
+import {
+  type AuthorityRefusal,
+  MAX_AGE_REASON,
+  normalizeRefusal,
+  type OutboxRejectionReason,
+  type RecoveryPlan,
+  recoveryPlanFor,
+  type RetrySatisfaction,
+  satisfies,
+} from '@podium/sync/outbox'
 import { randomUUID } from './id'
 
 /** One queued mutation. `input` is the exact tRPC input, minus `mutationId`. */
@@ -31,6 +56,61 @@ export interface OutboxEntry {
    *  this entry's baseline before this one resolves, and reading that movement
    *  as "a competing writer won" would wrongly drop this entry's overlay. */
   chained?: boolean
+}
+
+/**
+ * One entry parked for user recovery (ADR 3 D9 `dead-letter`).
+ *
+ * It carries the author's own `input` verbatim and NOTHING about the target.
+ * That is a privacy requirement, not an economy: an entry can be parked
+ * precisely because the principal lost visibility of the target while offline,
+ * and a recovery surface that re-read the target to show "what you were editing"
+ * would hand back the very content the revocation removed.
+ */
+export interface OutboxDeadLetterEntry {
+  readonly entry: OutboxEntry
+  /** Kernel-normalized: `unauthorized` here already covers rights-denied,
+   *  invisible AND nonexistent, indistinguishably. */
+  readonly reason: OutboxRejectionReason
+  /** Which of D9's two paths parked it. */
+  readonly parkedFrom: 'rejected' | 'expired'
+  readonly deadLetteredAt: number
+  readonly attempts: number
+}
+
+/** The dead-letter home. Separate from both the queued and awaiting collections
+ *  for the reason spelled out on `OutboxStorage`: an older build reads a
+ *  collection it understands and drains every row in it, so a parked entry left
+ *  in the queued home would be replayed as live work — which is exactly the
+ *  boolean-split defect POD-1220 caught in the kernel's storage adapter. */
+export interface OutboxDeadLetterStorage {
+  load(): OutboxDeadLetterEntry[]
+  save(entries: OutboxDeadLetterEntry[]): void
+}
+
+/** A corrupt/foreign dead-letter blob reads as empty rather than wedging boot —
+ *  same posture as `parseOutboxEntries`, and the loss is surfaced by the caller's
+ *  `onStoreUnreadable`-shaped logging rather than swallowed here. */
+export function parseDeadLetterEntries(raw: string | null): OutboxDeadLetterEntry[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((e): e is OutboxDeadLetterEntry => {
+      const d = e as OutboxDeadLetterEntry | null
+      return (
+        !!d &&
+        typeof d === 'object' &&
+        !!d.entry &&
+        typeof d.entry.mutationId === 'string' &&
+        typeof d.entry.kind === 'string' &&
+        !!d.reason &&
+        typeof d.reason.code === 'string'
+      )
+    })
+  } catch {
+    return []
+  }
 }
 
 /** Storage seam — platform adapters own localStorage, AsyncStorage, SQLite, etc.
@@ -91,10 +171,56 @@ export function parseOutboxEntries(raw: string | null): OutboxEntry[] {
  * A tRPC input-validation rejection can never succeed on retry; retrying it
  * forever would wedge the queue behind a poison entry. Matched structurally
  * rather than by instanceof, so a batched/wrapped error still classifies.
+ *
+ * Retained as the `invalid` arm of `classifyRefusal` — it is not the whole
+ * story, and believing it was is what left every OTHER definitive refusal
+ * retrying forever (see below).
  */
 function isPoisonError(err: unknown): boolean {
   const data = (err as { data?: { httpStatus?: number; code?: string } } | null)?.data
   return data?.httpStatus === 400 || data?.code === 'BAD_REQUEST'
+}
+
+/**
+ * WHAT THE AUTHORITY TOLD US, in the kernel's vocabulary.
+ *
+ * ADR 3 D10 splits drain failures in two and gives them opposite handling:
+ * *transient* (network, unreachable authority) retries until the age limit,
+ * *definitive* (validation, policy, conflict) gets **zero** automatic retries
+ * and dead-letters immediately. This function is where a transport error is
+ * sorted into that split, and it was previously a one-armed test: only
+ * `BAD_REQUEST` counted as definitive, so an apply-time re-authorization
+ * refusal (D8/D16 — the central multi-user case) and a stale-`expectedRevision`
+ * conflict (D13.3 — routine traffic once two people share a surface) both fell
+ * through to `scheduleRetry()` and hammered a server that would refuse them
+ * identically forever, wedging their partition behind them.
+ *
+ * Returning `undefined` means *transient*, and that is deliberately the arm a
+ * code we do not recognise lands in: an unknown refusal must keep the user's
+ * work queued and retryable rather than park it on a guess.
+ */
+export function classifyRefusal(err: unknown): AuthorityRefusal | undefined {
+  const data = (err as { data?: { httpStatus?: number; code?: string } } | null)?.data
+  const code = data?.code
+  const status = data?.httpStatus
+  if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || status === 401 || status === 403) {
+    // D16.4 / property 15: rights denied, target invisible and target
+    // nonexistent are ONE code by the time anything durable or renderable sees
+    // them. `normalizeRefusal` performs the merge; classifying `NOT_FOUND` into
+    // the same arm here is what stops a 404-vs-403 split re-opening the
+    // existence oracle upstream of it.
+    return { kind: 'unauthorized' }
+  }
+  if (code === 'NOT_FOUND' || status === 404) return { kind: 'target-not-found' }
+  if (code === 'CONFLICT' || status === 409) return { kind: 'conflict' }
+  if (code === 'PRECONDITION_FAILED' || status === 412) {
+    // ADR 3 D2's out-of-scope path: `--outside-scope`/`overrideScope` failures
+    // arrive as PRECONDITION_FAILED, and D8 outcome 3 names the recovery — a
+    // durable confirmation on the envelope, not an edit and not a rebase.
+    return { kind: 'confirmation-required' }
+  }
+  if (isPoisonError(err)) return { kind: 'invalid' }
+  return undefined
 }
 
 /** Kind -> tRPC-input map; executors receive the input plus the entry's mutationId. */
@@ -104,8 +230,20 @@ export type OutboxExecutors<M extends Record<string, object>> = {
 
 export interface OutboxInit<M extends Record<string, object>> {
   executors: OutboxExecutors<M>
-  /** A dropped poison entry surfaces here — app adapters wire it to UI. */
+  /**
+   * A definitively-refused entry surfaces here — app adapters wire it to UI.
+   *
+   * The name is kept for its existing callers, but the BEHAVIOUR behind it
+   * changed: the entry is no longer dropped when this fires. It is parked in the
+   * dead-letter home and remains recoverable, so a listener that treated this as
+   * "your change is gone" should now read it as "your change needs you".
+   */
   onPoison?: (entry: OutboxEntry, error: unknown) => void
+  /** Fires when an entry parks, with the recovery the reason licenses. This is
+   *  the callback a dead-letter surface should use: `onPoison` cannot express
+   *  the reason code, and re-deriving one from the raw error at the UI is how
+   *  two answers to "why did this fail" come to exist. */
+  onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
   /** Fires after an entry's executor resolved and the entry left the queue,
    *  BEFORE subscribers observe the new size — so an overlay handoff (#263:
    *  queued → awaiting server truth) can happen with no intermediate state in
@@ -124,6 +262,15 @@ export interface OutboxInit<M extends Record<string, object>> {
    *  (older adapters/tests), awaiting entries are held in MEMORY only — the
    *  reload-repaint durability is lost, but the legacy collection stays clean. */
   awaitingStorage?: OutboxStorage
+  /**
+   * Durable home for parked entries. When ABSENT the park still happens and the
+   * entry is still recoverable in this process, but it does not survive a
+   * reload — so an adapter that omits it has a durability gap, not a behaviour
+   * difference, and `onDeadLetter` fires either way. Platform adapters should
+   * always supply one; it is optional only so that existing test doubles and
+   * older adapters keep compiling rather than silently losing the park.
+   */
+  deadLetterStorage?: OutboxDeadLetterStorage
   /** Flat retry cadence while entries remain after a network failure. */
   retryMs?: number
   /** Injectable for tests/adapters; defaults to online when unknown. */
@@ -140,8 +287,11 @@ export class Outbox<M extends Record<string, object>> {
    *  review finding 1). Not part of the drain queue; persisted in the separate
    *  `awaitingStorage` home (never in `storage` — old builds re-drain it). */
   private awaitingEntries: OutboxEntry[]
+  /** Parked for recovery (D9 `dead-letter`). Never drained, never dropped. */
+  private deadLetterEntries: OutboxDeadLetterEntry[]
   private readonly storage: OutboxStorage
   private readonly awaitingStorage: OutboxStorage | undefined
+  private readonly deadLetterStorage: OutboxDeadLetterStorage | undefined
   private readonly retryMs: number
   private readonly now: () => number
   private readonly randomId: () => string
@@ -160,9 +310,17 @@ export class Outbox<M extends Record<string, object>> {
   constructor(private readonly init: OutboxInit<M>) {
     this.storage = init.storage
     this.awaitingStorage = init.awaitingStorage
+    this.deadLetterStorage = init.deadLetterStorage
     this.retryMs = init.retryMs ?? 5000
     const loaded = this.storage.load()
-    this.entries = loaded.filter((e) => e.state !== 'awaiting-truth')
+    // ENUMERATED, not `!== 'awaiting-truth'`. The old form was a claim that the
+    // queued home holds exactly two kinds of row, and the moment a third state
+    // exists anywhere the `else` arm absorbs it INTO THE DRAIN QUEUE — the
+    // failure POD-1220 found live in the kernel's storage adapter, where entries
+    // the attribution gate had refused came back as drainable work. Dead-letter
+    // rows are kept out of this home entirely, so today the enumeration is
+    // total; writing it as an enumeration is what keeps it total tomorrow.
+    this.entries = loaded.filter((e) => e.state === undefined)
     // Migration (#263 review round 2): a PREVIOUS build persisted awaiting
     // entries in the queued collection (state-marked). Adopt them into the
     // separate awaiting home and delete them from the legacy collection — an
@@ -175,6 +333,7 @@ export class Outbox<M extends Record<string, object>> {
       this.storage.save(this.entries)
       this.saveAwaiting()
     }
+    this.deadLetterEntries = this.deadLetterStorage?.load() ?? []
     this.now = init.now ?? Date.now
     this.randomId = init.randomId ?? randomUUID
     this.attach()
@@ -238,6 +397,131 @@ export class Outbox<M extends Record<string, object>> {
     this.saveAwaiting()
   }
 
+  // ---- Dead-letter recovery (ADR 3 D9 invariants 1–3) ---------------------
+
+  /** Everything parked for recovery, oldest first. */
+  deadLetters(): OutboxDeadLetterEntry[] {
+    return [...this.deadLetterEntries]
+  }
+
+  /** What the UI may offer for a parked entry. Derived from the reason CODE
+   *  alone, via the kernel's own mapping — so two entries with the same code
+   *  offer byte-identical affordances. That is not tidiness: withholding a
+   *  button for one flavour of `unauthorized` would let the existence oracle the
+   *  kernel carefully closed leak back out through the button row. */
+  recoveryFor(mutationId: string): RecoveryPlan | undefined {
+    const parked = this.deadLetterEntries.find((d) => d.entry.mutationId === mutationId)
+    return parked ? recoveryPlanFor(parked.reason.code) : undefined
+  }
+
+  /**
+   * Re-queue a parked entry once its precondition is satisfied.
+   *
+   * The precondition is ENFORCED, not advertised: `satisfies()` refuses a
+   * mismatch, so an authorization denial cannot be waved through with a rebase
+   * and the UI structurally cannot offer a button that reproduces the same
+   * rejection. `max-age` demands a fresh `mutationId` (D11.4 — the old id may
+   * still have a receipt) and the caller supplies it in the satisfaction.
+   */
+  retry(mutationId: string, satisfaction: RetrySatisfaction): OutboxEntry {
+    const idx = this.deadLetterEntries.findIndex((d) => d.entry.mutationId === mutationId)
+    const parked = this.deadLetterEntries[idx]
+    if (idx === -1 || !parked) throw new Error(`no dead-letter entry ${mutationId}`)
+    const plan = recoveryPlanFor(parked.reason.code)
+    if (!satisfies(plan.retry, satisfaction)) {
+      throw new Error(
+        `dead-letter ${mutationId} needs ${plan.retry} before it can be retried; refusing to re-queue an entry that would be refused identically`,
+      )
+    }
+    const requeued: OutboxEntry =
+      'mutationId' in satisfaction
+        ? { ...parked.entry, mutationId: satisfaction.mutationId, queuedAt: this.now() }
+        : { ...parked.entry }
+    this.deadLetterEntries.splice(idx, 1)
+    this.saveDeadLetters()
+    this.entries.push(requeued)
+    this.persist()
+    if (this.online()) void this.drain()
+    return requeued
+  }
+
+  /**
+   * Revise a parked entry's input and re-queue it. Always available for every
+   * reason code (`RecoveryPlan.edit` is `true` by construction) — the ONLY
+   * recovery an `invalid` entry has, and kept available for `unauthorized` so
+   * the affordance set never varies with the flavour of denial.
+   */
+  edit(mutationId: string, input: unknown): OutboxEntry {
+    const idx = this.deadLetterEntries.findIndex((d) => d.entry.mutationId === mutationId)
+    const parked = this.deadLetterEntries[idx]
+    if (idx === -1 || !parked) throw new Error(`no dead-letter entry ${mutationId}`)
+    // A NEW id: the edited command is a different command, and re-using the id
+    // would let a receipt for the original suppress it (D11.4/D11.7).
+    const revised: OutboxEntry = {
+      ...parked.entry,
+      mutationId: this.randomId(),
+      input,
+      queuedAt: this.now(),
+    }
+    this.deadLetterEntries.splice(idx, 1)
+    this.saveDeadLetters()
+    this.entries.push(revised)
+    this.persist()
+    if (this.online()) void this.drain()
+    return revised
+  }
+
+  /** The user's own decision to let the work go — D9 `cancelled`, and one of the
+   *  only two licences to make it gone. Works with no read of the target, so it
+   *  stays available for an entity the author can no longer see. */
+  discard(mutationId: string): boolean {
+    const idx = this.deadLetterEntries.findIndex((d) => d.entry.mutationId === mutationId)
+    if (idx === -1) return false
+    this.deadLetterEntries.splice(idx, 1)
+    this.saveDeadLetters()
+    this.persist()
+    return true
+  }
+
+  /**
+   * Park an entry that aged out (D10: `expired` → `dead-letter`, reason
+   * `max-age`). Separate from a rejection because the recovery differs — an
+   * expired entry needs a NEW `mutationId`, since the original may still hold a
+   * receipt at the Authority (D11.4).
+   */
+  sweepExpired(maxAgeMs: number): OutboxDeadLetterEntry[] {
+    const cutoff = this.now() - maxAgeMs
+    const aged = this.entries.filter((e) => e.queuedAt < cutoff)
+    if (aged.length === 0) return []
+    this.entries = this.entries.filter((e) => e.queuedAt >= cutoff)
+    const parked = aged.map((e) => this.park(e, MAX_AGE_REASON, 'expired'))
+    this.persist()
+    return parked
+  }
+
+  private park(
+    entry: OutboxEntry,
+    reason: OutboxRejectionReason,
+    parkedFrom: 'rejected' | 'expired',
+  ): OutboxDeadLetterEntry {
+    const parked: OutboxDeadLetterEntry = {
+      entry,
+      reason,
+      parkedFrom,
+      deadLetteredAt: this.now(),
+      attempts: 1,
+    }
+    this.deadLetterEntries.push(parked)
+    this.saveDeadLetters()
+    this.init.onDeadLetter?.(parked)
+    return parked
+  }
+
+  private saveDeadLetters(): void {
+    if (this.disposed) return
+    this.deadLetterStorage?.save([...this.deadLetterEntries])
+  }
+
   /** Reactive size for pending-changes indicators. */
   subscribe(cb: (size: number) => void): () => void {
     this.subs.add(cb)
@@ -285,12 +569,22 @@ export class Outbox<M extends Record<string, object>> {
         // Disposed mid-flight: the successor owns the queue now — no writes,
         // no retry timer. The entry replays there, deduped by mutationId.
         if (this.disposed) return
-        if (isPoisonError(err)) {
+        const refusal = classifyRefusal(err)
+        if (refusal) {
+          // DEFINITIVE (D10: zero automatic retries). The entry leaves the drain
+          // queue — it would refuse identically forever and block its partition —
+          // but it is PARKED, not dropped. D9 invariant 1: the only two licences
+          // to make user-authored work gone are a successful apply and the user's
+          // own discard, and neither of those is this.
           this.entries.shift()
+          this.park(entry, normalizeRefusal(refusal), 'rejected')
           this.persist()
           this.init.onPoison?.(entry, err)
           continue
         }
+        // TRANSIENT, including every refusal shape we do not recognise: keep the
+        // work queued and retry (D9 invariant 4 — a network failure is not a
+        // rejection).
         this.scheduleRetry()
         return
       }

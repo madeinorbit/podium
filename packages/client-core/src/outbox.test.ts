@@ -6,6 +6,7 @@ import {
   type Outbox,
   type OutboxEntry,
   type OutboxStorage,
+  parseDeadLetterEntries,
   parseOutboxEntries,
 } from './outbox'
 
@@ -123,11 +124,16 @@ describe('storage-neutral outbox', () => {
     expect(backing.raw()).toBe('[]')
   })
 
-  it('drops poison entries, surfaces them, and keeps draining', async () => {
+  it('PARKS poison entries rather than dropping them, surfaces them, and keeps draining', async () => {
+    // Renamed from "drops poison entries" (POD-316). The old name described the
+    // defect: D9 invariant 1 forbids exactly this drop, and the assertion below
+    // is the counterfactual — an implementation that still shifts-and-forgets
+    // leaves `deadLetters()` empty and reddens here rather than passing under a
+    // name nobody re-reads.
     const poison = Object.assign(new Error('bad input'), {
       data: { code: 'BAD_REQUEST', httpStatus: 400 },
     })
-    const dropped: OutboxEntry[] = []
+    const surfaced: OutboxEntry[] = []
     const { calls, executors } = makeExecutors(async (_kind, input) => {
       if ((input as { name?: string }).name === 'bad') throw poison
       return {}
@@ -135,16 +141,22 @@ describe('storage-neutral outbox', () => {
     const ob = createOutbox<Kinds>({
       executors,
       storage: memoryStorage().storage,
-      onPoison: (entry) => dropped.push(entry),
+      onPoison: (entry) => surfaced.push(entry),
       randomId: deterministicIds(),
     })
     outboxes.push(ob)
-    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'bad' })
+    const bad = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'bad' })
     const ok = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'good' })
     await ob.drain()
-    expect(dropped.map((e) => e.kind)).toEqual(['rename'])
+    expect(surfaced.map((e) => e.kind)).toEqual(['rename'])
     expect(calls.at(-1)?.input.mutationId).toBe(ok.mutationId)
     expect(ob.size()).toBe(0)
+    // The work is OUT of the drain queue and still THERE, with the author's own
+    // text intact.
+    const parked = ob.deadLetters()
+    expect(parked.map((d) => d.entry.mutationId)).toEqual([bad.mutationId])
+    expect(parked[0]?.entry.input).toEqual({ sessionId: 's1', name: 'bad' })
+    expect(parked[0]?.reason.code).toBe('invalid')
   })
 
   it('keeps entries on network errors and retries on the flat timer', async () => {
@@ -441,5 +453,233 @@ describe('storage-neutral outbox', () => {
     expect(make({ isOnline: () => false, storage: memoryStorage(malformed).storage }).size()).toBe(
       0,
     )
+  })
+})
+
+/**
+ * POD-316 — the recovery surface, tested from the REFUSING arm first.
+ *
+ * The dominant defect of this fan-out is an instrument that cannot say no, and
+ * an outbox suite that only enqueues and drains proves neither the lifecycle nor
+ * the dead-letter path. Every test below is written so that reverting the
+ * behaviour it guards reddens it: the two counterfactuals that matter are
+ * "a definitive refusal retries forever" (the shipped bug) and "a parked entry
+ * comes back as drainable work" (POD-1220's shape).
+ */
+describe('definitive refusals park for recovery instead of retrying forever', () => {
+  const refusal = (data: Record<string, unknown>) => Object.assign(new Error('refused'), { data })
+
+  function parkOn(error: unknown): {
+    ob: Outbox<Kinds>
+    calls: Array<{ kind: string; input: Record<string, unknown> }>
+    deadLetterRaw: () => string | null
+  } {
+    let raw: string | null = null
+    const { calls, executors } = makeExecutors(async (_kind, input) => {
+      if ((input as { name?: string }).name === 'refused') throw error
+      return {}
+    })
+    const ob = createOutbox<Kinds>({
+      executors,
+      storage: memoryStorage().storage,
+      deadLetterStorage: {
+        load: () => parseDeadLetterEntries(raw),
+        save: (entries) => {
+          raw = JSON.stringify(entries)
+        },
+      },
+      retryMs: 5,
+      randomId: deterministicIds(),
+      now: () => 5000,
+    })
+    outboxes.push(ob)
+    return { ob, calls, deadLetterRaw: () => raw }
+  }
+
+  // The table IS the point: before this change only the BAD_REQUEST row was
+  // definitive, so every other row here retried against a server guaranteed to
+  // refuse it identically — a wedged partition, forever, with the user's work
+  // invisible behind it.
+  it.each([
+    ['UNAUTHORIZED (rights revoked while offline — D8/D16)', { code: 'UNAUTHORIZED' }, 'unauthorized'],
+    ['FORBIDDEN', { httpStatus: 403 }, 'unauthorized'],
+    ['NOT_FOUND (merged with unauthorized — property 15)', { code: 'NOT_FOUND' }, 'unauthorized'],
+    ['CONFLICT (stale expectedRevision — D13.3)', { code: 'CONFLICT' }, 'conflict'],
+    ['PRECONDITION_FAILED (out-of-scope — D8 outcome 3)', { httpStatus: 412 }, 'confirmation-required'],
+    ['BAD_REQUEST (validation poison — D10)', { code: 'BAD_REQUEST' }, 'invalid'],
+  ])('parks %s as %s with zero automatic retries', async (_label, data, expectedCode) => {
+    const { ob, calls } = parkOn(refusal(data))
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    expect(ob.deadLetters().map((d) => d.reason.code)).toEqual([expectedCode])
+    expect(ob.size()).toBe(0)
+    const attemptsAfterPark = calls.length
+    // D10: zero automatic retries. A second drain must not re-send it.
+    await ob.drain()
+    expect(calls.length).toBe(attemptsAfterPark)
+  })
+
+  it('keeps an UNRECOGNISED refusal queued and retryable — an unknown code is transient, not a park', async () => {
+    // Fails OPEN toward keeping the user's work. The opposite default would park
+    // on a guess, and a parked entry is one the drain never touches again.
+    const { ob } = parkOn(refusal({ code: 'TEAPOT', httpStatus: 418 }))
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    expect(ob.deadLetters()).toEqual([])
+    expect(ob.size()).toBe(1)
+  })
+
+  it('survives a reload: a parked entry is still recoverable, and is NOT in the drain queue', async () => {
+    // POD-1220's shape, as a counterfactual. If the park were written into the
+    // queued home (or the load path boolean-split on `state`), the reloaded
+    // outbox would report size 1 and REPLAY a mutation the Authority definitively
+    // refused. Both halves are asserted: recoverable AND not drainable.
+    let queuedRaw: string | null = null
+    let deadRaw: string | null = null
+    const queued: OutboxStorage = {
+      load: () => parseOutboxEntries(queuedRaw),
+      save: (e) => {
+        queuedRaw = JSON.stringify(e)
+      },
+    }
+    const dead = {
+      load: () => parseDeadLetterEntries(deadRaw),
+      save: (e: unknown) => {
+        deadRaw = JSON.stringify(e)
+      },
+    }
+    const first = createOutbox<Kinds>({
+      executors: makeExecutors(async () => {
+        throw refusal({ code: 'UNAUTHORIZED' })
+      }).executors,
+      storage: queued,
+      deadLetterStorage: dead,
+      randomId: deterministicIds(),
+    })
+    outboxes.push(first)
+    first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'mine' })
+    await first.drain()
+    first.dispose()
+
+    const { calls, executors } = makeExecutors()
+    const second = createOutbox<Kinds>({
+      executors,
+      storage: queued,
+      deadLetterStorage: dead,
+      randomId: deterministicIds(),
+    })
+    outboxes.push(second)
+    expect(second.size()).toBe(0)
+    expect(second.deadLetters().map((d) => d.entry.input)).toEqual([
+      { sessionId: 's1', name: 'mine' },
+    ])
+    await second.drain()
+    expect(calls).toEqual([])
+  })
+})
+
+describe('recovery affordances are enforced, not advertised', () => {
+  function parked(code: string): Outbox<Kinds> {
+    const ob = createOutbox<Kinds>({
+      executors: makeExecutors(async (_k, input) => {
+        if ((input as { name?: string }).name === 'refused')
+          throw Object.assign(new Error('no'), { data: { code } })
+        return {}
+      }).executors,
+      storage: memoryStorage().storage,
+      randomId: deterministicIds(),
+    })
+    outboxes.push(ob)
+    return ob
+  }
+
+  it('REFUSES a retry whose precondition is not satisfied — an authz denial cannot be waved through with a rebase', async () => {
+    // The button the UI must not be able to offer. Without this the recovery
+    // surface happily re-queues an entry that will be refused identically, which
+    // is a retry loop with a human in it.
+    const ob = parked('UNAUTHORIZED')
+    const e = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    expect(ob.recoveryFor(e.mutationId)?.retry).toBe('rights-fix')
+    expect(() => ob.retry(e.mutationId, { expectedRevision: 7 })).toThrow(/rights-fix/)
+    expect(ob.deadLetters()).toHaveLength(1)
+  })
+
+  it('REFUSES every retry of a validation-poison entry — only an edit can succeed', async () => {
+    const ob = parked('BAD_REQUEST')
+    const e = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    expect(ob.recoveryFor(e.mutationId)?.retry).toBe('never')
+    expect(() => ob.retry(e.mutationId, { rightsFixed: true })).toThrow()
+    expect(() => ob.retry(e.mutationId, { expectedRevision: 1 })).toThrow()
+  })
+
+  it('re-queues on a satisfied precondition, and the retried entry applies', async () => {
+    const ob = parked('CONFLICT')
+    const e = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    expect(ob.recoveryFor(e.mutationId)?.retry).toBe('rebase')
+    const requeued = ob.retry(e.mutationId, { expectedRevision: 9 })
+    expect(requeued.mutationId).toBe(e.mutationId)
+    expect(ob.deadLetters()).toEqual([])
+    expect(ob.size()).toBe(1)
+  })
+
+  it('offers the SAME affordances for every flavour of unauthorized — the oracle must not leak through the button row', async () => {
+    // amendment property 15 + POD-370's byte-identical constraint, asserted at
+    // the surface POD-316 owns. A helpful "you lost access to issue X" string or
+    // a withheld button for one flavour would re-open, in the UI, the existence
+    // oracle the kernel closed in `normalizeRefusal`.
+    const denied = parked('FORBIDDEN')
+    const missing = parked('NOT_FOUND')
+    const a = denied.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    const b = missing.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await denied.drain()
+    await missing.drain()
+    expect(denied.recoveryFor(a.mutationId)).toEqual(missing.recoveryFor(b.mutationId))
+    const [pa] = denied.deadLetters()
+    const [pb] = missing.deadLetters()
+    expect(pa?.reason).toEqual(pb?.reason)
+  })
+
+  it('edits with a NEW mutationId, and discards without touching the target', async () => {
+    const ob = parked('BAD_REQUEST')
+    const e = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    const revised = ob.edit(e.mutationId, { sessionId: asSessionId('s1'), name: 'fixed' })
+    // D11.4: the original id may still hold a receipt, so a revised command must
+    // not reuse it or the receipt would suppress the fix.
+    expect(revised.mutationId).not.toBe(e.mutationId)
+    expect(revised.input).toEqual({ sessionId: 's1', name: 'fixed' })
+
+    const other = parked('FORBIDDEN')
+    const f = other.enqueue('rename', { sessionId: asSessionId('s2'), name: 'refused' })
+    await other.drain()
+    expect(other.discard(f.mutationId)).toBe(true)
+    expect(other.deadLetters()).toEqual([])
+  })
+
+  it('expires aged entries into dead-letter with a new-id precondition (D10 max-age / D11.4)', async () => {
+    let clock = 1000
+    const ob = createOutbox<Kinds>({
+      executors: makeExecutors().executors,
+      storage: memoryStorage().storage,
+      isOnline: () => false,
+      randomId: deterministicIds(),
+      now: () => clock,
+    })
+    outboxes.push(ob)
+    const old = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'stale' })
+    clock += 20_000
+    const swept = ob.sweepExpired(10_000)
+    expect(swept.map((d) => d.reason.code)).toEqual(['max-age'])
+    expect(swept[0]?.parkedFrom).toBe('expired')
+    expect(ob.size()).toBe(0)
+    expect(ob.recoveryFor(old.mutationId)?.retry).toBe('new-mutation-id')
+    // Retrying without minting a fresh id is refused — the old id may still have
+    // a receipt past the dedupe horizon.
+    expect(() => ob.retry(old.mutationId, { rightsFixed: true })).toThrow()
+    const fresh = ob.retry(old.mutationId, { mutationId: 'm-fresh' })
+    expect(fresh.mutationId).toBe('m-fresh')
   })
 })
