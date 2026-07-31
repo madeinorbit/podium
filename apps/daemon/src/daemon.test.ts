@@ -212,17 +212,22 @@ type FlatFrame = { sessionId: SessionId; data: string }
 // therefore answer the handshake. This helper replies `helloOk` to the first frame (the
 // hello), then records every subsequent DaemonMessage — exactly what the old bare
 // `on('message')` did, minus the (now non-DaemonMessage) handshake frame.
-function handshakeAndCollect(ws: WS, received: DaemonMessage[]): void {
+function handshakeAndCollect(ws: WS, received: DaemonMessage[]): Promise<void> {
   let authed = false
+  let resolveHandshake!: () => void
+  const handshake = new Promise<void>((resolve) => {
+    resolveHandshake = resolve
+  })
   ws.on('message', (raw) => {
     if (!authed) {
       authed = true
       const ok: DaemonHandshakeReply = { type: 'helloOk', name: 'test' }
-      ws.send(encode(ok))
+      ws.send(encode(ok), resolveHandshake)
       return
     }
     received.push(parseDaemonMessage(raw.toString()))
   })
+  return handshake
 }
 
 describe('daemon multi-bridge', () => {
@@ -537,18 +542,16 @@ describe('daemon multi-bridge', () => {
 
     // Model server-only restart / websocket recovery: the PTY bridge and daemon
     // observer survive while the remote socket is replaced.
-    const reconnected = new Promise<void>((resolve) => {
+    const reauthenticated = new Promise<void>((resolve) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        handshakeAndCollect(ws, received)
-        resolve()
+        void handshakeAndCollect(ws, received).then(resolve)
       })
     })
     serverSocket.close()
-    await reconnected
-    // The server sends control only after helloOk has reached the daemon. The test
-    // connection callback runs one event-loop edge earlier than that auth boundary.
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    // WebSocket preserves message order: once helloOk is handed to the socket,
+    // the following reattach cannot overtake the authentication frame.
+    await reauthenticated
     const reconnectStart = received.length
     send({
       type: 'reattach',

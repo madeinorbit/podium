@@ -186,6 +186,17 @@ export interface DaemonOptions {
    * cannot spawn the `.ts` worker; the live daemon (Bun) uses the default.
    */
   workerClient?: DiscoveryWorkerClient
+  /**
+   * Test seam for the reconnect backoff clock. Production passes nothing and
+   * uses real, unref'd timers; tests can fire the retry deterministically
+   * instead of spending most of Vitest's timeout budget waiting on a busy host.
+   */
+  reconnectTimers?: ReconnectTimers
+}
+
+export interface ReconnectTimers {
+  setTimeout(fn: () => void, ms: number): unknown
+  clearTimeout(handle: unknown): void
 }
 
 export interface DaemonMetricsOptions {
@@ -232,6 +243,14 @@ export function resolveDurableBackend(
 /** Daemon→server reconnect backoff bounds (ms). */
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
+const REAL_RECONNECT_TIMERS: ReconnectTimers = {
+  setTimeout: (fn, ms) => {
+    const handle = setTimeout(fn, ms)
+    handle.unref?.()
+    return handle
+  },
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+}
 /**
  * How many durable reattaches may spawn an `abduco`/`tmux` attach client at once.
  * Reattaches arrive as a burst when the daemon (re)connects; gating the spawns
@@ -364,6 +383,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   applyInstanceRuntimeEnv(instanceId)
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
+  const reconnectTimers = opts.reconnectTimers ?? REAL_RECONNECT_TIMERS
   const backend = resolveDurableBackend(opts, {
     abduco: isAbducoAvailable(),
     tmux: isTmuxAvailable(),
@@ -737,7 +757,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // processes / `After=` ordering) and must survive a server restart without
   // dropping its abduco attaches. These vars drive the backoff reconnect that
   // re-points `currentWs`.
-  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let reconnectTimer: unknown | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
 
@@ -782,8 +802,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     agentRelayPort: agentRelay.port,
     async close(closeOpts) {
       closing = true // stop the reconnect loop from resurrecting the socket
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
+      if (reconnectTimer !== undefined) {
+        reconnectTimers.clearTimeout(reconnectTimer)
         reconnectTimer = undefined
       }
       observers.stopAllTails()
@@ -904,12 +924,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       return true
     }
     const scheduleReconnect = (): void => {
-      if (closing || reconnectTimer) return
-      reconnectTimer = setTimeout(() => {
+      if (closing || reconnectTimer !== undefined) return
+      reconnectTimer = reconnectTimers.setTimeout(() => {
         reconnectTimer = undefined
         connect()
       }, reconnectBackoffMs)
-      reconnectTimer.unref?.()
       reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_MAX_MS)
     }
     // Stop for good: the server refused us and reconnecting would just re-hammer it with the
