@@ -43,6 +43,7 @@ import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import {
   IssueAgentDefaults,
+  IssueConcurrency,
   IssueCoordination,
   IssueDocuments,
   IssueGraphRefs,
@@ -76,6 +77,11 @@ export const IssueAggregate = IssueIdentity.extend(IssueText.shape)
   .extend(IssueIntent.shape)
   .extend(IssueCoordination.shape)
   .extend(IssueLinear.shape)
+  // The authority-assigned expected-revision token [ADR 2 D3] — link 3 of the
+  // five-link chain, recovered from main at the POD-1246 catch-up. See
+  // `../fields/issue.ts#IssueConcurrency` for why a partial chain is worse than
+  // no chain at all.
+  .extend(IssueConcurrency.shape)
   .extend(Ownership.shape)
   .extend({
     createdAt: z.string(),

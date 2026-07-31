@@ -185,3 +185,7 @@ export function applyBaselineSchema(db: SqlDatabase): string[] {
 }
 
 export { backupDatabase } from './backup'
+/** The other half of the backup story (ADR 2 D1): restore copies the file back
+ *  AND re-mints the feed epoch in one step, so a rolled-back authority can never
+ *  serve a cursor from the timeline it just abandoned. */
+export { type RestoreReport, restoreCliMain, restoreDatabase } from './restore'

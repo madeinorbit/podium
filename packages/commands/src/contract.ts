@@ -24,6 +24,7 @@
  */
 
 import type { z } from 'zod'
+import type { ConflictClass } from './framework'
 
 // ---------------------------------------------------------------------------
 // D2 — resource / action policy
@@ -333,6 +334,32 @@ export interface CommandContractBase {
   readonly ownership: CreationOwnership
   readonly attribution: AttributionPolicy
   readonly errorConsistency: ErrorConsistency
+  /**
+   * ADR 1's conflict class for what this command writes — the arbitration rule,
+   * declared on the contract so it travels with the command rather than living
+   * only in a doc table. Vocabulary is {@link ConflictClass} (six classes).
+   *
+   * OPTIONAL ON THIS TYPE AND REQUIRED ON THE ISSUE FAMILY, the same split
+   * `visibility` already uses and for the same reason: making it required here
+   * cascades to every namespace at once, which is a change that deserves its own
+   * review rather than riding along inside a catch-up merge (POD-1250 owns it).
+   * Until then the ISSUE table enforces it at the `def()` seam, where a mutation
+   * whose contract omits it fails to compile.
+   *
+   * There is no safe default. `arbitration.ts` is explicit that picking one
+   * silently "is how a class ends up with whole-aggregate LWW that nobody chose",
+   * so absence here means UNDECLARED, never "the usual one".
+   */
+  readonly conflict?: ConflictClass
+  /**
+   * The command's own documented rule, REQUIRED when {@link conflict} is `'cmd'`.
+   *
+   * Not decoration: `packages/sync/src/authority/arbitration.ts` requires a rule
+   * for `cmd` rows and THROWS rather than waving one through — "otherwise it is a
+   * synonym for unchecked". A `'cmd'` row with no rule is a row the engine
+   * refuses to arbitrate, so the two fields are declared and checked together.
+   */
+  readonly conflictRule?: string
   /** Presentation hints only — never security fields. */
   readonly cli?: { readonly positional?: readonly string[]; readonly summary?: string }
 }
@@ -350,6 +377,66 @@ export interface CommandContract<In extends z.ZodTypeAny = z.ZodTypeAny, Out = u
 export interface AnyCommandContract extends CommandContractBase {
   readonly input: z.ZodTypeAny
 }
+
+/**
+ * THE CONFLICT DECLARATION AS A CLOSED PAIR — the compile-time half of ADR 1's
+ * arbitration, ported from main's registry at the POD-1246 catch-up.
+ *
+ * Main carried this as a conditional on the registry DEF
+ * (`K extends 'mutation' ? { concurrency: CommandConcurrency } : { concurrency?: never }`,
+ * `apps/server/src/modules/issues/registry.ts`). It is re-declared HERE, on the
+ * contract, because integration's `def()` merges `input` and `action` FROM the L1
+ * contract — so the contract is where a declaration travels with the command, and
+ * a tripwire on `CommandDef` would guard a type the issue family no longer uses.
+ *
+ * WHY A UNION AND NOT TWO OPTIONAL FIELDS. `packages/sync/src/authority/arbitration.ts`
+ * REQUIRES a rule for `cmd` rows and THROWS rather than waving one through —
+ * "otherwise it is a synonym for unchecked". A `cmd` row with no rule is a row the
+ * engine refuses to arbitrate, so the two fields are one decision and the type says
+ * so: `cmd` demands the string, every other class forbids it. Spelling that as two
+ * independent optionals would let the compiler accept exactly the fifteen rows
+ * POD-1247's engine would later reject at runtime.
+ *
+ * The `never` arm is deliberate: a rule attached to an `exp-rev` row is a rule
+ * nothing reads, which is how a doc-shaped field starts disagreeing with the
+ * behaviour it claims to describe.
+ */
+export type ConflictDeclaration =
+  | {
+      readonly conflict: Exclude<ConflictClass, 'cmd'>
+      readonly conflictRule?: never
+    }
+  | {
+      readonly conflict: 'cmd'
+      /** What the command's own rule IS — see {@link ConflictDeclaration}. */
+      readonly conflictRule: string
+    }
+
+/**
+ * A contract for a command that MUTATES REPLICATED STATE: everything
+ * {@link CommandContract} requires, plus a conflict class that is not optional.
+ *
+ * This is the type that makes the 43 issue declarations MECHANICAL rather than 43
+ * separate judgements — omit one and the compiler names the site. `conflict` stays
+ * optional on {@link CommandContractBase} itself because making it required there
+ * cascades to every namespace at once, which deserves its own review rather than
+ * riding along inside a catch-up merge (POD-1250 owns that).
+ *
+ * NOT KEYED ON `policy.action`, and the exception is the reason. `action` is an
+ * AUTHORITY fact, not a mutation fact, and main says so in the one contract where
+ * they disagree: `issues.linearSearch` is `kind: 'query'` with `action: 'write'`
+ * because it spends a third-party credential — write-grade authority, no Podium row
+ * to arbitrate. Deriving the requirement from `action` would force a conflict class
+ * onto a command that has no ADR 1 row, which is a fabricated arbitration rule.
+ * Each family therefore names its mutating members; see `issues/contracts.ts`.
+ */
+export interface MutatingCommandContractBase extends CommandContractBase {
+  readonly conflict: ConflictClass
+}
+export type MutatingCommandContract<
+  In extends z.ZodTypeAny = z.ZodTypeAny,
+  Out = unknown,
+> = CommandContract<In, Out> & ConflictDeclaration
 
 export type ContractInput<C extends { readonly input: z.ZodTypeAny }> = z.infer<C['input']>
 

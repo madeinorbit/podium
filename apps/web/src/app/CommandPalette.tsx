@@ -32,7 +32,7 @@ import {
   type PaletteGroupId,
 } from './command-palette'
 import type { SpawnTarget } from './spawn-agent'
-import { useStoreSelector } from './store'
+import { useReplicaIssues, useStoreSelector } from './store'
 
 const GROUP_LABELS: Record<PaletteGroupId, string> = {
   navigate: 'Navigate',
@@ -113,7 +113,6 @@ function PaletteDialog({
     trpc,
     repos,
     sessions,
-    issues,
     pins,
     paneA,
     setPane,
@@ -135,7 +134,6 @@ function PaletteDialog({
       trpc: s.trpc,
       repos: s.repos,
       sessions: s.sessions,
-      issues: s.issues,
       pins: s.pins,
       paneA: s.paneA,
       setPane: s.setPane,
@@ -155,6 +153,7 @@ function PaletteDialog({
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const { guardedKill, guardedArchive } = useSessionGuard()
   const workflowsEnabled = useFeature('workflows')
   const automationsEnabled = useFeature('automations')

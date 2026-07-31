@@ -42,21 +42,19 @@ import type {
  */
 export abstract class IssueServiceReads extends IssueServiceCore {
   readyList(repoPath?: string): IssueWire[] {
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => !r.deletedAt && this.inRepoScope(r, repoPath))
-      .map((r) => this.toWire(r, sessionList, commentCounts))
+      .map((r) => this.toWire(r, commentCounts))
       .filter((w) => w.ready)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
   blockedList(repoPath?: string): IssueWire[] {
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => !r.deletedAt && this.inRepoScope(r, repoPath))
-      .map((r) => this.toWire(r, sessionList, commentCounts))
+      .map((r) => this.toWire(r, commentCounts))
       .filter((w) => w.blocked)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
@@ -65,10 +63,9 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     const rows = [...this.rows.values()].filter(
       (r) => !r.deletedAt && this.inRepoScope(r, repoPath),
     )
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     const nodes = rows.map((r) => {
-      const w = this.toWire(r, sessionList, commentCounts)
+      const w = this.toWire(r, commentCounts)
       return {
         id: r.id,
         seq: r.seq,
@@ -118,9 +115,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       }
     }
     walk(root.id)
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
-    return rows.sort((a, b) => a.seq - b.seq).map((r) => this.toWire(r, sessionList, commentCounts))
+    return rows.sort((a, b) => a.seq - b.seq).map((r) => this.toWire(r, commentCounts))
   }
 
   /** One-call epic survey (issue #82): the root + its whole descendant subtree,
@@ -263,12 +259,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   }
 
   closeEligibleEpics(repoPath?: string): IssueWire[] {
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && r.type === 'epic' && !this.isClosed(r))
       .filter((r) => this.epicStatus(r.id).complete)
-      .map((r) => this.toWire(r, sessionList, commentCounts))
+      .map((r) => this.toWire(r, commentCounts))
   }
 
   /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
@@ -297,13 +292,12 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  oldest-first. `nowMs` is injectable so tests can pin "now". */
   staleList(repoPath?: string, days = 30, nowMs = Date.now()): IssueWire[] {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
       .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
-      .map((r) => this.toWire(r, sessionList, commentCounts))
+      .map((r) => this.toWire(r, commentCounts))
   }
 
   /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
@@ -377,11 +371,10 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   search(filter: IssueSearchFilter): IssueWire[] {
     const text = filter.text?.toLowerCase()
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, filter.repoPath))
-      .map((r) => this.toWire(r, sessionList, commentCounts))
+      .map((r) => this.toWire(r, commentCounts))
       .filter((r) => !r.deletedAt)
       .filter((w) => {
         if (filter.stage && w.stage !== filter.stage) return false
@@ -416,17 +409,16 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       bump(c.byStage, r.stage)
       bump(c.byPriority, String(r.priority))
       bump(c.byType, r.type)
-      bump(c.byAssignee, r.assignee ?? '(unassigned)')
+      bump(c.byAssignee, r.assignee || '(unassigned)')
     }
     return c
   }
 
   stats(repoPath?: string): IssueStats {
-    const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     const wires = [...this.rows.values()]
       .filter((r) => !r.deletedAt && this.inRepoScope(r, repoPath))
-      .map((r) => this.toWire(r, sessionList, commentCounts))
+      .map((r) => this.toWire(r, commentCounts))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
     return {
       total: wires.length,
@@ -438,11 +430,9 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     }
   }
 
-  /** `sessionList` lets a caller in a loop share one listing [POD-817] —
-   *  toWire otherwise defaults to a fresh listSessions() per call. */
-  get(id: string, sessionList?: SessionMeta[]): IssueWire | null {
+  get(id: string): IssueWire | null {
     const r = this.rows.get(this.resolveRef(id))
-    return r ? this.toWire(r, sessionList) : null
+    return r ? this.toWire(r) : null
   }
 
   /** Raw issue metadata for server-side readers that do not need the wire

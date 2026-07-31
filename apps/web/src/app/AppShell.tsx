@@ -46,7 +46,7 @@ import {
   SUPERAGENT_MODE_KEY,
   type SuperagentMode,
 } from './shell-state'
-import { StoreProvider, useStoreSelector } from './store'
+import { StoreProvider, useReplicaIssues, useStoreSelector } from './store'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
@@ -169,7 +169,6 @@ function AppBody(): JSX.Element {
   const {
     repos,
     reposLoaded,
-    issues,
     selectedIssueId,
     superOpen,
     setSuperOpen,
@@ -181,7 +180,6 @@ function AppBody(): JSX.Element {
     (s) => ({
       repos: s.repos,
       reposLoaded: s.reposLoaded,
-      issues: s.issues,
       selectedIssueId: s.selectedIssueId,
       superOpen: s.superOpen,
       setSuperOpen: s.setSuperOpen,
@@ -193,6 +191,8 @@ function AppBody(): JSX.Element {
     shallowEqual,
   )
   const view = useStoreSelector((s) => s.view)
+  const issues = useReplicaIssues()
+  const sessions = useStoreSelector((s) => s.sessions)
   const [dismissed, setDismissed] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
     readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),
@@ -359,7 +359,7 @@ function AppBody(): JSX.Element {
           )}
           {view === 'workspace' && superMode === 'folded' && (
             <FoldedSuperagentBar
-              trayCount={trayCount(issues)}
+              trayCount={trayCount(issues, sessions)}
               onExpand={(target) => {
                 // Land on the clicked half (3b/3d): pre-open that section so
                 // the expanding column mounts with it visible.

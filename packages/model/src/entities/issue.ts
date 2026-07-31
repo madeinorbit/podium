@@ -100,6 +100,7 @@ import {
 // group threw at module load. See `./issue-vocabulary.ts`.
 import {
   IssueAgentDefaults,
+  IssueConcurrency,
   IssueCoordination,
   IssueDerived,
   IssueGraphRefs,
@@ -285,6 +286,14 @@ const IssueWireCore = z.object({
  *  key ORDER — zod emits keys in shape order, so appending the provenance group
  *  at the end would change the encoded bytes (POD-304). */
 const IssueWireTail = z.object({
+  /** THE AUTHORITY-ASSIGNED REVISION (ADR 2 D3) — link 3 of the expected-revision
+   *  chain, recovered from main at the POD-1246 catch-up. Optional so pre-field
+   *  payloads still parse; the field schema is `IssueConcurrency`'s, never a
+   *  restated `z.number()`. Carried on the transitional legacy wire as well as on
+   *  `IssueProjection` because the commands that echo it back as
+   *  `expectedRevision` are served to both, and a client reading the legacy shape
+   *  with no token can only send writes with no precondition. */
+  revision: IssueConcurrency.shape.revision,
   /** Designated coordinator session (bare session id) for actionable issue-addressed
    *  mail routing. Claimable/changeable; dangling-tolerant if the session is later
    *  deleted. Absent/undefined = unset (today's idle-else-most-recent heuristic). */

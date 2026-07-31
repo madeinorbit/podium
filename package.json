@@ -83,6 +83,7 @@
     "audit:telegram-binding": "bun scripts/audit-telegram-binding.ts --probe && bun scripts/audit-telegram-binding.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",
+    "lint:shadowing": "bun scripts/check-merge-shadowing.ts",
     "fixtures:wire:update": "bun --conditions=@podium/source scripts/update-wire-fixtures.ts",
     "inventory:ids": "bun scripts/id-inventory-sweep.ts",
     "format": "biome format --write .",

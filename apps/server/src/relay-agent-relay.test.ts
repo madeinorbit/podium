@@ -1,8 +1,19 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
+import { sessionTitleRule } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+
+/**
+ * The nudge's own opening sentence, taken from the source of truth rather than
+ * pinned as a copy string [POD-743]. A bare `toContain('podium session title')`
+ * cannot tell the NUDGE from a mere mention of the command: the delegation
+ * guidance rides in every prime and legitimately contains that literal, which
+ * made the negative assertions fire always and the positive one pass always.
+ * seq only affects a later line, so 0 is a safe stand-in for the first.
+ */
+const TITLE_NUDGE = sessionTitleRule(0, []).split('\n')[0]
 
 type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 

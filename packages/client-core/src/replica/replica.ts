@@ -58,7 +58,10 @@ import type {
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
+  IssueDepProjection,
+  IssueProjection,
   IssueWire,
+  RepoProjection,
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
@@ -73,6 +76,7 @@ import type {
   persistedCollectionOptions,
 } from '@tanstack/db-sqlite-persistence-core'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage, parseOutboxEntries } from '../outbox'
+import { COLD_CURSOR, type FeedCursor, REPLICA_SCHEMA_VERSION } from './feed'
 
 export type {
   Replica,
@@ -269,6 +273,9 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
 const ENTITY_STORE_KINDS = [
   'sessions',
   'issues',
+  'issueProjections',
+  'issueDeps',
+  'repos',
   'conversations',
   'automations',
   'automationRuns',
@@ -299,6 +306,11 @@ class TanstackReplica implements Replica {
   private readonly prefix: string
   private readonly nonce: number
   private readonly cursorKey: string
+  private readonly schemaKey: string
+  /** The held cursor (ADR 2 D1). `undefined` = not yet read from storage; the
+   *  first getFeedCursor loads it. See getFeedCursor for why this is not a
+   *  cache-for-speed but the source of truth. */
+  private cursorState: FeedCursor | undefined
   private readonly now: () => number
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous collection map, typed at the access sites
   private readonly cols: Record<ReplicaKind | 'transcripts', any>
@@ -347,6 +359,7 @@ class TanstackReplica implements Replica {
     const prefix = init.keyPrefix ?? REPLICA_KEY_PREFIX
     this.prefix = prefix
     this.cursorKey = `${prefix}.cursor.v1`
+    this.schemaKey = `${prefix}.schema.v1`
     this.now = init.now ?? Date.now
     this.persistedInit = init.persisted
     const storage =
@@ -391,6 +404,19 @@ class TanstackReplica implements Replica {
         guardedEvents,
       ),
       issues: this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
+      issueProjections: this.makeCollection<IssueProjection>(
+        'issueProjections',
+        (i) => i.id,
+        guarded,
+        guardedEvents,
+      ),
+      issueDeps: this.makeCollection<IssueDepProjection>(
+        'issueDeps',
+        (d) => d.id,
+        guarded,
+        guardedEvents,
+      ),
+      repos: this.makeCollection<RepoProjection>('repos', (r) => r.id, guarded, guardedEvents),
       conversations: this.makeCollection<ConversationSummaryWire>(
         'conversations',
         (c) => c.id,
@@ -442,10 +468,15 @@ class TanstackReplica implements Replica {
     const empty: ReplicaHydrateResult = {
       sessions: [],
       issues: [],
+      issueProjections: [],
+      issueDeps: [],
+      repos: [],
       conversations: [],
       automations: [],
       automationRuns: [],
       cursor: null,
+      feedCursor: COLD_CURSOR,
+      schemaReset: false,
     }
     // Hold the notification batch across the preload (#262 review): a
     // collection load emits per-collection change events; coalescing them means
@@ -469,13 +500,28 @@ class TanstackReplica implements Replica {
       // to free quota (entities re-bootstrap; outbox/uistate blobs migrate in
       // outboxStorage()/uiState(), NOT here). Idempotent, best-effort.
       if (this.persistedInit) this.retireLegacyEntityBlobs()
+      // ADR 2 D7 rung 6 — a cache written by another replica schema version.
+      // Checked AFTER preload so the reset clears loaded rows too, and done HERE
+      // rather than by the engine's own schemaMismatchPolicy: that policy is
+      // collection-scoped (it cannot see our cursor) and, when it refuses, it
+      // FAILS OPEN — status 'ready', size 0, rows still on disk, no error
+      // anywhere but a log line. A replica that reports ready over a cache it
+      // declined to read is lying, and the app renders an empty board and calls
+      // it success.
+      const schemaReset = this.detectSchemaMismatch()
+      if (schemaReset) this.resetCache()
       return {
         sessions: this.cols.sessions.toArray as SessionMeta[],
         issues: this.cols.issues.toArray as IssueWire[],
+        issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
+        issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
+        repos: this.cols.repos.toArray as RepoProjection[],
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
         automations: this.cols.automations.toArray as AutomationWire[],
         automationRuns: this.cols.automationRuns.toArray as AutomationRunWire[],
         cursor: this.getCursor(),
+        feedCursor: this.getFeedCursor(),
+        schemaReset,
       }
     } catch (err) {
       // Poisoned replica: clear and cold-start rather than wedge boot (invariant 2).
@@ -538,22 +584,46 @@ class TanstackReplica implements Replica {
   }
 
   getCursor(): number | null {
+    const seq = this.getFeedCursor().seq
     // A degraded session has no durable entity data — a persisted cursor would
     // lie about what's on disk, so read it as "never synced" (full resync).
-    if (this.entityWritesDegraded) return null
-    try {
-      const raw = this.persistedInit
-        ? ((this.metaCol.get(CURSOR_META_KEY) as UiRow | undefined)?.value ?? null)
-        : this.storage.getItem(this.cursorKey)
-      if (raw === null) return null
-      const n = Number(raw)
-      return Number.isFinite(n) ? n : null
-    } catch {
-      return null
+    // getFeedCursor already applies that rule; 0 is its cold spelling, null is
+    // this seam's.
+    return seq === 0 ? null : seq
+  }
+
+  getFeedCursor(): FeedCursor {
+    // A degraded session has no durable entity data — a persisted cursor would
+    // lie about what's on disk, so it reads as "never synced" (full resync).
+    if (this.entityWritesDegraded) return COLD_CURSOR
+    if (this.cursorState === undefined) {
+      try {
+        // SQLite mode reads the cursor from the meta collection (same file as
+        // the data, POD-789); localStorage mode keeps the legacy key. Either
+        // raw value parses through the one lenient triple parser.
+        const raw = this.persistedInit
+          ? (((this.metaCol.get(CURSOR_META_KEY) as UiRow | undefined)?.value as string | null) ??
+            null)
+          : this.storage.getItem(this.cursorKey)
+        this.cursorState = parseFeedCursor(raw)
+      } catch {
+        this.cursorState = COLD_CURSOR
+      }
     }
+    return this.cursorState
   }
 
   setCursor(cursor: number): void {
+    // Seq-only seam (the shipped SocketHub): keep whatever identity a stamped
+    // reply already established rather than blanking it to null — see
+    // advanceCursor's note on the mixed-version reset loop.
+    this.setFeedCursor({ ...this.getFeedCursor(), seq: cursor })
+  }
+
+  setFeedCursor(cursor: FeedCursor): void {
+    // In-memory FIRST and synchronously — see getFeedCursor. The persist is
+    // what waits; the truth does not.
+    this.cursorState = cursor
     // Persist-after-data: wait for every entity write issued before this call.
     const fence = this.lastWrite
     void fence.then(() => {
@@ -572,7 +642,10 @@ class TanstackReplica implements Replica {
         // A failed cursor persist is benign (missing cursor = snapshot next
         // boot); 'cursor' keeps it out of the entity degrade path.
         try {
-          const value = String(cursor)
+          // Serialize the cursor we hold NOW (see the localStorage branch below
+          // for why: a reset between queue and fence must land COLD, not the
+          // captured value), as the same lenient triple the reader parses.
+          const value = serializeFeedCursor(this.getFeedCursor())
           if (this.metaCol.has(CURSOR_META_KEY)) {
             this.track(
               this.metaCol.update(CURSOR_META_KEY, (draft: UiRow) => {
@@ -589,11 +662,66 @@ class TanstackReplica implements Replica {
         return
       }
       try {
-        this.storage.setItem(this.cursorKey, String(cursor))
+        // Write the cursor we hold NOW, not the one captured when this write was
+        // queued. The two differ exactly when a reset happened in between, and
+        // that is the case that matters: `resetCache` removes the key
+        // synchronously while this write is still parked behind the fence, so
+        // persisting the captured value would put cursor=77 back on disk next
+        // to zero entities — re-creating, from inside the reset itself, the
+        // permanent silent hole the reset exists to prevent. The held cursor is
+        // COLD by then, and COLD is what lands.
+        this.storage.setItem(this.cursorKey, serializeFeedCursor(this.getFeedCursor()))
       } catch {
         // best-effort — a missing cursor just means a snapshot next boot
       }
     })
+  }
+
+  resetCache(): void {
+    // The cursor dies FIRST (ADR 6 D4.2 — see the interface note): a crash
+    // between the two halves must leave data-without-cursor (re-pull recovers
+    // it), never cursor-without-data (a permanent silent hole).
+    this.cursorState = COLD_CURSOR
+    //
+    // "One transaction" is the CONTRACT of this seam, not a property this
+    // engine can supply: a localStorage-backed replica has no transaction to
+    // open, so the ordering above is what makes the crash window survivable
+    // here. The SQLite adapter (POD-789) wraps the same two steps in a real
+    // `runInTransaction` behind this same method — which is the point of
+    // there being one storage port (ADR 6 D3) rather than one reset per engine.
+    try {
+      if (this.persistedInit) {
+        // SQLite mode (POD-789): the cursor row lives in the meta collection.
+        if (this.metaCol.has(CURSOR_META_KEY)) this.track(this.metaCol.delete(CURSOR_META_KEY))
+      } else {
+        this.storage.removeItem(this.cursorKey)
+      }
+    } catch {
+      // best-effort; the entity clear below still makes the cache honest
+    }
+    // The outbox, outbox-awaiting and ui-state collections are NOT in `cols`
+    // and are not touched here. That is D7's most dangerous sentence, and it is
+    // structural rather than remembered: entities and cursor are cache (home:
+    // the authority, re-derivable at will), the outbox is client-local authored
+    // truth that exists NOWHERE else. Losing the cache costs a re-download;
+    // losing the outbox loses something the user typed.
+    this.batch(() => {
+      for (const col of Object.values(this.cols)) {
+        try {
+          const keys = [...(col.keys() as Iterable<string>)]
+          if (keys.length > 0) this.track(col.delete(keys))
+          col.utils.clearStorage()
+        } catch (err) {
+          console.warn('[podium] replica resetCache: clearing a collection failed', err)
+        }
+      }
+    })
+    // Re-stamp the schema version: the cache is now this build's, empty.
+    try {
+      this.storage.setItem(this.schemaKey, String(REPLICA_SCHEMA_VERSION))
+    } catch {
+      // best-effort — a missing stamp reads as a mismatch and resets again
+    }
   }
 
   async flush(): Promise<void> {
@@ -1117,6 +1245,39 @@ class TanstackReplica implements Replica {
   // ---- internals ----
 
   /**
+   * ADR 2 D7 rung 6: is the persisted cache this build's format?
+   *
+   * An ABSENT stamp is not a mismatch. It means either a genuinely cold client
+   * (nothing to discard — the reset would be a no-op) or a cache written before
+   * the stamp existed, which IS this format: v1 is the version the stamp was
+   * introduced at, so the absence carries the same information the stamp would.
+   * Treating absence as a mismatch would reset every warm client exactly once on
+   * upgrade, for nothing.
+   */
+  private detectSchemaMismatch(): boolean {
+    let raw: string | null
+    try {
+      raw = this.storage.getItem(this.schemaKey)
+    } catch {
+      return false
+    }
+    if (raw === null) {
+      try {
+        this.storage.setItem(this.schemaKey, String(REPLICA_SCHEMA_VERSION))
+      } catch {
+        // best-effort — an unstamped cache re-reads as this version next boot
+      }
+      return false
+    }
+    if (Number(raw) === REPLICA_SCHEMA_VERSION) return false
+    console.warn(
+      `[podium] replica cache is schema v${raw}, this build is v${REPLICA_SCHEMA_VERSION} — ` +
+        'discarding the cache and re-bootstrapping (the outbox is kept)',
+    )
+    return true
+  }
+
+  /**
    * Quota guard for the entity/transcript blobs (issue #181 hotfix). Production
    * data can exceed the ~5MB localStorage quota; when a whole-collection JSON
    * write throws, this wrapper — the storage the collections actually see —
@@ -1355,7 +1516,15 @@ class TanstackReplica implements Replica {
     )
   }
 
+  /** ADR 2 D7 rung 5 (local corruption): the store is unreadable, so nothing in
+   *  it can be trusted — including the cursor. Same discard/keep split as
+   *  resetCache: the outbox family is not in `cols` and is not touched. */
   private clearAll(): void {
+    // In memory FIRST, and unconditionally: the storage clear below is
+    // best-effort, but a held cursor over a cache we just threw away is the
+    // silent hole, so it must not survive a throw from `removeItem` — and it
+    // must not survive the SQLite branch's early return either.
+    this.cursorState = COLD_CURSOR
     if (this.persistedInit) {
       // Poisoned SQLite replica (invariant 2): wipe the dedicated sqlite file
       // via the platform hook (drop all tables). Until the next boot recreates
@@ -1410,6 +1579,46 @@ function parseLocalStorageCollectionBlob(raw: string | null): unknown[] | undefi
   } catch {
     return undefined
   }
+}
+
+/**
+ * The persisted cursor, read leniently (ADR 2 D1 triple).
+ *
+ * Accepts the LEGACY bare-number blob (`"77"`) as a triple with an unknown
+ * identity, which is exactly what it is: a cursor written before the client knew
+ * feeds had identities. It is not discarded, because it is not wrong — it is a
+ * seq on a feed we cannot name, and the first identity-stamped reply either
+ * confirms it or trips rung 4. Discarding it instead would make every warm
+ * client bootstrap the world once, for no safety gained.
+ *
+ * Anything unparseable reads COLD: an unreadable cursor must never be guessed
+ * at, and a bootstrap is always a correct answer.
+ */
+export function parseFeedCursor(raw: string | null): FeedCursor {
+  if (raw === null) return COLD_CURSOR
+  const legacy = Number(raw)
+  if (Number.isFinite(legacy)) return { feedId: null, epoch: null, seq: legacy }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return COLD_CURSOR
+  }
+  if (parsed === null || typeof parsed !== 'object') return COLD_CURSOR
+  const { feedId, epoch, seq } = parsed as Record<string, unknown>
+  if (typeof seq !== 'number' || !Number.isFinite(seq)) return COLD_CURSOR
+  return {
+    feedId: typeof feedId === 'string' && feedId !== '' ? feedId : null,
+    epoch: typeof epoch === 'string' && epoch !== '' ? epoch : null,
+    seq,
+  }
+}
+
+/** Inverse of {@link parseFeedCursor}. An OLDER build reading this blob does
+ *  `Number('{"seq":77,…}')` → NaN → "never synced" → a full bootstrap: a PWA
+ *  rollback degrades to re-downloading the world, never to a silent gap. */
+export function serializeFeedCursor(cursor: FeedCursor): string {
+  return JSON.stringify(cursor)
 }
 
 /** True when the storage accepts a write (private mode / quota-exhausted throws). */

@@ -40,7 +40,7 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 import { NewPanelMenu } from './NewPanelMenu'
 import { PanelDeck } from './PanelDeck'
 import { composeDeck, type DeckTab } from './panel-deck'
-import { useStoreSelector } from './store'
+import { useReplicaIssues, useStoreSelector } from './store'
 import type { WorktreeView } from './types'
 import { closeWorkspaceTab } from './workspace-close'
 import { fileTabsForWorkspace } from './workspace-tabs'
@@ -70,7 +70,6 @@ export function Workspace(): JSX.Element {
     markSessionRead,
     repos,
     selectedIssueId,
-    issues,
     dockShells,
   } = useStoreSelector(
     (s) => ({
@@ -88,11 +87,11 @@ export function Workspace(): JSX.Element {
       markSessionRead: s.markSessionRead,
       repos: s.repos,
       selectedIssueId: s.selectedIssueId,
-      issues: s.issues,
       dockShells: s.dockShells,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const tabSplittingEnabled = useFeature('tab-splitting')
   const visibleSplit = tabSplittingEnabled && split
   // A session created via the "+" menu (or restored from localStorage on reload)

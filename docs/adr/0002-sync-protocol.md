@@ -343,6 +343,13 @@ additive features negotiate by capability; `WIRE_VERSION` moves only for breakin
 framing changes. This is why the oplog shipped with "no `WIRE_VERSION` bump required"
 (`oplog-read-path.md:82`) — a good outcome, and now a stated rule.
 
+**Issues-pilot reconciliation (POD-797; fact, not verdict).**
+CAP_ISSUES_NORMALIZED remains as additive client capability data, while the temporary
+issues-normalized-wire server feature flag was deleted after the browser cut over. The
+normalized issue kinds emit unconditionally. Capless clients still receive a session-free
+legacy issue payload, registered as POD-309/POD-827 residue; POD-827 blocks making the
+normalized projection the sole issue feed on hub-node installs.
+
 **Ratify lenient consumer parsing as protocol law.** `sync.ts:62-118` — producers are
 strict, consumers accept unknown entity kinds with `value: unknown`, ignore them, and
 **advance the cursor past them**. The reasoning is not obvious and is hard-won: a

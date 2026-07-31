@@ -1,6 +1,7 @@
-import type { IssueWire } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
+import type { IssueViewModel } from '@/app/store'
 import { BrailleSpinner } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { deriveTrayItems, workingSessionCount } from './derive-tray'
@@ -49,14 +50,15 @@ function ArrivalWrap({ arrive, children }: { arrive: boolean; children: ReactNod
  */
 export function Tray({
   issues,
+  sessions,
   selectedIssueId,
   actions,
   maxHeight,
   fill = false,
   dismissedOffers,
 }: {
-  issues: IssueWire[]
-  /** Ring-only (§5): never narrows or re-sorts the tray. */
+  issues: IssueViewModel[]
+  sessions: readonly SessionMeta[]
   selectedIssueId: string | null
   actions: TrayActions
   /** Set by the tray/chat split handle; null = a default viewport-relative
@@ -78,7 +80,7 @@ export function Tray({
     return () => clearInterval(t)
   }, [])
 
-  const items = deriveTrayItems(issues, dismissedOffers)
+  const items = deriveTrayItems(issues, sessions, dismissedOffers)
   // Arrival bookkeeping runs during render so `arrived` is true on the card's
   // FIRST paint (an effect would be a frame late and the morphs would miss).
   // Marking keys as seen is idempotent, so StrictMode double-renders agree.
@@ -93,7 +95,7 @@ export function Tray({
   primed = true
 
   if (items.length === 0) {
-    const working = workingSessionCount(issues)
+    const working = workingSessionCount(issues, sessions)
     return (
       <div
         data-testid="tray-empty"
@@ -139,6 +141,7 @@ export function Tray({
             <TrayCard
               item={item}
               issues={issues}
+              sessions={sessions}
               actions={actions}
               now={now}
               selected={selectedIssueId !== null && item.issue.id === selectedIssueId}

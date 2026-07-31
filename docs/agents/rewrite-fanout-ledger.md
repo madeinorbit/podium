@@ -3054,3 +3054,63 @@ renumbering, because they verified verdicts and not locations. Their patch caugh
 my mention-vs-call. This one was them believing a detector's POPULATION instead of
 running it. Every time, THE INSTRUMENT WAS TRUSTED ABOUT WHERE IT POINTED RATHER
 THAN WHAT IT DECIDED. The verdict gets checked; the coordinates do not.
+
+## RIGHT INSTRUMENT, WRONG TREE — the third member of the family
+
+§0b of the POD-1246 handover records an instrument that cannot say no about the
+thing you think it is examining: a `tsgo` run that is syntax-only because a
+conflict marker is somewhere in the project, so its green carries no information
+about types. POD-1257 hit the same shape from a different direction, and the
+difference is worth a name of its own.
+
+The merge worktree's `node_modules` had NO `@podium/*` links — its `bun.lock` is
+conflicted, so the install was partial and nobody could repair it without
+rewriting a file that is itself a pending merge decision. Node resolution does not
+fail on that. It WALKS UP, and one directory above the worktree sits the main
+checkout's `node_modules`, where `@podium/model` is a symlink to MAIN's
+`packages/model`. So an unaliased run in the merge tree can import, typecheck and
+test ANOTHER CHECKOUT'S SOURCE and report a perfectly ordinary green.
+
+WHAT MAKES IT THE SAME FAMILY: the instrument really ran, really parsed, really
+asserted. It answered a true question about a file. It just was not the file under
+change, and nothing in its output names which tree it read. A green from the wrong
+lane looks exactly like a green from the right one — the tell is absent by
+construction, which is what separates this class from an ordinary flake.
+
+WHAT MAKES IT DISTINCT, and why "run the probe" does not cover it: §0b's remedy is
+to plant a deliberate error and confirm the instrument reports it. That proves the
+instrument is SEMANTIC. It does not prove it read YOUR tree — plant the error in a
+file the run never resolves and you learn nothing; plant it in a file it does and
+you have proved the tree only for that file's resolution path. The two checks are
+independent and both are needed: does it say no at all, and does it say no ABOUT
+THIS CHECKOUT.
+
+THE ASYMMETRY THAT DECIDES WHICH LANE IS SAFE, measured here rather than assumed:
+
+  - EVERY ROOT LANE is ALIAS-ANCHORED, and by one shared object rather than by
+    coincidence: `vitest.config.ts` exports `sharedVitestConfig`, whose `resolve`
+    maps `@podium/*` by explicit `find`/`replacement` to `./packages/*/src/index.ts`
+    RELATIVE TO THE CONFIG, and `vitest.unit.config.ts` — `test:unit`, which is what
+    the default `bun run test` runs — spreads that same `resolve`. So a root lane
+    can only ever read the tree it was launched from, and symlink state is
+    irrelevant to it. POD-1246's shape.ts greens were on the unit lane; they stand.
+  - `bun run --cwd packages/<pkg> test` is NOT. `packages/model` ships no vitest
+    config, so the run gets no aliases and falls through to node resolution — the
+    walk-up above. It also fails LOUDLY here for a second reason (the package's
+    `exports` has no built `dist`), which is luck: the failure mode is
+    "unresolvable", but a package that HAS a stale `dist` resolves silently to it.
+  - `bun --conditions=@podium/source <script>` — the fixture regeneration path —
+    is node resolution too, and it is the one that would have been silent.
+
+THE RULE: before quoting a green from a worktree, ask WHICH TREE THE RUN READ, not
+just whether it passed. `ls node_modules/@podium` is a two-second check and a
+missing directory is not a missing dependency — it is a redirect. When the lock
+file is itself conflicted and `bun install` is off the table, hand-linking the
+workspace packages inside the worktree is the repair; the links are gitignored and
+touch nothing tracked.
+
+THE META-POINT: the previous ledger entry ends on instruments trusted about WHERE
+they pointed rather than what they decided. This is the same sentence one level
+out — a build instrument trusted about WHICH TREE it read rather than what it
+compiled. Verdict, coordinates, and now provenance: three things a green does not
+tell you unless you ask it separately.

@@ -3,12 +3,9 @@ import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
-// POD-722: a session broadcast must republish the issue list ONLY when a session
-// field that feeds issue wire data changed. The session-switch hot path (attach +
-// detach, ~2 broadcasts per switch — POD-701) moves only clientCount/controllerId/
-// epoch, none of which surface as issue member state, so publishIssues() — the
-// O(issues×sessions) rebuild — must be skipped while sessionsChanged still fans out.
-describe('POD-722 session broadcast skips issue republish when no issue field changed', () => {
+// POD-797: session broadcasts retain their own POD-722 coalescing behavior but never
+// republish the now-session-free issue residue.
+describe('POD-797 session broadcasts never republish issue residue', () => {
   const G = { cols: 80, rows: 24 }
   const bind = (sessionId: SessionId) =>
     ({ type: 'bind', sessionId, cmd: 'claude', cwd: '/repo/w', agentKind: 'claude-code', geometry: G }) as const
@@ -28,7 +25,7 @@ describe('POD-722 session broadcast skips issue republish when no issue field ch
     return { reg, s1, clientId, inbox }
   }
 
-  it('an attach-then-detach fans out sessionsChanged but NOT issuesChanged', () => {
+  it('attach/detach emits sessionsChanged but not issuesChanged', () => {
     const { reg, s1, clientId, inbox } = setup()
 
     // A full session switch: attach the new session, detach the old — only

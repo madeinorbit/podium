@@ -291,6 +291,7 @@ export async function startServer(
     telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
     issues: registry.modules.issues,
+    sessions: registry.modules.sessions,
     topics: store.messagingTopics,
     sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound

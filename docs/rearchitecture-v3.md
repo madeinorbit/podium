@@ -629,7 +629,7 @@ same commit.**
 | `apps/cli` | L4 app | node-only | cli-surface | — |
 | `apps/daemon` | L4 app | node-only | daemon-surface | Phase 5 machine-host tightening (POD-292) |
 | `apps/desktop` | L4 app | browser-safe | desktop-shell | — |
-| `apps/janitor` | L4 app | node-only | maintenance-jobs | appeared on main after POD-296; maintenance/steward jobs lifted out of `apps/server` — feeds Phase 4 server decomposition (POD-292) |
+| `apps/janitor` | L4 app | node-only | maintenance-jobs | appeared on main after POD-296; the durable maintenance sibling [spec:SP-c29e] — maintenance/steward jobs lifted out of `apps/server`, feeds Phase 4 server decomposition (POD-292) |
 | `apps/mobile` | L4 app | browser-safe | mobile-surface | — |
 | `apps/server` | L4 app | node-only | server-surface | role-tiered (core<hub<cloud, `apps/server/src/roles.ts`); Phase 4 decomposition |
 | `apps/web` | L4 app | browser-safe | web-surface | Phase 6 engine split |

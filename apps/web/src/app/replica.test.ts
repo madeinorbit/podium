@@ -3,6 +3,7 @@ import type { IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/
 import { beforeEach, describe, expect, it } from 'vitest'
 import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 import {
+  COLD_CURSOR,
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,
   REPLICA_TRANSCRIPT_ITEM_CAP,
@@ -130,9 +131,6 @@ function issue(id: string, title = id): IssueWire {
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
     readAt: null,
-    unread: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,
@@ -297,10 +295,17 @@ describe('replica adapter', () => {
     expect(cold).toEqual({
       sessions: [],
       issues: [],
+      issueProjections: [],
+      issueDeps: [],
+      repos: [],
       conversations: [],
       automations: [],
       automationRuns: [],
       cursor: null,
+      // Degraded storage has no durable entity data, so the cursor triple reads
+      // cold too — a persisted cursor would lie about what is on disk (ADR 2 D1).
+      feedCursor: COLD_CURSOR,
+      schemaReset: false,
     })
     r.applySnapshot('sessions', [session('s1')])
     r.applyChanges('issues', [issue('i1')], [])
@@ -317,10 +322,15 @@ describe('replica adapter', () => {
     expect(await again.hydrate()).toEqual({
       sessions: [],
       issues: [],
+      issueProjections: [],
+      issueDeps: [],
+      repos: [],
       conversations: [],
       automations: [],
       automationRuns: [],
       cursor: null,
+      feedCursor: COLD_CURSOR,
+      schemaReset: false,
     })
   })
 

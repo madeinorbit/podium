@@ -4,7 +4,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { CircleAlert, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -50,22 +50,17 @@ function Hint({ children }: { children: string }): JSX.Element {
 
 /** Latest checkpoint comment, expandable to the full history. Comment bodies no
  *  longer ride IssueWire (#175): the thread is fetched lazily via the
- *  issues.comments proc, re-fetched whenever the wire's commentCount moves.
+ *  issues.comments proc, re-fetched whenever the issue's updatedAt moves.
  *  Legacy fallback: a pre-#175 payload may still embed `comments` (and a viaHub
  *  issue's thread lives on the hub, where the proc returns []) — use the
  *  embedded thread when the fetch comes back empty. */
-function CommentsBlock({ issue }: { issue: IssueWire }): JSX.Element | null {
+function CommentsBlock({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const trpc = useStoreSelector((s) => s.trpc)
   const [showAll, setShowAll] = useState(false)
   const [comments, setComments] = useState<IssueComment[]>(issue.comments ?? [])
-  const count = issue.commentCount ?? issue.comments?.length ?? 0
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
   useEffect(() => {
     let cancelled = false
-    if (count === 0) {
-      setComments([])
-      return
-    }
     Promise.resolve()
       .then(() => trpc.issues.comments.query({ id: issue.id }))
       .then((rows) => {
@@ -77,10 +72,9 @@ function CommentsBlock({ issue }: { issue: IssueWire }): JSX.Element | null {
     return () => {
       cancelled = true
     }
-  }, [issue.id, count])
-  const latest = comments.at(-1)
-  if (count === 0 || !latest) return null
-  const shown = showAll ? [...comments].reverse() : [latest]
+  }, [issue.id, issue.updatedAt])
+  if (comments.length === 0) return null
+  const shown = showAll ? [...comments].reverse() : comments.slice(-1)
   return (
     <div className="mt-2">
       <div className="flex flex-col gap-1.5">
@@ -115,7 +109,7 @@ function CommentsBlock({ issue }: { issue: IssueWire }): JSX.Element | null {
 
 /** Header card: identity, stage, meta, and the agent-maintained current state
  *  (activityNotes — posted via `podium issue state` or the assistant digest). */
-function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
+function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
   const state = issue.activityNotes
     ? { text: issue.activityNotes, updatedAt: issue.notesUpdatedAt }
     : null
@@ -185,7 +179,7 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
 
 /** A child of the docked issue. Clicking it opens that subissue's page — same
  *  destination as the issue page's own sub-issue list and the sidebar's "Open". */
-function SubissueRow({ sub, onOpen }: { sub: IssueWire; onOpen: () => void }): JSX.Element {
+function SubissueRow({ sub, onOpen }: { sub: IssueViewModel; onOpen: () => void }): JSX.Element {
   const a = STAGE_ACCENT[sub.stage]
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
   return (
@@ -228,7 +222,7 @@ function PanelSections({
   machineId,
   slug,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   machineId?: string
   slug: string
 }): JSX.Element {
@@ -468,15 +462,15 @@ export function IssuePanelView({
    *  session attachment and cwd containment. */
   issueId?: string
 }): JSX.Element {
-  const { issues, sessions, setOpenIssueId, setView } = useStoreSelector(
+  const { sessions, setOpenIssueId, setView } = useStoreSelector(
     (s) => ({
-      issues: s.issues,
       sessions: s.sessions,
       setOpenIssueId: s.setOpenIssueId,
       setView: s.setView,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const openIssuePage = (id: IssueId) => {
     setOpenIssueId(id)
     setView('issues')

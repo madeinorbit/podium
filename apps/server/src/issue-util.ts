@@ -1,4 +1,10 @@
-import { ISSUE_STAGES, type IssueSessionSummary, type IssueStage, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  ISSUE_STAGES,
+  type IssueStage,
+  type IssueSessionSummary,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 
 export function slugifyBranch(seq: number, title: string): string {
   const slug = title
@@ -48,6 +54,8 @@ export function liveSessionsUsingWorktree(
   )
 }
 
+/** The wire's `sessionSummary` (#175): counts by agent phase, so a client can
+ *  render "3 working" without the session list. Shells count under 'shell'. */
 export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary {
   const byPhase: Record<string, number> = {}
   for (const s of sessions) {

@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { ISSUE_STAGES, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, type IssueStage } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   AlarmClock,
@@ -25,6 +25,7 @@ import {
 import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
 import { DEFER_NEXT_MESSAGE, reposToViews, snoozeUntil1h } from '@/lib/derive'
 import { issueAgentOptions } from '@/lib/issue-agents'
@@ -71,9 +72,9 @@ export function IssueContextMenu({
   surface = 'board',
 }: {
   /** The issues the menu acts on (the clicked issue, or the multi-selection). */
-  issues: IssueWire[]
+  issues: IssueViewModel[]
   /** Board scope — supplies the label pool and duplicate-target siblings. */
-  allIssues: IssueWire[]
+  allIssues: IssueViewModel[]
   anchor: ContextMenuAnchor
   onClose: () => void
   /** Open the issue page for a single target. */
@@ -212,9 +213,7 @@ export function IssueContextMenu({
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
-    const sessions = new Set(
-      issues.flatMap((issue) => issue.sessions.map((session) => session.sessionId)),
-    )
+    const sessions = new Set(issues.flatMap((issue) => issue.memberSessionIds ?? []))
     const sessionCount = sessions.size
     const message = `Delete ${n} task${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return

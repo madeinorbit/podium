@@ -29,7 +29,7 @@ import type { JSX } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -209,7 +209,6 @@ export function AgentPanel({
     setPanelRenderMode,
     uiState,
     selectedIssueId,
-    issues,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -228,10 +227,10 @@ export function AgentPanel({
       setPanelRenderMode: s.setPanelRenderMode,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
-      issues: s.issues,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the

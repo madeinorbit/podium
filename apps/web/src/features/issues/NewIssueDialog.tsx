@@ -4,7 +4,7 @@ import { resolveRole } from '@podium/runtime'
 import { FolderGit2, GitBranch, Plus } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -96,10 +96,11 @@ export function NewIssueDialog({
    *  patch. */
   initialStage?: IssueStage
 }): JSX.Element {
-  const { trpc, repos, issues, sessions } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, repos: s.repos, issues: s.issues, sessions: s.sessions ?? [] }),
+  const { trpc, repos, sessions } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, repos: s.repos, sessions: s.sessions ?? [] }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')

@@ -50,10 +50,19 @@ const changesSinceArms = (union: unknown): { shape: Record<string, unknown> }[] 
   (union as { options: { shape: Record<string, unknown> }[] }).options
 
 describe('the wire change row composes the model vocabulary', () => {
-  it('has all five entity arms, so the loops below are not vacuous', () => {
+  it('has all eight entity arms, so the loops below are not vacuous', () => {
     // The counterfactual guard: if `.options` ever stopped resolving, every
     // per-arm assertion below would iterate an empty list and pass silently.
-    expect(strictArms).toHaveLength(5)
+    //
+    // FIVE UNTIL THE POD-1246 CATCH-UP, EIGHT NOW: 'issueProjection', 'issueDep'
+    // and 'repo' (POD-796 / POD-822) joined the union. They are COUNTED here
+    // rather than exempted because the loops below are what proves the new arms
+    // compose the shared vocabulary too — main declared all three as hand-written
+    // `z.object`s restating `seq`/`id`/`op`, which is exactly the fork this file
+    // exists to see. They are composed through `metadataChangeArm` instead, and
+    // these assertions are the evidence that the port did not reintroduce the
+    // five restatements POD-305 deleted.
+    expect(strictArms).toHaveLength(8)
   })
 
   it('takes `seq` from the shared field schema INSTANCE in every arm', () => {

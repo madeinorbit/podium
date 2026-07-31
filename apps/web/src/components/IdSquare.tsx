@@ -72,7 +72,7 @@ export function IdSquare({
   onColorChange,
   size = 26,
 }: {
-  issue: IssueWire
+  issue: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title'>
   state: IdSquareState
   selected?: boolean
   /** Square edge in px. Desktop rows run 30 for a readable prefix/number

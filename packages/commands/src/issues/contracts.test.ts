@@ -8,6 +8,7 @@
 
 import { OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { AnyCommandContract } from '../contract'
 import { classificationErrors, registryClassificationErrors } from '../contract'
 import { PER_USER_VISIBILITY, SERVED_EVERYWHERE, SERVED_ON_WIRE } from './cells'
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACT_LIST, ISSUE_CONTRACTS } from './contracts'
@@ -27,8 +28,7 @@ const ISSUE_ROWS = [
 
 const PER_USER_ROW = 'issue-message-read-at'
 
-const rowExists = (row: string): boolean =>
-  OWNERSHIP_MATRIX.some((r) => (r.id as string) === row)
+const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id as string) === row)
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
@@ -81,9 +81,7 @@ describe('contract visibility against the ownership matrix', () => {
     for (const row of ISSUE_ROWS) expect([row, visibilityClassOf(row)]).toEqual([row, 'personal'])
     const perUser = ['markRead', 'markUnread', 'setTucked', 'mailInbox'] as const
     for (const key of ISSUE_COMMAND_NAMES) {
-      const expected = (perUser as readonly string[]).includes(key)
-        ? 'per-user-state'
-        : 'personal'
+      const expected = (perUser as readonly string[]).includes(key) ? 'per-user-state' : 'personal'
       expect([key, ISSUE_CONTRACTS[key].visibility]).toEqual([key, expected])
     }
   })
@@ -185,5 +183,56 @@ describe('redaction', () => {
       expect(ISSUE_CONTRACTS[key].redaction.reviewed, key).toBe(true)
       expect(ISSUE_CONTRACTS[key].redaction.note.trim().length, key).toBeGreaterThan(0)
     }
+  })
+
+  it('every exp-rev command carries `expectedRevision`, and no other command does', () => {
+    // THE SCHEMA AND THE CLASS ARE ONE DECISION [ADR 3 D13.1]. Main asserted the
+    // same agreement in its registry test, and the failure it exists to catch is
+    // a contract that declares expected-revision concurrency while omitting the
+    // field a caller would have to send — a precondition nobody can supply, which
+    // degrades to last-write-wins with the declaration still reading as enforced.
+    let expRev = 0
+    for (const key of ISSUE_COMMAND_NAMES) {
+      // Widened to the erased contract type on purpose: the table's members are
+      // `as const`, so a READ contract's literal type has no `conflict` key at
+      // all and a direct property read is a compile error rather than the
+      // `undefined` this check is about.
+      const contract: AnyCommandContract = ISSUE_CONTRACTS[key]
+      const carries = keysOf(contract.input).includes('expectedRevision')
+      const declares = contract.conflict === 'exp-rev'
+      expect(carries, `${key}: input/conflict disagree`).toBe(declares)
+      if (declares) expRev += 1
+    }
+    // Non-vacuity: the loop met the 23 rows §2e extracted from main, not zero.
+    expect(expRev).toBe(23)
+  })
+
+  it('every `cmd` command states its rule, because the engine refuses one without', () => {
+    // `packages/sync/src/authority/arbitration.ts` REQUIRES a rule for cmd rows and
+    // throws rather than waving one through. The compile-time half is
+    // `ConflictDeclaration`; this is the runtime half, and it counts the rows so a
+    // vocabulary change that empties the class cannot pass as agreement.
+    let cmd = 0
+    for (const key of ISSUE_COMMAND_NAMES) {
+      const contract: AnyCommandContract = ISSUE_CONTRACTS[key]
+      if (contract.conflict !== 'cmd') continue
+      cmd += 1
+      expect(contract.conflictRule?.trim().length ?? 0, key).toBeGreaterThan(0)
+    }
+    expect(cmd).toBe(15)
+  })
+
+  it('every mutating command declares a conflict class, and no read does', () => {
+    // The subtraction the type-level tripwire makes: 43 mutations, 25 non-mutating
+    // members (24 reads + `linearSearch`, which is write-grade authority over an
+    // EXTERNAL system with no ADR 1 row to arbitrate).
+    const declared = ISSUE_COMMAND_NAMES.filter(
+      (k) => (ISSUE_CONTRACTS[k] as AnyCommandContract).conflict !== undefined,
+    )
+    expect(declared.length).toBe(43)
+    expect(ISSUE_COMMAND_NAMES.length - declared.length).toBe(25)
+    // `in`, not a property read: the contract's literal type HAS no `conflict`
+    // key, so reading one is a compile error rather than an `undefined`.
+    expect('conflict' in ISSUE_CONTRACTS.linearSearch).toBe(false)
   })
 })

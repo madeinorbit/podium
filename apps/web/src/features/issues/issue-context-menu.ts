@@ -1,5 +1,14 @@
-import { asSessionId, handoffAvailability, type HandoffAvailability, type HandoffIssue, type HandoffMachine, type HandoffRepo, type IssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  type HandoffAvailability,
+  type HandoffIssue,
+  type HandoffMachine,
+  type HandoffRepo,
+  handoffAvailability,
+  type IssueId,
+  type SessionMeta,
+} from '@podium/model'
 import { agentSupportsHandoff } from '@podium/protocol'
+import type { IssueViewModel } from '@/app/store'
 import type { IssuesKeyState } from './issues-keys'
 
 /**
@@ -28,14 +37,20 @@ export type IssueHandoff<M> =
  * Callers must also require a single selected issue (`issues.length === 1`).
  */
 export function issueHandoffAvailability<M extends HandoffMachine>(
-  issue: HandoffIssue & { sessions: readonly { sessionId: SessionId }[] },
+  issue: HandoffIssue & {
+    memberSessionIds?: readonly string[]
+    sessions?: readonly { sessionId: string }[]
+  },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
   machines: M[],
 ): IssueHandoff<M> {
-  const byId = new Map(sessions.map((s) => [s.sessionId, s]))
-  const agents = issue.sessions
-    .map((ref) => byId.get(ref.sessionId))
+  // `memberSessionIds` is a plain `string[]` on the view model, so the lookup
+  // key is widened here rather than branding each id at the call site.
+  const byId = new Map<string, SessionMeta>(sessions.map((s) => [s.sessionId, s]))
+  const memberIds = issue.memberSessionIds ?? []
+  const agents = memberIds
+    .map((id) => byId.get(id))
     // Handoff eligibility is a harness CAPABILITY, read from the one declarative
     // table, not a pair of literals re-listed here (POD-1105).
     .filter((s): s is SessionMeta => s !== undefined && agentSupportsHandoff(s.agentKind))
@@ -51,7 +66,10 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
  * eligible case (kept as `handoffTargets` is over `handoffAvailability`).
  */
 export function resolveIssueHandoffSession<M extends HandoffMachine>(
-  issue: HandoffIssue & { sessions: readonly { sessionId: SessionId }[] },
+  issue: HandoffIssue & {
+    memberSessionIds?: readonly string[]
+    sessions?: readonly { sessionId: string }[]
+  },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
   machines: M[],
@@ -65,7 +83,7 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
-export function isIssueClosed(issue: IssueWire): boolean {
+export function isIssueClosed(issue: IssueViewModel): boolean {
   return issue.closedReason != null
 }
 
@@ -80,7 +98,7 @@ export type IssueMenuSurface = 'board' | 'sidebar'
  * per-surface items: "Duplicate of…" stays on the Issues board only (POD-169).
  */
 export function issueMenuEligibility(
-  issues: readonly IssueWire[],
+  issues: readonly IssueViewModel[],
   surface: IssueMenuSurface = 'board',
 ): {
   canOpen: boolean
@@ -168,7 +186,7 @@ export function deferDateFromNow(now: number, days: number): string {
  * it. Returns only the issues whose label set actually changes.
  */
 export function toggleLabelAcross(
-  issues: readonly IssueWire[],
+  issues: readonly IssueViewModel[],
   label: string,
 ): { id: string; labels: string[] }[] {
   const allHave = issues.every((i) => i.labels.includes(label))

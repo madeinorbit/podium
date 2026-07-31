@@ -2,6 +2,7 @@ import type { IssueWire, SessionMeta } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 
 // The split fan-out + catch-up seam (docs/spec/oplog-read-path.md §2.3-2.5):
 // delta-cap clients receive per-entity metadataDelta batches, legacy clients keep
@@ -15,6 +16,12 @@ describe('SessionRegistry metadata deltas', () => {
 
   function makeRegistry(): SessionRegistry {
     const registry = new SessionRegistry()
+    registries.push(registry)
+    return registry
+  }
+
+  function makeLegacyRegistry(): SessionRegistry {
+    const registry = new SessionRegistry(new SessionStore(':memory:'))
     registries.push(registry)
     return registry
   }
@@ -39,7 +46,7 @@ describe('SessionRegistry metadata deltas', () => {
   const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
 
   it('sends per-entity deltas to cap clients and full lists to legacy clients', () => {
-    const registry = makeRegistry()
+    const registry = makeLegacyRegistry()
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
     const legacyBefore = legacy.inbox.length
@@ -53,13 +60,14 @@ describe('SessionRegistry metadata deltas', () => {
     expect(legacyNew.some((m) => m.type === 'issuesChanged')).toBe(true)
     expect(legacyNew.some((m) => m.type === 'metadataDelta')).toBe(false)
 
-    // Cap client: exactly one issue upsert — not a full list — and NO issuesChanged.
+    // Delta clients receive both unconditional feeds; only the residue drives issuesChanged.
     const deltaNew = delta.inbox.slice(deltaBefore)
     expect(deltaNew.some((m) => m.type === 'issuesChanged')).toBe(false)
     const changes = deltas(deltaNew)
-    expect(changes).toHaveLength(1)
-    expect(changes[0]).toMatchObject({ entity: 'issue', op: 'upsert' })
-    expect((changes[0]?.value as IssueWire).title).toBe('first')
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issue', 'issueProjection'])
+    const residue = changes.find((change) => change.entity === 'issue')
+    expect(residue).toMatchObject({ entity: 'issue', op: 'upsert' })
+    expect((residue?.value as IssueWire).title).toBe('first')
   })
 
   it('a single-issue update touches ONE row — the legacy list is a translation, not a rebuild (#22)', () => {
@@ -92,9 +100,10 @@ describe('SessionRegistry metadata deltas', () => {
     expect(list.issues.map((i) => i.title).sort()).toEqual(['bystander', 'solo'])
     // Delta client: exactly one oplog upsert for that issue — the bystander is untouched.
     const changes = deltas(delta.inbox.slice(deltaBefore))
-    expect(changes).toHaveLength(1)
-    expect(changes[0]).toMatchObject({ entity: 'issue', id: w.id, op: 'upsert' })
-    expect((changes[0] as { value: IssueWire }).value.notes).toBe('self-contained edit')
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issue', 'issueProjection'])
+    expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
+    const residue = changes.find((change) => change.entity === 'issue')
+    expect((residue as { value: IssueWire }).value.notes).toBe('self-contained edit')
   })
 
   it('streams session upserts through the same seam', () => {

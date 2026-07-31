@@ -743,6 +743,14 @@ export const issues = sqliteTable("issues", {
 	draft: integer().default(0).notNull(),
 	audience: text().default("human").notNull(),
 	deletedAt: text("deleted_at"),
+	/** Per-entity revision (ADR 2 D3) — authority-assigned, monotonic, bumped on
+	 *  every ACCEPTED write by IssuesRepository.upsertIssue (the table's single
+	 *  SQL writer, so the bump is structural rather than per-call-site). The
+	 *  token `expectedRevision` echoes back on a mutating command. `DEFAULT 1
+	 *  NOT NULL` IS the ADR's "backfill revision = 1 for existing rows": SQLite's
+	 *  ALTER TABLE ... ADD COLUMN materializes the default into every existing
+	 *  row, so no separate data migration is needed. */
+	revision: integer().default(1).notNull(),
 	/** Designated coordinator session for this issue (bare session id). Claimable/
 	 *  changeable; dangling-tolerant — no FK so a later-deleted session leaves the
 	 *  id in place and routing falls back [docs/agent-comms-target.html §05 q1]. */

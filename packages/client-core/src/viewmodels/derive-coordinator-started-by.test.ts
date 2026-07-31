@@ -1,5 +1,11 @@
 // M6 coordinator elevate + started-by issue nesting (POD-902).
-import { asIssueId, asSessionId, type IssueWire, type IssueWireInput, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type UnbrandIds,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   elevateCoordinatorSession,
@@ -12,8 +18,9 @@ import {
   rowMotionPhase,
   rowStatusLine,
   rowWaitingCount,
-  type SidebarSections,
   sessionVisibleInSidebar,
+  type IssueNavigationModel,
+  type SidebarSections,
   type UnifiedIssueRow,
   unifiedWorkList,
 } from './derive'
@@ -36,7 +43,7 @@ function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavigationModel {
   return {
     id: 'i1',
     repoPath: '/r/a',
@@ -53,15 +60,13 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueWire
+  } as IssueNavigationModel
 }
 
 const emptySections = (): SidebarSections => ({
@@ -133,7 +138,7 @@ describe('isDraftAgentVessel', () => {
 })
 
 describe('nestStartedByIssues', () => {
-  const row = (iss: IssueWire, sessions: SessionMeta[]): UnifiedIssueRow => ({
+  const row = (iss: IssueNavigationModel, sessions: SessionMeta[]): UnifiedIssueRow => ({
     kind: 'issue',
     issue: iss,
     sessions,

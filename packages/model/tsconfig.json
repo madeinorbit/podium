@@ -1,4 +1,5 @@
 {
+  "//": "Extends node.json (not base.json) purely so the golden-fixture TEST can read its recorded payload with node:fs. The SHIPPED code is browser-safe and imports nothing from node — tsup bundles src/index.ts only, and the architecture manifest tags this package browser-safe. Same choice, for the same reason, as packages/domain (also browser-safe, also L0) — which matters twice over here, because ADR 8 D4 folds domain into this package, and a shared tsconfig makes that merge a no-op.",
   "extends": "../../tooling/tsconfig/node.json",
   "compilerOptions": {
     "outDir": "dist",

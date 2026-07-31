@@ -1,7 +1,7 @@
-import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/model'
+import type { IssuePanelArtifact, SessionMeta, SessionOffer } from '@podium/model'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { artifactKind, artifactUrl, basename } from '@/lib/dock-panel'
 import { resolveOfferArtifacts } from './offer-artifacts'
@@ -29,12 +29,12 @@ export function OfferArtifactStrip({
    *  applied when the strip renders — an empty strip must not leave margins. */
   className?: string
 }): JSX.Element | null {
-  const { issues, httpOrigin, openArtifact, openFileInWorktree } = useStoreSelector((s) => ({
-    issues: s.issues,
+  const { httpOrigin, openArtifact, openFileInWorktree } = useStoreSelector((s) => ({
     httpOrigin: s.httpOrigin,
     openArtifact: s.openArtifact,
     openFileInWorktree: s.openFileInWorktree,
   }))
+  const issues = useReplicaIssues()
   const [lightbox, setLightbox] = useState<{
     kind: 'image' | 'video'
     src: string
@@ -43,9 +43,9 @@ export function OfferArtifactStrip({
 
   // The session's issue: direct issueId link first, then membership (sessions
   // grouped onto an issue by cwd carry no issueId of their own).
-  const issue: IssueWire | undefined =
+  const issue =
     issues.find((i) => i.id === session.issueId) ??
-    issues.find((i) => (i.sessions ?? []).some((s) => s.sessionId === session.sessionId))
+    issues.find((i) => (i.memberSessionIds ?? []).includes(session.sessionId))
 
   const resolved = resolveOfferArtifacts({
     offer,

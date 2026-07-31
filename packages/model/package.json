@@ -2,7 +2,7 @@
   "name": "@podium/model",
   "version": "0.0.0",
   "private": true,
-  "description": "The L0 zero-dependency root of the Podium model: every entity defined once. Branded ids, entity vocabularies, the issue closed/stage machine and ready/blocked/deferred derivation, the issue authorization policy (roles, scopes, authorize), one clock representation with edge adapters, session/issue snooze predicates, git remote identity, worktree/repo/machine-affinity and handoff-target selection, session dedup + attention-priority math, the phone-vs-desktop web entry decision. No IO, no sqlite, no node imports, no workspace dependencies — zod is the only dependency it may ever have.",
+  "description": "The L0 zero-dependency root of the Podium model [ADR 4]: the one authoritative definition of every entity field (name, type, brand, nullability, meaning), with storage/wire/port representations COMPOSING from those field groups rather than restating them. Branded ids, entity vocabularies, the R1 durable aggregates and R4 wire projections with one documented store-row/wire mapping pair per entity, the issue closed/stage machine and ready/blocked/deferred derivation, the issue authorization policy (roles, scopes, authorize), the expected-revision concurrency decision, one clock representation with edge adapters, session/issue snooze predicates, git remote identity, worktree/repo/machine-affinity and handoff-target selection, session dedup + attention-priority math, the phone-vs-desktop web entry decision. No IO, no sqlite, no node imports, no workspace dependencies — zod is the only dependency it may ever have.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

@@ -6,11 +6,27 @@
  * client).
  */
 
-import type { AgentKind, ArtifactId, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueId, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import type {
+  AgentKind,
+  ArtifactId,
+  AutomationRunWire,
+  AutomationWire,
+  ConversationSummaryWire,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  HostMetricsWire,
+  IssueId,
+  IssueWire,
+  MachineWire,
+  SessionId,
+  SessionMeta,
+  WorkState,
+} from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
+import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica, UiState } from '../replica/replica'
 import type { MainView } from '../router'
 import type { SpawnTarget } from '../spawn-agent'
@@ -75,6 +91,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   sessions: SessionMeta[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
   issues: IssueWire[]
+  /** Normalized issue rows with pending readAt overlays folded over server truth. */
+  issueProjections: IssueProjectionRow[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
   conversations: ConversationSummaryWire[]
   /** Scheduled definitions and honest run history mirrored live from the replica. */

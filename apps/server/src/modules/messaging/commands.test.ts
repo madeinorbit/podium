@@ -40,12 +40,9 @@ function issue(partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' |
     updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false,
     readAt: null,
-    unread: false,
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     ...partial,
   } as unknown as IssueWire
 }
@@ -151,6 +148,7 @@ describe('issue formatters', () => {
       sessions: [
         {
           sessionId: asSessionId('old'),
+          issueId: asIssueId('e'),
           agentKind: 'grok',
           title: 'old',
           cwd: '/p',
@@ -168,6 +166,7 @@ describe('issue formatters', () => {
         },
         {
           sessionId: asSessionId('live'),
+          issueId: asIssueId('e'),
           agentKind: 'grok',
           title: 'live',
           cwd: '/p',
@@ -186,6 +185,8 @@ describe('issue formatters', () => {
       ],
       sessionSummary: { total: 2, byPhase: {} },
     })
-    expect(pickIssueSession(withSessions)?.sessionId).toBe('live')
+    // The held-session list is now a SEPARATE argument: membership moved off the
+    // embedded array, so the caller supplies the sessions it holds.
+    expect(pickIssueSession(withSessions, withSessions.sessions)?.sessionId).toBe('live')
   })
 })

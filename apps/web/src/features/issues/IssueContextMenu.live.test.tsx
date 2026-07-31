@@ -34,6 +34,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
+    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
@@ -70,7 +71,7 @@ const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'
     ...over,
   }) as SessionMeta
 
-function open(issue: IssueWire): void {
+function open(issue: IssueWire & { memberSessionIds?: string[] }): void {
   render(
     <IssueContextMenu
       issues={[issue]}
@@ -114,7 +115,7 @@ describe('IssueContextMenu handoff (POD-850)', () => {
     open(
       makeIssue({
         worktreePath: '/Users/mw/Source/other/podium/.worktrees/issue-779',
-        sessions: [{ sessionId: asSessionId('agent') } as SessionMeta],
+        memberSessionIds: ['agent'],
       }),
     )
     fireEvent.click(handoffItem())
@@ -131,7 +132,7 @@ describe('IssueContextMenu handoff (POD-850)', () => {
     ]
     state.machines = [machine(MAC), machine(LUD)]
     state.sessions = [session({ sessionId: asSessionId('agent'), cwd: '/home/mgw/src/other/podium' })]
-    open(makeIssue({ worktreePath: null, sessions: [{ sessionId: asSessionId('agent') } as SessionMeta] }))
+    open(makeIssue({ worktreePath: null, memberSessionIds: ['agent'] }))
     const item = handoffItem()
     expect((item as HTMLButtonElement).disabled).toBe(true)
     expect(item.textContent).toContain('Only sessions in a worktree can be handed off')
@@ -145,7 +146,7 @@ describe('IssueContextMenu handoff (POD-850)', () => {
     ]
     state.machines = [machine(MAC)]
     state.sessions = [session({ sessionId: asSessionId('sh'), agentKind: 'shell' })]
-    open(makeIssue({ sessions: [{ sessionId: asSessionId('sh') } as SessionMeta] }))
+    open(makeIssue({ memberSessionIds: ['sh'] }))
     expect(handoffItem().textContent).toContain('No agent session to hand off')
   })
 })

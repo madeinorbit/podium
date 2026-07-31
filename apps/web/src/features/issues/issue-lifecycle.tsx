@@ -1,4 +1,6 @@
-import type { IssueWire } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
+import { useStoreSelector } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import {
@@ -29,9 +31,14 @@ export interface IssueCloseConcern {
  * issue-owned consequence explicit. Unattributed checkout state is deliberately
  * absent: it belongs to workspace Git surfaces, not an issue close decision.
  */
-export function issueCloseConcerns(issue: IssueWire): IssueCloseConcern[] {
+export function issueCloseConcerns(
+  issue: IssueViewModel,
+  sessions: readonly SessionMeta[] = [],
+): IssueCloseConcern[] {
   const concerns: IssueCloseConcern[] = []
-  const offers = issue.sessions.filter((session) => !session.archived && session.offer)
+  const memberIds = new Set(issue.memberSessionIds ?? [])
+  const members = sessions.filter((session) => memberIds.has(session.sessionId))
+  const offers = members.filter((session) => !session.archived && session.offer)
   if (offers.length > 0) {
     concerns.push({
       key: 'offers',
@@ -52,7 +59,7 @@ export function issueCloseConcerns(issue: IssueWire): IssueCloseConcern[] {
       icon: 'attention',
     })
   }
-  const working = issue.sessions.filter((session) => !session.archived && isSessionWorking(session))
+  const working = members.filter((session) => !session.archived && isSessionWorking(session))
   if (working.length > 0) {
     concerns.push({
       key: 'working',
@@ -116,13 +123,14 @@ export function IssueCloseDialog({
   onOpenChange,
   onConfirm,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   reason: IssueCloseReason | null
   busy?: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  const concerns = issueCloseConcerns(issue)
+  const sessions = useStoreSelector((store) => store.sessions)
+  const concerns = issueCloseConcerns(issue, sessions)
   const blockers = concerns.filter((concern) => concern.blocking)
   return (
     <AlertDialog open={reason !== null} onOpenChange={onOpenChange}>

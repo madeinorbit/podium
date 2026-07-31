@@ -8,10 +8,11 @@ import {
   WIRE_VERSION,
 } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import WebSocket from 'ws'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import WebSocket from 'ws'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { SessionStore } from './store'
 
 // End-to-end over the REAL wiring (docs/spec/oplog-read-path.md §5): a booted
 // server, real WS upgrades through wsServer's hello parse, and sync.changesSince
@@ -84,13 +85,14 @@ describe('metadata oplog e2e (live server)', () => {
 
     await until(() => capClient.inbox.some((m) => m.type === 'metadataDelta'))
     const delta = capClient.inbox.find((m) => m.type === 'metadataDelta') as MetadataDeltaMessage
-    expect(delta.changes).toHaveLength(1)
-    expect(delta.changes[0]).toMatchObject({ entity: 'issue', op: 'upsert' })
+    expect(delta.changes.map((change) => change.entity).sort()).toEqual([
+      'issue',
+      'issueProjection',
+    ])
+    expect(delta.changes.every((change) => change.op === 'upsert')).toBe(true)
 
     // The legacy socket saw a full issuesChanged and never a delta.
-    await until(() =>
-      legacy.inbox.some((m) => m.type === 'issuesChanged' && m.issues.length === 1),
-    )
+    await until(() => legacy.inbox.some((m) => m.type === 'issuesChanged' && m.issues.length === 1))
     expect(legacy.inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
     // ...and the cap socket never got the issuesChanged rebroadcast (only the
     // attach-time bootstrap, which arrives before hello lands).
@@ -105,7 +107,10 @@ describe('metadata oplog e2e (live server)', () => {
     })) as SyncChangesSinceResult
     expect(heal.kind).toBe('delta')
     if (heal.kind !== 'delta') return
-    expect(heal.changes.map((c) => [c.entity, c.op])).toEqual([['issue', 'upsert']])
+    expect(heal.changes.map((c) => [c.entity, c.op]).sort()).toEqual([
+      ['issue', 'upsert'],
+      ['issueProjection', 'upsert'],
+    ])
     expect(heal.cursor).toBe(delta.seq)
   })
 })

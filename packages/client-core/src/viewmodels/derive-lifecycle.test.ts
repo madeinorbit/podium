@@ -1,10 +1,11 @@
-import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   groupUnifiedWorkRows,
   rowAwaitsTuck,
   rowInClosedFold,
   rowInSnoozedFold,
+  type IssueNavigationModel,
   type SidebarSections,
   type UnifiedIssueRow,
   unifiedWorkList,
@@ -12,7 +13,7 @@ import {
 
 const NOW = Date.parse('2026-07-23T12:00:00.000Z')
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavigationModel {
   return {
     id: 'issue',
     repoPath: '/r/a',
@@ -29,7 +30,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     updatedAt: '2026-07-23T10:00:00.000Z',
     archived: false,
     needsHuman: false,
-    sessions: [],
+    memberSessionIds: [],
     sessionSummary: { total: 0, byPhase: {} },
     origin: 'human',
     audience: 'human',
@@ -39,7 +40,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     unread: false,
     readAt: '2026-07-23T11:00:00.000Z',
     ...over,
-  } as IssueWire
+  } as IssueNavigationModel
 }
 
 function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
@@ -60,7 +61,7 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
 
 const sections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
 
-function row(value: IssueWire, sessions: SessionMeta[] = []): UnifiedIssueRow {
+function row(value: IssueNavigationModel, sessions: SessionMeta[] = []): UnifiedIssueRow {
   return { kind: 'issue', issue: value, sessions, activityAt: NOW, rank: 4 }
 }
 

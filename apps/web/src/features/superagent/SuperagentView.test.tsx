@@ -62,13 +62,28 @@ const fakeTrpc = {
   },
 }
 
+const normalizedIssues = () =>
+  storeIssues.map((issue) => {
+    const { sessions = [], ...normalized } = issue as typeof issue & {
+      sessions?: Array<{ sessionId: string; cwd: string }>
+    }
+    return { ...normalized, memberSessionIds: sessions.map((session) => session.sessionId) }
+  })
+
+const embeddedSessions = () =>
+  storeIssues.flatMap(
+    (issue) =>
+      (issue as typeof issue & { sessions?: Array<{ sessionId: string; cwd: string }> }).sessions ??
+      [],
+  )
+
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hub: fakeHub,
     trpc: fakeTrpc,
     repos: [],
-    sessions: storeSessions,
-    issues: storeIssues,
+    sessions: [...storeSessions, ...embeddedSessions()],
+    issues: normalizedIssues(),
     selectedIssueId: storeSelectedIssueId,
     superRefreshKey: 0,
     uiState,
@@ -82,6 +97,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
+    useReplicaIssues: normalizedIssues,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

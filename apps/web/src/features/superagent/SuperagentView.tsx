@@ -4,7 +4,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/features/chat/ChatView'
@@ -87,7 +87,6 @@ export function SuperagentView({
     hub,
     trpc,
     sessions,
-    issues,
     selectedIssueId,
     superRefreshKey,
     setPane,
@@ -101,7 +100,6 @@ export function SuperagentView({
       hub: s.hub,
       trpc: s.trpc,
       sessions: s.sessions,
-      issues: s.issues,
       selectedIssueId: s.selectedIssueId,
       superRefreshKey: s.superRefreshKey,
       setPane: s.setPane,
@@ -113,6 +111,7 @@ export function SuperagentView({
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const [threads, setThreads] = useState<SuperThread[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pendingDraft, setPendingDraft] = useState('')
@@ -231,7 +230,7 @@ export function SuperagentView({
   // until the server clears it off the session meta (mirrors ChatView's
   // dismissedOfferAt). Keyed by offerKey so a NEW offer re-shows.
   const [dismissedOffers, setDismissedOffers] = useState<ReadonlySet<string>>(new Set())
-  const itemCount = trayCount(issues, dismissedOffers)
+  const itemCount = trayCount(issues, sessions, dismissedOffers)
   // The amber count pill pops exactly when the count INCREASES (motion.md
   // §2.2) — decreases and steady renders stay still.
   const prevCountRef = useRef(itemCount)
@@ -264,11 +263,16 @@ export function SuperagentView({
     onOpenSession: (item: TrayItem) => {
       // An offer card names its exact session; question cards fall back to the
       // issue's first live agent session.
+      const memberIds = new Set(item.issue.memberSessionIds ?? [])
       const agentSession =
         item.kind === 'offer'
           ? item.session
-          : (item.issue.sessions ?? []).find(
-              (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
+          : sessions.find(
+              (s) =>
+                memberIds.has(s.sessionId) &&
+                !s.archived &&
+                s.agentKind !== 'shell' &&
+                s.headless !== true,
             )
       setSelectedIssueId(item.issue.id)
       if (agentSession) setPane('A', agentSession.sessionId)
@@ -353,6 +357,7 @@ export function SuperagentView({
             >
               <Tray
                 issues={issues}
+                sessions={sessions}
                 selectedIssueId={selectedIssueId ?? null}
                 actions={trayActions}
                 maxHeight={chatOpen ? trayHeight : null}

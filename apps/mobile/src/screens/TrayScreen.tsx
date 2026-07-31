@@ -111,7 +111,7 @@ export function TrayScreen() {
   // [POD-198], it is dismissed from the Work list's Closed fold.
   const decisions = useMemo(
     () =>
-      deriveTrayItems(client.issues).filter(
+      deriveTrayItems(client.issues, sessions).filter(
         // A session's inline question card covers its issue's needsHuman card.
         (i) => !(i.kind === 'question' && askIssueIds.has(i.issue.id)),
       ),
@@ -212,6 +212,7 @@ export function TrayScreen() {
               key={`${item.kind}:${item.issue.id}:${item.since}`}
               item={item}
               issues={client.issues}
+              sessions={sessions}
               httpOrigin={client.serverConfig.httpOrigin}
               actions={cardActions}
               now={now}

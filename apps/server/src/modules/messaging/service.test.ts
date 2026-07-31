@@ -1,7 +1,7 @@
 import { asIssueId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import type { TelegramChatBinding } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TranscriptItem } from '@podium/model'
+import type { SessionMeta, TranscriptItem } from '@podium/model'
 import { EventBus } from '../bus'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './service'
@@ -299,6 +299,28 @@ function makeHarness(
       ensureConciergeThread: ensureConciergeThread as never,
     },
     topics,
+    sessions: {
+      listSessions: () => [
+        {
+          sessionId: 'sess_1',
+          agentKind: 'grok',
+          title: 'work',
+          cwd: '/p',
+          status: 'live',
+          controllerId: null,
+          geometry: { cols: 80, rows: 24 },
+          epoch: 0,
+          clientCount: 0,
+          createdAt: '2026-07-16T00:00:00.000Z',
+          lastActiveAt: '2026-07-16T01:00:00.000Z',
+          origin: { kind: 'spawn' },
+          archived: false,
+          readAt: null,
+          unread: false,
+          issueId: 'iss_i1',
+        } as SessionMeta,
+      ],
+    },
     ...(opts.issues ? { issues: opts.issues } : {}),
     ...(opts.sessionIssueId ? { sessionIssueId: opts.sessionIssueId } : {}),
     ...(opts.topicRecap

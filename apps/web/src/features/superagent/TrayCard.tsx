@@ -1,6 +1,7 @@
 import { relativeTime } from '@podium/client-core'
-import type { IssueGitState, IssueWire } from '@podium/model'
+import type { IssueGitState, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import type { IssueViewModel } from '@/app/store'
 import { type CSSProperties, type JSX, useState } from 'react'
 import { OfferArtifactStrip } from '@/features/chat/OfferArtifactStrip'
 import { composeOfferPrompt } from '@/features/chat/OfferBar'
@@ -38,7 +39,7 @@ export const itemKey = (item: TrayItem): string =>
  *  from the attributed set when the checkout is shared (same rule as GitStamp).
  *  Exported for tests. */
 export function trayStateSegments(
-  issue: Pick<IssueWire, 'stage' | 'gitState'>,
+  issue: Pick<IssueViewModel, 'stage' | 'gitState'>,
 ): { text: string; warn?: boolean }[] {
   // Lowercase mono stage label, e.g. `in_progress` → "in progress" (mock v3).
   const out: { text: string; warn?: boolean }[] = [{ text: issue.stage.replace(/_/g, ' ') }]
@@ -54,7 +55,7 @@ export function trayStateSegments(
   return out
 }
 
-function StateLine({ issue }: { issue: IssueWire }): JSX.Element {
+function StateLine({ issue }: { issue: IssueViewModel }): JSX.Element {
   const segments = trayStateSegments(issue)
   return (
     <div
@@ -120,6 +121,7 @@ function PrimaryButton({
 export function TrayCard({
   item,
   issues,
+  sessions,
   actions,
   now,
   selected = false,
@@ -128,7 +130,8 @@ export function TrayCard({
   item: TrayItem
   /** Full issue list — colour inheritance walks ancestors (§2.5: sub-issues
    *  of a coloured issue flow ITS colour). */
-  issues: IssueWire[]
+  issues: IssueViewModel[]
+  sessions: readonly SessionMeta[]
   actions: TrayActions
   now: number
   /** The selected issue's cards get the colour ring — nothing else changes. */
@@ -145,13 +148,21 @@ export function TrayCard({
   const hex = flowHex ?? TRAY_NEUTRAL
   const colored = flowHex !== undefined
   // An offer belongs to a SPECIFIC session; question cards fall back to the
-  // issue's first live agent session for the name chip.
+  // issue's first live agent session for the name chip. Pick in
+  // memberSessionIds order (the server-declared membership order), not the
+  // client store's session order.
   const agentSession =
     item.kind === 'offer'
       ? item.session
-      : (issue.sessions ?? []).find(
-          (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
-        )
+      : (issue.memberSessionIds ?? [])
+          .map((id) => sessions.find((s) => s.sessionId === id))
+          .find(
+            (s) =>
+              s !== undefined &&
+              !s.archived &&
+              s.agentKind !== 'shell' &&
+              s.headless !== true,
+          )
   const ago = relativeTime(item.since, now)
   // §2.3-v3 tint tiers: offer/review 16%/.55, question 9%/.38.
   const tier =

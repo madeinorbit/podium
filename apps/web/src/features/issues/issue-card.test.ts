@@ -11,7 +11,9 @@ describe('issueCardModel', () => {
 
 describe('issueCardModel rich badges (P4)', () => {
   it('derives type label and labels', () => {
-    const m = issueCardModel(issue({ priority: 0, type: 'bug', ready: false, blocked: true, labels: ['ui', 'p1'] }))
+    const m = issueCardModel(
+      issue({ priority: 0, type: 'bug', ready: false, blocked: true, labels: ['ui', 'p1'] }),
+    )
     expect(m.typeLabel).toBe('bug')
     expect(m.labels).toEqual(['ui', 'p1'])
   })
@@ -23,14 +25,23 @@ describe('issueCardModel rich badges (P4)', () => {
 
 describe('issueCardModel Linear anatomy', () => {
   it('derives seq label, assignee, session count', () => {
-    const m = issueCardModel(issue({ seq: 12, assignee: 'mike' }))
+    const m = issueCardModel(
+      issue({
+        seq: 12,
+        assignee: 'mike',
+        sessionSummary: { total: 2, byPhase: { working: 1, idle: 1 } },
+      }),
+    )
     expect(m.seqLabel).toBe('#12')
     expect(m.assignee).toBe('mike')
     expect(m.sessionCount).toBe(2)
   })
   it('sub-issue progress only when children exist', () => {
     expect(issueCardModel(issue()).subProgress).toBeUndefined()
-    expect(issueCardModel(issue({ childCount: 3, childDoneCount: 1 })).subProgress).toEqual({ done: 1, total: 3 })
+    expect(issueCardModel(issue({ childCount: 3, childDoneCount: 1 })).subProgress).toEqual({
+      done: 1,
+      total: 3,
+    })
   })
   it('blocked/blocking flags from wire state + dependents', () => {
     const m = issueCardModel(issue({ blocked: true, dependents: [{ id: 'x', type: 'blocks' }] }))

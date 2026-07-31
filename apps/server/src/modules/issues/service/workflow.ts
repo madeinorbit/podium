@@ -1,6 +1,7 @@
 import { DEFER_NEXT_MESSAGE, asUserId, type IssueId, type IssueWire, type OrphanIssue, type SessionId, type SessionMeta } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -183,7 +184,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
             ? null
             : selection.effort
           : spawned.effort,
-      machine: spawned.machine ?? row.machineId ?? '__local__',
+      machine: spawned.machine ?? row.machineId ?? LOCAL_PLACEHOLDER,
     }
   }
 

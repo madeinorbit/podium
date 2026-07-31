@@ -12,6 +12,10 @@ import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
 import { sourceForRead } from './transcripts'
 
+const DRAFT_SYNC_HARNESS_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
+  codex: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
+}
+
 /**
  * Env vars bound into EVERY spawned agent so its `podium` CLI can reach the
  * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
@@ -212,9 +216,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
           // Enter/Backspace (openai/codex#8324), which would corrupt the engine's
           // synthetic keystrokes. Disable it for flagged codex sessions only, so
           // flag-off codex behavior is byte-for-byte unchanged.
-          ...(msg.agentKind === 'codex' && msg.draftSync
-            ? { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' }
-            : {}),
+          ...(msg.draftSync ? (DRAFT_SYNC_HARNESS_ENV[msg.agentKind] ?? {}) : {}),
         },
       }),
     }

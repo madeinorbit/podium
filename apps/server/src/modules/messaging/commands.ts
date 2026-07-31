@@ -169,8 +169,13 @@ export function buildIssuesMessage(
 }
 
 /** Pick the agent session whose btw thread should back an issue topic. */
-export function pickIssueSession(issue: IssueWire): SessionMeta | undefined {
-  const sessions = issue.sessions.filter((s) => !s.archived && !s.headless)
+export function pickIssueSession(
+  issue: Pick<IssueWire, 'id'>,
+  heldSessions: readonly SessionMeta[],
+): SessionMeta | undefined {
+  const sessions = heldSessions.filter(
+    (session) => session.issueId === issue.id && !session.archived && !session.headless,
+  )
   if (sessions.length === 0) return undefined
   const live = sessions.filter((s) => LIVE_STATUSES.has(s.status))
   const pool = live.length > 0 ? live : sessions

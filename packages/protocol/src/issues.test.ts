@@ -17,7 +17,7 @@ describe('issue protocol types', () => {
     expect(IssueStage.safeParse('verifying').success).toBe(false)
   })
 
-  it('parses an IssueWire with derived members', () => {
+  it('parses the session-free transitional IssueWire residue', () => {
     const wire = IssueWire.parse({
       id: 'iss_1',
       repoPath: '/r',
@@ -48,11 +48,11 @@ describe('issue protocol types', () => {
       createdAt: 't',
       updatedAt: 't',
       archived: false,
-      sessions: [],
-      sessionSummary: { total: 0, byPhase: {} },
     })
     expect(wire.stage).toBe('backlog')
     expect(wire.worktreePath).toBeNull()
+    expect(wire).not.toHaveProperty('sessions')
+    expect(wire).not.toHaveProperty('sessionSummary')
   })
 
   it('accepts additive coordinatorSessionId + startedBySession (bare session ids)', () => {
@@ -131,8 +131,6 @@ describe('issue protocol types', () => {
       createdAt: 't',
       updatedAt: 't',
       archived: false,
-      sessions: [],
-      sessionSummary: { total: 0, byPhase: {} },
     }
     // Absent = a local issue (today's wire, byte-identical).
     const local = IssueWire.parse(base)
@@ -151,9 +149,8 @@ describe('issue protocol types', () => {
     expect(mirrored.pendingSync).toBe(true)
   })
 
-  // Unread state (issue #124): readAt + unread are additive, defaulted so pre-field
-  // cached payloads still validate (readAt → null, unread → false).
-  it('defaults readAt=null and unread=false for a pre-field IssueWire payload', () => {
+  // POD-797: readAt remains durable, while replica-derived unread is stripped.
+  it('keeps readAt and strips the deleted unread field', () => {
     const base = {
       id: 'iss_1',
       repoPath: '/r',
@@ -184,19 +181,14 @@ describe('issue protocol types', () => {
       createdAt: 't',
       updatedAt: 't',
       archived: false,
-      sessions: [],
-      sessionSummary: { total: 0, byPhase: {} },
     }
     const parsed = IssueWire.parse(base)
     expect(parsed.readAt).toBeNull()
-    expect(parsed.unread).toBe(false)
-    // Present + malformed values both resolve to the documented shape.
     const present = IssueWire.parse({ ...base, readAt: '2026-06-03T00:00:00.000Z', unread: true })
     expect(present.readAt).toBe('2026-06-03T00:00:00.000Z')
-    expect(present.unread).toBe(true)
+    expect(present).not.toHaveProperty('unread')
     const malformed = IssueWire.parse({ ...base, readAt: 5, unread: 'nope' })
     expect(malformed.readAt).toBeNull()
-    expect(malformed.unread).toBe(false)
   })
 
   // Issue colour [spec:SP-b4d1]: an additive optional slot NAME ('rose' … 'lime',
@@ -232,8 +224,6 @@ describe('issue protocol types', () => {
       createdAt: 't',
       updatedAt: 't',
       archived: false,
-      sessions: [],
-      sessionSummary: { total: 0, byPhase: {} },
     }
     expect(IssueWire.parse(base).color).toBeUndefined()
     expect(IssueWire.parse({ ...base, color: 'violet' }).color).toBe('violet')
@@ -275,8 +265,6 @@ describe('issue protocol types', () => {
       createdAt: 't',
       updatedAt: 't',
       archived: false,
-      sessions: [],
-      sessionSummary: { total: 0, byPhase: {} },
     }
     // Current server shape: no comments array, a count instead.
     const counted = IssueWire.parse({ ...base, commentCount: 3 })
@@ -341,8 +329,6 @@ describe('issue protocol types', () => {
       createdAt: 't',
       updatedAt: 't',
       archived: false,
-      sessions: [],
-      sessionSummary: { total: 0, byPhase: {} },
     })
     expect(ServerMessage.parse({ type: 'issuesChanged', issues: [issue] }).type).toBe(
       'issuesChanged',

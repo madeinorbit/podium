@@ -335,6 +335,7 @@ export function SessionScreen() {
                 since: session.offer.createdAt,
               }}
               issues={client.issues}
+              sessions={client.sessions}
               httpOrigin={client.serverConfig.httpOrigin}
               actions={offerActions}
               now={Date.now()}
@@ -343,7 +344,12 @@ export function SessionScreen() {
         ) : null}
         {view === 'chat' ? <Composer placeholder="Message the agent…" onSend={send} /> : null}
       </KeyboardAvoidingView>
-      <TaskPeekSheet issue={peekIssue} session={session} onClose={() => setPeekIssue(null)} />
+      <TaskPeekSheet
+        issue={peekIssue}
+        session={session}
+        sessions={client.sessions}
+        onClose={() => setPeekIssue(null)}
+      />
       <ActionSheet
         visible={menuOpen}
         title={title}

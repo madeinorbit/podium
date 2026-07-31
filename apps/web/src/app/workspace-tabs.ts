@@ -1,4 +1,3 @@
-import type { IssueWire } from '@podium/model'
 import type { FileTab } from './store'
 
 /** The file tabs that belong in a workspace's tab strip.
@@ -16,7 +15,10 @@ import type { FileTab } from './store'
  *  via the "+" menu's Recent-files list. */
 export function fileTabsForWorkspace(
   fileTabs: FileTab[],
-  target: { issue: IssueWire | null | undefined; worktreePath: string | undefined },
+  target: {
+    issue: { id: string; worktreePath?: string | null } | null | undefined
+    worktreePath: string | undefined
+  },
 ): FileTab[] {
   const { issue, worktreePath } = target
   if (issue) return fileTabs.filter((f) => f.issueId === issue.id)

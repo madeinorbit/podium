@@ -480,6 +480,32 @@ export function publishComputedControlMisses(patternSource: string): string[] {
 
 export const CHECKS: AuditCheck[] = [
   {
+    /*
+     * PORTED FROM MAIN in the catch-up merge. Main's POD-797 deleted the legacy
+     * local issue wire; this branch rebuilt that surface independently, so this
+     * detector is EXPECTED TO REPORT NON-ZERO here and that number is a real
+     * finding rather than merge noise. Kept because a detector this branch lacks
+     * is a guard this branch lacks.
+     */
+    id: 'issues-legacy-local-wire',
+    title: 'Legacy local issue membership wire path',
+    phase: 'POD-797',
+    unit: 'production site that embeds or scans sessions for an issue payload, gates normalized issue emission, or retains a POD-722/723 issue shim',
+    collect: (ctx) => [
+      ...grep(ctx, {
+        roots: ['packages/protocol/src/messages/issues.ts'],
+        pattern:
+          /IssueSessionSummary|sessions:\s*z[.]array[(]SessionMeta[)]|sessionSummary:\s*IssueSessionSummary|unread:\s*z[.]boolean/,
+      }),
+      ...grep(ctx, {
+        roots: ['apps/server/src'],
+        skip: (file) => file === 'apps/server/src/modules/issues/instrumentation.ts',
+        pattern:
+          /issueRelevantSessionProjection|lastIssueSessionProjection|legacyIssueWireNeeded|issuesNormalizedWire|toWireMemo|wireCache|bumpIssueInputs|memberSessionFingerprint|countIssueMembershipScan[(]|issues-normalized-wire/,
+      }),
+    ],
+  },
+  {
     id: 'publish-computed-fanout',
     title: 'publishComputed snapshot fan-out',
     phase: 'POD-308',

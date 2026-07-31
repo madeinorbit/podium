@@ -12,7 +12,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { StageChip } from '@/features/issues/IssuePanelView'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import { copyToClipboard } from '@/lib/clipboard'
@@ -395,10 +395,9 @@ export function RefCard({
  * Linkification is inert until this runs (an empty prefix set disables it).
  */
 export function RefPrefixSync(): null {
-  const { trpc, issuePrefixKey, repoKey } = useStoreSelector(
+  const { trpc, repoKey } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      issuePrefixKey: [...collectRefPrefixes(s.issues)].sort().join(','),
       // Registered repos changing (add/remove) means the prefix set may have too.
       repoKey: s.repos
         .map((r) => r.path)
@@ -407,6 +406,8 @@ export function RefPrefixSync(): null {
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
+  const issuePrefixKey = [...collectRefPrefixes(issues)].sort().join(',')
   const [repoPrefixes, setRepoPrefixes] = useState<string[]>([])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: repoKey is a deliberate refetch trigger — repos changing means the prefix set may have too.

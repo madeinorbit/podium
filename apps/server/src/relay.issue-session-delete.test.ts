@@ -43,7 +43,7 @@ describe('issue/session deletion lifecycle', () => {
 
     expect(new Set(result.deletedSessionIds)).toEqual(new Set([attached, inWorktree]))
     expect(result.issue.deletedAt).toBeTruthy()
-    expect(result.issue.sessions).toEqual([])
+    expect(result.issue).not.toHaveProperty('sessions')
     expect(registry.issues.get(issue.id)?.deletedAt).toBeTruthy()
     expect(store.issues.getIssue(issue.id)?.deletedAt).toBeTruthy()
     expect(registry.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([unrelated])

@@ -30,11 +30,7 @@ export interface ChangeLogStore {
     cursor: number,
   ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[]
   /** Snapshot the head-only retention threshold once per job. */
-  planChangePrune(opts: {
-    keepRows: number
-    maxAgeMs: number
-    now: number
-  }): ChangePrunePlan
+  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
   /** Latest retained row per (entity, id) — the boot seed for the baseline, and
@@ -146,7 +142,20 @@ export function issueProjection(value: unknown): string {
  *  JSON (`json` must be `JSON.stringify(value)`). */
 export function detectionKey(entity: MetadataEntityKind, value: unknown, json: string): string {
   if (entity === 'conversation') return conversationProjection(value)
-  if (entity === 'issue') return issueProjection(value)
+  if (entity === 'issue') {
+    const issue = value as Record<string, unknown>
+    // The normalized pilot's transitional IssueWire is already session-free.
+    // Reuse its serialized bytes instead of allocating a second projection;
+    // legacy embedded-session shapes still receive main's heartbeat filter.
+    if (
+      !Object.hasOwn(issue, 'sessions') &&
+      !Object.hasOwn(issue, 'sessionSummary') &&
+      !Object.hasOwn(issue, 'unread')
+    ) {
+      return json
+    }
+    return issueProjection(value)
+  }
   return json
 }
 
@@ -213,6 +222,32 @@ export class ChangeBaseline {
   applyRemove(entity: MetadataEntityKind, id: string): void {
     this.byEntity(entity).delete(id)
   }
+}
+
+/**
+ * The lowest seq the authority can still DELIVER (ADR 2 D5) — the published
+ * retention horizon, so a replica can tell it must re-bootstrap BEFORE asking
+ * rather than after being refused.
+ *
+ * The `?? max + 1` fallback is what makes the number TOTAL. A fully-pruned log
+ * (every row aged out, `max` still 500 via sqlite_sequence) can deliver nothing
+ * that exists, and the next change it writes will be 501 — so 501 is both true
+ * and precise, where a null would need a special case at every consumer and a 0
+ * would claim it can serve a cursor it cannot.
+ *
+ * The exact replica predicate is `cursor + 1 < minAvailableSeq` ⇒ re-bootstrap,
+ * which is {@link readChangesSince}'s own servability rule read from the other
+ * side: it can serve a cursor iff every change in (cursor, max] is retained,
+ * i.e. iff `cursor + 1 >= minAvailableSeq`. Worth stating precisely because ADR
+ * 2 D7 rung 2 gives the shorthand `cursor < minAvailableSeq` — the same rule off
+ * by one, costing one needless re-bootstrap at exactly `cursor === min - 1`.
+ * Both are SAFE (the authority's answer is authoritative either way; a needless
+ * bootstrap is always legal), but the exact form is free.
+ */
+export function minAvailableSeq(
+  store: Pick<ChangeLogStore, 'maxChangeSeq' | 'minChangeSeq'>,
+): number {
+  return store.minChangeSeq() ?? store.maxChangeSeq() + 1
 }
 
 /**

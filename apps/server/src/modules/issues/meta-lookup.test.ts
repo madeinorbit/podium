@@ -49,12 +49,13 @@ describe('POD-826 lightweight issue lookups', () => {
     expect(listSessions).not.toHaveBeenCalled()
   })
 
-  it('keeps get as the full wire-facing lookup', () => {
+  it('keeps get as a session-free wire lookup', () => {
     const { listSessions, svc } = harness()
     const created = svc.create({ repoPath: '/repo', title: 'wire', startNow: false })
     listSessions.mockClear()
 
-    expect(svc.get(created.id)).toMatchObject({ id: created.id, sessions: [] })
-    expect(listSessions).toHaveBeenCalledOnce()
+    expect(svc.get(created.id)).toMatchObject({ id: created.id })
+    expect(svc.get(created.id)).not.toHaveProperty('sessions')
+    expect(listSessions).not.toHaveBeenCalled()
   })
 })

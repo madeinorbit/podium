@@ -24,9 +24,13 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
   })
 
   it('production stable does not list hidden flags', () => {
-    const result = getFeatureStates(settings({ 'sample-experiment': true }), {}, {
-      PODIUM_APP_VERSION: '1.2.3',
-    })
+    const result = getFeatureStates(
+      settings({ 'sample-experiment': true }),
+      {},
+      {
+        PODIUM_APP_VERSION: '1.2.3',
+      },
+    )
     expect(result.devMode).toBe(false)
     const sample = result.flags.find((f) => f.id === 'sample-experiment')
     expect(sample).toMatchObject({
@@ -38,9 +42,13 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
   })
 
   it('honors user toggle when listed (dev)', () => {
-    const result = getFeatureStates(settings({ 'sample-experiment': true }), {}, {
-      PODIUM_APP_VERSION: 'dev',
-    })
+    const result = getFeatureStates(
+      settings({ 'sample-experiment': true }),
+      {},
+      {
+        PODIUM_APP_VERSION: 'dev',
+      },
+    )
     expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
       listed: true,
       enabled: true,
@@ -51,11 +59,9 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
 
   it('config override force-enables and locks', () => {
     const config: PodiumConfig = { features: { 'sample-experiment': true } }
-    const result = getFeatureStates(
-      settings({ 'sample-experiment': false }),
-      config,
-      { PODIUM_APP_VERSION: '1.0.0' },
-    )
+    const result = getFeatureStates(settings({ 'sample-experiment': false }), config, {
+      PODIUM_APP_VERSION: '1.0.0',
+    })
     expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
       listed: false,
       enabled: true,
@@ -66,11 +72,9 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
 
   it('config force-disables even when user is on and listed', () => {
     const config: PodiumConfig = { features: { 'sample-experiment': false } }
-    const result = getFeatureStates(
-      settings({ 'sample-experiment': true }),
-      config,
-      { PODIUM_APP_VERSION: 'dev' },
-    )
+    const result = getFeatureStates(settings({ 'sample-experiment': true }), config, {
+      PODIUM_APP_VERSION: 'dev',
+    })
     expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
       listed: true,
       enabled: false,
@@ -96,9 +100,9 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
 
 describe('isFeatureEnabled', () => {
   it('returns false by default', () => {
-    expect(isFeatureEnabled('sample-experiment', settings(), {}, { PODIUM_APP_VERSION: 'dev' })).toBe(
-      false,
-    )
+    expect(
+      isFeatureEnabled('sample-experiment', settings(), {}, { PODIUM_APP_VERSION: 'dev' }),
+    ).toBe(false)
   })
 
   it('returns true when user enabled in dev', () => {

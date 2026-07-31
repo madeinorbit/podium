@@ -64,6 +64,7 @@ import type {
   TranscriptWindow,
   UiState,
 } from '../contract'
+import { COLD_CURSOR, type FeedCursor } from '../feed'
 import { kindForEntity } from './kinds'
 import type { SideCache } from './side-cache'
 
@@ -116,10 +117,20 @@ export interface KernelBackedReplica extends Replica {
 }
 
 /** The kinds a single event touches. `bootstrap-installed` and the cache-wide
- *  events touch every kind, because the whole slice was replaced. */
+ *  events touch every kind, because the whole slice was replaced.
+ *
+ *  The POD-796/POD-822 normalized kinds (`issueProjections`, `issueDeps`,
+ *  `repos`) are IN this list even though `kinds.ts` maps no kernel entity to
+ *  them yet: on this path they project empty, and a bootstrap that replaced the
+ *  whole slice must still tell a listener on an empty kind that it re-read as
+ *  empty. Leaving them out would make the notification set silently narrower
+ *  than the interface, which is the harder bug to find later. */
 const ALL_KINDS: readonly ReplicaKind[] = [
   'sessions',
   'issues',
+  'issueProjections',
+  'issueDeps',
+  'repos',
   'conversations',
   'automations',
   'automationRuns',
@@ -224,16 +235,29 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       return {
         sessions: project('sessions'),
         issues: project('issues'),
+        issueProjections: project('issueProjections'),
+        issueDeps: project('issueDeps'),
+        repos: project('repos'),
         conversations: project('conversations'),
         automations: project('automations'),
         automationRuns: project('automationRuns'),
         cursor: facade.getCursor(),
+        feedCursor: facade.getFeedCursor(),
+        // ADR 2 D7 rung 6 is the LEGACY blob's version check. This path has no
+        // blob: the kernel store carries its own schema version and resets
+        // itself before this facade is constructed, so a reset that happened is
+        // already invisible here. Reporting `true` would be a claim we cannot
+        // make, and reporting a reset we did not perform is worse than not
+        // reporting one — the caller only uses it to explain empty lists.
+        schemaReset: false,
       }
     },
 
     applySnapshot: () => refuse('applySnapshot'),
     applyChanges: () => refuse('applyChanges'),
     setCursor: () => refuse('setCursor'),
+    setFeedCursor: () => refuse('setFeedCursor'),
+    resetCache: () => refuse('resetCache'),
     collection: () =>
       refuse(
         'collection' +
@@ -246,6 +270,19 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       } catch {
         return null
       }
+    },
+
+    getFeedCursor(): FeedCursor {
+      // READ, so it answers rather than refusing — the shadow comparison and the
+      // health surfaces call it on both replicas and a throw here would report
+      // as a kernel fault. What it can honestly answer is the SEQ: the kernel's
+      // cache view (`KernelCacheRead`) deliberately narrows to `{ seq }`, and the
+      // feed IDENTITY lives with the kernel Replica's own ladder, not in this
+      // read model. `feedId`/`epoch` are therefore null — the same spelling
+      // `COLD_CURSOR` uses for "identity not established here", never a made-up
+      // id that an identity check downstream would compare against and trust.
+      const seq = facade.getCursor()
+      return seq === null ? COLD_CURSOR : { ...COLD_CURSOR, seq }
     },
 
     transcriptWindow(conversationKey: string): TranscriptWindow | undefined {

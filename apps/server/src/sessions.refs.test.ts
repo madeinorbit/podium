@@ -73,7 +73,7 @@ describe('session birth naming (#474)', () => {
       refIssueId: null,
       refLetter: null,
     })
-    expect(reg.modules.sessions.syncChangesSince(cursor)).toEqual({
+    expect(reg.modules.sessions.syncChangesSince(cursor)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -97,7 +97,7 @@ describe('session birth naming (#474)', () => {
       reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }),
     ).toThrow('first draft append failed')
     append.mockRestore()
-    expect(reg.modules.sessions.syncChangesSince(cursor)).toEqual({
+    expect(reg.modules.sessions.syncChangesSince(cursor)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],

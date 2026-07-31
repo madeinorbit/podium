@@ -24,7 +24,7 @@ import {
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { useFeature } from '@/lib/use-feature'
 import {
@@ -153,7 +153,6 @@ export function SessionContextMenu({
     trpc,
     repos,
     machines,
-    issues,
   } = useStoreSelector(
     (s) => ({
       setSnooze: s.setSnooze,
@@ -166,10 +165,10 @@ export function SessionContextMenu({
       trpc: s.trpc,
       repos: s.repos,
       machines: s.machines,
-      issues: s.issues,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const { guardedKill, guardedArchive } = useSessionGuard()
   const handoffEnabled = useFeature('session-handoff')
   const now = useNow(60_000)

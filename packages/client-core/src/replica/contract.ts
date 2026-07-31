@@ -60,11 +60,15 @@ import type {
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
+  IssueDepProjection,
+  IssueProjection,
   IssueWire,
+  RepoProjection,
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
 import type { OutboxStorage } from '../outbox'
+import type { FeedCursor } from './feed'
 
 /** Synchronous key-value storage seam. Tests inject a fake; the browser passes
  *  `window.localStorage`. Shape-identical to what the outgoing adapter's library
@@ -77,10 +81,46 @@ export type StorageEventApi = {
   removeEventListener: (type: 'storage', listener: (event: StorageEvent) => void) => void
 }
 
+/**
+ * The issue projection AS A REPLICA ROW — the projection plus the per-user read
+ * state, which is NOT part of the projection on this branch.
+ *
+ * `IssueProjection` here is a pure function of the issue's own durable row
+ * (model's `aggregates/issue.ts`: "per-user state is absent by construction"), so
+ * unlike main's it carries no `readAt`. The client-side machinery main added
+ * still needs to name that field: `issueMarkRead`/`issueMarkUnread` write an
+ * optimistic overlay onto an `issueProjections` row and judge covering truth by
+ * reading it back, and the replica-side views take it as an input.
+ *
+ * Naming it HERE rather than putting it back on the model keeps the divergence
+ * in one place and states the truth about the wire: the row MAY carry per-user
+ * read state, and today this branch's authority does not emit it — the normalized
+ * feed's per-user slice is its own entity and its own piece of work. Optional,
+ * therefore, rather than `| null`: absent means "this feed does not carry it",
+ * which is a different fact from "read never happened".
+ */
+export type IssueProjectionRow = IssueProjection & { readAt?: string | null }
+
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
   sessions: SessionMeta
+  /** The LEGACY embedded issue wire. Still held through the transition [POD-796]:
+   *  the rich issue UI reads it directly, and it carries `deps`/`prefix`/derived
+   *  fields as columns. POD-797 deletes it once every surface reads the views. */
   issues: IssueWire
+  /** The NORMALIZED issue projection [POD-796] — the issue's own durable row,
+   *  nothing derived. The replica-side issue VIEWS read this, joined against the
+   *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
+   *  on and this client offered the cap. */
+  issueProjections: IssueProjectionRow
+  /** Issue dependency EDGES [POD-822] — `issue_deps` as first-class rows. The
+   *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
+   *  projection cannot carry them (an edge belongs to two issues). */
+  issueDeps: IssueDepProjection
+  /** Logical repos [POD-822] — `(id, prefix)`. The views join `issue.repoId →
+   *  repo.prefix` for `displayRef`; a prefix change moves every `POD-13` in the
+   *  repo without rewriting an issue (D7.2). */
+  repos: RepoProjection
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
@@ -90,11 +130,26 @@ export type ReplicaKind = keyof ReplicaRows
 export interface ReplicaHydrateResult {
   sessions: SessionMeta[]
   issues: IssueWire[]
+  /** The three POD-796/POD-822 kinds, persisted like every other collection so a
+   *  warm reload paints the views from local data and re-seeds the hub's
+   *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
+  issueProjections: IssueProjectionRow[]
+  issueDeps: IssueDepProjection[]
+  repos: RepoProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
+  /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.
+   *  `cursor` above is this one's `seq` and nothing more; it stays only for the
+   *  shipped seq-only SocketHub path (POD-796 deletes it with that path). */
+  feedCursor: FeedCursor
+  /** True when hydrate found a cache written by a DIFFERENT replica schema
+   *  version and discarded it (ADR 2 D7 rung 6). The lists are empty and the
+   *  cursor is cold; the outbox survived. Surfaced rather than logged because a
+   *  silent version reset is indistinguishable from a cold start. */
+  schemaReset: boolean
 }
 
 /** A cached transcript window: the newest items read for one conversation. */
@@ -131,6 +186,30 @@ export interface Replica {
   /** Persist the cursor AFTER the entity writes issued before this call have
    *  landed (spec invariant 3) — a crash between = idempotent re-apply, never a gap. */
   setCursor(cursor: number): void
+  /** The cursor as ADR 2 D1's triple. `COLD_CURSOR` when never synced. */
+  getFeedCursor(): FeedCursor
+  /** Persist the whole triple, behind the same persist-after-data fence as
+   *  {@link setCursor} (ADR 2 D10 / ADR 6 D4.2). */
+  setFeedCursor(cursor: FeedCursor): void
+  /**
+   * ADR 2 D7 rungs 4–6: discard the CACHE, keep the OUTBOX. One operation,
+   * because the two halves must never be separable at a call site.
+   *
+   * WE own this rather than delegating to the store's own reset, and the reason
+   * is specific (POD-794 addendum 2, reproduced): TanStack's reset is
+   * COLLECTION-SCOPED — it clears the tables it knows about and nothing else.
+   * That property cuts both ways. It cannot eat our outbox, which is why D7's
+   * most dangerous sentence is safe by construction. But it cannot clear our
+   * CURSOR either, and a reset that leaves entities=0 with cursor=77 is a
+   * PERMANENT SILENT HOLE: `changesSince(77)` answers "caught up" over an empty
+   * replica forever, and no rung of the ladder detects it because every rung's
+   * exit condition looks satisfied.
+   *
+   * Order is not arbitrary — the cursor goes FIRST. ADR 6 D4.2 forbids a cursor
+   * ahead of its data and makes data ahead of a lost cursor advance recoverable
+   * by re-pull; a crash mid-reset must therefore land on the recoverable side.
+   */
+  resetCache(): void
   /** The cached newest window for a conversation key, if any. */
   transcriptWindow(conversationKey: string): TranscriptWindow | undefined
   /** Write-through cache of a fresh read. Bounded per spec §2.3. */

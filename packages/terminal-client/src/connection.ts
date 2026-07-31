@@ -1,7 +1,22 @@
-import type { AutomationRunWire, AutomationWire, ConversationSummaryWire, HostMetricsWire, IssueWire, MachineWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
+import type {
+  AutomationRunWire,
+  AutomationWire,
+  ConversationSummaryWire,
+  HostMetricsWire,
+  IssueDepProjection,
+  IssueProjection,
+  IssueWire,
+  MachineWire,
+  RepoProjection,
+  SessionId,
+  SessionMeta,
+  TranscriptItem,
+} from '@podium/model'
 import {
   type ApprovalWire,
+  CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
+  CAP_SYNC_FEED_IDENTITY,
   createDispatcher,
   encode,
   type HeadlessActivityEvent,
@@ -91,6 +106,28 @@ export interface SocketHubOptions {
    */
   initialCursor?: number | null
   /**
+   * Opt into the NORMALIZED issue projection [POD-796]: the hello advertises
+   * CAP_ISSUES_NORMALIZED and the hub populates `issueProjections` from the
+   * feed's 'issueProjection' rows.
+   *
+   * DEFAULT FALSE, DELIBERATELY, and this is a safety interlock rather than
+   * caution. The cap does not mean "I can also read projections" — it means "I
+   * NO LONGER NEED IssueWire". The server's D7.2 bypass keys off exactly that:
+   * once every delta client offers this cap, a session change stops rebuilding
+   * issue wire payloads at all. So a consumer that offers the cap while still
+   * rendering from `issues` would ask the server to stop maintaining the very
+   * data its UI reads, and the issue list would silently freeze — a bug that
+   * looks like a caching problem and is really a broken promise.
+   *
+   * Set it only when the consumer reads `issueProjections` (and resolves members
+   * by indexing sessions on `issueId`). Today nothing in apps/web does, because
+   * the replica-side views still need `deps` and `prefix`, which the projection
+   * does not carry and nothing replica-side can supply — POD-822. Only meaningful
+   * alongside `fetchChangesSince`; there is no delta frame to carry the rows
+   * otherwise.
+   */
+  issuesNormalized?: boolean
+  /**
    * Fired after each APPLIED metadata batch (bootstrap/heal snapshot, heal delta,
    * or live `metadataDelta`) with the hub's current lists + cursor — the web
    * store persists these into the replica (data first, cursor after). The arrays
@@ -153,9 +190,40 @@ export interface MetadataAppliedState {
   cursor: number
   sessions: SessionMeta[]
   issues: IssueWire[]
+  /** The normalized issues [POD-796] — emitted unconditionally since POD-797
+   *  deleted the flag. Additive: an embedder that ignores it behaves exactly
+   *  as before. */
+  issueProjections: IssueProjection[]
+  /** The issue dependency EDGES [POD-822] — `issue_deps` as first-class rows.
+   *  A consumer of `issueProjections` needs these: the projection carries no
+   *  `deps` (an edge belongs to two issues, so it cannot be a field on either
+   *  without putting cross-entity work on the write path), and without them
+   *  `blocked` derives as `false` for every blocked issue. Same flag gate. */
+  issueDeps: IssueDepProjection[]
+  /** The logical repos [POD-822] — `(repoId, prefix)`. The `displayRef` join:
+   *  without them every issue reads `#13` instead of `POD-13`. Same flag gate. */
+  repos: RepoProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
+  /**
+   * Feed identity as of the batch that was just applied (ADR 2 D1/D5), when the
+   * authority stamped it — see `CAP_SYNC_FEED_IDENTITY` in the hello.
+   *
+   * The embedder persists `(feedId, epoch, cursor)` as the replica's cursor
+   * TRIPLE: a bare `cursor` cannot distinguish "up to date" from "holding
+   * entities off a timeline that no longer exists". Absent against an authority
+   * that predates POD-792, which is not a mismatch — see `identityVerdict` in
+   * client-core's `replica/feed.ts`, which is where this is judged.
+   *
+   * NOT applied by the hub itself: the hub still heals on a bare seq (rungs 0/1
+   * only), and POD-796 moves the full ladder onto this path when it cuts the
+   * wire over. Publishing the identity now is what lets the replica hold the
+   * real triple in the meantime.
+   */
+  feedId?: string
+  epoch?: string
+  minAvailableSeq?: number
 }
 
 function utf8ToBase64(text: string): string {
@@ -262,6 +330,17 @@ export interface HubEvents {
   approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
   issues: [issues: IssueWire[]]
+  /** Full NORMALIZED issue list after any change [POD-796]. Fires for a hub
+   *  that offered CAP_ISSUES_NORMALIZED (the authority emits unconditionally
+   *  since POD-797). Carries no session data of any kind —
+   *  a consumer resolves members by indexing sessions on `issueId`. Emitted
+   *  ALONGSIDE `issues` during the transition, never instead of it. */
+  issueProjections: [issues: IssueProjection[]]
+  /** Full dep-EDGE list after any change [POD-822]. Same gating as
+   *  `issueProjections`; the replica joins these to derive blocked/ready/dependents. */
+  issueDeps: [deps: IssueDepProjection[]]
+  /** Full logical-repo list after any change [POD-822] — the `displayRef` prefix join. */
+  repos: [repos: RepoProjection[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
@@ -298,9 +377,27 @@ export class SocketHub {
   private machinesList: MachineWire[] = []
   private approvalsList: ApprovalWire[] = []
   private issueList: IssueWire[] = []
+  /** The normalized issue list [POD-796]. Separate from `issueList` rather than
+   *  replacing it: the two shapes coexist for the whole transition, and the feed
+   *  carries them as two entity KINDS ('issue' / 'issueProjection') because the
+   *  ledger stores one value per (kind, id). Empty unless the authority's flag
+   *  is on. */
+  private issueProjectionList: IssueProjection[] = []
+  /** The dep EDGES and the repos [POD-822] — the two kinds the replica joins the
+   *  projections against to get back `blocked`/`ready`/`dependents` (edges) and
+   *  `displayRef` (repo prefix). Separate lists for the same reason
+   *  `issueProjectionList` is separate from `issueList`: they are separate feed
+   *  kinds, because the ledger stores one value per (kind, id). Empty unless the
+   *  authority's flag is on. */
+  private issueDepList: IssueDepProjection[] = []
+  private repoList: RepoProjection[] = []
   // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
   /** Last applied oplog seq; null until the first changesSince completes. */
   private metadataCursor: number | null = null
+  /** Feed identity as last stamped by the authority (ADR 2 D1/D5), forwarded to
+   *  the embedder with every applied batch so the replica's cursor can be the
+   *  triple. Empty against an authority that stamps nothing. See noteFeedStamp. */
+  private readonly feedStamp: { feedId?: string; epoch?: string; minAvailableSeq?: number } = {}
   /** The options' `initialCursor` is spent on the FIRST heal only — after that
    *  the live `metadataCursor` (or null → snapshot) is always the truth. */
   private initialCursorSpent = false
@@ -415,7 +512,25 @@ export class SocketHub {
         viewport: { ...this.opts.viewport },
         // Delta mode is negotiated per connection — advertise it only when the
         // embedder wired a changesSince fetcher (see SocketHubOptions).
-        ...(this.opts.fetchChangesSince ? { caps: [CAP_METADATA_DELTA] } : {}),
+        // CAP_SYNC_FEED_IDENTITY rides alongside it and is only meaningful with
+        // it (there is no frame to stamp otherwise): it asks the server to stamp
+        // `(feedId, epoch, minAvailableSeq)` onto this client's delta frames, so
+        // the cursor can be ADR 2 D1's triple rather than a bare seq. Without it
+        // a restored-from-backup authority is undetectable: `changesSince(500)`
+        // answers "up to date" over 100 phantom rows, forever.
+        // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
+        // promises the server this client no longer needs IssueWire, which is
+        // what licenses the server to skip the O(issues x sessions) rebuild on
+        // session churn [POD-796].
+        ...(this.opts.fetchChangesSince
+          ? {
+              caps: [
+                CAP_METADATA_DELTA,
+                CAP_SYNC_FEED_IDENTITY,
+                ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+              ],
+            }
+          : {}),
         // WIRE v2 (POD-376). Sent only in feed mode: an absent `wireVersion` IS
         // the v1 advertisement (`wire-feed-edge.ts` — "a pre-cutover client
         // cannot be made to send a field it was never built with"), so a hub
@@ -754,6 +869,9 @@ export class SocketHub {
   seedMetadata(seed: {
     sessions: SessionMeta[]
     issues: IssueWire[]
+    issueProjections?: IssueProjection[]
+    issueDeps?: IssueDepProjection[]
+    repos?: RepoProjection[]
     conversations: ConversationSummaryWire[]
     automations?: AutomationWire[]
     automationRuns?: AutomationRunWire[]
@@ -761,11 +879,25 @@ export class SocketHub {
     if (this.metadataCursor !== null) return
     this.sessionList = seed.sessions
     this.issueList = seed.issues
+    // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
+    // from the persisted replica so a warm-reload DELTA applies onto them rather
+    // than onto empty lists. Optional + `?? []` so an embedder that predates them
+    // seeds exactly as before.
+    this.issueProjectionList = seed.issueProjections ?? []
+    this.issueDepList = seed.issueDeps ?? []
+    this.repoList = seed.repos ?? []
     this.conversationList = seed.conversations
     this.automationList = seed.automations ?? []
     this.automationRunList = seed.automationRuns ?? []
     this.emit('sessions', this.sessionList)
     this.emit('issues', this.issueList)
+    // Emit-only-when-non-empty, unlike sessions/issues above: consumers default
+    // these three kinds to empty, so an empty seed emit is a no-op — and after a
+    // server-side flag rollback a stale persisted replica gets its emptying
+    // event from the next delta/reconcile, not from the seed [POD-822].
+    if (this.issueProjectionList.length > 0) this.emit('issueProjections', this.issueProjectionList)
+    if (this.issueDepList.length > 0) this.emit('issueDeps', this.issueDepList)
+    if (this.repoList.length > 0) this.emit('repos', this.repoList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -1189,6 +1321,10 @@ export class SocketHub {
   /** Live `metadataDelta` intake. Queued while a heal is in flight (the heal's
    *  cursor decides what still applies); a seq gap aborts into a heal. */
   private ingestDelta(msg: MetadataDeltaMessageLenient): void {
+    // Record the identity even for a frame we go on to queue or heal past: the
+    // stamp describes the FEED, not this batch, so it is true regardless of what
+    // happens to the batch.
+    this.noteFeedStamp(msg)
     if (this.healInFlight || this.metadataCursor == null) {
       this.pendingDeltas.push(msg)
       // No cursor yet and no heal running (changesSince rejected and is waiting on
@@ -1209,10 +1345,31 @@ export class SocketHub {
       cursor: this.metadataCursor,
       sessions: this.sessionList,
       issues: this.issueList,
+      issueProjections: this.issueProjectionList,
+      issueDeps: this.issueDepList,
+      repos: this.repoList,
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
+      ...this.feedStamp,
     })
+  }
+
+  /** Record the feed identity a stamped batch carried (ADR 2 D1/D5).
+   *
+   *  Fields are only overwritten when PRESENT: a mixed-version authority (one
+   *  node stamps, one does not) must not blank an identity an earlier reply
+   *  established, or the next stamped reply reads as a mismatch against nothing.
+   *  `minAvailableSeq` moves with the retention horizon and is simply the latest
+   *  the authority published. */
+  private noteFeedStamp(stamp: {
+    feedId?: string
+    epoch?: string
+    minAvailableSeq?: number
+  }): void {
+    if (stamp.feedId !== undefined) this.feedStamp.feedId = stamp.feedId
+    if (stamp.epoch !== undefined) this.feedStamp.epoch = stamp.epoch
+    if (stamp.minAvailableSeq !== undefined) this.feedStamp.minAvailableSeq = stamp.minAvailableSeq
   }
 
   /**
@@ -1269,6 +1426,20 @@ export class SocketHub {
         case 'issue':
           this.issueList = applyChange(this.issueList, c.op, c.value, (i) => i.id === c.id)
           break
+        case 'issueProjection':
+          this.issueProjectionList = applyChange(
+            this.issueProjectionList,
+            c.op,
+            c.value,
+            (i) => i.id === c.id,
+          )
+          break
+        case 'issueDep':
+          this.issueDepList = applyChange(this.issueDepList, c.op, c.value, (d) => d.id === c.id)
+          break
+        case 'repo':
+          this.repoList = applyChange(this.repoList, c.op, c.value, (r) => r.id === c.id)
+          break
         case 'conversation':
           this.conversationList = applyChange(
             this.conversationList,
@@ -1299,6 +1470,9 @@ export class SocketHub {
     }
     if (touched.has('session')) this.emit('sessions', this.sessionList)
     if (touched.has('issue')) this.emit('issues', this.issueList)
+    if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
+    if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
+    if (touched.has('repo')) this.emit('repos', this.repoList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
@@ -1348,14 +1522,26 @@ export class SocketHub {
     fetchValidated().then(
       (result) => {
         this.healInFlight = false
+        // The changesSince reply carries the identity on BOTH arms and
+        // unconditionally — it is a tRPC query, so there is no hello to
+        // negotiate on and stamping it is additive (an older client's zod parse
+        // strips the keys). The snapshot arm needs it most: a re-bootstrap is
+        // exactly where a replica learns which generation it is now on.
+        this.noteFeedStamp(result)
         if (result.kind === 'snapshot') {
           this.sessionList = result.sessions
           this.issueList = result.issues
+          this.issueProjectionList = result.issueProjections ?? []
+          this.issueDepList = result.issueDeps ?? []
+          this.repoList = result.repos ?? []
           this.conversationList = result.conversations
           this.automationList = result.automations ?? []
           this.automationRunList = result.automationRuns ?? []
           this.emit('sessions', this.sessionList)
           this.emit('issues', this.issueList)
+          this.emit('issueProjections', this.issueProjectionList)
+          this.emit('issueDeps', this.issueDepList)
+          this.emit('repos', this.repoList)
           this.emit('conversations', this.conversationList)
           this.emit('automations', this.automationList)
           this.emit('automationRuns', this.automationRunList)

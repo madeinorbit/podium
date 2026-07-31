@@ -14,7 +14,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { machineNeedsUpdate, useServerAppVersion } from '@/features/machines/version-skew'
+import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { NetworkStep } from '@/features/setup/SetupView'
 import { relativeTime } from '@/lib/home'

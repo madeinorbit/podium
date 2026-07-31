@@ -40,12 +40,14 @@ function agentName(session: SessionMeta | undefined): string | null {
 export function TrayCard({
   item,
   issues,
+  sessions,
   httpOrigin,
   actions,
   now,
 }: {
   item: TrayItem
   issues: IssueWire[]
+  sessions: readonly SessionMeta[]
   httpOrigin: string
   actions: TrayCardActions
   now: number
@@ -55,12 +57,20 @@ export function TrayCard({
   const [feedback, setFeedback] = useState('')
   const flowHex = effectiveIssueColorHex(issue, (id) => issues.find((i) => i.id === id))
   const hex = flowHex ?? FLOW_SLATE
+  // Pick in memberSessionIds order (the server-declared membership order),
+  // not the client store's session order.
   const session =
     item.kind === 'offer'
       ? item.session
-      : (issue.sessions ?? []).find(
-          (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
-        )
+      : (issue.memberSessionIds ?? [])
+          .map((id) => sessions.find((s) => s.sessionId === id))
+          .find(
+            (s) =>
+              s !== undefined &&
+              !s.archived &&
+              s.agentKind !== 'shell' &&
+              s.headless !== true,
+          )
   const ago = relativeTime(item.since, now)
   const squareHex = issueColorHex(issue.color)
 

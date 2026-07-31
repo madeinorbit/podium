@@ -2,16 +2,31 @@ import {
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
-  ChangeEntityIdField,
   ChangeSeqField,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
   GlobalChangeOpField,
+  IssueDepProjection,
+  IssueProjection,
   IssueWire,
+  RepoProjection,
   SessionMeta,
 } from '@podium/model'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
+
+/**
+ * Re-exported from `@podium/model` [POD-796, POD-822].
+ *
+ * Each of these is an arm of {@link MetadataChange}, so each IS a wire shape,
+ * and a peer that parses the feed must be able to name it without taking a
+ * dependency this layer does not permit it: `@podium/terminal-client` depends on
+ * protocol ONLY (ADR 8; protocol is the one near-leaf allowed to import model —
+ * see RESTRICTED_PACKAGE_DEPS in scripts/check-boundaries.ts). Re-exporting here
+ * keeps the vocabulary single-sourced in model while letting protocol's
+ * consumers stay on protocol.
+ */
+export { IssueDepProjection, IssueProjection, RepoProjection }
 
 // ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
 // One row of the server's metadata change log. `seq` is server-assigned and
@@ -48,9 +63,103 @@ export type MetadataChangeOp = z.infer<typeof MetadataChangeOp>
 const metadataChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E, value: V) =>
   changeRowArm('id', entity, MetadataChangeOp, value)
 
+// ---- Feed identity (ADR 2 D1) ----
+//
+// A cursor is meaningless without it. `seq` alone cannot distinguish "you are
+// up to date" from "you hold entities off a timeline that no longer exists":
+// restore the authority from a backup whose log ends at 400 while a client
+// holds 500, let the authority write 100 more changes, and `changesSince(500)`
+// finds cursor === max and answers `[]` — "up to date" — forever. The client's
+// 401..500 are phantoms from the dead timeline and nothing can ever detect it.
+// A replica's cursor is therefore the TRIPLE (feedId, epoch, seq); any mismatch
+// on either id is a RESET (re-bootstrap), never a heal.
+//
+// Both ids are OPAQUE and compared by EQUALITY ONLY. The epoch is a minted,
+// never-reused id — deliberately NOT a counter. The epoch lives in the database,
+// so restoring a backup restores the OLD epoch with the old seqs and the bump
+// must happen at restore time on the restored value: restore `epoch=3` → bump →
+// 4; restore THE SAME backup again → 3 again → bump → 4 AGAIN, a different
+// timeline wearing an epoch clients already accepted. A counter silently
+// re-collides in exactly the situation the epoch exists to catch. Ordering is
+// never needed — a replica only asks "is this the generation I hold?".
+const FeedIdShape = {
+  /** Stable identity of the feed — minted once per authority database. Changes
+   *  ONLY when the database is genuinely a different feed. This is also the
+   *  federation seam's authority/feed identity [spec:SP-0371]. */
+  feedId: z.string().min(1).optional(),
+  /** Identity of the current seq-continuity generation. The authority mints a
+   *  NEW one whenever it cannot guarantee its seqs continue the ones clients
+   *  hold: restore from backup, DB rebuild, any operator action that rewinds
+   *  `changes`.
+   *
+   *  NOT `SessionMeta.epoch`, which is an unrelated per-session PTY generation
+   *  counter living inside a change's `value`. This one identifies the FEED and
+   *  is a string precisely because it is never counted or ordered. The two never
+   *  meet — different scopes, different types — but they read alike at a glance,
+   *  so: this is the feed's, that one is a session's. */
+  epoch: z.string().min(1).optional(),
+  /** The lowest seq the authority can still DELIVER (ADR 2 D5) — the retention
+   *  horizon, published so a replica can tell it must re-bootstrap BEFORE
+   *  asking rather than after being refused.
+   *
+   *  Exactly: `minChangeSeq() ?? maxChangeSeq() + 1`. The fallback is what makes
+   *  the number total — a fully-pruned log can deliver nothing that exists, and
+   *  the next change it writes will be max + 1, which is true and precise.
+   *  Always >= 1 (seqs are 1-based).
+   *
+   *  The precise replica predicate is `cursor + 1 < minAvailableSeq` ⇒
+   *  re-bootstrap, which is the authority's own servability rule: it can serve
+   *  a cursor iff every change in (cursor, max] is retained, i.e. iff
+   *  cursor + 1 >= minAvailableSeq. (ADR 2 D7 rung 2 states the shorthand
+   *  `cursor < minAvailableSeq`; that is the same rule off by one, and errs
+   *  toward one needless re-bootstrap — safe, since the authority's answer is
+   *  the authority either way, but the exact form is free.) */
+  minAvailableSeq: z.number().int().positive().optional(),
+} as const
+
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
   metadataChangeArm(z.literal('issue'), IssueWire),
+  /** The NORMALIZED issue projection [POD-796, ADR 4 D7.1] — a SECOND kind
+   *  alongside 'issue', not a reshaping of it, and that is the whole transition
+   *  strategy.
+   *
+   *  The ledger stores one value per (kind, id), so 'issue' cannot carry two
+   *  payload shapes at once: flipping it in place would break every delta client
+   *  whose build still expects `IssueWire` — and a lagging PWA bundle is exactly
+   *  that client (see version.ts on rolling upgrades). A new kind is the
+   *  mechanism this file's own lenient-parsing note was written for: an older
+   *  build's `MetadataEntityKind` does not list 'issueProjection', so these rows
+   *  fall to {@link UnknownMetadataChange}, get ignored with a debug log, and the
+   *  cursor ADVANCES past them — no quarantine, no heal loop. Additive per ADR 2
+   *  D4; `WIRE_VERSION` stays 1.
+   *
+   *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
+   *  which issue collection to render. */
+  metadataChangeArm(z.literal('issueProjection'), IssueProjection),
+  /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
+   *  first-class entities, keyed by their own primary key (`issueDepId`).
+   *
+   *  The relation the feed never carried. `IssueProjection` cannot hold `deps`
+   *  without re-acquiring the cross-entity coupling it exists to shed (an edge
+   *  belongs to two issues; see model's `fields/issue-dep.ts`), so the edge is
+   *  its own kind and the replica joins it. That is what makes `depAdd` cost
+   *  O(1) server-side and still move `blocked` on both endpoints.
+   *
+   *  Same additive contract as issueProjection: emitted unconditionally and
+   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
+   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
+   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+  metadataChangeArm(z.literal('issueDep'), IssueDepProjection),
+  /** A logical repo [POD-822] — today just `(repoId, prefix)`, the join input
+   *  for `displayRef`.
+   *
+   *  `prefix` is a function of the REPO, so materializing it onto every issue
+   *  would make a prefix change rewrite every issue in the repo on the write
+   *  path (D7.2). One repo row instead; the replica joins `issue.repoId →
+   *  repo.prefix` and every `POD-13` in the repo moves at once. Same additive
+   *  contract as the two kinds above. */
+  metadataChangeArm(z.literal('repo'), RepoProjection),
   metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
   metadataChangeArm(z.literal('automation'), AutomationWire),
   metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
@@ -59,6 +168,9 @@ export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
   'session',
   'issue',
+  'issueProjection',
+  'issueDep',
+  'repo',
   'conversation',
   'automation',
   'automationRun',
@@ -108,6 +220,7 @@ export const MetadataDeltaMessage = z.object({
   seq: z.number().int().positive(),
   fromExclusive: z.number().int().nonnegative().optional(),
   changes: z.array(MetadataChange),
+  ...FeedIdShape,
 })
 export type MetadataDeltaMessage = z.infer<typeof MetadataDeltaMessage>
 
@@ -119,6 +232,7 @@ export const MetadataDeltaMessageLenient = z.object({
   seq: z.number().int().positive(),
   fromExclusive: z.number().int().nonnegative().optional(),
   changes: z.array(MetadataChangeLenient),
+  ...FeedIdShape,
 })
 export type MetadataDeltaMessageLenient = z.infer<typeof MetadataDeltaMessageLenient>
 
@@ -135,6 +249,12 @@ export type MetadataDeltaMessageLenient = z.infer<typeof MetadataDeltaMessageLen
  * keys in a different order from the strict one. One factory per arm means the two
  * results differ in exactly the one thing they are supposed to differ in — element
  * strictness — and in nothing else.
+ *
+ * FEED IDENTITY (ADR 2 D1/D5) rides BOTH arms, unconditionally: unlike the WS
+ * delta frame there is no hello here and therefore no caps to gate on, and
+ * stamping it is additive — an older client's zod parse STRIPS the unknown keys.
+ * Carried INSIDE the two factories rather than at the four former restatement
+ * sites, which is what makes "both arms, both results" true by construction.
  */
 const changesSinceDeltaArm = <C extends z.ZodTypeAny>(change: C) =>
   z.object({
@@ -142,20 +262,28 @@ const changesSinceDeltaArm = <C extends z.ZodTypeAny>(change: C) =>
     fromExclusive: ChangeCursorSeqField.optional(),
     changes: z.array(change),
     cursor: ChangeCursorSeqField,
+    ...FeedIdShape,
   })
 
 /** The snapshot arm. Identical in both results — it is full durable state, and
- *  there is no lenient reading of an entity list this build must render. */
+ *  there is no lenient reading of an entity list this build must render.
+ *
+ *  It needs feed identity MOST: a re-bootstrap is exactly where a replica learns
+ *  which generation it is now on (ADR 2 D7 rungs 2-6 all terminate here). */
 const changesSinceSnapshotArm = () =>
   z.object({
     kind: z.literal('snapshot'),
     sessions: z.array(SessionMeta),
     issues: z.array(IssueWire),
+    issueProjections: z.array(IssueProjection).optional(),
+    issueDeps: z.array(IssueDepProjection).optional(),
+    repos: z.array(RepoProjection).optional(),
     conversations: z.array(ConversationSummaryWire),
     diagnostics: z.array(ConversationDiagnosticWire),
     automations: z.array(AutomationWire).optional(),
     automationRuns: z.array(AutomationRunWire).optional(),
     cursor: ChangeCursorSeqField,
+    ...FeedIdShape,
   })
 
 export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
@@ -175,6 +303,9 @@ export type SyncChangesSinceResultLenient =
       changes: MetadataChangeLenient[]
       fromExclusive?: number
       cursor: number
+      feedId?: string
+      epoch?: string
+      minAvailableSeq?: number
     }
   | Extract<SyncChangesSinceResult, { kind: 'snapshot' }>
 

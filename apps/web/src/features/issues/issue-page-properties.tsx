@@ -7,12 +7,19 @@
  * ./issue-page-model.ts. No behavior change.
  */
 import { shallowEqual } from '@podium/client-core'
-import { ISSUE_DEP_TYPES, ISSUE_STAGES, IssueType, asIssueId, type IssueId, type IssueWire, type SessionId } from '@podium/model'
+import {
+  ISSUE_DEP_TYPES,
+  ISSUE_STAGES,
+  asIssueId,
+  type IssueId,
+  IssueType,
+  type SessionId,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -156,22 +163,25 @@ export function IssueProperties({
   onNavigate,
   onRequestClose,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
   onNavigate: (id: IssueId) => void
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  const { trpc, issues, machines, sessions, navigateToSession } = useStoreSelector(
+  const { trpc, machines, sessions, navigateToSession } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      issues: s.issues,
-      machines: s.machines,
       sessions: s.sessions,
+      machines: s.machines,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
+  const memberSessions = (issue.memberSessionIds ?? [])
+    .map((id) => sessions.find((session) => session.sessionId === id))
+    .filter((session) => session !== undefined)
   const mergeStyle = useMergeStyle(trpc)
   const now = Date.now()
   const [deferDate, setDeferDate] = useState('')
@@ -273,7 +283,7 @@ export function IssueProperties({
         <PropertyRow label="Assignee">
           <PropertyMenu
             allowFreeText
-            selectedValue={issue.assignee ?? UNASSIGNED}
+            selectedValue={issue.assignee || UNASSIGNED}
             options={assigneeOptions}
             placeholder="Assign to…"
             onSelect={(v) => commands.update({ assignee: v === UNASSIGNED ? '' : v })}
@@ -586,7 +596,7 @@ export function IssueProperties({
       {/* Sessions — ported from the detail drawer. */}
       <section className="flex flex-col gap-2">
         <h3 className="font-medium text-[12px] text-muted-foreground">
-          Sessions ({issue.sessionSummary.total})
+          Sessions ({issue.sessionSummary?.total ?? 0})
         </h3>
         {/* Model + effort the issue's sessions launch with (scoped to its agent). */}
         <div className="flex flex-wrap items-center gap-1.5">
@@ -629,9 +639,9 @@ export function IssueProperties({
             />
           )}
         </div>
-        {issue.sessions.length > 0 && (
+        {memberSessions.length > 0 && (
           <div className="flex flex-col gap-1">
-            {issue.sessions.map((s) => (
+            {memberSessions.map((s) => (
               <Button
                 key={s.sessionId}
                 type="button"

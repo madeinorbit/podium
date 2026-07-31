@@ -64,6 +64,9 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
+  type IssueDepProjection,
+  type IssueProjection,
+  type RepoProjection,
   type ObservationInputOrigin,
   type ObservationProvider,
   type ServerMessage,
@@ -317,6 +320,10 @@ interface SessionsServiceDeps {
   publishIssues(sessions: SessionMeta[]): void
   /** The issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
+  /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
+  issueProjectionsWire(): IssueProjection[]
+  issueDepsWire(): IssueDepProjection[]
+  issueReposWire(): RepoProjection[]
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
   automationsWire(): AutomationWire[]
   automationRunsWire(): AutomationRunWire[]
@@ -602,7 +609,6 @@ export class SessionsService {
       changes: sessionChanges,
       ledgerCursor,
     }
-    if (issueRelevant) this.issueProjectionGeneration += 1
     this.publicationWorker.applyProjection(event)
     for (const listener of this.sessionProjectionListeners) {
       try {
@@ -677,7 +683,6 @@ export class SessionsService {
       // projection event: patch consumers need only the captured final truth.
       if (!changes.some((change) => change.entity === 'session')) {
         this.sessionsGeneration_++
-        if (issueRelevant) this.issueProjectionGeneration += 1
         this.publicationWorker.replaceProjection({
           generation: this.sessionsGeneration_,
           ledgerCursor: this.funnel.cursor(),
@@ -3595,6 +3600,10 @@ export class SessionsService {
     // that valid shape both fields are null and the session's cwd (typically
     // the repository root) remains the source of truth. A stopped issue
     // worktree is distinguishable because stop keeps its branch [spec:SP-9904].
+    // Ordinary hibernation did not free a worktree; only stop/exit metadata
+    // authorizes reconstructing a missing branch-backed checkout.
+    if (!session.stopReason) return { ok: true, cwd: session.cwd }
+
     if (!issue.branch) {
       return { ok: true, cwd: session.cwd }
     }
@@ -5627,12 +5636,26 @@ export class SessionsService {
    * a compacted-away cursor, or a future cursor (server DB reset) falls back to a
    * full snapshot; the cursor is read in the same synchronous pass as the entity
    * lists, so nothing falls between the snapshot and the subsequent delta stream.
+   *
+   * BOTH arms carry the feed's `(feedId, epoch)` and `minAvailableSeq` (ADR 2
+   * D1/D5), unconditionally: this is a tRPC query, so unlike the WS frame there
+   * is no hello and therefore no caps to gate on. Stamping regardless is safe
+   * for the same reason the additive rule is — zod objects STRIP unknown keys,
+   * so a client that predates this drops them on parse.
+   *
+   * The snapshot arm needs the identity MOST, and that is the point rather than
+   * a bonus: a re-bootstrap is exactly where a replica learns which generation
+   * it is now on, and every rung of the D7 healing ladder terminates here.
+   * Reading the identity in this same synchronous pass keeps it consistent with
+   * the cursor beside it.
    */
   syncChangesSince(
     cursor: number | null,
     authority?: PublicationAuthority,
   ): SyncChangesSinceResult {
     const sourceCursor = this.funnel.cursor()
+    const { feedId, epoch } = this.funnel.feedIdentity()
+    const identity = { feedId, epoch, minAvailableSeq: this.funnel.minAvailableSeq() }
     if (authority && !authority.global) {
       const allowed = new Set(authority.snapshot().allowedSessionIds)
       // A scoped heal always replaces the complete authorized session world.
@@ -5641,24 +5664,32 @@ export class SessionsService {
         kind: 'snapshot',
         sessions: this.listSessions().filter((session) => allowed.has(session.sessionId)),
         issues: [],
+        issueProjections: [],
+        issueDeps: [],
+        repos: [],
         conversations: [],
         automations: [],
         automationRuns: [],
         diagnostics: [],
         cursor: sourceCursor,
+        ...identity,
       }
     }
     const changes = this.funnel.changesSince(cursor)
-    if (changes) return { kind: 'delta', changes, cursor: sourceCursor }
+    if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
     return {
       kind: 'snapshot',
       sessions: this.listSessions(),
       issues: this.deps.issuesWire(),
+      issueProjections: this.deps.issueProjectionsWire(),
+      issueDeps: this.deps.issueDepsWire(),
+      repos: this.deps.issueReposWire(),
       conversations: this.conversations().allConversations(),
       automations: this.deps.automationsWire(),
       automationRuns: this.deps.automationRunsWire(),
       diagnostics: this.conversations().diagnostics(),
       cursor: sourceCursor,
+      ...identity,
     }
   }
 }

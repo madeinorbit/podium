@@ -188,6 +188,19 @@ export class WriteFunnel {
     return this.deps.authority.visibilityGrade()
   }
 
+  /** This feed's `(feedId, epoch)` (ADR 2 D1) — stamped onto every delta frame
+   *  and catch-up reply so a replica can compare the identity of the stream it
+   *  is reading, not just its position in it. Read from the serving edge, which
+   *  is the same source every published frame reads it from. */
+  feedIdentity(): { readonly feedId: string; readonly epoch: string } {
+    return this.deps.serving.identity()
+  }
+
+  /** The published retention horizon (ADR 2 D5), from that same source. */
+  minAvailableSeq(): number {
+    return this.deps.serving.retentionFloor()
+  }
+
   /**
    * WIRE v2 CATCH-UP — the pull half of the kernel Replica's D7 ladder (POD-376).
    *

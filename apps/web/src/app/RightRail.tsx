@@ -1,4 +1,4 @@
-import type { IssueColorSlot, IssueWire } from '@podium/model'
+import type { IssueColorSlot } from '@podium/model'
 import type { JSX } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@/lib/derive'
@@ -6,6 +6,8 @@ import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
 import type { RightPanelTab } from './shell-state'
+import type { IssueViewModel } from './store'
+import { useStoreSelector } from './store'
 
 /** The rail sits on the tinted --card gradient — corner badges punch out of it. */
 const RAIL_SURFACE = '#16161c'
@@ -30,15 +32,12 @@ export function RightRail({
   onPanelChange,
   onColorChange,
 }: {
-  issue?: IssueWire
+  issue?: IssueViewModel
   rightPanel: RightPanelTab | null
   onPanelChange: (panel: RightPanelTab | null) => void
   onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
-  const phase = issue ? aggregateMotionPhase(issue.sessions, issue) : 'queued'
-  const waitingCount = issue
-    ? issue.sessions.filter((s) => motionPhase(s, issue) === 'waiting').length
-    : 0
+  const sessions = useStoreSelector((store) => store.sessions)
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
   const panelAllowed = (panel: RightPanelTab): boolean =>
@@ -47,6 +46,12 @@ export function RightRail({
       : panel === 'git'
         ? gitPanelEnabled
         : messagesPanelEnabled
+  const memberIds = new Set(issue?.memberSessionIds ?? [])
+  const memberSessions = sessions.filter((session) => memberIds.has(session.sessionId))
+  const phase = issue ? aggregateMotionPhase(memberSessions) : 'queued'
+  const waitingCount = issue
+    ? memberSessions.filter((session) => motionPhase(session) === 'waiting').length
+    : 0
   return (
     <nav
       aria-label="Panels"

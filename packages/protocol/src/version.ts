@@ -1,8 +1,26 @@
 /**
- * Podium WIRE protocol version (client↔server and server↔daemon message shapes in this
- * package). Bump on any breaking change. Distinct from the MCP spec-date constant in
- * apps/server/src/mcp-route.ts. Peers on different releases/machines compare this to
- * decide compatibility (see isProtocolCompatible) and tell the user to update on a miss.
+ * Podium WIRE protocol version — the protocol/FRAMING version of the
+ * client↔server and server↔daemon message shapes in this package. One of three
+ * INDEPENDENT version namespaces, which are never conflated (ADR 2 D4):
+ *
+ *  1. this one — peer-to-peer compatibility, sent on the WS URL (`/client?v=`);
+ *  2. the replica schema version — the CLIENT's local store shape, owned by the
+ *     client (ADR 6);
+ *  3. the server's drizzle journal [spec:SP-4428] — server-internal, NEVER on
+ *     the wire, never compared with a peer, never sent to a client.
+ *
+ * Conflating 1 and 3 is wrong in both directions: a migration that adds an index
+ * moves the journal and changes NOTHING observable on the wire, while a reshaped
+ * projection composed in code may touch no table at all. Different owners,
+ * different lifecycles, different failure modes.
+ *
+ * **Bump ONLY on a breaking framing change.** Additive features — new fields, new
+ * entity kinds on the change feed — negotiate by CAPABILITY instead (`hello.caps`,
+ * e.g. CAP_METADATA_DELTA / CAP_SYNC_FEED_IDENTITY). That is why the oplog and
+ * feed identity both shipped without a bump. Distinct from the MCP spec-date
+ * constant in apps/server/src/mcp-route.ts.
+ *
+ * Peers compare via {@link versionSupport} — the RANGE — not {@link isProtocolCompatible}.
  *
  * ---------------------------------------------------------------------------
  * THE SUPPORT WINDOW IS PERMANENT ARCHITECTURE; WHAT SITS IN IT IS NOT
@@ -32,13 +50,27 @@
 export const WIRE_VERSION = 2
 
 /**
- * Two peers are compatible iff they share the same wire version. A single integer
- * today; this function is the seam for a major/minor scheme later.
+ * @deprecated Use {@link versionSupport}. This equality check is NOT what the
+ * server does and has no production callers — re-verified at the POD-1246
+ * catch-up: `versionSupport` is the live gate (gateway/ws-server.ts and
+ * handshake/negotiation.ts), `isProtocolCompatible` is called from nothing but
+ * its own tests. ADR 2 D4 ratifies the range: it is both what ships and what is
+ * correct, since it allows a rolling upgrade where server and client deploy
+ * separately — already true of the PWA, whose bundle can lag the server across a
+ * redeploy.
  *
- * NOTE the asymmetry with {@link versionSupport}, and it is deliberate. This is
- * "are we IDENTICAL", for peers that must speak the same dialect with no
- * translation available. That is "can this be SERVED", for the gateway, where an
- * edge adapter may stand between.
+ * The two agreed only NUMERICALLY while MIN_SUPPORTED_VERSION === WIRE_VERSION,
+ * which is exactly why the drift went unnoticed. THAT COVER IS NOW GONE: at the
+ * POD-1246 catch-up the window opened to [1, 2], so an equality check and a range
+ * check no longer return the same answer for a v1 peer — this function would
+ * refuse one the server is deliberately still serving through
+ * `legacy-wire-v1-adapter.ts`. Which is the concrete reason it is deprecated
+ * rather than merely redundant.
+ *
+ * The distinction the two encode, kept because it is the reason both names exist:
+ * this asks "are we IDENTICAL", for peers that must speak the same dialect with
+ * no translation available; `versionSupport` asks "can this be SERVED", for the
+ * gateway, where an edge adapter may stand between.
  */
 export function isProtocolCompatible(a: number, b: number): boolean {
   return Number.isInteger(a) && Number.isInteger(b) && a === b

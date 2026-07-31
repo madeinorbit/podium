@@ -198,6 +198,14 @@ export function fromStorage(row: IssueRow): StoredIssue {
     ...(row.repoId ? { repoId: row.repoId } : {}),
     seq: row.seq,
 
+    // --- IssueConcurrency (ADR 2 D3; link 3 of the exp-rev chain) ---------
+    // Passed through, never defaulted. An absent revision means the row never
+    // came out of the store — a literal, not a legacy row — and fabricating a
+    // `1` here would be a CLAIM that it is at its first write. The refusal lives
+    // at the publish seam (`modules/issues/projection.ts`), not in this decoder,
+    // which must stay total over rows this instance wrote.
+    ...(row.revision !== undefined ? { revision: row.revision } : {}),
+
     // --- IssueText -------------------------------------------------------
     title: row.title,
     ...opt('brief', row.brief),
@@ -320,6 +328,13 @@ export function toStorage(
     repoPath: storage.repoPath,
     repoId: issue.repoId ?? null,
     seq: issue.seq,
+
+    // --- IssueConcurrency -------------------------------------------------
+    // `IssueRow.revision` is optional for the same reason R1's is: a row that
+    // has never been written has none. `upsertIssue` ASSIGNS the next value on
+    // every accepted write and is the issues table's only SQL writer, so what is
+    // passed here is never what lands.
+    ...(issue.revision !== undefined ? { revision: issue.revision } : {}),
 
     // --- IssueText -------------------------------------------------------
     title: issue.title,

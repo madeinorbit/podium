@@ -1,4 +1,15 @@
-import { asAutomationId, asAutomationRunId, asIssueId, asSessionId, type AutomationRunWire, type AutomationWire, type IssueId, type IssueWire } from '@podium/model'
+import {
+  asAutomationId,
+  asAutomationRunId,
+  asIssueId,
+  asSessionId,
+  type AutomationRunWire,
+  type AutomationWire,
+  type IssueId,
+  IssueProjection,
+  type IssueWire,
+  RepoProjection,
+} from '@podium/model'
 import type { SyncChangesSinceResult, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -32,8 +43,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0))
 // Must satisfy the real IssueWire zod schema: the hub's lenient parser quarantines
 // invalid change rows and treats a quarantined delta as a cursor gap (a heal),
 // so a sloppy fixture would silently test the WRONG code path.
-const issue = (id: IssueId, title: string): IssueWire => ({
-  id,
+const issue = (id: string, title: string): IssueWire => ({
+  id: asIssueId(id),
   repoPath: '/r',
   seq: 1,
   title,
@@ -140,11 +151,17 @@ function setup(
 // Delta-mode SocketHub (docs/spec/oplog-read-path.md §2.4): caps negotiation,
 // cursor bootstrap via changesSince, in-order delta application, and gap healing.
 describe('SocketHub metadata delta mode', () => {
-  it('advertises the cap in hello only when a fetcher is wired', () => {
+  it('advertises the caps in hello only when a fetcher is wired', () => {
     const { sock, hub } = setup([snapshot(0)])
     hub.connect()
     sock.open()
-    expect(sock.parsed().find((m) => m.type === 'hello')?.caps).toEqual(['metadataDelta'])
+    // `syncFeedIdentity` rides with delta mode and is only meaningful with it —
+    // it asks the server to stamp (feedId, epoch, minAvailableSeq) on this
+    // client's frames, and there is no frame to stamp without delta mode.
+    expect(sock.parsed().find((m) => m.type === 'hello')?.caps).toEqual([
+      'metadataDelta',
+      'syncFeedIdentity',
+    ])
 
     const plain = new FakeSocket()
     const legacy = new SocketHub({
@@ -155,6 +172,37 @@ describe('SocketHub metadata delta mode', () => {
     legacy.connect()
     plain.open()
     expect(plain.parsed().find((m) => m.type === 'hello')?.caps).toBeUndefined()
+  })
+
+  it('does NOT advertise issuesNormalized unless the embedder opts in [POD-796]', () => {
+    // The default is a SAFETY INTERLOCK, not a preference. The cap promises the
+    // server this client no longer needs IssueWire, and the server's D7.2 bypass
+    // believes it: offering it while the UI still renders from `issues` asks the
+    // server to stop maintaining the data the UI reads, and the issue list
+    // freezes. apps/web cannot opt in until POD-822 gives the replica-side views
+    // `deps` + `prefix`. If this test ever needs "fixing", read POD-822 first.
+    const { sock, hub } = setup([snapshot(0)])
+    hub.connect()
+    sock.open()
+    expect(sock.parsed().find((m) => m.type === 'hello')?.caps).not.toContain('issuesNormalized')
+  })
+
+  it('advertises issuesNormalized when the embedder opts in [POD-796]', () => {
+    const opted = new FakeSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => opted,
+      fetchChangesSince: async () => snapshot(0),
+      issuesNormalized: true,
+    })
+    hub.connect()
+    opted.open()
+    expect(opted.parsed().find((m) => m.type === 'hello')?.caps).toEqual([
+      'metadataDelta',
+      'syncFeedIdentity',
+      'issuesNormalized',
+    ])
   })
 
   it('bootstraps lists + cursor from the snapshot, then applies deltas in order', async () => {
@@ -516,6 +564,36 @@ describe('SocketHub metadata delta mode', () => {
     expect(calls).toEqual([5, 6])
   })
 
+  it('cold snapshot installs normalized issue, dep, and repo collections', async () => {
+    const projected = IssueProjection.parse({
+      ...issue('iss_1', 'projected'),
+      repoId: 'repo_1',
+      revision: 1,
+      worktreePath: undefined,
+      branch: undefined,
+      readAt: undefined,
+    })
+    const repo = RepoProjection.parse({ id: 'repo_1', prefix: 'POD' })
+    const applied = vi.fn()
+    const result = {
+      ...snapshot(20, [issue('iss_1', 'legacy')]),
+      issueProjections: [projected],
+      issueDeps: [],
+      repos: [repo],
+    }
+    const { sock, hub } = setup([result], { issuesNormalized: true, onMetadataApplied: applied })
+    hub.connect()
+    sock.open()
+    await flush()
+
+    const state = applied.mock.calls.at(-1)?.[0]
+    expect(state?.issueProjections.map((row: { title: string }) => row.title)).toEqual([
+      'projected',
+    ])
+    expect(state?.issueDeps).toEqual([])
+    expect(state?.repos.map((row: { prefix: string }) => row.prefix)).toEqual(['POD'])
+  })
+
   it('initialCursor with a compaction fallback still full-replaces from the snapshot', async () => {
     const { sock, hub, calls } = setup([snapshot(20, [issue(asIssueId('s'), 'from snapshot')])], {
       initialCursor: 5,
@@ -610,6 +688,62 @@ describe('SocketHub metadata delta mode', () => {
       { cursor: 5, issues: ['one'] },
       { cursor: 6, issues: ['one', 'two'] },
     ])
+  })
+
+  it('forwards the feed identity to the embedder so the cursor can be the TRIPLE', async () => {
+    // Negotiating the cap buys nothing if the stamp stops at the hub: the
+    // replica persists (feedId, epoch, seq) and judges rung 4 on it, so the
+    // identity has to reach it. A bare seq cannot tell "up to date" from
+    // "holding rows off a timeline that no longer exists" (ADR 2 D1).
+    const applied: Array<Record<string, unknown>> = []
+    const { sock, hub } = setup(
+      [{ ...snapshot(5, [issue('a', 'one')]), feedId: 'feed_1', epoch: 'epoch_1' }],
+      {
+        onMetadataApplied: (s) =>
+          applied.push({
+            cursor: s.cursor,
+            feedId: s.feedId,
+            epoch: s.epoch,
+            min: s.minAvailableSeq,
+          }),
+      },
+    )
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(applied).toEqual([{ cursor: 5, feedId: 'feed_1', epoch: 'epoch_1', min: undefined }])
+
+    // A stamped delta frame carries the retention horizon too (D5) — the
+    // replica needs it to know it must re-bootstrap BEFORE asking.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 6,
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+      feedId: 'feed_1',
+      epoch: 'epoch_1',
+      minAvailableSeq: 3,
+    })
+    expect(applied[1]).toEqual({ cursor: 6, feedId: 'feed_1', epoch: 'epoch_1', min: 3 })
+  })
+
+  it('an UNSTAMPED reply does not blank an identity an earlier reply established', async () => {
+    // A mixed-version authority (one node stamps, one does not). Blanking here
+    // would make the next stamped reply read as a rung-4 mismatch against
+    // nothing — a permanent reset loop.
+    const applied: Array<Record<string, unknown>> = []
+    const { sock, hub } = setup([{ ...snapshot(5), feedId: 'feed_1', epoch: 'epoch_1' }], {
+      onMetadataApplied: (s) => applied.push({ feedId: s.feedId, epoch: s.epoch }),
+    })
+    hub.connect()
+    sock.open()
+    await flush()
+
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 6,
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+    })
+    expect(applied[1]).toEqual({ feedId: 'feed_1', epoch: 'epoch_1' })
   })
 
   it('a failed heal retries on a timer while the socket is up', async () => {

@@ -63,11 +63,12 @@ import {
   IssueType,
   isSortKey,
   MutationIdField,
+  Revision,
   SessionIdField,
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
-import type { CommandContract } from '../contract'
+import type { CommandContract, ConflictDeclaration, MutatingCommandContract } from '../contract'
 import {
   ADDITIVE_POLICY,
   CREATES_NOTHING,
@@ -377,6 +378,28 @@ export const answerQuestionInput = z.object({ id: IssueIdField, answer: z.string
 export const clearNeedsHumanInput = byIssueId
 
 export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })
+
+/**
+ * THE EXPECTED-REVISION ENVELOPE [ADR 3 D13.1], ported from main's
+ * `protocol/commands.ts` — the file this merge deletes as absorbed.
+ *
+ * `expectedRevision` composes `@podium/model`'s `Revision`: the
+ * authority-assigned per-entity token of ADR 2 D3, not a clock and not a feed
+ * position. It is merged into the input of every contract whose conflict class is
+ * `exp-rev`, so the field a caller would send and the class the command declares
+ * are ONE decision rather than two that can disagree.
+ *
+ * OPTIONAL, deliberately: declared on all 23 exp-rev contracts now, but no caller
+ * can supply one until the replica carries revisions (POD-795) and the wire cuts
+ * over (POD-796). Supplied => the authority enforces it; omitted => last-write-wins,
+ * exactly as today. Requiring it would reject every shipped CLI/agent/MCP write on
+ * day one.
+ *
+ * MERGED AT EACH CONTRACT, not onto the shared input aliases: `byIssueId` and
+ * friends are reused across commands, and extending one in place would hang a
+ * concurrency token on whatever else happens to share the shape.
+ */
+export const EXPECTED_REVISION = z.object({ expectedRevision: Revision.optional() })
 
 export const claimInput = z.object({ id: IssueIdField, assignee: UserIdField })
 
@@ -787,7 +810,9 @@ export const issueMarkReadContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'field-LWW read-tracking; last stamp wins, no precondition',
+} as const satisfies MutatingCommandContract
 
 export const issueMarkUnreadContract = {
   name: 'issues.markUnread',
@@ -801,7 +826,9 @@ export const issueMarkUnreadContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'field-LWW read-tracking; last stamp wins, no precondition',
+} as const satisfies MutatingCommandContract
 
 export const issueSetTuckedContract = {
   name: 'issues.setTucked',
@@ -815,7 +842,9 @@ export const issueSetTuckedContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'field-LWW sidebar curation; last tuck state wins',
+} as const satisfies MutatingCommandContract
 
 export const issueMailInboxContract = {
   name: 'issues.mailInbox',
@@ -829,7 +858,9 @@ export const issueMailInboxContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'mailbox read-and-mark; per-message delivery state, not an issue revision',
+} as const satisfies MutatingCommandContract
 
 // -------------------------------------------------------------------------
 // SUBTREE-SCOPED WRITES — 29 commands that mutate an EXISTING issue
@@ -839,7 +870,7 @@ export const issueSetStateContract = {
   name: 'issues.setState',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: setStateInput,
+  input: setStateInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -847,13 +878,14 @@ export const issueSetStateContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issuePanelApplyContract = {
   name: 'issues.panelApply',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: panelApplyInput,
+  input: panelApplyInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -867,7 +899,8 @@ export const issuePanelApplyContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueStartContract = {
   name: 'issues.start',
@@ -887,13 +920,15 @@ export const issueStartContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'live-path spawn; guarded by worktree/session state, not a revision',
+} as const satisfies MutatingCommandContract
 
 export const issueUpdateContract = {
   name: 'issues.update',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: updateInput,
+  input: updateInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -901,13 +936,14 @@ export const issueUpdateContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issuePromoteContract = {
   name: 'issues.promote',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: promoteInput,
+  input: promoteInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -915,13 +951,14 @@ export const issuePromoteContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueArchiveContract = {
   name: 'issues.archive',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: archiveInput,
+  input: archiveInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -929,7 +966,8 @@ export const issueArchiveContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueActionContract = {
   name: 'issues.action',
@@ -943,7 +981,9 @@ export const issueActionContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'git action; guarded by branch/worktree state, not a revision',
+} as const satisfies MutatingCommandContract
 
 export const issueCleanupContract = {
   name: 'issues.cleanup',
@@ -957,7 +997,9 @@ export const issueCleanupContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'local git cleanup; guarded by closed+merged+clean checks, not a revision',
+} as const satisfies MutatingCommandContract
 
 export const issueStopContract = {
   name: 'issues.stop',
@@ -971,7 +1013,9 @@ export const issueStopContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'live-path stop; guarded by session/worktree state, not a revision',
+} as const satisfies MutatingCommandContract
 
 export const issueIntegrateContract = {
   name: 'issues.integrate',
@@ -985,7 +1029,9 @@ export const issueIntegrateContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'local git integrate; guarded by worktree/branch state, not a revision',
+} as const satisfies MutatingCommandContract
 
 export const issueAddSessionContract = {
   name: 'issues.addSession',
@@ -1003,7 +1049,9 @@ export const issueAddSessionContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'live-path spawn; guarded by worktree/session state, not a revision',
+} as const satisfies MutatingCommandContract
 
 export const issueAddShellContract = {
   name: 'issues.addShell',
@@ -1021,13 +1069,15 @@ export const issueAddShellContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'live-path spawn; guarded by worktree/session state, not a revision',
+} as const satisfies MutatingCommandContract
 
 export const issueApplySuggestionContract = {
   name: 'issues.applySuggestion',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: applySuggestionInput,
+  input: applySuggestionInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_ON_WIRE,
   delivery: WRITE_DELIVERY,
@@ -1035,13 +1085,14 @@ export const issueApplySuggestionContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueDismissSuggestionContract = {
   name: 'issues.dismissSuggestion',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: dismissSuggestionInput,
+  input: dismissSuggestionInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_ON_WIRE,
   delivery: WRITE_DELIVERY,
@@ -1049,7 +1100,8 @@ export const issueDismissSuggestionContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueRefreshAssistantContract = {
   name: 'issues.refreshAssistant',
@@ -1063,7 +1115,9 @@ export const issueRefreshAssistantContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'assistant recompute; derives from current state, no caller-read baseline',
+} as const satisfies MutatingCommandContract
 
 export const issueAddCommentContract = {
   name: 'issues.addComment',
@@ -1083,13 +1137,14 @@ export const issueAddCommentContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'append',
+} as const satisfies MutatingCommandContract
 
 export const issueDepAddContract = {
   name: 'issues.depAdd',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: depAddInput,
+  input: depAddInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1097,13 +1152,14 @@ export const issueDepAddContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueDepRemoveContract = {
   name: 'issues.depRemove',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: depRemoveInput,
+  input: depRemoveInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1111,13 +1167,14 @@ export const issueDepRemoveContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueDeferContract = {
   name: 'issues.defer',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: deferInput,
+  input: deferInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1125,13 +1182,14 @@ export const issueDeferContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueUndeferContract = {
   name: 'issues.undefer',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: undeferInput,
+  input: undeferInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1139,13 +1197,14 @@ export const issueUndeferContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueSetNeedsHumanContract = {
   name: 'issues.setNeedsHuman',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: setNeedsHumanInput,
+  input: setNeedsHumanInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1153,13 +1212,14 @@ export const issueSetNeedsHumanContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueAnswerQuestionContract = {
   name: 'issues.answerQuestion',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: answerQuestionInput,
+  input: answerQuestionInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1167,13 +1227,14 @@ export const issueAnswerQuestionContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueClearNeedsHumanContract = {
   name: 'issues.clearNeedsHuman',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: clearNeedsHumanInput,
+  input: clearNeedsHumanInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1181,13 +1242,14 @@ export const issueClearNeedsHumanContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueReparentContract = {
   name: 'issues.reparent',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: reparentInput,
+  input: reparentInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1195,13 +1257,14 @@ export const issueReparentContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueClaimContract = {
   name: 'issues.claim',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: claimInput,
+  input: claimInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1209,13 +1272,14 @@ export const issueClaimContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueSetCoordinatorContract = {
   name: 'issues.setCoordinator',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: setCoordinatorInput,
+  input: setCoordinatorInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1223,13 +1287,14 @@ export const issueSetCoordinatorContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueCloseContract = {
   name: 'issues.close',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: closeInput,
+  input: closeInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1237,13 +1302,14 @@ export const issueCloseContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueSupersedeContract = {
   name: 'issues.supersede',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: supersedeInput,
+  input: supersedeInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1251,13 +1317,14 @@ export const issueSupersedeContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueDuplicateContract = {
   name: 'issues.duplicate',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: duplicateInput,
+  input: duplicateInput.merge(EXPECTED_REVISION),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1265,7 +1332,8 @@ export const issueDuplicateContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 // -------------------------------------------------------------------------
 // MANAGE — 3 commands that need the manage verb
@@ -1275,7 +1343,7 @@ export const issueDeleteContract = {
   name: 'issues.delete',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: deleteInput,
+  input: deleteInput.merge(EXPECTED_REVISION),
   policy: MANAGE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1283,13 +1351,14 @@ export const issueDeleteContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueRestoreContract = {
   name: 'issues.restore',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: restoreInput,
+  input: restoreInput.merge(EXPECTED_REVISION),
   policy: MANAGE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1297,13 +1366,14 @@ export const issueRestoreContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 export const issueSetLabelsContract = {
   name: 'issues.setLabels',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: setLabelsInput,
+  input: setLabelsInput.merge(EXPECTED_REVISION),
   policy: MANAGE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
@@ -1311,7 +1381,8 @@ export const issueSetLabelsContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
 
 // -------------------------------------------------------------------------
 // ADDITIVE / SELF-ADDRESSED WRITES — 6 with no existing-issue target
@@ -1336,7 +1407,8 @@ export const issueCreateContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'append',
+} as const satisfies MutatingCommandContract
 
 export const issueAttachSessionContract = {
   name: 'issues.attachSession',
@@ -1357,7 +1429,8 @@ export const issueAttachSessionContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'append',
+} as const satisfies MutatingCommandContract
 
 export const issueMailSendContract = {
   name: 'issues.mailSend',
@@ -1377,7 +1450,8 @@ export const issueMailSendContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'append',
+} as const satisfies MutatingCommandContract
 
 export const issueSubscriptionAddContract = {
   name: 'issues.subscriptionAdd',
@@ -1397,7 +1471,8 @@ export const issueSubscriptionAddContract = {
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'append',
+} as const satisfies MutatingCommandContract
 
 export const issueSubscriptionRemoveContract = {
   name: 'issues.subscriptionRemove',
@@ -1411,7 +1486,9 @@ export const issueSubscriptionRemoveContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'own-row delete; guarded by the ownership check, not an issue revision',
+} as const satisfies MutatingCommandContract
 
 export const issueSubscriptionSetEnabledContract = {
   name: 'issues.subscriptionSetEnabled',
@@ -1425,7 +1502,9 @@ export const issueSubscriptionSetEnabledContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'own-row flag toggle; guarded by the ownership check, not an issue revision',
+} as const satisfies MutatingCommandContract
 
 // ---------------------------------------------------------------------------
 // THE TWO THAT ARE THEIR OWN CLASS
@@ -1539,7 +1618,9 @@ export const issueMailClaimContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
-} as const satisfies CommandContract
+  conflict: 'cmd',
+  conflictRule: 'message status machine; guarded by the claim check, not an issue revision',
+} as const satisfies MutatingCommandContract
 
 // ---------------------------------------------------------------------------
 // THE TABLE
@@ -1645,3 +1726,81 @@ export const ISSUE_COMMAND_NAMES = Object.keys(
 /** Every issue contract as a flat list — what the classification lint and the audit
  *  iterate. */
 export const ISSUE_CONTRACT_LIST = Object.values(ISSUE_CONTRACTS)
+
+/**
+ * THE TOTALITY TRIPWIRE FOR ADR 1's CONFLICT CLASSES — the mechanism that makes
+ * the 43 declarations above enumerable by the compiler rather than remembered.
+ *
+ * Ported from main's registry, where it was a conditional on the def
+ * (`K extends 'mutation' ? { concurrency: CommandConcurrency } : …`). Two halves,
+ * because per-site and totality are different failures:
+ *
+ *   - Each mutating contract says `satisfies MutatingCommandContract`, so omitting
+ *     `conflict` — or giving a `cmd` row no rule — fails AT THAT CONTRACT.
+ *   - The assignment below covers what the first half cannot see: a NEW command
+ *     added with the weaker `satisfies CommandContract`. It reads the TABLE, so a
+ *     member that declares nothing is a compile error naming the key.
+ *
+ * IT IS NOT DERIVED FROM `policy.action`, and the first attempt that was is worth
+ * recording, because it typechecked and was INERT in both directions. `action` is
+ * an AUTHORITY fact, not a mutation fact:
+ *
+ *   - `PER_USER_POLICY.action` is `'read'` — so `markRead`, `markUnread`,
+ *     `setTucked` and `subscriptionSetEnabled` write per-user rows while being
+ *     gated as reads. Keyed on `action`, the check silently skipped four of the
+ *     43, and a planted mutant (drop `conflict`, weaken the `satisfies`) did NOT
+ *     fire.
+ *   - `issues.linearSearch` is the mirror case: `action: 'write'` on a command
+ *     that mutates no replicated row — it spends the deployment's Linear
+ *     credential on a caller-supplied query. Main's own contract says `kind:
+ *     'query'`, `action: 'write'`, "`kind` is a transport fact and `action` an
+ *     authority one; disagreeing is correct here", and main's tripwire keys on
+ *     `kind`, so it never asked this command for a declaration either. Keyed on
+ *     `action`, the check would have demanded a conflict class for a command with
+ *     no ADR 1 row — a fabricated arbitration rule.
+ *
+ * So the NON-MUTATING members are LISTED, and everything else is a mutation by
+ * subtraction. That is the default-closed direction: a new command is assumed to
+ * mutate and must declare, and exempting one is an edit a reviewer sees.
+ */
+const NON_MUTATING_NAMES = [
+  // The 24 reads.
+  'blocked',
+  'children',
+  'closeEligibleEpics',
+  'comments',
+  'count',
+  'depReport',
+  'doctor',
+  'epicStatus',
+  'events',
+  'findDuplicates',
+  'get',
+  'graph',
+  'lint',
+  'list',
+  'mailPending',
+  'orphans',
+  'preflight',
+  'prime',
+  'ready',
+  'search',
+  'stale',
+  'stats',
+  'subscriptionList',
+  'tree',
+  // The one write-grade command that mutates no replicated row — see above.
+  'linearSearch',
+] as const satisfies readonly IssueContractName[]
+
+/** Every table member that MUTATES replicated state: the table minus the listed
+ *  non-mutating members. By SUBTRACTION so a new command defaults to "declare". */
+export type IssueMutationName = Exclude<IssueContractName, (typeof NON_MUTATING_NAMES)[number]>
+
+/** The assignment IS the check — see the block above. Never read at runtime.
+ *  Proven to fire: dropping `conflict` from a contract while weakening its
+ *  `satisfies` to `CommandContract` is reported here, naming the key. */
+const _EVERY_ISSUE_MUTATION_DECLARES_ITS_CONFLICT_CLASS: {
+  readonly [K in IssueMutationName]: ConflictDeclaration
+} = ISSUE_CONTRACTS
+void _EVERY_ISSUE_MUTATION_DECLARES_ITS_CONFLICT_CLASS

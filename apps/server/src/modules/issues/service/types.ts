@@ -46,9 +46,19 @@ export interface IssueLedger {
     result: T
     changes: MetadataChange[]
   }
-  reconcile(entity: 'issue', rows: { id: string; value: unknown }[]): MetadataChange[]
-  /** Partial-truth append for a single derived row (POD-210): dedups against
-   *  the baseline, never diffs the list — see Ledger.capture. */
+  /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
+   *  alongside 'issue', reconciled from the same truth in the same pass, never a
+   *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
+   *  cannot carry two payload shapes at once). 'issueDep' and 'repo' are the two
+   *  kinds the replica joins the projection against [POD-822] — the dependency
+   *  edges and the repo prefixes the projection cannot carry (see model's
+   *  `issue/dep.ts`, `repo/fields.ts`). All three reconcile the same way and are
+   *  emitted only under the same flag. */
+  reconcile(
+    entity: 'issue' | 'issueProjection' | 'issueDep' | 'repo',
+    rows: { id: string; value: unknown }[],
+  ): MetadataChange[]
+  /** Append partial truth without diffing unrelated baseline rows (POD-210). */
   capture(specs: EntityChangeSpec[]): MetadataChange[]
 }
 

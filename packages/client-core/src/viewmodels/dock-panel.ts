@@ -87,8 +87,10 @@ export function resolveActiveWorktree(args: {
  *  match, the deepest containing worktreePath wins (a repo-root worktree must
  *  not swallow `.worktrees/*` checkouts), and equal depths tie-break on lowest
  *  seq — never on broadcast array order (#243). */
-export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null {
-  let best: IssueWire | null = null
+type IssuePanelLike = Omit<IssueWire, 'sessions'>
+
+export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string): T | null {
+  let best: T | null = null
   for (const i of issues) {
     if (i.archived || i.deletedAt || i.worktreePath == null || !cwdInWorktree(cwd, i.worktreePath))
       continue
@@ -111,15 +113,15 @@ export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null 
  *  main checkout would swallow every unattached session, [spec:SP-595b] #582).
  *  Containment
  *  fallback applies only to file tabs / panes with no resolvable session. */
-export function issueForPanel(args: {
-  issues: IssueWire[]
+export function issueForPanel<T extends IssuePanelLike>(args: {
+  issues: T[]
   sessions: SessionMeta[]
   cwd: string
   sessionId?: string
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — beats both the
    *  session attachment and cwd containment when it names a live issue. */
   issueId?: string
-}): IssueWire | null {
+}): T | null {
   if (args.issueId !== undefined) {
     const explicit = args.issues.find((i) => i.id === args.issueId && !i.archived && !i.deletedAt)
     if (explicit) return explicit
@@ -136,14 +138,14 @@ export function issueForPanel(args: {
 }
 
 /** True when a panel has anything worth rendering. */
-export function panelNonEmpty(issue: IssueWire): boolean {
+export function panelNonEmpty(issue: Pick<IssuePanelLike, 'panel'>): boolean {
   const p = issue.panel
   if (!p) return false
   return p.todos.length > 0 || p.artifacts.length > 0 || p.deferred.length > 0
 }
 
 /** Subissues of `parent` that have published a non-empty panel. */
-export function subissuesWithPanels(issues: IssueWire[], parentId: string): IssueWire[] {
+export function subissuesWithPanels<T extends IssuePanelLike>(issues: T[], parentId: string): T[] {
   return issues.filter((i) => i.parentId === parentId && panelNonEmpty(i))
 }
 

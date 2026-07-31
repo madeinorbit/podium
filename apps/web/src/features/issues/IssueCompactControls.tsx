@@ -1,6 +1,7 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueId, IssueWire, SessionMeta } from '@podium/model'
+import type { IssueId, SessionMeta } from '@podium/model'
+import type { IssueViewModel } from '@/app/store'
 import {
   Archive,
   ArchiveRestore,
@@ -14,7 +15,7 @@ import {
 } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { toast } from 'sonner'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { isSessionWorking, motionPhase, sessionDotClass } from '@/lib/derive'
@@ -38,7 +39,7 @@ function sessionName(session: SessionMeta): string {
   return session.name || session.title || session.displayRef || 'Untitled session'
 }
 
-function GitScope({ issue }: { issue: IssueWire }): JSX.Element | null {
+function GitScope({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const git = issue.gitState
   if (!git) return null
   const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
@@ -111,12 +112,12 @@ function SessionRow({
  * IssuePanelView still owns the content sections; this owns escalation, offers,
  * execution state, scoped git evidence, and guarded lifecycle actions.
  */
-export function IssueCompactControls({ issue }: { issue: IssueWire }): JSX.Element {
-  const { trpc, issues, setOpenIssueId, setView, navigateToSession, archiveSession } =
+export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.Element {
+  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, archiveSession } =
     useStoreSelector(
       (s) => ({
         trpc: s.trpc,
-        issues: s.issues,
+        sessions: s.sessions,
         setOpenIssueId: s.setOpenIssueId,
         setView: s.setView,
         navigateToSession: s.navigateToSession,
@@ -124,6 +125,7 @@ export function IssueCompactControls({ issue }: { issue: IssueWire }): JSX.Eleme
       }),
       shallowEqual,
     )
+  const issues = useReplicaIssues()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
@@ -134,8 +136,10 @@ export function IssueCompactControls({ issue }: { issue: IssueWire }): JSX.Eleme
     setOpenIssueId(id)
     setView('issues')
   }
-  const activeSessions = issue.sessions.filter((session) => !session.archived)
-  const retiredSessions = issue.sessions.filter((session) => session.archived)
+  const memberIds = new Set(issue.memberSessionIds ?? [])
+  const memberSessions = sessions.filter((session) => memberIds.has(session.sessionId))
+  const activeSessions = memberSessions.filter((session) => !session.archived)
+  const retiredSessions = memberSessions.filter((session) => session.archived)
   const offers = activeSessions.flatMap((session) =>
     session.offer ? [{ session, offer: session.offer }] : [],
   )

@@ -57,6 +57,7 @@ import {
 } from '../entities/issue-vocabulary'
 import { Attribution } from './attribution'
 import { OpStreamDocument } from './op-stream'
+import { Revision } from './primitives'
 
 export { IssueColor, IssueGitState, IssuePanel, IssueSessionSummary, IssueStage, IssueType }
 
@@ -74,6 +75,40 @@ export const IssueIdentity = z.object({
   seq: z.number().int(),
 })
 export type IssueIdentity = z.infer<typeof IssueIdentity>
+
+/**
+ * THE AUTHORITY-ASSIGNED CONCURRENCY TOKEN — link 3 of the expected-revision
+ * chain, ported from main at the POD-1246 catch-up.
+ *
+ * The chain has five links: the `issues.revision` COLUMN (migration
+ * `20260717092407`), the INCREMENT on every accepted write
+ * (`store/issues.ts#upsertIssue`), THIS FIELD on the entity and its wire
+ * projection, the per-command `conflict: 'exp-rev'` DECLARATION, and the
+ * registry's 409 ENFORCEMENT. The column landed on both branches; the other four
+ * existed only on main, and a PARTIAL preservation is strictly worse than none —
+ * with the column defaulting to `1 NOT NULL` and nothing incrementing it, every
+ * row reads revision 1 forever, so a guard wired against it would ACCEPT exactly
+ * the stale writes it exists to refuse while looking like it works.
+ *
+ * Its own group rather than a member of {@link IssueIdentity} or
+ * {@link IssueLifecycle} because it is a fact the AUTHORITY stamps about the row's
+ * write history, not about which issue this is or where it stands. See
+ * `../predicates/issue-concurrency.ts` for the comparison it feeds and
+ * `./primitives.ts` for why it is not `fields/change.ts`'s `ChangeRevisionField`.
+ *
+ * OPTIONAL, matching main's `IssueWire.revision` and today's `IssueRow.revision`:
+ * a row LITERAL that has never been written has no revision yet. That optionality
+ * is a concession to literals, never a licence to FABRICATE one — a made-up `1`
+ * is not a neutral placeholder but a CLAIM that the row is at its first write,
+ * which a client can echo back as an `expectedRevision` the authority then accepts
+ * against a row at revision 47. The publish seam
+ * (`apps/server/src/modules/issues/projection.ts`) therefore REFUSES an absent
+ * revision rather than filling one in.
+ */
+export const IssueConcurrency = z.object({
+  revision: Revision.optional(),
+})
+export type IssueConcurrency = z.infer<typeof IssueConcurrency>
 
 /**
  * THE HUMAN- AND AGENT-FACING PROSE — everything except the two op-stream

@@ -1,4 +1,5 @@
-import type { IssueWire, SessionId, SessionMeta, SessionOffer } from '@podium/model'
+import type { SessionId, SessionMeta, SessionOffer } from '@podium/model'
+import type { IssueNavigationModel } from './derive'
 import { attentionGroup } from '../focus'
 
 /**
@@ -17,7 +18,7 @@ import { attentionGroup } from '../focus'
  * ring on its cards; it never narrows or re-sorts the list.
  */
 export type TrayItem = {
-  issue: IssueWire
+  issue: IssueNavigationModel
   /** Best available "waiting since" — the issue's last update. The event log
    *  would be exacter, but updatedAt is on the wire and moves when needsHuman
    *  or the stage flips, which is the moment the card appears. */
@@ -37,16 +38,20 @@ export type TrayItem = {
 export const offerKey = (sessionId: SessionId, createdAt: string): string =>
   `${sessionId}@${createdAt}`
 
-const live = (issue: IssueWire): boolean => !issue.archived && !issue.deletedAt
+const live = (issue: IssueNavigationModel): boolean => !issue.archived && !issue.deletedAt
 
 export function deriveTrayItems(
-  issues: IssueWire[],
+  issues: IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
   /** Offers optimistically consumed by a button click, keyed by
    *  {@link offerKey} — hidden until the server's cleared meta arrives
    *  (the same pattern as ChatView's dismissedOfferAt). */
   dismissedOffers?: ReadonlySet<string>,
 ): TrayItem[] {
   const items: TrayItem[] = []
+  const sessionById = new Map<string, SessionMeta>(
+    sessions.map((session) => [session.sessionId, session]),
+  )
   for (const issue of issues.filter(live)) {
     // Finished work is not attention (POD-198 / POD-290): a closed issue must
     // not keep a delegate offer (or any other tray card) demanding a decision
@@ -73,8 +78,9 @@ export function deriveTrayItems(
     // an optimistically-hidden offer means the user just acted on it, and the
     // review backstop below must not pop in for that beat.
     let hasOffer = false
-    for (const session of issue.sessions ?? []) {
-      if (session.archived || session.headless === true || session.agentKind === 'shell') continue
+    for (const sessionId of issue.memberSessionIds ?? []) {
+      const session = sessionById.get(sessionId)
+      if (!session || session.archived || session.headless === true || session.agentKind === 'shell') continue
       const offer = session.offer
       if (!offer) continue
       hasOffer = true
@@ -101,11 +107,18 @@ export function deriveTrayItems(
  * (superagent-embedded) sessions are not "agents working on this task" any
  * more than they are on the board.
  */
-export function workingSessionCount(issues: IssueWire[]): number {
+export function workingSessionCount(
+  issues: IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+): number {
   const seen = new Set<string>()
+  const sessionById = new Map<string, SessionMeta>(
+    sessions.map((session) => [session.sessionId, session]),
+  )
   for (const issue of issues.filter(live)) {
-    for (const session of issue.sessions ?? []) {
-      if (session.archived || session.headless === true || session.agentKind === 'shell') continue
+    for (const sessionId of issue.memberSessionIds ?? []) {
+      const session = sessionById.get(sessionId)
+      if (!session || session.archived || session.headless === true || session.agentKind === 'shell') continue
       if (attentionGroup(session) === 'working') seen.add(session.sessionId)
     }
   }
@@ -114,6 +127,10 @@ export function workingSessionCount(issues: IssueWire[]): number {
 
 /** Re-exported shape guard for the bar badge: the pill shows the CARD count
  *  (spec §6.11 working assumption), not the waiting-session count. */
-export function trayCount(issues: IssueWire[], dismissedOffers?: ReadonlySet<string>): number {
-  return deriveTrayItems(issues, dismissedOffers).length
+export function trayCount(
+  issues: IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  dismissedOffers?: ReadonlySet<string>,
+): number {
+  return deriveTrayItems(issues, sessions, dismissedOffers).length
 }

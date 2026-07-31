@@ -27,6 +27,16 @@ export * from './entities/conversation'
 export * from './entities/handoff'
 export * from './entities/issue'
 export * from './entities/issue-color'
+// The issue DEPENDENCY EDGE and the LOGICAL REPO as first-class entities
+// (POD-822; decided POD-1254, ported from main at the POD-1246 catch-up). Each
+// carries R1, its R4 projection and one mapping pair. First-class because
+// `blocked` and `displayRef` move to the REPLICA under D7.3 and a replica can
+// only join over rows it has been SENT — not because "a kind on the feed is an
+// entity", which reaches the right answer for the wrong reason. `Repo` here is
+// the LOGICAL repo keyed by `RepoId`; `GitRepositoryWire` in `./machine` is the
+// per-checkout machine fact and a different grain of the same English word.
+export * from './entities/issue-dep'
+export * from './entities/repo'
 // The per-machine fact group: MachineWire, inventory, host metrics + memory,
 // usage + quota, and the repo/worktree/directory wires. One named group because
 // everything that is a fact ABOUT a machine inherits that machine's scoping
@@ -44,6 +54,8 @@ export * from './exhaustive'
 // canonical aggregates and by every representation, never restated. See
 // `fields/README.md` for the four rules that keep them useful, in particular
 // rule 2: leave room for principal-dependent projection, do not build it.
+export * from './shape'
+export * from './fields/primitives'
 export * from './fields/attribution'
 // The legacy-attribution sweep (POD-1075): every device-level / role-level
 // attribution field readiness §3.2 names, with its decided shape and a totality
@@ -55,6 +67,10 @@ export * from './fields/attribution-legacy'
 // of one field list. See the file header for why collapsing them is the wrong fix.
 export * from './fields/change'
 export * from './fields/issue'
+// The two vocabularies the POD-822 entities compose from — the dep edge's
+// `(id, fromId, toId, type)` and the logical repo's `(id, prefix)`.
+export * from './fields/issue-dep'
+export * from './fields/repo'
 export * from './fields/op-stream'
 export * from './fields/ownership'
 export * from './fields/per-user-key'
@@ -131,6 +147,10 @@ export * from './provenance/envelope'
 // the shapes the CLI used to hand-copy because `apps/cli` cannot import
 // `apps/server` (POD-366). Distinct from the aggregates above by role, not by
 // accident — ADR 4 D1 keeps storage / live / wire / read models apart.
+// The NORMALIZED issue feed payload (POD-796/POD-822) — R4 derived from
+// `IssueAggregate` under `shape.ts`'s wire convention, carrying no derived field
+// at all. `protocol/messages/sync.ts` names it on the `issueProjection` arm.
+export * from './projections/issue-projection'
 export * from './projections/issue-read'
 export * from './projections/session-read'
 
@@ -145,6 +165,7 @@ export * from './representations/checks'
 export * from './representations/registry'
 
 // Pure derivations over entity shapes.
+export * from './predicates/issue-concurrency'
 export * from './predicates/issue-stage'
 export * from './predicates/machine-selection'
 export * from './predicates/mobile-entry'

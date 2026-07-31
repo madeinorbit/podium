@@ -71,7 +71,9 @@ export function isFeatureEnabled(
   settings: PodiumSettings,
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
+  defaultWhenUnset = false,
 ): boolean {
   const { flags } = getFeatureStates(settings, config, env)
-  return flags.find((f) => f.id === id)?.enabled ?? false
+  const flag = flags.find((f) => f.id === id)
+  return flag?.source === 'default' ? defaultWhenUnset : (flag?.enabled ?? defaultWhenUnset)
 }

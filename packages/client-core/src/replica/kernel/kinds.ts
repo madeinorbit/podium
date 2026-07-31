@@ -23,6 +23,16 @@ import type { ReplicaKind, ReplicaRows } from '../contract'
 const ENTITY_TO_KIND = {
   session: 'sessions',
   issue: 'issues',
+  // The POD-796/POD-822 normalized kinds. Their entity spellings are NOT guessed
+  // — they are `MetadataEntityKind`'s literals in protocol's `messages/sync.ts`
+  // (`issueProjection`, `issueDep`, `repo`), which is the vocabulary the wire
+  // actually uses. `entityForKind` is documented as TOTAL over `ReplicaKind`, so
+  // widening the contract without widening this table would have quietly made it
+  // partial: all three would have answered `undefined` through a signature that
+  // says it cannot.
+  issueProjection: 'issueProjections',
+  issueDep: 'issueDeps',
+  repo: 'repos',
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',

@@ -1,5 +1,6 @@
 import { ChevronRight, Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
+import type { IssueViewModel } from './store'
 
 /**
  * The folded engraved column (handoff 3d): a 44px vertical strip that keeps
@@ -15,6 +16,7 @@ export function FoldedSuperagentBar({
   trayCount = 0,
   onExpand,
 }: {
+  issue?: Pick<IssueViewModel, 'linearIdentifier' | 'seq' | 'color' | 'title'>
   trayCount?: number
   onExpand: (target?: 'tray' | 'superagent') => void
 }): JSX.Element {

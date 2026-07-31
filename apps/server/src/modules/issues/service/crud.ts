@@ -39,7 +39,18 @@ function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
 export interface IssueLifecyclePlan {
   issueId: string
   worktreePath: string | null
-  wire: IssueWire
+  /** The committed wire projection. Valid ONLY after {@link write} — throws
+   *  before it, deliberately loudly.
+   *
+   *  A function rather than a field because the authority assigns `revision` at
+   *  the SQL write (ADR 2 D3, IssuesRepository.upsertIssue), so a projection
+   *  taken while building the plan would carry a stale token: it would ship a
+   *  revision the client then echoes in `expectedRevision`, and the authority
+   *  would reject the client's next write against state the client had been
+   *  handed. A field could hold that stale value silently; a call that throws
+   *  cannot. The ordering rule generalizes past revision — any
+   *  authority-assigned field has it. */
+  wire(): IssueWire
   write(): void
   changes(): EntityChangeSpec[]
   apply(): void
@@ -203,7 +214,6 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  read error in this fanout must not make the succeeded mutation look failed. */
   private emitReadyAfterClose(closed: IssueRow, actorSessionId?: string): void {
     try {
-      const sessionList = this.deps.listSessions()
       const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
       for (const r of this.rows.values()) {
         if (r.id === closed.id || !this.inRepoScope(r, closed.repoPath) || this.isClosed(r))
@@ -211,7 +221,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         const blocksClosed = this.deps.store.issues
           .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
-        if (blocksClosed && this.toWire(r, sessionList, commentCounts).ready) {
+        if (blocksClosed && this.toWire(r, commentCounts).ready) {
           this.emitEvent('issue.ready', r.id, {
             seq: r.seq,
             unblockedBy: closed.seq,
@@ -549,19 +559,30 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   /** Build the issue half of a cross-aggregate soft-delete without mutating
    *  memory before the durable transaction succeeds. */
-  prepareSoftDelete(id: string, remainingSessions: SessionMeta[]): IssueLifecyclePlan {
+  prepareSoftDelete(id: string, _remainingSessions: SessionMeta[]): IssueLifecyclePlan {
     id = this.resolveRef(id)
     const current = this.rowOrThrow(id)
     if (current.deletedAt) throw new Error(`issue ${id} is already deleted`)
     const deletedAt = this.now()
     const row: IssueRow = { ...current, deletedAt, updatedAt: deletedAt }
-    const wire = this.toWire(row, remainingSessions)
+    // Projected INSIDE write(), after upsertIssue has stamped row.revision —
+    // see IssueLifecyclePlan.wire for why taking it here would be a bug.
+    let committed: IssueWire | null = null
+    const wire = (): IssueWire => {
+      if (!committed) {
+        throw new Error(`prepareSoftDelete(${row.id}): wire() read before write() committed it`)
+      }
+      return committed
+    }
     return {
       issueId: row.id,
       worktreePath: row.worktreePath,
       wire,
-      write: () => this.deps.store.issues.upsertIssue(row),
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
+      write: () => {
+        this.deps.store.issues.upsertIssue(row)
+        committed = this.toWire(row)
+      },
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
         this.rows.set(row.id, row)
         this.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
@@ -580,27 +601,40 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
     this.reload()
-    const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
-    this.deps.ledger.reconcile('issue', spec.rows)
+    // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
+    // the normalized feed as the remove reconcile derives from full truth.
+    // POD-1203 deleted the funnel snapshot half; `reconcileAndPublish` is the
+    // whole tail now.
+    this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(this.allWire()))
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     void this.deps.artifacts?.removeIssue(id).catch(() => {})
   }
 
   /** Build the issue half of a cross-aggregate restore without exposing the row
    *  before its issue and session tombstones have committed together. */
-  prepareRestore(id: string, restoredSessions: SessionMeta[]): IssueLifecyclePlan {
+  prepareRestore(id: string, _restoredSessions: SessionMeta[]): IssueLifecyclePlan {
     id = this.resolveRef(id)
     const current = this.rowOrThrow(id)
     if (!current.deletedAt) throw new Error(`issue ${id} is not deleted`)
     const restoredAt = this.now()
     const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
-    const wire = this.toWire(row, restoredSessions)
+    // Projected INSIDE write() — see prepareSoftDelete / IssueLifecyclePlan.wire.
+    let committed: IssueWire | null = null
+    const wire = (): IssueWire => {
+      if (!committed) {
+        throw new Error(`prepareRestore(${row.id}): wire() read before write() committed it`)
+      }
+      return committed
+    }
     return {
       issueId: row.id,
       worktreePath: row.worktreePath,
       wire,
-      write: () => this.deps.store.issues.upsertIssue(row),
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
+      write: () => {
+        this.deps.store.issues.upsertIssue(row)
+        committed = this.toWire(row)
+      },
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
         this.rows.set(row.id, row)
         this.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
@@ -681,8 +715,18 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         )
       }
     }
-    const wire = this.persistWith(row, () => this.deps.store.issues.addIssueDep(fromId, toId, type))
-    this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
+    // The edge's own change row rides the SAME commit as the row upsert and the
+    // INSERT that creates it [POD-822] — one transact span, so the feed can never
+    // claim an edge the store rolled back. O(1): one edge, one row.
+    const wire = this.persistWith(
+      row,
+      () => this.deps.store.issues.addIssueDep(fromId, toId, type),
+      { extraChanges: this.depChanges([{ fromId, toId, type }], 'upsert') },
+    )
+    // The TARGET's dependents/blocked derivation changed too (#22) — on the
+    // LEGACY wire, where they are fields of the issue. A normalized client
+    // derives them from the edge row above; see broadcastListForDerivedRipple.
+    this.broadcastListForDerivedRipple()
     return wire
   }
 
@@ -694,10 +738,23 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const fromId = this.resolveRef(fromRef)
     const toId = this.resolveRef(toRef)
     const row = this.rowOrThrow(fromId)
-    const wire = this.persistWith(row, () =>
-      this.deps.store.issues.removeIssueDep(fromId, toId, type),
+    // Enumerate what is about to go BEFORE deleting it [POD-822]. `type` is
+    // optional and an absent one deletes EVERY type between the two issues
+    // (removeIssueDep's second branch), so the edges removed are not derivable
+    // from the arguments — read them from the store while they still exist, or
+    // the feed keeps rows the store no longer has and the issue stays blocked on
+    // every replica forever.
+    const removed = this.deps.store.issues
+      .listIssueDeps(fromId)
+      .filter((d) => d.toId === toId && (type === undefined || d.type === type))
+      .map((d) => ({ fromId, toId, type: d.type }))
+    const wire = this.persistWith(
+      row,
+      () => this.deps.store.issues.removeIssueDep(fromId, toId, type),
+      { extraChanges: this.depChanges(removed, 'remove') },
     )
-    this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
+    // See addDep: legacy-wire ripple only.
+    this.broadcastListForDerivedRipple()
     return wire
   }
 

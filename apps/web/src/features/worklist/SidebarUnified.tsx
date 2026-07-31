@@ -6,7 +6,6 @@ import {
   asSessionId,
   type IssueColorSlot,
   type IssueId,
-  type IssueWire,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
@@ -34,7 +33,7 @@ import type {
 } from 'react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
 import {
@@ -55,6 +54,7 @@ import {
   branchRollup,
   draftIssueLabel,
   groupUnifiedWorkRows,
+  type IssueNavigationModel,
   isCoordinatorSession,
   isDraftAgentVessel,
   isIssueDeferred,
@@ -310,7 +310,6 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     machines,
     spawnDraftAgent,
     pins,
-    issues,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -323,10 +322,10 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
       machines: s.machines,
       spawnDraftAgent: s.spawnDraftAgent,
       pins: s.pins,
-      issues: s.issues,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const now = useNow(60_000)
   // The user's persisted default agent ('auto' resolves against session history).
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
@@ -672,7 +671,7 @@ type TransitionWorkRow = RowTransitionItem<WorkPlacement>
 /** How a folded row ended, in one dim mono word (POD-293). Merged is the common
  *  closed outcome; snooze shows the time left. Nothing here is an ask, so none
  *  of it is amber. */
-function foldedMarker(issue: IssueWire, lane: 'closed' | 'snoozed', now: number): string {
+function foldedMarker(issue: IssueNavigationModel, lane: 'closed' | 'snoozed', now: number): string {
   if (lane === 'snoozed') {
     const until = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
     if (!Number.isFinite(until)) return 'snoozed'
@@ -708,7 +707,7 @@ function FoldedWorkRow({
   onSelect,
   onContextMenu,
 }: {
-  issue: IssueWire
+  issue: IssueNavigationModel
   lane: 'closed' | 'snoozed'
   now: number
   active: boolean
@@ -908,7 +907,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     repos,
     sessions,
     pins,
-    issues,
     trpc,
     selectedWorktree,
     setSelectedWorktree,
@@ -927,7 +925,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       repos: s.repos,
       sessions: s.sessions,
       pins: s.pins,
-      issues: s.issues,
       trpc: s.trpc,
       selectedWorktree: s.selectedWorktree,
       setSelectedWorktree: s.setSelectedWorktree,
@@ -944,6 +941,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const fallbackNow = useNow(60_000)
   const now = derivationOverride?.now ?? fallbackNow
   const sections =
@@ -963,7 +961,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       beginSwitch({ sessionId: asSessionId(target), issueId })
     }
   }
-  const selectIssue = (issue: IssueWire, paneSession?: SessionId) => {
+  const selectIssue = (issue: IssueNavigationModel, paneSession?: SessionId) => {
     setSelectedIssueId(issue.id)
     // Opening an issue marks IT read (email-style, #126): clear the row's unread
     // emphasis optimistically. Its member sessions keep their own unread until
@@ -995,7 +993,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setPane('A', target)
     setView('workspace')
   }
-  const selectPanelForIssue = (issue: IssueWire, sessionId: SessionId) => {
+  const selectPanelForIssue = (issue: IssueNavigationModel, sessionId: SessionId) => {
     selectIssue(issue, sessionId)
     // Opening a specific member session marks THAT session read too (#126).
     void markSessionRead(sessionId)
@@ -1885,13 +1883,13 @@ function UnifiedIssueRow({
   row: UnifiedIssueRowView
   sessions: SessionMeta[]
   /** Whole issue list — the context menu's label pool / duplicate targets. */
-  issues: IssueWire[]
+  issues: IssueNavigationModel[]
   allWorktreePaths: string[]
   selectedIssueId: string | null
   paneA: string | null
   now: number
-  onSelectIssue: (issue: IssueWire) => void
-  onSelectPanelForIssue: (issue: IssueWire, sessionId: SessionId) => void
+  onSelectIssue: (issue: IssueNavigationModel) => void
+  onSelectPanelForIssue: (issue: IssueNavigationModel, sessionId: SessionId) => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: IssueId) => void
   onRenameIssue: (id: string, title: string) => void
@@ -2219,7 +2217,7 @@ function UnifiedIssueRow({
  *  data-layer orphan fix is POD-135. */
 function orphanProvenance(
   session: SessionMeta,
-  issues: IssueWire[],
+  issues: IssueNavigationModel[],
 ): { text: string; hint: string } | null {
   if (!session.issueId) return null
   const issue = issues.find((i) => i.id === session.issueId)
@@ -2248,7 +2246,7 @@ function UnifiedWorktreeRow({
   onSelectPanel,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
-  issues: IssueWire[]
+  issues: IssueNavigationModel[]
   active: boolean
   paneA: string | null
   now: number

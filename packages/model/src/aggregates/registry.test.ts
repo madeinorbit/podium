@@ -357,7 +357,7 @@ const ISSUE_AGGREGATE_KEYS = [
   'dueAt', 'duplicateOf', 'estimateMin', 'id', 'intentOrigin', 'isDraftVessel', 'labels',
   'lastLifecycleActor', 'linearId', 'linearIdentifier', 'linearUrl', 'machineId',
   'needsHuman', 'notes', 'notesUpdatedAt', 'owner', 'panel', 'parentBranch', 'parentId',
-  'prUrl', 'priority', 'repoId', 'seq', 'sortKey', 'stage', 'startedBySession',
+  'prUrl', 'priority', 'repoId', 'revision', 'seq', 'sortKey', 'stage', 'startedBySession',
   'suggestedReason', 'suggestedStage', 'supersededBy', 'title', 'type', 'updatedAt',
   'visibility', 'worktreePath',
 ]
@@ -367,7 +367,7 @@ describe('the canonical key sets are pinned exactly', () => {
     expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
   })
 
-  it('IssueAggregate carries exactly these 57 keys and no others', () => {
+  it('IssueAggregate carries exactly these 58 keys and no others', () => {
     expect(Object.keys(IssueAggregate.shape).sort()).toEqual(ISSUE_AGGREGATE_KEYS)
   })
 

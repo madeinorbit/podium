@@ -442,6 +442,14 @@ function withDurableOutbox(base: Replica, outboxes: KernelOutboxStorages): Repli
     outboxAwaitingStorage: (): OutboxStorage => outboxes.awaiting,
     uiState: (): UiState => base.uiState(),
     flush: () => base.flush(),
+    // POD-1246: the merge with main added feed-cursor persistence and cache reset
+    // to `Replica`. This wrapper is written out member by member precisely so the
+    // compiler reports that growth rather than a spread silently swallowing it —
+    // which is what happened here. Straight delegation: the cursor and the cache
+    // both belong to the base replica; only the two outbox homes are redirected.
+    getFeedCursor: () => base.getFeedCursor(),
+    setFeedCursor: (cursor) => base.setFeedCursor(cursor),
+    resetCache: () => base.resetCache(),
   }
 }
 

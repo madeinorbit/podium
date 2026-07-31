@@ -38,12 +38,9 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     updatedAt: '2026-07-14T00:00:00.000Z',
     archived: false,
     readAt: null,
-    unread: false,
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     ...over,
   } as unknown as IssueWire
 }

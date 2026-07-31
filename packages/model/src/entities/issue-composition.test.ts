@@ -18,6 +18,7 @@ import { IssueWire } from './issue'
 import { IssueGitState } from './issue-vocabulary'
 import {
   IssueAgentDefaults,
+  IssueConcurrency,
   IssueCoordination,
   IssueDerived,
   IssueDocuments,
@@ -37,6 +38,7 @@ const wire = IssueWire.shape as Record<string, unknown>
 
 /** Every issue field group, so the uncomposed-key scan cannot miss one. */
 const ALL_GROUPS = [
+  IssueConcurrency,
   IssueAgentDefaults,
   IssueCoordination,
   IssueDerived,
@@ -66,6 +68,7 @@ const COMPOSED: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['id', IssueIdentity.shape],
   ['repoId', IssueIdentity.shape],
   ['seq', IssueIdentity.shape],
+  ['revision', IssueConcurrency.shape],
   ['prefix', IssueDerived.shape],
   ['displayRef', IssueDerived.shape],
   ['title', IssueText.shape],
@@ -169,7 +172,9 @@ describe('IssueWire composes the shared field groups', () => {
     expect([...composed, ...Object.keys(NOT_COMPOSED)].sort()).toEqual(Object.keys(wire).sort())
     // 44 since POD-362 composed `assignee`, which this list previously excluded
     // with the note "wire is still z.string() until the flip". This was the flip.
-    expect(composed).toHaveLength(44)
+    // 45 since the POD-1246 catch-up composed `revision` — link 3 of ADR 2 D3's
+    // expected-revision chain, recovered from main.
+    expect(composed).toHaveLength(45)
   })
 
   it.each(COMPOSED)('%s IS the shared group member, not a restatement', (key, groupShape) => {

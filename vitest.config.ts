@@ -40,8 +40,11 @@ export const sharedVitestConfig = {
         find: '@podium/harness',
         replacement: fileURLToPath(new URL('./packages/harness/src/index.ts', import.meta.url)),
       },
+      // Anchored for the same reason model and sync are, below: composer exposes
+      // only '.' today, and the day it grows a subpath a prefix match would
+      // rewrite '@podium/composer/x' to '<index.ts>/x'. (Anchoring came from main.)
       {
-        find: '@podium/composer',
+        find: /^@podium\/composer$/,
         replacement: fileURLToPath(new URL('./packages/composer/src/index.ts', import.meta.url)),
       },
       // Anchored RegExp, not a bare string: model is the L0 root every lane resolves,

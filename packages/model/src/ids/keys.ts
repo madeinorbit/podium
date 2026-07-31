@@ -38,6 +38,7 @@ import type {
   AutomationId,
   AutomationRunId,
   ConversationId,
+  IssueDepId,
   IssueId,
   MachineId,
   RepoId,
@@ -45,7 +46,7 @@ import type {
   ThreadId,
   UserId,
 } from './brands'
-import { asMachineId } from './brands'
+import { asIssueDepId, asMachineId } from './brands'
 
 // ---------------------------------------------------------------------------
 // The escaping core
@@ -344,4 +345,67 @@ export const parseResumeKey = (key: string): { kind: string; value: string } => 
     throw new Error(`malformed resume key: ${JSON.stringify(key)}`)
   }
   return { kind: parts[0], value: parts[1] }
+}
+
+// ---------------------------------------------------------------------------
+// (fromId, toId, type) — the issue dependency edge's identity (POD-822)
+// ---------------------------------------------------------------------------
+
+const ISSUE_DEP_SEP = '|'
+
+/**
+ * THE issue dep edge's id, composed from its primary key
+ * [POD-822; ported from main at the POD-1246 catch-up].
+ *
+ * WHY DERIVED RATHER THAN MINTED. sqlite keys `issue_deps` on
+ * `(from_id, to_id, type)` and `addIssueDep` is an `INSERT OR IGNORE` on exactly
+ * that key, so the same edge added twice is ONE row in the store. An id minted
+ * per call would make it TWO rows on the feed — a phantom the store can never
+ * remove, because `depRemove` deletes by the key and would only ever know one of
+ * the ids. Deriving the id makes the feed's identity and the store's the same
+ * identity by construction, which also makes emission idempotent: re-adding an
+ * existing edge produces a byte-identical row that the ledger's dedup drops.
+ *
+ * MAIN THREW ON A SEPARATOR IN A PART; THIS ESCAPES IT, and the difference is
+ * this file's whole rule rather than a liberty taken with the port. Main's
+ * `issue/dep.ts` concatenated on `|` and refused any part containing it, because
+ * an ambiguous edge id does not fail — it MERGES two distinct edges onto one
+ * ledger row, so removing either removes the other's row from every replica.
+ * {@link joinKeyParts} makes `parse ∘ join` injective for EVERY input, hostile
+ * parts included, which is the property that refusal was protecting; the refusal
+ * was the only tool available at a site that concatenated. For a separator-free
+ * part — every production id (`iss_${randomUUID()}`) and every dep type
+ * (lowercase and hyphens) — the output is byte-identical to main's, so the ids
+ * on the feed do not change.
+ *
+ * The inverse is {@link parseIssueDepId}.
+ */
+export const issueDepId = (fromId: string, toId: string, type: string): IssueDepId => {
+  requireNonEmpty(fromId, 'issue dep fromId')
+  requireNonEmpty(toId, 'issue dep toId')
+  requireNonEmpty(type, 'issue dep type')
+  return asIssueDepId(joinKeyParts(ISSUE_DEP_SEP, [fromId, toId, type]))
+}
+
+/**
+ * Inverse of {@link issueDepId}. `null` — never a throw and never a partial
+ * answer — when the id was not composed by {@link issueDepId}: ids reach this
+ * function from a hub mirror and from caller-supplied `input.id` on create,
+ * whose grammar is not ours, and a consumer that reads an edge's parts must
+ * handle a foreign spelling rather than index blindly into a split.
+ */
+export const parseIssueDepId = (
+  id: string,
+): { fromId: string; toId: string; type: string } | null => {
+  let parts: string[]
+  try {
+    parts = splitEscaped(id, ISSUE_DEP_SEP)
+  } catch {
+    // Malformed escaping — a foreign spelling, not a key of ours.
+    return null
+  }
+  if (parts.length !== 3) return null
+  const [fromId, toId, type] = parts as [string, string, string]
+  if (!fromId || !toId || !type) return null
+  return { fromId, toId, type }
 }

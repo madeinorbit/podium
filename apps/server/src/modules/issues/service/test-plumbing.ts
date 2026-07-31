@@ -55,9 +55,9 @@ export function issueTestPlumbing(
   }
 }
 
-/** In-memory ChangeLogStore (the shape LedgerDeps injects) — a plain array with
- *  an autoincrementing seq, enough for behavior tests that don't assert on
- *  durable SQL semantics. */
+/** In-memory ChangeLogStore (the shape LedgerDeps injects) —
+ *  a plain array with an autoincrementing seq, enough for behavior tests that
+ *  don't assert on durable SQL semantics. */
 export function memoryChangeLogStore(): LedgerDeps['repo'] {
   type Row = {
     seq: number
@@ -69,6 +69,11 @@ export function memoryChangeLogStore(): LedgerDeps['repo'] {
   }
   const rows: Row[] = []
   let nextSeq = 1
+  // NO FEED IDENTITY HERE. Main's Ledger minted `(feedId, epoch)` through this
+  // store, so its stub carried `readFeedIdentity` / `initFeedIdentity` /
+  // `setEpoch`. On this branch identity is `@podium/sync`'s `feed/` registry —
+  // `ChangeLogStore` has no such members, and re-adding them would be a second
+  // identity source beside the one that mints the opaque epoch.
   return {
     appendChanges(batch, eventTime) {
       return batch.map((r) => {

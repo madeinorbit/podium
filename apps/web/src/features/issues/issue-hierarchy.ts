@@ -1,4 +1,5 @@
-import { ISSUE_STAGES, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, type IssueStage } from '@podium/model'
+import type { IssueViewModel } from '@/app/store'
 import { type IssuesOrdering, orderIssues } from './issues-display'
 
 /**
@@ -8,7 +9,7 @@ import { type IssuesOrdering, orderIssues } from './issues-display'
  */
 
 /** An issue reads as an epic when it's typed as one OR it actually has children. */
-export function isEpic(issue: IssueWire): boolean {
+export function isEpic(issue: IssueViewModel): boolean {
   return issue.type === 'epic' || issue.childCount > 0
 }
 
@@ -63,9 +64,9 @@ export function partitionByParent<T>(
 }
 
 /** Partition issues into top-level roots + children keyed by parent id. */
-export function partitionIssueTree(issues: IssueWire[]): {
-  roots: IssueWire[]
-  childrenByParent: Map<string, IssueWire[]>
+export function partitionIssueTree(issues: IssueViewModel[]): {
+  roots: IssueViewModel[]
+  childrenByParent: Map<string, IssueViewModel[]>
 } {
   return partitionByParent(
     issues,
@@ -76,7 +77,7 @@ export function partitionIssueTree(issues: IssueWire[]): {
 
 /** One visible list row: the issue, its nesting depth, and its expandable state. */
 export interface IssueRow {
-  issue: IssueWire
+  issue: IssueViewModel
   depth: number
   /** Children this row would reveal (0 = no chevron). */
   childCount: number
@@ -90,7 +91,7 @@ export interface IssueRow {
  * the old flat view: every issue at depth 0 in its own stage group.
  */
 export function issueRowsByStage(
-  issues: IssueWire[],
+  issues: IssueViewModel[],
   ordering: IssuesOrdering,
   opts: { flatten: boolean; expanded: ReadonlySet<string> },
 ): { stage: IssueStage; rows: IssueRow[] }[] {
@@ -104,7 +105,7 @@ export function issueRowsByStage(
     }))
   }
   const { roots, childrenByParent } = partitionIssueTree(issues)
-  const emit = (issue: IssueWire, depth: number, out: IssueRow[], path: Set<string>): void => {
+  const emit = (issue: IssueViewModel, depth: number, out: IssueRow[], path: Set<string>): void => {
     // Path guard: a parentId cycle (its members promoted to roots above) must
     // not recurse forever when every member is expanded.
     if (path.has(issue.id)) return
@@ -139,7 +140,7 @@ export function flattenRowGroups(groups: { rows: IssueRow[] }[]): IssueId[] {
  * itself must say where its children stand.
  */
 export function childStageCounts(
-  issues: IssueWire[],
+  issues: IssueViewModel[],
 ): Map<string, { stage: IssueStage; count: number }[]> {
   const { childrenByParent } = partitionIssueTree(issues)
   const out = new Map<string, { stage: IssueStage; count: number }[]>()

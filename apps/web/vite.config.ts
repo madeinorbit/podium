@@ -121,6 +121,18 @@ export default defineConfig({
       '@podium/composer': fileURLToPath(
         new URL('../../packages/composer/src/index.ts', import.meta.url),
       ),
+      // [POD-796] Model reaches the bundle at RUNTIME — `protocol/messages/sync.ts`
+      // imports the `IssueProjection` zod schema as a VALUE for the feed's
+      // 'issueProjection' arm — so it needs the same treatment as the others.
+      //
+      // Not redundant with `conditions: ['@podium/source']` below, for the same
+      // reason protocol is aliased despite having that condition: the condition
+      // only chooses an entry point AFTER resolution finds the package, and a
+      // checkout with no local @podium symlink resolves by walking UP the
+      // filesystem — straight into a sibling checkout's node_modules, where the
+      // source condition faithfully resolves MAIN's src. The build exits 0 and
+      // bundles code that is not the code under review [POD-746]. Verify with the
+      // bundle-content grep, never the exit code.
       '@podium/model': fileURLToPath(
         new URL('../../packages/model/src/index.ts', import.meta.url),
       ),

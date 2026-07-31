@@ -1,7 +1,8 @@
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { deriveTrayItems, offerKey, workingSessionCount } from './derive-tray'
+import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './derive-tray'
 
 const session = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({
@@ -15,6 +16,20 @@ const session = (over: Partial<SessionMetaInput>): SessionMeta =>
     ...over,
   }) as SessionMeta
 
+
+const deriveTrayItems = (issues: ReturnType<typeof makeIssue>[], dismissed?: ReadonlySet<string>) => {
+  const sessions = issues.flatMap((issue) => issue.sessions ?? [])
+  // Membership moves to `memberSessionIds`; `sessions` is EMPTIED rather than
+  // dropped because this tree's `IssueWire` still declares it required, and the
+  // point of the normalization is that nothing downstream reads it — an empty
+  // array proves that as well as an absent key would, and compiles.
+  const normalized: IssueNavigationModel[] = issues.map((issue) => ({
+    ...issue,
+    memberSessionIds: (issue.sessions ?? []).map((session) => session.sessionId),
+    sessions: [],
+  }))
+  return deriveTrayItemsCore(normalized, sessions, dismissed)
+}
 describe('deriveTrayItems', () => {
   it('is GLOBAL (§5): items from every live issue, no scoping, dead issues out', () => {
     const asking = makeIssue({
@@ -213,29 +228,22 @@ describe('deriveTrayItems', () => {
 })
 
 describe('workingSessionCount', () => {
-  it('counts working agent sessions machine-wide, excluding shells/headless/archived', () => {
-    const issue = makeIssue({
-      id: 'p',
-      sessions: [
-        session({ sessionId: asSessionId('w1') }),
-        session({
-          sessionId: asSessionId('w2'),
-          agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
-        }),
-        session({ sessionId: asSessionId('w3'), agentKind: 'shell', busy: true }),
-        session({ sessionId: asSessionId('w4'), headless: true }),
-        session({ sessionId: asSessionId('w5'), archived: true }),
-      ] as SessionMeta[],
-    })
-    const other = makeIssue({
-      id: 'x',
-      sessions: [session({ sessionId: asSessionId('w6') })] as SessionMeta[],
-    })
-    const dead = makeIssue({
-      id: 'dead',
-      archived: true,
-      sessions: [session({ sessionId: asSessionId('w7') })] as SessionMeta[],
-    })
-    expect(workingSessionCount([issue, other, dead])).toBe(2)
+  it('counts working agent sessions globally, excluding shells/headless/archived', () => {
+    const sessions = [
+      session({ sessionId: 'w1' }),
+      session({
+        sessionId: 'w2',
+        agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
+      }),
+      session({ sessionId: 'w3', agentKind: 'shell', busy: true }),
+      session({ sessionId: 'w4', headless: true }),
+      session({ sessionId: 'w5', archived: true }),
+      session({ sessionId: 'w6' }),
+      session({ sessionId: 'w7' }),
+    ] as SessionMeta[]
+    const issue = { ...makeIssue({ id: 'p' }), memberSessionIds: ['w1', 'w2', 'w3', 'w4', 'w5'] }
+    const child = { ...makeIssue({ id: 'c', parentId: 'p' }), memberSessionIds: ['w6'] }
+    const outside = { ...makeIssue({ id: 'x' }), memberSessionIds: ['w7'] }
+    expect(workingSessionCount([issue, child, outside], sessions)).toBe(3)
   })
 })

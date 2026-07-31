@@ -16,6 +16,7 @@ import {
   EMPTY_ID_SET,
   foldOverlays,
   insertOverlay,
+  legacyIssueReadOverlay,
   overlayForOutboxEntry,
   type PendingOverlay,
   PRESENCE_REDUCER_KINDS,
@@ -79,7 +80,7 @@ describe('overlayForOutboxEntry projection', () => {
     expect(clear.coveredBy(sess({ snoozedUntil: 'x' }))).toBe(false)
   })
 
-  it('mark read/unread stamp readAt from queuedAt; covering truth is judged on the unread flag', () => {
+  it('mark read/unread target the owning readAt field; server clocks may differ', () => {
     const read = overlayForOutboxEntry(entry('sessionMarkRead', { sessionId: 's1' }, 1751500800000))
     if (read?.op !== 'patch') throw new Error('expected patch')
     expect(read.patch).toEqual({ readAt: new Date(1751500800000).toISOString(), unread: false })
@@ -87,11 +88,26 @@ describe('overlayForOutboxEntry projection', () => {
     expect(read.coveredBy(sess({ unread: false, readAt: '2099-01-01T00:00:00.000Z' }))).toBe(true)
     expect(read.coveredBy(sess({ unread: true }))).toBe(false)
 
+    const issueRead = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }, 1751500800000))
+    if (issueRead?.op !== 'patch') throw new Error('expected patch')
+    expect(issueRead.entity).toBe('issueProjections')
+    expect(issueRead.patch).toEqual({ readAt: new Date(1751500800000).toISOString() })
+    expect(issueRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as never)).toBe(true)
+    const legacyRead = legacyIssueReadOverlay(issueRead)
+    if (legacyRead?.op !== 'patch') throw new Error('expected legacy compatibility patch')
+    expect(legacyRead.patch).toEqual({
+      readAt: new Date(1751500800000).toISOString(),
+      unread: false,
+    })
+
     const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
     if (unread?.op !== 'patch') throw new Error('expected patch')
-    expect(unread.entity).toBe('issues')
-    expect(unread.patch).toEqual({ readAt: null, unread: true })
-    expect(unread.coveredBy({ unread: true } as unknown as IssueWire)).toBe(true)
+    expect(unread.entity).toBe('issueProjections')
+    expect(unread.patch).toEqual({ readAt: null })
+    expect(unread.coveredBy({ readAt: null } as never)).toBe(true)
+    const legacyUnread = legacyIssueReadOverlay(unread)
+    if (legacyUnread?.op !== 'patch') throw new Error('expected legacy compatibility patch')
+    expect(legacyUnread.patch).toEqual({ readAt: null, unread: true })
   })
 
   // Tuck-away rides the SAME optimistic mechanism as the rest (POD-333), which is

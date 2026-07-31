@@ -1028,11 +1028,7 @@ export class MessageDeliveryService {
         return this.deadLetter(message, 'session no longer exists', { notifySender })
       }
     } else {
-      // Full wire is intentional: recipient selection consumes issue-derived
-      // membership. Share the sweep's session listing with the wire build too
-      // [POD-817]: get() otherwise defaults to a fresh listSessions() inside
-      // toWire — the second per-row O(sessions) cost hiding behind the first.
-      const issue = this.deps.issues().get(message.toId ?? '', all)
+      const issue = this.deps.issues().get(message.toId ?? '')
       if (!issue) return this.deadLetter(message, 'issue no longer exists', { notifySender })
       // A closed-and-archived issue is GONE — no future session will prime on it,
       // so holding is a black hole. Dead-letter it [POD-834 §05]. A merely open

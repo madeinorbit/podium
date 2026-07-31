@@ -57,7 +57,7 @@ export class IssueSessionLifecycle {
     this.deps.sessions.broadcastSessions()
     issuePlan.publish()
 
-    return { issue: issuePlan.wire, deletedSessionIds: sessionPlan.sessionIds }
+    return { issue: issuePlan.wire(), deletedSessionIds: sessionPlan.sessionIds }
   }
   /** Restore an issue and the exact sessions tombstoned by its deletion. Session
    *  metadata returns as exited because the deletion deliberately killed the PTY;
@@ -92,7 +92,7 @@ export class IssueSessionLifecycle {
     issuePlan.publish()
 
     return {
-      issue: issuePlan.wire,
+      issue: issuePlan.wire(),
       restoredSessionIds: sessionPlan.sessionIds,
     }
   }

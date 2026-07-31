@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueId, type IssueStage, IssueType, type IssueWire } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, type IssueStage, IssueType } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Bot,
@@ -15,7 +15,7 @@ import {
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CardBoundary } from '@/app/CardBoundary'
-import { useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -98,7 +98,7 @@ type DisplayPatch = Partial<Omit<IssuesDisplay, 'badges'>> & {
  * `issuesChanged`, so the board reconciles itself with no manual refetch.
  */
 export function IssuesView(): JSX.Element {
-  const issues = useStoreSelector((s) => s.issues)
+  const issues = useReplicaIssues()
   const openIssueId = useStoreSelector((s) => s.openIssueId)
   const setOpenIssueId = useStoreSelector((s) => s.setOpenIssueId)
   const trpc = useStoreSelector((s) => s.trpc)
@@ -183,7 +183,7 @@ export function IssuesView(): JSX.Element {
   }
 
   // Add or remove a single label from an issue (keyboard `l` menu toggles).
-  const toggleLabel = (issue: IssueWire, label: string): void => {
+  const toggleLabel = (issue: IssueViewModel, label: string): void => {
     const labels = issue.labels.includes(label)
       ? issue.labels.filter((l) => l !== label)
       : [...issue.labels, label]
@@ -366,7 +366,7 @@ export function IssuesView(): JSX.Element {
     if (selectedIds.length === 0) return
     const targets = issues.filter((i) => selectedIds.includes(i.id))
     const n = targets.length
-    const sessionCount = new Set(targets.flatMap((i) => i.sessions.map((s) => s.sessionId))).size
+    const sessionCount = new Set(targets.flatMap((i) => i.memberSessionIds)).size
     const sessionText = sessionCount === 1 ? '1 session' : `${sessionCount} sessions`
     if (
       !window.confirm(
@@ -534,7 +534,7 @@ export function IssuesView(): JSX.Element {
           // and an emptied target set closes the menu.
           const targets = ctxMenu.ids
             .map((id) => issues.find((i) => i.id === id))
-            .filter((i): i is IssueWire => i !== undefined)
+            .filter((i): i is IssueViewModel => i !== undefined)
           return targets.length > 0 ? (
             <IssueContextMenu
               issues={targets}
@@ -567,14 +567,14 @@ function AnchoredIssueMenu({
   onToggleLabel,
   onClose,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   kind: PropMenuKind
   assignees: string[]
   labelPool: string[]
   onMoveIssue: (id: string, stage: IssueStage) => void
   onSetPriority: (id: string, priority: number) => void
   onSetAssignee: (id: string, assignee: string) => void
-  onToggleLabel: (issue: IssueWire, label: string) => void
+  onToggleLabel: (issue: IssueViewModel, label: string) => void
   onClose: () => void
 }): JSX.Element {
   const el =
@@ -942,8 +942,8 @@ function IssueColumn({
 }: {
   stage: IssueStage
   label: string
-  issues: IssueWire[]
-  allIssues: IssueWire[]
+  issues: IssueViewModel[]
+  allIssues: IssueViewModel[]
   badges: IssuesDisplay['badges']
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
@@ -1074,7 +1074,7 @@ function AssigneeMenu({
   onSetAssignee,
   trigger,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   assignees: string[]
   onSetAssignee: (id: string, assignee: string) => void
   trigger: JSX.Element
@@ -1129,8 +1129,8 @@ function IssueCard({
   onToggleSelect,
   onContextMenu,
 }: {
-  issue: IssueWire
-  allIssues: IssueWire[]
+  issue: IssueViewModel
+  allIssues: IssueViewModel[]
   badges: IssuesDisplay['badges']
   /** Direct-child stage rollup (nested board only) — see childStageCounts. */
   stageCounts?: { stage: IssueStage; count: number }[]

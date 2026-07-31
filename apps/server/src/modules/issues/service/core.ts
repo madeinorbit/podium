@@ -6,34 +6,43 @@ import {
   isIssueDeferred,
   requireInstant,
   type Instant,
+  type IssueDepProjection,
   type IssueDepWire,
   type IssueGitState,
   type IssueId,
   type IssuePanel,
+  type IssueProjection,
   type IssueUserOverlay,
-  issueOverlayOf,
-  type SessionId,
   type IssueWire,
+  issueOverlayOf,
+  type RepoProjection,
+  type SessionId,
   type SessionMeta,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import { decodePanel, fromStorage } from '../../../store/issue-storage'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
+import { countIssueWireBuild } from '../instrumentation'
+import {
+  issueDepProjectionRows,
+  issueDepToProjection,
+  issueProjectionRows,
+  issueRowToProjection,
+  repoProjectionRows,
+} from '../projection'
+import type { PublishSpec } from '../publish'
 import type { IssueDeps } from './types'
 
-// Member-session fields that DON'T feed issue wire data [POD-723] — the same
-// denylist modules/sessions applies (POD-722). IssueWire.sessions embeds each
-// SessionMeta verbatim, so a member's clientCount/controllerId/epoch change must
-// NOT invalidate the cached wire: it never surfaces as issue member state, and
-// the session broadcast already skips its own publish for that churn (POD-722).
-const NON_ISSUE_MEMBER_FIELDS = ['clientCount', 'controllerId', 'epoch'] as const
-
-/** Issue-relevant fingerprint of one member session, for the wire memo key. */
-function memberSessionFingerprint(s: SessionMeta): string {
-  const proj: Record<string, unknown> = { ...s }
-  for (const f of NON_ISSUE_MEMBER_FIELDS) delete proj[f]
-  return JSON.stringify(proj)
+interface IssueWireBatch {
+  /** Computed ONCE per multi-issue serialize and shared — per-issue
+   *  `deps.listSessions()` calls were the boot-storm hot path. */
+  sessions: SessionMeta[]
+  labelsByIssue: Map<string, string[]>
+  depsByFrom: Map<string, { toId: IssueId; type: string }[]>
+  dependentsByTo: Map<string, { fromId: IssueId; type: string }[]>
+  childrenByParent: Map<string, IssueRow[]>
+  prefixesByRepoPath: Map<string, string | null>
 }
 
 /**
@@ -237,46 +246,75 @@ export abstract class IssueServiceCore {
     return isIssueBlocked(row, blocksTargets)
   }
 
-  /** Serialize one issue. `sessionList` lets multi-issue serializers (list/allWire/
-   *  search/stats/…) compute the session list ONCE and share it — per-issue
-   *  `deps.listSessions()` calls were the boot-storm hot path (66 sessions × 60
-   *  issues per broadcast). Omitting it (single-issue paths) fetches a fresh list.
-   *  `commentCounts` is the same batching for the comment COUNT (#175): list
-   *  serializers pass one GROUP BY map; single-issue paths run one scalar COUNT.
-   *  Comment BODIES never ride the wire anymore — fetch via comments(id). */
-  toWire(
-    row: IssueRow,
-    sessionList: SessionMeta[] = this.deps.listSessions(),
-    commentCounts?: Map<string, number>,
-  ): IssueWire {
+  /** Serialize one issue into the transitional legacy shape.
+   *
+   *  `commentCounts` batches the comment COUNT (#175): list serializers pass one
+   *  GROUP BY map; single-issue paths run one scalar COUNT. Comment BODIES never
+   *  ride the wire anymore — fetch via comments(id).
+   *
+   *  MAIN'S SIGNATURE, WITH THE SESSION LIST MOVED INSIDE {@link IssueWireBatch}.
+   *  POD-796 dropped `sessionList` because it also dropped `sessions` from the
+   *  wire; on this branch `IssueWire.sessions` and `.sessionSummary` are still
+   *  REQUIRED (the normalized `IssueProjection` is what carries no session at
+   *  all), so the list is still needed — but every caller in the merged body is
+   *  main's three-argument form, and leaving the old positional parameter would
+   *  have silently bound `commentCounts` to `sessionList`. Batching it is what
+   *  keeps the boot-storm fix (66 sessions x 60 issues per broadcast) while
+   *  matching the callers that exist. */
+  toWire(row: IssueRow, commentCounts?: Map<string, number>, batch?: IssueWireBatch): IssueWire {
+    // Transitional builds remain observable; the D7.2 membership-scan counter
+    // has no increment site after the old membership assembly is deleted.
+    countIssueWireBuild()
     // R3 -> R1 -> R4. Every encoding split this projection used to perform inline
     // (raw panel JSON, the stage/type casts, the three D-2 renames, the two
     // 'human' | 'agent' enums, the nullable->optional collapse) now lives in the
     // ONE documented pair (ADR 4 §4.1). `row` is still passed to the predicates
     // and store lookups below, which take rows by design.
     const issue = fromStorage(row)
+    const sessionList = batch?.sessions ?? this.deps.listSessions()
     const sessions = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
     const gitState = row.deletedAt ? undefined : this.gitStates.get(row.id)
-    const labels = this.deps.store.issues.getIssueLabels(row.id)
-    const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
+    const labels = batch
+      ? (batch.labelsByIssue.get(row.id) ?? [])
+      : this.deps.store.issues.getIssueLabels(row.id)
+    const children = batch
+      ? (batch.childrenByParent.get(row.id) ?? [])
+      : [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
     // Wire deps/dependents keep carrying the parent-child edges for client
     // compatibility, but they are SYNTHESIZED from parent_id / children —
     // issue_deps stores only real dependency types (#164).
     const deps = [
-      ...this.deps.store.issues.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type })),
+      ...(batch
+        ? (batch.depsByFrom.get(row.id) ?? [])
+        : this.deps.store.issues.listIssueDeps(row.id)
+      ).map((d) => ({ id: d.toId, type: d.type })),
       ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : []),
     ]
     const dependents = [
-      ...this.deps.store.issues.listDependents(row.id).map((d) => ({ id: d.fromId, type: d.type })),
+      ...(batch
+        ? (batch.dependentsByTo.get(row.id) ?? [])
+        : this.deps.store.issues.listDependents(row.id)
+      ).map((d) => ({ id: d.fromId, type: d.type })),
       ...children.map((c) => ({ id: c.id, type: 'parent-child' })),
     ]
     const commentCount = commentCounts
       ? (commentCounts.get(row.id) ?? 0)
       : this.deps.store.issues.countIssueComments(row.id)
-    const blocked = this.computeBlocked(row)
+    const blocked = batch
+      ? isIssueBlocked(
+          row,
+          (batch.depsByFrom.get(row.id) ?? [])
+            .filter((d) => d.type === 'blocks')
+            .map((d) => this.rows.get(d.toId)),
+        )
+      : this.computeBlocked(row)
     const deferred = this.isDeferred(row)
     const ready = row.stage !== 'proposed' && !this.isClosed(row) && !deferred && !blocked
-    const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
+    let prefix = batch?.prefixesByRepoPath.get(row.repoPath)
+    if (prefix === undefined) {
+      prefix = this.deps.store.repos.prefixForPath(row.repoPath)
+      batch?.prefixesByRepoPath.set(row.repoPath, prefix)
+    }
     const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
     // Either shape of the needs-human quartet projects the same four wire keys;
     // `askedLegacy` is a pre-#53 row whose asker was never recorded, and dropping
@@ -288,6 +326,12 @@ export abstract class IssueServiceCore {
       ...(issue.repoId ? { repoId: issue.repoId } : {}),
       ...(prefix ? { prefix } : {}),
       displayRef,
+      // Per-entity revision (ADR 2 D3) — assigned by upsertIssue at the SQL
+      // write, so this projection carries the COMMITTED token only when taken
+      // after the write. Spread-conditionally like the other optionals: a row
+      // that has never been written has no revision, and an absent field is
+      // honest where a fabricated 1 would claim a write that never happened.
+      ...(issue.revision === undefined ? {} : { revision: issue.revision }),
       seq: issue.seq,
       title: issue.title,
       description: issue.description.value,
@@ -375,58 +419,42 @@ export abstract class IssueServiceCore {
     }
   }
 
-  list(repoPath?: string, sessionList: SessionMeta[] = this.deps.listSessions()): IssueWire[] {
+  list(repoPath?: string): IssueWire[] {
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
-    // POD-723 memo inputs, computed ONCE per list() so the per-issue key stays
-    // cheap. Each session is projected to its issue-relevant slice (the same trio
-    // POD-722 ignores is dropped, so pure attach/detach churn can't force a
-    // rebuild). Prefixes feed displayRef and change out-of-band of any issue
-    // mutation, so they ride the key too — resolved once per repoPath (few repos).
-    const projById = new Map<string, string>()
-    for (const s of sessionList) projById.set(s.sessionId, memberSessionFingerprint(s))
-    const prefixByPath = new Map<string, string>()
-    const prefixFor = (p: string): string => {
-      let v = prefixByPath.get(p)
-      if (v === undefined) {
-        v = this.deps.store.repos.prefixForPath(p) ?? ''
-        prefixByPath.set(p, v)
-      }
-      return v
+    const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
+    const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
+    const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
+    for (const dep of this.deps.store.issues.listAllIssueDeps()) {
+      const outgoing = depsByFrom.get(dep.fromId)
+      if (outgoing) outgoing.push({ toId: dep.toId, type: dep.type })
+      else depsByFrom.set(dep.fromId, [{ toId: dep.toId, type: dep.type }])
+      const incoming = dependentsByTo.get(dep.toId)
+      if (incoming) incoming.push({ fromId: dep.fromId, type: dep.type })
+      else dependentsByTo.set(dep.toId, [{ fromId: dep.fromId, type: dep.type }])
+    }
+    const childrenByParent = new Map<string, IssueRow[]>()
+    for (const row of this.rows.values()) {
+      if (!row.parentId || row.deletedAt) continue
+      const children = childrenByParent.get(row.parentId)
+      if (children) children.push(row)
+      else childrenByParent.set(row.parentId, [row])
+    }
+    const batch: IssueWireBatch = {
+      sessions: this.deps.listSessions(),
+      labelsByIssue,
+      depsByFrom,
+      dependentsByTo,
+      childrenByParent,
+      prefixesByRepoPath: new Map(),
     }
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .sort((a, b) => {
-        // Group by repo_id (not path) so the unified list of an origin checked out at
-        // two paths reads as one seq-ordered run rather than splitting per path (#140).
         const ga = a.repoId ?? a.repoPath
         const gb = b.repoId ?? b.repoPath
         return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
       })
-      .map((r) => this.toWireMemo(r, sessionList, commentCounts, projById, prefixFor(r.repoPath)))
-  }
-
-  /** Cached {@link toWire} for the multi-issue list path [POD-723]. Reuses the last
-   *  built payload when this issue's own inputs (issueInputsGen + its member
-   *  sessions' issue-relevant projections + its repo prefix) are unchanged; only
-   *  the dirty issues pay the full per-issue store-query rebuild. Single-issue
-   *  toWire callers deliberately bypass this — they always want a fresh build. */
-  private toWireMemo(
-    row: IssueRow,
-    sessionList: SessionMeta[],
-    commentCounts: Map<string, number>,
-    projById: Map<string, string>,
-    prefix: string,
-  ): IssueWire {
-    const members = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
-    // sessionList order is stable, so the joined projection is a stable per-issue
-    // membership fingerprint (captures joins/leaves AND any member field change).
-    const memberKey = members.map((s) => projById.get(s.sessionId) ?? '').join('\u0001')
-    const key = `${this.issueInputsGen}\u0000${prefix}\u0000${memberKey}`
-    const cached = this.wireCache.get(row.id)
-    if (cached && cached.key === key) return cached.wire
-    const wire = this.toWire(row, sessionList, commentCounts)
-    this.wireCache.set(row.id, { key, wire })
-    return wire
+      .map((r) => this.toWire(r, commentCounts, batch))
   }
 
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
@@ -522,8 +550,126 @@ export abstract class IssueServiceCore {
     return asIssueId(ref)
   }
 
-  allWire(sessionList?: SessionMeta[]): IssueWire[] {
-    return this.list(undefined, sessionList)
+  allWire(): IssueWire[] {
+    return this.list()
+  }
+
+  // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
+  //
+  /** The `issueProjection` change ONE issue's write declares.
+   *  Returned as an array so a call site can spread it into its `changes()` and
+   *  stay a single expression when the flag is off. */
+  protected projectionChanges(
+    row: IssueRow,
+  ): { entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[] {
+    return [
+      { entity: 'issueProjection', id: row.id, op: 'upsert', value: issueRowToProjection(row, this.deps.store.issues.getIssueLabels(row.id)) },
+    ]
+  }
+
+  /** Full LOCAL projection truth for a reconcile. `undefined` = do not reconcile
+   *  this kind (a row that cannot be projected — see {@link issueProjectionRows}
+   *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
+   *  the difference is the rollback — see {@link EMPTY_NORMALIZED_TRUTH}.
+   *
+   *  The normalized parallel to {@link allWire}, and public for the same reason:
+   *  the relay's write-less publish tail needs it. LOCAL only — like allWire(),
+   *  hub-mirrored issues are the publisher's union to make, and it cannot make
+   *  it here (see IssuePublisherDeps.allProjections). */
+  allProjections(): { id: string; value: IssueProjection }[] | undefined {
+    const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
+    return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
+  }
+
+  // ---- The two kinds the replica JOINS against [POD-822] ----
+  //
+  // `deps` and `prefix` are the two fields the replica's issue views READ that
+  // `IssueProjection` does not carry and — per D7.2 — must not: an edge belongs
+  // to two issues, a prefix belongs to a repo, and folding either onto the issue
+  // makes a write to something else rewrite issues. So each is its own kind, and
+  // `blocked` / `ready` / `dependents` / `displayRef` are joined replica-side
+  // (D7.3). The normalized kinds are emitted unconditionally.
+
+  /** The `issueDep` change ONE edge write declares. O(1) per edge —
+   *  this is what makes a dep add cost nothing per issue. Returned as an array so
+   *  a call site can spread it and stay a single expression when the flag is off. */
+  protected depChanges(
+    deps: readonly { fromId: string; toId: string; type: string }[],
+    op: 'upsert' | 'remove',
+  ): { entity: 'issueDep'; id: string; op: 'upsert' | 'remove'; value?: IssueDepProjection }[] {
+    return deps.map((dep) => {
+      const value = issueDepToProjection(dep)
+      // A remove carries no value (the ledger drops it; the row is gone). An
+      // upsert carries the whole edge — there is no partial edge.
+      return op === 'upsert'
+        ? { entity: 'issueDep' as const, id: value.id, op, value }
+        : { entity: 'issueDep' as const, id: value.id, op }
+    })
+  }
+
+  /** Full LOCAL dep-edge truth for a reconcile. Flag OFF returns
+`undefined` means only "cannot project, do not touch the
+   *  kind" (an edge that cannot be projected — all-or-nothing, see
+   *  {@link issueDepProjectionRows}).
+   *
+   *  O(edges), and it runs only on the full-truth paths (boot, write-less
+   *  rebroadcast) that are already O(issues) — never per dep change, which
+   *  declares its one row through {@link depChanges} instead. This is also what
+   *  catches the removes no write declares: `issue_deps` has `ON DELETE CASCADE`
+   *  from `issues`, so deleting an issue silently vaporises its edges, and only a
+   *  full-truth diff can notice rows that left without anyone saying so. */
+  allDepProjections(): { id: string; value: IssueDepProjection }[] | undefined {
+    return issueDepProjectionRows(this.deps.store.issues.listAllIssueDeps())
+  }
+
+  /** Full LOCAL repo truth for a reconcile. O(repos) — a handful of
+   *  rows, deduped to the LOGICAL repo (several checkouts, one entity). */
+  allRepoProjections(): { id: string; value: RepoProjection }[] | undefined {
+    return repoProjectionRows(this.deps.store.repos.listRepos())
+  }
+
+  /**
+   * Publish the repo truth [POD-822] — called by the repo registry after a
+   * prefix write, which is the ONLY thing that moves this entity today.
+   *
+   * A prefix change has no issue write to ride along with, and without this the
+   * replica's `displayRef`s would not move until someone happened to touch an
+   * issue — a bug that would look like caching and would in fact be a missing
+   * emitter. Reconcile rather than a declared change because the registry writes
+   * through the store directly (no ledger commit to hang a declaration on), and
+   * because at O(repos) the full-truth diff is cheaper than the machinery to
+   * avoid it. The ledger's byte-equality dedup means a no-op prefix write
+   * appends nothing.
+   *
+   * NOT a D7.2 breach, and worth being precise about why: this is O(repos), not
+   * O(issues). Materializing `displayRef` onto issues instead — the D7.4 option
+   * this slice rejected — is what would make a prefix change O(repo's issues) on
+   * the write path. The whole point of the repo entity is that this stays one row.
+   */
+  publishRepos(): void {
+    const repos = this.allRepoProjections()
+    if (!repos) return
+    try {
+      this.deps.ledger.reconcile('repo', repos)
+    } catch (err) {
+      console.warn('[podium:issues] repo projection publish failed', err)
+    }
+  }
+
+  /** THE full-list reconcile + fan-out tail every write-less issue publish runs
+   *  (broadcastList, purgeEmptyDraft). Both kinds reconcile against the same
+   *  truth in the same pass, so the legacy feed and the normalized feed can
+   *  never disagree about which issues exist. */
+  protected reconcileAndPublish(spec: PublishSpec): void {
+    this.deps.ledger.reconcile('issue', spec.rows)
+    const projections = this.allProjections()
+    if (projections) this.deps.ledger.reconcile('issueProjection', projections)
+    // The edges reconcile on the same full-truth passes [POD-822], for the same
+    // reason the projections do: this path exists to catch what no write
+    // declared, and a CASCADE delete (an issue removed takes its edges with it)
+    // is exactly that.
+    const depProjections = this.allDepProjections()
+    if (depProjections) this.deps.ledger.reconcile('issueDep', depProjections)
   }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */
@@ -557,7 +703,27 @@ export abstract class IssueServiceCore {
   protected persistWith(
     row: IssueRow,
     extraWrite?: () => void,
-    opts?: { touch?: boolean },
+    opts?: {
+      touch?: boolean
+      /**
+       * Extra entity changes this write declares, beyond the issue's own two
+       * kinds [POD-822]. Today: the `issueDep` rows an edge write touches, built
+       * by {@link depChanges} (empty when the flag is off).
+       *
+       * They ride the SAME `changes()` callback, so they land in the SAME
+       * transact span as the row upsert and the `extraWrite` that produced them.
+       * That is the whole point rather than a tidiness preference: `addIssueDep`
+       * and the edge's change row must commit or roll back together, or the feed
+       * can claim an edge the store rejected — a permanently `blocked` issue on
+       * every replica, healed by nothing.
+       */
+      extraChanges?: readonly {
+        entity: 'issueDep'
+        id: string
+        op: 'upsert' | 'remove'
+        value?: IssueDepProjection
+      }[]
+    },
   ): IssueWire {
     // In-place rollback seam (#247): for an EXISTING issue, `row` is the
     // MAP-OWNED object and every mutation path (update()'s Object.assign,
@@ -588,15 +754,22 @@ export abstract class IssueServiceCore {
           // OTHER rows), so it is safe to serialize before the map install below.
           return this.toWire(row)
         },
-        changes: (w) => [{ entity: 'issue', id: row.id, op: 'upsert', value: w }],
+        // Both kinds are declared by the SAME commit, so they land in one
+        // transact span: a cap client and a legacy client can never observe an
+        // issue at two different truths, and neither feed can record a write
+        // the other rolled back. The projection is built from `row` (post-write,
+        // so it carries the revision upsertIssue just assigned — the same
+        // ordering `w` depends on), not from `w`.
+        changes: (w) => [
+          { entity: 'issue', id: row.id, op: 'upsert', value: w },
+          ...this.projectionChanges(row),
+          ...(opts?.extraChanges ?? []),
+        ],
       }).result
     } catch (err) {
       if (backup) Object.assign(row, backup)
       throw err
     }
-    // The commit changed an issue-side input feeding toWire (row / label / dep /
-    // comment via extraWrite, or read state) — invalidate the wire memo [POD-723].
-    this.bumpIssueInputs()
     // Install into the map only AFTER the commit succeeded (#247): a throw in
     // the transact span (write or change append) rolls the durable state back,
     // and the map must not keep a row the store never accepted — a phantom row
@@ -623,8 +796,12 @@ export abstract class IssueServiceCore {
     // write on them — bump BEFORE allWire so the memo rebuilds every row against
     // the new generation and no ripple is served from stale cache [POD-723].
     this.bumpIssueInputs()
-    const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
-    this.deps.ledger.reconcile('issue', spec.rows)
+    this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(this.allWire()))
+  }
+
+  /** Cross-issue legacy fields still require a full-list transitional emit. */
+  protected broadcastListForDerivedRipple(): void {
+    this.broadcastList()
   }
 
   /** Publish one write-less derived issue update (for example ephemeral Git
@@ -632,7 +809,6 @@ export abstract class IssueServiceCore {
    * because one row's computed field changed. The reconcile keeps delta clients
    * and the durable change log aligned with the legacy single-row snapshot. */
   protected broadcastIssue(row: IssueRow): void {
-    this.bumpIssueInputs()
     const spec = this.deps.publishSpecs.issueUpdated(this.toWire(row))
     // capture, NOT reconcile: reconcile treats its rows as the FULL truth for
     // the entity kind and diffs removes against the whole baseline — fed a

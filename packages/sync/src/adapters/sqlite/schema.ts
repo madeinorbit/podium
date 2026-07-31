@@ -49,7 +49,8 @@
  * repository speaks hand-written SQL over the shared connection.
  */
 
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
+import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * THE CHANGE LOG — the one global sequence (ADR 2 D2).
@@ -62,6 +63,26 @@ import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
  * the second. `sqlite_sequence` is also where `maxChangeSeq()` reads the highest
  * seq EVER assigned, which is how the cursor survives pruning.
  */
+/**
+ * THE FEED'S IDENTITY (ADR 2 D1) — the `(feedId, epoch)` half of a replica's
+ * cursor triple. Ported from main at the POD-1246 catch-up, and it lands HERE
+ * rather than in `apps/server`'s schema because POD-305 moved `changes` here:
+ * the identity of a feed is a property of the log, so the two belong to one
+ * owner. Single row — `CHECK (id = 1)` makes "two identities in one database"
+ * unrepresentable. A restore rolls the epoch back with the log, which is exactly
+ * what `apps/server/src/migrations/restore.ts` then notices and re-mints.
+ * Read/written only through `SyncRepository`.
+ */
+export const syncFeed = sqliteTable(
+  'sync_feed',
+  {
+    id: integer().primaryKey(),
+    feedId: text('feed_id').notNull(),
+    epoch: text().notNull(),
+  },
+  (table) => [check('sync_feed_check_1', sql`id = 1`)],
+)
+
 export const changes = sqliteTable(
   'changes',
   {

@@ -4,6 +4,7 @@ import {
   type ContractInput,
   defineCommands,
   ISSUE_COMMAND_NAMES,
+  type ConflictClass,
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
@@ -183,6 +184,15 @@ export interface IssueCommandDef<
   input: In
   /** Merged from the contract by {@link def}: `policy.action`. */
   action: CommandAction
+  /** Merged from the contract by {@link def}: the ADR 1 conflict class. Present
+   *  on every MUTATION (the {@link ContractDeclaresConflict} constraint is what
+   *  makes that total) and on no query. Declared here rather than only produced
+   *  by `def` so a reader — a test, an audit — can ASK a def for its class
+   *  instead of re-deriving it from the contract table. */
+  conflict?: ConflictClass
+  /** Merged from the contract by {@link def}: the prose rule a `'cmd'` row must
+   *  carry. Absent for every other class. */
+  conflictRule?: string
 }
 
 /** The generics-erased wildcard shape (what heterogeneous collections of defs
@@ -193,6 +203,8 @@ export type AnyIssueCommandDef = {
   input: z.ZodTypeAny
   action: CommandAction
   target?: (input: Record<string, unknown>) => string | undefined
+  conflict?: ConflictClass
+  conflictRule?: string
   // biome-ignore lint/suspicious/noExplicitAny: the wildcard def erases per-command generics on purpose
   handler: (ctx: IssueCommandCtx, input: any) => any
 }
@@ -209,20 +221,48 @@ export type AnyIssueCommandDef = {
  * fixture, so `registry.test.ts` asserts `toBe` against the contract instance for
  * all sixty-eight — object identity is the only instrument that sees the fork.
  */
+/**
+ * THE CONFLICT-CLASS TRIPWIRE [POD-1246].
+ *
+ * Every MUTATION's contract must declare an ADR 1 conflict class, and a `'cmd'`
+ * row must also carry its rule. Expressed as a constraint on `def()` rather than
+ * as a lint, because the point is ENUMERATION: with it, the compiler names every
+ * command that is missing one; without it, applying ~43 declarations by hand is a
+ * memory test that can be silently incomplete — which is the exact failure this
+ * work exists to end.
+ *
+ * Scoped to the issue table on purpose. `conflict` is OPTIONAL on
+ * `CommandContractBase` so that requiring it does not cascade to every namespace
+ * inside a catch-up merge; POD-1250 owns making it required everywhere.
+ */
+type ContractDeclaresConflict<C> = C extends { readonly conflict: 'cmd' }
+  ? C extends { readonly conflictRule: string }
+    ? unknown
+    : { readonly __cmdRowMustCarryAConflictRule: never }
+  : C extends { readonly conflict: ConflictClass }
+    ? unknown
+    : { readonly __mutationContractMustDeclareAConflictClass: never }
+
 function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   name: N,
   d: {
     kind: K
     target?: (input: Record<string, unknown>) => string | undefined
     handler: (ctx: IssueCommandCtx, input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>) => Out
-  },
+  } & (K extends 'mutation' ? ContractDeclaresConflict<(typeof ISSUE_CONTRACTS)[N]> : unknown),
 ): IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out> {
   const contract = ISSUE_CONTRACTS[name]
   return {
     ...d,
     input: contract.input,
     action: contract.policy.action,
-  } as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out>
+    // Reads declare no conflict class, so the union member for a query contract
+    // has neither key. Narrowed with `in` rather than widened with a cast: the
+    // `ContractDeclaresConflict` constraint above is what requires a MUTATION to
+    // carry one, and a cast here would defeat exactly that tripwire.
+    ...('conflict' in contract ? { conflict: contract.conflict } : {}),
+    ...('conflictRule' in contract ? { conflictRule: contract.conflictRule } : {}),
+  } as unknown as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out>
 }
 
 // ---------------------------------------------------------------------------

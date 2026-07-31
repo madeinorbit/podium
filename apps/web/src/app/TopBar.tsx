@@ -6,7 +6,7 @@ import { PodiumLogo } from '@/lib/icons/PodiumLogo'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { type MainView, useStoreSelector } from './store'
+import { type MainView, useReplicaIssues, useStoreSelector } from './store'
 
 /**
  * The desktop 44px command header per the handoff v2 desktop anatomy
@@ -17,10 +17,11 @@ import { type MainView, useStoreSelector } from './store'
  * [spec:SP-3834] The same header becomes the native app's integrated title bar.
  */
 export function TopBar(): JSX.Element {
-  const { view, setView, issues } = useStoreSelector(
-    (s) => ({ view: s.view, setView: s.setView, issues: s.issues }),
+  const { view, setView } = useStoreSelector(
+    (s) => ({ view: s.view, setView: s.setView }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')

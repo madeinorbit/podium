@@ -11,7 +11,7 @@ import { HealthPopover } from './HealthPopover'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
 import { LoadPanel } from './LoadPanel'
 import { QuotaIndicator } from './QuotaIndicator'
-import { machineNeedsUpdate, useServerAppVersion } from './version-skew'
+import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 
 // Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
 // fill is always tinted by severity; the icon stays neutral while `ok` and only

@@ -89,7 +89,6 @@ function issueAt(index: number): IssueWire {
     archived: false,
     needsHuman: index % 19 === 0,
     sessions: [],
-    sessionSummary: { total: index < SCALE.sessions ? 1 : 0, byPhase: {} },
     origin: index % 7 === 0 ? 'agent' : 'human',
     audience: 'human',
     draft: false,
@@ -306,10 +305,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
 
     const incomingReads: Counter = { gets: 0, ownKeys: 0 }
     const freshButEqual = initial.map((row) =>
-      counted(
-        { ...row, labels: [...row.labels], sessionSummary: { ...row.sessionSummary } },
-        incomingReads,
-      ),
+      counted({ ...row, labels: [...row.labels] }, incomingReads),
     )
     const notify = vi.fn()
     replica.subscribeRows('issues', notify)

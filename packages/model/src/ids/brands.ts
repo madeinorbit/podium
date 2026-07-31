@@ -137,6 +137,21 @@ export const RepoIdField = idField<'RepoId'>()
 export const asRepoId = (s: string): RepoId => s as RepoId
 
 /**
+ * An issue DEPENDENCY EDGE identity — DERIVED from its primary key, never minted
+ * [POD-822; ported from main at the POD-1246 catch-up].
+ *
+ * The brand lives here because this file is the single definition site for a
+ * brand. The CONSTRUCTOR lives in `keys.ts`, beside every other composite key,
+ * because that is what this id IS: `(fromId, toId, type)` joined. See
+ * `issueDepId` there for why a synthetic random id would be a second identity
+ * for a row that already has one.
+ */
+export const IssueDepId = z.string().min(1).brand<'IssueDepId'>()
+export type IssueDepId = z.infer<typeof IssueDepId>
+export const IssueDepIdField = idField<'IssueDepId'>()
+export const asIssueDepId = (s: string): IssueDepId => s as IssueDepId
+
+/**
  * The Podium-stable conversation identity (`docs/spec/conversation-registry.md`)
  * — the `podiumId`, NOT the harness-native transcript id. The native id is
  * evidence: a resume that rolls into a new file gets a new one and keeps this.

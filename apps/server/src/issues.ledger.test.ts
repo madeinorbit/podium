@@ -308,3 +308,146 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(change?.value?.title).toBe('changed offline')
   })
 })
+
+/**
+ * Per-entity revision (ADR 2 D3) over the REAL IssuesRepository and the REAL
+ * Ledger. The token exists so ADR 1's expected-revision conflict rule has
+ * something to check against; these pin the two properties that makes it
+ * trustworthy — it moves on every accepted write, and it does NOT move for
+ * anything else.
+ */
+describe('per-entity revision (ADR 2 D3)', () => {
+  const revisionOf = (svc: ReturnType<typeof harness>['svc'], id: string): number | undefined =>
+    svc.get(id)?.revision
+
+  it('starts at 1 on create and increments on EVERY accepted write', () => {
+    const { svc } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(wire.revision).toBe(1)
+    expect(svc.update(wire.id, { title: 'B' }).revision).toBe(2)
+    expect(svc.update(wire.id, { title: 'C' }).revision).toBe(3)
+    expect(svc.update(wire.id, { priority: 1 }).revision).toBe(4)
+    expect(revisionOf(svc, wire.id)).toBe(4)
+  })
+
+  it('is per-entity, not a feed position — two issues advance independently', () => {
+    // The category error D3 exists to prevent: `seq` is global across entities,
+    // so two clients editing different issues have wildly different seqs with no
+    // bearing on either issue's staleness. Revision is the per-entity answer.
+    const { svc, ledger } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.update(a.id, { title: 'A2' })
+    svc.update(a.id, { title: 'A3' })
+    expect(revisionOf(svc, a.id)).toBe(3)
+    expect(revisionOf(svc, b.id)).toBe(1) // untouched by A's writes
+    expect(ledger.cursor()).toBeGreaterThan(3) // the feed seq is a different number
+  })
+
+  it('rides the change payload, so a replica folding the feed sees the same token as the wire', () => {
+    const { svc, appended } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    appended.length = 0
+    const updated = svc.update(wire.id, { title: 'B' })
+    const change = appended.flat().find((c) => c.id === wire.id && c.op === 'upsert') as {
+      value?: { revision?: number }
+    }
+    expect(change?.value?.revision).toBe(updated.revision)
+    expect(change?.value?.revision).toBe(2)
+  })
+
+  it('survives a reboot: it lives in the row, not in memory', () => {
+    const { store, svc } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.update(wire.id, { title: 'B' })
+    expect(store.issues.getIssue(wire.id)?.revision).toBe(2)
+    // A fresh write against the persisted row continues the sequence rather than
+    // restarting it — the value is read back from SQL at each write.
+    svc.update(wire.id, { title: 'C' })
+    expect(store.issues.getIssue(wire.id)?.revision).toBe(3)
+  })
+
+  it('rolls back with the transaction: a failed write burns no revision', () => {
+    const { store, ledger, svc } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'original', startNow: false })
+    const row = store.issues.listIssueRows().find((r) => r.id === wire.id)
+    if (!row) throw new Error('row missing')
+    expect(() =>
+      ledger.commit({
+        write: () => store.issues.upsertIssue({ ...row, title: 'mutated' }),
+        changes: () => {
+          throw new Error('declaration failed')
+        },
+      }),
+    ).toThrow('declaration failed')
+    // upsertIssue assigned revision 2 inside the span; the throw rolled the row
+    // back, so the token must have gone with it — a burned revision would leave
+    // the authority claiming a write that never landed, and the next real write
+    // would skip a number the client can never account for.
+    expect(store.issues.getIssue(wire.id)?.revision).toBe(1)
+    expect(svc.update(wire.id, { title: 'next' }).revision).toBe(2)
+  })
+
+  // ---- The dedup interaction (the one that could quietly break either half) ----
+
+  it('does NOT burn on a write-less reconcile — the dedup keeps working', () => {
+    // The byte-equality baseline exists to stop no-op churn, and a revision that
+    // moved on every republish would defeat it AND lie about writes that never
+    // happened. Reconcile is the write-less path (full-list rebroadcast on
+    // session churn / staleness flips); it never reaches upsertIssue, so
+    // nothing moves and nothing is appended.
+    const { svc, ledger, appended } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const before = revisionOf(svc, wire.id)
+    appended.length = 0
+    const cursorBefore = ledger.cursor()
+
+    // Two republishes of unchanged truth.
+    ledger.reconcile('issue', [{ id: wire.id, value: svc.get(wire.id) }])
+    ledger.reconcile('issue', [{ id: wire.id, value: svc.get(wire.id) }])
+
+    expect(appended.flat()).toEqual([]) // fully deduped
+    expect(ledger.cursor()).toBe(cursorBefore) // nothing appended
+    expect(revisionOf(svc, wire.id)).toBe(before) // and no revision burned
+  })
+
+  it('a DERIVED ripple republishes under an UNCHANGED revision', () => {
+    // An issue's wire row carries derived data (ready/blocked, child counts,
+    // sessions). Closing A flips B's `ready` with no write touching B — so B's
+    // wire value must change while B's revision must NOT: a client holding an
+    // in-flight expectedRevision for B has not been made stale by someone else's
+    // edit, and bumping here would reject its write for no reason.
+    const { svc, appended } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.addDep(b.id, a.id, 'blocks')
+    const bRevision = revisionOf(svc, b.id)
+    expect(svc.get(b.id)?.blocked).toBe(true)
+    appended.length = 0
+
+    svc.close(a.id)
+
+    const ripple = appended
+      .flat()
+      .filter((c) => c.id === b.id && c.op === 'upsert')
+      .pop() as { value?: { ready?: boolean; revision?: number } } | undefined
+    expect(ripple?.value?.ready).toBe(true) // the ripple really was published
+    expect(ripple?.value?.revision).toBe(bRevision) // under B's unchanged token
+    expect(revisionOf(svc, b.id)).toBe(bRevision)
+  })
+
+  it('a repeated write is still an accepted write, and is never deduped away', () => {
+    // Writing the same title twice is a WRITE (the authority accepted it), so it
+    // takes a revision and appends. This is the deliberate reading of "no-op":
+    // a no-op is the write-less reconcile above, not an accepted command whose
+    // payload happens to match. The alternative — suppressing it — would leave
+    // the client's revision behind the authority's with no change row to catch
+    // it up, which is the divergence D3 exists to prevent.
+    const { svc, ledger } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const cursorBefore = ledger.cursor()
+    const again = svc.update(wire.id, { title: 'A' })
+    expect(again.revision).toBe(2)
+    expect(ledger.cursor()).toBeGreaterThan(cursorBefore)
+  })
+})

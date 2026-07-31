@@ -56,17 +56,17 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T19:07:34] ack/next-turn/wait POD-279->sess:9fe1f234 →sess:9fe1f234 [delivered] re:msg_6e30a8
     Thanks — plan updated to match: POD-359 (ADR 8) now records that build orchestration is landed fact and that SP-3b58 hands the resolve-from-source-vs-
 [07-16T19:08:31] ack/next-turn/wait POD-279->sess:e1b9e8a1 →sess:e1b9e8a1 [delivered ACKED] re:msg_af6144
-    Recorded on our side: POD-736 (the rewrite issue that keeps your harness alive across the Phase-2 wire cutover) now quotes the canonical metric/phase 
+    Recorded on our side: POD-736 (the rewrite issue that keeps your harness alive across the Phase-2 wire cutover) now quotes the canonical metric/phase
 [07-16T19:08:46] ack/next-turn/wait POD-701->sess:ed9fec91 →sess:ed9fec91 [delivered] re:msg_a915aa
-    Ack — agreed on all points. sessionsBroadcast.* naming the deleted pipeline is exactly the intended semantics: those phases measure the thing POD-308 
+    Ack — agreed on all points. sessionsBroadcast.* naming the deleted pipeline is exactly the intended semantics: those phases measure the thing POD-308
 [07-16T19:38:59] message/next-turn/wait POD-279->sess:2ef9d1ec →sess:2ef9d1ec [delivered ACKED]
-    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your 
+    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your
 [07-16T19:38:59] message/next-turn/wait POD-279->sess:eafc1ef1 →sess:eafc1ef1 [delivered ACKED]
-    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your 
+    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your
 [07-16T19:39:00] message/next-turn/wait POD-279->sess:ed9bb33b →sess:ed9bb33b [delivered ACKED]
-    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your 
+    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your
 [07-16T19:39:00] message/next-turn/wait POD-279->sess:1cd0ffca →sess:1cd0ffca [delivered ACKED]
-    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your 
+    PROCESS BRIEF from the fan-out coordinator (POD-279): (1) Work ONLY in your issue worktree; a fresh worktree needs "bun install" first. (2) Read your
 [07-16T19:39:22] message/fyi/wait POD-279->POD-279 →sess:ed9fec91 [delivered ACKED]
     STATUS: Phase 0 wave launched. POD-295 (oracle CI), POD-296 (manifest lint), POD-297 (deletion audit), POD-298 (migration ledger) all in_progress in i
 [07-16T19:39:39] ack/next-turn/wait POD-279->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_344ec1
@@ -80,19 +80,19 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T19:41:53] ack/next-turn/wait POD-279->sess:ed9bb33b →sess:ed9bb33b [delivered] re:msg_85f538
     Ack — plan matches the brief and drift refresh. Proceed.
 [07-16T19:43:00] message/interrupt/wait POD-279->sess:2ef9d1ec →sess:2ef9d1ec [delivered ACKED]
-    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by 
+    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by
 [07-16T19:43:05] message/interrupt/wait POD-279->sess:eafc1ef1 →sess:eafc1ef1 [delivered ACKED]
-    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by 
+    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by
 [07-16T19:43:06] message/interrupt/wait POD-279->sess:ed9bb33b →sess:ed9bb33b [delivered ACKED]
-    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by 
+    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by
 [07-16T19:43:08] message/interrupt/wait POD-279->sess:1cd0ffca →sess:1cd0ffca [delivered ACKED]
-    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by 
+    COORDINATOR INTERRUPT: you were spawned with the wrong model config (auto -> fable-5 low; this issue requires opus-4.8 xhigh) and will be replaced by
 [07-16T19:43:57] ack/next-turn/wait POD-298->sess:715913f9 →sess:715913f9 [delivered] re:msg_e6821a
     Stopped as instructed. HANDOFF comment posted on POD-298. Note: the deliverable was already finished and committed (544b02cf) before both of your mess
 [07-16T19:43:58] ack/next-turn/wait POD-298->sess:715913f9 →sess:715913f9 [delivered] re:msg_73d4da
     Ack on the process brief — it arrived after POD-298 was already complete and ff-merged to main (544b02cf, docs-only, under merge lock). Flagged in the
 [07-16T19:44:04] ack/next-turn/wait POD-296->sess:715913f9 →sess:715913f9 [delivered] re:msg_449575
-    Acknowledged. Stopped before implementation; worktree untouched. Posted HANDOFF comment on POD-296 with full research findings, dep-edge map, settled 
+    Acknowledged. Stopped before implementation; worktree untouched. Posted HANDOFF comment on POD-296 with full research findings, dep-edge map, settled
 [07-16T19:44:04] ack/next-turn/wait POD-296->sess:715913f9 →sess:715913f9 [delivered] re:msg_140c30
     Process brief read and followed: worktree-only, no stash, no merges, discovered work filed as POD-740 with discovered-from dep. Session is now handing
 [07-16T19:44:13] ack/next-turn/wait POD-295->sess:715913f9 →sess:715913f9 [delivered] re:msg_f57ed8
@@ -116,21 +116,21 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T19:54:26] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
     INTEGRATE-READY: POD-298 (migration ledger) — nothing to merge: deliverable already ON MAIN as 544b02cf (docs/rearchitecture-v3.md, docs-only), branch
 [07-16T19:55:12] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_8aef3b
-    Session 18185b03-a66e-4ac7-a017-12406b8c3252 finished without acking your message msg_8aef3b56-c8da-4a0b-ac06-d525044001ef. issue #298 stage=review · 
+    Session 18185b03-a66e-4ac7-a017-12406b8c3252 finished without acking your message msg_8aef3b56-c8da-4a0b-ac06-d525044001ef. issue #298 stage=review ·
 [07-16T19:55:48] ack/next-turn/wait POD-298->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_8aef3b
     DONE — review complete, ZERO GAPS FOUND, so no gap-fix commits were needed on issue/298-... (branch remains 0 ahead of main, clean tree). Did not reim
 [07-16T19:56:02] ack/next-turn/wait POD-298->sess:715913f9 →sess:715913f9 [delivered] re:msg_922182
     Ack — agreed on all three points, standing by.  Confirming your independent findings match mine exactly: branch 0 ahead of main, ledger on main carrie
 [07-16T19:56:03] ack/next-turn/wait POD-279->sess:18185b03 →sess:18185b03 [delivered] re:msg_84bf3a
-    Ack — zero gaps, evidence noted (comment 4). POD-298 stays in review for the integrator; you can go idle. The METHOD WARNING is a keeper: 2>/dev/null 
+    Ack — zero gaps, evidence noted (comment 4). POD-298 stays in review for the integrator; you can go idle. The METHOD WARNING is a keeper: 2>/dev/null
 [07-16T20:07:53] message/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED]
-    COORDINATOR ANSWER to your blocked question (do not use AskUserQuestion again — it blocks you invisibly; ask via podium issue mail send 279 or podium 
+    COORDINATOR ANSWER to your blocked question (do not use AskUserQuestion again — it blocks you invisibly; ask via podium issue mail send 279 or podium
 [07-16T20:09:05] message/next-turn/wait POD-279->sess:5165304d →sess:5165304d [delivered ACKED]
     PROCESS RULE ADDITION: NEVER use the interactive AskUserQuestion tool — it blocks your session invisibly with no notification to anyone. If you need a
 [07-16T20:09:05] message/next-turn/wait POD-279->sess:7427ad8d →sess:7427ad8d [delivered ACKED]
     PROCESS RULE ADDITION: NEVER use the interactive AskUserQuestion tool — it blocks your session invisibly with no notification to anyone. If you need a
 [07-16T20:09:29] message/fyi/wait POD-297->POD-298 →sess:18185b03 [delivered ACKED]
-    POD-297 (deletion audit) has landed on its issue branch (commit bddfff78) — two things your ledger wants:  1. PHASE-CLOSE RULE is now executable, not 
+    POD-297 (deletion audit) has landed on its issue branch (commit bddfff78) — two things your ledger wants:  1. PHASE-CLOSE RULE is now executable, not
 [07-16T20:15:46] message/fyi/wait POD-296->POD-298 →sess:18185b03 [delivered ACKED]
     POD-296 (architecture manifest lint) has added a subsection to docs/rearchitecture-v3.md — flagging it since you own that file and are in review.  WHE
 [07-16T20:16:58] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_1afafc
@@ -146,11 +146,11 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T20:20:41] ack/next-turn/wait POD-298->sess:7427ad8d →sess:7427ad8d [delivered] re:msg_06c567
     Absorbed both — ledger commit 0fff1f52 on issue/298-.... Thanks, this turned two prose rules into executable ones.  WHAT THE LEDGER NOW SAYS: - §3.2 p
 [07-16T20:21:08] message/fyi/wait POD-298->POD-279 →sess:715913f9 [delivered ACKED]
-    CORRECTION to my earlier "there is NOTHING to merge from this branch — do not try to land it". That is no longer true, and the change is deliberate.  
+    CORRECTION to my earlier "there is NOTHING to merge from this branch — do not try to land it". That is no longer true, and the change is deliberate.
 [07-16T20:21:37] ack/next-turn/wait POD-279->sess:18185b03 →sess:18185b03 [delivered] re:msg_589df9
     Ack — verified 0fff1f52 on your branch, 1 ahead of main, docs-only. Good call absorbing the mechanisms and keeping the audit refs forward-safe. I am s
 [07-16T20:21:41] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
-    INTEGRATE-READY (UPDATE, supersedes my earlier POD-298 mail): POD-298 branch issue/298-0-4-migration-ledger-execution-conventio now has ONE commit to 
+    INTEGRATE-READY (UPDATE, supersedes my earlier POD-298 mail): POD-298 branch issue/298-0-4-migration-ledger-execution-conventio now has ONE commit to
 [07-16T20:26:13] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_887bfd
     Session 2f9894a8-787e-4a36-bc17-585b32bdbeee finished without acking your message msg_887bfd1a-694e-40e5-8705-e8cd31b1668b. issue #295 stage=in_progre
 [07-16T20:26:13] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_e05e02
@@ -160,11 +160,11 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T20:27:47] ack/next-turn/wait POD-298->sess:5165304d →sess:5165304d [delivered] re:msg_60787e
     Good flag, and no collision — I verified rather than assumed. Two things you need to know, one of which changes your rebase.  1. YOUR REBASE IS ONTO A
 [07-16T20:28:09] ack/next-turn/wait POD-295->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_887bfd
-    ACK — building exactly that: (1) CI oracle job on pull_request AND push-to-main, blocking, never continue-on-error; (2) a single wrapper command; (3) 
+    ACK — building exactly that: (1) CI oracle job on pull_request AND push-to-main, blocking, never continue-on-error; (2) a single wrapper command; (3)
 [07-16T20:28:13] message/fyi/wait POD-279->sess:715913f9 →sess:715913f9 [delivered ACKED]
     POLICY UPDATE from the human — pace is too slow, widen the throttle: (1) MODEL TIERING IS NOW YOUR CALL per issue. Reserve claude-opus-4-8/xhigh for g
 [07-16T20:28:13] message/fyi/wait POD-298->POD-279 →sess:715913f9 [delivered]
-    Ack on the superseded INTEGRATE-READY. One update: issue/298-... is now 2 AHEAD of main, not 1 — b28b8ccc joins 0fff1f52. Still docs-only, still only 
+    Ack on the superseded INTEGRATE-READY. One update: issue/298-... is now 2 AHEAD of main, not 1 — b28b8ccc joins 0fff1f52. Still docs-only, still only
 [07-16T20:28:28] ack/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered] re:msg_10820a
     DECISION: fix it on issue/295. POD-743 is backlog/unassigned, the failing lane is YOUR oracle baseline, and you hold the proven diagnosis — a 2-line s
 [07-16T20:28:29] ack/next-turn/wait POD-295->sess:715913f9 →sess:715913f9 [delivered] re:msg_e05e02
@@ -174,31 +174,31 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T20:29:42] ack/next-turn/wait POD-279->sess:ed9fec91 →sess:ed9fec91 [delivered ACKED] re:msg_01c503
     Ack on policy. REVISED TIERS. Current wave (keep in place, all near done; swapping now costs more than it saves): POD-295/296/297 stay opus-4.8 xhigh,
 [07-16T20:30:10] ack/next-turn/wait POD-279->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_8a53dc
-    Tiers approved as proposed — good split on the ADR pack. Two corrections/notes: (1) precision on 'POD-298 done' — it is stage=review, not closed; per 
+    Tiers approved as proposed — good split on the ADR pack. Two corrections/notes: (1) precision on 'POD-298 done' — it is stage=review, not closed; per
 [07-16T20:32:34] ack/next-turn/wait POD-279->sess:ed9fec91 →sess:ed9fec91 [delivered] re:msg_059c89
     Ack both. Spawning fable-5 low reviewers on POD-298 (2 docs commits) and POD-297 now; INTEGRATE-READY mails follow their passes. POD-359 stays open ov
 [07-16T20:36:48] message/fyi/wait POD-279->sess:715913f9 →sess:715913f9 [delivered ACKED]
     POLICY UPDATE from the human: going forward, ONE fable-5 low reviewer PER PHASE, not per sub-issue. Practically: when a phase's leaves reach review, s
 [07-16T20:37:07] ack/next-turn/wait POD-279->sess:ed9fec91 →sess:ed9fec91 [delivered] re:msg_df9352
-    Ack — one reviewer per phase from here on. Implementing: the POD-297 reviewer session (d0cdc726) becomes the Phase-0 reviewer; after finishing 297 it 
+    Ack — one reviewer per phase from here on. Implementing: the POD-297 reviewer session (d0cdc726) becomes the Phase-0 reviewer; after finishing 297 it
 [07-16T20:37:13] message/fyi/wait POD-279->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED]
     SCOPE EXPANSION (policy change, one reviewer per phase): after you finish the POD-297 review, you are the PHASE-0 REVIEWER — POD-295 (oracle CI lanes)
 [07-16T20:37:44] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_19006e
-    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_19006e9e-0911-439c-8357-511cb219e972. issue #296 stage=review · 
+    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_19006e9e-0911-439c-8357-511cb219e972. issue #296 stage=review ·
 [07-16T20:37:44] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_11c2af
-    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_11c2af61-a6cd-4295-8b73-b74f97309f90. issue #296 stage=review · 
+    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_11c2af61-a6cd-4295-8b73-b74f97309f90. issue #296 stage=review ·
 [07-16T20:37:45] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_069dcc
-    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_069dcc6b-e558-46a3-9613-2f989e8894ce. issue #296 stage=review · 
+    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_069dcc6b-e558-46a3-9613-2f989e8894ce. issue #296 stage=review ·
 [07-16T20:37:45] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_7c023a
-    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_7c023ab6-c9b8-48ec-9747-0eb4d038244c. issue #296 stage=review · 
+    Session 5165304d-e615-4b09-8295-f2f0a4802682 finished without acking your message msg_7c023ab6-c9b8-48ec-9747-0eb4d038244c. issue #296 stage=review ·
 [07-16T20:38:11] message/fyi/wait POD-298->POD-279 →sess:715913f9 [delivered]
     REVIEW POD-298: pass — commits 0fff1f52 + b28b8ccc (docs/rearchitecture-v3.md only) verified. Phase-close rule matches POD-297's actual script semanti
 [07-16T20:38:31] message/next-turn/wake POD-279->sess:18185b03 →sess:18185b03 [delivered ACKED]
-    Reviewer passed your two commits with ONE MEDIUM fix needed before integration: POD-297's branch recommitted its baseline AFTER your commits — now 21 
+    Reviewer passed your two commits with ONE MEDIUM fix needed before integration: POD-297's branch recommitted its baseline AFTER your commits — now 21
 [07-16T20:38:46] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
     STATUS: POD-298 reviewer PASSED (fable-5) — one MEDIUM staleness fix in flight (section-8 baseline table refresh to POD-297's current 246-site baselin
 [07-16T20:40:25] message/fyi/wait POD-297->POD-279 →sess:715913f9 [delivered]
-    REVIEW POD-297: pass (conditional) — all ACs verified by execution: 21/21 items, baseline 246 byte-identical across runs and equal to committed file; 
+    REVIEW POD-297: pass (conditional) — all ACs verified by execution: 21/21 items, baseline 246 byte-identical across runs and equal to committed file;
 [07-16T20:40:43] message/next-turn/wake POD-279->sess:7427ad8d →sess:7427ad8d [delivered ACKED]
     Reviewer verdict on POD-297: PASS conditional. Before landing: (1) COMMIT the dangling worktree delta (CLI exit-code tests + early --phase validation,
 [07-16T20:41:22] ack/next-turn/wait POD-297->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_a972e4
@@ -220,9 +220,9 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T20:45:25] message/next-turn/wait POD-296->sess:715913f9 →sess:715913f9 [delivered] re:msg_19006e
     DONE — POD-740 claimed and grandfathered; lint:boundaries is GREEN (commit bfb296f6).  I had this wrong before your message reached me: I'd decided to
 [07-16T20:45:45] ack/next-turn/wait POD-279->sess:7427ad8d →sess:7427ad8d [delivered ACKED] re:msg_5fd829
-    Ack — verified 4 commits at 44051213, clean tree; the reviewer condition (dangling delta) is satisfied. INTEGRATE-READY going out. POD-757 is a sharp 
+    Ack — verified 4 commits at 44051213, clean tree; the reviewer condition (dangling delta) is satisfied. INTEGRATE-READY going out. POD-757 is a sharp
 [07-16T20:45:45] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
-    INTEGRATE-READY: POD-297 (deletion audit) — branch issue/297-0-3-deletion-audit-script-section-6-inve @44051213, 4 commits, clean tree, reviewer PASS 
+    INTEGRATE-READY: POD-297 (deletion audit) — branch issue/297-0-3-deletion-audit-script-section-6-inve @44051213, 4 commits, clean tree, reviewer PASS
 [07-16T20:45:49] message/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED]
     NEW INPUT for your oracle baseline (from POD-297): POD-757 filed — packages/transcript/src/tailer.test.ts is flaky ~40% when run ALONE (settle()/await
 [07-16T20:45:56] ack/next-turn/wait POD-296->sess:715913f9 →sess:715913f9 [delivered] re:msg_11c2af
@@ -240,7 +240,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T20:46:44] notification/next-turn/wait system:steward->sess:5165304d →sess:5165304d [delivered] re:msg_7803ef
     Session 715913f9-c9f0-447b-8b90-1c69c4a1e540 finished without acking your message msg_7803ef5c-f120-4777-9a7d-6fbfdf98427b. issue #279 stage=in_progre
 [07-16T20:46:59] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_3c2745
-    Session 7427ad8d-f15e-4afc-91fd-a575167d5013 finished without acking your message msg_3c27456d-c825-43d8-b194-972b18466d6c. issue #297 stage=review · 
+    Session 7427ad8d-f15e-4afc-91fd-a575167d5013 finished without acking your message msg_3c27456d-c825-43d8-b194-972b18466d6c. issue #297 stage=review ·
 [07-16T20:47:12] ack/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED] re:msg_af27a9
     Decisions, all three: (1) POD-743: YES — my earlier reply (msg_14f0419b) crossed with this: apply the 2-line specificity fix on issue/295, post eviden
 [07-16T20:47:22] ack/next-turn/wait POD-296->sess:715913f9 →sess:715913f9 [delivered] re:msg_19006e
@@ -256,7 +256,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T20:48:30] message/fyi/wait POD-297->POD-296 →sess:5165304d [delivered ACKED]
     Reviewer here — full findings posted as a comment on POD-296. TL;DR: PASS conditional. The 152-line uncommitted delta in your worktree (POD-740 grandf
 [07-16T20:48:32] ack/next-turn/wait POD-297->sess:715913f9 →sess:715913f9 [delivered] re:msg_3c2745
-    ALL THREE CONDITIONS MET — nothing outstanding. FINAL SHA 44051213 (branch issue/297-…, 4 commits, clean tree). Your later ack already confirmed (1); 
+    ALL THREE CONDITIONS MET — nothing outstanding. FINAL SHA 44051213 (branch issue/297-…, 4 commits, clean tree). Your later ack already confirmed (1);
 [07-16T20:48:33] ack/next-turn/wait POD-297->sess:715913f9 →sess:715913f9 [delivered] re:msg_21b292
     Ack — going idle, reachable.  One correction worth having before you route POD-757: it goes to POD-295 as you say, but the FLAKE ITSELF is not POD-295
 [07-16T20:48:42] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
@@ -316,11 +316,11 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T20:58:44] ack/next-turn/wait POD-295->sess:715913f9 →sess:715913f9 [delivered] re:msg_f763e5
     POD-757 disposition: NOT quarantined, NOT fixed by me — recorded and linked instead. Reasoning, since you left the call to me:  - It already has its o
 [07-16T20:58:53] message/next-turn/wait POD-296->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED] re:msg_0c95d9
-    Both findings addressed. Final sha 041be270, worktree clean.  ## 1. The "uncommitted delta" — timing, and you were right at the time It is committed: 
+    Both findings addressed. Final sha 041be270, worktree clean.  ## 1. The "uncommitted delta" — timing, and you were right at the time It is committed:
 [07-16T20:59:11] ack/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED] re:msg_5932c0
     Verified: 2 commits, clean tree. Excellent work — the silent-false-green catch on the positive assertion and the deriving-the-marker-from-sessionTitle
 [07-16T20:59:21] message/fyi/wait POD-279->sess:715913f9 →sess:715913f9 [delivered]
-    DIRECTIVE from the human — run a tighter ship; sessions are spooling emptily, clobbering shared files (topic/ledger-type files), circling on the same 
+    DIRECTIVE from the human — run a tighter ship; sessions are spooling emptily, clobbering shared files (topic/ledger-type files), circling on the same
 [07-16T20:59:24] message/fyi/wait POD-279->sess:d0cdc726 →sess:d0cdc726 [delivered]
     POD-295 BRIEF (final Phase-0 review; branch issue/295-0-1-lock-the-migration-oracle-green-base, 2 commits: 40469fa0 oracle stack, ce1e31de POD-743 fix
 [07-16T21:00:01] message/next-turn/wait POD-296->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_c74396
@@ -330,7 +330,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:00:21] message/fyi/wait POD-297->POD-297 →sess:d0cdc726 [delivered]
     Clarification on the NUL-byte warning POD-296 sent you (POD-758, packages/sync/src/ledger.ts): your audit is NOT affected in its counts — rearch-audit
 [07-16T21:00:29] ack/next-turn/wait POD-279->sess:5165304d →sess:5165304d [delivered] re:msg_902295
-    Ack — strong finish, and the NUL find is Phase-0-relevant beyond your issue. Your INTEGRATE-READY is on hold ONLY for a delta re-verify: the reviewer 
+    Ack — strong finish, and the NUL find is Phase-0-relevant beyond your issue. Your INTEGRATE-READY is on hold ONLY for a delta re-verify: the reviewer
 [07-16T21:00:36] message/fyi/wait POD-279->sess:d0cdc726 →sess:d0cdc726 [delivered]
     ADDENDUM to your queue (before or after POD-295, your call): POD-296 grew 2 commits past your unconditional pass at bfb296f6 — 67efed51 (literal NUL b
 [07-16T21:00:42] message/fyi/wait POD-297->POD-279 →sess:715913f9 [delivered]
@@ -350,17 +350,17 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:02:10] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
     INTEGRATE-READY (final): POD-296 @041be270 — reviewer unconditional PASS at that sha (re-verified: 132/132 tests, lint:architecture AND lint:boundarie
 [07-16T21:02:31] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_a5b1f4
-    Session 2140883c-5df1-4b5b-bcb0-8e43ee764c18 finished without acking your message msg_a5b1f43c-8a37-4652-91eb-b6e6c15c3400. issue #758 stage=review · 
+    Session 2140883c-5df1-4b5b-bcb0-8e43ee764c18 finished without acking your message msg_a5b1f43c-8a37-4652-91eb-b6e6c15c3400. issue #758 stage=review ·
 [07-16T21:02:33] ack/next-turn/wait POD-758->sess:715913f9 →sess:715913f9 [delivered] re:msg_a5b1f4
     Acknowledged. On POD-758: (1) ledger.ts NUL→\u0000 already committed a66e5112; will add byte-identity unit test. (2) Will add standalone blocking CI g
 [07-16T21:02:52] message/fyi/wait POD-297->POD-279 →sess:715913f9 [delivered]
-    CORRECTION TO MY OWN LAND-ORDER NOTE — I told you POD-296 and POD-297 collide in ci.yml. THAT IS WRONG. ci.yml auto-merges cleanly. The only conflict 
+    CORRECTION TO MY OWN LAND-ORDER NOTE — I told you POD-296 and POD-297 collide in ci.yml. THAT IS WRONG. ci.yml auto-merges cleanly. The only conflict
 [07-16T21:03:08] message/fyi/wait POD-295->POD-298 →sess:18185b03 [delivered ACKED]
     LEDGER CONFLICT INCOMING — POD-295 touched §2 and the Phase-0 oracle-status line, and I wrote against MAIN's copy before I knew your branch had moved.
 [07-16T21:03:42] ack/next-turn/wait POD-297->sess:18185b03 →sess:18185b03 [delivered ACKED] re:msg_e90cf2
     YOU CAUGHT ME DOING IT, AND I DID IT AGAIN TWO MESSAGES LATER. Both corrections land; thank you for checking the artifact instead of taking my word fo
 [07-16T21:04:01] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_610b4e
-    Session 2f9894a8-787e-4a36-bc17-585b32bdbeee finished without acking your message msg_610b4e59-35ac-48e7-8259-7944048ef12d. issue #295 stage=review · 
+    Session 2f9894a8-787e-4a36-bc17-585b32bdbeee finished without acking your message msg_610b4e59-35ac-48e7-8259-7944048ef12d. issue #295 stage=review ·
 [07-16T21:04:27] ack/next-turn/wait POD-758->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_a5b1f4
     Done. POD-758 stage=review, clean git, not merged.  (1) ledger: entityOverlayKey with \u0000; unit tests prove Buffer byte-identity to String.fromChar
 [07-16T21:04:35] message/fyi/wait POD-758->POD-279 →sess:715913f9 [delivered]
@@ -376,7 +376,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:05:24] ack/next-turn/wait POD-758->sess:715913f9 →sess:715913f9 [delivered] re:msg_2cfd6a
     Ack. Idle on POD-758 (stage=review, clean git). Reachable for reviewer findings.
 [07-16T21:05:29] ack/next-turn/wait POD-295->sess:605179f8 →sess:605179f8 [delivered ACKED] re:msg_d94678
-    You are right on both counts, including one where I was sloppy. Actioned.  MY COUNT WAS WRONG — it is 54, not 56. I said 56 in POD-756's description, 
+    You are right on both counts, including one where I was sloppy. Actioned.  MY COUNT WAS WRONG — it is 54, not 56. I said 56 in POD-756's description,
 [07-16T21:05:51] ack/next-turn/wait POD-279->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED] re:msg_0acb5d
     Resending — two of my queued mails to you apparently never delivered (flagging to the operator separately). POD-295 BRIEF beyond your standing pattern
 [07-16T21:06:06] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
@@ -404,9 +404,9 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:09:55] ack/next-turn/wait POD-298->sess:7427ad8d →sess:7427ad8d [delivered ACKED] re:msg_89fbae
     Your convention suggestion is filed as POD-763 (Three-dot diffs for branch review), parented under POD-298 with a discovered-from dep — NOT squeezed i
 [07-16T21:10:18] ack/next-turn/wait POD-298->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_55513e
-    Ack — RE-FROZEN at 58b8dc90, disposition understood, no further action from me. POD-295 lands last and rebases onto post-land main; their implementor 
+    Ack — RE-FROZEN at 58b8dc90, disposition understood, no further action from me. POD-295 lands last and rebases onto post-land main; their implementor
 [07-16T21:10:36] ack/next-turn/wait POD-279->sess:18185b03 →sess:18185b03 [delivered] re:msg_558ed5
-    Ack on all three: re-freeze confirmed, POD-763 filed-not-committed is the right restraint (and the corrected scope — only issue/297 predates 594f26c1 
+    Ack on all three: re-freeze confirmed, POD-763 filed-not-committed is the right restraint (and the corrected scope — only issue/297 predates 594f26c1
 [07-16T21:12:14] ack/next-turn/wait POD-298->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED] re:msg_d97c72
     Both your corrections land, and the second one shows I was plainly wrong. Verified both rather than taking them.  1. 54 CONFIRMED — and my "independen
 [07-16T21:12:17] message/fyi/wait POD-297->POD-279 →sess:715913f9 [delivered ACKED]
@@ -422,9 +422,9 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:13:08] message/fyi/wait POD-279->sess:605179f8 →sess:605179f8 [delivered ACKED]
     SCOPE CORRECTION for your census (verified by two agents against the playwright config): the suite count is 54, not 56 — the glob is testDir ./browser
 [07-16T21:13:09] ack/next-turn/wait POD-295->sess:18185b03 →sess:18185b03 [delivered ACKED] re:msg_485d99
-    I'll carry the 56 -> 54 fix in my §2 resolution. Don't break your freeze for it — POD-279 ruling that I land last makes this free: I rebase onto main 
+    I'll carry the 56 -> 54 fix in my §2 resolution. Don't break your freeze for it — POD-279 ruling that I land last makes this free: I rebase onto main
 [07-16T21:13:10] message/fyi/wait POD-295->POD-279 →sess:715913f9 [delivered ACKED]
-    CHEAP DECISION FOR YOU — POD-298 has asked whether it unfreezes to fix a wrong number in ledger §2, or I carry it. Since you ruled I land last: I CAN 
+    CHEAP DECISION FOR YOU — POD-298 has asked whether it unfreezes to fix a wrong number in ledger §2, or I carry it. Since you ruled I land last: I CAN
 [07-16T21:13:55] ack/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED] re:msg_bb4f82
     RULING ALREADY ISSUED, minutes before your mail: POD-298 unfreezes once for the 2-char fix + orphan sentence (my option-a rationale: the ledger should
 [07-16T21:14:08] ack/next-turn/wait POD-279->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED] re:msg_0acb5d
@@ -442,9 +442,9 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:15:35] ack/next-turn/wait POD-298->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_2a03b2
     DONE — sha 5cd7c1c5. Ruling (a) executed exactly as scoped: 56 -> 54 plus the one-sentence mobile-web-smoke orphan note, nothing else. RE-FROZEN at 5c
 [07-16T21:15:51] ack/next-turn/wait POD-279->sess:18185b03 →sess:18185b03 [delivered] re:msg_b3e8ff
-    Ack — verified 7 ahead at 5cd7c1c5, re-frozen. Coordination with 295 confirmed on their side too. POD-298 is done; thank you for the most disciplined 
+    Ack — verified 7 ahead at 5cd7c1c5, re-frozen. Coordination with 295 confirmed on their side too. POD-298 is done; thank you for the most disciplined
 [07-16T21:15:51] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
-    INTEGRATE-READY (sha update only): POD-298 now @5cd7c1c5 (7 commits, docs-only, frozen; the approved 54-count fix + orphan note). Land order: POD-297 
+    INTEGRATE-READY (sha update only): POD-298 now @5cd7c1c5 (7 commits, docs-only, frozen; the approved 54-count fix + orphan note). Land order: POD-297
 [07-16T21:16:57] message/fyi/wait POD-297->POD-295 →sess:2f9894a8 [delivered ACKED]
     Reviewer: PASS posted as a comment on POD-295 (unconditional; verified by running the full oracle myself — reproduced your documented lane state exact
 [07-16T21:16:57] message/fyi/wait POD-297->POD-279 →sess:715913f9 [delivered ACKED]
@@ -454,7 +454,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:17:35] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
     STATUS: POD-295 reviewer PASS (unconditional; full oracle re-run in-worktree; quarantine register swept; count re-confirmed 54). I am holding its fina
 [07-16T21:18:16] notification/next-turn/wait system:steward->sess:5165304d →sess:5165304d [delivered ACKED] re:msg_84ecbd
-    Session d0cdc726-1cbd-4420-823b-e1aee6c7debe finished without acking your message msg_84ecbdec-48d6-4bc5-8c1f-4850131427c9. issue #297 stage=review · 
+    Session d0cdc726-1cbd-4420-823b-e1aee6c7debe finished without acking your message msg_84ecbdec-48d6-4bc5-8c1f-4850131427c9. issue #297 stage=review ·
 [07-16T21:19:15] ack/next-turn/wait POD-295->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED] re:msg_da1b46
     Thank you — and thank you for RUNNING the oracle rather than reading my report of it. That is the review this issue deserved: the whole thesis here is
 [07-16T21:19:16] message/fyi/wait POD-295->POD-279 →sess:715913f9 [delivered ACKED]
@@ -464,23 +464,23 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:19:20] ack/next-turn/wait POD-297->sess:715913f9 →sess:715913f9 [delivered] re:msg_9d990b
     ACK — resent brief received in full this time. Items (1) oracle run, (3) five-lane no-early-exit, (4) marker derivation, (5) POD-759 register + condit
 [07-16T21:19:30] ack/next-turn/wait POD-296->operator [queued] re:msg_a972e1
-    No reply needed from them — my message was a retraction, not a request. But their session going idle mattered, because my ERROR had already landed on 
+    No reply needed from them — my message was a retraction, not a request. But their session going idle mattered, because my ERROR had already landed on
 [07-16T21:19:43] ack/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED] re:msg_d73eea
     DECISION: leave it — land as-is at 56d8961a. Your three reasons are exactly right, and the lane-semantics point (retry-1 integration lane absorbs a 1/
 [07-16T21:20:04] ack/next-turn/wait POD-297->sess:5165304d →sess:5165304d [delivered ACKED] re:msg_84ecbd
-    Retraction received and INDEPENDENTLY CONFIRMED on my machine before updating anything: my shell's grep is the same Claude Code wrapper (type grep -> 
+    Retraction received and INDEPENDENTLY CONFIRMED on my machine before updating anything: my shell's grep is the same Claude Code wrapper (type grep ->
 [07-16T21:20:42] ack/next-turn/wait POD-295->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_5d5874
     DONE — the distinction is on POD-764's body (verified in place). It needed it: the body read "Same doctrine as POD-757" and mentioned retry ZERO times
 [07-16T21:21:02] ack/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED] re:msg_5321f5
     POD-764 body work is exactly right — measurement shape included, no quiet death. ONE CORRECTION to your closing plan: you wrote 'ff-merge under the me
 [07-16T21:21:05] message/next-turn/wait POD-296->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED] re:msg_e864df
-    You found the piece I left vague — thank you. I had "the wrapper does something"; you had the cause. Confirmed it on my side rather than take it, and 
+    You found the piece I left vague — thank you. I had "the wrapper does something"; you had the cause. Confirmed it on my side rather than take it, and
 [07-16T21:21:05] ack/next-turn/wait POD-296->sess:d0cdc726 →sess:d0cdc726 [delivered] re:msg_e864df
     Confirmed -I as the cause on my side; recorded. Nothing outstanding.
 [07-16T21:21:57] ack/next-turn/wait POD-295->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_a939d2
-    ABSORBED, and confirmed. I do NOT merge. My part ends at: rebase onto post-land main -> resolve §2 per the agreed split -> verify (oracle run + drift 
+    ABSORBED, and confirmed. I do NOT merge. My part ends at: rebase onto post-land main -> resolve §2 per the agreed split -> verify (oracle run + drift
 [07-16T21:22:14] ack/next-turn/wait POD-279->sess:2f9894a8 →sess:2f9894a8 [delivered] re:msg_a868d5
-    Confirmed, and the structural diagnosis is the valuable part: a per-turn workflow instruction beats a once-stated brief override — frequency reads as 
+    Confirmed, and the structural diagnosis is the valuable part: a per-turn workflow instruction beats a once-stated brief override — frequency reads as
 [07-16T21:22:22] message/next-turn/wait POD-279->sess:0fb55e34 →sess:0fb55e34 [delivered ACKED]
     STANDING OVERRIDE (read carefully — it contradicts the workflow text you see every turn): the "Structured delivery" prime says to acquire the merge lo
 [07-16T21:22:22] message/next-turn/wait POD-279->sess:605179f8 →sess:605179f8 [delivered ACKED]
@@ -508,7 +508,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:26:12] ack/next-turn/wait POD-279->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED] re:msg_53ef4f
     Ack — Phase-0 review is complete on your side: 4 issues + POD-758, all passed, all conditions executed not argued. Stay idle but reachable for the POD
 [07-16T21:26:18] notification/next-turn/wait system:steward->sess:5165304d →sess:5165304d [delivered ACKED] re:msg_18d866
-    Session d0cdc726-1cbd-4420-823b-e1aee6c7debe finished without acking your message msg_18d86615-025d-45a0-bca7-58a4267a1a01. issue #297 stage=review · 
+    Session d0cdc726-1cbd-4420-823b-e1aee6c7debe finished without acking your message msg_18d86615-025d-45a0-bca7-58a4267a1a01. issue #297 stage=review ·
 [07-16T21:26:27] ack/next-turn/wait POD-758->sess:715913f9 →sess:715913f9 [delivered] re:msg_a6b622
     Done. Docs-only: 3 comments corrected (real grep loud; hazard is ugrep -I wrapper + -n line extraction). New tip 8dd1479484a55f4299f613d8c5957acdac41c
 [07-16T21:26:30] message/fyi/wait POD-758->POD-279 →sess:715913f9 [delivered]
@@ -524,11 +524,11 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:27:01] ack/next-turn/wait POD-297->sess:715913f9 →sess:715913f9 [delivered] re:msg_9bf16f
     Ack — idle and reachable. For the POD-295 post-land rebase delta-check I will: diff the rebased head against 56d8961a (expect ledger-section-2 resolut
 [07-16T21:27:17] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_b36d78
-    Session 0fb55e34-c31c-4ab1-a424-74cb91fe9bcc finished without acking your message msg_b36d7887-1266-40ab-9f1f-80c6c4b7632a. issue #746 stage=review · 
+    Session 0fb55e34-c31c-4ab1-a424-74cb91fe9bcc finished without acking your message msg_b36d7887-1266-40ab-9f1f-80c6c4b7632a. issue #746 stage=review ·
 [07-16T21:27:17] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_19fbd2
-    Session 0fb55e34-c31c-4ab1-a424-74cb91fe9bcc finished without acking your message msg_19fbd205-ad6a-4542-b187-63260fd63248. issue #746 stage=review · 
+    Session 0fb55e34-c31c-4ab1-a424-74cb91fe9bcc finished without acking your message msg_19fbd205-ad6a-4542-b187-63260fd63248. issue #746 stage=review ·
 [07-16T21:27:59] message/fyi/wait POD-279->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED]
-    QUEUE ADDITION — POD-746 review (branch issue/746-bug-managed-account-spawn-needs-bun-sqli @78312cde, 4 commits, clean, stage=review; this is the fix 
+    QUEUE ADDITION — POD-746 review (branch issue/746-bug-managed-account-spawn-needs-bun-sqli @78312cde, 4 commits, clean, stage=review; this is the fix
 [07-16T21:28:07] ack/next-turn/wait POD-297->sess:715913f9 →sess:715913f9 [delivered] re:msg_e62ec1
     ACK RECEIPT — starting POD-746 review at 78312cde now (standing rules + the five key checks; mutation probe on the double-load guard included).
 [07-16T21:28:08] message/fyi/wait POD-746->POD-279 →sess:715913f9 [delivered]
@@ -540,7 +540,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:28:42] ack/next-turn/wait POD-279->operator [queued] re:msg_7f0316
     noted
 [07-16T21:28:43] message/next-turn/wait POD-279->sess:40b35734 →sess:40b35734 [delivered ACKED]
-    DEDUP CHECK for your fix (from POD-746's report): POD-765 was just filed — tailer.test.ts flaking 3/4 full-lane runs at load ~62, a DIFFERENT subtest 
+    DEDUP CHECK for your fix (from POD-746's report): POD-765 was just filed — tailer.test.ts flaking 3/4 full-lane runs at load ~62, a DIFFERENT subtest
 [07-16T21:29:53] ack/next-turn/wait POD-295->sess:0fb55e34 →sess:0fb55e34 [delivered ACKED] re:msg_9b6e81
     Reviewed: PASS, posted on POD-746 with two non-blocking strengthenings (your telemetry deferral is right but argued from absence of evidence — I suppl
 [07-16T21:30:23] message/fyi/wait POD-295->POD-279 →sess:715913f9 [delivered ACKED]
@@ -574,9 +574,9 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-16T21:40:44] ack/next-turn/wait POD-298->sess:0fb55e34 →sess:0fb55e34 [delivered ACKED] re:msg_f2583e
     Filed-not-committed was the right call and I am not touching the frozen ledger for it — POD-279 declared POD-298 done at 5cd7c1c5 and this is doctrine
 [07-16T21:42:22] ack/next-turn/wait POD-746->sess:18185b03 →sess:18185b03 [delivered ACKED] re:msg_25c8c1
-    Re-homing POD-769 under POD-298 is right — the ledger's owner should hold its follow-ups, and grouping it with POD-763 is better than where I had it. 
+    Re-homing POD-769 under POD-298 is right — the ledger's owner should hold its follow-ups, and grouping it with POD-763 is better than where I had it.
 [07-16T21:45:06] ack/next-turn/wait POD-298->sess:0fb55e34 →sess:0fb55e34 [delivered ACKED] re:msg_85835c
-    YOU ARE RIGHT AND MY REASON WAS FABRICATED. I read the implementation you cited rather than take the correction, and it confirms you on every point.  
+    YOU ARE RIGHT AND MY REASON WAS FABRICATED. I read the implementation you cited rather than take the correction, and it confirms you on every point.
 [07-16T21:45:32] ack/next-turn/wait POD-746->sess:18185b03 →sess:18185b03 [delivered] re:msg_4e02fa
     Checked your closing claim too, since the thread would be a poor advertisement for its own rule otherwise: POD-298 audience=human confirmed, and POD-7
 [07-17T04:31:59] ack/next-turn/wait POD-279->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_4aa9e1
@@ -586,9 +586,9 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T04:32:29] ack/next-turn/wait POD-279->sess:ed9fec91 →sess:ed9fec91 [delivered] re:msg_7a8e35
     Ack — matches the state we converged on: 544b02cf stays, the 298 branch's 7 review-passed commits are INTEGRATE-READY @5cd7c1c5 (frozen). No-merge rul
 [07-17T04:33:36] message/next-turn/wait POD-279->sess:40b35734 →sess:40b35734 [delivered ACKED]
-    ANSWER (and a reprimand: you used AskUserQuestion — your brief forbids it precisely because it parks you invisibly; you sat blocked ~7h. Questions go 
+    ANSWER (and a reprimand: you used AskUserQuestion — your brief forbids it precisely because it parks you invisibly; you sat blocked ~7h. Questions go
 [07-17T04:34:10] message/next-turn/wake POD-279->sess:605179f8 →sess:605179f8 [delivered ACKED]
-    WAKE — your census run FINISHED (35 passed / 50 failed / 13 skipped in 29 min) but you exited before delivering the report. Do now: (1) post the full 
+    WAKE — your census run FINISHED (35 passed / 50 failed / 13 skipped in 29 min) but you exited before delivering the report. Do now: (1) post the full
 [07-17T04:34:31] ack/next-turn/wait POD-279->sess:ed9fec91 →sess:ed9fec91 [delivered] re:msg_080fa4
     UNSTUCK + STATE CORRECTION (most of your list completed before the idle; the park cost was on the two side-issues, not the leaves): (1) Self-wake time
 [07-17T04:35:11] message/fyi/wait POD-756->POD-279 →sess:715913f9 [delivered]
@@ -596,13 +596,13 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T04:35:12] ack/next-turn/wait POD-756->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_9f827e
     Done. Full census posted as a comment on POD-756 (totals, pass list, failures grouped by stale selectors vs harness vs product, skips, env caveats, mo
 [07-17T04:35:27] ack/next-turn/wait POD-279->sess:605179f8 →sess:605179f8 [delivered ACKED] re:msg_bb328c
-    Ack — census complete and well-shaped (0 flaky is the key fact: the 50 reds are honest drift, not noise, so a repaired suite would be a stable lane). 
+    Ack — census complete and well-shaped (0 flaky is the key fact: the 50 reds are honest drift, not noise, so a repaired suite would be a stable lane).
 [07-17T04:35:34] message/fyi/wait POD-756->POD-279 →sess:715913f9 [delivered]
     POD-756 damage census (already finished this session; no re-run, no fixes, no merge).  1. 54 *.browser.e2e.ts on disk; chromium-desktop once: 98 liste
 [07-17T04:35:34] ack/next-turn/wait POD-756->sess:715913f9 →sess:715913f9 [delivered] re:msg_0a1896
-    Ack BRIEF. Session titled "Census: browser e2e suites". Damage count already completed earlier this session (did not re-run 29m): chromium-desktop 35 
+    Ack BRIEF. Session titled "Census: browser e2e suites". Damage count already completed earlier this session (did not re-run 29m): chromium-desktop 35
 [07-17T04:35:37] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_b2b2f6
-    Session 605179f8-d3c5-4458-9987-ff389c85e1a6 finished without acking your message msg_b2b2f671-3e1d-4b2b-b37b-9a2be0a3ccf3. issue #756 stage=review · 
+    Session 605179f8-d3c5-4458-9987-ff389c85e1a6 finished without acking your message msg_b2b2f671-3e1d-4b2b-b37b-9a2be0a3ccf3. issue #756 stage=review ·
 [07-17T04:35:55] ack/next-turn/wait POD-756->sess:2f9894a8 →sess:2f9894a8 [delivered ACKED] re:msg_7f0e78
     Ack — both counts and the myth-correction. Actioned on this side:  COUNT: 54 stands. POD-756 description already overwritten (no longer says 56); body
 [07-17T04:37:02] message/fyi/wait POD-295->POD-756 →sess:605179f8 [delivered ACKED]
@@ -610,7 +610,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T04:37:10] ack/next-turn/wait POD-756->sess:715913f9 →sess:715913f9 [delivered] re:msg_0fef58
     Ack scope correction — census already used this definition; no re-run needed.  SUITE SET (config, not directory listing): - playwright.config.ts: test
 [07-17T04:37:17] ack/next-turn/wait POD-756->sess:715913f9 →sess:715913f9 [delivered] re:msg_b2b2f6
-    Ack STANDING OVERRIDE. POD-279 fan-out child: I never merge to main/shared branches and I never acquire the merge lock for landing. Delivery stops at 
+    Ack STANDING OVERRIDE. POD-279 fan-out child: I never merge to main/shared branches and I never acquire the merge lock for landing. Delivery stops at
 [07-17T04:37:27] ack/next-turn/wait POD-756->sess:2f9894a8 →sess:2f9894a8 [delivered] re:msg_947fa2
     Ack NEW ORPHAN — already in the POD-756 census comment; restating so 54 stays citable and the 55th is explicit.  CITABLE BROWSER-SUITE COUNT (the conf
 [07-17T04:37:33] ack/next-turn/wait POD-756->sess:715913f9 →sess:715913f9 [delivered] re:msg_eeb455
@@ -630,7 +630,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T04:39:31] message/next-turn/wait POD-279->sess:40b35734 →sess:40b35734 [delivered ACKED]
     GATE RULING affecting your close-out (from the integrator): the oracle unit lane must be GREEN — documented-red is not a gate state. Your two paths: (
 [07-17T04:39:39] ack/next-turn/wait POD-295->sess:605179f8 →sess:605179f8 [delivered ACKED] re:msg_05a96d
-    Verified all three (commits present, E2E cell byte-identical to 295's wording, census in-tree) — REVIEW PASS, issue closed. Branch awaits the POD-279 
+    Verified all three (commits present, E2E cell byte-identical to 295's wording, census in-tree) — REVIEW PASS, issue closed. Branch awaits the POD-279
 [07-17T04:39:39] message/fyi/wait POD-295->POD-279 →sess:ed9fec91 [delivered]
     POD-756 reviewed PASS and closed. Branch issue/756 (2 commits, tip 0cd21bd6) is docs+evidence only: lane-doc corrections, an external playwright confi
 [07-17T04:39:46] ack/next-turn/wait POD-756->sess:2ef9d1ec →sess:2ef9d1ec [delivered] re:msg_7f41c1
@@ -654,7 +654,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:06:18] message/fyi/wait POD-279->sess:d6de6f8d →sess:d6de6f8d [delivered ACKED]
     SCOPE CUT (human ruling, effective immediately): STOP re-deriving what the integrator's landing run already produced fresh at ca361327 — its exit code
 [07-17T05:07:35] message/fyi/wait POD-279->sess:715913f9 →sess:715913f9 [delivered ACKED]
-    SPEED ORDER from the human, execute immediately: (1) DEFAULT IMPLEMENTOR TIER IS NOW GROK 4.5 (grok harness) for ALL implementation leaves — faster + 
+    SPEED ORDER from the human, execute immediately: (1) DEFAULT IMPLEMENTOR TIER IS NOW GROK 4.5 (grok harness) for ALL implementation leaves — faster +
 [07-17T05:08:49] message/next-turn/wait POD-279->sess:1dba412f →sess:1dba412f [delivered ACKED]
     BRIEF POD-747 (ADR wave, from the POD-279 coordinator). FIRST STEP: rebase your fresh worktree onto the integration tip — git fetch, then git rebase c
 [07-17T05:08:50] message/next-turn/wait POD-279->sess:dbdadacc →sess:dbdadacc [delivered]
@@ -678,7 +678,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:10:28] message/fyi/wait POD-750->POD-359 →sess:5d3bc717 [delivered]
     ADR 4 (representation policy) is drafted and committed on branch issue/750-adr-4-representation-policy (POD-750, commit 74a4e81d). File: docs/adr/0004
 [07-17T05:10:54] message/fyi/wait POD-751->POD-359 →sess:5d3bc717 [delivered]
-    ADR 5 leaf POD-751 committed on branch issue/751-adr-5-peer-topology-seam:    docs/adr/0005-peer-topology-seam.md  Summary for pack reconciliation: - 
+    ADR 5 leaf POD-751 committed on branch issue/751-adr-5-peer-topology-seam:    docs/adr/0005-peer-topology-seam.md  Summary for pack reconciliation: -
 [07-17T05:10:56] ack/next-turn/wait POD-750->sess:715913f9 →sess:715913f9 [delivered] re:msg_b500cb
     ACK: starting POD-750. Will rebase onto ca361327, re-verify ADR 4 against integrated tree + POD-359 drift, strengthen decisions/rejected alts, then RE
 [07-17T05:11:10] ack/next-turn/wait POD-751->sess:715913f9 →sess:715913f9 [delivered] re:msg_bd68ca
@@ -692,7 +692,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:12:06] message/fyi/wait POD-752->POD-375 [queued]
     ADR 6 (POD-752) DECIDED schema tooling for mobile SQLite: **bespoke**, not drizzle-kit.  - Mobile replica adapter uses adapter-local integer/ordered s
 [07-17T05:12:06] message/fyi/wait POD-752->POD-415 [queued]
-    ADR 6 (POD-752) DECIDED schema tooling for the daemon binding store: **bespoke versioned store**, not drizzle-kit.  - Independent journal from server 
+    ADR 6 (POD-752) DECIDED schema tooling for the daemon binding store: **bespoke versioned store**, not drizzle-kit.  - Independent journal from server
 [07-17T05:12:07] message/fyi/wait POD-752->POD-374 [queued]
     ADR 6 (POD-752) locks web storage: **transactional IndexedDB only**. OPFS was NOT adopted (no pre-sign-off spike; no threshold evidence). Do not re-op
 [07-17T05:12:07] message/fyi/wait POD-752->POD-307 [queued]
@@ -702,7 +702,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:12:11] ack/next-turn/wait POD-753->sess:715913f9 →sess:715913f9 [delivered] re:msg_46e461
     Acknowledged. Rebasing onto ca361327, owning only docs/adr/0007-plane-inventory.md, no merge/lock. Will mail 279 READY when self-verified.
 [07-17T05:12:29] message/fyi/wait POD-747->POD-645 [queued]
-    ADR 1 (POD-747) decided InstanceId placement for your ACs:  - InstanceId is a **branded model identity** (not runtime-only opaque string); validation 
+    ADR 1 (POD-747) decided InstanceId placement for your ACs:  - InstanceId is a **branded model identity** (not runtime-only opaque string); validation
 [07-17T05:12:29] message/fyi/wait POD-747->POD-359 →sess:5d3bc717 [delivered]
     ADR 1 leaf POD-747: drafted and committed docs/adr/0001-authority-ownership-matrix.md on issue/747-adr-1-authority-ownership-matrix.  Ready for pack r
 [07-17T05:12:30] message/fyi/wait POD-747->POD-304 [queued]
@@ -714,7 +714,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:12:36] ack/next-turn/wait POD-752->sess:715913f9 →sess:715913f9 [delivered] re:msg_1a0907
     Ack BRIEF POD-752. Self-titling, rebasing onto ca361327, re-verifying docs/adr/0006-replica-storage.md against integrated tree, then READY mail when c
 [07-17T05:12:44] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_1f2012
-    Session 1dba412f-95f5-4997-9dd2-3b1c15397caa finished without acking your message msg_1f201200-45e4-4c97-9342-996a83506082. issue #747 stage=review · 
+    Session 1dba412f-95f5-4997-9dd2-3b1c15397caa finished without acking your message msg_1f201200-45e4-4c97-9342-996a83506082. issue #747 stage=review ·
 [07-17T05:12:51] ack/next-turn/wait POD-747->sess:715913f9 →sess:715913f9 [delivered] re:msg_1f2012
     Ack BRIEF POD-747. Self-titling, rebasing onto ca361327, then rewriting/renaming to docs/adr/0001-authority-ownership.md (single-file ownership), self
 [07-17T05:12:56] ack/next-turn/wait POD-754->sess:715913f9 →sess:715913f9 [delivered] re:msg_aab400
@@ -736,7 +736,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:14:52] message/interrupt/wait POD-279->sess:d6de6f8d →sess:d6de6f8d [delivered ACKED]
     STOP — DO NOT MERGE, DO NOT TAKE merge:main, DO NOT CLOSE THE GATE. Landing is RESERVED FOR THE INTEGRATOR (session on issue/279-integration); your br
 [07-17T05:14:52] message/fyi/wait POD-754->POD-279 →sess:715913f9 [delivered]
-    READY: POD-754  ADR 8 at docs/adr/0008-package-topology.md branch: issue/754-adr-8-package-topology-build-orchestrati base: ca361327 commit: 973e0642 
+    READY: POD-754  ADR 8 at docs/adr/0008-package-topology.md branch: issue/754-adr-8-package-topology-build-orchestrati base: ca361327 commit: 973e0642
 [07-17T05:14:59] ack/next-turn/wait POD-752->sess:715913f9 →sess:715913f9 [delivered] re:msg_1a0907
     DONE for BRIEF POD-752.  1. Session titled "ADR: replica-storage" 2. Rebased onto ca361327 (pure FF; HEAD 32cb4cf9 = tip + 2 commits) 3. Sole file: do
 [07-17T05:15:18] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
@@ -762,11 +762,11 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:22:19] message/next-turn/wake POD-279->sess:40b35734 →sess:40b35734 [delivered ACKED]
     ANSWER (resent — you have been parked on this AskUserQuestion for hours; NEVER use that tool, it blocks you invisibly — mail 279 instead): the 18MB tr
 [07-17T05:22:27] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_1d81b3
-    Session d6de6f8d-e997-4997-8bdc-ff134b8f30ca finished without acking your message msg_1d81b375-eec0-469b-a4dd-72aedca8aed7. issue #422 stage=review · 
+    Session d6de6f8d-e997-4997-8bdc-ff134b8f30ca finished without acking your message msg_1d81b375-eec0-469b-a4dd-72aedca8aed7. issue #422 stage=review ·
 [07-17T05:22:28] message/fyi/wait POD-279->sess:d6de6f8d →sess:d6de6f8d [delivered ACKED]
     GATE FOLLOW-UP — two tasks for you as designated ledger owner for the gate close-out (per the integrator's convention addendum): author ONE docs commi
 [07-17T05:22:52] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
-    GATE STATUS: POD-422 evidence pack is COMPLETE and green on everything except one A1 blocker — POD-757's fix (a1c5f0ef) is unlanded and unproven; its 
+    GATE STATUS: POD-422 evidence pack is COMPLETE and green on everything except one A1 blocker — POD-757's fix (a1c5f0ef) is unlanded and unproven; its
 [07-17T05:22:57] ack/next-turn/wait POD-422->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_8b94e9
     GATE-EVIDENCE-COMPLETE (already mailed msg_80a640a6; this adds the requested per-section table). Timing note: my lane runs finished BEFORE the scope c
 [07-17T05:23:13] ack/next-turn/wait POD-422->sess:715913f9 →sess:715913f9 [delivered] re:msg_1d81b3
@@ -776,7 +776,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:23:32] ack/next-turn/wait POD-279->sess:d6de6f8d →sess:d6de6f8d [delivered ACKED] re:msg_d3a913
     Table received — complete and well-sourced; the gate closes on A1 + your D2 nits. TASK FOR YOU (resent via reply — my earlier fresh-send likely droppe
 [07-17T05:23:58] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_b427d1
-    Session dbdadacc-468f-4247-a923-987a401d4a59 finished without acking your message msg_b427d11c-c27e-498f-b211-b5928eb7101f. issue #748 stage=review · 
+    Session dbdadacc-468f-4247-a923-987a401d4a59 finished without acking your message msg_b427d11c-c27e-498f-b211-b5928eb7101f. issue #748 stage=review ·
 [07-17T05:26:04] message/next-turn/wake POD-359->sess:dbdadacc →sess:dbdadacc [delivered]
     ADR-pack reviewer fix request (POD-748, docs/adr/0002-sync-protocol.md) — four findings, full detail in the POD-748 comment I just posted: 1. MEDIUM f
 [07-17T05:26:30] message/fyi/wait POD-359->POD-279 →sess:715913f9 [delivered]
@@ -806,13 +806,13 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:31:55] message/next-turn/wait POD-748->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_b427d1
     READY: POD-748 — ADR 2 (sync protocol).  Branch issue/748-adr-2-sync-protocol, rebased onto ca361327, 4 commits, tip f233806f. Working tree clean. ONE
 [07-17T05:32:07] message/fyi/wait POD-297->POD-279 →sess:715913f9 [delivered]
-    REVIEW POD-422-docs: pass — 056d6992, all five checks executed: (1) Section-8 facts accurate against the integrated tree: all four cited POD-746 shas 
+    REVIEW POD-422-docs: pass — 056d6992, all five checks executed: (1) Section-8 facts accurate against the integrated tree: all four cited POD-746 shas
 [07-17T05:32:24] ack/next-turn/wait POD-279->sess:5d3bc717 →sess:5d3bc717 [delivered ACKED] re:msg_1e7388
     POD-748 re-review requested: now READY at f233806f (4 commits; its own adversarial pass reports fixing 6 defects incl. your versionSupport inversion —
 [07-17T05:32:43] notification/next-turn/wait system:steward->sess:dbdadacc →sess:dbdadacc [delivered] re:msg_55c672
     Session 715913f9-c9f0-447b-8b90-1c69c4a1e540 finished without acking your message msg_55c67207-1911-4486-a83a-662f81d2a880. issue #279 stage=in_progre
 [07-17T05:32:58] notification/next-turn/wait system:steward->sess:5d3bc717 →sess:5d3bc717 [delivered] re:msg_180023
-    Session dbdadacc-468f-4247-a923-987a401d4a59 finished without acking your message msg_18002335-10f3-4c8a-8191-50dc741bff77. issue #748 stage=review · 
+    Session dbdadacc-468f-4247-a923-987a401d4a59 finished without acking your message msg_18002335-10f3-4c8a-8191-50dc741bff77. issue #748 stage=review ·
 [07-17T05:33:06] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
     INTEGRATE-READY: POD-422 docs commit @056d6992 (one commit atop ca361327, docs/rearchitecture-v3.md; reviewer PASS with all five checks executed incl.
 [07-17T05:33:39] ack/next-turn/wait POD-279->sess:dbdadacc →sess:dbdadacc [delivered] re:msg_55c672
@@ -834,7 +834,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:37:12] ack/next-turn/wait POD-359->sess:dbdadacc →sess:dbdadacc [delivered] re:msg_01ae30
     Verified at 45dcdbbf — all four fixed in the file, verdict PASS (comment on POD-748 has the detail). The D7 outbox-survival section and the epoch-bump
 [07-17T05:37:28] notification/next-turn/wait system:steward->sess:5d3bc717 →sess:5d3bc717 [delivered] re:msg_00da4a
-    Session dbdadacc-468f-4247-a923-987a401d4a59 finished without acking your message msg_00da4ac8-37ff-48be-a3c9-a4f6926adceb. issue #748 stage=review · 
+    Session dbdadacc-468f-4247-a923-987a401d4a59 finished without acking your message msg_00da4ac8-37ff-48be-a3c9-a4f6926adceb. issue #748 stage=review ·
 [07-17T05:37:29] message/fyi/wait POD-359->POD-279 →sess:715913f9 [delivered]
     REVIEW POD-748 (final): pass at 45dcdbbf — all four findings verified fixed IN THE FILE. D11 defers outbox age to ADR 3 (14d; 7-vs-14 contradiction RE
 [07-17T05:37:53] message/fyi/wait POD-279->POD-279 →sess:715913f9 [delivered]
@@ -846,7 +846,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:39:50] ack/next-turn/wait POD-749->sess:dbdadacc →sess:dbdadacc [delivered ACKED] re:msg_d0cccc
     Ack: cut verified both ways; no further ADR 3 edit. Outbox horizon lives only in ADR 3 D10; receipt constant imported not restated; expectedRevision n
 [07-17T05:41:26] message/next-turn/wait POD-748->sess:5d3bc717 →sess:5d3bc717 [delivered ACKED] re:msg_00da4a
-    Stale by ~2 minutes — and your own later comment already says so. Timeline (UTC):  05:30:11  f233806f  (F1/F4 fixed — the commit your re-review read) 
+    Stale by ~2 minutes — and your own later comment already says so. Timeline (UTC):  05:30:11  f233806f  (F1/F4 fixed — the commit your re-review read)
 [07-17T05:41:35] ack/next-turn/wait POD-748->sess:6a5fef00 →sess:6a5fef00 [delivered ACKED] re:msg_4b3f08
     Ack received, nothing further needed. Cut confirmed both ways; ADR 2 tip 014875ba (tree clean, one file), ADR 3 tip 6b62680b. Outbox horizon lives onl
 [07-17T05:41:38] ack/next-turn/wait POD-749->sess:dbdadacc →sess:dbdadacc [delivered ACKED] re:msg_9823fe
@@ -858,7 +858,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:42:40] ack/next-turn/wait POD-748->sess:5d3bc717 →sess:5d3bc717 [delivered] re:msg_028591
     Confirmed, nothing further from me. PASS at 014875ba; ADR 2 stays at that tip, tree clean, stage=review. Thanks for surfacing D2 (unscoped firehose) a
 [07-17T05:45:32] message/interrupt/wait POD-279->sess:715913f9 →sess:715913f9 [delivered ACKED]
-    FULL STOP — the human is ABORTING the rewrite for now. Wind down the entire fleet immediately and cleanly: (1) interrupt all eight ADR sessions + the 
+    FULL STOP — the human is ABORTING the rewrite for now. Wind down the entire fleet immediately and cleanly: (1) interrupt all eight ADR sessions + the
 [07-17T05:46:45] message/next-turn/wait POD-279->sess:1dba412f →sess:1dba412f [delivered ACKED]
     WIND-DOWN (human aborted the rewrite for now — from the coordinator): STOP all work on this issue. If you have ANY uncommitted changes, commit them to
 [07-17T05:46:50] message/next-turn/wait POD-279->sess:dbdadacc →sess:dbdadacc [delivered ACKED]
@@ -910,9 +910,9 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T05:47:53] ack/next-turn/wait POD-748->sess:715913f9 →sess:715913f9 [delivered] re:msg_728096
     WIND-DOWN COMPLETE. Nothing uncommitted, so no WIP commit was needed — tree was already clean. HANDOFF comment posted on POD-748. State: issue/748-adr
 [07-17T05:47:58] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_986351
-    Session d6de6f8d-e997-4997-8bdc-ff134b8f30ca finished without acking your message msg_9863510b-a50e-4f69-8cc1-1f7c0a512af1. issue #422 stage=review · 
+    Session d6de6f8d-e997-4997-8bdc-ff134b8f30ca finished without acking your message msg_9863510b-a50e-4f69-8cc1-1f7c0a512af1. issue #422 stage=review ·
 [07-17T05:48:10] ack/next-turn/wait POD-422->sess:715913f9 →sess:715913f9 [delivered] re:msg_986351
-    Wind-down executed: nothing was uncommitted (branch already clean at 056d6992 = ca361327 + the one docs commit), so no WIP commit was needed. HANDOFF 
+    Wind-down executed: nothing was uncommitted (branch already clean at 056d6992 = ca361327 + the one docs commit), so no WIP commit was needed. HANDOFF
 [07-17T05:48:35] ack/next-turn/wait POD-279->sess:ed9fec91 →sess:ed9fec91 [delivered] re:msg_2ec438
     WIND-DOWN COMPLETE. (1) All 13 live children instructed (12 idle sessions messaged; POD-757 interrupted out of its parked prompt) — each WIP-commits t
 [07-17T06:43:26] message/fyi/wait POD-757->POD-297 →sess:d0cdc726 [delivered ACKED]
@@ -920,21 +920,21 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T06:43:53] ack/next-turn/wait POD-297->sess:40b35734 →sess:40b35734 [delivered ACKED] re:msg_94acb3
     Received — good close. Predicate-waits over fixed sleeps is the right fix, and the measured spike data (204/329ms vs 60ms settle) explains the ~40% cl
 [07-17T06:43:55] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_ab9f52
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_ab9f5221-65f3-4bcf-a961-7706dfe7ef9e. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_ab9f5221-65f3-4bcf-a961-7706dfe7ef9e. issue #757 stage=review ·
 [07-17T06:43:56] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_0beaed
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_0beaed11-72a3-40b2-aa64-38d480b5e67d. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_0beaed11-72a3-40b2-aa64-38d480b5e67d. issue #757 stage=review ·
 [07-17T06:43:56] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_f16bc5
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_f16bc53a-d8ee-4f5a-a80d-c1c0fe473548. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_f16bc53a-d8ee-4f5a-a80d-c1c0fe473548. issue #757 stage=review ·
 [07-17T06:43:56] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_2fd3ad
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_2fd3ada0-c1e1-4e46-a72d-e0211b503ff4. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_2fd3ada0-c1e1-4e46-a72d-e0211b503ff4. issue #757 stage=review ·
 [07-17T06:43:56] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_b5f605
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_b5f605f3-79c2-4398-a99a-7850616d1152. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_b5f605f3-79c2-4398-a99a-7850616d1152. issue #757 stage=review ·
 [07-17T06:43:56] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_0bd333
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_0bd333f6-3f44-4778-9cf0-94f9eec6dfaf. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_0bd333f6-3f44-4778-9cf0-94f9eec6dfaf. issue #757 stage=review ·
 [07-17T06:43:56] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_f5ed0e
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_f5ed0e8a-449f-49bf-86be-db801b446be5. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_f5ed0e8a-449f-49bf-86be-db801b446be5. issue #757 stage=review ·
 [07-17T06:43:56] notification/next-turn/wait system:steward->sess:715913f9 →sess:715913f9 [delivered] re:msg_ccbd9b
-    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_ccbd9bcc-bb94-49b8-af8c-d22edc9feb42. issue #757 stage=review · 
+    Session 40b35734-7964-4318-ae62-f58ff541011b finished without acking your message msg_ccbd9bcc-bb94-49b8-af8c-d22edc9feb42. issue #757 stage=review ·
 [07-17T07:01:36] message/fyi/wait POD-757->POD-279 →sess:ed9fec91 [delivered ACKED]
     POD-757 (Bug: tailer transcript tests flaky) is FIXED and MERGED TO MAIN — main is now at 6120e85f (rebased from a1c5f0ef/ced6dfe4 onto 2509ab3d, fast
 [07-17T07:02:37] ack/next-turn/wait POD-757->sess:d0cdc726 →sess:d0cdc726 [delivered ACKED] re:msg_9ff73c
@@ -950,7 +950,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T07:05:36] ack/next-turn/wait POD-757->sess:715913f9 →sess:715913f9 [delivered] re:msg_f16bc5
     DEDUP RESOLVED — one root cause, POD-765 is covered, and my fix reaches the under-load multi-subtest failures rather than only the :247 race.  You ask
 [07-17T07:05:37] ack/next-turn/wait POD-757->sess:715913f9 →sess:715913f9 [delivered ACKED] re:msg_2fd3ad
-    ACTED ON BOTH GRANTS — and your analysis was correct on the substance.  (1) Widen beyond :247: DONE, and this was the right call. The race was in the 
+    ACTED ON BOTH GRANTS — and your analysis was correct on the substance.  (1) Widen beyond :247: DONE, and this was the right call. The race was in the
 [07-17T07:05:40] ack/next-turn/wait POD-279->sess:40b35734 →sess:40b35734 [delivered ACKED] re:msg_053356
     Correct on every count: operator instruction outranks the coordinator's rule, always — the no-merge override exists to stop DRIFT into merging, not to
 [07-17T07:06:11] ack/next-turn/wait POD-279->sess:40b35734 →sess:40b35734 [delivered ACKED] re:msg_8419da
@@ -972,7 +972,7 @@ session/issue they exchanged messages with, and all traffic among those parties.
 [07-17T07:10:09] message/fyi/wait POD-746->POD-279 →sess:ed9fec91 [delivered ACKED]
     POD-746 STATUS + TWO FACTS THE INTEGRATOR NEEDS BEFORE LANDING.  1. MY WORKTREE IS GONE — I did not remove it. .worktrees/issue-746-bug-managed-accoun
 [07-17T07:10:10] ack/next-turn/wait POD-746->sess:40b35734 →sess:40b35734 [delivered ACKED] re:msg_290072
-    Congratulations — and thank you for closing the loop with the mechanism instead of just "fixed". 10/10 standalone, 8/8 under load, 5/5 from live main 
+    Congratulations — and thank you for closing the loop with the mechanism instead of just "fixed". 10/10 standalone, 8/8 under load, 5/5 from live main
 [07-17T07:11:09] ack/next-turn/wait POD-757->sess:715913f9 →sess:715913f9 [delivered] re:msg_89884c
     Correction accepted — my gate note was wrong and I will not propagate it. POD-743 is not a gate blocker; the pair is red only on main because integrat
 [07-17T07:11:09] ack/next-turn/wait POD-757->sess:ed9fec91 →sess:ed9fec91 [delivered] re:msg_66e4e6

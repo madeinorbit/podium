@@ -71,7 +71,11 @@ import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
-export type { OpResult, ScanReposResult, ScanResult } from './modules/machines/rpc'
+export type {
+  OpResult,
+  ScanReposResult,
+  ScanResult,
+} from './modules/machines/rpc'
 export type { MemoryBreakdown }
 
 interface SessionRegistryOptions {
@@ -330,8 +334,11 @@ export class SessionRegistry {
           return s ? noticeInfo(s) : undefined
         },
         sessionStates: () =>
-          [...liveSessions().values()].map((s) => ({ info: noticeInfo(s), state: s.agentState })),
-        notificationsEnabled: () => featureEnabled('notifications'),
+          [...liveSessions().values()].map((s) => ({
+            info: noticeInfo(s),
+            state: s.agentState,
+          })),
+        notificationsEnabled: () => featureEnabled("notifications"),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
@@ -403,16 +410,32 @@ export class SessionRegistry {
       onPublished: (seq) => sessionsSvc.onFeedPublished(seq),
     })
     const publisher = new IssuePublisher({
-      allWire: (sessionList) => issues?.allWire(sessionList),
+      allWire: () => issues?.allWire(),
+      allProjections: () => issues?.allProjections(),
       // Write-less full-list rebroadcasts (session churn, staleness flips):
       // reconcile against the ledger baseline (durable append, #255), then fan
       // the committed changes out.
-      publishIssueList: (spec) => {
+      publishIssueList: (spec, projectionRows) => {
         // The reconcile's appends ARE the fan-out (POD-1203): they enter the
         // Authority's ordered pipe and reach every connection through the feed.
         // The legacy snapshot that used to follow this line is built at the
         // connection boundary now, from these same rows.
         ledger.reconcile('issue', spec.rows)
+        // The normalized kind rides the SAME onAppended pipe [POD-796] — no
+        // second emitter and no second ordering, which the client gap rule
+        // (seq !== cursor+1 -> heal) makes non-negotiable. A delta client that
+        // did NOT offer CAP_ISSUES_NORMALIZED still receives these rows and
+        // ignores them via lenient parsing, advancing its cursor past them
+        // (protocol/messages/sync.ts) — that is why a new KIND is additive
+        // where reshaping 'issue' in place would not have been.
+        if (projectionRows) ledger.reconcile('issueProjection', projectionRows)
+        // The edges reconcile on the same full-truth pass [POD-822]. Additive,
+        // and since POD-797 UNCONDITIONAL (the issues-normalized-wire flag is
+        // deleted): `undefined` means only "cannot project; do not touch the
+        // kind". A build that has never heard of the 'issueDep' kind ignores
+        // the rows and advances its cursor.
+        const depRows = issues?.allDepProjections()
+        if (depRows) ledger.reconcile('issueDep', depRows)
       },
     })
     const issueCommands = new IssueCommandDispatcher({
@@ -632,7 +655,10 @@ export class SessionRegistry {
       prepare: ({ sessionId, cwd, issueId, workflowRevisionId, existingOnly }) => {
         if (!featureEnabled('workflows')) return null
         const prepared = existingOnly
-          ? workflows.prepareExistingSession({ sessionId, ...(issueId ? { issueId } : {}) })
+          ? workflows.prepareExistingSession({
+              sessionId,
+              ...(issueId ? { issueId } : {}),
+            })
           : workflows.prepareStart({
               sessionId,
               cwd,
@@ -723,7 +749,9 @@ export class SessionRegistry {
             throw new Error(`workspace.${proc} is only callable by a session (no actor bound)`)
           }
           if (proc === 'clean') {
-            return sessionsSvc.cleanWorkspacePeeks({ callerSessionId: actorSessionId })
+            return sessionsSvc.cleanWorkspacePeeks({
+              callerSessionId: actorSessionId,
+            })
           }
           if (proc !== 'fetch') return undefined
           return (async () => {
@@ -734,7 +762,10 @@ export class SessionRegistry {
             const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
             if (targetIssueId) {
               checkIssueAccess(
-                { capability, ...(overrideScope ? { overrideScope: true } : {}) },
+                {
+                  capability,
+                  ...(overrideScope ? { overrideScope: true } : {}),
+                },
                 issues,
                 'workspace.fetch',
                 'write',
@@ -838,7 +869,10 @@ export class SessionRegistry {
               const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
               if (targetIssueId) {
                 checkIssueAccess(
-                  { capability, ...(overrideScope ? { overrideScope: true } : {}) },
+                  {
+                    capability,
+                    ...(overrideScope ? { overrideScope: true } : {}),
+                  },
                   issues,
                   `sessions.${proc}`,
                   'write',
@@ -1065,8 +1099,11 @@ export class SessionRegistry {
       headless,
       conversations: () => conversations,
       issues: () => issues,
-      publishIssues: (sessions) => publisher.publishIssues(publisher.safeIssuesList(sessions)),
+      publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
       issuesWire: () => publisher.currentIssuesList(),
+      issueProjectionsWire: () => (issues.allProjections() ?? []).map((row) => row.value),
+      issueDepsWire: () => (issues.allDepProjections() ?? []).map((row) => row.value),
+      issueReposWire: () => (issues.allRepoProjections() ?? []).map((row) => row.value),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
       onWorktreesChanged: broadcastWorktreesChanged,
