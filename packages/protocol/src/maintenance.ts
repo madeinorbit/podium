@@ -4,6 +4,7 @@ import {
   asAutomationRunId,
   IssueIdField,
   SessionIdField,
+  UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -16,8 +17,13 @@ import { z } from 'zod'
  */
 // v2: the session-auto-archive job kind [spec:SP-6144] — a new janitor sending
 // it to a v1 server must be version-gated out, not hard-fail command parsing.
-export const MAINTENANCE_PROTOCOL_VERSION = 2
-export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v2'
+// v3 (POD-1229): both auto-archive observations replace the unqualified
+// `readAt` with `readerUserId`. This is the case the version gate exists for —
+// a v2 janitor's observation still PARSES under a permissive reader but means
+// something else, so the mismatch has to be refused at the handshake rather
+// than discovered as a silently empty sweep.
+export const MAINTENANCE_PROTOCOL_VERSION = 3
+export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v3'
 export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
 /** Shared retention constants the janitor and server both honor. */
@@ -134,15 +140,53 @@ export type MaintenanceCommandsPruneObservation = z.infer<
  * would be wrong" have opposite correct actions.
  *
  * `SessionAutoArchiveObservation` below is the same class (POD-366's #23).
+ */
+/**
+ * "READ BY WHOM?" — the answer, and why the timestamp is gone (POD-1229).
  *
- * Separately open: `readAt` is per-user state under POD-1076, so "archive it
- * because it was read" needs a "read by whom?" answer — POD-1136.
+ * POD-1210 settled the POLICY: the sweep asks the one viewer the shared
+ * `archived` flag speaks for. ANY-user is wrong (one person opening a done issue
+ * would archive it off everyone's board) and ALL-users never fires (an absent
+ * row means "never read", and there is no membership roster to bound "all"
+ * against). That decision stands and is not reopened here; see
+ * `docs/agents/pod-1210-auto-archive-reader-evidence.md`.
+ *
+ * What POD-1210 left, and this fixes, is that the wire never SAID so. A bare
+ * `readAt: z.string().datetime()` is a per-user fact with no user attached — a
+ * singleton in the exact sense `per-user-singletons` counts. The janitor picked
+ * a reader (`ARCHIVE_VIEWER`) and the server picked one (`broadcastViewer()`),
+ * and the two agreed only because both spell `FIRST_ADMIN_USER_ID`. Nothing on
+ * the wire could express a disagreement, so nothing could TEST for one — and the
+ * next step of POD-1077, passing the request's real principal at one of those
+ * two sites and not the other, would have killed auto-archive silently for the
+ * third time, with every existing test green.
+ *
+ * So the observation now names its reader and drops the timestamp:
+ *
+ *  - `readerUserId` is the principal on whose behalf the read-gate was
+ *    evaluated. The server REFUSES (`precondition`) any observation naming
+ *    anyone other than the viewer it archives for. The policy stays on the
+ *    authority; the wire fact makes the agreement checked instead of assumed.
+ *  - `readAt` is REMOVED rather than re-keyed. Carrying the authority's own
+ *    per-user state back to it as a string to compare bought a compare-and-swap
+ *    that the freshness check already subsumes: a re-read moves `readAt`
+ *    forward, which the server's own cutoff rejects as `not-due`, and marking it
+ *    unread deletes the row, which the server rejects as `precondition`. Both
+ *    are covered by tests that fail if either check is removed.
+ *
+ * The run keys below carry `readerUserId` in `readAt`'s place, so an occurrence
+ * is still identified by (entity, reader, shared preconditions). The one thing
+ * this loses is re-archival of an issue that was unarchived AND re-read inside
+ * the 14-day `maintenance_commands` retention: its run key no longer changes, so
+ * the replay answers `already-applied` until that row is pruned, after which the
+ * next sweep archives it. Self-healing, and the neighbouring hole — unarchived
+ * WITHOUT a re-read — was already there when `readAt` was in the key.
  */
 export const IssueAutoArchiveObservation = z.object({
   issueId: z.string().min(1).max(256).pipe(IssueIdField),
   stage: z.string().min(1).max(64),
   closedReason: z.string().nullable(),
-  readAt: z.string().datetime(),
+  readerUserId: z.string().min(1).max(256).pipe(UserIdField),
   archived: z.literal(false),
   deletedAt: z.null(),
 })
@@ -152,7 +196,7 @@ export const SessionAutoArchiveObservation = z.object({
   sessionId: z.string().min(1).max(256).pipe(SessionIdField),
   issueId: z.string().min(1).max(256).pipe(IssueIdField).nullable(),
   stoppedAt: z.string().datetime(),
-  readAt: z.string().datetime(),
+  readerUserId: z.string().min(1).max(256).pipe(UserIdField),
   archived: z.literal(false),
 })
 export type SessionAutoArchiveObservation = z.infer<typeof SessionAutoArchiveObservation>
@@ -366,7 +410,7 @@ export function sessionAutoArchiveRunKey(observed: SessionAutoArchiveObservation
     'session-auto-archive',
     encode(observed.sessionId),
     encode(observed.stoppedAt),
-    encode(observed.readAt),
+    encode(observed.readerUserId),
   ].join('/')
 }
 
@@ -374,7 +418,7 @@ export function issueAutoArchiveRunKey(observed: IssueAutoArchiveObservation): s
   return [
     'issue-auto-archive',
     encode(observed.issueId),
-    encode(observed.readAt),
+    encode(observed.readerUserId),
     encode(observed.stage),
     encode(observed.closedReason ?? 'none'),
   ].join('/')

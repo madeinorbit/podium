@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -272,7 +272,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       issueId: asIssueId('iss_1'),
       stage: 'done',
       closedReason: null,
-      readAt: '2026-07-01T00:00:00.000Z',
+      readerUserId: FIRST_ADMIN_USER_ID,
       archived: false as const,
       deletedAt: null,
     }
@@ -291,7 +291,6 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const second = {
       ...observed,
       issueId: asIssueId('iss_2'),
-      readAt: '2026-07-17T00:00:00.000Z',
     }
     expect(
       await service.apply({
@@ -317,7 +316,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       sessionId: asSessionId('ses_done'),
       issueId: null,
       stoppedAt: '2026-07-01T00:00:00.000Z',
-      readAt: '2026-07-02T00:00:00.000Z',
+      readerUserId: FIRST_ADMIN_USER_ID,
       archived: false as const,
     }
     const command = {
