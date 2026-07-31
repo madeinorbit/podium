@@ -184,6 +184,51 @@ now pulled onto the critical path behind this one. Either port `shape.ts` too
 null-encoding → dep/repo port → sync.ts clear → semantic typecheck → registry
 tripwire → 43 declarations.
 
+
+### 0d.2 — CONFIRMED: the "third link" does not exist. My group (a) note was wrong.
+
+I wrote in group (a) that `shape.ts` was blocked because "both sides solved
+null-encoding differently". **Measured, that looks like my own same-name-different-
+thing trap — at the level of the PROBLEM rather than a symbol.** Two distinct
+concerns were collapsed under one label:
+
+| Concern | Layer | main | integration |
+|---|---|---|---|
+| durable↔wire nullability MAPPING (`T \| null` row → absent on wire, round-trip pair) | representation (ADR 4) | **systematic** — `shape.ts`: `wireShape` (type half), `dropNullValues`/`restoreNullValues` (value half), keyed on `=== null` and `=== undefined` deliberately | **ad hoc per field** — e.g. `tuckedAt: z.string().nullable().optional().catch(undefined)` (`entities/issue.ts:198`). No `wireShape`/`dropNull`/`restoreNull` equivalent anywhere: `git grep -lE "dropNull\|restoreNull\|WireField\|wireShape" HEAD -- packages` → **empty** |
+| replica STORE-UPDATE semantics on a nulled field | reactivity (`replica.ts:246`) | not addressed by `shape.ts` | **assign `undefined`, never `delete`** — a delete is untracked and the stale value survives |
+
+**These are different problems at different layers.** `shape.ts` says how a null
+crosses the wire; `replica.ts` says how a store applies a change that nulls a
+field. Neither implements the other, and integration has no rival to the first.
+
+**Therefore porting `shape.ts` does NOT pre-empt a group (d) decision**, and the
+critical path collapses from
+
+  null-encoding → dep/repo port → sync.ts → typecheck → tripwire → declarations
+
+back to
+
+  dep/repo port → sync.ts → typecheck → tripwire → declarations
+
+**CONFIRMING READ DONE — by the where-would-it-live route, not another grep.**
+`packages/model/src/representations/README.md` states what that directory is: a
+registry carrying "one entry per retained representation" with `purpose`,
+`distinctSemantics`, `composition`, `matrixRow` and `visibility`, plus
+default-closed totality checks over them. It CLASSIFIES and JUSTIFIES which shapes
+exist and why — **a governance layer, not a transform layer.** It contains no
+durable↔wire nullability mapping, and nothing else on integration does either.
+
+Nor is `wireShape` a rival to integration's composition mechanism: integration
+composes by `Pick`ing from shared field groups (which fields a shape has);
+`wireShape` transforms nullability (`T | null` → `T | undefined`). Different
+operations, composable with each other.
+
+**So the port is additive and requires no modelling decision.**
+
+If it confirms, `shape.ts` ports as an ADDITION (a convention integration lacks),
+integration's per-field `.nullable().optional().catch(undefined)` handling stays
+untouched, and the dep/repo port is unblocked without a modelling decision.
+
 ### Practical consequence for the marker-clearing sequence
 
 §0b says clear all markers so semantic typechecking comes back, then let the
