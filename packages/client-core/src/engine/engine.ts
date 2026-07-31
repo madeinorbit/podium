@@ -43,7 +43,7 @@ import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podi
 import type { FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
-import type { Outbox, OutboxEntry } from '../outbox'
+import type { Outbox, OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
 import type { Replica, UiState } from '../replica/replica'
 import {
@@ -229,6 +229,8 @@ interface EngineState {
   fileTabs: FileTab[]
   recentFiles: RecentFileEntry[]
   outboxSize: number
+  outboxDeadLetters: OutboxDeadLetterEntry[]
+  recoverOutbox: Store['recoverOutbox']
 }
 
 /** Narrow a raw route/persisted value into the session id space (POD-362). */
@@ -443,6 +445,24 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       fileTabs: [],
       recentFiles: readStoredRecentFiles(this.ui),
       outboxSize: 0,
+      outboxDeadLetters: [],
+      recoverOutbox: {
+        // Every one of these repaints through the outbox subscription, because
+        // recovery changes queue membership and queue membership IS overlay
+        // membership (#263).
+        retry: (mutationId, satisfaction) => {
+          this.outbox.retry(mutationId, satisfaction)
+          this.apply({ outboxDeadLetters: this.outbox.deadLetters() })
+        },
+        edit: (mutationId, input) => {
+          this.outbox.edit(mutationId, input)
+          this.apply({ outboxDeadLetters: this.outbox.deadLetters() })
+        },
+        discard: (mutationId) => {
+          this.outbox.discard(mutationId)
+          this.apply({ outboxDeadLetters: this.outbox.deadLetters() })
+        },
+      },
     }
     this.statics = this.buildStatics()
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot())
@@ -477,13 +497,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // the entity lists too (a no-op publish when nothing visible changed).
     offs.push(
       this.outbox.subscribe((size) => {
-        this.apply({ outboxSize: size })
+        this.apply({ outboxSize: size, outboxDeadLetters: this.outbox.deadLetters() })
         this.recomputeSessions()
         this.recomputeIssues()
       }),
     )
     this.outbox.attach()
-    this.apply({ outboxSize: this.outbox.size() })
+    this.apply({ outboxSize: this.outbox.size(), outboxDeadLetters: this.outbox.deadLetters() })
     // Restored awaiting-truth entries (see constructor) need the TTL backstop
     // armed even if no replica change ever recomputes them.
     this.armAwaitingSweep()

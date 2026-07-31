@@ -6,11 +6,28 @@
  * client).
  */
 
-import type { AgentKind, ArtifactId, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueId, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import type {
+  AgentKind,
+  ArtifactId,
+  AutomationRunWire,
+  AutomationWire,
+  ConversationSummaryWire,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  HostMetricsWire,
+  IssueId,
+  IssueWire,
+  MachineWire,
+  SessionId,
+  SessionMeta,
+  WorkState,
+} from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
+import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
+import type { OutboxDeadLetterEntry } from '../outbox'
 import type { Replica, UiState } from '../replica/replica'
 import type { MainView } from '../router'
 import type { SpawnTarget } from '../spawn-agent'
@@ -296,6 +313,18 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Count of not-yet-synced outbox entries (offline-authored writes waiting to
    *  replay) — drives the "pending" chip in HostIndicators. */
   outboxSize: number
+  /** Writes the Authority definitively refused, parked for the user to retry,
+   *  edit or discard (POD-316, ADR 3 D9 invariant 3). Never silently dropped —
+   *  this list IS the promise that user-authored work does not vanish. */
+  outboxDeadLetters: OutboxDeadLetterEntry[]
+  /** Recover a parked write. `retry` refuses a satisfaction that does not meet
+   *  the reason's precondition, so a surface cannot offer a button that would
+   *  reproduce the same refusal. */
+  recoverOutbox: {
+    retry: (mutationId: string, satisfaction: RetrySatisfaction) => void
+    edit: (mutationId: string, input: unknown) => void
+    discard: (mutationId: string) => void
+  }
   /** What the user is LOOKING AT right now (#225): the screen, selected issue/
    *  worktree, session(s) on screen. Ids only — the server resolves them to
    *  titles/names. Computed on call from live engine state, so this stays a

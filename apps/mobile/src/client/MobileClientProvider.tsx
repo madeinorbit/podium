@@ -11,7 +11,7 @@
  */
 
 import type { SpawnTarget } from '@podium/client-core'
-import type { OutboxKinds } from '@podium/client-core/engine'
+import { OUTBOX_COMMANDS, outboxCommandFor } from '@podium/client-core/engine'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { OutboxStorage } from '@podium/client-core/outbox'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
@@ -241,38 +241,13 @@ export const MOBILE_REPLICA_PRINCIPAL = 'default'
  *  re-spelled, so a rename of the class reaches this table. */
 const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
 
-/**
- * The CONTRACT TABLE, which `readLegacyReplica` and the outbox binding both refuse
- * to invent (ADR 3 D9): a client entry carries a bare `kind` and an `OutboxCommand`
- * needs `{name, version, delivery}`, so guessing a version would re-author a queued
- * write under a contract its input may not satisfy.
- *
- * It is typed `Record<keyof OutboxKinds, …>` deliberately. That is the only thing
- * standing between this table and silent drift: adding a drainable kind to the
- * engine's queue without a contract here is a TYPE ERROR in this app's typecheck,
- * rather than an `unknown-command` rejection a user discovers when their offline
- * work fails to migrate.
- *
- * Every version is 1 because every one of these contracts has only ever had one —
- * the client has never re-authored a queued mutation shape. That is a statement
- * about today, and the day one of them changes, the entry here changes with it.
- */
-export const MOBILE_OUTBOX_COMMANDS: Record<keyof OutboxKinds, OutboxCommand> = {
-  resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery },
-  rename: { name: 'sessions.rename', version: 1, delivery },
-  setArchived: { name: 'sessions.setArchived', version: 1, delivery },
-  setWorkState: { name: 'sessions.setWorkState', version: 1, delivery },
-  snoozeSet: { name: 'snoozes.set', version: 1, delivery },
-  snoozeClear: { name: 'snoozes.clear', version: 1, delivery },
-  sessionMarkRead: { name: 'sessions.markRead', version: 1, delivery },
-  sessionMarkUnread: { name: 'sessions.markUnread', version: 1, delivery },
-  issueMarkRead: { name: 'issues.markRead', version: 1, delivery },
-  issueMarkUnread: { name: 'issues.markUnread', version: 1, delivery },
-  issueSetTucked: { name: 'issues.setTucked', version: 1, delivery },
-}
+/** Re-exported for the tests and callers that named it here. The TABLE now
+ *  lives beside `OutboxKinds` in client-core (POD-316) so the web recovery
+ *  surface reads the same one — two copies would drift, and the thing that
+ *  drifts is which contract a queued write is replayed under. */
+export const MOBILE_OUTBOX_COMMANDS = OUTBOX_COMMANDS
 
-const resolveMobileCommand = (kind: string): OutboxCommand | undefined =>
-  MOBILE_OUTBOX_COMMANDS[kind as keyof OutboxKinds]
+const resolveMobileCommand = (kind: string): OutboxCommand | undefined => outboxCommandFor(kind)
 
 /**
  * WHICH KEYS THE BRIDGE MUST HYDRATE, and why the default is not enough.
@@ -440,6 +415,7 @@ function withDurableOutbox(base: Replica, outboxes: KernelOutboxStorages): Repli
     // THE TWO OVERRIDES — the whole point of the decorator.
     outboxStorage: (): OutboxStorage => outboxes.queued,
     outboxAwaitingStorage: (): OutboxStorage => outboxes.awaiting,
+    outboxDeadLetterStorage: (): OutboxStorage => outboxes.deadLetter,
     uiState: (): UiState => base.uiState(),
     flush: () => base.flush(),
   }

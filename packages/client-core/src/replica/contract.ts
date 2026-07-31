@@ -154,6 +154,12 @@ export interface Replica {
    *  round 2), which OLD builds never read — a downgraded client cannot re-drain
    *  held entries as queued mutations. */
   outboxAwaitingStorage(): OutboxStorage
+  /** Durable home for entries parked for user recovery (POD-316, ADR 3 D9
+   *  `dead-letter`). Separate from both homes above and never drained: D9
+   *  invariant 1 forbids making user-authored work gone without the user's own
+   *  discard or a successful apply, so this is where a definitively-refused
+   *  write waits for them. */
+  outboxDeadLetterStorage(): OutboxStorage
   /** ONE UI persistence mechanism (issue #15 Phase 4): a versioned key→value
    *  store replacing the ad-hoc localStorage keys. */
   uiState(): UiState

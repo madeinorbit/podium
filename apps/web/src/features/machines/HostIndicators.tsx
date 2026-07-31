@@ -10,6 +10,7 @@ import { ConnectionIndicator, describeHealth, useStableConnection } from './Conn
 import { HealthPopover } from './HealthPopover'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
 import { LoadPanel } from './LoadPanel'
+import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
 import { machineNeedsUpdate, useServerAppVersion } from './version-skew'
 
@@ -158,6 +159,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
           </TooltipContent>
         </Tooltip>
       )}
+      <OutboxRecoveryIndicator compact={compact} />
       <QuotaIndicator compact={compact} />
       {info && (
         <HostInfoView
