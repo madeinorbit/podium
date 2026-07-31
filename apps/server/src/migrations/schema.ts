@@ -285,6 +285,38 @@ export const issueMessageUserState = sqliteTable("issue_message_user_state", {
 (table) => [primaryKey({ columns: [table.userId, table.issueMessageId], name: "issue_message_user_state_pk"}),
 ]);
 
+/**
+ * ONE PERSON'S PERSONAL PREFERENCES (POD-1213) — the per-user state family's
+ * preference half, and the last of ADR 1's `preferences-personal` row to leave
+ * the instance-wide `meta['settings']` blob.
+ *
+ * `key` is a dotted settings path from POD-418's DERIVED classification
+ * (`settingsPathsInTier('personal-preference')`), never a second hand-written
+ * list. `value` is the leaf as JSON TEXT — `JSON.parse` round-trips it — so a
+ * boolean stays a boolean and `sidebar.repoOrder` stays an array, which a
+ * column-per-type or a `->>` extraction would both have flattened.
+ *
+ * KEY-AT-A-TIME rather than one blob per user, because a blob is exactly how
+ * twenty-four leaves came to share one authorization answer and one conflict
+ * rule. ABSENCE IS THE ROW BEING ABSENT: no row means this person has never set
+ * this preference and it resolves to the instance blob's value (which, after the
+ * migration removed the personal members, is the model's default).
+ *
+ * NO foreign key to `users`, matching its three siblings above and for their
+ * reason: a per-user row follows the USER and is scrubbed by the user's own
+ * deletion path, not by another table's lifecycle.
+ */
+export const userPreferences = sqliteTable("user_preferences", {
+	userId: text("user_id").notNull(),
+	key: text().notNull(),
+	/** The leaf value as JSON text. */
+	value: text().notNull(),
+	/** When this person last wrote this preference — a fact the blob never had. */
+	updatedAt: text("updated_at").notNull(),
+},
+(table) => [primaryKey({ columns: [table.userId, table.key], name: "user_preferences_pk"}),
+]);
+
 export const conversations = sqliteTable("conversations", {
 	id: text().primaryKey(),
 	agentKind: text("agent_kind").notNull(),

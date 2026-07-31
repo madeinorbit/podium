@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { applySettingsPatch, readSettingsLeaf } from '@podium/commands'
+import { readSettingsLeaf } from '@podium/commands'
 import {
+  classifySettingsPath,
   redeemTelegramClaimCode,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
@@ -11,10 +12,10 @@ import {
   type UserId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'
-import type { CommandPrincipal } from '../../command-principal'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
@@ -177,10 +178,24 @@ function telegramTextHasCode(text: string, code: string): boolean {
     .some((part) => part.toUpperCase() === want)
 }
 
-/** The store surface this module persists through. */
+/**
+ * The store surface this module persists through.
+ *
+ * POD-1213 added the per-user half: `getSettingsFor` / `setSettingsFor` /
+ * `applyPreferencePatch` are the reads and writes that take a USER, and they are
+ * the ones every client-facing path uses. `getSettings` remains for the
+ * INSTANCE tier, which is a property of the deployment and has no per-reader
+ * answer.
+ */
 type SettingsStore = Pick<
   SessionStore['settings'],
-  'getSettings' | 'setSettings' | 'getModelCatalog' | 'setModelCatalog'
+  | 'getSettings'
+  | 'setSettings'
+  | 'getSettingsFor'
+  | 'setSettingsFor'
+  | 'applyPreferencePatch'
+  | 'getModelCatalog'
+  | 'setModelCatalog'
 >
 
 /**
@@ -292,8 +307,31 @@ export class SettingsService {
     })
   }
 
+  /**
+   * The INSTANCE-tier settings (POD-1213).
+   *
+   * Personal leaves read as their defaults here, because they no longer live on
+   * this row — see `store/settings.ts`. Every consumer whose answer differs per
+   * reader must call {@link getSettingsFor} with the person it is acting for;
+   * `bun run typecheck` cannot catch a wrong choice here, so the call sites that
+   * pass `FIRST_ADMIN_USER_ID` today are deliberately greppable rather than
+   * hidden behind a default.
+   */
   getSettings(): PodiumSettings {
     return this.store.getSettings()
+  }
+
+  /**
+   * THE SETTINGS AS ONE PERSON SEES THEM — what a client is served, and what any
+   * personal-tier consumer reads.
+   *
+   * The user is a REQUIRED parameter with no default, for the reason
+   * `SettingsServiceOptions.mintingUser` is required: a service-level default is
+   * the one place a per-user read could silently keep answering for one identity
+   * while every call site still compiles.
+   */
+  getSettingsFor(userId: UserId): PodiumSettings {
+    return this.store.getSettingsFor(userId)
   }
 
   /**
@@ -370,14 +408,57 @@ export class SettingsService {
     )
   }
 
-  setSettings(settings: PodiumSettings): PodiumSettings {
-    const previous = this.store.getSettings()
+  /**
+   * `settings.set` — the legacy whole-blob write, ON BEHALF OF ONE PERSON
+   * (POD-1213).
+   *
+   * The shipped clients send the entire settings object back, and that object now
+   * spans two homes: the instance blob and the caller's own preference rows. The
+   * split is done in the STORE by classification (`setSettingsFor`), not here and
+   * not by the caller — a transport that partitioned the payload itself would be
+   * a second answer to "which tier is this key in", and the two would drift.
+   *
+   * The `settings.changed` event carries the INSTANCE pair. Subscribers to it
+   * (the notify replay, the auto-continue re-arm) react to a deployment-level
+   * change; a personal change is that person's and is read per-reader at use.
+   */
+  setSettingsFor(userId: UserId, settings: PodiumSettings): PodiumSettings {
+    const previous = this.store.getSettingsFor(userId)
     this.assertNoSecretChange(previous, settings)
-    this.store.setSettings(settings)
-    // Synchronous bus fan-out: NotifyService replays blocked states to newly
-    // configured external targets; the registry re-arms auto-continue.
-    this.bus.emit('settings.changed', { previous, next: settings })
-    return settings
+    this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
+    const next = this.store.getSettingsFor(userId)
+    this.emitSettingsChanged(previous, next)
+    // The CALLER is served what it now resolves to, not the shared blob: a client
+    // that posted its own preferences must get them back, or the next render
+    // would show it the instance defaults and look like the save was lost.
+    return next
+  }
+
+  /**
+   * `settings.changed`, CARRYING THE WRITER'S RESOLVED VIEW (POD-1213).
+   *
+   * The subscribers are the notify service's replay to newly configured external
+   * targets and the registry's auto-continue re-arm, and both react to leaves
+   * that are now PERSONAL (`notifications.*`, `autoContinue.enabled`). Emitting
+   * the instance blob's before/after pair would make those changes invisible to
+   * them — the blob does not move when a personal leaf does — so a user turning
+   * auto-continue on would silently arm nothing. `relay.test.ts` has that case
+   * and it went red on the first attempt, which is how this is known rather than
+   * assumed.
+   *
+   * One shared password means one writer and one reader today, so the writer's
+   * view IS every reader's view. When that stops being true these subscribers
+   * need a per-user reaction rather than a broadcast, and this is the seam where
+   * that change lands — recorded here rather than left for someone to discover
+   * from a notification that went to the wrong person.
+   *
+   * Emitted only on an actual difference: the shipped clients round-trip the
+   * whole blob on every edit, so an unchanged save must not make every
+   * subscriber re-run.
+   */
+  private emitSettingsChanged(previous: PodiumSettings, next: PodiumSettings): void {
+    if (JSON.stringify(previous) === JSON.stringify(next)) return
+    this.bus.emit('settings.changed', { previous, next })
   }
 
   // -------------------------------------------------------------------------
@@ -398,10 +479,43 @@ export class SettingsService {
    * `Record<string, unknown>` by design (the contract decides addresses, the
    * model decides value types), so this parse is where `hibernation.memoryPct =
    * "abc"` is refused — by the model's own schema, not by a restatement of it.
+   *
+   * THE ACTOR IS REQUIRED (POD-1213) AND IS THE OWNING USER for a personal
+   * patch. `settings.updatePersonal`'s contract already floors on the owning user
+   * re-checked at drain (POD-420); this is where that user finally decides
+   * WHERE THE VALUE LANDS rather than only whether the write is allowed. An
+   * instance-tier patch ignores it, because the deployment has no per-reader
+   * answer — and the routing is the STORE's, by classification, so both commands
+   * share this method exactly as before.
+   *
+   * The `settings.changed` pair is the ACTOR'S RESOLVED VIEW, for the reason
+   * {@link emitSettingsChanged} gives: the subscribers react to leaves that are
+   * personal now, and the instance blob does not move when one of those changes.
    */
-  updatePreferences(values: Readonly<Record<string, unknown>>): PodiumSettings {
-    const current = this.store.getSettings()
-    return this.setSettings(normalizeSettings(applySettingsPatch(current, values)))
+  updatePreferences(actor: UserId, values: Readonly<Record<string, unknown>>): PodiumSettings {
+    // THE SECRET REFUSAL SURVIVES THE ROUTING CHANGE (POD-1213).
+    //
+    // POD-420's patch write reached the blob through `setSettings`, so
+    // `assertNoSecretChange` guarded it on the way past. This method no longer
+    // goes through that door — the store routes each path by tier — so the
+    // refusal is stated HERE rather than silently lost, and it is derived from
+    // the CLASSIFICATION, not from a key-name detector: a secret added to the
+    // model becomes unwritable-by-patch on the same commit.
+    const secrets = Object.keys(values).filter(
+      (path) => classifySettingsPath(path)?.tier === 'server-secret',
+    )
+    if (secrets.length > 0) {
+      // Names the KEYS and never a value, for the reason `assertNoSecretChange`
+      // does: the key vocabulary is public, the material is not.
+      throw new Error(
+        `a preference patch may not write server-owned secrets (${secrets.join(', ')}) — ` +
+          'use settings.setSecret / settings.clearSecret, which are online-only and never queued (ADR 1 D6)',
+      )
+    }
+    const previous = this.store.getSettingsFor(actor)
+    const next = this.store.applyPreferencePatch(actor, values, new Date(this.now()).toISOString())
+    this.emitSettingsChanged(previous, next)
+    return next
   }
 
   /**
@@ -468,7 +582,9 @@ export class SettingsService {
     const serverKey = this.fingerprintKey()
     return this.secrets
       .presence()
-      .map((row) => secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt))
+      .map((row) =>
+        secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),
+      )
   }
 
   /**
@@ -569,7 +685,6 @@ export class SettingsService {
       return { status: 'expired' }
     }
 
-    const current = this.store.getSettings()
     const botToken = this.secrets.getOrEmpty('notifications.telegramBotToken').trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
@@ -589,17 +704,20 @@ export class SettingsService {
     }
     this.telegramBindings.upsert(binding)
 
-    // The INBOUND half is now the binding above. This write is the OUTBOUND
-    // routing address, which is a different fact on a different row
-    // (`preferences-personal`, `secret: 'preference'`) and is unchanged by this
-    // issue: it is still an instance-wide singleton, and making notification
-    // routing per-user is ADR 9 D8 S3's work, not this ceremony's.
-    const next = this.setSettings({
-      ...current,
-      notifications: {
-        ...current.notifications,
-        telegramChatId: chatId,
-      },
+    // The INBOUND half is the binding above. This write is the OUTBOUND routing
+    // address — a different fact on a different row (`preferences-personal`) —
+    // and POD-1213 made it PER-USER, which is what ADR 9 D8 S3 asked for and
+    // POD-1080 recorded as still outstanding.
+    //
+    // IT IS WRITTEN FOR `setup.mint.userId`, NOT FOR THE POLLING CALLER. The two
+    // are the same principal today, and naming the mint's user is what keeps them
+    // the same principal when they stop being: the whole mechanism of D22.1 is
+    // that identity is captured at MINT time on an authenticated transport, and a
+    // routing address derived from whoever happened to poll would be a second,
+    // weaker answer sitting beside it. Both halves of the ceremony now name one
+    // user, from one place.
+    const next = this.updatePreferences(setup.mint.userId, {
+      'notifications.telegramChatId': chatId,
     })
     this.telegramSetups.delete(setupId)
     await this.telegramSetup.sendMessage(

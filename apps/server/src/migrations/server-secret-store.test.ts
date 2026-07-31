@@ -88,6 +88,23 @@ const cutIndex = () => {
   return cut
 }
 
+/**
+ * THE MANIFEST UP TO AND INCLUDING THIS MIGRATION (POD-1213).
+ *
+ * These cases used to apply the WHOLE manifest, which made them a function of
+ * whatever landed afterwards — and POD-1213 landed afterwards: it moves the
+ * personal preference leaves (`sidebar`, `notifications.telegramChatId`, …) out
+ * of the blob into `user_preferences`, so the "every preference is untouched"
+ * assertions below would fail for a reason that has nothing to do with the
+ * secret lift they are about.
+ *
+ * Cutting at this migration is the honest scope for a test OF this migration.
+ * The end-state property those assertions were protecting — that a later
+ * migration does not eat the row — is `personal-preference-store.test.ts`'s,
+ * where it belongs.
+ */
+const throughThisMigration = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
+
 const tableExists = (db: Db, name: string): boolean =>
   db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !==
   undefined
@@ -151,7 +168,7 @@ describe('the migration lifts the keys the model classifies — no second list',
 describe('the COPY happens, and lands under the right key', () => {
   it('carries every configured secret across BY KEY AND VALUE', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const rows = db.prepare('SELECT key, value FROM server_secrets ORDER BY key').all() as {
       key: string
@@ -167,7 +184,7 @@ describe('the COPY happens, and lands under the right key', () => {
 
   it('stamps a rotation time the blob never had', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
     const rows = db.prepare('SELECT updated_at FROM server_secrets').all() as {
       updated_at: string
     }[]
@@ -184,7 +201,7 @@ describe('the COPY happens, and lands under the right key', () => {
       ...PREFERENCES,
       apiKeys: { openai: 'sk-only-this-one', anthropic: '', openrouter: '' },
     })
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const rows = db.prepare('SELECT key, value FROM server_secrets').all() as { key: string }[]
     expect(rows.map((r) => r.key)).toEqual(['apiKeys.openai'])
@@ -194,7 +211,7 @@ describe('the COPY happens, and lands under the right key', () => {
 describe('the CLEAR happens, and takes exactly the secrets', () => {
   it('removes every secret MEMBER from the blob — the key is gone, not blanked', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const blob = rawBlob(db)
     expect(blob.apiKeys).toEqual({})
@@ -208,7 +225,7 @@ describe('the CLEAR happens, and takes exactly the secrets', () => {
 
   it('leaves every preference untouched, including its secret-sharing siblings', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const blob = rawBlob(db)
     expect(blob.sidebar).toEqual(PREFERENCES.sidebar)
@@ -236,7 +253,7 @@ describe('the edges an upgrade actually meets', () => {
       'not json at all',
     )
 
-    expect(() => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).not.toThrow()
+    expect(() => runDrizzleMigrations(db, throughThisMigration())).not.toThrow()
     expect(db.prepare('SELECT count(*) c FROM server_secrets').get()).toEqual({ c: 0 })
     // …and the row is left exactly as found rather than being replaced with a
     // default: an operator's unparseable settings are still their data.
@@ -250,14 +267,14 @@ describe('the edges an upgrade actually meets', () => {
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cutIndex()))
     expect(db.prepare(`SELECT value FROM meta WHERE key = 'settings'`).get()).toBeUndefined()
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
     expect(tableExists(db, 'server_secrets')).toBe(true)
     expect(db.prepare('SELECT count(*) c FROM server_secrets').get()).toEqual({ c: 0 })
   })
 
   it('a blob missing a whole secret group is not an error', () => {
     const db = preMigrationDb({ sidebar: PREFERENCES.sidebar, apiKeys: { openai: 'sk-lonely' } })
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     expect(db.prepare('SELECT key, value FROM server_secrets').all()).toEqual([
       { key: 'apiKeys.openai', value: 'sk-lonely' },
@@ -272,7 +289,7 @@ describe('the repository reads what the migration wrote', () => {
       ...PREFERENCES,
       apiKeys: { openai: SEEDED['apiKeys.openai'], anthropic: '', openrouter: '' },
     })
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
     const secrets = new ServerSecretsRepository(db)
 
     // The POSITIVE control beside the negative: a repository that returned
@@ -284,7 +301,7 @@ describe('the repository reads what the migration wrote', () => {
 
   it('reports presence for every key in the vocabulary, values for none', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const presence = new ServerSecretsRepository(db).presence()
     expect(presence.map((p) => p.key).sort()).toEqual([...SERVER_SECRET_KEYS].sort())
@@ -297,7 +314,7 @@ describe('the repository reads what the migration wrote', () => {
 
   it('a cleared secret leaves no row, and a blank write is a clear', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
     const secrets = new ServerSecretsRepository(db)
 
     secrets.clear('apiKeys.openai')

@@ -28,27 +28,33 @@ import {
 import type { TelegramChatBinding, UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
+import { runDrizzleMigrations } from '../../migrations'
+import { SettingsRepository } from '../../store/settings'
 import { EventBus } from '../bus'
 import { SettingsService } from './service'
 
-/** The store surface the service persists through, in memory. */
-function makeStore() {
-  let settings = normalizeSettings({})
-  let catalog: unknown = null
-  return {
-    getSettings: (): PodiumSettings => settings,
-    setSettings: (next: PodiumSettings): void => {
-      settings = next
-    },
-    // biome-ignore lint/suspicious/noExplicitAny: the catalog shape is the model
-    // catalog's and is irrelevant here; the service only round-trips it.
-    getModelCatalog: (): any => catalog,
-    // biome-ignore lint/suspicious/noExplicitAny: as above.
-    setModelCatalog: (snapshot: any): void => {
-      catalog = snapshot
-    },
-  }
+/**
+ * The store surface the service persists through — THE REAL REPOSITORY over an
+ * in-memory database, not a hand-rolled fake (POD-1213).
+ *
+ * It used to be a closure over one `PodiumSettings` value, which was faithful
+ * while the blob was the whole story. It is not any more: `setSettingsFor` routes
+ * each changed leaf to the instance blob or to the caller's own preference row BY
+ * CLASSIFICATION, and a fake would have had to re-implement that routing — a
+ * second copy of the very logic under test, which would agree with itself no
+ * matter what the shipped one did.
+ */
+function makeStore(): SettingsRepository {
+  const db = openDatabase(':memory:')
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  return new SettingsRepository(db)
 }
+
+/** The person every write below is made by. Named once so a test asserting
+ *  "what this caller sees" cannot silently read someone else's view. */
+const USER: UserId = asUserId('user:sole')
 
 /** The server-only secret store, in memory (POD-419). A Map, not an object with
  *  five keys: absence is the ROW being absent, and a fixture that pre-seeds five
@@ -109,8 +115,8 @@ describe('the blob write may not carry a secret', () => {
     // The positive control. Without it, a guard that refused every `settings.set`
     // would satisfy every refusal below while breaking the sidebar, the
     // auto-continue dialog and the engine.
-    const current = service.getSettings()
-    const saved = service.setSettings({
+    const current = service.getSettingsFor(USER)
+    const saved = service.setSettingsFor(USER, {
       ...current,
       sidebar: { ...current.sidebar, repoSort: 'alphabetical' },
     })
@@ -118,16 +124,16 @@ describe('the blob write may not carry a secret', () => {
   })
 
   it('REFUSES a changed secret, naming the KEY and never the value', () => {
-    const current = service.getSettings()
+    const current = service.getSettingsFor(USER)
     expect(() =>
-      service.setSettings({
+      service.setSettingsFor(USER, {
         ...current,
         apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
       }),
     ).toThrow(/may not write server-owned secrets \(apiKeys\.openai\)/)
     // The material is not in the message, and it is not in the store.
     expect(() =>
-      service.setSettings({
+      service.setSettingsFor(USER, {
         ...current,
         apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
       }),
@@ -147,9 +153,9 @@ describe('the blob write may not carry a secret', () => {
     // clear at all. Clearing is `settings.clearSecret` — online-only,
     // admin-grade, never queued.
     service.setSecret('apiKeys.anthropic', 'sk-configured')
-    const current = service.getSettings()
+    const current = service.getSettingsFor(USER)
     expect(() =>
-      service.setSettings({ ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
+      service.setSettingsFor(USER, { ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
     ).not.toThrow()
     expect(secrets.get('apiKeys.anthropic')).toBe('sk-configured')
   })
@@ -160,20 +166,20 @@ describe('the blob write may not carry a secret', () => {
     // save from that tab, which is the failure POD-420's positive control exists
     // to prevent, now expressed against the keyed store.
     service.setSecret('apiKeys.openai', 'sk-served-earlier')
-    const current = service.getSettings()
+    const current = service.getSettingsFor(USER)
     expect(() =>
-      service.setSettings({
+      service.setSettingsFor(USER, {
         ...current,
         apiKeys: { ...current.apiKeys, openai: 'sk-served-earlier' },
         sidebar: { ...current.sidebar, repoSort: 'alphabetical' },
       }),
     ).not.toThrow()
-    expect(service.getSettings().sidebar.repoSort).toBe('alphabetical')
+    expect(service.getSettingsFor(USER).sidebar.repoSort).toBe('alphabetical')
     expect(secrets.get('apiKeys.openai')).toBe('sk-served-earlier')
   })
 
   it('refuses EVERY secret key, not just the one someone remembered', () => {
-    const base = service.getSettings()
+    const base = service.getSettingsFor(USER)
     const mutated: PodiumSettings[] = [
       { ...base, apiKeys: { ...base.apiKeys, openrouter: 'x' } },
       { ...base, apiKeys: { ...base.apiKeys, anthropic: 'x' } },
@@ -185,15 +191,15 @@ describe('the blob write may not carry a secret', () => {
     // secret added to the model without a case here is a failure rather than a
     // silently unchecked key.
     expect(mutated).toHaveLength(SERVER_SECRET_KEYS.length)
-    for (const next of mutated) expect(() => service.setSettings(next)).toThrow(/server-owned/)
+    for (const next of mutated) expect(() => service.setSettingsFor(USER, next)).toThrow(/server-owned/)
   })
 
   it('lets a NON-secret member of the same nested object through', () => {
     // `notifications` holds a secret (`telegramBotToken`) beside routing
     // (`telegramChatId`) — one object, two matrix rows. The guard must be about
     // the LEAF, not about the object that contains one.
-    const current = service.getSettings()
-    const saved = service.setSettings({
+    const current = service.getSettingsFor(USER)
+    const saved = service.setSettingsFor(USER, {
       ...current,
       notifications: { ...current.notifications, telegramChatId: '-100999' },
     })
@@ -207,8 +213,8 @@ describe('setSecret / clearSecret are the only path to material', () => {
     // POD-419: the material lands in the server-only keyed store, and NOT in the
     // blob — which is the object that round-trips to a browser.
     expect(secrets.get('apiKeys.openai')).toBe('sk-live-value')
-    expect(service.getSettings().apiKeys.openai).toBe('')
-    expect(JSON.stringify(service.getSettings())).not.toContain('sk-live-value')
+    expect(service.getSettingsFor(USER).apiKeys.openai).toBe('')
+    expect(JSON.stringify(service.getSettingsFor(USER))).not.toContain('sk-live-value')
     expect(wire.key).toBe('apiKeys.openai')
     expect(wire.present).toBe(true)
     expect(wire.fingerprint).toMatch(/^[0-9a-f]{16}$/)
@@ -249,15 +255,15 @@ describe('setSecret / clearSecret are the only path to material', () => {
 
 describe('the preference patch applies by path and validates by model', () => {
   it('APPLIES a real leaf without disturbing its siblings', () => {
-    const before = service.getSettings()
-    const saved = service.updatePreferences({ 'roles.coding.model': 'opus' })
+    const before = service.getSettingsFor(USER)
+    const saved = service.updatePreferences(USER, { 'roles.coding.model': 'opus' })
     expect(saved.roles.coding.model).toBe('opus')
     expect(saved.roles.coding.effort).toBe(before.roles.coding.effort)
     expect(saved.sidebar.repoSort).toBe(before.sidebar.repoSort)
   })
 
   it('applies several paths across nested objects in one call', () => {
-    const saved = service.updatePreferences({
+    const saved = service.updatePreferences(USER, {
       'sidebar.repoSort': 'alphabetical',
       'gitWorkflow.mergeStyle': 'pr',
     })
@@ -268,18 +274,23 @@ describe('the preference patch applies by path and validates by model', () => {
   it('REFUSES a value the model rejects — the parse is the value gate', () => {
     // The contract decides ADDRESSES and the model decides VALUE TYPES. Without
     // this the patch would be an untyped write into the blob.
-    expect(() => service.updatePreferences({ 'hibernation.memoryPct': 'not a number' })).toThrow()
-    expect(() => service.updatePreferences({ 'gitWorkflow.mergeStyle': 'octopus' })).toThrow()
-    expect(service.getSettings().gitWorkflow.mergeStyle).toBe('ff-only')
+    expect(() => service.updatePreferences(USER, { 'hibernation.memoryPct': 'not a number' })).toThrow()
+    expect(() => service.updatePreferences(USER, { 'gitWorkflow.mergeStyle': 'octopus' })).toThrow()
+    expect(service.getSettingsFor(USER).gitWorkflow.mergeStyle).toBe('ff-only')
   })
 
   it('cannot be used to write a secret — it goes through the blob guard', () => {
     // Belt and braces: the command's input schema already refuses a secret path,
     // so this asks whether the HANDLER would too if something reached it.
-    expect(() => service.updatePreferences({ 'apiKeys.openai': 'sk-via-patch' })).toThrow(
+    expect(() => service.updatePreferences(USER, { 'apiKeys.openai': 'sk-via-patch' })).toThrow(
       /server-owned secrets/,
     )
-    expect(service.getSettings().apiKeys.openai).toBe('')
+    // The refusal is by CLASSIFICATION, so it holds for every member of the
+    // vocabulary rather than for the one someone remembered.
+    for (const key of SERVER_SECRET_KEYS) {
+      expect(() => service.updatePreferences(USER, { [key]: 'x' })).toThrow(/server-owned secrets/)
+    }
+    expect(service.getSettingsFor(USER).apiKeys.openai).toBe('')
     // …and it did not reach the keyed store either, which is where a write that
     // slipped past the blob guard would now actually land.
     expect(secrets.get('apiKeys.openai')).toBeUndefined()

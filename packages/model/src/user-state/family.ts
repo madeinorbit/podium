@@ -24,21 +24,25 @@
  *     browser profile is one person), so it needs no re-key — §7.1 calls it
  *     "the cheapest member" for exactly this reason. Recorded as excluded, not
  *     forgotten.
- *   - personal PREFERENCE KEYS are NOT here. They are one instance-wide
- *     `PodiumSettings` blob and splitting them is POD-352's secrets/preferences
- *     work (Phase 3, POD-418–421), which owns the settings surface. Re-keying
- *     half a settings blob from this issue would leave the other half to a second
- *     migration — the exact cost this family exists to avoid.
+ *   - personal PREFERENCE KEYS were recorded here as a deliberate NON-member at
+ *     POD-1076, because they were one instance-wide `PodiumSettings` blob and
+ *     splitting them belonged to POD-352's secrets/preferences work. **POD-1213
+ *     is that split**, and the member has therefore MOVED into the family
+ *     (`./preference-state.ts`) rather than staying an entry with an amended
+ *     reason. A totality list whose absent members quietly stay absent after
+ *     arriving is the stale-claim failure this file exists to prevent, so the
+ *     count below moves with the storage.
  *   - the client outbox / replica cursor is DEVICE-local and never replicated
  *     (ADR 1 Am1 §10). Per-user by class, no server row, no re-key.
  *
- * So: six schemas here, three members excluded WITH a reason, and the reasons are
+ * So: seven schemas here, two members excluded WITH a reason, and the reasons are
  * the part a later reader needs — an unexplained absence from a totality list is
  * indistinguishable from a member somebody forgot.
  */
 
 import type { z } from 'zod'
 import { ISSUE_USER_STATE_MEMBERS } from './issue-state'
+import { PREFERENCE_USER_STATE_MEMBERS } from './preference-state'
 import { SESSION_USER_STATE_MEMBERS } from './session-state'
 
 export interface PerUserStateMember {
@@ -51,17 +55,24 @@ export interface PerUserStateMember {
   readonly table: string
 }
 
-/** Every member with a server-side table, session half then issue half. */
+/** Every member with a server-side table: session half, issue half, then the
+ *  personal preference half POD-1213 moved off the settings singleton. */
 export const PER_USER_STATE_FAMILY: readonly PerUserStateMember[] = [
   ...SESSION_USER_STATE_MEMBERS,
   ...ISSUE_USER_STATE_MEMBERS,
+  ...PREFERENCE_USER_STATE_MEMBERS,
 ]
 
 /**
  * §7.1 facts that are `per-user-state` BY CLASS but have no server row to re-key,
  * each with the reason. A list rather than prose so the count is checkable: §7.1's
- * eleven facts = {@link PER_USER_STATE_FAMILY}'s members (which cover eight of
- * them) plus these three.
+ * eleven facts = {@link PER_USER_STATE_FAMILY}'s members (which cover nine of
+ * them) plus these two.
+ *
+ * `personalPreferenceKeys` LEFT this list at POD-1213, when the storage it said
+ * did not exist was built. That is the intended lifecycle of an entry here: a
+ * non-member with a reason is a claim about today, and when the reason stops
+ * being true the entry moves rather than being rewritten.
  */
 export const PER_USER_STATE_NON_MEMBERS = [
   {
@@ -70,13 +81,6 @@ export const PER_USER_STATE_NON_MEMBERS = [
       'CLIENT-LOCAL (EngineState UI keys + the `ui` store). Already per-user by construction — ' +
       'one browser profile is one person — so there is no shared row to re-key. §7.1 calls it ' +
       'the cheapest member for this reason.',
-  },
-  {
-    name: 'personalPreferenceKeys',
-    reason:
-      'One instance-wide `PodiumSettings` blob. Splitting personal keys from instance keys is ' +
-      "POD-352's secrets/preferences work (Phase 3, POD-418–421), which owns that surface. " +
-      'Re-keying half a settings blob here would leave the other half to a second migration.',
   },
   {
     name: 'clientOutboxAndReplicaCursor',

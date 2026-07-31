@@ -65,6 +65,9 @@ export * from './fields/session'
 // which of inventory §7.1's facts have no server row, and why.
 export * from './user-state/family'
 export * from './user-state/issue-state'
+// The personal preference half (POD-1213) — the member POD-1076 recorded as
+// absent because its storage was still the instance-wide settings blob.
+export * from './user-state/preference-state'
 export * from './user-state/session-state'
 
 // The CANONICAL R1 AGGREGATES (POD-365) — the one definition of what a session

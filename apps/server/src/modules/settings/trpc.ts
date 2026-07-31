@@ -37,10 +37,12 @@
  * empty object FAILS it.
  */
 
+import type { UserId } from '@podium/model'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, mods, t } from '../../trpc'
 import { redactErrorMessage } from './audit'
+import { onBehalfOfUser } from '../../command-principal'
 import { settingsAuthzDeps, settingsAuthzFailure } from './authz'
 import {
   isSettingsCommandExposedOn,
@@ -132,6 +134,20 @@ function runSettingsCommand(
     throw refusal
   }
 
+  // WHO THE WRITE BELONGS TO (POD-1213). A personal preference lands on this
+  // user's row, so a principal with no human behind it may not write one: a
+  // SYSTEM principal answers `null` here and is REFUSED rather than defaulted to
+  // the first admin. That is §3.1.6 S4's rule ("unknown must fail closed, never
+  // fall back to an operator identity") at the one seam where a settings write
+  // acquires an owner — and it is refused HERE, before the handler, so the
+  // refusal is recorded by the same trail as every other.
+  const actor = onBehalfOfUser(deps.principal)
+  if (actor === null) {
+    const message = `${name} writes on behalf of a user, and this principal has none`
+    record('refused', message)
+    throw new TRPCError({ code: 'FORBIDDEN', message })
+  }
+
   const { handler } = SETTINGS_COMMANDS_TRPC[name]
   // The table is heterogeneous, so at THIS point the parsed input is the union
   // of all schemas and TypeScript cannot pair it with the handler. It does not
@@ -140,7 +156,7 @@ function runSettingsCommand(
   // carries a `satisfies SettingsHandler<…>` over its own contract's inferred
   // input), and `SettingsProcedures` re-derives the per-command types for the
   // client. This erasure is the one place the two meet.
-  const run = handler as (svc: typeof service, input: unknown) => unknown
+  const run = handler as (svc: typeof service, input: unknown, actor: UserId) => unknown
 
   // A handler may be sync or async, and BOTH must be recorded. Awaiting a
   // synchronous result would make every settings write a microtask later than it
@@ -160,7 +176,7 @@ function runSettingsCommand(
 
   let result: unknown
   try {
-    result = run(service, input)
+    result = run(service, input, actor)
   } catch (e) {
     return fail(e)
   }

@@ -27,7 +27,7 @@ import type { FamilyState } from './derived-family'
 import { assertAllowedRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { specsInputs } from './specs/service'
-import { AutomationIdField, ThreadIdField, asThreadId } from '@podium/model'
+import { AutomationIdField, ThreadIdField, asThreadId, asUserId } from '@podium/model'
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -145,7 +145,17 @@ export const SPEC_QUERIES = {
  *  RETURNS changes shape under POD-419 and POD-421 — which is the other reason
  *  it carries no contract. */
 export const SETTINGS_QUERIES = {
-  get: q(noInput, (s) => s.modules.settings.getSettings()),
+  /**
+   * THE SETTINGS AS THIS CALLER SEES THEM (POD-1213).
+   *
+   * `getSettingsFor(caller)`, never `getSettings()`. Until this issue the read
+   * served the whole instance blob — so one person's roles, sidebar order,
+   * autoContinue dismissal, ntfy topic and Telegram chat id were served to every
+   * other authenticated client, which is the cross-user leak POD-352's exit audit
+   * names. The caller's identity is already on `FamilyState` for exactly this
+   * class of read.
+   */
+  get: q(noInput, (s) => s.modules.settings.getSettingsFor(asUserId(s.caller.userId))),
 } as const
 
 /** POD-735 derived the four automation writes; these two reads stayed
