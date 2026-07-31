@@ -649,6 +649,21 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     matrixRow: ROW.sessionIdentity,
     visibility: 'personal',
   },
+  {
+    symbol: 'LegacyBindingSnapshot',
+    entity: 'session',
+    site: 'apps/daemon/src/binding-store.ts',
+    role: 'command-input',
+    purpose: 'The one-shot input adapter that collects the daemon’s former in-memory control, observer, and adapter-pin state while upgrading a real legacy state directory.',
+    distinctSemantics: 'It describes several retired source shapes at the migration boundary, including optional facts that never coexisted in one durable aggregate. The binding store normalizes these values into immutable observations and delegation history; retaining this adapter after migration would be incorrect.',
+    composition: {
+      state: 'declared-legitimate-restatement',
+      reason: 'The source state was scattered across independent in-memory maps and adapter-specific pins, so no canonical legacy record exists to compose. Its intentionally nested groups identify the source inventory rather than defining another current Session shape.',
+      enforcedBy: 'apps/daemon/src/binding-store.test.ts builds a real daemon state directory, supplies every legacy group, asserts the normalized observation history, and proves the migration marker makes the adapter one-shot.',
+    },
+    matrixRow: ROW.sessionBinding,
+    visibility: 'owned-compute',
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1016,7 +1031,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
 ]
 
 /**
- * THE retained representations. 43 today: 26 session + 17 issue.
+ * THE retained representations. 45 today: 27 session + 18 issue.
  *
  * Membership is PINNED by a literal count in `registry.test.ts`, not derived from
  * this array, because a suite whose parameter list is the thing under test cannot

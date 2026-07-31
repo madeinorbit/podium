@@ -67,6 +67,16 @@ export interface SessionObserversDeps {
   harnessAdapterFor?: typeof harnessAdapterFor
   /** Test seam for deterministically fencing an in-flight Claude bootstrap capture. */
   captureClaudeTranscript?: typeof captureClaudeTranscript
+  /** Persist adapter-discovered aliases in the binding store. */
+  onAliasObservation?: (input: {
+    sessionId: SessionId
+    channel: 'resume-ref' | 'provider-session' | 'transcript-path'
+    value: string
+    nativeKind?: string
+    confidence: 'exact' | 'heuristic'
+    source: 'native-hook' | 'adapter-observer'
+    observedAt: string
+  }) => void
   /** Persist and replay an exact process-derived Codex P→T binding until acked. */
   onExactCodexBinding?: (sessionId: SessionId, nativeId: string) => Promise<void>
   /** Paces each tail's FIRST backfill read (the expensive part of a reattach
@@ -1016,6 +1026,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
     onResumeValue: (value, confidence) => {
+      deps.onAliasObservation?.({
+        sessionId,
+        channel: 'resume-ref',
+        value,
+        nativeKind: adapter.resumeKind,
+        confidence: confidence ?? 'heuristic',
+        source: 'adapter-observer',
+        observedAt: new Date().toISOString(),
+      })
       if (adapter.kind === 'codex' && confidence === 'exact' && deps.onExactCodexBinding) {
         void deps
           .onExactCodexBinding(sessionId, value)
@@ -1338,9 +1357,26 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // Same-binding hooks may update the authoritative transcript and resume ref.
     const transcriptPath = hookString(payload, 'transcript_path', 'transcriptPath')
     if (transcriptPath) {
+      deps.onAliasObservation?.({
+        sessionId,
+        channel: 'transcript-path',
+        value: transcriptPath,
+        confidence: 'exact',
+        source: 'native-hook',
+        observedAt: new Date().toISOString(),
+      })
       ensureTranscriptTail(sessionId, transcriptPath, recordToItemsForKind(bound.adapter.kind))
     }
     if (harnessSessionId) {
+      deps.onAliasObservation?.({
+        sessionId,
+        channel: 'provider-session',
+        value: harnessSessionId,
+        nativeKind: bound.adapter.resumeKind,
+        confidence: 'exact',
+        source: 'native-hook',
+        observedAt: new Date().toISOString(),
+      })
       send({
         type: 'sessionResumeRef',
         sessionId,

@@ -146,6 +146,12 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     row: 'headless-turn-spool',
     writeSites: ['apps/daemon/src/durable-headless.ts'],
   },
+  {
+    store: '<stateDir>/session-bindings',
+    kind: 'filesystem',
+    row: 'session-binding',
+    writeSites: ['apps/daemon/src/binding-store.ts'],
+  },
 
   // -- §3 Issues & tracker ---------------------------------------------------
   { store: 'issues', kind: 'drizzle-table', row: 'issue-core' },

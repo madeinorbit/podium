@@ -1,9 +1,26 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import { type AgentSession, abducoHasSessionAsync, attachAbducoAgent, attachTmuxAgent, killAbducoSessionAsync, killTmuxServerAsync, spawnAbducoAgent, spawnAgent, spawnTmuxAgent, tmuxHasSessionAsync } from '@podium/pty'
+import {
+  type AgentSession,
+  abducoHasSessionAsync,
+  attachAbducoAgent,
+  attachTmuxAgent,
+  killAbducoSessionAsync,
+  killTmuxServerAsync,
+  spawnAbducoAgent,
+  spawnAgent,
+  spawnTmuxAgent,
+  tmuxHasSessionAsync,
+} from '@podium/pty'
 import { agentStateProviderFor, type LaunchFile } from '@podium/harness'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
-import type { AgentKind, SessionId } from '@podium/model'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  FIRST_ADMIN_USER_ID,
+  type AgentKind,
+  type SessionId,
+} from '@podium/model'
 import { resolveInstanceId } from '@podium/runtime/config'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
@@ -88,6 +105,55 @@ function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): vo
   rmSync(instructionRuntimeDir(ctx, sessionId), { recursive: true, force: true })
 }
 
+async function persistControlBinding(
+  ctx: DaemonContext,
+  msg: SpawnControl | ReattachControl,
+): Promise<void> {
+  const observedAt = new Date().toISOString()
+  await ctx.bindingStore.ensureBinding({
+    sessionId: msg.sessionId,
+    agentKind: msg.agentKind,
+    claimantMachineId: asMachineId(ctx.machineId),
+    observationGeneration: msg.observationGeneration,
+    delegation: {
+      actor: asAgentIdentityId(msg.sessionId),
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+      grantedScope: { kind: 'owned', userId: FIRST_ADMIN_USER_ID },
+      parentBindingId: null,
+    },
+  })
+  const observations = [
+    ...('durableLabel' in msg && msg.durableLabel
+      ? [{ channel: 'durable-label' as const, value: msg.durableLabel }]
+      : []),
+    { channel: 'cwd' as const, value: msg.cwd },
+    ...(msg.resume
+      ? [{ channel: 'resume-ref' as const, value: msg.resume.value, nativeKind: msg.resume.kind }]
+      : []),
+    ...('pathHint' in msg && msg.pathHint
+      ? [{ channel: 'transcript-path' as const, value: msg.pathHint }]
+      : []),
+    ...(msg.observationProviderSessionId
+      ? [
+          {
+            channel: 'provider-session' as const,
+            value: msg.observationProviderSessionId,
+            nativeKind: msg.resume?.kind,
+          },
+        ]
+      : []),
+  ]
+  for (const observation of observations) {
+    await ctx.bindingStore.observe({
+      sessionId: msg.sessionId,
+      ...observation,
+      confidence: 'exact',
+      source: 'control',
+      observedAt,
+    })
+  }
+}
+
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
@@ -150,6 +216,9 @@ export function wireBridge(
 }
 
 function spawn(ctx: DaemonContext, msg: SpawnControl): void {
+  void persistControlBinding(ctx, msg).catch((error) =>
+    console.warn('[podium] could not persist binding for', msg.sessionId, error),
+  )
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
@@ -264,6 +333,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
 // reattach for sessions we already hold — re-confirm the bind instead of spawning a
 // duplicate client), and gated so the spawn fan-out can't fork everything in one tick.
 async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise<void> {
+  await persistControlBinding(ctx, msg)
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced
@@ -415,9 +485,14 @@ export const sessionHandlers: Pick<
 > = {
   spawn,
   reattach: (ctx, msg) => {
-    void handleReattach(ctx, msg)
+    void handleReattach(ctx, msg).catch((error) =>
+      console.warn('[podium] could not persist reattach binding for', msg.sessionId, error),
+    )
   },
   kill: (ctx, msg) => {
+    void ctx.bindingStore
+      .retire(msg.sessionId)
+      .catch((error) => console.warn('[podium] could not retire binding for', msg.sessionId, error))
     const session = ctx.bridges.get(msg.sessionId)
     ctx.observers.clearSession(msg.sessionId)
     if (session) {
