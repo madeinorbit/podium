@@ -1,0 +1,14 @@
+GATE BASELINE captured on integration at cd863d15, BEFORE the catch-up.
+A gate that is green here and red after the merge is a REAL FINDING, not merge noise.
+check-boundaries           exit=0
+check-no-nul-bytes         exit=0
+audit-settings-commands    exit=0
+audit-client-secrets       exit=0
+audit-browser-reach        exit=0
+audit-derived-families     exit=0
+audit-machine-grants       exit=0
+audit-router-mutations     exit=0
+audit-durable-classes      exit=0
+audit-declared-consumers   exit=0
+rearch-audit               exit=0
+audit-phase2-client        exit=1 (4 open sites, POD-1239)
