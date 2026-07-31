@@ -58,8 +58,7 @@ const PERSONAL_PREFERENCE_KEYS: ReadonlySet<string> = new Set(
  *  service partitions an incoming blob write by the same question, and two
  *  answers to "is this key personal" is how a leaf ends up written to both
  *  homes. */
-export const isPersonalPreferenceKey = (key: string): boolean =>
-  PERSONAL_PREFERENCE_KEYS.has(key)
+export const isPersonalPreferenceKey = (key: string): boolean => PERSONAL_PREFERENCE_KEYS.has(key)
 
 interface PreferenceRow {
   key: string

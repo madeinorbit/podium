@@ -23,12 +23,12 @@
  * must resolve identically for everybody.
  */
 
-import { FIRST_ADMIN_USER_ID, asUserId, type UserId } from '@podium/model'
+import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from '../migrations'
+import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 import { SettingsRepository } from './settings'
 
 /** The second person. POD-315 mints real accounts; the storage is keyed for them
@@ -71,6 +71,25 @@ describe('a preference row belongs to one person', () => {
     // …and Alice still has hers, so this is not passing because nothing was
     // stored at all.
     expect(settings.getSettingsFor(ALICE).notifications.ntfyTopic).toBe('alice-secret-topic')
+  })
+
+  it('the SINGLE-KEY read is scoped too, not just the bulk one', () => {
+    // Found by mutation: dropping `user_id` from `get(userId, key)` alone left
+    // every other case in this file green, because they all resolve through the
+    // bulk read. `preferenceFor` goes through THIS method, so an unscoped
+    // single-key read is the same leak reached by a different door.
+    settings.userPreferences.set(ALICE, 'notifications.telegramChatId', '-100alice', AT)
+    settings.userPreferences.set(BOB, 'notifications.telegramChatId', '-100bob', AT)
+    expect(settings.userPreferences.get(ALICE, 'notifications.telegramChatId')).toBe('-100alice')
+    expect(settings.userPreferences.get(BOB, 'notifications.telegramChatId')).toBe('-100bob')
+
+    // …and a person with NO row reads absent even while someone else has one —
+    // the direction that fails when the filter is gone and the other person's
+    // row is the only one in the table.
+    settings.userPreferences.set(ALICE, 'roles.superagent.model', 'alice-superagent', AT)
+    expect(settings.userPreferences.get(BOB, 'roles.superagent.model')).toBeUndefined()
+    expect(settings.preferenceFor(BOB, 'roles.superagent.model')).toBe('auto')
+    expect(settings.preferenceFor(ALICE, 'roles.superagent.model')).toBe('alice-superagent')
   })
 
   it('a write for one person creates no row for the other', () => {
@@ -141,7 +160,9 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
     )
     // …and it ACCEPTS a personal one, or the refusal above would be satisfied by
     // a method that refuses everything.
-    expect(() => settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT)).not.toThrow()
+    expect(() =>
+      settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT),
+    ).not.toThrow()
   })
 })
 

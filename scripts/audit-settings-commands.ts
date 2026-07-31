@@ -291,8 +291,13 @@ export function outboxExecutors(sources: { rel: string; text: string }[]): Findi
 /**
  * `settings.set` is the one command that can still address the whole blob, and
  * the ONLY thing stopping it writing credential material is the guard call
- * inside `setSettings`. Deleting that call is a one-line change that no test
+ * inside the blob write. Deleting that call is a one-line change that no test
  * name mentions and that every "the contracts are correct" assertion survives.
+ *
+ * POD-1213 renamed that method `setSettingsFor(userId, settings)` — the blob a
+ * client posts now spans two homes, so the write takes the person it is made by.
+ * The check follows the SIGNATURE rather than the bare name, so it keeps
+ * pointing at the one method that can address the whole blob.
  *
  * Checked as SOURCE TEXT because that is the failure this instrument can see
  * before anything is built. `service.commands.test.ts` checks the BEHAVIOUR.
@@ -300,7 +305,7 @@ export function outboxExecutors(sources: { rel: string; text: string }[]): Findi
 export function secretGuardMissing(service: string, where = SERVICE): Finding[] {
   const declared = /private\s+assertNoSecretChange\s*\(/.test(service)
   const setSettings =
-    /setSettings\s*\(settings: PodiumSettings\)\s*:\s*PodiumSettings\s*\{([\s\S]*?)\n {2}\}/.exec(
+    /setSettingsFor\s*\(userId: UserId, settings: PodiumSettings\)\s*:\s*PodiumSettings\s*\{([\s\S]*?)\n {2}\}/.exec(
       service,
     )
   const called = setSettings ? /this\.assertNoSecretChange\(/.test(setSettings[1] ?? '') : false
@@ -393,10 +398,10 @@ const PROBE_CLEAN_SERVICE = `  private assertNoSecretChange(previous: PodiumSett
     return
   }
 
-  setSettings(settings: PodiumSettings): PodiumSettings {
-    const previous = this.store.getSettings()
+  setSettingsFor(userId: UserId, settings: PodiumSettings): PodiumSettings {
+    const previous = this.store.getSettingsFor(userId)
     this.assertNoSecretChange(previous, settings)
-    this.store.setSettings(settings)
+    this.store.setSettingsFor(userId, settings, now)
     return settings
   }
 `

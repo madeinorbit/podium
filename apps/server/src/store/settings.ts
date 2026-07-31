@@ -30,11 +30,7 @@
  * trusting its caller.
  */
 
-import {
-  applySettingsPatch,
-  changedSettingsLeaves,
-  readSettingsLeaf,
-} from '@podium/commands'
+import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
 import type { UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { SqlDatabase } from '@podium/runtime/sqlite'

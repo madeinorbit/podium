@@ -285,6 +285,11 @@ describe('the preference patch applies by path and validates by model', () => {
     expect(() => service.updatePreferences(USER, { 'apiKeys.openai': 'sk-via-patch' })).toThrow(
       /server-owned secrets/,
     )
+    // The refusal is by CLASSIFICATION, so it holds for every member of the
+    // vocabulary rather than for the one someone remembered.
+    for (const key of SERVER_SECRET_KEYS) {
+      expect(() => service.updatePreferences(USER, { [key]: 'x' })).toThrow(/server-owned secrets/)
+    }
     expect(service.getSettingsFor(USER).apiKeys.openai).toBe('')
     // …and it did not reach the keyed store either, which is where a write that
     // slipped past the blob guard would now actually land.

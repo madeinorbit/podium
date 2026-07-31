@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { applySettingsPatch, readSettingsLeaf } from '@podium/commands'
+import { readSettingsLeaf } from '@podium/commands'
 import {
+  classifySettingsPath,
   redeemTelegramClaimCode,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
@@ -11,10 +12,10 @@ import {
   type UserId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'
-import type { CommandPrincipal } from '../../command-principal'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
@@ -422,17 +423,42 @@ export class SettingsService {
    * change; a personal change is that person's and is read per-reader at use.
    */
   setSettingsFor(userId: UserId, settings: PodiumSettings): PodiumSettings {
-    const previous = this.store.getSettings()
+    const previous = this.store.getSettingsFor(userId)
     this.assertNoSecretChange(previous, settings)
     this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
-    const next = this.store.getSettings()
-    // Synchronous bus fan-out: NotifyService replays blocked states to newly
-    // configured external targets; the registry re-arms auto-continue.
-    this.bus.emit('settings.changed', { previous, next })
+    const next = this.store.getSettingsFor(userId)
+    this.emitSettingsChanged(previous, next)
     // The CALLER is served what it now resolves to, not the shared blob: a client
     // that posted its own preferences must get them back, or the next render
     // would show it the instance defaults and look like the save was lost.
-    return this.store.getSettingsFor(userId)
+    return next
+  }
+
+  /**
+   * `settings.changed`, CARRYING THE WRITER'S RESOLVED VIEW (POD-1213).
+   *
+   * The subscribers are the notify service's replay to newly configured external
+   * targets and the registry's auto-continue re-arm, and both react to leaves
+   * that are now PERSONAL (`notifications.*`, `autoContinue.enabled`). Emitting
+   * the instance blob's before/after pair would make those changes invisible to
+   * them — the blob does not move when a personal leaf does — so a user turning
+   * auto-continue on would silently arm nothing. `relay.test.ts` has that case
+   * and it went red on the first attempt, which is how this is known rather than
+   * assumed.
+   *
+   * One shared password means one writer and one reader today, so the writer's
+   * view IS every reader's view. When that stops being true these subscribers
+   * need a per-user reaction rather than a broadcast, and this is the seam where
+   * that change lands — recorded here rather than left for someone to discover
+   * from a notification that went to the wrong person.
+   *
+   * Emitted only on an actual difference: the shipped clients round-trip the
+   * whole blob on every edit, so an unchanged save must not make every
+   * subscriber re-run.
+   */
+  private emitSettingsChanged(previous: PodiumSettings, next: PodiumSettings): void {
+    if (JSON.stringify(previous) === JSON.stringify(next)) return
+    this.bus.emit('settings.changed', { previous, next })
   }
 
   // -------------------------------------------------------------------------
@@ -462,24 +488,34 @@ export class SettingsService {
    * answer — and the routing is the STORE's, by classification, so both commands
    * share this method exactly as before.
    *
-   * A per-user write emits no `settings.changed`: that event's subscribers act on
-   * a deployment-level change (the notify replay, the auto-continue re-arm), and
-   * firing it for one person's preference would make every subscriber re-read the
-   * instance blob for a change that is not on it. Instance patches still emit,
-   * through the same guarded blob write as before.
+   * The `settings.changed` pair is the ACTOR'S RESOLVED VIEW, for the reason
+   * {@link emitSettingsChanged} gives: the subscribers react to leaves that are
+   * personal now, and the instance blob does not move when one of those changes.
    */
   updatePreferences(actor: UserId, values: Readonly<Record<string, unknown>>): PodiumSettings {
-    const previous = this.store.getSettings()
-    const resolved = this.store.applyPreferencePatch(
-      actor,
-      values,
-      new Date(this.now()).toISOString(),
+    // THE SECRET REFUSAL SURVIVES THE ROUTING CHANGE (POD-1213).
+    //
+    // POD-420's patch write reached the blob through `setSettings`, so
+    // `assertNoSecretChange` guarded it on the way past. This method no longer
+    // goes through that door — the store routes each path by tier — so the
+    // refusal is stated HERE rather than silently lost, and it is derived from
+    // the CLASSIFICATION, not from a key-name detector: a secret added to the
+    // model becomes unwritable-by-patch on the same commit.
+    const secrets = Object.keys(values).filter(
+      (path) => classifySettingsPath(path)?.tier === 'server-secret',
     )
-    const next = this.store.getSettings()
-    if (JSON.stringify(previous) !== JSON.stringify(next)) {
-      this.bus.emit('settings.changed', { previous, next })
+    if (secrets.length > 0) {
+      // Names the KEYS and never a value, for the reason `assertNoSecretChange`
+      // does: the key vocabulary is public, the material is not.
+      throw new Error(
+        `a preference patch may not write server-owned secrets (${secrets.join(', ')}) — ` +
+          'use settings.setSecret / settings.clearSecret, which are online-only and never queued (ADR 1 D6)',
+      )
     }
-    return resolved
+    const previous = this.store.getSettingsFor(actor)
+    const next = this.store.applyPreferencePatch(actor, values, new Date(this.now()).toISOString())
+    this.emitSettingsChanged(previous, next)
+    return next
   }
 
   /**
@@ -546,7 +582,9 @@ export class SettingsService {
     const serverKey = this.fingerprintKey()
     return this.secrets
       .presence()
-      .map((row) => secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt))
+      .map((row) =>
+        secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),
+      )
   }
 
   /**
