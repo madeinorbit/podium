@@ -1,6 +1,6 @@
 import { sep } from 'node:path'
 import { asMachineId, type SessionId } from '@podium/model'
-import type { ControlMessage, HandoffBindingTransfer } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import {
   appendImportChunk,
@@ -95,8 +95,12 @@ async function exportPackage(
     }
     if (!bindingApplied(claim)) return
     claimed = true
-    const delegation = ctx.sessionBinding.delegation(claim.binding)
-    if (!delegation || claim.binding.agentKind !== msg.agentKind) throw new Error('handoff refused')
+    const binding = ctx.sessionBinding.adoptTransfer(claim.binding, {
+      transferId: msg.binding.transferId,
+      fromMachineId,
+      toMachineId,
+    })
+    if (!binding || binding.agentKind !== msg.agentKind) throw new Error('handoff refused')
     const result = await exportHandoffPackage({
       ...msg,
       cwd: exportCwd(ctx, msg.sessionId, msg.cwd),
@@ -106,20 +110,6 @@ async function exportPackage(
       visibility: msg.binding.visibility,
       homeDir: ctx.homeDir,
     })
-    const binding: HandoffBindingTransfer = {
-      transferId: msg.binding.transferId,
-      sessionId: msg.sessionId,
-      agentKind: claim.binding.agentKind,
-      fromMachineId,
-      toMachineId,
-      observationGeneration: claim.binding.observationGeneration + 1,
-      delegation: {
-        actor: delegation.actor,
-        onBehalfOf: delegation.onBehalfOf,
-        grantedScope: delegation.grantedScope,
-        parentBindingId: delegation.parentBindingId,
-      },
-    }
     ctx.send({
       type: 'handoffExportResult',
       requestId: msg.requestId,
@@ -246,19 +236,12 @@ async function importPackage(
         agentKind: transfer.agentKind,
         observationGeneration: transfer.observationGeneration,
         delegation: transfer.delegation,
-        observations: [
-          {
-            channel: 'resume-ref',
-            value: result.manifest.resume.value,
-            nativeKind: result.manifest.resume.kind,
-          },
-          {
-            channel: result.manifest.agentKind === 'codex' ? 'rollout-path' : 'transcript-path',
-            value: result.nativeArtifactPath,
-          },
-          { channel: 'cwd', value: result.newCwd },
-          { channel: 'worktree-pin', value: result.worktreeRoot },
-        ],
+        observations: ctx.sessionBinding.adoptObservations({
+          resume: result.manifest.resume,
+          nativeArtifactPath: result.nativeArtifactPath,
+          cwd: result.newCwd,
+          worktreePin: result.worktreeRoot,
+        }),
       },
     })
     const refused = bindingRefusal(claim)
@@ -319,7 +302,7 @@ async function finalizeBinding(
       ok: true,
       observationGeneration: outcome.binding.observationGeneration,
     })
-  } catch (error) {
+  } catch {
     ctx.send({
       type: 'handoffBindingFinalizeResult',
       requestId: msg.requestId,

@@ -1,6 +1,7 @@
-import type { SessionId, UserId } from '@podium/model'
+import type { MachineId, ResumeRef, SessionId, UserId } from '@podium/model'
+import type { HandoffBindingTransfer } from '@podium/protocol'
 import type {
-  BindingDelegationObservation,
+  BindingAdoptObservation,
   BindingStore,
   SessionBindingRecord,
   SessionBindingTransition,
@@ -27,7 +28,43 @@ export class SessionBinding {
     return this.store.bindingsForOwner(owner)
   }
 
-  delegation(binding: SessionBindingRecord): BindingDelegationObservation | null {
-    return this.store.currentDelegation(binding)
+  /** Serialize the immutable delegation inside the binding boundary. */
+  adoptTransfer(
+    binding: SessionBindingRecord,
+    input: { transferId: string; fromMachineId: MachineId; toMachineId: MachineId },
+  ): HandoffBindingTransfer | null {
+    const delegation = this.store.currentDelegation(binding)
+    if (!delegation) return null
+    return {
+      transferId: input.transferId,
+      sessionId: binding.sessionId,
+      agentKind: binding.agentKind,
+      fromMachineId: input.fromMachineId,
+      toMachineId: input.toMachineId,
+      observationGeneration: binding.observationGeneration + 1,
+      delegation: {
+        actor: delegation.actor,
+        onBehalfOf: delegation.onBehalfOf,
+        grantedScope: delegation.grantedScope,
+        parentBindingId: delegation.parentBindingId,
+      },
+    }
+  }
+
+  /** Re-observe imported native artifacts without exposing binding field aliases. */
+  adoptObservations(input: {
+    resume: ResumeRef
+    nativeArtifactPath: string
+    cwd: string
+    worktreePin: string
+  }): BindingAdoptObservation[] {
+    const nativeArtifactChannel =
+      input.resume.kind === 'codex-thread' ? 'rollout-path' : 'transcript-path'
+    return [
+      { channel: 'resume-ref', value: input.resume.value, nativeKind: input.resume.kind },
+      { channel: nativeArtifactChannel, value: input.nativeArtifactPath },
+      { channel: 'cwd', value: input.cwd },
+      { channel: 'worktree-pin', value: input.worktreePin },
+    ]
   }
 }

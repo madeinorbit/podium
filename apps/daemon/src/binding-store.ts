@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { manifestFor } from '@podium/harness'
 import {
   AgentDelegation,
   type AgentIdentityId,
@@ -1023,6 +1024,16 @@ export class BindingStore {
     return binding.delegationHistory.at(-1)?.onBehalfOf ?? null
   }
 
+  private bindingAcceptsNativeKind(binding: SessionBindingRecord, nativeKind: string): boolean {
+    return manifestFor(binding.agentKind)?.resumeKind === nativeKind
+  }
+
+  /** Uniform host-local applicability check; no session or owner detail escapes. */
+  async acceptsNativeKind(sessionId: SessionId, nativeKind: string): Promise<boolean> {
+    const binding = await this.read(sessionId)
+    return binding ? this.bindingAcceptsNativeKind(binding, nativeKind) : false
+  }
+
   private async allBindings(): Promise<SessionBindingRecord[]> {
     const rows: SessionBindingRecord[] = []
     for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
@@ -1074,7 +1085,7 @@ export class BindingStore {
     if (
       !nativeId ||
       !binding ||
-      binding.agentKind !== 'codex' ||
+      !this.bindingAcceptsNativeKind(binding, 'codex-thread') ||
       this.bindingOwner(binding) === null
     ) {
       return false
@@ -1549,8 +1560,7 @@ export class BindingStore {
             }
           } else {
             if (
-              !current ||
-              !current.transfer ||
+              !current?.transfer ||
               current.transfer.transferId !== input.transferId ||
               current.transfer.side !== 'target'
             ) {
@@ -1798,7 +1808,10 @@ export class BindingStore {
             },
           })
         }
-        if (binding.agentKind !== 'codex' || this.bindingOwner(binding) === null) {
+        if (
+          !this.bindingAcceptsNativeKind(binding, 'codex-thread') ||
+          this.bindingOwner(binding) === null
+        ) {
           throw new LegacyBindingMigrationError(
             `legacy Codex receipt ${receipt.sessionId} does not point at an owned Codex binding`,
           )

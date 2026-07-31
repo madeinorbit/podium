@@ -578,8 +578,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // The HTTP 200 is the hook's durability boundary: exact Codex identity is
     // in the versioned binding record before the hook process may return.
     beforeAck: async (sessionId, payload) => {
-      const binding = await bindingStore.read(sessionId)
-      if (binding?.agentKind !== 'codex') return
+      if (!(await bindingStore.acceptsNativeKind(sessionId, 'codex-thread'))) return
       const nativeId =
         payload && typeof payload === 'object'
           ? (payload as Record<string, unknown>).session_id
