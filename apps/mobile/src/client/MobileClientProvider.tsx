@@ -495,8 +495,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
     }
   }, [])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
+  // `info` stays a no-op: the engine's only info is a transient "a session moved
+  // to X" toast, and `notice` below is a STICKY banner for the storage facts the
+  // user is owed. Routing the toast into it would leave a stale line on screen.
   const notices = useMemo<StoreNotices>(
-    () => ({ error: (message) => setError(message), info: setNotice }),
+    () => ({ error: (message) => setError(message), info: () => {} }),
     [],
   )
   if (!replica) return <BootSplash />
