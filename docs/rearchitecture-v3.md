@@ -1594,6 +1594,343 @@ a target — on a `scripts/rearch-audit-baseline.json` conflict, take the LOWER 
 POD-353 starts from a green dual-Authority proof and a gate that will tell it if the seam
 drifted while it waited.
 
+#### RELEASE-CRITERIA THRESHOLDS — fixed here (POD-1253, answering POD-310 R1)
+
+This subsection discharges the Phase-2 ledger obligation stated above: *"quantitative
+release-criteria THRESHOLDS are fixed in this section during Phase 2 (measured at
+POD-337)"*. POD-310's exit gate held Phase 2 open because not one value was fixed
+(`docs/gates/pod-310-phase-2-exit-gate.md` §R1). These are those values.
+
+**WHY THE ORDER MATTERS, AND IT IS THE WHOLE POINT.** A threshold chosen after the
+measurement is not a threshold — it is a description of what happened, and a gate built on
+one cannot say NO. That is this run's recurring defect class one level up from the
+detectors. So every number below is justified from something that is true independently of
+what POD-337 will read: a limit of human perception, a hardware constraint, or a constant
+already committed in this repo for a reason of its own. **"Current value plus headroom" is
+banned here**, and where no such independent anchor exists the row says **UNDETERMINED**
+and names the experiment that would settle it, rather than inventing a number that would
+pass on the day it was written and mean nothing afterwards.
+
+**A SECOND, SEPARATE AXIS: does the measurement exist?** A criterion with no measurement
+source is not a criterion, it is a wish. Threshold and instrument are recorded separately
+below because they fail separately — several criteria have a defensible threshold and no
+way to read it (the work list in §T4), and one has a first-class instrument and a
+correctness-not-budget threshold (crash tests). POD-337 must not read a fixed threshold as
+evidence that anything is currently measurable.
+
+##### §T1 — The table
+
+`INHERITED` = the value is already committed in code for its own reason and is adopted
+here rather than restated (drift-gated by `scripts/release-thresholds.test.ts`, §T5).
+
+| # | Criterion | Threshold | Basis | Measurement source |
+|---|---|---|---|---|
+| 1 | Cold startup — client | first meaningful paint p95 ≤ **1 s**; interactive p95 ≤ **3 s**; hard fail **10 s** | perception classes: 1 s = flow of thought, 10 s = limit of attention | **MISSING** (§T4.1) |
+| 1b | Cold startup — server | boot → `/health` 200 ≤ **10 s**; hard fail **120 s** | 120 s is `PODIUM_HEALTH_GRACE` in `scripts/podium-health-probe.sh` — past it the fleet's own probe restarts the process. Mechanical, not taste | coarse only (§T4.1) |
+| 2 | DB growth — bounded shape | `changes` row count at soak end ≤ **CHANGE_KEEP_ROWS (20 000)** + one retention interval's arrivals, and not monotonically rising | retention bounds the log *by construction* (`CHANGE_KEEP_ROWS`, `CHANGE_MAX_AGE_MS = 3 d`) — a rising count IS retention not running | partial (§T4.2) |
+| 2b | DB growth — upgrade headroom | at soak end `freeDiskBytes(stateDir)` ≥ **3 ×** (`podium.db` + sidecars) | the pre-migration backup preflight refuses below 1.1×, and the server keeps the last 3 backups; 3× is what keeps an upgrade possible after the soak | `backup.ts` (`freeDiskBytes`, `statSync`) + one hourly `stat` |
+| 2c | DB growth — absolute rate | **UNDETERMINED** | no representative-load figure exists; a rate without its load is not a number | experiment in §T3.2 |
+| 3 | Sync lag — server share | `feedPublish.total` p99 ≤ **50 ms** | INHERITED `LOOP_P99_TARGET_MS`, already asserted against `sessionsBroadcast.total`, whose successor under `PHASE_MIGRATION` is `feedPublish.total` | **EXISTS** — `perf.snapshot`, per principal with slice size |
+| 3b | Sync lag — end to end | append → replica applied p95 ≤ **250 ms**, p99 ≤ **1 s** | 100 ms = "instantaneous"; the transport spends real RTT, so 250 ms is the band that still reads as immediate; 1 s is where waiting becomes visible | **MISSING** (§T4.3) |
+| 4 | Dead-letter count | **0**, exactly | `OUTBOX_MAX_AGE_MS = 14 d` is a horizon, not a budget: a record dead-letters only after two weeks of failing to drain, so a dead letter inside a 72 h soak is impossible without a defect | **EXISTS** — `Outbox.deadLetters()` |
+| 4b | Outbox age | at each sample, with the transport connected: max queued age ≤ **5 min** **OR** that record's `attempts` increased since the previous sample | the failure being guarded is a *stalled* drain — age rising while attempts do not. Retry is meant to be visible; a backoff that is working shows up as attempts | **EXISTS** — `OutboxRecord.queuedAt/attempts`, `publicationMetrics().maxJobAgeMs` |
+| 5 | Gap-heal time | **UNDETERMINED** — but the *shape* is fixed: bounded, terminating, cursor advances only | heal time = ceil(gap ÷ page) × round trip, and neither factor is measured on the real topology | correctness EXISTS (`base/gap-heals`, `scoped/gap-heal-exact-slice`); **timing MISSING** (§T3.1) |
+| 6 | Bootstrap snapshot time | server share `feedBootstrap.total` p95 ≤ **1 s** at 588 sessions / 800 issues; hard fail 10 s; event-loop p99 during bootstrap ≤ **50 ms** | bootstrap is the one path a user waits on with nothing on screen — the server's share must fit inside the 1 s flow-of-thought limit because the client still has to install and paint. The 50 ms is INHERITED and is ADR 2 D6's pacing claim | **EXISTS** server-side — `feedBootstrap.total/.read`; client install MISSING |
+| 7 | Reconnect storm | with every client the topology has reconnecting at once (≥ 3): event-loop p99 ≤ **50 ms**, interaction p95 ≤ **25 ms** / p99 ≤ **50 ms**, **all** replicas converge, dead letters 0 | all three latency numbers INHERITED from `scripts/loop-split-load.integration.test.ts`; convergence is binary, not a budget | behaviour EXISTS (`adr/reconnect-storm`); load shape EXISTS; **never pointed at each other** (§T4.4) |
+| 8 | UI render counts | renders per applied change must be **O(1) in session and issue count** (double the fleet, same render count), and one applied change ≤ **16.7 ms** of main-thread work on a hot screen | a render count that scales with the collection is the defect the client split exists to remove — and a *ratio* is testable without knowing the absolute. 16.7 ms is one frame at 60 Hz: hardware | **MISSING**; POD-427 (Phase 6) owes the probe (§T4.5) |
+| 8b | Absolute render counts per screen | **UNDETERMINED** | fixing a number for an instrument nobody has built fixes nothing | POD-427's probe, then a number |
+| 9 | Memory per pane — desktop | steady-state renderer heap with all **8** panes warm ≤ **1.0 GB** ⇒ marginal ≤ **~125 MB/pane** | the warm cap (8 desktop / 3 mobile, `use-warm-set.ts`) is a committed decision, so total = cap × marginal. 2.2 GB was declared a *leak* (POD-771): the band must sit far below a value already ruled pathological. **Weakest row in this table** — bounded above by an incident, below by nothing | **MISSING** client-side (§T4.6) |
+| 9b | Memory per pane — mobile | **NEEDS A HUMAN DECISION** (§T2) | derives from the floor phone Podium supports, and no floor device is recorded anywhere in this plan | — |
+| 10 | Zero-data-loss crash | **0** lost or torn acknowledged writes | ADR 2 D10's one-transaction rule makes "PRE or POST, never torn" a correctness property. One loss is a bug, not an overrun | **EXISTS, strongest of the ten** — `base/crash-between-writes`, `scoped/crash-with-watermark-in-flight`, `cross/attribution-survives-every-hop`, × 3 instantiations, `assertGatesCovered` throws |
+
+##### §T2 — What a human must decide, recorded rather than defaulted
+
+1. **The floor phone (row 9b).** The mobile per-pane budget is `budget ÷ 3` and the budget
+   follows from the least-capable device Podium claims to support on the PWA. That device
+   is named nowhere in this plan or in `apps/mobile`. A number picked here would be a
+   support commitment made by an agent; it is recorded as an open decision instead.
+2. **Row 9's desktop ceiling is provisional and labelled so.** 1.0 GB is derived from an
+   incident (2.2 GB = leak) and from the committed warm cap, which bounds it from above but
+   not from below. If POD-337 measures 900 MB the correct response is not relief — it is to
+   ask whether 8 warm panes should cost that, which is a product question.
+3. **Reconnect-storm N (row 7).** Fixed as "every client the topology has, ≥ 3" because the
+   rehearsal topology is what the criterion is about. If POD-337 wants a synthetic N far
+   above the real fleet, that is a different (and defensible) criterion, and someone should
+   say so rather than letting the gate pick.
+
+##### §T3 — UNDETERMINED, and the experiment that settles each
+
+An honest "undetermined, and here is the experiment" is what POD-337 can act on; a
+fabricated number is what it cannot.
+
+**§T3.1 — Gap-heal time (row 5).** The conformance gates prove a gap *heals* and resolves
+downward; they run on a fixture clock and against in-memory/IndexedDB/SQLite adapters, so
+they cannot produce a wall-clock number even in principle. *Experiment:* during the
+rehearsal (runbook step 7b), take a client offline, append a fixed gap on the Authority —
+**10 000 changes**, half of `CHANGE_KEEP_ROWS` and therefore the worst gap that retention
+still permits to be healed rather than snapshotted — reconnect, and time detect →
+converged. **Record the gap size with the time.** A heal time without its gap size is the
+same error as a p50 without its slice size, and POD-1077's rule applies verbatim.
+
+**§T3.2 — DB growth rate (row 2c).** *Experiment:* one `stat` of `podium.db` + sidecars per
+hour across POD-337's 72 h soak, reported as MB/day **alongside the fleet's session, message
+and change counts for the same window**. The rate is meaningless without the load that
+produced it, and the bounded-shape check (row 2) is the one that can fail meaningfully
+before this number exists.
+
+**§T3.3 — Absolute render counts (row 8b).** Blocked on POD-427's render-count probe, which
+is Phase 6's deliverable. The O(1)-in-collection-size ratio (row 8) is fixed now because it
+needs no probe: run the hot screen at N and at 2N sessions and compare commit counts.
+
+##### §T4 — The measurement work list (what does not exist yet)
+
+This is the part POD-337 most needs, because a threshold with no instrument silently
+becomes "not checked". Six of the ten criteria are wholly or partly unmeasurable today.
+
+1. **Cold startup.** No boot timing anywhere. The server can be bracketed coarsely from
+   systemd's `ActiveEnterTimestamp` to the first successful health probe, which is
+   minute-scale and useless for a 10 s threshold. Needs: one mark at process start and one
+   at first `/health` 200; client-side, a mark at document start and at first paint.
+2. **DB growth.** `freeDiskBytes()` and `statSync` exist in `backup.ts` but nothing samples
+   size over time. The whole instrument is an hourly `stat` recorded with a timestamp.
+3. **End-to-end sync lag.** `perf.snapshot` measures the *server's share* only. Nothing
+   times Authority append → replica applied. Needs the append seq and an applied-at mark on
+   the replica side, correlated per principal.
+4. **Reconnect storm under load.** The behavioural gate and the load harness both exist and
+   have never been pointed at each other — `adr/reconnect-storm` is a conformance unit test,
+   `loop-split-load` is where `startLoopMetrics` runs. Cheapest real instrument in this list.
+5. **Render counts.** POD-427 owes the probe. `store.route-loop.test.tsx` counts renders for
+   one loop regression; `RENDER_WINDOW = 300` bounds rendered rows and is not a probe.
+6. **Client memory.** `process.memoryUsage()` instrumentation exists server/daemon-side
+   (`apps/daemon/src/memory-breakdown.test.ts`); nothing samples the renderer heap, which is
+   where rows 9/9b live.
+
+##### §T5 — The drift gate on this section
+
+Five of the numbers above are INHERITED from constants in code. A doc that quotes a
+constant is a doc that silently starts lying the day the constant moves, so this section is
+pinned by `scripts/release-thresholds.test.ts`: it reads each constant from its source file
+and asserts this table still states the same value. It fails if the constant changes, if the
+constant is renamed or deleted (no match is a failure, never a skip), and if the table is
+edited away from the code. Proven by mutation in both directions — see the POD-1253 handoff.
+
+The thresholds that are *not* inherited (rows 1, 3b, 6, 8, 9) cannot be machine-pinned:
+their basis is a perception limit or an incident, and the gate against those drifting is
+this paragraph plus review.
+
+#### RUNBOOK — POD-310 local-topology upgrade rehearsal
+
+Committed here because §6's human-gates registry points at "this document, Phase 2 section
+(runbook committed by POD-310)". Written to be executed by someone who was not present when
+it was written.
+
+**PRECONDITION, BLOCKING — the rehearsal is correctly DEFERRED today.** The rewrite is not
+on `main` and the catch-up (POD-1246) is mid-flight. A rehearsal run now would rehearse
+upgrading the live fleet to a branch that the remaining catch-up conflicts will materially
+change, and its evidence would be invalidated by its own prerequisite before anyone read
+it. **Do not run this until the rewrite is on `main`.** Writing it now is not premature:
+the procedure is what Phase 2 owed, and it is blocked by nothing.
+
+**What the rehearsal proves** (the four AC clauses): the upgrade applies in place on the
+real topology; zero sessions are lost; rollback works *when actually attempted*, not in
+theory; and switch latency is recorded from the POD-736 harness, per principal with slice
+size.
+
+**Topology under test:** VPS running `podium-server` + `podium-daemon` (split backend on
+:18787) and `podium-web`, supervised by user systemd units; a desktop client; a phone PWA
+over `tailscale serve` on :55555. Unit reference: `scripts/systemd/README.md`.
+
+**You need:** ssh to the host, permission to restart its user units, physical access to the
+phone, and one durable agent session running so "zero lost sessions" has something to lose.
+
+---
+
+**Step 0 — Record the before-state.** Everything later compares to this; skipping it makes
+the rehearsal unfalsifiable.
+
+```sh
+podium status
+systemctl --user status podium-server podium-daemon podium-web | grep -iE 'active|watchdog'
+git -C <checkout> rev-parse HEAD            # record as PRE_SHA
+ls -l ~/.podium/podium.db*
+df -h ~/.podium
+sqlite3 ~/.podium/podium.db \
+  'select count(*) from sessions; select count(*) from issues;
+   select count(*) from changes; select max(seq) from changes;'
+curl -s localhost:18787/health
+bun scripts/switch-latency-ab.ts --label pre-upgrade --out pre-upgrade.json
+```
+
+On the phone: open the PWA, note the visible session count and the transcript head of one
+session.
+
+**VERIFY:** free space ≥ 3 × (`podium.db` + sidecars).
+**FAILURE LOOKS LIKE:** step 4 aborting with *"Not enough disk space for the pre-migration
+backup … the server refuses to start the migration"*. Fix the disk **now**, not mid-upgrade.
+
+---
+
+**Step 1 — Freeze the automatic trigger.**
+
+```sh
+systemctl --user stop podium-redeploy.path
+systemctl --user is-active podium-redeploy.path     # expect: inactive
+```
+
+**Why:** the path unit fires on any HEAD move. A rehearsal racing an automatic redeploy
+cannot attribute a failure to the upgrade.
+
+---
+
+**Step 2 — Take your own escape hatch.** The automatic pre-migration backup is only taken
+on a *version-advancing* migration; if this upgrade advances no schema there will be no
+automatic copy to roll back to.
+
+```sh
+podium stop
+mkdir -p ~/podium-rehearsal-backup
+cp ~/.podium/podium.db ~/.podium/podium.db-wal ~/.podium/podium.db-shm ~/podium-rehearsal-backup/ 2>/dev/null
+sha256sum ~/podium-rehearsal-backup/podium.db | tee ~/podium-rehearsal-backup/SHA256
+```
+
+**VERIFY:** the copy exists and its sha256 is recorded.
+
+---
+
+**Step 3 — Move HEAD and let the deploy gates run.**
+
+```sh
+git -C <checkout> fetch && git -C <checkout> merge --ff-only origin/main
+systemctl --user start podium-redeploy.service      # explicit: the path unit is stopped
+journalctl --user -u podium-redeploy -n 200 --no-pager
+```
+
+**VERIFY:** `redeploy-wait.sh` ran the dependency install and `bun run typecheck`, exited 0,
+and all three services restarted.
+**FAILURE LOOKS LIKE, and all three are the design working:** (a) `ExecStartPre` non-zero →
+services are **not** restarted and the old version keeps serving; (b) a typecheck error
+aborts *before* anything is taken down (#251); (c) a failed install aborts rather than
+restarting against broken `node_modules` (#173/#176). In every case: do **not** force a
+restart. Fix forward, or go to step 9.
+**ROLLBACK:** `git -C <checkout> reset --hard $PRE_SHA` then restart the three units.
+
+---
+
+**Step 4 — Watch the migration apply in place.**
+
+```sh
+journalctl --user -u podium-server -f
+```
+
+Expect: WAL checkpoint → `podium.db.backup-v<from>-<to>-<ts>` created → migration chain →
+ready.
+
+**VERIFY:** a new `podium.db.backup-…` with an mtime inside this window; `schema_version`
+advanced; `/health` answers.
+**FAILURE LOOKS LIKE:** repeated restarts in `systemctl --user status` (crash loop);
+*"database is newer than this build"* (the downgrade guard — you are running the wrong
+binary against the new DB); the disk-space refusal from step 0.
+
+---
+
+**Step 5 — Zero lost sessions.** Re-run step 0's SQL and `podium status`.
+
+**VERIFY:** session and issue counts equal or greater; **`max(seq)` on `changes` never
+lower than before**; the durable agent session is still attached and its terminal still
+streams.
+**FAILURE LOOKS LIKE — and this one is an ABORT, not a hiccup:** `max(seq)` below the
+before-value. A restarted sequence is silent on both sides: every replica cursor sits above
+the new head, `changesSince` returns nothing, clients look up to date forever, and nothing
+heals, because a future cursor is not a gap (POD-305's ledger entry above). Stop, roll back,
+file it.
+
+---
+
+**Step 6 — Clients converge without a reinstall.** Desktop/web: reload, take the *"New
+version — Reload"* service-worker prompt. Phone: foreground the PWA and accept its update.
+
+**VERIFY on each client:** the session list matches the server's count; a change made on the
+server appears on the phone; a change made on the phone appears on the desktop; dead-letter
+count is 0.
+**FAILURE LOOKS LIKE:** the phone showing its pre-upgrade list forever (bootstrap failed or
+the wire negotiated down); a change that simply never arrives — a suppressed row nobody
+certifies, which is the D13 hole that heals to the same filtered rows forever.
+
+---
+
+**Step 7 — Quantitative capture, per principal with slice size.**
+
+```sh
+bun scripts/switch-latency-ab.ts --label post-upgrade --out post-upgrade.json
+bun scripts/switch-latency-ab.ts --compare pre-upgrade.json post-upgrade.json
+```
+
+**VERIFY:** `--compare` produces a comparison. **If it REFUSES, do not hand-compare the two
+files** — it refuses exactly when the arms share no principal, differ in slice size, or
+never measured one, and a comparison that does not control for slice size is invalid rather
+than noisy. Re-run the pre-arm at the same slice.
+
+Then record the measurable rows of §T1: rows 3, 4, 4b, 6 (server share), 2b, and 10.
+
+**Step 7b — Gap-heal experiment (§T3.1).** Take one client offline, append 10 000 changes,
+reconnect, time detect → converged, and record the time **with the gap size**.
+
+---
+
+**Step 8 — Crash drill.** The conformance crash gates simulate a crash at the storage
+boundary; they are not a `kill -9` of a real process on a real filesystem. This step is.
+
+```sh
+# with a write in flight (type into a live session, then immediately):
+systemctl --user kill -s KILL podium-server
+systemctl --user start podium-server
+```
+
+**VERIFY:** the in-flight write is fully present or fully absent — never torn; replicas
+converge; dead letters 0; `max(seq)` intact.
+
+---
+
+**Step 9 — Rollback drill. MANDATORY, once, even if everything above passed.** A rollback
+path that has only ever been reasoned about is not a rollback path.
+
+```sh
+podium stop
+cp ~/podium-rehearsal-backup/podium.db ~/.podium/podium.db
+rm -f ~/.podium/podium.db-wal ~/.podium/podium.db-shm      # stale sidecars
+git -C <checkout> reset --hard $PRE_SHA
+systemctl --user restart podium-server podium-daemon podium-web
+```
+
+**VERIFY:** the old build starts cleanly (the downgrade guard stays quiet because the DB now
+matches it); counts equal step 0's; a client reconnects and shows its sessions.
+**FAILURE LOOKS LIKE:** *"database is newer than this build"* — that is the guard doing its
+job and it means the backup was not restored. Restore it; do not start the new build to
+make the error go away.
+
+Then roll forward again (repeat step 3) so the fleet is left on the new build.
+
+---
+
+**Step 10 — Unfreeze.**
+
+```sh
+systemctl --user start podium-redeploy.path
+systemctl --user is-active podium-redeploy.path     # expect: active
+```
+
+---
+
+**ABORT CRITERIA — stop, roll back (step 9), and file an issue rather than retrying:** a
+`max(seq)` regression; any lost session or issue row; any dead letter; any client that never
+converges. None of these is weather, and "run it again and see" destroys the evidence.
+
+**EVIDENCE to attach to POD-310** (`podium issue artifact 310 --add …`): the step 0 and
+step 5 state records; `pre-upgrade.json`, `post-upgrade.json` and the `--compare` output;
+the `journalctl` excerpt covering the migration window; phone screenshots before and after;
+the step 9 rollback log; the §T1 rows filled in. Then `podium issue needs-human` on POD-310
+— prose labels cannot close a gate (§6).
+
 ### Phase 3 — Command registry as the universal write surface (POD-290) · exit gate POD-424
 
 **Scope:** L1/L3 split + framework (POD-311), session mutations (POD-312 → 379–382 +
