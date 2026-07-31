@@ -3087,3 +3087,88 @@ Two more from the same tranche, both about the unit of judgement:
     so any line from the other side that did NOT survive has to be justified out
     loud. A three-way merge you cannot audit afterwards is a confident side-take
     wearing better clothes.
+
+## The brief and the kernel disagreed about one sentence, and both were right (POD-316)
+
+POD-316's acceptance list asks that a loss-of-access rejection reach dead-letter
+"with an actionable explanation", and offers the example string *"you no longer
+have access to this issue"*. POD-370's kernel forbids exactly that: `unauthorized`
+merges rights-denied, target-invisible and target-NONEXISTENT into one code, and a
+test pins the invisible and the nonexistent records BYTE-IDENTICAL, affordances
+included. Amendment property 15 states it unconditionally.
+
+Both survive, because they speak at different levels, and naming the level is the
+whole resolution:
+
+  - ACTIONABLE AT THE REASON-CODE LEVEL. "This needs a permissions change, not an
+    edit" tells the user what to DO, and is equally true whether the grant was
+    revoked, the entity was deleted, or the id never existed.
+  - SILENT AT THE TARGET LEVEL. No title, no id, no existence claim.
+
+The example string fails only because it asserts the target exists. A principal
+who never had access learns an id is real by reading it. The brief's own
+reasoning — that a dead-letter item is the opposite of the send path, since the
+author demonstrably had access when they queued the write — is sound for the
+case it describes and does NOT generalise: `unauthorized` also covers the write
+whose target id was never valid, and the copy has to be true for all three at
+once because the code cannot tell them apart by design.
+
+THE WORDING DECISION, made without a human (none available) and recorded here as
+the brief required. Picked the safe wording; the OPEN question — whether the
+product may ever distinguish "the share was revoked" from "the entity was
+deleted", and whether the answer changes for a write queued by a delegated agent
+rather than by the person reading the list — stays open at ADR 3 Amendment 1 §3
+O1, where it belongs. It is a human's call, not a default to settle in a UI
+string. Copy lives in ONE module (`outbox-recovery-copy.ts`) so the merge the
+kernel performs cannot be undone by a well-meaning sentence in a second surface.
+
+## The affordance set is part of the oracle, and a label-matching test cannot see it
+
+Same issue, and it caught me. The rule is that two situations sharing a reason
+code must offer byte-identical recovery, because a withheld button leaks the
+distinction the reason code blurred. I wrote the guard as
+
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull()
+
+and it SURVIVED the mutant that rendered the retry button unconditionally —
+because the button's label comes from the same code-derived copy, so with no
+label there is no accessible name, so the name did not match, so an
+always-present button read as absent. The instrument could not say no about the
+exact property it existed to guard, and it passed for a reason that had nothing
+to do with the property.
+
+RULE: when the thing under test is a control's PRESENCE, assert the presence
+(`queryByTestId`), never a property the same code path also removes. A test whose
+subject and whose matcher are derived from one source can only ever agree with
+itself.
+
+## `git checkout <file>` reverted past uncommitted work TWICE in one session
+
+The mutation-hygiene rule "COMMIT before mutating" already says this; what I had
+not internalised is how it fails. Both times the revert LOOKED like it worked —
+the mutant was gone and the suite went green-then-red for a reason I misread —
+because `git checkout` restores the file to HEAD, taking every uncommitted edit
+made since with it. The second time it silently deleted an entire moved table
+and the failure surfaced three steps later as "0 tests".
+
+RULE: mutate only files with a clean `git status`, and re-run `git status` after
+the revert rather than trusting it. A revert that removes more than the mutant is
+indistinguishable from a correct one at the moment you do it.
+
+## A cross-package drift guard can only live DOWNHILL of the dependency
+
+The client outbox carries a copy of each queued command's `policy.confirmation`,
+because importing the command registry to read one field would pull it into the
+browser bundle. A copy needs an equality guard, so I put the guard in
+`packages/commands`, where every registry is already imported, and had it import
+`@podium/client-core/engine`.
+
+That is a dependency CYCLE — commands is L1 and client-core depends on it — and
+it does not fail as a boundary error. The import resolved to `undefined` at
+module init and the suite failed with *"Object.entries requires that input
+parameter not be null"*: a message about nothing, three levels away from the
+cause.
+
+RULE: a guard comparing two packages belongs in the one that already depends on
+the other. If neither does, the comparison needs a third package, not an import
+that happens to resolve.

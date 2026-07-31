@@ -242,6 +242,7 @@ export function OutboxRecoveryIndicator({ compact }: { compact?: boolean }): JSX
           render={
             <button
               type="button"
+              data-pressable
               onClick={() => setOpen(true)}
               data-testid="outbox-recovery-chip"
               className={cn(
