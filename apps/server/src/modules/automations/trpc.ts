@@ -1,3 +1,4 @@
+import { familyState } from '../derived-family'
 /**
  * THE DERIVED AUTOMATION SURFACE (POD-735, the 3.11 cutover) — every automation
  * tRPC mutation, produced from the joined table in `registry.ts` rather than
@@ -63,9 +64,9 @@
  */
 
 import { AUTOMATION_CONTRACTS } from '@podium/commands'
-import type { TRPCMutationProcedure } from '@trpc/server'
+import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import { mods, t } from '../../trpc'
+import { mods, t, type Context } from '../../trpc'
 import {
   AUTOMATION_COMMANDS,
   type AutomationProcName,
@@ -103,12 +104,17 @@ function automationMutation<N extends AutomationProcName>(name: N): MutationProc
   // the input it accepts), and `MutationProcedure<N>` re-derives the per-command
   // types for the client. This erasure is the one place the two meet — the same
   // shape `modules/fleet/trpc.ts` carries, for the same reason.
-  const run = handler as (service: AutomationsService, input: unknown) => unknown
-  return t.procedure
-    .input(contract.input)
-    .mutation(({ ctx, input }) =>
-      run(mods(ctx).automations, input),
-    ) as unknown as MutationProcedure<N>
+  const run = handler as (
+    service: AutomationsService,
+    input: unknown,
+    principal: NonNullable<Context['principal']>,
+  ) => unknown
+  return t.procedure.input(contract.input).mutation(({ ctx, input }) => {
+    if (!ctx.principal) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'authentication required' })
+    }
+    return run(familyState(ctx).modules.automations, input, ctx.principal)
+  }) as unknown as MutationProcedure<N>
 }
 
 /**

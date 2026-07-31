@@ -497,7 +497,8 @@ export class SessionsService {
       // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
       // so it is resolved for a user. See `settingsViewer` below for why that
       // user is spelled out rather than defaulted.
-      isEnabled: () => this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
+      isEnabled: () =>
+        this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
       sendContinue: (sessionId) => {
         this.continueSession({ sessionId })
       },
@@ -1015,6 +1016,7 @@ export class SessionsService {
     let session!: Session
     session = new Session({
       sessionId: r.id,
+      ownerUserId: r.ownerUserId ?? FIRST_ADMIN_USER_ID,
       agentKind: kind.data,
       cwd: r.cwd,
       title: r.title,
@@ -1438,9 +1440,7 @@ export class SessionsService {
   }
 
   clearSnooze(userId: string, sessionId: SessionId): void {
-    this.persistPerUserState(sessionId, () =>
-      this.store.sessions.clearSnooze(userId, sessionId),
-    )
+    this.persistPerUserState(sessionId, () => this.store.sessions.clearSnooze(userId, sessionId))
   }
 
   /**
@@ -1449,14 +1449,21 @@ export class SessionsService {
    * `undefined` means the session does not exist — which the presence envelope
    * treats identically to a denial (§3.1.5's consistent-error rule).
    *
-   * Until POD-1075 adds real accounts there is no `owner` column, so every
-   * existing session belongs to the one identity the product has had. This is the
-   * ONE place that transitional answer is given, so POD-1075 changes it here
-   * rather than in eleven handlers.
+   * Ownership is read from the immutable session row. Grant edges are read live so
+   * revocation takes effect on the next decision without cache invalidation.
    */
-  sessionOwner(sessionId: SessionId): { owner: string | null; grants: string[] } | undefined {
-    if (!this.sessions.has(sessionId)) return undefined
-    return { owner: FIRST_ADMIN_USER_ID, grants: [] }
+  sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined {
+    const session = this.sessions.get(sessionId)
+    if (!session) return undefined
+    const grants = [
+      ...new Set(
+        this.store.grants
+          .listForResource('session', sessionId)
+          .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+          .map((edge) => edge.grantee),
+      ),
+    ]
+    return { owner: session.ownerUserId, grants }
   }
 
   /**
@@ -1529,6 +1536,10 @@ export class SessionsService {
    *  agents (claude/codex/grok) it rides the launch command (`claude "<prompt>"`,
    *  race-free); for the rest it's seeded into the composer draft. */
   createSession(input: {
+    /** Authenticated human owner; every production caller supplies this. */
+    ownerUserId?: UserId
+    /** Issue grant edges copied at birth so issue-owned work stays shared. */
+    inheritedGrants?: { grantee: UserId; verb: GrantVerb }[]
     agentKind?: AgentKind
     cwd: string
     title?: string
@@ -1618,6 +1629,8 @@ export class SessionsService {
     const useArgv = taskPrompt !== undefined && agentSupportsInitialPrompt(agentKind)
     const spawned = this.spawn({
       agentKind,
+      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
+      inheritedGrants: input.inheritedGrants,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
@@ -1677,16 +1690,23 @@ export class SessionsService {
   capabilityForSession(sessionId: SessionId): Capability {
     const s = this.sessions.get(sessionId)
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
+    const attribution = { onBehalfOf: s.ownerUserId }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd
     // sits in another issue's worktree (or none).
     const issueId = s.issueId ?? this.issues().issueForCwd(s.cwd)
     return issueId
-      ? { role: 'worker', scope: { kind: 'subtree', rootId: issueId }, actorSessionId: sessionId }
-      : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId }
+      ? {
+          role: 'worker',
+          scope: { kind: 'subtree', rootId: issueId },
+          actorSessionId: sessionId,
+          ...attribution,
+        }
+      : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId, ...attribution }
   }
 
   async resumeSession(input: {
+    ownerUserId?: UserId
     agentKind: AgentKind
     cwd: string
     resume: ResumeRef
@@ -1733,6 +1753,7 @@ export class SessionsService {
     })
     const spawned = this.spawn({
       agentKind: input.agentKind,
+      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       cwd: input.cwd,
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
@@ -3820,6 +3841,8 @@ export class SessionsService {
 
   private spawn(input: {
     agentKind: AgentKind
+    ownerUserId?: UserId
+    inheritedGrants?: { grantee: UserId; verb: GrantVerb }[]
     cwd: string
     title?: string
     /** Curated name at birth (spawner-prescribed or other); pairs with nameSource. */
@@ -3862,9 +3885,12 @@ export class SessionsService {
     const accountId =
       input.agentKind === 'shell'
         ? undefined
-        : (input.accountId ?? resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId)
+        : (input.accountId ??
+          resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding')
+            .accountId)
     const session = new Session({
       sessionId,
+      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       agentKind: input.agentKind,
       cwd: input.cwd,
       title: input.title || basename(input.cwd) || input.cwd,
@@ -3897,6 +3923,22 @@ export class SessionsService {
     // for a genuinely issueless spawn) — allocate the permanent ref now.
     const additionalWrite = this.prepareSessionRefAllocation(session)
     this.persist(session, additionalWrite)
+    const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
+    const inheritedAt = new Date().toISOString()
+    for (const grant of input.inheritedGrants ?? []) {
+      this.store.grants.upsert({
+        resourceKind: 'session',
+        resourceId: sessionId,
+        grantee: grant.grantee,
+        verb: grant.verb,
+        owner: ownerUserId,
+        visibility: 'personal',
+        createdAt: inheritedAt,
+        actorKind: 'system',
+        actorId: 'inheritance',
+        onBehalfOf: ownerUserId,
+      })
+    }
     const observationLease = this.fenceObservation(session)
     this.toMachine(machineId, {
       type: 'spawn',
@@ -4007,7 +4049,10 @@ export class SessionsService {
    *  special-cases shell for the same reason of shape: a shell is not an agent.) */
   private accountEnv(
     agentKind: AgentKind,
-    accountId = resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId,
+    accountId = resolveRole(
+      this.store.settings.getSettingsFor(this.settingsViewer()),
+      'coding',
+    ).accountId,
   ): { env?: Record<string, string> } {
     if (agentKind === 'shell') return {}
     return resolveAccountEnv(this.store.accounts, accountId)
@@ -4317,7 +4362,12 @@ export class SessionsService {
         )
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.attach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
+        perf.record(
+          'phase',
+          'ws.attach',
+          performance.now() - t0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         break
       }
       case 'detach': {
@@ -4326,7 +4376,12 @@ export class SessionsService {
         this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id), false)
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.detach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
+        perf.record(
+          'phase',
+          'ws.detach',
+          performance.now() - t0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         break
       }
       case 'input':
@@ -5275,14 +5330,24 @@ export class SessionsService {
       // POD-308 deletes the snapshot fan-out.
       const tSkip0 = performance.now()
       if (!issueProjectionChanged) {
-        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'sessionsBroadcast.publishIssuesSkipped',
+          performance.now() - tSkip0,
+          DEPLOYMENT,
+        )
       } else {
         const tIssues0 = performance.now()
         this.deps.publishIssues(sessions)
         // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
         // so the next broadcast re-publishes instead of silently skipping.
         this.lastIssueProjectionGeneration = this.issueProjectionGeneration
-        perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'sessionsBroadcast.publishIssues',
+          performance.now() - tIssues0,
+          DEPLOYMENT,
+        )
       }
       this.lastSessionsBroadcastGeneration = generation
     } finally {
@@ -5290,7 +5355,6 @@ export class SessionsService {
     }
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
   }
-
 
   private globalPublicationIds(): readonly string[] {
     const cached = this.globalPublicationIdsCache

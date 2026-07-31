@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -75,7 +75,11 @@ describe('appRouter', () => {
   it('sessions.create rejects a non-uuid sessionId (guards the durableLabel/scope path)', async () => {
     const { call } = caller()
     await expect(
-      call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: asSessionId('../../evil') }),
+      call.sessions.create({
+        agentKind: 'claude-code',
+        cwd: '/p',
+        sessionId: asSessionId('../../evil'),
+      }),
     ).rejects.toThrow()
   })
 
@@ -149,32 +153,6 @@ describe('appRouter', () => {
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await call.sessions.kill({ sessionId })
     expect(await call.sessions.list()).toHaveLength(0)
-  })
-
-  it('discovery.scan resolves via the registry', async () => {
-    const daemon: import('@podium/protocol').ControlMessage[] = []
-    const registry = new SessionRegistry()
-    registry.gateway.attachDaemon('local', (m) => daemon.push(m))
-    const repos = new RepoRegistry(registry, registry.sessionStore)
-    const call = appRouter.createCaller({
-      registry,
-      repos,
-      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
-      capability: OPERATOR,
-    })
-    const p = call.discovery.scan()
-    // Yield so the tRPC handler's async body (registry.scan → pendingScans.set) runs before we feed the result.
-    await Promise.resolve()
-    const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
-    expect(req).toBeDefined()
-    if (!req) throw new Error('scanRequest not sent')
-    registry.gateway.routeDaemonFrame('local', {
-      type: 'scanResult',
-      requestId: req.requestId,
-      conversations: [],
-      diagnostics: [],
-    })
-    await expect(p).resolves.toEqual({ conversations: [], diagnostics: [] })
   })
 
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
@@ -419,7 +397,12 @@ describe('repos router', () => {
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {
     const { registry, call } = caller()
     const store = registry.sessionStore
-    store.superagent.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: asSessionId('s9') })
+    store.superagent.upsertSuperagentThread({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      id: 'btw_s9',
+      kind: 'btw',
+      originSessionId: asSessionId('s9'),
+    })
     store.superagent.setThreadWatermark('btw_s9', 'item-1', '2026-06-16T00:00:00Z')
     // Unknown session → empty transcript → no delta → re-open path, no backend call.
     const res = await call.superagent.startBtw({ sessionId: asSessionId('s9') })

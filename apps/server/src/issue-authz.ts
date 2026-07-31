@@ -51,6 +51,13 @@ export function checkIssueAccess(
   // Scope gate: only for constrained caps writing an existing target issue.
   if (caller.capability.scope.kind === 'all') return
   if (!targetId || !issues.has(targetId)) return
+  if (caller.capability.scope.kind === 'owned') {
+    const target = issues.ownedTarget?.(targetId, action)
+    if (!target || authorize(caller.capability, action, target) === 'forbidden') {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + targetId })
+    }
+    return
+  }
   const decision = authorize(
     caller.capability,
     action,

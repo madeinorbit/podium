@@ -1,5 +1,6 @@
 import type {
   ArtifactId,
+  GrantVerb,
   IssueColorSlot,
   IssueId,
   IssueTree,
@@ -172,6 +173,9 @@ export interface IssueDeps {
     initialPrompt?: string
     spawnedBy?: string
     machineId?: string
+    ownerUserId?: import('@podium/model').UserId
+    /** Grant edges inherited from the issue at session birth. */
+    inheritedGrants?: { grantee: import('@podium/model').UserId; verb: GrantVerb }[]
   }): {
     sessionId: SessionId
     agentId?: string
@@ -299,6 +303,11 @@ export interface CreateIssueInput
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
   startNow: boolean
+  /** Server-derived ownership and attribution; never accepted from public schemas. */
+  ownerUserId?: import('@podium/model').UserId
+  visibility?: import('@podium/model').VisibilityClass
+  createdByActor?: string
+  createdByOnBehalfOf?: import('@podium/model').UserId | null
   linear?: { id?: string; identifier: string; url: string }
   labels?: string[]
   /** Who CREATED this issue; caller-derived, default 'human' (#198). */

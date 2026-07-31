@@ -41,6 +41,7 @@ import {
   type SessionMeta,
 } from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
+import type { CommandPrincipal } from '../../command-principal'
 import type {
   IssueMessageRow,
   MessageKind,
@@ -144,12 +145,12 @@ type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
  * the value arrives with the column.
  */
 const principalOf = (from: MessageSender): MailSenderPrincipal =>
-  ({ ...from, user: null }) as MailSenderPrincipal
+  ({ ...from, user: from.onBehalfOf ?? null }) as MailSenderPrincipal
 
 const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
   ({
     kind: m.fromKind,
-    user: null,
+    user: m.onBehalfOf ?? null,
     ...(m.fromIssue ? { issueId: m.fromIssue } : {}),
     ...(m.fromSession ? { sessionId: m.fromSession } : {}),
     ...(m.fromName ? { name: m.fromName } : {}),
@@ -157,11 +158,16 @@ const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
 
 /** The authenticated sender principal — derived by the SURFACE from its caller
  *  identity (capability / in-process authority), never from client input. */
-export type MessageSender =
+type MessageSenderIdentity =
   | { kind: 'operator' }
   | { kind: 'superagent' }
   | { kind: 'system'; name?: string }
   | { kind: 'agent'; issueId?: IssueId; sessionId?: SessionId }
+
+export type MessageSender = MessageSenderIdentity & {
+  actorUser?: string | null
+  onBehalfOf?: string | null
+}
 
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
@@ -363,6 +369,24 @@ export function senderFromCapability(capability: {
     kind: 'agent',
     ...(capability.actorSessionId ? { sessionId: capability.actorSessionId } : {}),
   }
+}
+
+export function senderFromPrincipal(
+  capability: Parameters<typeof senderFromCapability>[0],
+  principal: CommandPrincipal,
+): MessageSender {
+  const sender = senderFromCapability(capability)
+  if (principal.kind === 'user') {
+    return { ...sender, actorUser: principal.user, onBehalfOf: principal.user }
+  }
+  if (principal.kind === 'agent') {
+    return {
+      ...sender,
+      actorUser: principal.agentSessionId,
+      onBehalfOf: principal.onBehalfOf,
+    }
+  }
+  return { ...sender, actorUser: 'system:' + principal.job, onBehalfOf: null }
 }
 
 /** How the target session presents at delivery time. */
@@ -888,6 +912,8 @@ export class MessageDeliveryService {
       fromSession: from.kind === 'agent' ? (from.sessionId ?? null) : null,
       fromName: from.kind === 'system' ? (from.name ?? null) : null,
       fromIssue: from.kind === 'agent' ? (from.issueId ?? null) : null,
+      actorUser: from.actorUser ?? null,
+      onBehalfOf: from.onBehalfOf ?? null,
       toKind: input.to.kind,
       toId,
       kind,
@@ -2348,6 +2374,12 @@ export class MessageDeliveryService {
    * behaviour is deliberate: two ceilings that happen to agree today are still
    * two ceilings, and identity is the property the invariant is about.
    */
+  get appliedPolicy(): 'dynamic' | 'static' | undefined {
+    const port = this.deps.authorizeAtApply as { dynamic?: boolean; ceiling?: unknown } | undefined
+    if (!port) return undefined
+    return port.dynamic === true ? 'dynamic' : 'static'
+  }
+
   get appliedCeiling(): unknown {
     return (this.deps.authorizeAtApply as { ceiling?: unknown } | undefined)?.ceiling
   }

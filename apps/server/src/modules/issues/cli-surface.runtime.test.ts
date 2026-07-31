@@ -79,7 +79,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', () => {
     const client = fresh().issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(59)
+    expect(CLI_EXPOSED).toHaveLength(61)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')
@@ -180,12 +180,21 @@ describe('the podium issue CLI table renders over the real surface', () => {
     const client = fresh().issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, unknown>
     for (const name of SIDE_EFFECTING) {
-      expect(ISSUE_COMMANDS.some((c) => c.name === name), `${name}: gone from the CLI table`).toBe(
-        true,
-      )
+      expect(
+        ISSUE_COMMANDS.some((c) => c.name === name),
+        `${name}: gone from the CLI table`,
+      ).toBe(true)
     }
     // Their procs are live on the real client even though this lane does not fire them.
-    for (const proc of ['start', 'addSession', 'addShell', 'action', 'cleanup', 'stop', 'integrate']) {
+    for (const proc of [
+      'start',
+      'addSession',
+      'addShell',
+      'action',
+      'cleanup',
+      'stop',
+      'integrate',
+    ]) {
       expect(issues[proc], proc).toBeDefined()
     }
   })

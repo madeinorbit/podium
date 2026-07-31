@@ -1,3 +1,4 @@
+import { familyState } from '../derived-family'
 /**
  * THE DERIVED SPEC SURFACE (POD-386, the 3.3d cutover) — `specs.create`,
  * `specs.save` and `specs.remove`, produced from the joined table in
@@ -74,7 +75,9 @@ function buildProcedure(name: SpecCommandName): unknown {
   // and `SpecProcedures` re-derives the per-command types for the client. This
   // erasure is the one place the two meet.
   const run = handler as (svc: ReturnType<typeof mods>['specs'], input: unknown) => unknown
-  return t.procedure.input(contract.input).mutation(({ ctx, input }) => run(mods(ctx).specs, input))
+  return t.procedure
+    .input(contract.input)
+    .mutation(({ ctx, input }) => run(familyState(ctx).modules.specs, input))
 }
 
 /**

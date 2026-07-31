@@ -51,6 +51,7 @@ export function sessionCommandCtx(
       sessionSpawnerParentId(
         sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
       ),
+    onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,
   })
   const deps: SessionCommandDeps = {
     sessions: () => sessions,

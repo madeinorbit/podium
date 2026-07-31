@@ -1,3 +1,4 @@
+import { familyState } from '../derived-family'
 /**
  * THE DERIVED SESSION SURFACE (POD-382, the 3.2 cutover) — every session-family
  * tRPC MUTATION, produced from the contract tables rather than written out.
@@ -63,7 +64,14 @@
  * contract's output schema.
  */
 
-import { isExposedOn, PRESENCE_COMMAND_TABLES, presenceCommand, sessionCommandPlane, sessionCommandPlaneInputs, sessionPresenceInputs } from '@podium/commands'
+import {
+  isExposedOn,
+  PRESENCE_COMMAND_TABLES,
+  presenceCommand,
+  sessionCommandPlane,
+  sessionCommandPlaneInputs,
+  sessionPresenceInputs,
+} from '@podium/commands'
 import { type SessionHandoffOutput, sessionHandoffInput } from '@podium/commands'
 
 import type { TRPCMutationProcedure } from '@trpc/server'
@@ -177,11 +185,11 @@ function presenceProcedure<N extends TrpcPresenceName>(name: N): PresenceProcedu
 /** The presence envelope for one call. */
 function presenceRegistryFor(ctx: Context): PresenceRegistry {
   return new PresenceRegistry({
-    sessions: mods(ctx).sessions,
-    store: ctx.registry.sessionStore,
+    sessions: familyState(ctx).modules.sessions,
+    store: familyState(ctx).store,
     now: () => Date.now(),
     // THE composition root's ledger — framework idempotency, one instance.
-    mutations: mods(ctx).mutations,
+    mutations: familyState(ctx).modules.mutations,
   })
 }
 
@@ -237,7 +245,7 @@ function renameProcedure(): PresenceProcedure<'sessions.rename'> {
   return t.procedure
     .input(sessionPresenceInputs['sessions.rename'])
     .mutation(({ ctx, input }): void => {
-      const modules = mods(ctx)
+      const modules = familyState(ctx).modules
       dispatchRename(
         {
           sessions: modules.sessions,
@@ -284,7 +292,7 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
     .input(schema)
     .mutation(({ ctx, input }): unknown =>
       dispatchSessionCommand(
-        sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope),
+        sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
         key,
         input,
       ),
@@ -322,7 +330,7 @@ function handoffProcedure(): HandoffProcedure {
     .input(sessionHandoffInput)
     .mutation(
       ({ ctx, input }): Promise<SessionHandoffOutput> =>
-        mods(ctx).sessions.handoffSession(input, { capability: ctx.capability }),
+        familyState(ctx).modules.sessions.handoffSession(input, { capability: ctx.capability }),
     ) as HandoffProcedure
 }
 

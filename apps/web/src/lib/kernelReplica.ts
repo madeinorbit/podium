@@ -30,6 +30,7 @@
 
 import {
   type Replica as ClientReplica,
+  createKernelOutboxStorage,
   createKernelReplica,
   createSideCache,
   FeedAuthorityClient,
@@ -46,6 +47,7 @@ import {
 import { Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { Trpc } from '@/app/trpc'
+import { outboxCommandFor } from '@podium/client-core/engine'
 
 /** The IndexedDB database the web client's kernel replica lives in. */
 export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
@@ -166,8 +168,18 @@ export async function openKernelAssembly(
   })
 
   const listeners = new Set<(event: ReplicaEvent) => void>()
+  const outbox = await createKernelOutboxStorage({
+    outbox: view.outbox,
+    resolveCommand: outboxCommandFor,
+    attribution: {
+      actor: { kind: 'user', userId: options.principal ?? KERNEL_REPLICA_PRINCIPAL },
+      onBehalfOf: options.principal ?? KERNEL_REPLICA_PRINCIPAL,
+    },
+    onDegraded: (detail) => options.onDegraded?.(detail),
+  })
   const facade = createKernelReplica({
     cache: view.cache,
+    outbox,
     side: createSideCache({
       storage: globalThis.localStorage,
       storageEventApi: globalThis.window,
@@ -264,7 +276,7 @@ export async function resolveWebReplicaMode(args: {
     flags?.flags.find((f) => f.id === id)?.enabled ?? false
   return {
     mode: resolveReplicaMode({
-      kernelReplicaEnabled: enabledFlag('kernel-replica'),
+      kernelReplicaEnabled: true,
       shadowEnabled: enabledFlag('kernel-replica-shadow'),
       serverGrade,
     }),

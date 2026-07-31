@@ -16,7 +16,13 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { AgentKind, GitDiscoveryDiagnosticWire, GitRepositoryWire, SessionId, WorkState } from '@podium/model'
+import type {
+  AgentKind,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  SessionId,
+  WorkState,
+} from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { PinKind, PinState } from './viewmodels/types'
@@ -144,7 +150,7 @@ export interface PodiumClientApi {
   }
   settings: {
     get: ApiQuery<void, PodiumSettings>
-    set: ApiMutation<PodiumSettings, PodiumSettings>
+    updatePersonal: ApiMutation<{ values: Record<string, unknown> }, PodiumSettings>
   }
   superagent: {
     startBtw: ApiMutation<{ sessionId: SessionId }>

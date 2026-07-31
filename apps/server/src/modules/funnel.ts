@@ -1,8 +1,4 @@
-import type {
-  FeedChangesSinceReply,
-  FeedCursorField,
-  MetadataChange,
-} from '@podium/protocol'
+import type { FeedChangesSinceReply, FeedCursorField, MetadataChange } from '@podium/protocol'
 import { toFeedChange } from '../gateway/feed-serving'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -221,13 +217,16 @@ export class WriteFunnel {
    * different number lines. The replica's own rung 4 would catch it on the next
    * frame; catching it here means the wrong answer is never produced.
    */
-  feedChangesSince(cursor: FeedCursorField | null): FeedChangesSinceReply {
+  feedChangesSince(
+    cursor: FeedCursorField | null,
+    principal: import('@podium/sync').FeedPrincipal,
+  ): FeedChangesSinceReply {
     const identity = this.deps.serving.identity()
     if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
       return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
     }
     const from = cursor?.seq ?? null
-    const delivery = this.deps.authority.changesSince(from, DEVICE_GRADE_PRINCIPAL)
+    const delivery = this.deps.authority.changesSince(from, principal)
     if (delivery === null) return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
     if (delivery.kind !== 'batch') {
       // The authority derived a rescope for this range. Answering it as a delta
@@ -289,7 +288,6 @@ export class WriteFunnel {
       })),
     }
   }
-
 
   // ---- THE ordered, coalesced delivery pipe (#256) ----
   // Appends arrive synchronously and in seq order (single-threaded process, one

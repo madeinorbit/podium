@@ -30,8 +30,7 @@ vi.mock('./client-frame-routing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./client-frame-routing')>()
   return {
     ...actual,
-    clientPlaneClassFor: (type: string) =>
-      forced.plane ? null : actual.clientPlaneClassFor(type),
+    clientPlaneClassFor: (type: string) => (forced.plane ? null : actual.clientPlaneClassFor(type)),
     clientPortsFor: (type: string) => (forced.ports ? null : actual.clientPortsFor(type)),
   }
 })
@@ -91,7 +90,10 @@ describe('the gate fails closed', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     // A type that is on neither table — protocol drift, a newer client, a hostile
     // peer. It must reach no port at all.
-    h.mux.routeClientFrame(h.id, { type: 'notAFrame', sessionId: asSessionId('s1') } as unknown as ClientMessage)
+    h.mux.routeClientFrame(h.id, {
+      type: 'notAFrame',
+      sessionId: asSessionId('s1'),
+    } as unknown as ClientMessage)
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('refused unclassified client frame'))
     warn.mockRestore()
@@ -162,13 +164,10 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
     expect(h.registry.get('attacker')).toBeUndefined()
   })
 
-  it('is device-grade, and says so — one shared password names no person', () => {
-    // POD-351 / docs/multi-user-readiness.md §3.2. Pinned by test so promoting
-    // this to a real user identity (POD-1075) is a visible, deliberate edit and
-    // not something a green run can be read as already providing.
+  it('is user-grade and preserves the authenticated account identity', () => {
     const h = harness()
     const principal = h.mux.principalOf(h.id)
-    expect(CLIENT_PRINCIPAL_GRADE).toBe('device')
+    expect(CLIENT_PRINCIPAL_GRADE).toBe('user')
     expect(principal?.kind).toBe('user')
     expect(principal?.user).toBe('user:sole')
   })

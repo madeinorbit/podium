@@ -1,10 +1,31 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from '../../command-principal'
 import { SessionStore } from '../../store'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
-import { AutomationsService } from './service'
+import { AutomationsService, type AutomationInput } from './service'
+
+const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+
+class TestAutomationsService extends AutomationsService {
+  override create(input: AutomationInput) {
+    return super.create(input, TEST_PRINCIPAL)
+  }
+
+  override update(id: string, patch: Partial<AutomationInput>) {
+    return super.update(id, patch, TEST_PRINCIPAL)
+  }
+
+  override setEnabled(id: string, enabled: boolean) {
+    return super.setEnabled(id, enabled, TEST_PRINCIPAL)
+  }
+
+  override remove(id: string) {
+    return super.remove(id, TEST_PRINCIPAL)
+  }
+}
 
 const NOW = new Date(2026, 6, 14, 9, 0, 0) // local time — cron is server-local
 const iso = (d: Date): string => d.toISOString()
@@ -181,7 +202,7 @@ function harness(
     ...(opts.resumeReason ? { reason: opts.resumeReason } : {}),
   }))
   const createIssue = vi.fn(() => ({ id: asIssueId(`iss_${++issueN}`) }))
-  const service = new AutomationsService({
+  const service = new TestAutomationsService({
     store: store.automations,
     ledger,
     createSession,
@@ -189,6 +210,8 @@ function harness(
     resumeAndSend,
     createIssue,
     liveSessionIds: () => new Set((opts.live ?? []).map(asSessionId)),
+    principalForOwner: () => TEST_PRINCIPAL,
+    mayUseDefaultMachine: () => true,
     now: () => clock,
     homeDir: () => '/home/tester',
   })
@@ -475,6 +498,8 @@ describe('AutomationsService.tick — spawn', () => {
       sessionId: null,
       outcome: 'error',
       detail: 'reserved',
+      actor: 'system:automation',
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     })
     // nextRunAt still the original occurrence
     expect(h.store.automations.get(a.id)?.nextRunAt).toBe(firedAt)
@@ -612,6 +637,8 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
       resumeAndSend: live.resumeAndSend,
       createIssue: live.createIssue,
       liveSessionIds: () => new Set([asSessionId('sess_1')]),
+      principalForOwner: () => TEST_PRINCIPAL,
+      mayUseDefaultMachine: () => true,
       now: () => new Date(2026, 6, 16, 9, 0, 10),
     })
     service.tick()

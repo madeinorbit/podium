@@ -67,7 +67,13 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
         return
       }
       try {
-        const assembly = await openKernelAssembly({ trpc })
+        const status = (await fetch(`/auth/status`).then((response) => response.json())) as {
+          userId?: string
+        }
+        const assembly = await openKernelAssembly({
+          trpc,
+          ...(status.userId ? { principal: status.userId } : {}),
+        })
         if (!alive) {
           void assembly.dispose()
           return

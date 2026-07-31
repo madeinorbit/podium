@@ -1,5 +1,5 @@
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { OPERATOR } from '../../issue-authz'
@@ -52,6 +52,8 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   delete: 'manage',
   restore: 'manage',
   setLabels: 'manage',
+  share: 'write',
+  unshare: 'write',
   depRemove: 'write',
   reparent: 'write',
   supersede: 'write',
@@ -90,6 +92,8 @@ const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'
   delete: 'id',
   restore: 'id',
   setLabels: 'id',
+  share: 'id',
+  unshare: 'id',
   reparent: 'id',
   depRemove: 'fromId',
   supersede: 'oldId',
@@ -173,13 +177,11 @@ describe('issue command registry completeness', () => {
    * populated and that a planted disagreement would FAIL.
    */
   it('the biconditional has both arms populated, and a mismatch would fail it', () => {
-    const scoped = ISSUE_COMMAND_NAMES.filter(
-      (n) => ISSUE_CONTRACTS[n].policy.resource === 'issue',
-    )
+    const scoped = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].policy.resource === 'issue')
     const unscoped = ISSUE_COMMAND_NAMES.filter(
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
-    expect(scoped.length).toBe(33)
+    expect(scoped.length).toBe(35)
     expect(unscoped.length).toBe(35)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
@@ -212,7 +214,7 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
-    expect(checked).toBe(68)
+    expect(checked).toBe(70)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {
@@ -400,6 +402,7 @@ describe('issue spawn provenance', () => {
           role: 'worker',
           scope: { kind: 'subtree', rootId: issue.id },
           actorSessionId: asSessionId('parent-session'),
+          onBehalfOf: FIRST_ADMIN_USER_ID,
         },
       } as const
       const start = vi.spyOn(registry.issues, 'start').mockResolvedValue(issue)
@@ -438,6 +441,7 @@ describe('issue spawn provenance', () => {
           role: 'worker' as const,
           scope: { kind: 'none' as const },
           actorSessionId: asSessionId('sess_agent_creator'),
+          onBehalfOf: FIRST_ADMIN_USER_ID,
         },
       }
       const created = (await registry.issueCommands.dispatch(agentCaller, 'issues', 'create', {
@@ -456,6 +460,7 @@ describe('issue spawn provenance', () => {
             role: 'worker',
             scope: { kind: 'subtree', rootId: asIssueId(created.id) },
             actorSessionId: asSessionId('sess_coord'),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
           },
         },
         'issues',

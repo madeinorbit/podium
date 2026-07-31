@@ -10,6 +10,7 @@
  */
 
 import type { IncomingMessage, Server } from 'node:http'
+import type { UserId } from '@podium/model'
 import { versionSupport } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
 import type { PublicationAuthority } from '../modules/sessions/session'
@@ -35,6 +36,8 @@ export interface WsAuthOptions {
    * link is unaffected — it has its own pre-auth handshake.
    */
   authorizeClient?: (req: IncomingMessage) => boolean
+  /** Resolve the authenticated account for the client socket. Present in production. */
+  userForClient?: (req: IncomingMessage) => UserId | undefined
   /** Resolve a revocable, request-specific publication world on the real socket path. */
   resolvePublicationAuthority?: (req: IncomingMessage) => PublicationAuthority
   /** ViewKey identity supplied by the main authority (defaults to local operator). */
@@ -136,7 +139,10 @@ export function attachWebSockets(
       // a valid session cookie. Browsers send same-origin cookies on the WS handshake, so
       // the gate reads them off the upgrade request — mirroring the cookie the /trpc and
       // /files HTTP guards check, one shared definition of "authed".
-      if (auth.authorizeClient && !auth.authorizeClient(req)) {
+      if (
+        (auth.userForClient && auth.userForClient(req) === undefined) ||
+        (auth.authorizeClient && !auth.authorizeClient(req))
+      ) {
         socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
         socket.destroy()
         return
@@ -169,7 +175,13 @@ export function attachWebSockets(
     // The connection, its principal and its frame switch belong to the client
     // mux (POD-390); this handler layers the liveness mark on top, exactly as the
     // daemon half above does.
-    if (wireClientSocket(ws, req, registry, auth) === undefined) return
+    if (
+      wireClientSocket(ws, req, registry, {
+        ...auth,
+        ...(auth.userForClient ? { userId: auth.userForClient(req) } : {}),
+      }) === undefined
+    )
+      return
     aliveClients.add(ws)
     ws.on('pong', () => aliveClients.add(ws))
   })

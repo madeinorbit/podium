@@ -82,7 +82,7 @@ import type {
   ScopedDelivery,
   ServerFrame,
 } from '@podium/sync'
-import { FeedPublisher } from '@podium/sync'
+import { FeedPublisher, principalIdOf } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import {
@@ -129,6 +129,11 @@ export class FeedServing {
   private readonly connections = new Map<string, FeedConnection>()
   /** The wire version each connection's WORLD was expressed in. */
   private readonly servedVersion = new Map<string, number>()
+  private readonly principalByPeer = new Map<string, string>()
+  private readonly principalSubscriptions = new Map<
+    string,
+    { refs: number; unsubscribe: () => void }
+  >()
 
   constructor(private readonly deps: FeedServingDeps) {
     this.publisher = new FeedPublisher({
@@ -207,7 +212,39 @@ export class FeedServing {
       // takes back. Reusing it keeps ONE way for a position to be set.
       existing.rearm(world.throughSeq)
     }
+    this.retainPrincipal(peer.id, principal)
     perf.record('phase', 'feedBootstrap.total', performance.now() - t0, perfKey)
+  }
+
+  private retainPrincipal(peerId: string, principal: FeedPrincipal): void {
+    const key = principalIdOf(principal)
+    if (this.principalByPeer.get(peerId) === key) return
+    this.releasePrincipal(peerId)
+    const current = this.principalSubscriptions.get(key)
+    if (current) {
+      current.refs += 1
+    } else {
+      this.principalSubscriptions.set(key, {
+        refs: 1,
+        unsubscribe: this.deps.authority.subscribe(principal, (delivery) =>
+          this.publish(principal, delivery),
+        ),
+      })
+    }
+    this.principalByPeer.set(peerId, key)
+  }
+
+  private releasePrincipal(peerId: string): void {
+    const key = this.principalByPeer.get(peerId)
+    if (!key) return
+    this.principalByPeer.delete(peerId)
+    const current = this.principalSubscriptions.get(key)
+    if (!current) return
+    current.refs -= 1
+    if (current.refs === 0) {
+      current.unsubscribe()
+      this.principalSubscriptions.delete(key)
+    }
   }
 
   /**
@@ -246,6 +283,7 @@ export class FeedServing {
   }
 
   detach(peerId: string): void {
+    this.releasePrincipal(peerId)
     this.edge.detach(peerId)
     this.peers.delete(peerId)
     this.servedVersion.delete(peerId)
@@ -424,6 +462,8 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
 export function toFeedChange(change: ScopedChange): FeedChange {
   const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
   return (
-    change.op === 'upsert' ? { ...base, op: 'upsert', value: change.value } : { ...base, op: change.op }
+    change.op === 'upsert'
+      ? { ...base, op: 'upsert', value: change.value }
+      : { ...base, op: change.op }
   ) as FeedChange
 }

@@ -32,8 +32,8 @@ const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id a
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(68)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(68)
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(70)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(70)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(ISSUE_CONTRACTS[key].name, key).toBe(`issues.${key}`)
@@ -119,10 +119,10 @@ describe('transport exposure', () => {
     'subscriptionSetEnabled',
   ]
 
-  it('tRPC and relay serve all sixty-eight; CLI and MCP serve fifty-nine', () => {
+  it('tRPC and relay serve all seventy; CLI and MCP serve fifty-nine', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(59)
+    expect(onCli).toHaveLength(61)
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)
@@ -147,7 +147,7 @@ describe('transport exposure', () => {
 
 /**
  * REDACTION IS REVIEWED-AND-EMPTY, and that claim is checked rather than asserted.
- * "Nothing on this surface is a credential" is a statement about sixty-eight input
+ * "Nothing on this surface is a credential" is a statement about seventy input
  * schemas, so the schemas are walked for credential-shaped key names — and the
  * walker is shown finding one in a planted schema first, because a key scan that
  * silently matches nothing would pass over any input at all.
@@ -219,17 +219,17 @@ describe('redaction', () => {
       cmd += 1
       expect(contract.conflictRule?.trim().length ?? 0, key).toBeGreaterThan(0)
     }
-    expect(cmd).toBe(15)
+    expect(cmd).toBe(17)
   })
 
   it('every mutating command declares a conflict class, and no read does', () => {
-    // The subtraction the type-level tripwire makes: 43 mutations, 25 non-mutating
+    // The subtraction the type-level tripwire makes: 45 mutations, 25 non-mutating
     // members (24 reads + `linearSearch`, which is write-grade authority over an
     // EXTERNAL system with no ADR 1 row to arbitrate).
     const declared = ISSUE_COMMAND_NAMES.filter(
       (k) => (ISSUE_CONTRACTS[k] as AnyCommandContract).conflict !== undefined,
     )
-    expect(declared.length).toBe(43)
+    expect(declared.length).toBe(45)
     expect(ISSUE_COMMAND_NAMES.length - declared.length).toBe(25)
     // `in`, not a property read: the contract's literal type HAS no `conflict`
     // key, so reading one is a compile error rather than an `undefined`.

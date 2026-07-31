@@ -1,3 +1,4 @@
+import { familyState } from '../derived-family'
 /**
  * THE DERIVED WORKFLOW SURFACE (POD-732, the 3.10 cutover) — every workflow
  * tRPC procedure, produced from the contract table and the query table rather
@@ -42,7 +43,7 @@
  * off its table entry's `run`. Neither is written down a second time.
  */
 
-import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
+import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, mods, t } from '../../trpc'
 import { WORKFLOW_QUERIES, type WorkflowQueryName } from './queries'
@@ -64,13 +65,22 @@ import type { WorkflowCaller } from './service'
  */
 export function workflowCaller(ctx: Context): WorkflowCaller {
   const sessionId = ctx.capability.actorSessionId
-  return sessionId
-    ? {
-        actor: { kind: 'session', id: sessionId },
-        capability: ctx.capability,
-        ...(ctx.overrideScope ? { overrideScope: true } : {}),
-      }
-    : { actor: { kind: 'operator', id: null }, protectedWrite: true }
+  const actor = sessionId
+    ? ({ kind: 'session', id: sessionId } as const)
+    : ({ kind: 'operator', id: null } as const)
+  if (ctx.principal) {
+    return {
+      actor,
+      capability: ctx.capability,
+      principal: ctx.principal,
+      ...(ctx.capability.role === 'admin' ? { protectedWrite: true } : {}),
+      ...(ctx.overrideScope ? { overrideScope: true } : {}),
+    }
+  }
+  throw new TRPCError({
+    code: 'UNAUTHORIZED',
+    message: 'workflow calls require an authenticated principal',
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +111,7 @@ function workflowMutation<N extends WorkflowProcName>(name: N): MutationProcedur
   return t.procedure
     .input(contract.input)
     .mutation(({ ctx, input }) =>
-      mods(ctx).workflows.execute(workflowCaller(ctx), name, input),
+      familyState(ctx).modules.workflows.execute(workflowCaller(ctx), name, input),
     ) as MutationProcedure<N>
 }
 
@@ -124,7 +134,7 @@ function workflowQuery<N extends WorkflowQueryName>(name: N): QueryProcedure<N> 
     .input(query.input)
     .query(({ ctx, input }) =>
       (query.run as (s: unknown, i: unknown, c: WorkflowCaller) => unknown)(
-        mods(ctx).workflows,
+        familyState(ctx).modules.workflows,
         input,
         workflowCaller(ctx),
       ),

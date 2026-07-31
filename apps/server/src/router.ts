@@ -1,3 +1,4 @@
+import { familyState } from './modules/derived-family'
 import { presenceCommand, sessionHandoffInput } from '@podium/commands'
 import {
   AgentKind,
@@ -6,7 +7,6 @@ import {
   AutomationScheduleKind,
   AutomationSessionMode,
   asThreadId,
-  asUserId,
   IssueIdField,
   isAgentKind,
   ResumeRef,
@@ -19,7 +19,6 @@ import {
   clientSwitchTraceSchema,
   type FileReadResultMessage,
 } from '@podium/protocol'
-import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,
@@ -127,7 +126,6 @@ import type { AnyCommandContract } from '@podium/commands'
 import { fleetProcedures } from './modules/fleet/trpc'
 import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
 import { visibleMachinesFor } from './modules/sessions/command-ctx'
-import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
 import { presencePrincipal, sessionFamilyProcedures } from './modules/sessions/trpc'
 import { workflowFamilyProcedures } from './modules/workflows/trpc'
 import { type Context, mods, t } from './trpc'
@@ -191,7 +189,7 @@ function mailRun<Out>(name: MailProcName) {
   return ({ ctx, input }: { ctx: Context; input: unknown }): Promise<Out> =>
     // Non-null asserted because the exposure check already proved the dispatcher
     // will not answer `undefined` for this name on this transport.
-    mods(ctx).messageGate.dispatch(
+    familyState(ctx).modules.messageGate.dispatch(
       ctx.capability,
       ctx.overrideScope,
       name,
@@ -316,18 +314,6 @@ export const appRouter = t.router({
   search: t.router(queryProcedures('search', SEARCH_QUERIES)),
   settings: t.router({
     ...queryProcedures('settings', SETTINGS_QUERIES),
-    // Whole-object set: the client always round-trips the full blob, so there is
-    // no partial-merge ambiguity. PodiumSettings fills defaults for missing keys.
-    // REFUSES a secret change (`assertNoSecretChange`), so the only way to write
-    // credential material is the derived, online-sensitive, admin-grade pair.
-    // ON BEHALF OF THE CALLER (POD-1213): the blob it posts spans two homes now,
-    // and the personal leaves land on the caller's own rows. The split is the
-    // store's, by classification — this seam supplies only WHO.
-    set: t.procedure
-      .input(PodiumSettings)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).settings.setSettingsFor(asUserId(soleHumanPrincipal(ctx.capability).userId), input),
-      ),
     /**
      * WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT (POD-421).
      *
@@ -391,11 +377,6 @@ export const appRouter = t.router({
    */
   hosts: t.router(hostFamilyProcedures()),
   discovery: t.router({
-    // CONVERSATION discovery, not repo discovery — `rpc.scan()` returns
-    // `{ conversations, diagnostics }`. It shares this router's name and nothing
-    // else, so POD-384 deliberately left it out of the fleet contract table and
-    // the census allowlists it BY KEY on this router only.
-    scan: t.procedure.mutation(({ ctx }) => mods(ctx).rpc.scan()),
     // refreshRepos · scanFolder · scanMachine — DERIVED (POD-384): the three
     // `machineVerb: 'use'` commands, each placing a filesystem walk on the target
     // machine's daemon.
@@ -417,7 +398,9 @@ export const appRouter = t.router({
      * costs four lines. When POD-1075 lands a real principal this is where it
      * belongs.
      */
-    list: t.procedure.query(({ ctx }) => visibleMachinesFor(mods(ctx), ctx.capability)),
+    list: t.procedure.query(({ ctx }) =>
+      visibleMachinesFor(familyState(ctx).modules, ctx.capability),
+    ),
     // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,

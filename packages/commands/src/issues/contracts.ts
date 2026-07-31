@@ -325,6 +325,14 @@ export const refreshAssistantInput = byIssueId
 
 export const setLabelsInput = z.object({ id: IssueIdField, labels: z.array(z.string()) })
 
+export const shareInput = z.object({
+  id: IssueIdField,
+  grantee: UserIdField,
+  verb: z.enum(['read', 'write', 'manage']),
+})
+
+export const unshareInput = shareInput
+
 export const addCommentInput = z.object({
   id: IssueIdField,
   author: z.string(),
@@ -1384,6 +1392,29 @@ export const issueSetLabelsContract = {
   conflict: 'exp-rev',
 } as const satisfies MutatingCommandContract
 
+export const issueShareContract = {
+  name: 'issues.share',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: shareInput,
+  policy: WRITE_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: WRITE_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule: 'owner-only grant edge upsert and issue visibility update in one authority commit',
+} as const satisfies MutatingCommandContract
+
+export const issueUnshareContract = {
+  ...issueShareContract,
+  name: 'issues.unshare',
+  input: unshareInput,
+  conflictRule: 'owner-only grant edge removal and issue visibility update in one authority commit',
+} as const satisfies MutatingCommandContract
+
 // -------------------------------------------------------------------------
 // ADDITIVE / SELF-ADDRESSED WRITES — 6 with no existing-issue target
 // -------------------------------------------------------------------------
@@ -1686,6 +1717,7 @@ export const ISSUE_CONTRACTS = {
   search: issueSearchContract,
   setCoordinator: issueSetCoordinatorContract,
   setLabels: issueSetLabelsContract,
+  share: issueShareContract,
   setNeedsHuman: issueSetNeedsHumanContract,
   setState: issueSetStateContract,
   setTucked: issueSetTuckedContract,
@@ -1698,6 +1730,7 @@ export const ISSUE_CONTRACTS = {
   subscriptionRemove: issueSubscriptionRemoveContract,
   subscriptionSetEnabled: issueSubscriptionSetEnabledContract,
   supersede: issueSupersedeContract,
+  unshare: issueUnshareContract,
   tree: issueTreeContract,
   undefer: issueUndeferContract,
   update: issueUpdateContract,

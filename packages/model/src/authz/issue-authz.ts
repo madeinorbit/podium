@@ -43,6 +43,7 @@
  */
 
 import { assertUnreachable } from '../exhaustive'
+import { FIRST_ADMIN_USER_ID } from '../identity/user'
 import type { IssueId, SessionId, UserId } from '../ids/brands'
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
@@ -205,7 +206,12 @@ export function capabilityAttribution(cap: Capability): AttributionPair {
 }
 
 /** The human operator (and, for now, the trusted in-process MCP): unconstrained. */
-export const OPERATOR: Capability = { role: 'admin', scope: { kind: 'all' } }
+export const OPERATOR: Capability = {
+  role: 'admin',
+  scope: { kind: 'all' },
+  actorUser: FIRST_ADMIN_USER_ID,
+  onBehalfOf: FIRST_ADMIN_USER_ID,
+}
 
 // The per-procedure action/target tables (PROC_ACTION / SCOPED_TARGET) are GONE
 // (#248 [spec:SP-3fe2]): a command's required action and its target extractor
@@ -218,6 +224,8 @@ export const OPERATOR: Capability = { role: 'admin', scope: { kind: 'all' } }
 export interface IssueAccessIndex {
   has(id: string): boolean
   ancestorIds(id: string): string[]
+  /** Live owner and matching grantees for personal issue authorization. */
+  ownedTarget?(id: string, action: IssueAction): Extract<AuthTarget, { kind: 'owned' }> | undefined
 }
 
 /** A scope violation: overridable by a caller who says so knowingly (ADR 3 D2's
@@ -340,9 +348,7 @@ export function authorize(
       // The ONE thing a self scope may write: its own row. Not another user's row,
       // and not a shared entity — a `self` principal that could rename a session
       // would be an owner-or-grant capability wearing the wrong name.
-      return issue.kind === 'per-user-row' && issue.userId === scope.userId
-        ? 'allow'
-        : 'forbidden'
+      return issue.kind === 'per-user-row' && issue.userId === scope.userId ? 'allow' : 'forbidden'
     }
     default:
       return assertUnreachable(scope)

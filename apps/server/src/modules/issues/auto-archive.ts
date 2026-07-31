@@ -1,3 +1,4 @@
+import { systemPrincipal, type SystemCommandPrincipal } from '../../command-principal'
 import type { IssueService } from './service'
 
 // Read-gated auto-archive sweep (issue #127): first pass shortly after boot (so a
@@ -35,7 +36,7 @@ export class IssueAutoArchive {
   /** One read-gated auto-archive pass. Failures are logged, never thrown. */
   private sweep(): void {
     try {
-      const archived = this.issues.sweepAutoArchive()
+      const archived = this.issues.sweepAutoArchive(undefined, systemPrincipal('expiry'))
       if (archived.length > 0) {
         console.log(`[podium:issues] auto-archived ${archived.length} read+done issue(s)`)
       }

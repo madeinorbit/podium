@@ -1,5 +1,9 @@
 import {
-  FIRST_ADMIN_USER_ID,
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
+  asUserId,
   IssueDep,
   type IssueDepProjection,
   type IssueProjection,
@@ -9,7 +13,6 @@ import {
   type RepoProjection,
   repoToWire,
   toWire,
-  visibilityClassOf,
 } from '@podium/model'
 import { fromStorage } from '../../store/issue-storage'
 import type { IssueRow } from '../../store'
@@ -101,12 +104,6 @@ import type { IssueRow } from '../../store'
  * know who last closed this" is honestly spelled by omitting it. Only the required
  * members need an answer here.
  */
-export const SINGLE_USER_ISSUE_OWNERSHIP = {
-  owner: FIRST_ADMIN_USER_ID,
-  visibility: visibilityClassOf('issues'),
-  createdBy: { actor: { kind: 'user', id: FIRST_ADMIN_USER_ID }, onBehalfOf: FIRST_ADMIN_USER_ID },
-} as const
-
 /**
  * One stored row → its wire projection.
  *
@@ -122,19 +119,30 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
     )
   }
   const stored = fromStorage(row)
+  if (!row.ownerUserId || !row.createdByActor || !row.createdByOnBehalfOf) {
+    throw new Error('issue ' + row.id + ' has incomplete ownership attribution')
+  }
+  const actor = row.createdByActor.startsWith('session:')
+    ? actorAgent(asAgentIdentityId(row.createdByActor.slice('session:'.length)))
+    : row.createdByActor.startsWith('system:')
+      ? actorSystem(row.createdByActor.slice('system:'.length))
+      : actorUser(asUserId(row.createdByActor))
+  const ownership = {
+    owner: row.ownerUserId,
+    visibility: row.visibility ?? 'personal',
+    createdBy: { actor, onBehalfOf: row.createdByOnBehalfOf },
+  }
   const { askedLegacy: _askedLegacy, asked, ...issue } = stored
   return toWire({
     ...issue,
-    ...SINGLE_USER_ISSUE_OWNERSHIP,
+    ...ownership,
     labels,
     // `StoredAsked` is `NeedsHuman.asked` MINUS its attribution half, for the
     // same reason `createdBy` is absent: no column, and ADR 9 D8 S5 forbids a
     // mapper defaulting `onBehalfOf`. Re-attached from the same named constant
     // so the pair stays all-or-nothing on the wire (POD-365) instead of shipping
     // a "when" with no "who".
-    ...(asked
-      ? { asked: { ...asked, attribution: SINGLE_USER_ISSUE_OWNERSHIP.createdBy } }
-      : {}),
+    ...(asked ? { asked: { ...asked, attribution: ownership.createdBy } } : {}),
   })
 }
 

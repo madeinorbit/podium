@@ -54,7 +54,7 @@
  * cached decision.
  */
 
-import type { Capability, SessionId } from '@podium/model'
+import type { Capability, SessionId, UserRole } from '@podium/model'
 import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 
 /**
@@ -121,10 +121,21 @@ export interface SystemCommandPrincipal {
   readonly job: string
 }
 
-export type CommandPrincipal =
-  | UserCommandPrincipal
-  | AgentCommandPrincipal
-  | SystemCommandPrincipal
+export type CommandPrincipal = UserCommandPrincipal | AgentCommandPrincipal | SystemCommandPrincipal
+
+/** Mint the live human principal from the authenticated account row. */
+export function userCommandPrincipal(user: UserId, role: UserRole): UserCommandPrincipal {
+  return {
+    kind: 'user',
+    user,
+    capability: {
+      role: role === 'admin' ? 'admin' : 'worker',
+      scope: role === 'admin' ? { kind: 'all' } : { kind: 'owned', userId: user },
+      actorUser: user,
+      onBehalfOf: user,
+    },
+  }
+}
 
 /** The human behind a principal, or `null` where there deliberately is none. */
 export function onBehalfOfUser(principal: CommandPrincipal): UserId | null {
@@ -195,7 +206,11 @@ export function resolvePrincipal(
 ): CommandPrincipal {
   const actorSessionId = capability.actorSessionId
   if (actorSessionId === undefined) {
-    return { kind: 'user', user: FIRST_ADMIN_USER_ID, capability }
+    const user = capability.onBehalfOf
+    if (user === undefined || capability.actorUser !== user) {
+      throw new Error('human capability has no authenticated user attribution')
+    }
+    return { kind: 'user', user, capability }
   }
   const chain: SessionId[] = []
   let cursor: SessionId | undefined = delegations.parentSessionOf(actorSessionId)
@@ -207,7 +222,10 @@ export function resolvePrincipal(
   // D16.2: exactly ONE human, at the ROOT of the chain. Reading it off the leaf
   // would let a sub-agent carry a delegator its parent does not have.
   const root: SessionId = chain[chain.length - 1] ?? actorSessionId
-  const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? FIRST_ADMIN_USER_ID
+  const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? capability.onBehalfOf
+  if (onBehalfOf === undefined) {
+    throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
+  }
   return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
 }
 

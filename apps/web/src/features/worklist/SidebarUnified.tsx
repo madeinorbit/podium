@@ -386,13 +386,8 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
   async function persistDefaultAgent(kind: AgentKind): Promise<void> {
     if (kind === 'shell') return
     try {
-      const current = await trpc.settings.get.query()
-      const updated = await trpc.settings.set.mutate({
-        ...current,
-        roles: {
-          ...current.roles,
-          coding: { ...current.roles.coding, accountId: nativeAccountId(kind) },
-        },
+      const updated = await trpc.settings.updatePersonal.mutate({
+        values: { 'roles.coding.accountId': nativeAccountId(kind) },
       })
       setAgentSetting(resolveRole(updated, 'coding').harness)
     } catch {
@@ -671,7 +666,11 @@ type TransitionWorkRow = RowTransitionItem<WorkPlacement>
 /** How a folded row ended, in one dim mono word (POD-293). Merged is the common
  *  closed outcome; snooze shows the time left. Nothing here is an ask, so none
  *  of it is amber. */
-function foldedMarker(issue: IssueNavigationModel, lane: 'closed' | 'snoozed', now: number): string {
+function foldedMarker(
+  issue: IssueNavigationModel,
+  lane: 'closed' | 'snoozed',
+  now: number,
+): string {
   if (lane === 'snoozed') {
     const until = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
     if (!Number.isFinite(until)) return 'snoozed'

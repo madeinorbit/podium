@@ -37,11 +37,10 @@ export function AutoContinueDialog(): JSX.Element | null {
     setError(null)
     try {
       const current = await trpc.settings.get.query()
-      await trpc.settings.set.mutate({
-        ...current,
-        autoContinue: {
-          enabled: enable ? true : current.autoContinue.enabled,
-          promptDismissed: true,
+      await trpc.settings.updatePersonal.mutate({
+        values: {
+          'autoContinue.enabled': enable ? true : current.autoContinue.enabled,
+          'autoContinue.promptDismissed': true,
         },
       })
       closeAutoContinuePrompt()

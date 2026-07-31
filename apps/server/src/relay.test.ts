@@ -1553,8 +1553,16 @@ describe('host metrics relay', () => {
       id: 'm-alpha',
       name: 'alpha',
       hostname: 'alpha',
-      tokenHash: 'x', ownerUserId: 'user:sole' })
-    store.machines.upsertMachine({ id: 'm-beta', name: 'beta', hostname: 'beta', tokenHash: 'y', ownerUserId: 'user:sole' })
+      tokenHash: 'x',
+      ownerUserId: 'user:sole',
+    })
+    store.machines.upsertMachine({
+      id: 'm-beta',
+      name: 'beta',
+      hostname: 'beta',
+      tokenHash: 'y',
+      ownerUserId: 'user:sole',
+    })
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon('m-alpha', () => {})
     reg.gateway.attachDaemon('m-beta', () => {})
@@ -1737,7 +1745,9 @@ describe('agent state', () => {
         'utf8',
       ),
     ).toBe('continue\r')
-    expect(reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({ ok: false })
+    expect(reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({
+      ok: false,
+    })
   })
 
   it('sends every configured external push target only when no client is visible', () => {
@@ -1927,7 +1937,7 @@ describe('agent state', () => {
         },
       )
 
-      const setup = await reg.modules.settings.startTelegramSetup()
+      const setup = await reg.modules.settings.startTelegramSetup(FIRST_ADMIN_USER_ID)
       expect(setup).toEqual({
         setupId: expect.any(String),
         code: 'PODIUM123',
@@ -2332,7 +2342,11 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     await expect(
-      reg.modules.rpc.readTranscript({ sessionId: asSessionId('nope'), direction: 'before', limit: 10 }),
+      reg.modules.rpc.readTranscript({
+        sessionId: asSessionId('nope'),
+        direction: 'before',
+        limit: 10,
+      }),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
   })

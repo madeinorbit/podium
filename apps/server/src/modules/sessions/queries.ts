@@ -61,9 +61,8 @@ export const SESSION_QUERIES = {
   /** Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
-  recap: q(
-    z.object({ sessionId: SessionIdField, since: z.string().optional() }),
-    (s, input) => s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator'),
+  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), (s, input) =>
+    s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator'),
   ),
 } as const
 
@@ -72,9 +71,8 @@ export const SYNC_QUERIES = {
    *  bootstrap snapshot; a valid cursor = the changes after it; a
    *  compacted/future cursor falls back to snapshot. The client heals every WS
    *  (re)connect through this. */
-  changesSince: q(
-    z.object({ cursor: z.number().int().nonnegative().nullable() }),
-    (s, input) => s.modules.sessions.syncChangesSince(input.cursor, s.publicationAuthority),
+  changesSince: q(z.object({ cursor: z.number().int().nonnegative().nullable() }), (s, input) =>
+    s.modules.sessions.syncChangesSince(input.cursor, s.publicationAuthority),
   ),
   /**
    * WIRE v2 CATCH-UP (POD-376) — rung 1 of the kernel Replica's D7 ladder.
@@ -99,7 +97,14 @@ export const SYNC_QUERIES = {
         })
         .nullable(),
     }),
-    (s, input) => s.modules.funnel.feedChangesSince(input.cursor),
+    (s, input) =>
+      s.modules.funnel.feedChangesSince(
+        input.cursor,
+        s.feedPrincipal ??
+          (() => {
+            throw new Error('authenticated feed principal required')
+          })(),
+      ),
   ),
   /**
    * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).

@@ -153,6 +153,7 @@ export interface FamilyState {
   /** Request-scoped world used by websocket publication and sync catch-up; the
    *  one read (`sync.changesSince`) passes it straight through to the service. */
   readonly publicationAuthority?: Context['publicationAuthority']
+  readonly feedPrincipal?: import('@podium/sync').FeedPrincipal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
    *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
@@ -363,17 +364,34 @@ function assertSurfaceMatchesDeclarations(
  * these things drift — one gains a member and the other does not, and the reads
  * and the writes of the same family start seeing different state.
  */
-const familyState = (ctx: Context): FamilyState => ({
+export const familyState = (ctx: Context): FamilyState => ({
   modules: mods(ctx),
   repos: ctx.repos,
   telemetry: ctx.telemetry,
   store: ctx.registry.sessionStore,
   cloud: ctx.cloud,
   caller: {
-    userId: soleHumanPrincipal(ctx.capability).userId,
+    userId:
+      ctx.principal?.kind === 'user'
+        ? ctx.principal.user
+        : ctx.principal?.kind === 'agent'
+          ? ctx.principal.onBehalfOf
+          : soleHumanPrincipal(ctx.capability).userId,
     actorSessionId: ctx.capability.actorSessionId,
   },
   publicationAuthority: ctx.publicationAuthority,
+  ...(ctx.principal?.kind === 'user'
+    ? { feedPrincipal: { kind: 'user' as const, userId: ctx.principal.user } }
+    : ctx.principal?.kind === 'agent'
+      ? {
+          feedPrincipal: {
+            kind: 'agent' as const,
+            sessionId: ctx.principal.agentSessionId,
+            onBehalfOf: ctx.principal.onBehalfOf,
+            scope: { kind: 'entities' as const, keys: new Set<string>() },
+          },
+        }
+      : {}),
   discovery: ctx.discovery,
   superagent: ctx.superagent,
 })

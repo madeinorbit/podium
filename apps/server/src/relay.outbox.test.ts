@@ -1,9 +1,16 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SOLE_USER_ID, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  SOLE_USER_ID,
+  asSessionId,
+  asUserId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -62,7 +69,6 @@ function settle(reg: SessionRegistry, sessionId: string): void {
   vi.advanceTimersByTime(1400)
 }
 
-
 describe('queueText (durable outbox sends)', () => {
   it('wakes a hibernated resumable session, shows the count, and delivers exactly once after bind + settle', async () => {
     vi.useFakeTimers()
@@ -73,7 +79,9 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
-      expect(reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' })).toEqual({
+      expect(
+        reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -116,17 +124,20 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
-      const automation = reg.modules.automations.create({
-        name: 'Night quota wake',
-        scheduleKind: 'once',
-        runAt,
-        targetSessionId: sessionId,
-        repoPath: '/w',
-        agentKind: 'claude-code',
-        prompt: 'continue-night-work',
-        enabled: true,
-        sessionMode: 'resume',
-      })
+      const automation = reg.modules.automations.create(
+        {
+          name: 'Night quota wake',
+          scheduleKind: 'once',
+          runAt,
+          targetSessionId: sessionId,
+          repoPath: '/w',
+          agentKind: 'claude-code',
+          prompt: 'continue-night-work',
+          enabled: true,
+          sessionMode: 'resume',
+        },
+        userCommandPrincipal(asUserId(SOLE_USER_ID), 'admin'),
+      )
 
       vi.setSystemTime(new Date('2026-07-16T22:02:01.000Z'))
 
@@ -197,14 +208,17 @@ describe('queueText (durable outbox sends)', () => {
       const daemonA: ControlMessage[] = []
       regA.gateway.attachDaemon('local', (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
-      expect(regA.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'survive-restart' })).toEqual({
+      expect(
+        regA.modules.sessions.queueText({
+          sessionId: asSessionId(sessionId),
+          text: 'survive-restart',
+        }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
 
-      await vi.waitFor(() =>
-        expect(daemonA.some((message) => message.type === 'spawn')).toBe(true),
-      )
+      await vi.waitFor(() => expect(daemonA.some((message) => message.type === 'spawn')).toBe(true))
       expect(pastesContaining(daemonA, 'survive-restart')).toHaveLength(0)
       regA.dispose()
       storeA.close()
@@ -312,7 +326,10 @@ describe('queueText (durable outbox sends)', () => {
     })
     const before = inbox.length
 
-    reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'queued-while-parked' })
+    reg.modules.sessions.queueText({
+      sessionId: asSessionId(sessionId),
+      text: 'queued-while-parked',
+    })
     reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
     const changes = inbox
@@ -329,7 +346,11 @@ describe('queueText (durable outbox sends)', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
-    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId: asSessionId(sessionId), until: null })
+    reg.modules.sessions.setSnooze({
+      userId: SOLE_USER_ID,
+      sessionId: asSessionId(sessionId),
+      until: null,
+    })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
     reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })

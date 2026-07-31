@@ -33,6 +33,7 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { SuperagentService } from './service'
+import type { UserId } from '@podium/model'
 
 /** The PARSED input of a contract — the handler's argument type, derived from
  *  the contract's own schema so a handler cannot disagree with what validates. */
@@ -41,7 +42,7 @@ type In<N extends SuperagentContractName> = ContractInput<(typeof SUPERAGENT_CON
 /** One contract joined to the handler that implements it. */
 export interface SuperagentCommand {
   readonly contract: AnyCommandContract
-  readonly handler: (service: SuperagentService, input: never) => unknown
+  readonly handler: (service: SuperagentService, input: never, ownerUserId: UserId) => unknown
 }
 
 /**
@@ -60,31 +61,38 @@ export interface SuperagentCommand {
 export const SUPERAGENT_COMMANDS = {
   sendTurn: {
     contract: SUPERAGENT_CONTRACTS.sendTurn,
-    handler: (s: SuperagentService, input: In<'sendTurn'>) => s.sendTurn(input),
+    handler: (s: SuperagentService, input: In<'sendTurn'>, ownerUserId: UserId) =>
+      s.sendTurn({ ...input, ownerUserId }),
   },
   interruptTurn: {
     contract: SUPERAGENT_CONTRACTS.interruptTurn,
-    handler: (s: SuperagentService, input: In<'interruptTurn'>) => s.interruptTurn(input),
+    handler: (s: SuperagentService, input: In<'interruptTurn'>, ownerUserId: UserId) =>
+      s.interruptTurn({ ...input, ownerUserId }),
   },
   openInTerminal: {
     contract: SUPERAGENT_CONTRACTS.openInTerminal,
-    handler: (s: SuperagentService, input: In<'openInTerminal'>) => s.openInTerminal(input),
+    handler: (s: SuperagentService, input: In<'openInTerminal'>, ownerUserId: UserId) =>
+      s.openInTerminal({ ...input, ownerUserId }),
   },
   clear: {
     contract: SUPERAGENT_CONTRACTS.clear,
-    handler: (s: SuperagentService, input: In<'clear'>) => s.clear(input.threadId),
+    handler: (s: SuperagentService, input: In<'clear'>, ownerUserId: UserId) =>
+      s.clear(ownerUserId, input.threadId),
   },
   restart: {
     contract: SUPERAGENT_CONTRACTS.restart,
-    handler: (s: SuperagentService, input: In<'restart'>) => s.restartThread(input),
+    handler: (s: SuperagentService, input: In<'restart'>, ownerUserId: UserId) =>
+      s.restartThread({ ...input, ownerUserId }),
   },
   startBtw: {
     contract: SUPERAGENT_CONTRACTS.startBtw,
-    handler: (s: SuperagentService, input: In<'startBtw'>) => s.startBtwTurn(input),
+    handler: (s: SuperagentService, input: In<'startBtw'>, ownerUserId: UserId) =>
+      s.startBtwTurn({ ...input, ownerUserId }),
   },
   concierge: {
     contract: SUPERAGENT_CONTRACTS.concierge,
-    handler: (s: SuperagentService, input: In<'concierge'>) => s.conciergeTurn(input),
+    handler: (s: SuperagentService, input: In<'concierge'>, ownerUserId: UserId) =>
+      s.conciergeTurn({ ...input, ownerUserId }),
   },
 } as const satisfies Record<SuperagentContractName, SuperagentCommand>
 

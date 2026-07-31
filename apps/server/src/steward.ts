@@ -5,6 +5,7 @@ import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
 import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
+import { systemPrincipal, type SystemCommandPrincipal } from './command-principal'
 
 /** One row read back from the durable event log (`podium_events`). */
 export interface StewardEvent {
@@ -284,6 +285,7 @@ export function subscriptionEventKinds(e: StewardEvent): string[] {
  *  mutations run in-process as author 'steward' today, and a capability-gated
  *  caller can replace the same surface later without touching the registry. */
 export interface StewardDeps {
+  principal?: SystemCommandPrincipal
   store: Pick<
     SessionStore['events'],
     | 'listEventsSince'
@@ -367,9 +369,11 @@ export class StewardService {
 
   private timer: ReturnType<typeof setInterval> | undefined
   private readonly arbiter: NotificationArbiter
+  private readonly principal: SystemCommandPrincipal
 
   constructor(private readonly deps: StewardDeps) {
     this.arbiter = new NotificationArbiter(deps.facts, () => this.now())
+    this.principal = deps.principal ?? systemPrincipal('steward')
   }
 
   private now(): string {
@@ -803,7 +807,7 @@ export class StewardService {
         .find((w) => w.seq === closedSeq)
       if (!already) {
         const note = completionNote(closed, closed ? this.deps.issues.comments(closed.id) : [])
-        this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note)
+        this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note, this.principal)
       }
       // Nudge only live/starting agent sessions: queueText would RESURRECT a
       // parked session with a resume ref (the steward must never respawn agents),
@@ -970,7 +974,12 @@ export class StewardService {
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
       const excerpt = sub.excerpt(e, child, child ? this.deps.issues.comments(child.id) : [])
-      this.deps.issues.addComment(parent.id, 'steward', excerpt ? `${marker} ${excerpt}` : marker)
+      this.deps.issues.addComment(
+        parent.id,
+        'steward',
+        excerpt ? `${marker} ${excerpt}` : marker,
+        this.principal,
+      )
     }
     // Nudge when this batch had a child event. Comment may already exist from a
     // prior cycle of the same child (review→out→review / needs_human clear→set)

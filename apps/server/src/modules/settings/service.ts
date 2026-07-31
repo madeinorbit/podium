@@ -213,29 +213,7 @@ type SecretStore = Pick<
 >
 
 export interface SettingsServiceOptions {
-  /**
-   * WHERE A REDEEMED BINDING IS WRITTEN, and it is REQUIRED — not optional with
-   * a no-op default.
-   *
-   * POD-1075's shape, for its reason: an absent writer would make the ceremony
-   * report `connected` while binding nothing, and every inbound message would
-   * then be refused by a gate that looks like it is working. A missing
-   * dependency must be a compile error, never a silently unbound instance.
-   */
   telegramBindings: TelegramBindingWriter
-  /**
-   * THE USER A CLAIM CODE IS MINTED FOR — the transport principal, and REQUIRED
-   * for the reason `createClientSession` takes its user as a required parameter
-   * (POD-1075): a service-level default is the one place per-user binding could
-   * silently keep stamping one id for everybody while every ceremony still
-   * works.
-   *
-   * The composition root passes `deviceGradeSoleOwner`, because this build's
-   * transport cannot tell two humans apart; `bun run audit:machine-grants`
-   * counts that call site, and it becomes a compile error when POD-315 deletes
-   * the placeholder.
-   */
-  mintingUser: () => UserId
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -276,7 +254,6 @@ export class SettingsService {
   private readonly telegramSetups = new Map<string, PendingTelegramSetup>()
   private readonly telegramSetup: TelegramSetupClient
   private readonly telegramBindings: TelegramBindingWriter
-  private readonly mintingUser: () => UserId
   private readonly generateTelegramSetupCode: () => string
   private readonly now: () => number
   private readonly fingerprintKey: () => Buffer
@@ -293,7 +270,6 @@ export class SettingsService {
   ) {
     this.telegramBindings = options.telegramBindings
     this.audit = options.audit
-    this.mintingUser = options.mintingUser
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
@@ -326,7 +302,7 @@ export class SettingsService {
    * personal-tier consumer reads.
    *
    * The user is a REQUIRED parameter with no default, for the reason
-   * `SettingsServiceOptions.mintingUser` is required: a service-level default is
+   * A required user parameter prevents a service-level default from
    * the one place a per-user read could silently keep answering for one identity
    * while every call site still compiles.
    */
@@ -633,12 +609,12 @@ export class SettingsService {
    * MINT A CLAIM CODE FOR THE CALLING PRINCIPAL — half one of the ceremony
    * (ADR 3 Amendment 1 D22.1, `settings.telegramSetupStart`).
    *
-   * The user is stamped HERE, from {@link SettingsServiceOptions.mintingUser},
+   * The user is stamped HERE from the authenticated command actor,
    * and never at redemption. That ordering is the mechanism: at this moment the
    * caller is on an authenticated transport, and at redemption the only thing
    * present is a chat id the sender controls.
    */
-  async startTelegramSetup(): Promise<TelegramSetupStartResult> {
+  async startTelegramSetup(userId: UserId): Promise<TelegramSetupStartResult> {
     const botToken = this.secrets.getOrEmpty('notifications.telegramBotToken').trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
@@ -649,7 +625,7 @@ export class SettingsService {
     const expiresAt = new Date(this.now() + TELEGRAM_SETUP_TTL_MS).toISOString()
     const mint: TelegramClaimCode = {
       code,
-      userId: this.mintingUser(),
+      userId,
       createdAt,
       expiresAt,
     }

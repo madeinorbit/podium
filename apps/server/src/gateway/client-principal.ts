@@ -59,9 +59,10 @@
  * rather than infer it from a docstring.
  */
 
-import { SOLE_USER_ID } from '@podium/model'
+import type { UserId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, asUserId, type UserPrincipal } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL, type FeedPrincipal } from '@podium/sync'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import type { FeedPrincipal } from '@podium/sync'
 
 /**
  * The principal of one `/client` connection. A `UserPrincipal` whose `user` is
@@ -84,7 +85,7 @@ export type ClientPrincipal = UserPrincipal
  * per-user credentials, and this constant is what will make that a one-line,
  * reviewable change instead of an inference.
  */
-export const CLIENT_PRINCIPAL_GRADE = 'device' as const
+export const CLIENT_PRINCIPAL_GRADE = 'user' as const
 
 /**
  * Build the principal for a client connection from TRANSPORT facts only.
@@ -98,15 +99,19 @@ export const CLIENT_PRINCIPAL_GRADE = 'device' as const
  * caller cannot mutate a shared object, and every site that will need a real
  * account is one grep away.
  */
-export const deviceClientPrincipal = (connectionId: string): ClientPrincipal => ({
+export const userClientPrincipal = (connectionId: string, user: UserId): ClientPrincipal => ({
   kind: 'user',
-  user: asUserId(SOLE_USER_ID),
+  user: asUserId(user),
   // `device` names the BINDING, not an identity (ADR 3 Amendment 1 D14.1) — the
   // client-plane mirror of `inProcessMachinePrincipal`'s device half.
   device: asDeviceId(`client:${connectionId}`),
   // OPAQUE here by construction. The gateway carries it and never inspects it.
-  capability: asCapabilityRef('cap:operator'),
+  capability: asCapabilityRef(`cap:user:${user}`),
 })
+
+/** In-process test compatibility; production sockets always call userClientPrincipal. */
+export const deviceClientPrincipal = (connectionId: string): ClientPrincipal =>
+  userClientPrincipal(connectionId, FIRST_ADMIN_USER_ID)
 
 /**
  * The FEED principal one client connection stands for (POD-1203).
@@ -127,7 +132,7 @@ export const deviceClientPrincipal = (connectionId: string): ClientPrincipal => 
  *
  * When per-user login lands, this is the function that stops being a constant.
  */
-export const feedPrincipalOf = (principal: ClientPrincipal): FeedPrincipal => {
-  void principal
-  return DEVICE_GRADE_PRINCIPAL
-}
+export const feedPrincipalOf = (principal: ClientPrincipal): FeedPrincipal => ({
+  kind: 'user',
+  userId: principal.user,
+})

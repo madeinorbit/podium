@@ -122,7 +122,7 @@ export const SETTINGS_COMMANDS_TRPC = {
   },
   'settings.telegramSetupStart': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
-    handler: ((svc) => svc.startTelegramSetup()) satisfies SettingsHandler<
+    handler: ((svc, _input, actor) => svc.startTelegramSetup(actor)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupStart']['input']>,
       unknown
     >,

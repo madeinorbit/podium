@@ -37,6 +37,8 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
       ? { fromName: r.from_name as string }
       : {}),
     fromIssue: (r.from_issue as IssueId | null) ?? null,
+    actorUser: (r.actor_user as string | null) ?? null,
+    onBehalfOf: (r.on_behalf_of as string | null) ?? null,
     toKind: r.to_kind as MessageRow['toKind'],
     toId: (r.to_id as string | null) ?? null,
     kind: r.kind as MessageRow['kind'],
@@ -69,11 +71,11 @@ export class MessagesRepository {
     this.db
       .prepare(
         `INSERT INTO messages
-           (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
+           (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue, actor_user, on_behalf_of,
             to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
             created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from,
             expects_response, fact_key, fact_target)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -83,6 +85,8 @@ export class MessagesRepository {
         m.fromSession,
         m.fromName ?? null,
         m.fromIssue,
+        m.actorUser ?? null,
+        m.onBehalfOf ?? null,
         m.toKind,
         m.toId,
         m.kind,

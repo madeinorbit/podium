@@ -14,6 +14,13 @@ import { enforceExpectedRevision } from './conflict'
 import { z } from 'zod'
 import { authorize, type Capability, checkIssueAccess } from '../../issue-authz'
 import type { IssueProc, IssueTrpc } from '../../issue-client'
+import {
+  attributionOf,
+  type CommandPrincipal,
+  onBehalfOfUser,
+  resolvePrincipal,
+} from '../../command-principal'
+import { sessionSpawnerParentId } from '../../steward'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
 import type { IssueService } from './service'
 
@@ -62,6 +69,8 @@ import type { IssueService } from './service'
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
   capability: Capability
+  /** Authenticated transport principal; production dispatchers always provide it. */
+  principal?: CommandPrincipal
   /** The agent passed --outside-scope: a knowing write outside its subtree. */
   overrideScope?: boolean
 }
@@ -290,6 +299,42 @@ export class IssueCommandCtx {
   get issues(): IssueService {
     return this.deps.issues()
   }
+
+  private readerUser(): string {
+    const principal = this.caller.principal
+    const user = principal ? onBehalfOfUser(principal) : null
+    if (user === null) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'issue reads require a human principal' })
+    }
+    return user
+  }
+
+  mayReadIssue(id: string): boolean {
+    const target = this.issues.ownedTarget(id, 'read')
+    const user = this.readerUser()
+    return target !== undefined && (target.owner === user || target.grants.includes(user))
+  }
+
+  requireReadableIssue(id: string): void {
+    if (!this.mayReadIssue(id)) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + id })
+    }
+  }
+
+  visibleRows<T extends { id: string }>(rows: readonly T[]): T[] {
+    return rows.filter((row) => this.mayReadIssue(row.id))
+  }
+
+  readIssue<T>(id: string, read: () => T): T {
+    this.requireReadableIssue(id)
+    return read()
+  }
+
+  visibleGraph(graph: ReturnType<IssueService['graph']>): ReturnType<IssueService['graph']> {
+    const nodes = this.visibleRows(graph.nodes)
+    const ids = new Set(nodes.map((node) => node.id))
+    return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
+  }
   deleteIssue(id: string): unknown {
     return this.deps.deleteIssue(id)
   }
@@ -349,6 +394,15 @@ export class IssueCommandCtx {
   /** Server-derived provenance for a session spawned by an issue command.
    *  Preserve the exact initiating session when one exists; otherwise distinguish
    *  the operator from legacy constrained callers. [spec:SP-ccb2] */
+  ownerAttribution(id: string): { actor: string; onBehalfOf: import('@podium/model').UserId } {
+    const principal = this.caller.principal
+    const row = this.issues.getMeta(id)
+    if (!principal || principal.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
+    }
+    return { actor: principal.user, onBehalfOf: principal.user }
+  }
+
   spawnProvenance(): string {
     if (this.caller.capability.actorSessionId) {
       return `session:${this.caller.capability.actorSessionId}`
@@ -455,97 +509,107 @@ const defs = {
 
   list: def('list', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.list(input.repoPath),
+    handler: (ctx, input) => ctx.visibleRows(ctx.issues.list(input.repoPath)),
   }),
   prime: def('prime', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.issues.prime({
-        repoPath: input?.repoPath,
-        boundIssueId:
-          ctx.caller.capability.scope.kind === 'subtree'
-            ? ctx.caller.capability.scope.rootId
-            : null,
-      }),
+      ctx.issues.prime(
+        {
+          repoPath: input?.repoPath,
+          boundIssueId:
+            ctx.caller.capability.scope.kind === 'subtree'
+              ? ctx.caller.capability.scope.rootId
+              : null,
+        },
+        (id) => ctx.mayReadIssue(id),
+      ),
   }),
   ready: def('ready', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.readyList(input.repoPath),
+    handler: (ctx, input) => ctx.visibleRows(ctx.issues.readyList(input.repoPath)),
   }),
   blocked: def('blocked', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.blockedList(input.repoPath),
+    handler: (ctx, input) => ctx.visibleRows(ctx.issues.blockedList(input.repoPath)),
   }),
   graph: def('graph', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.graph(input.repoPath),
+    handler: (ctx, input) => ctx.visibleGraph(ctx.issues.graph(input.repoPath)),
   }),
   epicStatus: def('epicStatus', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.epicStatus(input.id),
+    handler: (ctx, input) =>
+      ctx.readIssue(input.id, () => ctx.issues.epicStatus(input.id, (id) => ctx.mayReadIssue(id))),
   }),
   children: def('children', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.children(input.id, input.recursive ?? false),
+    handler: (ctx, input) =>
+      ctx.readIssue(input.id, () =>
+        ctx.issues.children(input.id, input.recursive ?? false, (id) => ctx.mayReadIssue(id)),
+      ),
   }),
   tree: def('tree', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.tree(input.id),
+    handler: (ctx, input) => ctx.issues.tree(input.id, {}, (id) => ctx.mayReadIssue(id)),
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.depReport(input),
+    handler: (ctx, input) => ctx.issues.depReport(input, (id) => ctx.mayReadIssue(id)),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.closeEligibleEpics(input.repoPath),
+    handler: (ctx, input) =>
+      ctx.issues.closeEligibleEpics(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   findDuplicates: def('findDuplicates', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.findDuplicates(input.repoPath, input.threshold),
+    handler: (ctx, input) =>
+      ctx.issues.findDuplicates(input.repoPath, input.threshold, (id) => ctx.mayReadIssue(id)),
   }),
   stale: def('stale', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.staleList(input.repoPath, input.days),
+    handler: (ctx, input) =>
+      ctx.issues.staleList(input.repoPath, input.days, Date.now(), (id) => ctx.mayReadIssue(id)),
   }),
   lint: def('lint', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.lint(input.repoPath),
+    handler: (ctx, input) => ctx.issues.lint(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.doctor(input.repoPath),
+    handler: (ctx, input) => ctx.issues.doctor(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.preflight(input.repoPath),
+    handler: (ctx, input) => ctx.issues.preflight(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   search: def('search', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.search(input),
+    handler: (ctx, input) => ctx.issues.search(input, (id) => ctx.mayReadIssue(id)),
   }),
   count: def('count', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.count(input.repoPath),
+    handler: (ctx, input) => ctx.issues.count(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.stats(input.repoPath),
+    handler: (ctx, input) => ctx.issues.stats(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.orphans(input.repoPath),
+    handler: (ctx, input) => ctx.issues.orphans(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   get: def('get', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.get(input.id),
+    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.issues.get(input.id)),
   }),
   /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
    *  comments live on the hub, so this returns []. */
   comments: def('comments', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.comments(input.id),
+    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.issues.comments(input.id)),
   }),
   events: def('events', {
     kind: 'query',
@@ -673,12 +737,28 @@ const defs = {
           !isOperator && ctx.caller.capability.actorSessionId
             ? ctx.caller.capability.actorSessionId
             : null
+        const principal = ctx.caller.principal
+        if (!principal)
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'missing authenticated command principal',
+          })
+        const attribution = attributionOf(principal)
+        if (!attribution.onBehalfOf)
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'issue creation requires an accountable human owner',
+          })
         const created = await ctx.issues.createAndMaybeStart(
           {
             ...input,
             origin,
             audience,
             startedBySession,
+            ownerUserId: attribution.onBehalfOf,
+            visibility: 'personal' as const,
+            createdByActor: attribution.actor,
+            createdByOnBehalfOf: attribution.onBehalfOf,
             ...(isAgentTopLevel ? { stage: 'proposed' as const, startNow: false } : {}),
             ...(underProposed ? { startNow: false } : {}),
           },
@@ -884,6 +964,20 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) => ctx.issues.setLabels(input.id, input.labels),
+  }),
+  share: def('share', {
+    kind: 'mutation',
+    target: targetId,
+    handler: (ctx, input) =>
+      ctx.issues.share(input.id, input.grantee, input.verb, ctx.ownerAttribution(input.id)),
+  }),
+  unshare: def('unshare', {
+    kind: 'mutation',
+    target: targetId,
+    handler: (ctx, input) => {
+      ctx.ownerAttribution(input.id)
+      return ctx.issues.unshare(input.id, input.grantee, input.verb)
+    },
   }),
   addComment: def('addComment', {
     kind: 'mutation',
@@ -1409,13 +1503,25 @@ export class IssueCommandDispatcher {
       })
     }
     if (router !== 'issues' || !Object.hasOwn(issueRegistry.defs, proc)) return undefined
+    const effectiveCaller: IssueCaller = caller.principal
+      ? caller
+      : {
+          ...caller,
+          principal: resolvePrincipal(caller.capability, {
+            parentSessionOf: (sessionId) =>
+              sessionSpawnerParentId(
+                this.deps.listSessions().find((session) => session.sessionId === sessionId)
+                  ?.spawnedBy,
+              ),
+          }),
+        }
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
       proc
     ] as AnyIssueCommandDef
     return Promise.resolve().then(() => {
-      guardIssueCommand(caller, this.deps.issues(), proc, def, rawInput)
+      guardIssueCommand(effectiveCaller, this.deps.issues(), proc, def, rawInput)
       const input: unknown = def.input.parse(rawInput)
-      return this.run(caller, proc, def, input)
+      return this.run(effectiveCaller, proc, def, input)
     })
   }
 
@@ -1426,7 +1532,17 @@ export class IssueCommandDispatcher {
    * compile-time hole, not a runtime maybe.
    */
   asIssueTrpc(capability: Capability, overrideScope?: boolean): IssueTrpc {
-    const caller: IssueCaller = { capability, ...(overrideScope ? { overrideScope } : {}) }
+    const principal = resolvePrincipal(capability, {
+      parentSessionOf: (sessionId) =>
+        sessionSpawnerParentId(
+          this.deps.listSessions().find((session) => session.sessionId === sessionId)?.spawnedBy,
+        ),
+    })
+    const caller: IssueCaller = {
+      capability,
+      principal,
+      ...(overrideScope ? { overrideScope } : {}),
+    }
     const proc = (router: 'issues' | 'repos', name: string): IssueProc => {
       const call = (input?: unknown): Promise<unknown> => {
         const result = this.dispatch(caller, router, name, input)

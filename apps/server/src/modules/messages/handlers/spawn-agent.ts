@@ -95,6 +95,7 @@ export function spawnAgentHandler(
   const profile = input.executionProfileId
     ? deps.resolveExecutionProfile?.({
         profileId: input.executionProfileId,
+        caller,
         ...(input.workflowRunId ? { runId: input.workflowRunId } : {}),
         ...(input.workflowStepId ? { stepId: input.workflowStepId } : {}),
       })

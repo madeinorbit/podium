@@ -2,6 +2,7 @@ import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { Capability } from './issue-authz'
+import type { CommandPrincipal } from './command-principal'
 import { IssueRevisionConflict } from './modules/issues/conflict'
 import type { IssueCaller } from './modules/issues/registry'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
@@ -33,6 +34,7 @@ export interface Context {
   /** What this caller may do with issues (authz, distinct from the login authn on /trpc).
    *  Every HTTP caller is the OPERATOR today; the in-process MCP passes its own. */
   capability: Capability
+  principal?: CommandPrincipal
   /** Set by the daemon relay when an agent passed --outside-scope, allowing a knowing
    *  write outside its subtree. Undefined for the operator (/trpc) and the superagent. */
   overrideScope?: boolean
@@ -62,6 +64,7 @@ export function mods(ctx: Context): RegistryModules {
 export function issueCaller(ctx: Context): IssueCaller {
   return {
     capability: ctx.capability,
+    ...(ctx.principal ? { principal: ctx.principal } : {}),
     ...(ctx.overrideScope !== undefined ? { overrideScope: ctx.overrideScope } : {}),
   }
 }

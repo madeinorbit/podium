@@ -31,7 +31,11 @@
  * answer by the same path instead of by two coincidences.
  */
 
-import { type CommandDef, sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/commands'
+import {
+  type CommandDef,
+  sessionCommandPlane,
+  type sessionCommandPlaneInputs,
+} from '@podium/commands'
 import type { AgentKind, IssueId, SessionId } from '@podium/model'
 
 import type { MutationLedgerPort } from '@podium/sync'
@@ -189,7 +193,10 @@ export class SessionCommandCtx {
    * and hand back the row — or `undefined` when the target is absent, which is
    * the caller's cue to produce that command's pinned not-found shape.
    */
-  target(sessionId: SessionId, proc: string): (SessionTargetRow & { machineId?: string }) | undefined {
+  target(
+    sessionId: SessionId,
+    proc: string,
+  ): (SessionTargetRow & { machineId?: string }) | undefined {
     const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
     assertMayCommandSession(
@@ -418,18 +425,22 @@ export const SESSION_COMMAND_HANDLERS = {
     // The draft-issue vessel path produces an OWNED draft, not an ownerless
     // one: the session and its vessel resolve the same owner because they
     // resolve it from the same principal.
-    void createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
+    const ownership = createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
+    if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     return ctx.sessions.createSession({
       ...rest,
       ...target,
       ...(issueId ? { issueId } : {}),
       use: ctx.machineUse,
       spawnedBy: spawnedByFor(ctx.principal),
+      ownerUserId: ownership.owner as import('@podium/model').UserId,
     })
   },
 
   resume: (ctx: SessionCommandCtx, input: ResumeInput) => {
     if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
+    const ownership = createdOwnership(ctx.principal, undefined)
+    if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
     // A resume landing on an EXISTING row keeps that row's provenance; the stamp
     // here is the fresh-spawn fallback only.
     return ctx.sessions.resumeSession({
@@ -437,6 +448,7 @@ export const SESSION_COMMAND_HANDLERS = {
       resume: input.resume as ResumeInput['resume'] & { kind: string; value: string },
       use: ctx.machineUse,
       spawnedBy: spawnedByFor(ctx.principal),
+      ownerUserId: ownership.owner as import('@podium/model').UserId,
     })
   },
 

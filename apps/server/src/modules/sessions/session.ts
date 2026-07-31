@@ -6,6 +6,7 @@ import {
   type Geometry,
   type IssueId,
   type SessionId,
+  type UserId,
   type ResumeRef,
   type SessionMeta,
   type SessionUserOverlay,
@@ -14,7 +15,7 @@ import {
   type TranscriptItem,
   type WorkState,
 } from '@podium/model'
-import { WorkState as WorkStateSchema } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, WorkState as WorkStateSchema } from '@podium/model'
 import type {
   ControlMessage,
   MetadataChange,
@@ -66,6 +67,8 @@ import type { ClientConn } from '../../gateway/client-registry'
 
 export interface SessionInit {
   sessionId: SessionId
+  /** Accountable human owner. Required on production mint paths. */
+  ownerUserId?: UserId
   agentKind: AgentKind
   cwd: string
   title: string
@@ -214,6 +217,8 @@ export interface SessionDurableState {
 
 export class Session {
   readonly sessionId: SessionId
+  /** Immutable accountable human owner for authorization and delegation. */
+  readonly ownerUserId: UserId
   readonly agentKind: AgentKind
   // Mutable: an agent can move into a worktree mid-session (EnterWorktree / cd),
   // reported via the hook payload's cwd; the relay restamps this so the sidebar
@@ -360,6 +365,7 @@ export class Session {
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
+    this.ownerUserId = init.ownerUserId ?? FIRST_ADMIN_USER_ID
     this.agentKind = init.agentKind
     this.cwd = init.cwd
     this.title = init.title
@@ -1052,6 +1058,7 @@ export class Session {
   toRow(): SessionRow {
     return {
       id: this.sessionId,
+      ownerUserId: this.ownerUserId,
       agentKind: this.agentKind,
       model: this.model ?? null,
       effort: this.effort ?? null,

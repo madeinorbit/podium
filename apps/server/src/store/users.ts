@@ -14,9 +14,9 @@
  * would be a privilege-escalation surface this issue has no use for.
  */
 
-import type { UserRole } from '@podium/model'
+import type { UserId, UserRole } from '@podium/model'
 import { USER_ROLES } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 export interface UserAccountRow {
   id: string
@@ -37,6 +37,13 @@ const parseRole = (raw: unknown): UserRole | undefined =>
   typeof raw === 'string' && (USER_ROLES as readonly string[]).includes(raw)
     ? (raw as UserRole)
     : undefined
+
+export interface UserCredentialRow {
+  userId: UserId
+  source: 'instance-password' | 'per-user-scrypt'
+  passwordHash: string | null
+  updatedAt: string
+}
 
 export class UsersRepository {
   constructor(private readonly db: SqlDatabase) {}
@@ -68,5 +75,63 @@ export class UsersRepository {
   /** The account role, or `undefined` for an account that cannot act. */
   roleOf(userId: string): UserRole | undefined {
     return this.get(userId)?.role
+  }
+
+  list(): UserAccountRow[] {
+    const rows = this.db.prepare('SELECT id FROM users ORDER BY created_at ASC').all() as {
+      id: string
+    }[]
+    return rows.flatMap((row) => {
+      const account = this.get(row.id)
+      return account ? [account] : []
+    })
+  }
+
+  credentialFor(userId: string): UserCredentialRow | undefined {
+    if (!this.get(userId)) return undefined
+    const row = this.db.prepare('SELECT * FROM user_credentials WHERE user_id = ?').get(userId) as
+      | Record<string, unknown>
+      | undefined
+    if (!row) return undefined
+    if (row.source !== 'instance-password' && row.source !== 'per-user-scrypt') return undefined
+    return {
+      userId: row.user_id as UserId,
+      source: row.source,
+      passwordHash: (row.password_hash as string | null | undefined) ?? null,
+      updatedAt: row.updated_at as string,
+    }
+  }
+
+  hasPerUserCredentials(): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT 1 AS present FROM user_credentials WHERE source = 'per-user-scrypt' AND password_hash IS NOT NULL LIMIT 1",
+      )
+      .get() as { present?: number } | undefined
+    return row?.present === 1
+  }
+
+  create(account: UserAccountRow, passwordHash: string): void {
+    transaction(this.db, () => {
+      this.db
+        .prepare(
+          'INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, NULL)',
+        )
+        .run(account.id, account.displayName, account.role, account.createdAt)
+      this.db
+        .prepare(
+          "INSERT INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, 'per-user-scrypt', ?, ?)",
+        )
+        .run(account.id, passwordHash, account.createdAt)
+    })
+  }
+
+  setPasswordHash(userId: string, passwordHash: string, updatedAt: string): void {
+    if (!this.get(userId)) throw new Error(`unknown user: ${userId}`)
+    this.db
+      .prepare(
+        "INSERT INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, 'per-user-scrypt', ?, ?) ON CONFLICT(user_id) DO UPDATE SET source = excluded.source, password_hash = excluded.password_hash, updated_at = excluded.updated_at",
+      )
+      .run(userId, passwordHash, updatedAt)
   }
 }

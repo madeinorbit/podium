@@ -8,6 +8,7 @@ import {
   normalizeClosedPatch,
   sortKeyBetween,
   type ArtifactId,
+  type GrantVerb,
   type IssueId,
   type IssueWire,
   type SessionId,
@@ -15,6 +16,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
+import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { EntityChangeSpec } from '@podium/sync'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import type { IssueRow } from '../../../store'
@@ -360,6 +362,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // FOR EVERY USER, which after POD-1076 is expressed by writing no per-user row
     // rather than by three nulls on the shared row.
     const row: IssueRow = toStorage(issue, { repoPath: input.repoPath })
+    row.ownerUserId = input.ownerUserId ?? asUserId('user:sole')
+    row.visibility = input.visibility ?? 'personal'
+    row.createdByActor = input.createdByActor ?? row.ownerUserId
+    row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId
     // parentId handled after persist via reparent (edge-maintaining): the row
     // must be registered in this.rows first so wouldCycle/rowOrThrow work.
     let wire = this.persist(row)
@@ -649,9 +655,54 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return this.persistWith(row, () => this.deps.store.issues.setIssueLabels(id, labels))
   }
 
-  addComment(id: string, author: string, body: string): IssueWire {
+  share(
+    id: string,
+    grantee: UserId,
+    verb: GrantVerb,
+    attribution: { actor: string; onBehalfOf: UserId },
+  ): IssueWire {
+    const row = this.rowOrThrow(this.resolveRef(id))
+    if (!row.ownerUserId) throw new Error('issue has no accountable owner')
+    const actorKind = attribution.actor.startsWith('session:')
+      ? 'agent'
+      : attribution.actor.startsWith('system:')
+        ? 'system'
+        : 'user'
+    const actorId = attribution.actor.includes(':')
+      ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
+      : attribution.actor
+    const wire = this.persistWith(row, () =>
+      this.deps.store.grants.upsert({
+        resourceKind: 'issue',
+        resourceId: row.id,
+        grantee,
+        verb,
+        owner: row.ownerUserId!,
+        visibility: 'personal',
+        createdAt: this.now(),
+        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
+        actorKind,
+        actorId,
+        onBehalfOf: attribution.onBehalfOf,
+      }),
+    )
+    this.emitEvent('issue.shared', row.id, { grantee, verb, actor: attribution.actor })
+    return wire
+  }
+
+  unshare(id: string, grantee: UserId, verb: GrantVerb): IssueWire {
+    const row = this.rowOrThrow(this.resolveRef(id))
+    const wire = this.persistWith(row, () =>
+      this.deps.store.grants.remove('issue', row.id, grantee, verb),
+    )
+    this.emitEvent('issue.unshared', row.id, { grantee, verb })
+    return wire
+  }
+
+  addComment(id: string, author: string, body: string, principal?: CommandPrincipal): IssueWire {
     const issueId = this.resolveRef(id)
     const row = this.rowOrThrow(issueId)
+    const attribution = principal ? attributionOf(principal) : undefined
     return this.persistWith(row, () =>
       this.deps.store.issues.addIssueComment({
         id: `cmt_${randomUUID()}`,
@@ -659,6 +710,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         author,
         body,
         createdAt: this.now(),
+        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
       }),
     )
   }

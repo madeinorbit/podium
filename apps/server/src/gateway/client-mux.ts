@@ -55,10 +55,14 @@ import {
 } from './client-frame-routing'
 import type { ClientFeaturePorts } from './client-ports'
 import type { ClientPrincipal } from './client-principal'
-import { deviceClientPrincipal, feedPrincipalOf } from './client-principal'
+import { feedPrincipalOf, userClientPrincipal } from './client-principal'
 import type { ClientConn, ClientRegistry } from './client-registry'
 import type { FeedServing } from './feed-serving'
 import type { ClientPublicationAuthority } from '../modules/sessions/session'
+import type { UserId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
+
+const asTestUser = (): UserId => FIRST_ADMIN_USER_ID
 
 /**
  * Per-frame dispatch, TOTAL over `ClientMessage` by construction: the value is a
@@ -101,6 +105,8 @@ const DISPATCH: Dispatcher = {
 
 /** What a socket hands the mux when it attaches. Transport facts only. */
 export interface ClientTransport {
+  /** Authenticated account stamped by the websocket upgrade. */
+  userId?: UserId
   /** Outbound sink for this socket (backpressure-guarded by the caller). */
   send: ClientConn['send']
   /** Prepared-bytes sink + the main authority's publication world, when one was
@@ -120,9 +126,7 @@ const transportOf = (
   peer: ClientPeer,
   publication?: ClientPublicationAuthority,
 ): ClientTransport =>
-  typeof peer === 'function'
-    ? { send: peer, ...(publication ? { publication } : {}) }
-    : peer
+  typeof peer === 'function' ? { send: peer, ...(publication ? { publication } : {}) } : peer
 
 export interface ClientMuxDeps {
   readonly ports: ClientFeaturePorts
@@ -165,7 +169,7 @@ export class ClientMux {
       id,
       // TRANSPORT-DERIVED, always. The connection id is minted above and is the
       // only input; nothing a client can send participates.
-      principal: deviceClientPrincipal(id),
+      principal: userClientPrincipal(id, transport.userId ?? asTestUser()),
       send: transport.send,
       ...(transport.publication ? { publication: transport.publication } : {}),
       publicationBootstrapped: false,

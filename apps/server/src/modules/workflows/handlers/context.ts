@@ -56,6 +56,7 @@ import type {
   WorkflowRunWire,
   WorkflowWire,
 } from '@podium/protocol'
+import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import type { WorkflowCaller, WorkflowEngine, WorkflowServiceDeps } from '../service'
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,7 @@ export const SINGLE_USER_MACHINE_ACCESS: WorkflowMachineAccess = {
 export interface WorkflowPolicyPorts {
   ownership?: WorkflowOwnershipPort
   machines?: WorkflowMachineAccess
+  machinesFor?: (principal: WorkflowPrincipal) => WorkflowMachineAccess
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +168,14 @@ export interface WorkflowPolicyPorts {
  * be able to answer `null` at the next apply of a run that started an hour ago.
  */
 export function workflowPrincipal(caller: WorkflowCaller): WorkflowPrincipal {
+  if (caller.principal) {
+    const attribution = attributionOf(caller.principal)
+    return {
+      actor: attribution.actor,
+      onBehalfOf: onBehalfOfUser(caller.principal),
+      role: caller.protectedWrite === true ? 'admin' : 'member',
+    }
+  }
   return {
     actor: caller.actor.id ?? 'operator',
     onBehalfOf: caller.onBehalfOf === undefined ? SINGLE_USER_HUMAN : caller.onBehalfOf,
@@ -199,15 +209,16 @@ export interface WorkflowHandlerContext {
 // ---------------------------------------------------------------------------
 
 export class WorkflowAccess {
+  private readonly machinesFor: (principal: WorkflowPrincipal) => WorkflowMachineAccess
   private readonly ownership: WorkflowOwnershipPort
-  readonly machines: WorkflowMachineAccess
 
   constructor(
     private readonly deps: WorkflowServiceDeps,
     ports?: WorkflowPolicyPorts,
   ) {
     this.ownership = ports?.ownership ?? SINGLE_USER_WORKFLOW_OWNERSHIP
-    this.machines = ports?.machines ?? SINGLE_USER_MACHINE_ACCESS
+    const machines = ports?.machines ?? SINGLE_USER_MACHINE_ACCESS
+    this.machinesFor = ports?.machinesFor ?? (() => machines)
   }
 
   principal(caller: WorkflowCaller): WorkflowPrincipal {
@@ -224,6 +235,12 @@ export class WorkflowAccess {
    * write it accompanies will not happen, and if one ever did, `null` is what
    * it truthfully acted for.
    */
+  owner(caller: WorkflowCaller): string {
+    const owner = this.principal(caller).onBehalfOf
+    if (owner === null) throw new Error('workflow caller has no live human owner')
+    return owner
+  }
+
   onBehalfOf(caller: WorkflowCaller): string | null {
     return this.principal(caller).onBehalfOf
   }
@@ -558,9 +575,12 @@ export class WorkflowAccess {
    * between the two and a run is long-lived. Never silently retargeted: placing
    * a caller's code on a machine they did not choose is worse than refusing.
    */
-  assertMayPlaceOn(machineId: string | null | undefined): void {
+  assertMayPlaceOn(caller: WorkflowCaller, machineId: string | null | undefined): void {
     if (!machineId) return
-    const decision: PlacementDecision = placementDecision(machineId, this.machines)
+    const decision: PlacementDecision = placementDecision(
+      machineId,
+      this.machinesFor(this.principal(caller)),
+    )
     if (decision === 'unauthorized') throw new Error(machineUnauthorized(machineId))
     if (decision === 'unreachable') throw new Error(machineUnreachable(machineId))
   }

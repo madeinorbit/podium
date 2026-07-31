@@ -7,7 +7,7 @@
  */
 
 import type { ContractInput, mailReplyContract } from '@podium/commands'
-import { senderFromCapability } from '../service'
+import { senderFromCapability, senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
 
 export function replyHandler(
@@ -23,11 +23,16 @@ export function replyHandler(
   if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, original)) {
     throw new Error('only the recipient of a message may reply to it')
   }
-  const r = svc.sendReply(senderFromCapability(caller.capability), {
-    inReplyTo: original.id,
-    body: input.body,
-    kind: input.kind ?? 'ack',
-  })
+  const r = svc.sendReply(
+    caller.principal
+      ? senderFromPrincipal(caller.capability, caller.principal)
+      : senderFromCapability(caller.capability),
+    {
+      inReplyTo: original.id,
+      body: input.body,
+      kind: input.kind ?? 'ack',
+    },
+  )
   return {
     id: r.message.id,
     ok: r.ok,

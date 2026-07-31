@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { sessionsForIssue } from '../../../issue-util'
+import { attributionOf, type SystemCommandPrincipal } from '../../../command-principal'
 import type { IssueRow, Subscription } from '../../../store'
 import { IssueServiceCrud } from './crud'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
@@ -239,7 +240,10 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
    *
    * Returns the wires it archived (empty when nothing qualified).
    */
-  sweepAutoArchive(nowMs: number = Date.parse(this.now())): IssueWire[] {
+  sweepAutoArchive(
+    nowMs: number = Date.parse(this.now()),
+    principal?: SystemCommandPrincipal,
+  ): IssueWire[] {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueWire[] = []
     let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
@@ -259,7 +263,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       sessionList ??= this.deps.listSessions()
       const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
       if (this.computeUnread(row, sessions)) continue
-      out.push(this.autoArchive(row))
+      out.push(this.autoArchive(row, principal))
     }
     return out
   }
@@ -279,6 +283,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       deletedAt: null
     },
     nowMs: number = Date.parse(this.now()),
+    principal?: SystemCommandPrincipal,
   ): 'applied' | 'precondition' | 'not-due' {
     const row = this.rows.get(observed.issueId)
     if (!row) return 'precondition'
@@ -310,7 +315,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
     const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
     if (this.computeUnread(row, sessions)) return 'precondition'
-    this.autoArchive(row)
+    this.autoArchive(row, principal)
     return 'applied'
   }
 
@@ -319,12 +324,13 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
    *  issueUpdated & issuesChanged) but logs a DISTINCT `issue.auto_archived` event
    *  instead of the manual `issue.archived` — the activity log (S3) renders it as
    *  its own line, and nothing downstream mistakes a sweep for a user action. */
-  private autoArchive(row: IssueRow): IssueWire {
+  private autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): IssueWire {
     row.archived = true
     const wire = this.persist(row)
     this.emitEvent('issue.auto_archived', row.id, {
       seq: row.seq,
       readAt: this.issueOverlay(row.id).readAt,
+      ...(principal ? { attribution: attributionOf(principal) } : {}),
     })
     // Cascade onto member sessions (issue #133): the sweep must not leave a
     // session-less worktree row behind, same as the manual archive path.

@@ -1882,11 +1882,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         this.apply({ sidebarSettings: { ...this.state.sidebarSettings, ...next } })
         // Persist by loading the full settings blob, patching sidebar, and saving.
         try {
-          const current = await api.settings.get.query()
-          const updated = await api.settings.set.mutate({
-            ...current,
-            sidebar: { ...current.sidebar, ...next },
-          })
+          const values = Object.fromEntries(
+            Object.entries(next).map(([key, value]) => [`sidebar.`, value]),
+          )
+          const updated = await api.settings.updatePersonal.mutate({ values })
           this.apply({ sidebarSettings: updated.sidebar })
         } catch {
           // best-effort — the optimistic state already applied

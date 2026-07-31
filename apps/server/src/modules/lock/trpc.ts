@@ -1,3 +1,4 @@
+import { familyState } from '../derived-family'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, issueCaller, mods, t } from '../../trpc'
@@ -42,7 +43,7 @@ export function lockRouterFromCommands<T extends Record<string, AnyLockCommandDe
   for (const [name, def] of Object.entries<AnyLockCommandDef>(registry.defs)) {
     const proc = t.procedure.use(guardFor(def)).input(def.input)
     const resolve = (opts: { ctx: Context; input: unknown }) =>
-      mods(opts.ctx).lockCommands.run(issueCaller(opts.ctx), name, def, opts.input)
+      familyState(opts.ctx).modules.lockCommands.run(issueCaller(opts.ctx), name, def, opts.input)
     record[name] = def.kind === 'mutation' ? proc.mutation(resolve) : proc.query(resolve)
   }
   return t.router(record as ProceduresFor<T>)
