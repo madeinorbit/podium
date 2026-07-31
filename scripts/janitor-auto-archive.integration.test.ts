@@ -21,13 +21,13 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { IssueAutoArchiveReader, SessionAutoArchiveReader } from '../apps/janitor/src/janitor'
 import { type IssueRow, type SessionRow, SessionStore } from '../apps/server/src/store'
 
-const OTHER_USER = 'user:other'
+const OTHER_USER = asUserId('user:other')
 const READ_OLD = '2026-07-01T00:00:00.000Z'
 const READ_RECENT = '2026-07-20T00:00:00.000Z'
 const CUTOFF = '2026-07-11T00:00:00.000Z'
@@ -147,12 +147,14 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     // The instrument can say YES. Every "does not propose" assertion below is
     // only meaningful because this one fires on the same fixture shape.
     expect(candidates.map((c) => c.issueId)).toEqual(['iss_read'])
-    // The observation must carry the value the server's apply-side revalidation
-    // compares against (`issueOverlay(id).readAt !== observed.readAt` →
-    // 'precondition'), or every proposal is silently rejected.
-    expect(candidates[0]?.readAt).toBe(
-      store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, 'iss_read')?.readAt,
-    )
+    // The observation must NAME the reader whose read state gated it (POD-1229).
+    // The server refuses any proposal naming someone other than the viewer it
+    // archives for, so a reader that forgot to say who it asked is a proposal
+    // that can never apply.
+    expect(candidates[0]?.readerUserId).toBe(FIRST_ADMIN_USER_ID)
+    // And the read state it was gated on is real, not merely present: the row
+    // this viewer wrote is what the query matched.
+    expect(store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, 'iss_read')?.readAt).toBe(READ_OLD)
   })
 
   it('does NOT propose an issue only a DIFFERENT user has read', async () => {
@@ -175,6 +177,10 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
       limit: 100,
     })
     expect(theirs.map((c) => c.issueId)).toEqual(['iss_theirs'])
+    // The proposal it WOULD send names that other user — which is precisely what
+    // the server refuses (POD-1229). Under the old unqualified `readAt` this
+    // proposal was indistinguishable on the wire from the viewer's own.
+    expect(theirs[0]?.readerUserId).toBe(OTHER_USER)
   })
 
   it('does NOT propose an unread issue or one read after the cutoff', async () => {
@@ -242,9 +248,8 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     })
 
     expect(candidates.map((c) => c.sessionId)).toEqual(['ses_mine'])
-    expect(candidates[0]?.readAt).toBe(
-      store.sessions.getReadAt(FIRST_ADMIN_USER_ID, asSessionId('ses_mine')),
-    )
+    expect(candidates[0]?.readerUserId).toBe(FIRST_ADMIN_USER_ID)
+    expect(store.sessions.getReadAt(FIRST_ADMIN_USER_ID, asSessionId('ses_mine'))).toBe(READ_OLD)
   })
 
   it('does NOT propose a session the viewer has never opened', async () => {

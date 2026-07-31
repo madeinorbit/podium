@@ -490,6 +490,30 @@ still exits 1: the phase owns `legacy-wire-v1-adapter` (6, expiring at Phase 7) 
 `change-row-typings` (12). `scripts/rearch-audit.test.ts` names POD-308 as its live
 example and asserts BOTH directions; nothing there needed to change.
 
+### `per-user-singletons` 2 → 0 at POD-1229 — the item is CLEARED, by deletion
+
+The last two sites were `readAt` on `IssueAutoArchiveObservation` and
+`SessionAutoArchiveObservation`. They were not residue of POD-1076's mechanical
+re-key; they needed a policy call ("archive it because it was read" — read by
+whom?), which is why the item was re-phased to POD-1229 rather than closed by
+POD-1076 or laundered into POD-302.
+
+**Cleared the way the other six were: by deleting the field, not by re-keying it
+and not by touching the detector.** Both observations now carry `readerUserId`
+and no timestamp, and the server refuses any proposal naming a principal other
+than the viewer it archives for. The `readAt` on the wire bought only a
+compare-and-swap that the freshness cutoff and the NaN guard already subsume.
+Full reasoning and mutation evidence:
+`docs/agents/pod-1229-auto-archive-reader-decision.md`.
+
+**Read this zero with the item's limit.** `per-user-singletons` matches key NAMES
+on declarations that clear `ENTITY_SHAPE_THRESHOLD`, so a shape can leave the
+population by shedding unrelated keys — a zero that means "no longer inspected"
+rather than "no longer carries per-user state". Checked explicitly here: re-adding
+`readAt` to either observation makes the detector report that exact site again.
+Both remain inspected; the zero is a deletion. The next zero on this item deserves
+the same one-line check, and the caveat now sits next to the check itself.
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`

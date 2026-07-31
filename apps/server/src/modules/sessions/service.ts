@@ -2590,17 +2590,26 @@ export class SessionsService {
       sessionId: SessionId
       issueId: string | null
       stoppedAt: string
-      readAt: string
+      readerUserId: string
       archived: false
     },
     nowMs: number,
   ): 'applied' | 'precondition' | 'not-due' {
     const session = this.sessions.get(observed.sessionId)
     if (!session || session.archived) return 'precondition'
+    // WHOSE read (POD-1229) — see `IssueAttention.tryAutoArchiveObserved` for the
+    // reasoning. `archived` is shared, so only the viewer this service archives
+    // for may gate it, and a proposal naming anyone else is refused outright.
+    if (observed.readerUserId !== this.broadcastViewer()) return 'precondition'
+    // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
+    // and no `readAt == null` clause here either: both cases the CAS caught are
+    // refused by the checks below — a re-read lands inside the `not-due` window,
+    // and a mark-unread makes `Date.parse(null ?? '')` NaN. A guard that can be
+    // deleted with every test still green is indistinguishable from an absent
+    // one, so the refusal lives in exactly one place.
     if (
       (session.issueId ?? null) !== observed.issueId ||
-      session.stoppedAt !== observed.stoppedAt ||
-      this.viewerOverlay(observed.sessionId).readAt !== observed.readAt
+      session.stoppedAt !== observed.stoppedAt
     ) {
       return 'precondition'
     }

@@ -18,7 +18,7 @@
     "machine-id-unbranded-fields": 36,
     "mobile-client-value": 1,
     "panel-mode-duality": 3,
-    "per-user-singletons": 2,
+    "per-user-singletons": 0,
     "publish-computed-fanout": 0,
     "raw-string-entity-ids": 0,
     "reexport-shims": 22,

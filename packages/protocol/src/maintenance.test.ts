@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   eventLogPruneRunKey,
@@ -36,7 +36,11 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
   }
 
   it('bumps compatibility for the indexed expiry-reader schema', () => {
-    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v2')
+    // POD-1229 moved both auto-archive observations from `readAt` to
+    // `readerUserId`. A v2 janitor's payload still PARSES under a permissive
+    // reader, so the handshake is the only thing that can stop it — which makes
+    // this literal a wire gate, not a label. Asserted with `toBe` deliberately.
+    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v3')
   })
 
   it('requires an exact compatibility claim before a lease can be issued', () => {
@@ -111,7 +115,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
       issueId: asIssueId('iss_1'),
       stage: 'done',
       closedReason: null,
-      readAt: '2026-07-01T00:00:00.000Z',
+      readerUserId: FIRST_ADMIN_USER_ID,
       archived: false as const,
       deletedAt: null,
     }
@@ -210,7 +214,7 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
     sessionId: asSessionId('ses_1'),
     issueId: asIssueId('iss_1'),
     stoppedAt: '2026-07-01T00:00:00.000Z',
-    readAt: '2026-07-01T00:00:00.000Z',
+    readerUserId: FIRST_ADMIN_USER_ID,
     archived: false as const,
   }
   const command = (observed: unknown) => ({
@@ -259,7 +263,28 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
 
   it('refuses timestamps that are strings but not datetimes', () => {
     expect(() => MaintenanceCommand.parse(command({ ...valid, stoppedAt: 'yesterday' }))).toThrow()
-    expect(() => MaintenanceCommand.parse(command({ ...valid, readAt: '2026-07-01' }))).toThrow()
+    // A bare date is a string but not a datetime: the gate is stricter than the
+    // entity's plain string, and `2026-07-01` is the shape that slips past a
+    // naive `z.string()`.
+    expect(() => MaintenanceCommand.parse(command({ ...valid, stoppedAt: '2026-07-01' }))).toThrow()
+  })
+
+  it('refuses a missing or blank readerUserId — an unnamed reader is the bug (POD-1229)', () => {
+    // The whole point of the field: an observation that does not say WHOSE read
+    // gated it is exactly the singleton this issue removed. Absent must fail —
+    // zod strips unknown keys, so an old v2 janitor's `readAt` payload arrives
+    // here as "no reader named" and must be refused, not silently defaulted.
+    const { readerUserId: _dropped, ...withoutReader } = valid
+    expect(() => MaintenanceCommand.parse(command(withoutReader))).toThrow()
+    expect(() => MaintenanceCommand.parse(command({ ...valid, readerUserId: '' }))).toThrow()
+    expect(() =>
+      MaintenanceCommand.parse(command({ ...valid, readerUserId: 'u'.repeat(257) })),
+    ).toThrow()
+    // The accepted side of the bound, so the refusals above are not satisfied by
+    // a parser that refuses every readerUserId.
+    expect(() =>
+      MaintenanceCommand.parse(command({ ...valid, readerUserId: 'u'.repeat(256) })),
+    ).not.toThrow()
   })
 })
 
@@ -280,7 +305,7 @@ describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
     issueId: asIssueId('iss_a'),
     stage: 'done',
     closedReason: 'shipped',
-    readAt: '2026-07-30T00:00:00.000Z',
+    readerUserId: FIRST_ADMIN_USER_ID,
     archived: false as const,
     deletedAt: null,
   }
@@ -325,9 +350,32 @@ describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
     )
   })
 
-  it('requires readAt to be a real timestamp, which is stricter than the entity string', () => {
-    expect(IssueAutoArchiveObservation.safeParse({ ...valid, readAt: 'yesterday' }).success).toBe(
+  it('requires a named reader — the unqualified readAt it replaced was the defect', () => {
+    // POD-1229. `readAt: z.string().datetime()` said WHEN without saying WHO,
+    // and the janitor and the server each supplied the missing half from their
+    // own constant. Absence must be a refusal: zod strips unknown keys, so a v2
+    // payload carrying `readAt` and no `readerUserId` reaches this schema as an
+    // observation with no reader at all.
+    const { readerUserId: _dropped, ...withoutReader } = valid
+    expect(IssueAutoArchiveObservation.safeParse(withoutReader).success).toBe(false)
+    expect(IssueAutoArchiveObservation.safeParse({ ...valid, readerUserId: '' }).success).toBe(
       false,
+    )
+    expect(
+      IssueAutoArchiveObservation.safeParse({ ...valid, readerUserId: 'u'.repeat(257) }).success,
+    ).toBe(false)
+    expect(
+      IssueAutoArchiveObservation.safeParse({ ...valid, readerUserId: 'u'.repeat(256) }).success,
+    ).toBe(true)
+  })
+
+  it('keys the occurrence by the READER now that the timestamp is gone', () => {
+    // The run key is occurrence identity. If it ignored the reader, two viewers'
+    // proposals for one issue would collide on a single key and the second would
+    // come back `already-applied` — the same class of silent no-op this issue
+    // exists to remove.
+    expect(issueAutoArchiveRunKey(valid)).not.toBe(
+      issueAutoArchiveRunKey({ ...valid, readerUserId: asUserId('user:other') }),
     )
   })
 })

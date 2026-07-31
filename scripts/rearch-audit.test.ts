@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
 import { entityIdSites, MIN_ID_FIELD_SITES } from './entity-id-audit'
 import {
@@ -18,11 +19,11 @@ import {
   PUBLISH_COMPUTED_PATTERN,
   publishComputedControlMisses,
   runAudit,
+  type SourceFile,
+  stripComments,
   UPSTREAM_RETIREMENT_CONTROLS,
   UPSTREAM_RETIREMENT_PATTERN,
   upstreamRetirementControlMisses,
-  type SourceFile,
-  stripComments,
 } from './rearch-audit'
 import {
   entityShapedDeclarations,
@@ -309,6 +310,45 @@ describe('inventory checks', () => {
     const broken = ctxOf({ 'apps/server/src/router.ts': 'nothing resembling the anchor' })
     const check = CHECKS.find((c) => c.id === 'send-turn-duplicate')
     expect(() => check?.collect(broken)).toThrow(/neither anchor matched/)
+  })
+
+  it('per-user-singletons ERRORS when its control stops matching', () => {
+    // The exemption above is only honest if the guard it cites actually fires.
+    // Emptying PER_USER_STATE_KEYS is the cheapest way to make this detector
+    // report a serene zero — it is a plain array, one deletion away — and from
+    // zero that is indistinguishable from the clean tree POD-1229 left.
+    const keys = PER_USER_STATE_KEYS as unknown as string[]
+    const saved = keys.splice(0, keys.length)
+    try {
+      const check = CHECKS.find((c) => c.id === 'per-user-singletons')
+      expect(() => check?.collect(ctxOf({}))).toThrow(/PER_USER_STATE_KEYS loaded EMPTY/)
+    } finally {
+      keys.push(...saved)
+    }
+    // And it says YES again once restored, so the throw above is the guard
+    // firing rather than the detector being permanently broken.
+    expect(() =>
+      CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctxOf({})),
+    ).not.toThrow()
+  })
+
+  it('per-user-singletons still COUNTS the shape POD-1229 deleted', () => {
+    // The live zero means "this shape is gone", so the detector has to be shown
+    // finding it. This is the observation exactly as it read before POD-1229.
+    const ctx = ctxOf({
+      'packages/protocol/src/maintenance.ts': [
+        'export const IssueAutoArchiveObservation = z.object({',
+        '  issueId: z.string().min(1).max(256).pipe(IssueIdField),',
+        '  stage: z.string().min(1).max(64),',
+        '  closedReason: z.string().nullable(),',
+        '  readAt: z.string().datetime(),',
+        '  archived: z.literal(false),',
+        '  deletedAt: z.null(),',
+        '})',
+      ].join('\n'),
+    })
+    const sites = CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctx) ?? []
+    expect(sites.map((s) => s.text)).toEqual(['IssueAutoArchiveObservation.readAt'])
   })
 
   it('capability-tables counts a module-private table but not the web icon map', () => {
@@ -661,7 +701,6 @@ describe('upstream-sync-forwarder: the anchor behind its ZERO_BY_DESIGN exemptio
   })
 })
 
-
 /**
  * THE GUARD BEHIND `publish-computed-fanout`'s ZERO_BY_DESIGN EXEMPTION (POD-1203).
  *
@@ -787,6 +826,17 @@ describe('against the live repo', () => {
       // pattern stops matching the control strings it was written to match, both
       // asserted below.
       'publish-computed-fanout',
+      // POD-1229 drove it to zero: both auto-archive observations replaced
+      // `readAt` with `readerUserId`, so no representation carries a per-user
+      // key as a singleton any more. Exempt on the SAME terms as the three
+      // above and no looser — `perUserSingletons` runs its own matcher
+      // end-to-end over a CONTROL (the pre-POD-1229 observation, copied from
+      // the diff that deleted it) and THROWS when that stops producing exactly
+      // one site, so an emptied key list, a widened GENERIC_KEYS, a raised
+      // threshold or a broken parser reds loudly instead of reading as a
+      // deletion. Asserted in 'per-user-singletons ERRORS when its control
+      // stops matching' below.
+      'per-user-singletons',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

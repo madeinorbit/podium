@@ -274,7 +274,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       issueId: string
       stage: string
       closedReason: string | null
-      readAt: string
+      readerUserId: string
       archived: false
       deletedAt: null
     },
@@ -286,8 +286,24 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
       return 'precondition'
     }
+    // WHOSE read (POD-1229). `archived` is a SHARED column, so exactly one
+    // reader may gate it — the viewer this service archives for. A proposal
+    // naming anyone else is REFUSED rather than quietly evaluated against the
+    // wrong person: that refusal is what makes "the janitor and the server must
+    // ask the same principal" a checked fact instead of two constants that
+    // happen to match. When `archived` becomes per-user (POD-1077), this
+    // comparison becomes "the principal whose flag you are setting" and the
+    // observation already carries it.
+    if (observed.readerUserId !== this.broadcastViewer()) return 'precondition'
     const viewerReadAt = this.issueOverlay(row.id).readAt
-    if (viewerReadAt !== observed.readAt) return 'precondition'
+    // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
+    // and deliberately no `viewerReadAt == null` guard here either: the two
+    // cases the CAS caught are both already refused BELOW, and a second guard
+    // that can be deleted without turning any test red is indistinguishable from
+    // an absent one. A re-read moves this forward into the `not-due` window; a
+    // mark-unread deletes the row, so `Date.parse(null ?? '')` is NaN and the
+    // `Number.isFinite` check refuses it. Mutate either of those two lines and
+    // `issues.test.ts`'s POD-1229 cases go red.
     if (!this.isClosed(row) || row.parentId) return 'precondition'
     const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'

@@ -669,6 +669,106 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
   })
 })
 
+/**
+ * The APPLY side of auto-archive, which had no direct test until POD-1229.
+ *
+ * `tryAutoArchiveObserved` is where the janitor's proposal meets the authority,
+ * and it was reachable in the suite only through a `vi.fn()` seam in
+ * `modules/maintenance/service.test.ts` — a mock that returns 'applied' cannot
+ * fail when the revalidation is wrong. POD-1210's five mutants all lived in the
+ * janitor's QUERY; nothing on this side of the wire was mutation-covered.
+ *
+ * What these pin, in order: the observation must NAME its reader and that reader
+ * must be the viewer this service archives for (the shared-`archived` policy),
+ * and the two checks the removed compare-and-swap used to do — a re-read and a
+ * mark-unread — are still refused without it.
+ */
+describe('IssueService.tryAutoArchiveObserved — whose read gates the shared flag (POD-1229)', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
+  const DUE = readAtMs + 8 * DAY_MS
+
+  const doneAndRead = () => {
+    const h = harness()
+    const w = h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
+    h.svc.close(w.id)
+    h.svc.markIssueRead(w.id)
+    return { ...h, id: w.id }
+  }
+  const observation = (id: IssueId, readerUserId: string) => ({
+    issueId: id,
+    stage: 'done',
+    closedReason: 'done',
+    readerUserId,
+    archived: false as const,
+    deletedAt: null,
+  })
+
+  it('APPLIES an observation naming the viewer it archives for', () => {
+    // Says YES first. Every refusal below is measured against this exact
+    // fixture, so none of them can pass by failing for an unrelated reason.
+    const { svc, id } = doneAndRead()
+    expect(svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe('applied')
+    expect(svc.get(id)!.archived).toBe(true)
+  })
+
+  it('REFUSES an observation naming a different reader — one person cannot archive for all', () => {
+    // The point of the issue. `archived` is a SHARED column, so exactly one
+    // reader may gate it. Before POD-1229 the wire carried a bare `readAt` and
+    // this proposal was indistinguishable from the viewer's own: a janitor
+    // sweeping some other user's read state would have archived work off
+    // everyone's board with nothing able to detect it.
+    const { svc, id } = doneAndRead()
+    expect(svc.tryAutoArchiveObserved(observation(id, asUserId('user:other')), DUE)).toBe(
+      'precondition',
+    )
+    expect(svc.get(id)!.archived).toBe(false)
+  })
+
+  it('REFUSES an observation with no reader at all', () => {
+    // The shape an old v2 janitor produces once zod strips its unknown `readAt`:
+    // a proposal that never says whose read gated it must not resolve to the
+    // operator by default (readiness §3.1.6 S4 — an unidentified principal fails
+    // CLOSED).
+    const { svc, id } = doneAndRead()
+    expect(svc.tryAutoArchiveObserved(observation(id, ''), DUE)).toBe('precondition')
+    expect(svc.get(id)!.archived).toBe(false)
+  })
+
+  it('answers not-due when the viewer RE-READ it — what the removed CAS used to catch', () => {
+    // POD-1229 dropped `observed.readAt` and with it the compare-and-swap
+    // against it. This is the case that made the CAS look necessary, and the
+    // freshness check already covers it: re-reading moves readAt to `now`, which
+    // is inside the seven-day window.
+    const { svc, id } = doneAndRead()
+    svc.markIssueRead(id) // re-read at the harness clock, long after the observation
+    expect(svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), readAtMs + 1000)).toBe(
+      'not-due',
+    )
+    expect(svc.get(id)!.archived).toBe(false)
+  })
+
+  it('REFUSES once the viewer marked it unread — the other half of the removed CAS', () => {
+    const { svc, id } = doneAndRead()
+    svc.markIssueUnread(id) // deletes the marker; absent row == never read
+    expect(svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe(
+      'precondition',
+    )
+    expect(svc.get(id)!.archived).toBe(false)
+  })
+
+  it('still refuses the shared preconditions it always did (stage, archived, deleted)', () => {
+    const { svc, id } = doneAndRead()
+    expect(
+      svc.tryAutoArchiveObserved(
+        { ...observation(id, FIRST_ADMIN_USER_ID), stage: 'in_progress' },
+        DUE,
+      ),
+    ).toBe('precondition')
+    expect(svc.get(id)!.archived).toBe(false)
+  })
+})
+
 describe('IssueService close retires session offers (POD-290)', () => {
   const offered = (cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
     ({
@@ -729,7 +829,10 @@ describe('IssueService close retires session offers (POD-290)', () => {
   })
 
   it('explicit issueId attachment retires offers even when cwd is outside the worktree', () => {
-    const attached = offered('/elsewhere/agent', { sessionId: asSessionId('attached'), issueId: undefined })
+    const attached = offered('/elsewhere/agent', {
+      sessionId: asSessionId('attached'),
+      issueId: undefined,
+    })
     // issueId is stamped after create so sessionsForIssue matches on id, not cwd.
     const sessions: SessionMeta[] = []
     const { svc, clearSessionOffer } = harness(sessions)

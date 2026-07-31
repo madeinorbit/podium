@@ -3,7 +3,13 @@ import { join } from 'node:path'
 // A ROW OUT OF SQLITE IS A TRUE SERIALIZATION EDGE: the column is TEXT and the
 // value was minted by this system and written by it, so the brand is asserted
 // here rather than re-validated. This is the one place these casts belong.
-import { asAutomationId, asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import {
+  asAutomationId,
+  asIssueId,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  type UserId,
+} from '@podium/model'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationFireObservation,
@@ -795,8 +801,17 @@ export class MaintenanceCommandsPrunePlanner {
  * becomes that principal. It is a parameter rather than an inlined constant so
  * that day is an edit at the composition root, and so the tests can prove the
  * reader is scoped by handing it a DIFFERENT user.
+ *
+ * POD-1229 closes the half of this POD-1210 left open. The agreement between
+ * THIS constant and the server's `broadcastViewer()` used to be a coincidence of
+ * two independent spellings of `FIRST_ADMIN_USER_ID`, invisible on the wire and
+ * therefore untestable: change one and the sweep goes silently empty. The reader
+ * now RIDES on the observation as `readerUserId`, and the server refuses any
+ * observation that names someone other than the viewer it archives for. The
+ * policy is unchanged; what changed is that a disagreement is now a refusal with
+ * a reason instead of a sweep that finds nothing.
  */
-const ARCHIVE_VIEWER: string = FIRST_ADMIN_USER_ID
+const ARCHIVE_VIEWER: UserId = FIRST_ADMIN_USER_ID
 
 /**
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.
@@ -806,7 +821,7 @@ const ARCHIVE_VIEWER: string = FIRST_ADMIN_USER_ID
 export class SessionAutoArchiveReader {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly viewer: string = ARCHIVE_VIEWER,
+    private readonly viewer: UserId = ARCHIVE_VIEWER,
   ) {}
 
   async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
@@ -834,7 +849,11 @@ export class SessionAutoArchiveReader {
         sessionId: asSessionId(row.id),
         issueId: row.issue_id === null ? null : asIssueId(row.issue_id),
         stoppedAt: row.stopped_at,
-        readAt: row.read_at,
+        // The reader, not the timestamp (POD-1229): the server re-derives this
+        // viewer's read state authoritatively and refuses an observation that
+        // names anyone else. `sus.read_at` still drives the candidate query and
+        // the ordering above — it just no longer rides the wire.
+        readerUserId: this.viewer,
         archived: false as const,
       }))
   }
@@ -843,7 +862,7 @@ export class SessionAutoArchiveReader {
 export class IssueAutoArchiveReader {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly viewer: string = ARCHIVE_VIEWER,
+    private readonly viewer: UserId = ARCHIVE_VIEWER,
   ) {}
 
   async read(input: AutoArchiveReadInput): Promise<IssueAutoArchiveObservation[]> {
@@ -890,7 +909,10 @@ export class IssueAutoArchiveReader {
           issueId: asIssueId(row.id),
           stage: row.stage,
           closedReason: row.closed_reason,
-          readAt: row.read_at,
+          // See the session reader: the wire carries WHOSE read gated this, not
+          // the timestamp. `ius.read_at` is still what the query filters and
+          // what the keyset cursor below orders by.
+          readerUserId: this.viewer,
           archived: false,
           deletedAt: null,
         })
