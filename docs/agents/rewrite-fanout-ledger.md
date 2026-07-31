@@ -3448,3 +3448,48 @@ while `versionSupport` is the live gate, so main's `@deprecated` was correct and
 integration's objection was not. Measurement settled a disagreement that reading
 could not — the same move as counting the consumers rather than arguing about the
 declaration.
+
+## ABSENCE READS AS A FINISHED ANSWER — the name-collision rule run backwards
+
+POD-1246 wrote the "compare the question, not the name" rule after the
+Revision/ChangeRevisionField trap, then walked into its mirror image two groups
+later, and its analysis of why is the most useful methodological point of this
+run.
+
+It grepped integration's registry for the NAME `concurrency`, got zero, and
+concluded integration had no concurrency vocabulary — reporting that the next
+session would have to BUILD one. Integration has a better one. It did not lose
+`protocol/commands.ts`; it ABSORBED it into `framework.ts`, which declares
+
+    export type ConflictClass =
+      | 'exp-rev' | 'field-LWW' | 'single-writer' | 'append' | 'cmd' | 'op-stream'
+
+Six ADR 1 classes against main's three. Same question, richer answer, different
+name. Resurrecting main's vocabulary would have added a fourth-generation
+restatement of a concept the target branch already models better.
+
+WHY THE RULE DID NOT FIRE, in its author's words: "compare the question, not the
+name" is easy to apply when two symbols COLLIDE and sit side by side. It is much
+harder when one side's symbol is ABSENT under the name you searched — BECAUSE
+ABSENCE READS AS A FINISHED ANSWER, AND THERE IS NOTHING TO COMPARE. A collision
+prompts a judgement; a zero result feels like one.
+
+THE HABIT THAT ACTUALLY CATCHES IT is not comparing at all. It is asking WHERE
+THE OTHER SIDE PUT THE CONCEPT before concluding it does not have one. For a
+deleted-and-absorbed module the absorbing file usually says so in its own header —
+this one did — and the way in is to go looking for a home to put the thing in
+rather than to grep for its name.
+
+GENERALISATION: a zero from a name-keyed search is the weakest possible evidence
+of absence, and this run has now been bitten by it at every level — a detector
+blind to a third spelling (POD-1212), a gate whose population was a hardcoded
+list (POD-378), a coordinator brief citing a symbol that appeared only in comments
+(mine), and now a merge conclusion drawn from a grep miss. THE SEARCH TERM IS AN
+ASSUMPTION ABOUT HOW THE ANSWER IS SPELLED.
+
+The follow-on call is also right and worth keeping: integration's `conflict?` is
+OPTIONAL, which is exactly the hole main's `registry.ts:161` conditional type
+closes. Re-declaring that type over `ConflictClass` keeps the compiler enumerating
+the mutation defs that lack a declaration — without it, 35 mechanical edits turn
+back into 35 manual judgements, which is the difference between a checklist that
+cannot be silently incomplete and one that can.
