@@ -271,10 +271,113 @@ AND mobile consumers both read through is tested against a `Map`. This issue's o
 on SQLite and visible only on IndexedDB, and the per-adapter merge mutants each killed only their own
 lane. A facade suite that cannot tell the two engines apart cannot see either.
 
-**Recommendation, and it is a small diff, not a re-plan:** POD-1223's merge should carry (a) the loud
-outbox wrapper ported onto `side-cache`'s outbox keys, with a test that a denied write is surfaced
-rather than swallowed, and (b) at least one facade case per real engine. Both are cheaper before the
-merge than after, and neither changes the facade's shape.
+### 4.4 Finding 1 is TWO defects, and the second is a prohibited placement rather than a risk
+
+POD-1220 sharpened this and was right; **ADR 6 quoted verbatim from integration, verified here**:
+
+> **D1 (binding):** *"localStorage and AsyncStorage **MUST NOT** hold replica entity collections, the
+> oplog cursor, outbox entries, or optimistic-overlay state on any path — including "degraded."
+> Degraded durability is **in-memory only** (D4.4)."*
+>
+> **D4.4 clause 4:** *"The adapter **MUST NOT** fall back to localStorage/AsyncStorage for the replica
+> payload. Degraded mode is **in-memory only**."*
+
+D1's own table permits `localStorage` for **"small UI preferences only"**. So the two defects
+separate, and they have different fixes and different blast radii:
+
+**Defect 1 — silent loss (D4.3 + D4.4 clause 3).** `side-cache.ts`'s `writeJson` swallows the quota
+denial in an empty catch, and `outboxAt` uses it for both seams. A regression against the legacy
+path, which did the opposite and said why. Cheap; merge-blocking on its own.
+
+**Defect 2 — prohibited placement (D1).** The outbox is on the blob store D1 names explicitly. Live
+in web's wiring today (`kernelReplica.ts:117`); not yet live on mobile, because nothing constructs
+the facade there.
+
+POD-1228's stated reason for not sitting over the kernel `OutboxStorePort` — that `OutboxRecord` and
+the client `Outbox`'s tRPC entries are different shapes — is true but does not reach the conclusion:
+that argues for a mapping layer, and POD-377's merged `readLegacyReplica` already is one, tested
+against a captured real replica store.
+
+**The fix is asymmetric.** Mobile can comply today: `SqliteOutboxStore.apply` with no span calls
+`store.autocommit`, which is *synchronous*, so a synchronous `save()` is already durable on return —
+measured on POD-377. Web cannot use that trick, because IndexedDB's commit is genuinely async (the
+same fact behind this issue's `settled()` fence), so web needs an async outbox seam or, minimally,
+its outbox moved onto the IndexedDB store. A fix designed on mobile and applied to web would quietly
+reintroduce write-behind.
+
+### 4.5 The patch, ready to apply — and why POD-378 cannot apply it
+
+**Correction to an offer this issue made and should not have:** I told POD-1223 I would write this
+patch. I cannot. `kernel/` does not exist on `issue/378-…`; merging POD-1223's branch is forbidden by
+the fan-out's rule 1, and branching off a sibling would re-land their work under this issue. So the
+patch has to be applied by POD-1223, on their branch. What this issue can do is remove every excuse
+for it being slow, so the exact body is below.
+
+**(a) `side-cache.ts` — the outbox stops being best-effort:**
+
+```ts
+/** The outbox is NOT best-effort. ADR 6 D4.3: queued entries are durable "on the
+ *  same footing as entity rows … losing them on crash is a correctness bug, not
+ *  degraded UX". The legacy path routed the outbox family through a separate loud
+ *  wrapper for exactly this reason, and dropping it is a regression rather than a
+ *  simplification. Log, surface (D4.4 clause 3), and RETHROW — a caller must not
+ *  be allowed to believe a queued write is safe when it is not. */
+function writeQueued(
+  storage: StorageApi,
+  key: string,
+  value: unknown,
+  onDegraded: (error: unknown) => void,
+): void {
+  try {
+    storage.setItem(key, JSON.stringify(value))
+  } catch (error) {
+    console.error(
+      '[podium] OUTBOX persistence failed (storage quota?) — queued offline writes may be LOST on reload',
+      error,
+    )
+    onDegraded(error)
+    throw error
+  }
+}
+```
+
+`outboxAt` calls `writeQueued`; `SideCacheInit` gains `onDegraded?: (error: unknown) => void`.
+`writeJson` keeps its empty catch and its comment gains "ui-state and transcripts only".
+
+**(b) `facade.ts` — the outbox seam becomes injectable**, which is the one change POD-1220 needs to
+fix mobile's placement in its own diff without touching web's behaviour:
+
+```ts
+export interface KernelReplicaInit {
+  readonly cache: KernelCacheRead
+  readonly side: SideCache
+  /** The outbox's durable home, when it is NOT the side cache.
+   *
+   *  ADR 6 D1 names outbox entries among what localStorage/AsyncStorage MUST NOT
+   *  hold "on any path". The side cache is a StorageApi blob store, so it
+   *  satisfies D1 for ui-state and transcripts and NOT for the outbox. Mobile
+   *  passes `SqliteStoreView.outbox` and lands in the entities' own transaction
+   *  domain; web needs its own compliant seam and keeps the side cache only until
+   *  it has one. The default preserves today's behaviour rather than silently
+   *  changing web's. */
+  readonly outbox?: { readonly queued: OutboxStorage; readonly awaiting: OutboxStorage }
+}
+
+// …
+outboxStorage: (): OutboxStorage => init.outbox?.queued ?? side.outboxStorage(),
+outboxAwaitingStorage: (): OutboxStorage => init.outbox?.awaiting ?? side.outboxAwaitingStorage(),
+```
+
+**(c) The test that makes (a) real.** A denied write must be *surfaced*, and `facade.test.ts` cannot
+currently express that — a `memoryStorage()` never denies a quota, so the empty catch is unreachable
+in that suite **by construction**. That is not thin coverage; it is a suite that cannot fail for
+either reason this file is wrong. The case needs a `StorageApi` whose `setItem` throws
+`QuotaExceededError`, asserting the throw propagates and `onDegraded` fired — and it should be
+written as a mutant check: revert to `writeJson` and confirm the case goes red.
+
+**Division agreed with POD-1220:** POD-1223 takes (a), (b) and (c) on their branch; POD-1220 takes
+the mobile SQLite outbox binding in its own diff once POD-1223 is on integration. Defect 2 stays
+merge-blocking for **web** specifically, since web's placement is live.
 
 ---
 
