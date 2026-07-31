@@ -2334,3 +2334,61 @@ killed the walk that requested it, and a v2 catch-up reply built with the v1 row
 mapper that installed every healed row as `entity:undefined` — survived design,
 review and a green unit matrix, and appeared only against a booted server. All
 three were on the reconnect/heal path.
+
+---
+
+## POD-1223 — the brief said another issue owned the blocker, and it did not
+
+POD-1223's brief was explicit and, on the face of it, protective: the web cutover
+needs a store-neutral client `Replica` facade, POD-377 CLAIMED that file, consume
+theirs, and *"if it has not landed when you start, mail POD-377 rather than
+writing one"* — because a second facade is the fork this programme exists to end.
+
+POD-377 was `done` and merged. It had not written the file. Its merge landed the
+D6 legacy-snapshot migration, and `apps/mobile` still constructs the TanStack
+`createReplica`. The instruction to mail pointed at a closed issue with nobody
+behind it.
+
+**The shape, which is not about these two issues.** A brief that names an owner
+for a dependency is recording a BELIEF about a plan, and a plan is not a fact
+about the tree. Both POD-376's basis document and POD-1223's brief carried the
+same sentence forward, so the claim got more confident with each retelling while
+nothing verified it. The check is cheap and it is the one thing that was never
+done: `ls` the file the brief says exists.
+
+**What was done instead of stalling.** The facade was written once, here, under a
+sub-issue, store-neutral over the cache port so mobile adopts the same file. The
+reasoning is in the file's header and on the issue — because the next agent to
+read "POD-377 owns that file" needs to find the correction where they are
+standing, not in a session transcript.
+
+**A REFUSAL THAT IS THE FEATURE, in the family this ledger keeps naming.** The
+facade's `applySnapshot` / `applyChanges` / `setCursor` / `collection` THROW.
+They are the wire-v1 write-in path, and on the kernel path both plausible
+alternatives are silent: a no-op leaves the engine painting a frozen slice while
+the hub reports a healthy connection; a best-effort write puts a second writer on
+a store designed for one ordered writer. Proved able to fire: making `refuse()`
+return `undefined` kills exactly the four refusal cases and nothing else.
+
+**THE HARNESS CAUGHT ITSELF, and that is the entry worth keeping.** The
+two-connection shadow comparison reported `content-drift` on its first real run —
+on a row both paths held identically. The legacy row carried TanStack's
+`$collectionId` / `$key` / `$origin` / `$synced` beside the wire fields, and
+`$collectionId` embeds a per-instance nonce, so it can NEVER agree between two
+replicas. Left in, the comparison would have failed on every row forever.
+
+The general shape: **a comparison that fails on everything is worth exactly as
+much as one that passes on everything, and it is the more dangerous of the two**
+because it looks like vigilance. The ledger has been full of instruments that
+cannot say NO; this is the mirror — an instrument that cannot say YES. Both are
+measured the same way: make it produce the OTHER verdict on purpose before
+believing the one it gave you.
+
+Six mutants, all killed, with the blast radii recorded: refusals→no-op (4 cases),
+notify-on-watermark (2), drop the deterministic sort (1), naive `entity + 's'`
+pluralisation (1), quiescence gate always-open (2), and the rubber-stamp rule
+"absent from the kernel path is fine" (3). The pluralisation mutant is the
+instructive one: the kind ROUND-TRIP test stayed GREEN under it, because all five
+entity names happen to pluralise that way. The assertion that killed it was the
+leniency case — `+ 's'` claims to know every entity in the world. That is written
+into the test file, so nobody reads the round-trip as the mapping's guard.
