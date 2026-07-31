@@ -296,9 +296,32 @@ in the merged tree; integration's pair is live in `relay.ts` + two suites. Delet
 main's trio. Both migrations survive, so `sync_feed` remains as an unused table —
 harmless, but note it before anyone reads it as live.
 
-**Lesson for the remaining groups:** duplicate class members from a clean
-auto-merge are invisible to both the conflict list AND the typechecker. When two
-sides restructure the same class, grep for repeated member names.
+**Lesson for the remaining groups — now a gate, not a note.** Three ways a merge
+goes wrong and only two report themselves:
+
+| | what | who tells you |
+|---|---|---|
+| CONFLICT | both sides edited the same lines | git |
+| BREAKAGE | one side edited lines the other DEPENDS on | typechecker |
+| SHADOWING | both sides ADDED the same declaration | **nobody — and it runs** |
+
+`scripts/check-merge-shadowing.ts`, wired as **`bun run lint:shadowing`**, is the
+detector. Proven against controls before being believed: it fires on a synthetic
+duplicate, fires on THE REAL DEFECT reconstructed from git (correct lines 26/299),
+and is silent on the fixed file. Currently **clean across 2018 files**.
+
+Two things about it that matter operationally:
+- **It skips files still carrying conflict markers** — both sides' text is present
+  there by construction, so every duplicate would be a false hit. It is therefore
+  only meaningful on RESOLVED files: **run it after each group, not once at the
+  end.** This defect was introduced in group (b) and surfaced in group (c).
+- The first draft returned 164 findings (object-literal properties matched by a
+  too-loose indent rule) and I nearly shipped it. A detector with that
+  false-positive rate is worse than none — it becomes a green tick over an unread
+  list. Only the controls distinguished the noisy version from the tight one.
+
+This adds a 29th gate to the baseline list. It passes today, so it is additive to
+the green-before/green-after comparison rather than a change to it.
 
 ### `packages/protocol/src/version.ts` — resolved, union, one stale claim caught
 
