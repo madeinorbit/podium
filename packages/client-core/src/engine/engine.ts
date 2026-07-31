@@ -155,14 +155,20 @@ export interface EngineInit<TApi extends PodiumClientApi> {
    * REQUIRED since POD-1239. It used to be optional, falling back to
    * `createReplica()` with no storage argument, which resolved
    * `window.localStorage` on its own — so the flag-off browser client adopted
-   * ambient state through a construction site that belonged to no composition
-   * root. The audit's population is the set of roots that build a replica, and a
-   * replica the engine builds for itself is in no such set: it cannot be graded
-   * for having asked who owns the store, because there is nowhere to ask.
+   * ambient state on every boot.
    *
-   * Making it required deletes that site rather than defaulting it. Every replica
-   * in the product is now built at a NAMED root, which is exactly the population
-   * `scripts/audit-phase2-client.ts` walks.
+   * The client audit DID count that site — measured, not assumed: it reported
+   * `engine.ts:297` on integration. The problem was where it POINTED. This file is
+   * shared and platform-neutral, and attribution needs the CURRENT PRINCIPAL, which
+   * client-core cannot know. So the finding named a file that could not host its own
+   * fix; a platform agent reading it would find nothing here to do, which is a
+   * quieter failure than an uncounted site and lasts just as long.
+   *
+   * Requiring the factory deletes the construction rather than defaulting it, so
+   * every replica is built at a platform root that CAN answer the question. Audit
+   * membership changes by exactly one — `engine.ts:297` out,
+   * `apps/web/src/lib/webReplica.ts` in — and the count does not move, because
+   * nothing was hidden and nothing new exposed. The finding became actionable.
    */
   createReplicaFn: () => Replica
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */

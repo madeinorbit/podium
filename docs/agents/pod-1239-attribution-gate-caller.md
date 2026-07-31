@@ -43,11 +43,35 @@ kernel-replica flag resolves to `kernel` or the Tauri SQLite factory resolved. A
 browser with the flag off passes nothing — so the shipping web client took this path on
 every boot and adopted whatever the previous person on the device left behind.
 
-And it is the reason fixing the other five individually would still leave the system wrong.
-Every audit of this property walks the set of **composition roots**: the places that
-construct a replica. A replica the engine constructs *for itself* is in no such set. There
-was no root to grade, no caller to add the gate to, and no finding to report — so the audit
-reported the browser path clean by never having a wall to point at.
+And it is the reason fixing the other five individually would still leave the system wrong —
+though **not** for the reason I first wrote here, which was wrong and is corrected below.
+
+**CORRECTION (measured, not assumed).** My first draft claimed this site "appeared in no
+audit population and had no root to be graded". That is false, and I only found out by
+running the audit against both trees instead of reasoning about it. `engine.ts:297` calls
+`createReplica()` and `packages/client-core/src` is one of `CLIENT_ROOTS`, so the audit
+**did** discover it and **was** reporting it:
+
+```
+INTEGRATION (4)                                MY BRANCH (4)
+  apps/web/src/lib/desktopReplica.ts:135         apps/web/src/lib/desktopReplica.ts:135
+  apps/web/src/lib/shadow/runner.ts:110          apps/web/src/lib/shadow/runner.ts:110
+  packages/client-core/src/engine/engine.ts:297  apps/web/src/lib/webReplica.ts:60
+  packages/client-core/src/replica/legacy-snapshot.ts:124   …/legacy-snapshot.ts:124
+```
+
+So my change is a **swap, not an addition**: same count, one member replaced.
+
+The real defect is the one that survives the correction. The finding named
+`packages/client-core/src/engine/engine.ts` — a **shared, platform-neutral** file that
+cannot attribute anything, because attribution needs the current principal and client-core
+has no idea who that is. The audit was pointing at a file that *could not host its own fix*.
+Whichever platform agent read that finding would have found nothing there to do, which is a
+quieter failure than an uncounted site and lasts just as long. Moving the construction to
+`webReplica.ts` moves the finding to a file where the fix can actually go.
+
+That is also why the count does not move: nothing was hidden and nothing new was exposed.
+What changed is that the finding became **actionable by someone**.
 
 POD-1220 sharpened it from the mobile side and their point is the stronger one: on React
 Native `window.localStorage` is not even the right object, so the fallback is *incoherent*,
@@ -92,11 +116,15 @@ roots, which are named composition roots the audit already grades, not to a defa
 It does not call the gate. Wiring the browser's attribution is POD-1223's, and a competing
 call here would collide with work in flight.
 
-What changed is that the omission is now **countable**. Before, the browser path was clean
-in the audit because there was no root to look at. Now it is a named composition root that
-builds a persisted replica without asking — a finding: red today, green the day POD-1223's
-attribution lands in it. *A hole that shows up in the count is a different object from a
-hole that cannot.*
+What changed is not that the omission became countable — per the correction above, it was
+already counted, at `engine.ts:297`. What changed is that it became **fixable by the person
+who reads the finding**. `webReplica.ts` is a web file; a web agent can wire the browser's
+attribution into it. `engine.ts` is shared client-core; nobody could have wired attribution
+there, because the platform's principal is not knowable from that file.
+
+So: red today at `webReplica.ts:60`, green the day POD-1223's attribution lands in it.
+*A finding that names a file which cannot host its own fix is a different object from one
+that does* — both are counted, only one can be closed.
 
 ### Mutation evidence
 

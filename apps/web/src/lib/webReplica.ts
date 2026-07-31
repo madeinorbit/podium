@@ -10,19 +10,24 @@
  * never adopted. POD-377 built the gate, POD-378 verified it, and no client ever
  * called it — every site that opens persisted client storage skipped the question.
  *
- * The web client's instance of that hole had no site at all. `AppShell` passes
+ * The web client's construction had no HOME of its own. `AppShell` passes
  * `createReplicaFn` only when the kernel-replica flag resolves to `kernel` or the
  * Tauri SQLite factory resolved; a plain browser with the flag off passed nothing,
  * the engine called `createReplica()` with no argument, and the replica resolved
  * `window.localStorage` itself. So the SHIPPING browser path adopted whatever the
- * last person on the device left behind — and, being a construction nobody
- * performed, it appeared in no audit population and had no root to be graded.
+ * last person on the device left behind.
  *
- * Fixing the six known roots individually would have left this one standing,
- * because you cannot fix a caller that does not exist. Hence: the ambient reach is
- * gone from the replica (`legacyMigrationStorage`), the engine now REQUIRES a
- * factory, and the browser's construction happens HERE, in the open, where the
- * client audit's discovery walk finds it and grades it like every other root.
+ * The audit was NOT blind to this — measured, not assumed: on integration it
+ * reported `packages/client-core/src/engine/engine.ts:297`. The defect was that the
+ * finding named a file that COULD NOT HOST ITS OWN FIX. `engine.ts` is shared and
+ * platform-neutral; attribution needs the current principal, which client-core has
+ * no way to know. A web agent reading that finding would find nothing there to do.
+ *
+ * Hence: the ambient reach is gone from the replica (`legacyMigrationStorage`), the
+ * engine REQUIRES a factory, and the browser's construction happens HERE — in a web
+ * file, where the answer can actually be wired. Audit membership moves by exactly
+ * one, `engine.ts:297` out and this file in; the count does not change, because
+ * nothing was hidden and nothing new exposed.
  *
  * ---------------------------------------------------------------------------
  * THIS ROOT IS DELIBERATELY UNATTRIBUTED, AND SAYING SO IS THE POINT
@@ -32,12 +37,10 @@
  * POD-1223, which owns the web client's identity plumbing; inventing a second,
  * competing call here would collide with the work already in flight.
  *
- * What changed is that the omission is now VISIBLE. Before this file the audit
- * reported the browser path clean because it had no root to look at — the gate
- * pointed at a wall the path was not behind. Now the path is a named root that
- * builds a persisted replica without asking, so it is a FINDING: red today, green
- * the day POD-1223's attribution lands here. A hole that shows up in the count is
- * a different object from a hole that cannot.
+ * So it is a FINDING: red today at the `createReplica` call below, green the day
+ * POD-1223's attribution lands here. A finding that names a file which CAN host its
+ * own fix is a different object from one that cannot — both are counted, only one
+ * can be closed.
  */
 
 import { createReplica, type Replica } from '@podium/client-core/replica'
