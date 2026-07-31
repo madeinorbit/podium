@@ -3493,3 +3493,53 @@ closes. Re-declaring that type over `ConflictClass` keeps the compiler enumerati
 the mutation defs that lack a declaration — without it, 35 mechanical edits turn
 back into 35 manual judgements, which is the difference between a checklist that
 cannot be silently incomplete and one that can.
+
+## A DETECTOR WITH A HIGH FALSE-POSITIVE RATE IS WORSE THAN NO DETECTOR
+
+POD-1246's shadowing sweep almost shipped in a form that would have been actively
+harmful, and its own account of why is the rule.
+
+First draft returned 164 FINDINGS — mostly object-literal properties inside method
+bodies, because the member regex allowed any indent of two or more spaces. It ran.
+It exited non-zero. By every check this run normally applies, it "worked".
+
+Its author's verdict, which is correct: a detector with that false-positive rate
+is WORSE THAN NONE, because it gets ignored — and then it is a green tick over an
+unread list. That is strictly worse than an absent check, which at least nobody
+cites as evidence.
+
+Tightened to exactly-two-space indent (the class-body convention here) it went to
+ZERO across 2018 files with both positive controls still firing.
+
+THE LINE THAT MATTERS: "the noisy version and the tight version both PASSED in the
+sense of running; only the controls distinguish them." A detector's output volume
+is not a quality signal in either direction — 164 findings and 0 findings look
+equally like working software. What separates them is whether the thing still
+fires on a KNOWN defect after being tightened. Tighten against the controls, never
+against the noise.
+
+Its controls were the right set, and the second is the one most people skip:
+
+  positive 1  a synthetic duplicate member                       -> FIRES
+  positive 2  THE REAL DEFECT, reconstructed from git by splicing
+              main's trio back into integration's class          -> FIRES,
+              naming lines 26 and 299
+  negative    the fixed file                                     -> clean
+
+Reconstructing the actual historical defect and proving the detector would have
+caught it AT THE MOMENT IT WAS SHIPPED is a far stronger claim than a synthetic
+fixture. I re-verified independently on integration: clean across 1997 files, and
+planting a duplicate class member drives it to exit 1 naming both line numbers.
+
+ONE DESIGN CONSEQUENCE WORTH COPYING: it SKIPS files that still carry conflict
+markers, deliberately — both sides' text is present there by construction, so
+every duplicate is expected and reporting them buries the real hits. The
+operational corollary is that the sweep is only meaningful on RESOLVED files, so
+it must run PER GROUP rather than once at the end. Which is the same conclusion
+the import-graph sweep reached: the defect was introduced in group (b) and found
+in group (c), and an end-of-merge run would have found it with seventy other
+files' worth of context gone.
+
+Landed on integration as `lint:shadowing` rather than left inside the merge,
+because a script that exists only in an in-flight merge dies with it — and this
+one is useful to the repo whether or not that merge ever lands.
