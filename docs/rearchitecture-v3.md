@@ -808,11 +808,22 @@ per-user state family (POD-1076)** — both multi-user, 2026-07-29.
 (golden fixtures from POD-360). Narrow ports remain as named derivations.
 
 **Oracle status / audit counts:** measured at gate POD-423 (see its LEDGER ENTRY below) —
-**phase HELD OPEN**. Audit items: hand-restated field definitions (`session-shapes` 0,
-`issue-shapes` 0), **raw-string ids — NO AUDIT ITEM EXISTS; measured by grep at 66 sites,
-NOT zero**, agent-kind enums 0 (`capability-tables` 5 is POD-325 / Phase 5.3, not Phase 1),
-stateDir (`state-dir-defs`) 0. Deletion audit 25 items / 186 sites, baseline exact. Oracle
-RED on two inherited failures, neither Phase 1's.
+**phase CLOSED** at `1c192dcc`. Audit items: hand-restated field definitions
+(`session-shapes` 0, `issue-shapes` 0, `representation-registry-rot` 0), **raw-string ids
+(`raw-string-entity-ids`) 0 — the key now EXISTS** (POD-301 built it, POD-1212 added the
+spelling where only the directory names the entity), agent-kind enums 0
+(`capability-tables` 5 is POD-325 / Phase 5.3, not Phase 1), stateDir (`state-dir-defs`) 0.
+Deletion audit 29 items / **178 sites** (down from 186), baseline exact. Durable-class
+membership gate: 87 stores, all matrixed or explained. **Oracle GREEN, 5 lanes** — the
+multi-instance red was a real defect in the `bash -i` PATH probe, fixed at the gate (§4 of
+the gate doc) and A/B-proven, not excused. Every one of these zeros was verified by planting
+its violation in real source and watching the detector report a 1.
+
+**One recorded deviation, carried forward:** `per-user-singletons` is **2**
+(`maintenance.ts:141/151`, `readAt`) while POD-1076, which owns it, is `done` — against the
+unconditional phase-close rule. The residual is filed as POD-1136 and the correct mechanism
+(a recorded re-phase, as `change-row-typings` got) was not used. The gate declined to
+re-phase it itself and escalated instead.
 
 **POD-304 as-built (provenance envelope + ownership annotations).** Two decisions this
 section records because later phases depend on them:
@@ -877,6 +888,11 @@ current main, not the 07-13 snapshot; audit items zero; oracle green; wire fixtu
 unchanged (incl. the handoff family); ledger + as-built updated. `podium issue tree 288`.
 
 #### LEDGER ENTRY — POD-423 (1.7 Phase 1 exit gate): HELD OPEN, and what the refusal is worth
+
+> **SUPERSEDED at `1c192dcc` by the CLOSED entry below.** Kept in full, unedited, because
+> what a refusal named is the only way to check that the answer answered it. All three
+> blockers below were answered by POD-1212, POD-1211 and the closure of POD-301/POD-1076,
+> and every one was re-measured on the tree rather than read off the report that answered it.
 
 **The gate does not close.** Full evidence, every figure re-measured rather than quoted:
 `docs/gates/pod-423-phase-1-exit-gate.md`. Measured at `b812e549` from a branch **0 ahead /
@@ -947,6 +963,67 @@ declarations, so filesystem-backed and daemon-local stores were never swept and 
 count of unclassified classes is unknown and ≥ 14** (pspec, the class that started this, is
 exactly such a store). Wire-delta attribution (632/635 identical, 3 handoff) is POD-1162's
 measurement consumed as given per the split, not re-derived.
+
+#### LEDGER ENTRY — POD-423 (1.7 Phase 1 exit gate): CLOSED, and what a zero had to survive first
+
+**Phase 1 exits** at `1c192dcc`. Full evidence, every figure re-measured:
+`docs/gates/pod-423-phase-1-exit-gate.md`.
+
+**The re-run's method is the entry.** The prior verdict's own generalisation — a gate whose
+refusing arm can never fire is not a passing check — applies to an exit gate more than to
+anything it inspects. So no count in this verdict was believed until the instrument
+reporting it had been made to report a **one**, by planting the violation **in real source**
+rather than in the detector's own fixture, with match count and file hash checked before and
+grep-back after, each reverted atomically. **Nine such mutations, nine refusals**: a branded
+issue id flipped back where only the DIRECTORY names the entity (`contracts.ts:111` — green
+as recently as POD-1212's branch point); a duplicate `AgentKind` enum; a second `stateDir()`;
+a hand-restated 9-key session shape; an `instance_id` DDL **column** (POD-1166's exact
+survivor, now caught by POD-1168's widening); an unmatrixed `sqliteTable`; a module writing
+durable bytes on no schema at all; a **misspelled matrix row id** — the case
+`visibilityClassOf` answers `personal` for while every classification test stays green; and
+the repaired `bash -i` PATH probe against an `install.sh` that no longer writes `.bashrc`.
+
+**The prior three blockers, answered and re-verified.** `raw-string-entity-ids` is a real
+ratcheted key at **0** — POD-301 had built the detector and it was sound for the two
+spellings that read a NAME; POD-1212 added the third, where the entity is named by neither
+the field key nor the declaration. Its three by-rule exclusions raise
+`unbranded-by-decision-ids` 13 → **17**, which is the right shape: a counted, ratcheted
+excuse rather than an invisible one. `scripts/audit-durable-classes.ts` inventories **87**
+durable stores across three independent populations — not the SQLite schema alone, which was
+the half that would have let `pspec` through again — and asserts **MEMBERSHIP** in
+`OWNERSHIP_MATRIX_INDEX` in the unit lane rather than calling the total, default-closed
+`visibilityClassOf`. POD-301 and POD-1076 are `done` and merged.
+
+**POD-288 is `backlog` and is the umbrella, not a child** — named explicitly rather than
+either enforced literally or passed over. It carries no deliverable of its own; closing it is
+the coordinator's bookkeeping act, and this gate is its evidence.
+
+**The multi-instance red was NOT an environment artifact, and calling it one is the lesson.**
+The prior session attributed it to this host. It is a defect in the probe that fails on any
+stock Debian/Ubuntu host: `/etc/bash.bashrc` prints the sudo hint **to stdout** whenever
+`$HOME/.sudo_as_admin_successful` is absent, and the test deliberately runs under a fresh
+temp `$HOME`, so it fires every run — while being invisible to any developer whose real
+`$HOME` has that file, which is why it read as local. The probe now delimits its answer with
+a marker instead of capturing the whole stdout stream, so **any** startup chatter is
+discarded rather than the one banner we happened to see; special-casing the lecture would
+have left the next distro's banner to rediscover. It still refuses: with `.bashrc` no longer
+written, `sh -l` and `bash -l` pass and only `bash -i` fails. A/B on this host: `FAIL` before,
+`ALL OK` after. **Oracle GREEN, 5 lanes.** Deletion audit ratcheted 186 → **178 sites**.
+
+**Wire fixtures re-derived, not consumed.** All **80** golden cases captured *before* POD-300
+moved the entity schemas are byte-identical today (0 changed, 0 missing); 85/85 against the
+later capture; the only 4 cases added since are the handoff family. Phase 1 moved the whole
+vocabulary out of `packages/protocol` without moving one byte of the wire.
+
+**One deviation recorded rather than laundered.** `per-user-singletons` is **2**
+(`maintenance.ts:141/151`, `readAt`) while POD-1076, which owns it, is `done` — against
+`docs/rearch-deletion-audit.md`'s unconditional phase-close rule, and
+`audit:rearch --phase POD-1076` exits 1 saying exactly that. The residual is filed as
+POD-1136 and the repo has a legitimate mechanism for this — a **recorded re-phase**, used
+once for `change-row-typings` → POD-308 — which was simply not used. **The gate did not
+re-phase it itself**: a gate that edits a mapping in order to close itself is the defect
+class this whole run is about. Escalated to the coordinator: re-phase with a reason, or
+reopen POD-1076.
 
 #### LEDGER ENTRY — POD-1076 (1.9 Per-user state family): the mirror was the defect
 
