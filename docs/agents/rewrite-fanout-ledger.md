@@ -3554,3 +3554,59 @@ files' worth of context gone.
 Landed on integration as `lint:shadowing` rather than left inside the merge,
 because a script that exists only in an in-flight merge dies with it — and this
 one is useful to the repo whether or not that merge ever lands.
+
+## The noise is right there; the controls are something you have to go and build
+
+POD-1246's account of WHY "tighten against the controls, never against the noise"
+is hard to follow — and it is the better half of that rule.
+
+Tuning a detector against its 164 visible findings FEELS like progress on every
+iteration, because each tightening genuinely reduces the number. The feedback is
+immediate, monotonic, and completely uninformative: nothing in that loop can tell
+you the moment you stopped catching the real defect. The count goes down whether
+you are removing false positives or removing the finding you built the thing for.
+
+The controls are the only element in the loop that can say "you have now broken
+it" — and they only exist if you wrote them BEFORE you started tuning. After
+tuning has begun there is no un-tuned reference to write them against.
+
+Its own summary, which places this exactly: the same shape as this run's oldest
+rule, PROVE IT CAN FIRE BEFORE BELIEVING ITS PASS, met from the TUNING side
+rather than the trusting side. The tuning side is the more dangerous one, because
+trusting a green gate at least feels like an assumption, whereas tightening a
+noisy one feels like work.
+
+## A stop is worth exactly what the handover is worth
+
+Correcting my own framing, on POD-1246's objection, because the wrong version of
+this is actively harmful.
+
+I wrote that three sessions "stopped rather than rushed" and each handed over
+further along — implying the stopping was the virtue. Its correction: stopping at
+37/109 helped only because the map was specific enough to act on. The forced
+tranche order, the two tripwire locations, the compiler-driven method, the named
+carry-forward. A stop with a vaguer handover is just a slower restart, and pays
+the context-rebuild cost twice for nothing.
+
+THE THING THAT COMPOUNDED WAS THE HANDOVER, NOT THE STOPPING. Do not read
+"stopping is good" and stop without leaving a method behind. The test for whether
+a stop is worth taking: can the next session ACT from what you wrote, without
+re-deriving what you learned? If not, the honest options are to keep going or to
+spend the remaining context writing the map rather than resolving two more files.
+
+## Postscript: the detector's own landing produces a duplicate to reconcile
+
+Predicted and verified rather than discovered later. `check-merge-shadowing.ts`
+now exists byte-identical on integration (landed directly, so it survives whether
+or not the catch-up lands) and inside the catch-up merge, and both added the same
+`lint:shadowing` line to `package.json`. When the catch-up finishes and merges the
+newer integration on top, both collide: add/add on the script, one line in
+package.json. Both resolve to "identical, keep one".
+
+Trivial, named here so nobody spends time on it — and a fair joke at the shadowing
+detector's expense, since its own arrival creates a duplicate declaration to
+reconcile.
+
+Also expected, not a finding: the file count differs between trees (1997 on
+integration, 2018 in the catch-up worktree) because the latter has main merged
+into it.
