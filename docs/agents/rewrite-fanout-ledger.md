@@ -2334,3 +2334,35 @@ killed the walk that requested it, and a v2 catch-up reply built with the v1 row
 mapper that installed every healed row as `entity:undefined` — survived design,
 review and a green unit matrix, and appeared only against a booted server. All
 three were on the reconnect/heal path.
+
+- **2026-07-31 05:45 — POD-1227, the browser lane, and a measurement trap worth the whole entry.**
+  70 `*.browser.e2e.ts` suites had no script, no lane and no CI job. POD-756 counted them
+  (56 → 54, a real correction) and marked itself DONE; the lane in its title was never
+  built, so the count drifted to 70 while "runtime verified" kept citing the files. The
+  lane now exists (`bun run test:browser`, a non-blocking CI job sharded per Playwright
+  project, a printed quarantine list, and a guard test that fails if the script or the CI
+  job disappears — proved by deleting each and watching it go red).
+  - **One stale import was zeroing all 70 suites.** `tests/e2e/browser/harness.ts` imports
+    `apps/server/src/local-machine`, deleted in this rewrite. Playwright aborts the WHOLE
+    run when one file fails to import: `Total: 0 tests in 0 files`. Anyone who had tried
+    to run the suite as a set would have seen nothing at all — not a red, a *nothing*. The
+    lane now probes per suite and reports the unloadable ones as ERRORED (POD-1234).
+  - **THE TRAP, and I fell in it before catching it.** The harness segfaults ~23 minutes
+    into a pass (`Cannot use a closed database` in `flushDeliveryTriggers`, then Bun
+    1.3.14 SIGSEGV — POD-1233), and Playwright does not restart `webServer`. Everything
+    after fails `ERR_CONNECTION_REFUSED`. That much is easy to filter. What is NOT easy:
+    **the harness degrades BEFORE it dies**, still accepting connections while its tRPC
+    mutations fail — so tests in that window fail on ordinary assertion errors that are
+    indistinguishable from real defects. I filed POD-421's secrets redaction surface as
+    BROKEN on that evidence (POD-1235). Re-run in isolation against a fresh harness, all
+    four of those tests PASS. The issue is retracted.
+  - **The tell is DURATION, not the error message.** A suite that legitimately takes
+    6–16s failing in 250–400ms has not run. Same shape as the overload incident of
+    2026-07-30 02:00, and the same rule applies with a sharper edge: filtering the obvious
+    infrastructure error is not enough, because the sick-but-alive window wears an
+    assertion error as a disguise. **A long-running shared harness is not a valid oracle
+    for a suite of this size.** The census had to be re-measured in small chunks against a
+    fresh harness per chunk, and that is now the only method whose numbers I will publish.
+  - Belongs beside [[instrument-must-say-yes-first]] as its mirror image: this run's
+    defect class has been instruments that cannot say NO; this is an instrument that says
+    NO *for the wrong reason* and is believed because the failure looks like the code.
