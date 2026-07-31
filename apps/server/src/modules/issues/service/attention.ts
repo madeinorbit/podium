@@ -296,10 +296,14 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     // observation already carries it.
     if (observed.readerUserId !== this.broadcastViewer()) return 'precondition'
     const viewerReadAt = this.issueOverlay(row.id).readAt
-    // No compare-and-swap against an observed timestamp: a re-read moves this
-    // forward and is caught by the cutoff below as `not-due`, and marking it
-    // unread deletes the row and is caught here as `precondition`.
-    if (viewerReadAt == null) return 'precondition'
+    // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
+    // and deliberately no `viewerReadAt == null` guard here either: the two
+    // cases the CAS caught are both already refused BELOW, and a second guard
+    // that can be deleted without turning any test red is indistinguishable from
+    // an absent one. A re-read moves this forward into the `not-due` window; a
+    // mark-unread deletes the row, so `Date.parse(null ?? '')` is NaN and the
+    // `Number.isFinite` check refuses it. Mutate either of those two lines and
+    // `issues.test.ts`'s POD-1229 cases go red.
     if (!this.isClosed(row) || row.parentId) return 'precondition'
     const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'

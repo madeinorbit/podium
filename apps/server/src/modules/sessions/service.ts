@@ -2596,12 +2596,15 @@ export class SessionsService {
     // reasoning. `archived` is shared, so only the viewer this service archives
     // for may gate it, and a proposal naming anyone else is refused outright.
     if (observed.readerUserId !== this.broadcastViewer()) return 'precondition'
+    // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
+    // and no `readAt == null` clause here either: both cases the CAS caught are
+    // refused by the checks below — a re-read lands inside the `not-due` window,
+    // and a mark-unread makes `Date.parse(null ?? '')` NaN. A guard that can be
+    // deleted with every test still green is indistinguishable from an absent
+    // one, so the refusal lives in exactly one place.
     if (
       (session.issueId ?? null) !== observed.issueId ||
-      session.stoppedAt !== observed.stoppedAt ||
-      // No CAS against an observed timestamp: a re-read moves this forward into
-      // the `not-due` window below, and marking it unread nulls it here.
-      this.viewerOverlay(observed.sessionId).readAt == null
+      session.stoppedAt !== observed.stoppedAt
     ) {
       return 'precondition'
     }
