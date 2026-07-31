@@ -188,7 +188,39 @@ Checked per key as instructed — integration is **not** lower on every key:
 
 ---
 
-## 3. What remains (90), tranche by tranche
+## 2b. GROUP (a) DONE — and the port-back debt it left
+
+`packages/model` union resolved (9 files). Integration is the shell, as predicted.
+Verified: model typechecks clean, 520 tests / 35 files pass, the relocated
+`predicates/issue-concurrency.test.ts` confirmed running by name (5 cases).
+
+What the union actually reduced to:
+- Integration's `ids/brands.ts` already covers all of main's `ids.ts` → deleted.
+- Main's `fields.ts` had exactly two symbols integration lacks — `Revision` and
+  `Timestamp` → ported to `packages/model/src/fields/primitives.ts`.
+- `packages/domain` fully removed; main's duplicate `snooze` export not carried.
+
+**Trap recorded in the new file:** `Revision` (positive — an entity that exists
+was written once) is NOT `fields/change.ts`'s `ChangeRevisionField` (nonnegative —
+a stream position). They disagree about `0`. Do not merge them. Likewise
+`Timestamp` (field schema) is not `clock.ts`'s `Instant` (runtime epoch-ms +
+adapters); integration inlines `z.string()` at every `*At` field, which is the
+restatement `Timestamp` exists to collapse — migrating those call sites is
+follow-up, not a merge edit.
+
+### PORT-BACK DEBT — three things of main's deleted, none covered, all coupled
+
+Deleted rather than left staged because main's `issue/`+`repo/` import
+`../fields`; keeping them while deleting main's `fields.ts` leaves dead code that
+does not typecheck.
+
+| Main content | Integration has | Decide with |
+|---|---|---|
+| `issue/dep.ts` — issueDep as a FIRST-CLASS entity (`IssueDepId`, `asIssueDepId`, `issueDepShape`, `IssueDepProjection`, `issueDepToWire/FromWire`) | only `IssueDepWire` + `ISSUE_DEP_TYPES` — a wire shape, no entity. POD-822, **main ahead** | groups (b)/(c): protocol + server projection |
+| `repo/` — `repoIdentityFields`, `repoDurableShape` (Repo prefix entity, POD-822) | repo only in `annotations/matrix` | groups (b)/(c) |
+| `shape.ts` — `WireShape`/`wireShape`, `dropNullValues`/`restoreNullValues` | its own approach inside `replica.ts` + `removal-family.test.ts` — **both sides solved null-encoding differently** | group (d): `replica.ts` |
+
+## 3. What remains, tranche by tranche
 
 ### C-remainder (4 files) — needs the vertical first
 `scripts/rearch-audit.ts`, `scripts/rearch-audit.test.ts`,
