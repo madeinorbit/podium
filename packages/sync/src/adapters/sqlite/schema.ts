@@ -152,14 +152,18 @@ export const changes = sqliteTable(
  * INSPECTABLE; the bump itself is an operator action from [spec:SP-4428]'s
  * runbook, and `FeedIdentityRegistry.bump` is what that action calls.
  */
-export const feedIdentity = sqliteTable('feed_identity', {
-  /** Always 1. The schema's way of saying "there is exactly one of these". */
-  singleton: integer().primaryKey(),
-  feedId: text('feed_id').notNull(),
-  epoch: text().notNull(),
-  /** When this generation began. Diagnostics only — never compared, never ordered. */
-  mintedAt: integer('minted_at').notNull(),
-})
+export const feedIdentity = sqliteTable(
+  'feed_identity',
+  {
+    /** Always 1. The schema's way of saying "there is exactly one of these". */
+    singleton: integer().primaryKey(),
+    feedId: text('feed_id').notNull(),
+    epoch: text().notNull(),
+    /** When this generation began. Diagnostics only — never compared, never ordered. */
+    mintedAt: integer('minted_at').notNull(),
+  },
+  (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
+)
 
 export const appliedMutations = sqliteTable('applied_mutations', {
   mutationId: text('mutation_id').primaryKey(),

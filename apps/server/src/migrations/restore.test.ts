@@ -118,18 +118,19 @@ describe('the migration creates the feed-identity table', () => {
   })
 
   it('one database is one feed — a bump REPLACES the identity rather than appending', () => {
-    // POD-1246: this used to assert that `sync_feed` refused a second row, which
-    // its `CHECK(id = 1)` enforced. The live table is `feed_identity`, whose
-    // `singleton INTEGER PRIMARY KEY` carries NO such CHECK — so the old case was
-    // pinning a constraint on a table nothing reads, and the invariant on the
-    // table that IS read was unguarded. #1266 tracks restoring the CHECK.
-    //
-    // What holds it up today is the writer's upsert on the singleton key, so that
-    // is what this asserts: two writes, one row, the second value winning.
     const { db } = authority()
     const repo = new SyncRepository(db)
     repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
     repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
+
+    expect(() =>
+      db
+        .prepare(
+          'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (2, ?, ?, ?)',
+        )
+        .run('feed_b', 'epoch_1', 3),
+    ).toThrow(/feed_identity_singleton/)
+
     const rows = db.prepare('SELECT feed_id, epoch FROM feed_identity').all()
     expect(rows).toEqual([{ feed_id: 'feed_a', epoch: 'epoch_2' }])
     expect(repo.readFeedIdentity()).toEqual({ feedId: 'feed_a', epoch: 'epoch_2' })
