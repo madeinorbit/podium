@@ -2327,6 +2327,35 @@ Worth attaching to a phase exit gate rather than leaving to whoever happens to
 look. A field nobody reads is not a control, and it reads as one in every
 handoff that cites it.
 
+POD-1224 RAN THE SWEEP: 113 annotations, 90 with no consumer, against the three
+POD-352 found. All 32 command contracts declare a confirmation rule, an
+error-consistency answer, an attribution policy, an ownership rule and two
+delivery rationales that no production code reads.
+
+A SOUND GATE IS POSSIBLE AND IT IS NOT A GREP. `scripts/audit-declared-consumers.ts`
+resolves references through the TypeScript checker, so a comment naming the field
+cannot satisfy it — POD-1203's measured failure mode, reproduced on the real tree
+and defeated: a planted field plus a comment reading `policy.auditFloorProbe`
+still exits 1, and only a real read turns it green.
+
+TWO METHOD NOTES WORTH MORE THAN THE COUNT.
+
+A RESOLVED REFERENCE STILL ONLY PROVES PRESENCE, not that the reference DECIDES
+(POD-423's upgrade). Seven consumed fields were re-tested by mutating the declared
+value in real source; seven refused.
+
+AND THE MIRROR OF POD-423'S FINDING: A MIS-AIMED MUTATION MANUFACTURES A FALSE
+"NOTHING DECIDES". Four of those seven first came back green — `policy.action`
+and `policy.resource` because the consumer branches only on the conjunction
+`action === 'read' && resource === 'secret'` and the mutated contract was neither;
+`MatrixRow.offline` because the consumer reads only the three settings-tier rows
+and the mutation hit `issueCore`; `MatrixRow.conflict` because the suite selects
+rows BY RULE and is robust to any one row changing. Green would have argued for
+deleting a working control. A GREEN MUTATION IS EVIDENCE ONLY ONCE YOU HAVE SHOWN
+THE INSTRUMENT COVERS THE MUTATED VALUE.
+
+Full report: `docs/gates/pod-1224-declared-consumer-sweep.md`.
+
 Adjacent, from POD-376 and worth naming beside it: a suite can also exercise
 only the HAPPY path of a protocol whose risk lives entirely on the rare one.
 Three defects there — a deadlock on a synchronous push, a re-bootstrap that
