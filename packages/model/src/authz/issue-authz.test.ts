@@ -26,9 +26,31 @@ describe('authorize — role gate', () => {
 })
 
 describe('authorize — scope gate', () => {
-  it('reads are scope-free', () => {
+  /**
+   * NARROWED AT POD-315 from "reads are scope-free" to "reads are scope-free for
+   * the scopes that name no person" (ADR 3 Amendment 1 D19.2). The `owned` / `self`
+   * halves of the same rule are asserted in their own describes below, where the
+   * denial counterfactual lives.
+   *
+   * `subtree` is the load-bearing one and it is here rather than beside the others
+   * on purpose: it is the scope agents actually carry, and gating reads by it would
+   * deny an agent every sibling issue — contradicting D20.2 (an agent may address
+   * any issue its HUMAN can see, outside its own subtree included) and failing the
+   * single-user parity criterion outright.
+   */
+  it('reads are scope-free for the scopes that name no person', () => {
     expect(authorize(cap({ kind: 'none' }), 'read', { id: 'i1' })).toBe('allow')
     expect(authorize(cap({ kind: 'subtree', rootId: asIssueId('root') }), 'read', { id: 'i1' })).toBe('allow')
+    expect(authorize(OPERATOR, 'read', { id: 'i1' })).toBe('allow')
+    // The counterfactual that stops this reading as "reads are still ungated":
+    // the SAME read, under a scope that does name a person, is refused.
+    expect(
+      authorize(cap({ kind: 'owned', userId: asUserId('alice') }), 'read', {
+        kind: 'owned',
+        id: 's1',
+        owner: 'bob',
+      }),
+    ).toBe('forbidden')
   })
 
   it('allows an additive write (no existing target) on role alone', () => {
@@ -82,6 +104,29 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
     owned: { kind: 'owned', userId: asUserId('u1') },
     self: { kind: 'self', userId: asUserId('u1') },
   }
+
+  /**
+   * The READ half of the same totality obligation (POD-315). Before D19.2 no such
+   * map could exist — every entry would have been `allow` by the short-circuit —
+   * so a new scope member could be added without anyone deciding what it may SEE.
+   * `Record<IssueScope['kind'], …>` is missing-key-checked, so it cannot now.
+   */
+  const EXPECTED_READ_OF_ANOTHERS_ENTITY: Record<IssueScope['kind'], AuthDecision> = {
+    all: 'allow',
+    none: 'allow',
+    subtree: 'allow',
+    // The two scopes that name a person: gated by ownership, exactly as writes are.
+    owned: 'forbidden',
+    self: 'forbidden',
+  }
+
+  it('every declared scope kind has an explicit rule for reading another person’s entity', () => {
+    const someoneElses = { kind: 'owned', id: 's1', owner: 'bob' } as const
+    for (const [kind, expected] of Object.entries(EXPECTED_READ_OF_ANOTHERS_ENTITY)) {
+      const scope = SCOPES[kind as IssueScope['kind']]
+      expect(authorize(cap(scope), 'read', someoneElses), kind).toBe(expected)
+    }
+  })
 
   it('every declared scope kind has an explicit rule for an out-of-scope write', () => {
     for (const [kind, expected] of Object.entries(EXPECTED_FOR_EXISTING_ISSUE)) {
@@ -154,11 +199,40 @@ describe('owner-or-grant scope (the personal class)', () => {
     expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
   })
 
-  it('reads stay allowed — visibility is the feed’s job, not this function’s', () => {
-    // authorize() is scope-free for reads by design (see the docstring). Scoping
-    // WHAT a principal can see is POD-1077's watermarked feed, and duplicating a
-    // read gate here would be the second permission check invariant 2 forbids.
-    expect(authorize(alice, 'read', session('bob'))).toBe('allow')
+  /**
+   * FLIPPED AT POD-315, AND THE REASONING IT REPLACES IS WORTH KEEPING.
+   *
+   * POD-380 asserted the opposite here — *"reads stay allowed; visibility is the
+   * feed's job, not this function's"* — on the grounds that scoping what a
+   * principal may SEE is POD-1077's watermarked feed, and that a read gate here
+   * would be the second permission check the extension contract's invariant 2
+   * forbids. That was a real argument, and ADR 3 Amendment 1 adjudicated it
+   * against itself in as many words: D19's rejected-alternatives table names
+   * *"keep reads scope-free and filter results at the projection layer"* and
+   * rejects it, because filtering after authorization means the authority
+   * computed a forbidden row and then hoped every projection dropped it.
+   *
+   * Invariant 2 is honoured rather than broken by this: the gate is THIS
+   * function, extended — no second evaluator was added beside it. The feed still
+   * scopes the stream; that is a different question (which rows travel) asked of
+   * a different consumer.
+   */
+  it('DENIES reading an entity it neither owns nor was granted (D19.2)', () => {
+    expect(authorize(alice, 'read', session('bob'))).toBe('forbidden')
+    expect(authorize(alice, 'read', session('bob', ['carol']))).toBe('forbidden')
+    // Unowned is not ambient for reads either — default-closed (§3.1.1).
+    expect(authorize(alice, 'read', session(null))).toBe('forbidden')
+    // ...and --outside-scope does not lift a read denial any more than a write one.
+    expect(authorize(alice, 'read', session('bob'), { override: true })).toBe('forbidden')
+  })
+
+  it('still ALLOWS reading what it owns or was granted — the denial is ownership talking', () => {
+    // Without this pair the test above would also pass against a function that
+    // refused every read, which is the failure mode a refusal-only assertion hides.
+    expect(authorize(alice, 'read', session('alice'))).toBe('allow')
+    expect(authorize(alice, 'read', session('bob', ['alice']))).toBe('allow')
+    // An untargeted read (a list) is a role question, not an ownership one.
+    expect(authorize(alice, 'read')).toBe('allow')
   })
 })
 
