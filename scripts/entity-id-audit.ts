@@ -44,14 +44,24 @@
  *     boundary parse" reading (POD-423 verified it by hand at
  *     `packages/commands/src/issues/contracts.ts`).
  *
- * Both spellings of "an entity id field" are enumerated:
+ * All THREE spellings of "an entity id field" are enumerated:
  *
- *   1. a `<brand>Id`-suffixed key, at any depth; and
+ *   1. a `<brand>Id`-suffixed key, at any depth;
  *   2. a bare `id:` key at the top level of a `z.object` whose declaration NAME
  *      denotes a brand (`Account.id` in `packages/runtime/src/settings.ts`,
  *      which an eight-name grep cannot see). See {@link REPRESENTATION_SUFFIXES}
  *      for where that inference stops — `IssueComment.id` is NOT an `IssueId`,
- *      and POD-423 named it as a defect in error.
+ *      and POD-423 named it as a defect in error; and
+ *   3. a bare `id:` (or a self-referential `parentId`) in a file whose TENANT
+ *      DIRECTORY names the brand — {@link brandOfPath}, added at POD-1212.
+ *
+ * Spelling 3 exists because spellings 1 and 2 both read a NAME, and a command
+ * contract has neither: `const byId = z.object({ id: z.string() })` in
+ * `packages/commands/src/issues/` is the id of an issue, and POD-1212 proved the
+ * gap by flipping a branded field back to a bare string there and watching the
+ * whole audit stay GREEN. 34 sites were invisible for that reason. A declaration
+ * that names a DIFFERENT entity vetoes the directory ({@link declaresOtherEntity}),
+ * so spelling 3 cannot outvote the judgement spelling 2 makes.
  *
  * ---------------------------------------------------------------------------
  * THE INSTRUMENT MUST BE ABLE TO SAY NO
@@ -115,7 +125,17 @@
  *     so branding them at the declaration forces a false choice (POD-362's
  *     finding, upheld). Their names do not end in `<brand>Id`, so the detector
  *     does not reach them — that is the right answer, not a miss, and it is
- *     recorded here so a later sweep does not "fix" it.
+ *     recorded here so a later sweep does not "fix" it. Spelling 3 DOES reach
+ *     one such site (`pinSetInput.id`), which is why it carries an `UNBRANDED`
+ *     marker; see the note above {@link declaresOtherEntity} for why that is a
+ *     marker and not a structural rule.
+ *  4. **An id whose name names NEITHER its brand nor a tenant is unreachable.**
+ *     `duplicateInput.canonicalId` is an issue id and this detector cannot see
+ *     it; nor can it see `causationId` (a `mutationId` by another name). The
+ *     wider class — `requestId`, `runId`, `revisionId`, `stepId` and ~40 more,
+ *     measured at 227 sites — is mostly NOT this item's debt, because those name
+ *     entities with no brand in `packages/model` at all: there is nothing for
+ *     them to be flipped TO. Minting those brands is its own piece of work.
  *  3. **A brand can still be widened downstream.** This sees the declaration,
  *     not what a consumer does with the value.
  */
@@ -276,6 +296,117 @@ export function brandOfSymbol(
   return best
 }
 
+/**
+ * Which brand a FILE'S PATH denotes — the THIRD spelling of "an entity id field",
+ * added at POD-1212.
+ *
+ * The two spellings above both read a NAME: the field's own (`sessionId`) or its
+ * declaration's (`SessionMeta.id`). A command contract has neither. In
+ * `packages/commands/src/issues/contracts.ts` the id of an issue is written
+ *
+ *     const byId = z.object({ id: z.string() })
+ *
+ * and every one of the ten commands built from it takes an `IssueId`. The key is
+ * `id`, so {@link brandOfKey} is silent; the declaration is `byId`, so
+ * {@link brandOfSymbol} is silent. POD-1212 planted `parentId: z.string()` in
+ * that file and the detector stayed GREEN — a survivor, and the same class as
+ * every "detector covers one syntax form" defect in this run: the concept had a
+ * third way of being written and the instrument knew two.
+ *
+ * The inference is the TENANT, and it is derived from the same brand vocabulary
+ * rather than listed: a path segment that singularises to a brand names the
+ * entity that directory is about. `commands/src/issues/` → Issue,
+ * `modules/conversations/` → Conversation. A tenant with no brand
+ * (`mail`, `specs`, `fleet`, `workflows`) yields null and its `id` fields stay
+ * unmeasured HERE — correctly, because this item counts fields whose brand
+ * EXISTS, and inventing one is POD-318's kind of work, not this key's.
+ */
+export function brandOfPath(
+  file: string,
+  brandNames: readonly string[] = ID_BRANDS,
+): string | null {
+  for (const seg of file.replace(/\.[jt]sx?$/, '').split('/')) {
+    const pascal = seg
+      .split('-')
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join('')
+    // Singular and plural alike; a directory is conventionally plural and a
+    // module file conventionally singular, and both name the same tenant.
+    for (const cand of [pascal.replace(/ies$/, 'y'), pascal.replace(/s$/, ''), pascal]) {
+      const hit = brandNames.find((b) => b.toLowerCase() === cand.toLowerCase())
+      if (hit !== undefined) return hit
+    }
+  }
+  return null
+}
+
+/**
+ * Keys that name the SAME entity the enclosing tenant is about, rather than a
+ * different one.
+ *
+ * `parentId` on an issue is an `IssueId`; this is the self-referential edge of a
+ * tree and it is a relationship word, not an entity name, which is why no
+ * `<brand>Id` rule can reach it. Enumerated as a CONCEPT (the words a
+ * self-reference is written with) rather than as the two lines that happen to
+ * exist today.
+ */
+const SELF_REFERENTIAL_KEYS = /^(?:parent|child|root|ancestor|predecessor|successor)Id$/
+
+/**
+ * WHY THERE IS NO STRUCTURAL "POLYMORPHIC ID" RULE HERE, THOUGH IT WAS TRIED.
+ *
+ * Limit 2 holds that a polymorphic id is out of scope by design. Under the first
+ * two spellings that fell out for free (`targetId`/`toId` carry no brand token).
+ * Tenant inference does not get it for free: it reads
+ * `z.object({ kind: PinKind, id: z.string(), … })` in `commands/src/sessions/`
+ * as a `SessionId`, and `PinKind` is `panel | worktree | repo`, so it is none of
+ * them.
+ *
+ * The obvious fix — exclude a bare `id` whose object declares a `kind`/`type`
+ * sibling — was implemented at POD-1212 and REVERTED, because it silently
+ * excluded three sites that are not polymorphic at all:
+ *
+ *     startInput      { id, agentKind }                  ← agentKind is an ATTRIBUTE
+ *     addSessionInput { id, agentKind }                  ← same
+ *     actionInput     { id, kind: 'rebase'|'pr'|'merge' } ← kind is the ACTION
+ *
+ * In every one of those the `id` is an `IssueId`. What makes `pinSetInput`
+ * different is SEMANTIC — its enum members name entity kinds, where these name
+ * an attribute or a verb — and that is not legible at the declaration without
+ * resolving an imported enum. An exclusion rule that cannot tell them apart
+ * fails in the direction this whole issue exists to prevent: quietly not looking.
+ *
+ * So the polymorphic site is excluded by the `UNBRANDED` marker instead, which is
+ * a reasoned, in-source, RATCHETED exclusion rather than a line-number ignore
+ * list — the mechanism {@link unbrandedByDecisionFields} exists for.
+ */
+
+/**
+ * Whether a declaration name is a deliberate NO rather than a silence.
+ *
+ * {@link brandOfSymbol} returns null for two very different reasons, and tenant
+ * inference must only override ONE of them:
+ *
+ *   - `byId`, `getInput`, `reparentInput` — the name says NOTHING about which
+ *     entity it addresses. The directory is the only evidence there is, so
+ *     spelling 3 should speak.
+ *   - `IssueComment`, `SessionObservationCheckpoint` — the name says this is a
+ *     DIFFERENT entity that merely begins with a brand. That is a considered
+ *     judgement (see {@link REPRESENTATION_SUFFIXES}) and letting the enclosing
+ *     directory outvote it would re-introduce, through the back door, exactly
+ *     the `IssueComment.id === IssueId` lie the suffix list exists to prevent.
+ *
+ * Caught by `entity-id-audit.test.ts` — spelling 3 fired on `IssueComment`
+ * inside `commands/src/issues/` before this existed.
+ */
+export function declaresOtherEntity(
+  symbol: string,
+  brandNames: readonly string[] = ID_BRANDS,
+): boolean {
+  if (brandOfSymbol(symbol, brandNames) !== null) return false
+  return brandNames.some((b) => symbol.startsWith(b))
+}
+
 const DECL_AT_COL_0 = /^export (?:const|type|interface|class) (\w+)/
 
 /**
@@ -434,12 +565,17 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
       let brand = brandOfKey(key)
       let symbol = ''
       if (brand === null) {
-        // Spelling 2: a bare `id` at the top level of a declaration whose NAME
-        // denotes a brand. Depth 1 only — a nested object's `id` belongs to that
-        // inner shape, not to the declaration.
-        if (key !== 'id' || depthAt(at) !== 1) continue
+        // Spellings 2 and 3, both at depth 1 only — a nested object's `id`
+        // belongs to that inner shape, not to the declaration.
+        const selfRef = SELF_REFERENTIAL_KEYS.test(key)
+        if ((key !== 'id' && !selfRef) || depthAt(at) !== 1) continue
+        // Spelling 2: a bare `id` on a declaration whose NAME denotes a brand.
         symbol = symbolAt(m.index ?? 0)
-        brand = brandOfSymbol(symbol)
+        brand = key === 'id' ? brandOfSymbol(symbol) : null
+        // Spelling 3: the file's TENANT names the entity. Second, so a
+        // declaration that names its own brand always wins over the directory —
+        // and a declaration that names a DIFFERENT entity vetoes it outright.
+        if (brand === null && !declaresOtherEntity(symbol)) brand = brandOfPath(f.file)
         if (brand === null) continue
       }
       const form = classifyRhs(rhsText(text, at))
@@ -470,6 +606,68 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
 }
 
 const site = (s: EntityIdSite): AuditSite => ({ file: s.file, line: s.line, text: s.text })
+
+/** An id-SHAPED key: the population {@link brandOfKey} is a filter over. */
+const ID_SHAPED_KEY = /Id$|^id$|_id$/
+
+/**
+ * THE OTHER SCOPE, reported because it disagrees with the counted one.
+ *
+ * `rearch-audit`'s item counts id fields whose brand EXISTS — that is what its
+ * unit says and it is the only scope a ratchet can drive to zero, since a field
+ * with no brand has nothing to be flipped TO. But the fanout ledger is explicit
+ * that when two defensible scopes disagree you report BOTH rather than picking
+ * the kind one, and that "not counted" must never be allowed to read as "not
+ * there" (the reason Limit 1 prints db-columns and TS members too).
+ *
+ * So this is the wider scope: every id-shaped key typed as a bare zod string
+ * that NONE of the three spellings can reach, because its name names neither a
+ * brand nor a tenant. Measured at POD-1212: **191** sites across ~48 keys — of
+ * the 227 that were unreachable before spelling 3, 36 became reachable and were
+ * flipped or given a reason.
+ *
+ * It is deliberately NOT a baseline key, and the split is not flattery:
+ *
+ *   - MOST of it is not this item's debt. `requestId`, `runId`, `revisionId`,
+ *     `stepId`, `transitionId`, `fetchId` and ~40 more name entities that have
+ *     no brand in `packages/model` at all. Ratcheting them would demand brands
+ *     be minted, which is a modelling decision and its own piece of work.
+ *   - A FEW are genuinely this item's debt and simply unreachable by any rule
+ *     keyed on names: `duplicateInput.canonicalId` is an `IssueId`;
+ *     `causationId` is a `mutationId` under another name. They are listed here
+ *     rather than quietly omitted.
+ *
+ * Reporting-only, via `bun scripts/entity-id-audit.ts --unreachable`.
+ */
+export function idFieldsWithNoBrandVocabulary(ctx: AuditContext): AuditSite[] {
+  const seen = new Set<string>()
+  for (const s of sitesOnce(ctx)) seen.add(`${s.file}:${s.line}:${s.key}`)
+  const out: AuditSite[] = []
+  for (const f of ctx.files) {
+    if (f.isTest) continue
+    if (f.file.includes('/migrations/drizzle/') || f.file.endsWith('.generated.ts')) continue
+    if (f.file.endsWith('.fixtures.ts')) continue
+    const text = f.stripped
+    const nl: number[] = []
+    for (let k = 0; k < text.length; k++) if (text[k] === '\n') nl.push(k)
+    FIELD_POSITION.lastIndex = 0
+    for (const m of text.matchAll(FIELD_POSITION)) {
+      const key = (m[2] ?? m[3] ?? m[4]) as string
+      if (!ID_SHAPED_KEY.test(key)) continue
+      const at = (m.index ?? 0) + m[0].length
+      if (classifyRhs(rhsText(text, at)) !== 'zod-string') continue
+      const line = lineOf(nl, (m.index ?? 0) + m[0].indexOf(key))
+      // Anything the three spellings already reach is counted elsewhere.
+      if (seen.has(`${f.file}:${line}:${key}`)) continue
+      out.push({
+        file: f.file,
+        line,
+        text: `${key}: ${rhsText(text, at).replace(/\s+/g, ' ').trim().slice(0, 80)}`,
+      })
+    }
+  }
+  return out
+}
 
 /** The three checks below share one scan of the tree. Without this the deletion
  *  audit walks every file three times and its own CLI test — which spawns the
@@ -549,6 +747,19 @@ if (import.meta.main) {
   console.log(
     `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && (s.form === 'zod-string' || s.form === 'carveout-marker')).length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
   )
+  if (argv.includes('--unreachable')) {
+    const wider = idFieldsWithNoBrandVocabulary(loadContext(process.cwd()))
+    const byKey = new Map<string, number>()
+    for (const s of wider) {
+      const k = s.text.slice(0, s.text.indexOf(':'))
+      byKey.set(k, (byKey.get(k) ?? 0) + 1)
+    }
+    console.log(`\nNOT COUNTED — id-shaped, raw, and unreachable by name: ${wider.length}`)
+    console.log('  (mostly names with NO brand in packages/model — nothing to flip TO)')
+    for (const [k, n] of [...byKey].sort((a, b) => b[1] - a[1])) {
+      console.log(`  ${String(n).padStart(4)}  ${k}`)
+    }
+  }
   if (argv.includes('--sites')) {
     for (const s of sites) {
       if (only !== undefined && s.form !== only) continue

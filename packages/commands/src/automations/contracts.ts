@@ -106,7 +106,13 @@
  * for one that refuses this.
  */
 
-import { AgentKind, AutomationScheduleKind, AutomationSessionMode, SessionIdField } from '@podium/model'
+import {
+  AgentKind,
+  AutomationIdField,
+  AutomationScheduleKind,
+  AutomationSessionMode,
+  SessionIdField,
+} from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -229,14 +235,14 @@ export const automationPatchInput = automationFields.partial()
 
 /** The id-addressed inputs. `min(1)` and unbranded, as they shipped. */
 export const automationUpdateInput = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).pipe(AutomationIdField),
   patch: automationPatchInput,
 })
 export const automationSetEnabledInput = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).pipe(AutomationIdField),
   enabled: z.boolean(),
 })
-export const automationRemoveInput = z.object({ id: z.string().min(1) })
+export const automationRemoveInput = z.object({ id: z.string().min(1).pipe(AutomationIdField) })
 
 // ---------------------------------------------------------------------------
 // Shared policy cells, so a repeated rule cannot drift between the four.

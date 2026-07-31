@@ -27,10 +27,12 @@ import { describe, expect, it } from 'vitest'
 import {
   assertBrandsLoaded,
   brandOfKey,
+  brandOfPath,
   brandOfSymbol,
   classifyRhs,
   entityIdSites,
   ID_BRANDS,
+  idFieldsWithNoBrandVocabulary,
   MIN_ID_FIELD_SITES,
   machineIdUnbrandedFields,
   REPRESENTATION_SUFFIXES,
@@ -248,6 +250,136 @@ describe('the planted spellings', () => {
 
   it('STAYS SILENT on a bare `id` under a declaration that is a different entity', () => {
     expect(raw('export const IssueComment = z.object({ id: z.string() })')).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Spelling 3 — the TENANT, added at POD-1212
+// ---------------------------------------------------------------------------
+
+/**
+ * The survivor that motivated this spelling. POD-1212 flipped a branded field in
+ * `packages/commands/src/issues/contracts.ts` back to a bare `z.string()` and the
+ * whole audit stayed GREEN, because a command contract names its entity in
+ * NEITHER the field key nor the declaration — only in its directory.
+ */
+describe('tenant inference', () => {
+  const inTenant = (source: string, file: string): string[] =>
+    rawStringEntityIds(ctxOf(SCAFFOLD + source, file)).map((s) => s.text)
+
+  const CONTRACTS = 'packages/commands/src/issues/contracts.ts'
+
+  it('finds the bare `id` a command contract addresses its entity by', () => {
+    // The exact shape of `byId`, which fifteen issue commands were built on.
+    expect(inTenant('export const byId = z.object({ id: z.string() })', CONTRACTS)).toHaveLength(1)
+  })
+
+  it('finds the SELF-REFERENTIAL edge, which no <brand>Id rule reaches', () => {
+    // `parentId` is the planted survivor from POD-1212, in the `.nullable()`
+    // chain spelling it is actually written in.
+    expect(
+      inTenant(
+        'export const reparentInput = z.object({ parentId: z.string().nullable() })',
+        CONTRACTS,
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('reads the tenant from a MODULE path too, not only a contracts file', () => {
+    expect(
+      inTenant(
+        'export const q = z.object({ id: z.string() })',
+        'apps/server/src/modules/issues/queries.ts',
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('STOPS firing when the tenant site is branded — the counterfactual', () => {
+    expect(inTenant('export const byId = z.object({ id: IssueIdField })', CONTRACTS)).toHaveLength(
+      0,
+    )
+  })
+
+  it('STAYS SILENT in a tenant directory that has NO brand', () => {
+    // `mail`, `specs`, `fleet` and `workflows` name no brand in packages/model,
+    // so there is nothing for their `id` to be flipped TO. This item counts
+    // fields whose brand EXISTS; inventing one is a different piece of work.
+    expect(
+      inTenant(
+        'export const byId = z.object({ id: z.string() })',
+        'packages/commands/src/mail/contracts.ts',
+      ),
+    ).toHaveLength(0)
+  })
+
+  it('lets the DECLARATION name win over the directory', () => {
+    // `brandOfSymbol` runs first, so a file that declares another entity inside a
+    // tenant directory is scored as that entity — and `IssueComment` is excluded
+    // by REPRESENTATION_SUFFIXES rather than being read as the tenant's Issue.
+    expect(
+      inTenant('export const IssueComment = z.object({ id: z.string() })', CONTRACTS),
+    ).toHaveLength(0)
+  })
+
+  it('does NOT reach a nested `id`, which belongs to the inner shape', () => {
+    expect(
+      inTenant(
+        'export const a = z.object({ subscriber: z.object({ id: z.string() }) })',
+        CONTRACTS,
+      ),
+    ).toHaveLength(0)
+  })
+
+  it('is answered by the UNBRANDED marker, not by a line number', () => {
+    // The polymorphic and sub-entity sites tenant inference reaches are excluded
+    // by a reasoned, RATCHETED marker — see the note above DISCRIMINATOR-less
+    // design in entity-id-audit.ts.
+    const src =
+      '/** UNBRANDED: polymorphic — `kind` says what this names. */\nexport const pinSet = z.object({ id: z.string() })'
+    expect(inTenant(src, 'packages/commands/src/sessions/presence.ts')).toHaveLength(0)
+    expect(
+      unbrandedByDecisionFields(
+        ctxOf(SCAFFOLD + src, 'packages/commands/src/sessions/presence.ts'),
+      ),
+    ).toHaveLength(1)
+  })
+})
+
+describe('the wider scope, reported but not ratcheted', () => {
+  const CONTRACTS = 'packages/commands/src/issues/contracts.ts'
+  const wider = (source: string, file = CONTRACTS): string[] =>
+    idFieldsWithNoBrandVocabulary(ctxOf(SCAFFOLD + source, file)).map((s) => s.text)
+
+  it('reports an id-shaped key that names no brand and no tenant', () => {
+    expect(wider('export const a = z.object({ requestId: z.string() })')).toHaveLength(1)
+  })
+
+  it('does NOT double-report what a counted spelling already reaches', () => {
+    // `issueId` is spelling 1 and `id` here is spelling 3; both are in a
+    // baseline key, so listing them again would overstate the uncounted class.
+    expect(
+      wider('export const byId = z.object({ id: z.string(), issueId: z.string() })'),
+    ).toHaveLength(0)
+  })
+
+  it('stays silent on a branded field', () => {
+    expect(wider('export const a = z.object({ requestId: RequestIdField })')).toHaveLength(0)
+  })
+})
+
+describe('brandOfPath', () => {
+  it('singularises a plural tenant directory', () => {
+    expect(brandOfPath('packages/commands/src/issues/contracts.ts')).toBe('Issue')
+    expect(brandOfPath('apps/server/src/modules/conversations/service.ts')).toBe('Conversation')
+  })
+
+  it('reads a kebab-cased multi-word tenant', () => {
+    expect(brandOfPath('apps/server/src/modules/automation-runs/x.ts')).toBe('AutomationRun')
+  })
+
+  it('is null for a directory that names no brand', () => {
+    expect(brandOfPath('packages/commands/src/mail/contracts.ts')).toBeNull()
+    expect(brandOfPath('packages/commands/src/workflows/contracts.ts')).toBeNull()
   })
 })
 
