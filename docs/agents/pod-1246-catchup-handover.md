@@ -134,6 +134,56 @@ that strips volatile fields to compute a dirty key. It is not main's
 "issueProjection" over integration returns a hit and reads as "integration has
 this". It does not.
 
+
+### 0d.1 — POD-1254 DECIDED: first-class. And the block is deeper than 0d says.
+
+**Decision: `repo` and `issueDep` are first-class entities with normalized
+projections on the feed.** ADR 4 settles it; no human call needed. The deciding
+clause is **D7.2**, not Move 1, and it falls against integration's current shape.
+
+Integration's `IssueWireCore` (`entities/issue.ts:130`) — an R4 WIRE projection —
+carries `prefix`, `displayRef`, `blockedBy`, `deps`/`dependents` and `blocked`. Its
+header (lines 34-36) claims "computed server-side at serialization, never stored —
+D7's derivation locality, already satisfied."
+
+**That claim answers D6 (storage encoding), not D7.2 (derivation locality).** "Never
+stored" and "not O(world)" are different properties, and computing at serialization
+*is* fan-out-path work. Two violations:
+
+- **Repo prefix.** `prefix` on every issue's wire means one repo's prefix change
+  invalidates every issue in that repo — O(issues) on the fan-out path from a
+  one-row edit. Structurally identical to the embedded `SessionMeta[]` that D7 was
+  written to make unrepresentable.
+- **Blocked.** Computed from the depended-on issues' state, so closing A makes
+  `blocked` stale on every dependent — recomputing projections of OTHER entities
+  from a change to A. D7.2 allows projections of X only.
+
+**D7.4 prescribes the remedy verbatim** for repo: a first-class materialized entity
+updated incrementally by the command that changes its input, carrying its own
+revision, on the normal feed. A prefix change becomes one row — exactly POD-822.
+
+**`issueDep` follows CONSEQUENTIALLY, and the distinction matters.** D7.1 does NOT
+forbid integration's embedded `deps: [{id, type}]` — that is reference-by-branded-id,
+which D7.1 permits. The edge must become an entity because `blocked` belongs at the
+replica under D7.3, and a replica can only join over edges it has been sent. Anyone
+re-deriving this from "a kind on the feed is an entity" gets the right answer for
+the wrong reason and will mishandle the next edge type.
+
+#### The implementation is larger than §0d states
+
+Payload types are recoverable from main — `issue/wire.ts` (106L), `issue/dep.ts`
+(189L), `repo/{fields,wire,index}` (96L). **But `dep.ts` and `repo/wire.ts` both
+import `../shape`** (`wireShape`, `dropNullValues`, `restoreNullValues`) — main's
+`shape.ts`, the THIRD group (a) port-back item, deferred to group (d) precisely
+because *both sides solved null-encoding differently*.
+
+So the port is three files **plus a null-encoding decision belonging to group (d)**,
+now pulled onto the critical path behind this one. Either port `shape.ts` too
+(pre-empting group (d)), or rewrite dep/repo against integration's null-encoding
+(needs group (d) first). **The critical path has grown a third link:**
+null-encoding → dep/repo port → sync.ts clear → semantic typecheck → registry
+tripwire → 43 declarations.
+
 ### Practical consequence for the marker-clearing sequence
 
 §0b says clear all markers so semantic typechecking comes back, then let the
