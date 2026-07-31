@@ -46,3 +46,8 @@ mon.pid
 
 # One-off runtime-verification screenshot dumps
 verify-artifacts/
+
+# Patch/merge debris. Two workers in one day left .orig files staged for commit
+# because `git add -A` picks them up; they are never wanted in the tree.
+*.orig
+*.rej
