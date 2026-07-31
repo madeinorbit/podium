@@ -32,6 +32,7 @@
  * question is recorded in `docs/agents/rewrite-fanout-ledger.md`.
  */
 
+import type { ConfirmationRule } from '@podium/commands'
 import type { OutboxRejectionCode } from '@podium/sync/outbox'
 
 /** One clause naming what happened, for a toast. */
@@ -126,4 +127,52 @@ export function kindLabel(kind: string): string {
     resumeAndSend: 'Message',
   }
   return labels[kind] ?? kind
+}
+
+/**
+ * CAN AN INLINE CONFIRMATION SATISFY THIS REFUSAL? — the consumer for
+ * `CommandPolicy.confirmation` (POD-1224's declared-but-unread item, disposed
+ * here rather than deleted).
+ *
+ * THE CALL, and why routing beat deleting. The audit's disposition was "either
+ * route the outbox refusal through it or delete it; it must not stay as an
+ * unenforced duplicate", on the reading that the field restates a policy already
+ * keyed by `overrideScope` server-side. That reading is right about the SERVER —
+ * the authority decides confirmation there and the contract field adds nothing
+ * to that decision. It is wrong about the CLIENT, which is where this issue
+ * lives, because the recovery surface has a question the server's refusal does
+ * not answer: *can the user do anything about this from here?*
+ *
+ * ADR 3 D2's three rules answer it differently, and the difference is the whole
+ * affordance:
+ *
+ *   `confirm` — yes. A durable confirmation on the envelope (D8 outcome 3) is
+ *               exactly what the retry needs, and the user can supply it.
+ *   `broker`  — NO. The approval broker ([spec:SP-edbb]) is the confirmation
+ *               executor; a checkbox in this dialog is not that, and offering
+ *               one produces a retry refused identically — the button the
+ *               affordance rule exists to forbid.
+ *   `none`    — NO, and it means something is wrong: the authority demanded a
+ *               confirmation for a contract that declares it never needs one.
+ *               That is a contract/enforcement disagreement, not a user task,
+ *               and the user cannot fix it by confirming harder.
+ *
+ * So the field gets a consumer that changes what the user sees, which is the
+ * standard the audit sets — not a read that exists to satisfy the audit.
+ */
+export function inlineConfirmationCanSatisfy(rule: ConfirmationRule): boolean {
+  switch (rule) {
+    case 'confirm':
+      return true
+    case 'broker':
+    case 'none':
+      return false
+  }
+}
+
+/** What to say when the refusal is real but this surface cannot resolve it. */
+export function unsatisfiableConfirmationDetail(rule: ConfirmationRule): string {
+  return rule === 'broker'
+    ? 'This needs an approval from someone else before it can go through. Your text is kept here until it does.'
+    : 'The server asked for a confirmation this change is not set up to carry. Report it; your text is kept here.'
 }

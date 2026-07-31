@@ -6,7 +6,9 @@
  * shares ONE construction path with zero React involvement.
  */
 
+import type { ConfirmationRule } from '@podium/commands'
 import type { SessionId, WorkState } from '@podium/model'
+import { ENQUEUEABLE_DELIVERY, type OutboxCommand } from '@podium/sync/outbox'
 import { type FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import {
@@ -38,6 +40,62 @@ export type OutboxKinds = {
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }
 }
+
+/** `ENQUEUEABLE_DELIVERY` narrowed and nothing else — the same value, reused
+ *  rather than re-spelled, so a rename of the class reaches this table. */
+const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
+
+/**
+ * The CONTRACT TABLE, which `readLegacyReplica`, the outbox binding and the
+ * dead-letter recovery surface all refuse to invent (ADR 3 D9): a client entry
+ * carries a bare `kind` and an `OutboxCommand` needs `{name, version, delivery}`,
+ * so guessing a version would re-author a queued write under a contract its
+ * input may not satisfy.
+ *
+ * It is typed `Record<keyof OutboxKinds, …>` deliberately. That is the only
+ * thing standing between this table and silent drift: adding a drainable kind
+ * to the engine's queue without a contract here is a TYPE ERROR, rather than an
+ * `unknown-command` rejection a user discovers when their offline work fails to
+ * migrate.
+ *
+ * IT LIVES HERE, beside `OutboxKinds`, rather than in one app (POD-316). It used
+ * to live in the mobile provider, and the web recovery surface needs the same
+ * mapping — two copies would drift, and the thing that drifts is which contract
+ * a queued write is replayed under.
+ *
+ * `confirmation` is the contract's own `policy.confirmation` (ADR 3 D2), carried
+ * here so the recovery surface can tell whether an inline confirmation could
+ * possibly satisfy a `confirmation-required` refusal WITHOUT importing the whole
+ * command registry into the browser bundle (`audit:browser-reach`). It is a copy,
+ * and `outbox-contract-table.test.ts` pins it EQUAL to the contract's value.
+ *
+ * Every version is 1 because every one of these contracts has only ever had one.
+ * That is a statement about today, and the day one of them changes, the entry
+ * here changes with it.
+ */
+export const OUTBOX_COMMANDS: Record<
+  keyof OutboxKinds,
+  OutboxCommand & { confirmation: ConfirmationRule }
+> = {
+  resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery, confirmation: 'none' },
+  rename: { name: 'sessions.rename', version: 1, delivery, confirmation: 'none' },
+  setArchived: { name: 'sessions.setArchived', version: 1, delivery, confirmation: 'none' },
+  setWorkState: { name: 'sessions.setWorkState', version: 1, delivery, confirmation: 'none' },
+  snoozeSet: { name: 'snoozes.set', version: 1, delivery, confirmation: 'none' },
+  snoozeClear: { name: 'snoozes.clear', version: 1, delivery, confirmation: 'none' },
+  sessionMarkRead: { name: 'sessions.markRead', version: 1, delivery, confirmation: 'none' },
+  sessionMarkUnread: { name: 'sessions.markUnread', version: 1, delivery, confirmation: 'none' },
+  issueMarkRead: { name: 'issues.markRead', version: 1, delivery, confirmation: 'none' },
+  issueMarkUnread: { name: 'issues.markUnread', version: 1, delivery, confirmation: 'none' },
+  issueSetTucked: { name: 'issues.setTucked', version: 1, delivery, confirmation: 'none' },
+}
+
+/** The contract behind one queued kind, or `undefined` for a kind with no
+ *  executor. */
+export const outboxCommandFor = (
+  kind: string,
+): (OutboxCommand & { confirmation: ConfirmationRule }) | undefined =>
+  OUTBOX_COMMANDS[kind as keyof OutboxKinds]
 
 /** SocketHub construction seam — injectable so engine unit tests run a fake hub. */
 export type CreateHub = (opts: ConstructorParameters<typeof SocketHub>[0]) => SocketHub

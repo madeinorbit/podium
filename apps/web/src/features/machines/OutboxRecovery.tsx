@@ -29,9 +29,16 @@
  *    `recoveryCopyFor(code)` — both functions of the code alone.
  */
 
+import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
-import { kindLabel, recoveryCopyFor } from '@podium/client-core/outbox-recovery-copy'
+import {
+  inlineConfirmationCanSatisfy,
+  kindLabel,
+  recoveryCopyFor,
+  unsatisfiableConfirmationDetail,
+} from '@podium/client-core/outbox-recovery-copy'
 import { shallowEqual } from '@podium/client-core/store'
+import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { AlertTriangle } from 'lucide-react'
 import type { JSX } from 'react'
@@ -61,7 +68,19 @@ function authoredText(input: unknown): string {
 function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Element {
   const recover = useStoreSelector((s) => s.recoverOutbox)
   const plan = recoveryPlanFor(parked.reason.code)
-  const copy = recoveryCopyFor(parked.reason.code)
+  const baseCopy = recoveryCopyFor(parked.reason.code)
+  // THE CONSUMER for `CommandPolicy.confirmation` (POD-1224). A
+  // `confirmation-required` refusal is only resolvable HERE when the contract's
+  // rule is `confirm`; under `broker` the approval broker is the executor and a
+  // checkbox in this dialog is not it, and under `none` the demand contradicts
+  // the contract. In both of those the retry affordance is withheld and the
+  // sentence says why — because offering a button that reproduces the same
+  // refusal is the one thing this surface must never do.
+  const rule = confirmationRuleFor(parked.entry.kind)
+  const confirmable = plan.retry !== 'confirmation' || inlineConfirmationCanSatisfy(rule)
+  const copy = confirmable
+    ? baseCopy
+    : { ...baseCopy, detail: unsatisfiableConfirmationDetail(rule), retryLabel: undefined }
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => authoredText(parked.entry.input))
   const [failed, setFailed] = useState<string | null>(null)
@@ -176,6 +195,19 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
       </div>
     </li>
   )
+}
+
+/** The contract's declared confirmation rule for a queued kind. Defaults to
+ *  `broker` — the CLOSED arm — when the kind resolves to no contract: an
+ *  unknown command is exactly the case where we must not assume a checkbox is
+ *  enough. */
+function confirmationRuleFor(kind: string): ConfirmationRule {
+  // Sourced from the client's own contract table rather than by importing the
+  // whole command registry into the browser bundle (`audit:browser-reach`). The
+  // table's value is pinned EQUAL to the contract's by
+  // `outbox-contract-table.test.ts`, so this is one statement of the policy with
+  // a drift guard, not a second one.
+  return outboxCommandFor(kind)?.confirmation ?? 'broker'
 }
 
 /** Put the edited prose back on the field it came from, so an edit of a rename
