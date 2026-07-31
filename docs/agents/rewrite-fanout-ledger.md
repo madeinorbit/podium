@@ -2858,3 +2858,45 @@ the adapter would have produced a GREEN TYPECHECK and a `bun.lock` still
 carrying `@tanstack/db`. No runtime test can observe a type-only import. The
 guard has to read the SOURCE — with a positive control, and mutation-proved by
 adding the forbidden import back.
+
+## A SERIES can close with its title unachieved, and a closed issue hides it better
+
+POD-378 found this on itself, before its session stopped, which is the only
+reason it is not a third silent instance.
+
+The 2.3 series is titled "Remove TanStack DB". It is now closed. Measured on
+integration at 8f006358:
+
+    grep -c 'tanstack' bun.lock   ->  15
+    @tanstack/db declared in      ->  apps/web, packages/client-core
+    source imports remaining      ->  17
+
+Every issue in the series did real work and none of them was wrong. The deletion
+genuinely could not happen inside it — it is blocked on POD-1220's mobile
+binding. But nothing tracked the remainder, and the plan for it lived in a doc
+with no owner.
+
+THIS IS THE SAME SHAPE AS POD-756, which was marked DONE with its lane never
+built — its agent corrected the suite's COUNT, which was real work, while the
+deliverable in the title was never created. Two instances now, and in both the
+CLOSED state hid the gap better than an open one would have: nobody re-reads a
+closed issue, and "the series that removed TanStack" is a sentence people will
+now repeat.
+
+THE RULE, which this run has applied to individual issues and not to series:
+grade against the LITERAL acceptance text, not against the work performed. Extend
+it upward — when the last child of a series closes, re-read the SERIES title and
+ask whether it is now true. "All children closed" and "the series achieved its
+stated purpose" are different claims, and only the first is mechanically checked.
+
+Two corollaries earned here:
+
+  - ACCEPTANCE FOR A DELETION IS THE LOCKFILE, NOT A TYPECHECK. POD-378 proved
+    why: the kernel replica's type surface routed through the package being
+    removed, so deleting the adapter would have produced a green typecheck with
+    `@tanstack/db` still in `bun.lock`. A type-only import is erased before any
+    runtime test can observe it.
+  - FILE THE REMAINDER BEFORE THE SESSION STOPS. A plan that lives only in a
+    session's context or an unowned doc is lost at stop. POD-378 carried its five
+    constraints INLINE into the follow-up rather than pointing at the document —
+    this run has twice paid for a fix that lived only in a mailbox.
