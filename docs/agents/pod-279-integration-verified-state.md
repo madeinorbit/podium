@@ -1,7 +1,8 @@
 # POD-279 — verified state of the integration branch
 
-Measured at `e8f450b3` on 2026-07-31, on a quiet host, with a clean working tree
-and `bun install` run first. Every number below was produced in this one sitting;
+Measured on 2026-07-31, on a quiet host, with a clean working tree and
+`bun install` run first. RE-MEASURED at the end of the run; the table below is
+the later of the two and supersedes the earlier numbers. Every number below was produced in this one sitting;
 none is quoted from a handoff.
 
 ## Result: fully green, all three lanes, zero failures
@@ -9,15 +10,16 @@ none is quoted from a handoff.
 | Check | Result |
 |---|---|
 | `bun run typecheck --force` | 23/23 successful, **`Cached: 0 cached, 23 total`** |
-| `bun run test:unit` | 603 files, **8747 passed**, 19 skipped, 0 failed |
-| `bun run test:web` | 179 files, **1432 passed**, 0 failed |
+| `bun run test:unit` | 605 files, **8800 passed**, 19 skipped, 0 failed |
+| `bun run test:web` | 180 files, **1440 passed**, 0 failed |
 | `bun run test:mobile` | 4 files, **34 passed**, 0 failed |
 | `bun run migration:check` | clean |
 
-Eleven gates, all exit 0: `check-boundaries`, `check-no-nul-bytes`,
+Twelve gates, all exit 0 (`lint:shadowing` was added during the run by POD-1246,
+to catch a merge defect neither git nor the typechecker reports): `check-boundaries`, `check-no-nul-bytes`,
 `audit-settings-commands`, `audit-client-secrets`, `audit-browser-reach`,
 `audit-derived-families`, `audit-machine-grants`, `audit-router-mutations`,
-`audit-durable-classes`, `audit-declared-consumers`, `rearch-audit`.
+`audit-durable-classes`, `audit-declared-consumers`, `rearch-audit`, `lint:shadowing`.
 
 `audit-phase2-client` reports **4** open `unattributed-store-read` sites and is
 RED BY DESIGN — see below.
