@@ -16,7 +16,13 @@ const issues: RefIssueLike[] = [
 ]
 
 const sessions: RefSessionLike[] = [
-  { sessionId: asSessionId('s1'), displayRef: 'POD-13-A', cwd: '/repo', issueId: 'iss_1', name: 'agent a' },
+  {
+    sessionId: asSessionId('s1'),
+    displayRef: 'POD-13-A',
+    cwd: '/repo',
+    issueId: 'iss_1',
+    name: 'agent a',
+  },
   { sessionId: asSessionId('s2'), displayRef: 'POD-DRAFT-3', cwd: '/repo', name: 'draft agent' },
 ]
 
@@ -59,9 +65,9 @@ describe('resolveRef', () => {
 
 describe('miniviewReducer', () => {
   it('opens to a ref, carrying the click anchor', () => {
-    expect(miniviewReducer(null, { type: 'open', ref: 'POD-13', anchor: { x: 40, y: 90 } })).toEqual(
-      { ref: 'POD-13', anchor: { x: 40, y: 90 }, seq: 1 },
-    )
+    expect(
+      miniviewReducer(null, { type: 'open', ref: 'POD-13', anchor: { x: 40, y: 90 } }),
+    ).toEqual({ ref: 'POD-13', anchor: { x: 40, y: 90 }, seq: 1 })
   })
 
   it('opening again replaces the previous ref (single instance) and bumps seq', () => {

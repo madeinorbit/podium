@@ -1,4 +1,10 @@
-import { asSessionId, type AgentRuntimeState, type SessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  type AgentRuntimeState,
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { partitionWorkItems, sortSessionsForSidebar } from './derive'
 import { compareRecency, groupSessions } from './home'
@@ -85,9 +91,21 @@ describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
     meta({ agentKind: 'claude-code', ...over })
 
   it('orders NEEDS YOUR ATTENTION newest-active first', () => {
-    const a = agent({ sessionId: asSessionId('old'), lastActiveAt: old, agentState: needsUser(old) })
-    const b = agent({ sessionId: asSessionId('mid'), lastActiveAt: mid, agentState: needsUser(mid) })
-    const c = agent({ sessionId: asSessionId('new'), lastActiveAt: recent, agentState: needsUser(recent) })
+    const a = agent({
+      sessionId: asSessionId('old'),
+      lastActiveAt: old,
+      agentState: needsUser(old),
+    })
+    const b = agent({
+      sessionId: asSessionId('mid'),
+      lastActiveAt: mid,
+      agentState: needsUser(mid),
+    })
+    const c = agent({
+      sessionId: asSessionId('new'),
+      lastActiveAt: recent,
+      agentState: needsUser(recent),
+    })
     const { attention } = partitionWorkItems([a, b, c], new Set(), Date.parse('2026-06-11'))
     expect(attention.map((s) => s.sessionId)).toEqual(['new', 'mid', 'old'])
   })
@@ -134,7 +152,11 @@ describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
 
   it('orders PINNED PANELS newest-active first', () => {
     const a = meta({ sessionId: asSessionId('old'), lastActiveAt: old, agentKind: 'claude-code' })
-    const b = meta({ sessionId: asSessionId('new'), lastActiveAt: recent, agentKind: 'claude-code' })
+    const b = meta({
+      sessionId: asSessionId('new'),
+      lastActiveAt: recent,
+      agentKind: 'claude-code',
+    })
     const { pinnedPanels } = partitionWorkItems(
       [a, b],
       new Set(['old', 'new']),

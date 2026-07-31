@@ -517,6 +517,35 @@ describe('the side cache', () => {
       ).toEqual(['m1'])
     })
 
+    it('is REFUSED when the device cannot be attributed — someone else’s unsent work', () => {
+      // POD-307's fail-closed rule reaching the queue: a pre-identity device's
+      // queued writes are not this user's to replay. The composition root passes
+      // the same verdict the entity rows get.
+      const storage = memoryStorage()
+      storage.setItem('podium.outbox.v1', JSON.stringify([queued('m1')]))
+      const side = createSideCache({
+        storage,
+        enumerateKeys: () => [],
+        adoptLegacyOutbox: false,
+      })
+      expect(side.outboxStorage().load()).toEqual([])
+    })
+
+    it('a refusal DECLINES rather than destroys — a later attributable boot still adopts', () => {
+      // Declining to adopt is not the same as discarding. If the refusal marked
+      // the fold done, the work would be stranded forever by one ambiguous boot.
+      const storage = memoryStorage()
+      storage.setItem('podium.outbox.v1', JSON.stringify([queued('m1')]))
+      createSideCache({ storage, enumerateKeys: () => [], adoptLegacyOutbox: false })
+      const later = createSideCache({ storage, enumerateKeys: () => [], adoptLegacyOutbox: true })
+      expect(
+        later
+          .outboxStorage()
+          .load()
+          .map((e) => e.mutationId),
+      ).toEqual(['m1'])
+    })
+
     it('an unreadable legacy blob yields nothing and does not throw', () => {
       const storage = memoryStorage()
       storage.setItem('podium.outbox.v1', '{not json')
