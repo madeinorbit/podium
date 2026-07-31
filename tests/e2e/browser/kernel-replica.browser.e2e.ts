@@ -95,24 +95,35 @@ const flagRow = (page: Page, name: string) =>
     .last()
 
 /**
- * Turn the hidden `kernel-replica` flag on through the REAL Settings UI.
+ * Drive the hidden `kernel-replica` flag through the REAL Settings UI.
  *
  * The harness runs from source, so the server is in dev mode and hidden flags are
  * listed with a "Dev" badge — which is what makes a real click possible here
  * instead of a back-door write to the settings blob.
+ *
+ * It sets an ABSOLUTE state rather than toggling, and the counterfactual test
+ * below turns the flag OFF before asserting `legacy`. The flag lives in
+ * instance settings, so it OUTLIVES the browser context: a run interrupted
+ * before `global-teardown` wipes the harness state dir leaves it on, and a
+ * counterfactual that assumed "off at the start" would then quietly assert
+ * nothing on the next run. Asserting a state you did not establish is how a
+ * check stops being a check.
  */
-async function enableKernelReplica(page: Page): Promise<void> {
+async function setKernelReplica(page: Page, on: boolean): Promise<void> {
   await openExperimental(page)
   const row = flagRow(page, 'Kernel replica (IndexedDB)')
   const toggle = row.getByRole('switch').first()
   await expect(toggle).toBeEnabled({ timeout: 30_000 })
-  if ((await toggle.getAttribute('aria-checked')) !== 'true') {
+  const want = on ? 'true' : 'false'
+  if ((await toggle.getAttribute('aria-checked')) !== want) {
     await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await expect(toggle).toHaveAttribute('aria-checked', want)
     await page.getByRole('button', { name: /^Save$/ }).click()
     await expect(page.getByText('Saved.', { exact: true })).toBeVisible({ timeout: 15_000 })
   }
 }
+
+const enableKernelReplica = (page: Page) => setKernelReplica(page, true)
 
 const workspaceTab = (page: Page, sessionId: string) =>
   page.locator(`[data-session="${sessionId}"][role="button"]`)
@@ -155,6 +166,9 @@ test.describe('the web engine on the kernel replica', () => {
   test('the flag moves the rendered app onto the kernel path, and the marker can say legacy', async ({
     page,
   }) => {
+    // ESTABLISH the flag-off state rather than assuming it — see setKernelReplica.
+    await setKernelReplica(page, false)
+
     // WITH THE FLAG OFF the app resolves the shipped path. This assertion is the
     // counterfactual for every `expectKernelPath` below: it shows the marker is a
     // measurement and not a constant.
