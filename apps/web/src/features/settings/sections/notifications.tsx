@@ -75,36 +75,50 @@ export function NotificationsSection({
           }
         />
       </Row>
-      <Row label="Telegram bot token">
-        <Input
-          type="password"
-          placeholder="empty = off"
-          value={settings.notifications.telegramBotToken}
-          onChange={(e) =>
-            patch({
-              notifications: {
-                ...settings.notifications,
-                telegramBotToken: e.target.value,
-              },
-            })
-          }
-        />
-      </Row>
-      <Row label="Telegram chat ID">
-        <Input
-          type="text"
-          placeholder="filled by setup, or @channel"
-          value={settings.notifications.telegramChatId}
-          onChange={(e) => {
-            onResetTelegramSetup()
-            patch({
-              notifications: {
-                ...settings.notifications,
-                telegramChatId: e.target.value,
-              },
-            })
-          }}
-        />
+      {/*
+        THE BOT TOKEN IS GONE FROM THIS TAB (POD-421, ADR 9 D8 S4).
+
+        It is `notifications.telegramBotToken` — a `secret-value` on the
+        `server-owned-secrets` matrix row — and it was rendered here as a
+        password input bound to a blob member, beside `telegramChatId`, which is
+        a per-user ROUTING address on a different row entirely. One nested
+        object, two matrix rows, one form: the exact defect POD-418 split the
+        model to end, still visible on screen.
+
+        It now lives on the Secrets surface as presence + fingerprint, which is
+        also what makes it admin-managed: the floor is enforced there, on the
+        contracted command, rather than being invisible in a shared blob save.
+      */}
+      <Row
+        label="Telegram chat"
+        description={
+          settings.notifications.telegramChatId.trim()
+            ? `Connected — chat ${settings.notifications.telegramChatId}`
+            : 'Not connected. Use Connect Telegram below; Podium binds the chat that presents your setup code.'
+        }
+      >
+        {/*
+          READ-ONLY, AND THAT IS THE POINT (POD-421, ADR 3 Amendment 1 D22 /
+          readiness §3.1.6 S4).
+
+          This was a free-text input. Typing a chat id into it configured a
+          delivery address with no ceremony behind it — which is the operator
+          fallback the brief forbids reintroducing, arriving as a text box
+          rather than as a code path: whoever holds the bot becomes the implied
+          identity, and inbound Telegram is now an AUTHENTICATION surface.
+
+          POD-1080 shipped the real ceremony (a claim code minted for the
+          authenticated caller, presented to the bot, redeemed into a binding
+          whose user comes from the MINT and can come from nowhere else). The
+          only honest control here is the one that STARTS that ceremony, so the
+          address is displayed and not edited.
+        */}
+        <span
+          className="w-full truncate text-right font-mono text-[11.5px] text-text-dim"
+          data-testid="telegram-chat-id"
+        >
+          {settings.notifications.telegramChatId.trim() || '—'}
+        </span>
       </Row>
       <Row label="Telegram setup">
         <div className="min-w-0 flex-1 space-y-2">
@@ -132,20 +146,21 @@ export function NotificationsSection({
         <ol className="list-decimal space-y-1 pl-4">
           <li>
             In Telegram, message <code className="text-[11px]">@BotFather</code> and use{' '}
-            <code className="text-[11px]">/newbot</code> to create a bot. Paste its bot token here.
+            <code className="text-[11px]">/newbot</code> to create a bot. An admin saves its token
+            under <span className="font-medium text-foreground">Secrets</span>.
           </li>
           <li>
             Click <span className="font-medium text-foreground">Connect Telegram</span>. Podium
             shows a Telegram link with a setup code and polls for 5 minutes.
           </li>
           <li>
-            Send the prefilled start message. When Podium sees the code, it fills the chat ID and
-            sends a confirmation.
+            Send the prefilled start message. When Podium sees your code it binds that chat to
+            you and sends a confirmation. A chat Podium has no binding for is ignored.
           </li>
         </ol>
         <p className="mt-1.5">
-          Public channels can still use <code className="text-[11px]">@channelusername</code>. These
-          settings are global for this Podium server.
+          The chat is bound by the ceremony and cannot be typed in: an address configured without
+          one would let whoever holds the bot act as you.
         </p>
       </div>
     </Section>

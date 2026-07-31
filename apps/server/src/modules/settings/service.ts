@@ -14,7 +14,10 @@ import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'
+import type { CommandPrincipal } from '../../command-principal'
+import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
+import { recordSettingsCommand, type SettingsAuditPort } from './audit'
 import { readOrCreateFingerprintKey, secretPresence } from './secret-fingerprint'
 
 const TELEGRAM_SETUP_TTL_MS = 5 * 60 * 1000
@@ -224,6 +227,22 @@ export interface SettingsServiceOptions {
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
   modelProbe?: ModelProbe
+  /**
+   * WHERE A SETTINGS COMMAND IS RECORDED (POD-421).
+   *
+   * REQUIRED, not optional-with-a-no-op-default, for the reason
+   * {@link SettingsServiceOptions.telegramBindings} is: an absent trail is
+   * indistinguishable from a working one at every call site, and an audit trail
+   * that silently records nothing is worse than none at all because it is
+   * relied upon. A missing dependency must be a compile error.
+   *
+   * It lives HERE rather than being reached out of the store by `trpc.ts`. That
+   * is `rearch-audit`'s `router-triple-access` rule and it is the right shape
+   * independently: a transport that can reach `sessionStore` directly is a
+   * transport that can grow a second policy for it — the same reasoning
+   * {@link apiKeyFor} already carries.
+   */
+  audit: SettingsAuditPort
   /** The server-held MAC key the secret fingerprint is derived under. Injected so
    *  a test can pin a fingerprint without touching the real state dir; defaults
    *  to the persistent key beside `daemon.secret`. Read LAZILY (a thunk, not a
@@ -246,6 +265,7 @@ export class SettingsService {
   private readonly generateTelegramSetupCode: () => string
   private readonly now: () => number
   private readonly fingerprintKey: () => Buffer
+  private readonly audit: SettingsAuditPort
   // SWR cache of live per-agent model lists (grok/cursor/opencode). Query-driven:
   // nothing probes until a client asks via getModelCatalog().
   private readonly modelCatalog: ModelCatalog
@@ -257,6 +277,7 @@ export class SettingsService {
     options: SettingsServiceOptions,
   ) {
     this.telegramBindings = options.telegramBindings
+    this.audit = options.audit
     this.mintingUser = options.mintingUser
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
@@ -273,6 +294,26 @@ export class SettingsService {
 
   getSettings(): PodiumSettings {
     return this.store.getSettings()
+  }
+
+  /**
+   * Record one settings command, applied or refused (POD-421).
+   *
+   * A pass-through to {@link recordSettingsCommand}, and it exists for the
+   * reason {@link apiKeyFor} does: so the ROUTER does not reach into
+   * `sessionStore` for the audit repository. `rearch-audit`'s
+   * `router-triple-access` counts exactly that, and it caught this on the first
+   * run — the reach-through grew the census 18 → 19, which is the ratchet doing
+   * its job on a line that was architecturally wrong for an independent reason.
+   */
+  recordCommand(input: {
+    command: string
+    outcome: SettingsAuditOutcome
+    principal: CommandPrincipal
+    input: unknown
+    error?: string
+  }): void {
+    recordSettingsCommand(this.audit, input)
   }
 
   /**

@@ -438,3 +438,14 @@ export {
   type WorkflowVerb,
   workflowDecision,
 } from './workflows/ownership'
+export {
+  applyRedaction,
+  applyRedactionWithReport,
+  messageMentionsRedactedValue,
+  REDACTED,
+  redactForLog,
+  type RedactionReport,
+  type RedactionSide,
+  redactReport,
+  redactUnknownForLog,
+} from './redaction'

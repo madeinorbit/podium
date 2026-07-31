@@ -94,6 +94,9 @@ beforeEach(() => {
     // a no-op writer would let the ceremony report success while binding
     // nothing, and a default user would stamp one id for everybody.
     telegramBindings: { upsert: () => {} },
+    // REQUIRED (POD-421): an absent trail is indistinguishable from a working
+    // one at every call site, so it is a compile error rather than a default.
+    audit: { repo: { append: () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
     mintingUser: () => asUserId('user:sole'),
     fingerprintKey: () => FINGERPRINT_KEY,
     now: () => Date.parse('2026-07-30T12:00:00.000Z'),
@@ -313,7 +316,10 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     let current: UserId = ALICE
     const service = new SettingsService(st, secretStore, new EventBus(), {
       telegramBindings: { upsert: (b) => bound.push(b) },
-      mintingUser: () => current,
+      // REQUIRED (POD-421): an absent trail is indistinguishable from a working
+    // one at every call site, so it is a compile error rather than a default.
+    audit: { repo: { append: () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
+    mintingUser: () => current,
       generateTelegramSetupCode: () => 'PODIUM-CODE',
       telegramSetup: {
         getMe: async () => ({ username: 'bot' }),

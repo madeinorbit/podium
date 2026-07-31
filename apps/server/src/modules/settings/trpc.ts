@@ -37,9 +37,11 @@
  * empty object FAILS it.
  */
 
-import type { TRPCMutationProcedure } from '@trpc/server'
+import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import { mods, t } from '../../trpc'
+import { type Context, mods, t } from '../../trpc'
+import { redactErrorMessage } from './audit'
+import { settingsAuthzDeps, settingsAuthzFailure } from './authz'
 import {
   isSettingsCommandExposedOn,
   SETTINGS_COMMANDS_TRPC,
@@ -48,11 +50,30 @@ import {
   settingsProcKey,
 } from './registry'
 
-type SettingsProcedure<N extends SettingsCommandName> = TRPCMutationProcedure<{
-  meta: unknown
-  input: z.input<(typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['input']>
-  output: Awaited<ReturnType<(typeof SETTINGS_COMMANDS_TRPC)[N]['handler']>>
-}>
+/**
+ * A READ is served as a QUERY, DERIVED from `policy.action` (POD-421).
+ *
+ * `settings.secretPresence` is the family's one contracted read. Serving it as a
+ * mutation would work on the wire and would be a lie in the router: tRPC's
+ * query/mutation split is what decides cacheability, prefetch and retry
+ * behaviour on the client, and a read declared as a mutation is a read the
+ * client will never treat as one. Reading `action` off the contract means the
+ * eighth command lands on the right arm without anybody choosing.
+ */
+type IsRead<N extends SettingsCommandName> =
+  (typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['policy']['action'] extends 'read' ? true : false
+
+type SettingsProcedure<N extends SettingsCommandName> = IsRead<N> extends true
+  ? TRPCQueryProcedure<{
+      meta: unknown
+      input: z.input<(typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['input']>
+      output: Awaited<ReturnType<(typeof SETTINGS_COMMANDS_TRPC)[N]['handler']>>
+    }>
+  : TRPCMutationProcedure<{
+      meta: unknown
+      input: z.input<(typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['input']>
+      output: Awaited<ReturnType<(typeof SETTINGS_COMMANDS_TRPC)[N]['handler']>>
+    }>
 
 /**
  * Every derived procedure, keyed by the PROC name the router serves it under —
@@ -63,19 +84,106 @@ export type SettingsProcedures = {
   [N in SettingsCommandName as N extends `settings.${infer P}` ? P : N]: SettingsProcedure<N>
 }
 
-function buildProcedure(name: SettingsCommandName): unknown {
-  const { contract, handler } = SETTINGS_COMMANDS_TRPC[name]
+/**
+ * THE GATE, THE HANDLER AND THE TRAIL, in that order, for every settings
+ * command (POD-421).
+ *
+ * The order is the decision:
+ *
+ *   1. **Authorize**, from the contract's own `roleFloor`. Before the handler,
+ *      so a principal below the floor never reaches code that could have a side
+ *      effect, and never learns anything from how far it got.
+ *   2. **Run**.
+ *   3. **Record**, whichever way it went. A refusal is an audit fact — a trail
+ *      of successes cannot answer "who TRIED to rotate this key" — and the
+ *      refused input is redacted by the SAME rule as the applied one, because
+ *      logging raw input on the failure path is the classic way the error path
+ *      keeps the material the success path was careful about.
+ *
+ * The record is written for a THROWN handler too, not only for a gate refusal:
+ * `assertNoSecretChange` and every model-level validation refuse inside the
+ * handler, and those are the refusals an operator most wants to see.
+ */
+function runSettingsCommand(
+  name: SettingsCommandName,
+  ctx: Context,
+  input: unknown,
+): unknown | Promise<unknown> {
+  const deps = settingsAuthzDeps(ctx)
+  // ONE `mods(ctx)`, used for both the trail and the handler. Two calls would be
+  // two `router-triple-access` sites where one is needed, and the audit
+  // repository is deliberately NOT reached out of `ctx.registry.sessionStore`:
+  // it is a dependency of the SERVICE (`SettingsService.recordCommand`), so the
+  // transport never touches the store.
+  const service = mods(ctx).settings
+  const record = (outcome: 'applied' | 'refused', error?: string): void => {
+    service.recordCommand({
+      command: name,
+      outcome,
+      principal: deps.principal,
+      input,
+      ...(error !== undefined ? { error } : {}),
+    })
+  }
+
+  const refusal = settingsAuthzFailure(name, deps)
+  if (refusal) {
+    record('refused', refusal.message)
+    throw refusal
+  }
+
+  const { handler } = SETTINGS_COMMANDS_TRPC[name]
   // The table is heterogeneous, so at THIS point the parsed input is the union
-  // of all four schemas and TypeScript cannot pair it with the handler. It does
-  // not need to: each pairing is checked where it is declared (the table is
+  // of all schemas and TypeScript cannot pair it with the handler. It does not
+  // need to: each pairing is checked where it is declared (the table is
   // `satisfies Record<SettingsContractName, SettingsCommand>` and each handler
   // carries a `satisfies SettingsHandler<…>` over its own contract's inferred
   // input), and `SettingsProcedures` re-derives the per-command types for the
   // client. This erasure is the one place the two meet.
-  const run = handler as (svc: ReturnType<typeof mods>['settings'], input: unknown) => unknown
-  return t.procedure
-    .input(contract.input)
-    .mutation(({ ctx, input }) => run(mods(ctx).settings, input))
+  const run = handler as (svc: typeof service, input: unknown) => unknown
+
+  // A handler may be sync or async, and BOTH must be recorded. Awaiting a
+  // synchronous result would make every settings write a microtask later than it
+  // is today; not awaiting an async one would record `applied` for a command
+  // that is about to reject. `Promise.resolve`-free branch on the actual result.
+  const fail = (e: unknown): never => {
+    const raw = e instanceof Error ? e.message : String(e)
+    const safe = redactErrorMessage(name, input, raw)
+    record('refused', safe)
+    // RE-THROWN WITH THE REDACTED MESSAGE, not the original. This is the wire
+    // half of the error path: a handler that built its message from the material
+    // must not hand that message to a browser just because the trail was careful.
+    throw e instanceof TRPCError && safe === raw
+      ? e
+      : new TRPCError({ code: 'BAD_REQUEST', message: safe })
+  }
+
+  let result: unknown
+  try {
+    result = run(service, input)
+  } catch (e) {
+    return fail(e)
+  }
+  if (result instanceof Promise) {
+    return result.then(
+      (value) => {
+        record('applied')
+        return value
+      },
+      (e) => fail(e),
+    )
+  }
+  record('applied')
+  return result
+}
+
+function buildProcedure(name: SettingsCommandName): unknown {
+  const { contract } = SETTINGS_COMMANDS_TRPC[name]
+  const proc = t.procedure.input(contract.input)
+  const call = ({ ctx, input }: { ctx: Context; input: unknown }): unknown =>
+    runSettingsCommand(name, ctx, input)
+  // Derived from the contract, never chosen here — see `IsRead` above.
+  return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)
 }
 
 /** The both-directions exposure check, against the object that will be served. */

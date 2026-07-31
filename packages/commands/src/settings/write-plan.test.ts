@@ -255,7 +255,7 @@ describe('tiers are separated, and an unclassified change is refused', () => {
 })
 
 describe('the online-only set is derived and non-empty', () => {
-  it('names the two secret commands and both halves of the binding ceremony', () => {
+  it('names the secret commands, the presence read, and both halves of the binding ceremony', () => {
     // Non-empty is the load-bearing half: an empty set would make every
     // "secrets are never queued" assertion in this file vacuously true.
     //
@@ -263,8 +263,15 @@ describe('the online-only set is derived and non-empty', () => {
     // why nobody had to remember: the filter reads `delivery.class`, so the mint
     // (`online-sensitive`) and the redeem (`online-only`) appear here on the
     // same commit that declared them.
+    // POD-421's `settings.secretPresence` appears here by the SAME derivation,
+    // and for a reason that is about the read rather than about symmetry: a
+    // presence projection answered from an offline cache would report "a key is
+    // configured" from a snapshot taken before it was cleared. `resource:
+    // 'secret'` forces `online-sensitive` through `classificationErrors`, so the
+    // read could not have been declared any other way.
     expect([...ONLINE_ONLY_SETTINGS_COMMANDS].sort()).toEqual([
       'settings.clearSecret',
+      'settings.secretPresence',
       'settings.setSecret',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',

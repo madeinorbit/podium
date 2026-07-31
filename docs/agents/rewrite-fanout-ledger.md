@@ -2081,3 +2081,136 @@ Two rules:
 The repair is `git rebase --onto <integration> <orphan> <branch>` — replay only
 the child's own commits. It is safe while the child's tree is clean, which is
 another reason to check `git status` in the CHILD's worktree, not just yours.
+||||||| f63e0581
+## The declaration mistaken for the mechanism — three artifacts, one shape
+
+POD-421 found two and POD-352 named the third, and together they are this run's
+dominant defect class arriving in a form the existing instruments **structurally
+cannot see**.
+
+- POD-420 declared `roleFloor` on six settings contracts. Nothing compared
+  anything against it. It said so itself, in the `settings.setSecret` rationale:
+  *"Nothing enforces the floor today; POD-1079 owns it."* POD-1079 then shipped
+  `modules/fleet/authz.ts` and enforced the FLEET's floors; the settings family's
+  stayed declarative for another day.
+- POD-420 declared `redaction` metadata with a note saying exactly what it was
+  for — *"never logged, never echoed into an event, never included in an error"*.
+  Nothing read it.
+- POD-1076 declared a NON-membership (`personalPreferenceKeys` in
+  `PER_USER_STATE_NON_MEMBERS`) and nothing checked that the excluded family was
+  a member somewhere else. It was a member nowhere: the per-user preference
+  storage move was never shipped by anyone, and one user's preferences are
+  readable by every other user today (POD-1213).
+
+Each artifact was internally correct, individually reviewable, and green.
+
+> **A totality test proves every field is CLASSIFIED. It proves nothing about
+> whether anything READS the classification.** A declaration with no consumer is
+> indistinguishable from an enforced one from every angle except grepping for the
+> consumer.
+
+**The check to add, and it is cheap:** for every classification field a family
+declares, name the consumer. If there is none, the field is a TODO with good
+grammar. And when you ship the consumer, the suite must refuse per declaration —
+POD-421's `authz.test.ts` asserts both arms for every contract in the shipped
+table, because a suite run only as the first admin (who satisfies every floor)
+would pass against a gate with no floor at all. That is POD-351's failure with
+the nouns changed.
+
+**The third one is the one to remember**, because it inverts the usual worry: the
+double-migration item in POD-352's exit audit was phrased against *two*
+migrations for one field. The actual failure was **ZERO**. An audit item phrased
+only against the over-count reports the under-count as clean.
+
+### A UI predicate over a RELOCATED field does not fail — it INVERTS
+
+POD-419 moved the Telegram bot token out of the settings blob into the keyed
+store. `startTelegramSetup` still gated on
+`settings.notifications.telegramBotToken` being non-blank. That member is now
+always `''`, so the guard would have refused **every** ceremony on **every**
+instance — including ones with a token perfectly well configured — and told the
+user to paste one into a field the same commit had removed.
+
+It kept typechecking. It kept rendering. It just started answering "no" to a
+question it used to answer correctly. Nothing was deleted, so nothing was a
+compile error; nothing threw, so nothing was a test failure.
+
+**After a relocation, grep for READERS of the old address, not just for writers.**
+The write sites are where the compiler helps; the read sites are where a
+silently-empty value becomes a silently-wrong answer.
+
+### The module-scope TDZ that unit tests cannot see, and e2e found in one run
+
+POD-421's `SETTINGS_GROUPS` is initialised at MODULE SCOPE and read `TAB_LABEL`
+from below its own declaration. The bundled app threw `Cannot read properties of
+undefined (reading 'sessions')` and **the entire shell failed to render** — not
+the settings screen, the whole app.
+
+The workspace typecheck was green (the binding exists). All 75 `apps/web` unit
+tests were green, because every one of them imports the table module directly
+rather than through the component module whose evaluation order was wrong.
+
+**A unit test that imports the leaf never evaluates the module graph the browser
+evaluates.** Declaration order between two module-scope constants is invisible to
+every instrument except loading the bundle. This is the concrete case behind the
+standing "changed UI/interaction behaviour still requires runtime verification"
+rule — it is not about pixels, it is about module evaluation.
+
+### An instrument anchored by INDEX into a list the work SHRINKS
+
+`audit-client-secrets`' probe planted its clean-fixture case at `NAMED_SITES[3]`.
+Correct at five entries; `undefined` the moment POD-421 ratcheted the census to
+one, at which point the fixture landed under the path `"undefined"` — not a named
+site — so the check fired and the probe reported *the instrument is broken*.
+
+It failed rather than passed, which is the right direction and is why it was
+caught. But it failed for the wrong reason, and the one-character fix is to
+re-index. Same family as POD-386's indentation anchor: **an anchor that rides on
+a property of the data rather than on its meaning reports that property.** When
+the gate exists to make a list shrink, do not anchor into the list by position —
+and make the EMPTY list an explicit failure, or the day the work finishes, two
+checks start passing vacuously.
+
+### Redaction is a walk-and-rebuild, so it inherits POD-419's defect exactly
+
+Both arms, and both are real:
+
+- **Rebuild too eagerly** → POD-419's scrub verbatim, reconstructing
+  structured-clone values as `{}`, destroying data while truthfully reporting a
+  clean result.
+- **Rebuild too timidly** → the fail-OPEN arm POD-421 shipped in its first draft.
+  Descending only into plain objects and returning everything else untouched is
+  correct for PRESERVING a `Date` and wrong for REDACTING one: a declared
+  sensitive path resolving into a class instance was silently not redacted, and
+  the report truthfully said nothing had been removed.
+
+The second is the more dangerous, because every assertion is TRUE and every
+angle reads as working. The answer is neither: if the non-plain container HAS the
+address, redact the whole container; if it does not, return it untouched — with a
+control proving it does not redact every `Date` it meets.
+
+**And require the redactor to NAME what it removed.** Asserting a clean log is
+equally satisfied by a redactor that dropped the payload, by an empty declaration,
+and by a walker that matched nothing. Only a named removal distinguishes the four
+— and the named removal itself needs a control, or a stale declaration inflates
+the evidence.
+
+### Fail-closed has a UI obligation, not only a server one
+
+readiness §3.1.5's consistent-error rule is usually read as a statement about
+status codes. It says in as many words that it is *"as true of an error toast as
+of an API status code"*, and POD-421 is where that lands on a screen.
+
+The server half is one exported constant (`SECRET_SURFACE_ABSENT`) used by both
+the refusal and the absent-surface answer — two literals that match today are one
+edit from being an oracle. The CLIENT half is that the surface has exactly ONE
+unavailable state **with no reason attached**. A `{ reason: 'forbidden' | 'empty' }`
+discriminant rebuilds the oracle inside the component, one helpful-error-message
+commit away from rendering the distinction.
+
+Two consequences that are easy to miss: there is no separate LOADING path either
+(a refusal that resolves faster than a success is an oracle with a stopwatch),
+and the assertion must be scoped to the state-dependent part of the page. Static
+class copy that reads identically on every instance and for every account leaks
+nothing — asserting against the whole screen just teaches you to weaken the
+assertion.

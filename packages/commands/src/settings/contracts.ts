@@ -675,6 +675,115 @@ export const settingsClearSecretContract = {
 } as const satisfies CommandContract<typeof settingsClearSecretInput>
 
 // ---------------------------------------------------------------------------
+// settings.secretPresence — THE READ, and the only one this family contracts
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT A REPLICA MAY LEARN ABOUT THE INSTANCE'S SECRETS: that they exist, an
+ * opaque tag for telling one from another, and when each was last replaced
+ * (POD-421, 3.7d).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY A READ IS CONTRACTED AT ALL, WHEN `settings.get` IS NOT
+ * ---------------------------------------------------------------------------
+ *
+ * POD-420 left `settings.get` uncontracted with a stated reason — *"a
+ * `visibility` class describes what a command WRITES"* — and that reason still
+ * holds for the preference blob. It does NOT hold here, and the difference is
+ * the whole point of this contract: what makes this read dangerous is not what
+ * it writes but WHO MAY ISSUE IT, and `roleFloor` is the field that says so.
+ * Leaving it uncontracted would leave the answer in a handler, where it is
+ * invisible to `classificationErrors`, to `audit:settings`, and to the next
+ * person adding a caller.
+ *
+ * `visibility: 'secret'` is therefore read as the class of the state the command
+ * TOUCHES rather than writes. That is a widening of the field's meaning and it
+ * is recorded as one; the alternative — a `visibility` this contract cannot
+ * honestly fill — would have meant either a lie or an exemption, and ADR 9 D4's
+ * default-closed rule exists precisely so that an unclassifiable surface is a
+ * problem to solve rather than a field to leave off.
+ *
+ * ---------------------------------------------------------------------------
+ * THE FLOOR IS `admin`, AND IT IS A PLACEHOLDER FOR AN OPEN QUESTION
+ * ---------------------------------------------------------------------------
+ *
+ * `docs/multi-user-readiness.md` §3.1.2 lists existence leaks as an UNRESOLVED
+ * policy class — *"Decide per surface whether existence is private or only
+ * content is"* — and whether a non-admin may see secret presence and fingerprint
+ * is one of the two questions POD-352 is holding open for a human.
+ *
+ * Absent that decision this FAILS CLOSED at `admin`. Shipping the closed default
+ * is explicitly NOT the decision: it is the safe placeholder, it is recorded as
+ * still-open on POD-352, and it is the direction that can be relaxed later
+ * without having leaked anything in the meantime. The opposite default cannot be
+ * un-leaked.
+ *
+ * ---------------------------------------------------------------------------
+ * AND THE REFUSAL MUST NOT BE AN EXISTENCE ORACLE
+ * ---------------------------------------------------------------------------
+ *
+ * §3.1.5's consistent-error rule: an unauthorized read must fail IDENTICALLY to
+ * a nonexistent one. It applies to an error toast exactly as it applies to a
+ * status code — a member who can tell "you may not see this" from "there is
+ * nothing here" has been told whether the instance has a key configured, which
+ * is the very fact the floor is withholding.
+ */
+export const settingsSecretPresenceInput = z.object({})
+
+export const settingsSecretPresenceContract = {
+  name: 'settings.secretPresence',
+  version: 1,
+  visibility: 'secret',
+  input: settingsSecretPresenceInput,
+  policy: {
+    action: 'read',
+    roleFloor: 'admin',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'A READ, contracted for the field the others are contracted for: `roleFloor`. What makes this ' +
+      'surface dangerous is who may ISSUE it, not what it writes, and leaving that in a handler puts ' +
+      'it beyond `classificationErrors` and `audit:settings`. The floor is `admin` because ADR 9 D3 ' +
+      'rule 5 makes secret management admin-grade and `docs/multi-user-readiness.md` §3.1.2 leaves ' +
+      'the EXISTENCE-leak question — may a member see presence and fingerprint? — explicitly open. ' +
+      'Failing closed is the placeholder, not the answer: it is recorded as still-open on POD-352, ' +
+      'and it is the only direction that can be revised later without having already leaked. ' +
+      '`action: "read"` and `resource: "secret"` — the latter forces `online-sensitive` through ' +
+      '`classificationErrors`, which is correct here for an independent reason: a presence ' +
+      'projection cached offline would answer "is a key configured" from a snapshot taken before it ' +
+      'was cleared. `confirmation: "none"`: reading nothing destroys nothing.',
+  },
+  exposure: SERVED_ON,
+  delivery: SECRET_DELIVERY,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'BOTH LISTS ARE EMPTY BY CONSTRUCTION, not by review, and the distinction is the same one ' +
+      'POD-418 built the shape for. The input is `{}` — there is nothing to carry. The output is ' +
+      '`SecretPresenceWire[]`, which POD-418 built INDEPENDENTLY of `ServerSecret` rather than as a ' +
+      'projection of it, precisely so no value key exists to forget to strip; a field added to the ' +
+      'stored secret cannot reach this response by being additive. The `fingerprint` is safe to ' +
+      'return because it is a truncated HMAC under a server-held key (POD-420’s producer, ' +
+      '`SECRET_FINGERPRINT_CONTRACT` at the model) — a bare digest of a short structured ' +
+      'credential would NOT be, and would make this "safe" field a slower spelling of the secret.',
+  },
+  ownership: { creates: [], note: 'A read creates nothing.' },
+  attribution: SETTINGS_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: false,
+    note:
+      'Takes no target id — it answers for the whole closed five-key vocabulary at once, so there is ' +
+      'no id to probe with. The consistent-error obligation is therefore about the SURFACE rather ' +
+      'than about a row: a principal below the floor must not be able to tell a refusal from an ' +
+      'instance that has no secrets configured, and must not be able to tell it from an error either. ' +
+      'readiness §3.1.5, applied to an error toast as much as to a status code.',
+  },
+  cli: { summary: 'Show which server-owned secrets are configured (presence + fingerprint only)' },
+} as const satisfies CommandContract<typeof settingsSecretPresenceInput>
+
+// ---------------------------------------------------------------------------
 // settings.telegramSetupStart / settings.telegramSetupPoll — THE BINDING CEREMONY
 // ---------------------------------------------------------------------------
 
@@ -961,6 +1070,7 @@ export const SETTINGS_CONTRACTS = {
   'settings.updateInstance': settingsUpdateInstanceContract,
   'settings.setSecret': settingsSetSecretContract,
   'settings.clearSecret': settingsClearSecretContract,
+  'settings.secretPresence': settingsSecretPresenceContract,
   'settings.telegramSetupStart': settingsTelegramSetupStartContract,
   'settings.telegramSetupPoll': settingsTelegramSetupPollContract,
 } as const
@@ -999,6 +1109,10 @@ export const CONTRACT_TIER: Readonly<Partial<Record<SettingsContractName, Settin
   'settings.updateInstance': 'instance-preference',
   'settings.setSecret': 'server-secret',
   'settings.clearSecret': 'server-secret',
+  // The READ answers for the same tier it reads — the `server-secrets` row —
+  // so it is checked against the SHIPPED row like the two writes, rather than
+  // being exempted for being a read.
+  'settings.secretPresence': 'server-secret',
   // `telegramSetupStart` / `telegramSetupPoll` are deliberately ABSENT and the
   // type is `Partial` to say so. They are not blob writes and answer to no
   // settings TIER: the mint's row is the shared preimage row and the redeem's is

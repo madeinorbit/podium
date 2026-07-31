@@ -253,6 +253,36 @@ if (!REAL_AGENTS) {
   }
 }
 
+/**
+ * PODIUM_E2E_ACCOUNT_ROLE — drive the settings screens as a NON-ADMIN (POD-421).
+ *
+ * POD-421's acceptance criteria require runtime verification of the settings
+ * screens "for both an admin and a non-admin principal". On this build a second
+ * human cannot be authenticated at all: `CLIENT_PRINCIPAL_GRADE` is still
+ * `device`, so `resolvePrincipal` returns `FIRST_ADMIN_USER_ID` for every
+ * transport call and per-user login is POD-315's work.
+ *
+ * The alternative to a lever here would be to verify only the admin path and
+ * assert the member path from unit tests — and an unverified refusing arm is
+ * exactly how POD-391's CSWSH guard survived deletion with twenty green tests.
+ * So the harness demotes the one account, through the ONE method the gate
+ * consults for the account grade, and everything else stays the product: the
+ * real router, the real derived procedures, the real gate, the real browser.
+ *
+ * It is a HARNESS flag and not a product one — nothing in `apps/server` reads
+ * it, and it is opt-in and absent by default, so no ordinary run can be
+ * silently demoted. Stated plainly so a green member run is not over-read: it
+ * shows the SCREENS behave correctly when the server answers as it does for a
+ * member. It does not show that a member can log in, because none can yet.
+ */
+const E2E_ACCOUNT_ROLE = process.env.PODIUM_E2E_ACCOUNT_ROLE
+if (E2E_ACCOUNT_ROLE === 'member' || E2E_ACCOUNT_ROLE === 'none') {
+  const roleStore = (server.registry as unknown as { store: SessionStore }).store
+  const users = roleStore.users as unknown as { roleOf: (id: string) => string | undefined }
+  users.roleOf = () => (E2E_ACCOUNT_ROLE === 'member' ? 'member' : undefined)
+  console.log(`[e2e] account role forced to ${E2E_ACCOUNT_ROLE}`)
+}
+
 if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHINE === '1') {
   // A second online machine with the same repo identity. It answers discovery only;
   // execution remains covered by the coordinated live two-host E2E.

@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { SettingsWriteRefusal } from '@podium/commands'
-import type { HostMetricsWire } from '@podium/model'
+import type { HostMetricsWire, ServerSecretKey } from '@podium/model'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
@@ -11,13 +11,19 @@ import { Button } from '@/components/ui/button'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { MachinesPanel } from './MachinesPanel'
+import { SecretsSection, type SecretSurfaceState } from './sections/secrets'
+import {
+  SETTINGS_SURFACES,
+  SURFACE_COPY,
+  type SettingsSurface,
+  TAB_SURFACE,
+  tabsOnSurface,
+} from './surfaces'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
 import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
 import { ExperimentalSection } from './sections/experimental'
 import { HibernationSection } from './sections/hibernation'
-import { IntegrationsSection } from './sections/integrations'
-import { KeysSection } from './sections/keys'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
@@ -36,11 +42,9 @@ export type SettingsTab =
   | 'sessions'
   | 'superagent'
   | 'workllm'
-  | 'keys'
   | 'hibernation'
   | 'notifications'
   | 'workflow'
-  | 'integrations'
   | 'network'
   | 'repos'
   | 'machines'
@@ -48,53 +52,79 @@ export type SettingsTab =
   | 'privacy'
   | 'updates'
   | 'experimental'
+  | 'secrets'
 
-/** The grouped IA (POD-127): four named groups replace the flat 17-item list.
- *  Routes (/settings/:tab) are unchanged — this only regroups the nav. */
+/** The human name of each tab. Separate from `TAB_SURFACE` so the class table
+ *  stays a classification and does not become a place copy is edited. */
+const TAB_LABEL: Record<SettingsTab, string> = {
+  sessions: 'New sessions',
+  superagent: 'Superagent',
+  workllm: 'Background LLM',
+  notifications: 'Notifications',
+  appearance: 'Appearance',
+  accounts: 'Accounts',
+  privacy: 'Privacy',
+  hibernation: 'Hibernation',
+  workflow: 'Workflow',
+  experimental: 'Experimental',
+  repos: 'Repos',
+  machines: 'Machines',
+  network: 'Network',
+  security: 'Security',
+  updates: 'Updates',
+  secrets: 'Secrets',
+}
+
+/*
+ * TAB_LABEL IS DECLARED BEFORE SETTINGS_GROUPS, AND THE ORDER IS LOAD-BEARING.
+ *
+ * `SETTINGS_GROUPS` is initialised at MODULE SCOPE and reads `TAB_LABEL` inside
+ * its map. With the declaration below it, `TAB_LABEL` is in its temporal dead
+ * zone when that map runs: the bundled app threw
+ * `Cannot read properties of undefined (reading 'sessions')` on boot and the
+ * entire shell failed to render — not the settings screen, the whole app.
+ *
+ * Nothing except a running browser could see it. The typecheck is happy (the
+ * binding exists), and every unit test imports `surfaces.ts` directly rather
+ * than through this module, so all 75 web tests stayed green against an app
+ * that could not start. This is the case the brief has in mind when it requires
+ * real clicks against a running app rather than unit assertions.
+ */
+/**
+ * THE NAV, GROUPED BY VISIBILITY CLASS (POD-421) — replacing POD-127's
+ * topic-based grouping.
+ *
+ * POD-127 grouped seventeen tabs by subject (Agents / Connections / Workspace /
+ * Instance), which was the right IA for one operator. Under multi-user the
+ * question a user has when they open this screen is no longer "what is this
+ * about" but "who does changing this affect, and may I" — and
+ * `docs/multi-user-readiness.md` §3.1.1 answers that with three classes that
+ * genuinely differ. The brief's requirement is that the distinction be legible
+ * to the USER rather than only enforced in the backend, so it is the grouping.
+ *
+ * Membership is read off `surfaces.ts`'s `TAB_SURFACE`, which is
+ * `satisfies Record<SettingsTab, SettingsSurface>` — a new tab is a compile
+ * error rather than a tab with no declared class.
+ *
+ * Routes (/settings/:tab) are unchanged for the tabs that survive. `keys` and
+ * `integrations` are GONE: their entire content was password inputs bound to
+ * blob members, and both are absorbed into `secrets`, which shows presence and
+ * fingerprint. That is a removal, and it ratchets `audit:client-secrets`'
+ * NAMED_SITE census DOWN, which is how POD-419 recorded it should land.
+ */
 export const SETTINGS_GROUPS: {
   label: string
+  surface: SettingsSurface
+  hint: string
+  caveat?: string
   tabs: { key: SettingsTab; label: string }[]
-}[] = [
-  {
-    label: 'Agents',
-    tabs: [
-      { key: 'sessions', label: 'New sessions' },
-      { key: 'superagent', label: 'Superagent' },
-      { key: 'workllm', label: 'Background LLM' },
-      { key: 'workflow', label: 'Workflow' },
-      { key: 'hibernation', label: 'Hibernation' },
-    ],
-  },
-  {
-    label: 'Connections',
-    tabs: [
-      { key: 'accounts', label: 'Accounts' },
-      { key: 'keys', label: 'API keys' },
-      { key: 'notifications', label: 'Notifications' },
-      { key: 'integrations', label: 'Integrations' },
-    ],
-  },
-  {
-    label: 'Workspace',
-    tabs: [
-      { key: 'repos', label: 'Repos' },
-      { key: 'machines', label: 'Machines' },
-      { key: 'network', label: 'Network' },
-    ],
-  },
-  {
-    label: 'Instance',
-    tabs: [
-      { key: 'appearance', label: 'Appearance' },
-      { key: 'security', label: 'Security' },
-      // Next to Security, not buried: the opt-out has to be findable by someone
-      // looking for it, which is the whole promise the prompt made [spec:SP-f933].
-      { key: 'privacy', label: 'Privacy' },
-      { key: 'updates', label: 'Updates' },
-      { key: 'experimental', label: 'Experimental' },
-    ],
-  },
-]
+}[] = SETTINGS_SURFACES.map((surface) => ({
+  label: SURFACE_COPY[surface].label,
+  surface,
+  hint: SURFACE_COPY[surface].hint,
+  ...(SURFACE_COPY[surface].caveat ? { caveat: SURFACE_COPY[surface].caveat } : {}),
+  tabs: tabsOnSurface(surface).map((key) => ({ key, label: TAB_LABEL[key] })),
+}))
 
 export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = SETTINGS_GROUPS.flatMap(
   (g) => g.tabs,
@@ -106,11 +136,9 @@ const BLOB_TABS: ReadonlySet<SettingsTab> = new Set([
   'sessions',
   'superagent',
   'workllm',
-  'keys',
   'hibernation',
   'notifications',
   'workflow',
-  'integrations',
   'experimental',
 ])
 
@@ -128,6 +156,15 @@ interface SectionContext {
   resetTelegramSetup: () => void
   /** Replace the local blob with DEFAULT_SETTINGS (still needs Save). */
   resetToDefaults: () => void
+  /** The secret surface: presence + fingerprint, or the single unavailable
+   *  state. Never a value — the read has no value key by construction. */
+  secrets: SecretSurfaceState
+  /** Whether the secret WRITES may be attempted, from `settings.viewer`. */
+  canManageSecrets: boolean
+  secretBusy: boolean
+  secretError: string | null
+  setSecret: (key: ServerSecretKey, value: string) => void
+  clearSecret: (key: ServerSecretKey) => void
 }
 
 /** The tab -> section lookup (P5d, issue #264 — replaces the JSX ladder). Most
@@ -146,7 +183,6 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   workllm: ({ settings, accounts, patch }) => (
     <WorkLlmSection settings={settings} accounts={accounts} patch={patch} />
   ),
-  keys: ({ settings, patch }) => <KeysSection settings={settings} patch={patch} />,
   hibernation: ({ settings, patch, hostMetrics }) => (
     <HibernationSection settings={settings} patch={patch} hostMetrics={hostMetrics} />
   ),
@@ -161,7 +197,6 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
     />
   ),
   workflow: ({ settings, patch }) => <WorkflowSection settings={settings} patch={patch} />,
-  integrations: ({ settings, patch }) => <IntegrationsSection settings={settings} patch={patch} />,
   network: () => <NetworkSection />,
   repos: () => <ReposSection />,
   machines: () => <MachinesPanel />,
@@ -171,6 +206,16 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   updates: () => <UpdatesSection />,
   experimental: ({ settings, patch, resetToDefaults }) => (
     <ExperimentalSection settings={settings} patch={patch} onReset={resetToDefaults} />
+  ),
+  secrets: (ctx) => (
+    <SecretsSection
+      state={ctx.secrets}
+      canManage={ctx.canManageSecrets}
+      onSet={ctx.setSecret}
+      onClear={ctx.clearSecret}
+      busy={ctx.secretBusy}
+      error={ctx.secretError}
+    />
   ),
 }
 
@@ -212,6 +257,35 @@ export function SettingsView(): JSX.Element {
   const [refusals, setRefusals] = useState<readonly SettingsWriteRefusal[]>([])
   const [savedAt, setSavedAt] = useState(0)
   const [filter, setFilter] = useState('')
+  /**
+   * THE SECRET SURFACE, AND WHY IT HAS ONLY THREE STATES (POD-421).
+   *
+   * `loading`, `available`, `unavailable`. There is deliberately no `error`
+   * state and no reason attached to `unavailable`: readiness §3.1.5 requires an
+   * unauthorized read to fail IDENTICALLY to a nonexistent one, *"and that is as
+   * true of an error toast as of an API status code."* A `{ reason: 'forbidden'
+   * | 'empty' }` discriminant would rebuild the oracle inside the client, one
+   * helpful-error-message commit away from rendering the distinction.
+   *
+   * So every failure of this read — a refusal, an instance with no surface, a
+   * transport error — lands in the same state, through the same effect, at the
+   * same point in the render. The server does its half (`SECRET_SURFACE_ABSENT`
+   * is one exported constant used by both paths); this is the client's.
+   */
+  const [secrets, setSecrets] = useState<SecretSurfaceState>({ status: 'loading' })
+  const [secretBusy, setSecretBusy] = useState(false)
+  const [secretError, setSecretError] = useState<string | null>(null)
+  /**
+   * Which settings commands this caller may ATTEMPT, from `settings.viewer`.
+   *
+   * DEFAULT-CLOSED: an empty object until the read answers, so a control is
+   * never enabled on an assumption. It is a RENDERING HINT with no authority —
+   * the server re-runs the identical gate at apply time (ADR 3 D8) — and it is
+   * never stored, never queued and never attached to a command. That is what
+   * keeps POD-352's "no serialized effective-capability snapshot" item true: it
+   * is recomputed per request from the live account role.
+   */
+  const [permitted, setPermitted] = useState<Record<string, boolean>>({})
   const [telegramSetup, setTelegramSetup] = useState<TelegramSetupState>({ status: 'idle' })
   const [telegramSetupNow, setTelegramSetupNow] = useState(() => Date.now())
   // The tab is the URL (/settings/:tab, issue #15 Phase 4): deep links (global
@@ -242,9 +316,21 @@ export function SettingsView(): JSX.Element {
         if (!cancelled) setAccounts(a as AccountView[])
       })
       .catch(() => {})
+    trpc.settings.viewer
+      .query()
+      .then((v) => {
+        if (!cancelled) setPermitted(v.permitted)
+      })
+      // Stays default-closed on failure. A `catch` that enabled the controls
+      // "because we could not check" is the fails-open spelling of this.
+      .catch(() => {})
+    loadSecretPresence()
     return () => {
       cancelled = true
     }
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `loadSecretPresence`
+    // is defined below and closes over `trpc` only; listing it would reorder the
+    // declaration without changing what the effect depends on.
   }, [trpc])
 
   useEffect(() => {
@@ -314,35 +400,92 @@ export function SettingsView(): JSX.Element {
     }
   }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc])
 
+  /**
+   * Load the presence rows, collapsing EVERY failure into one state.
+   *
+   * The `catch` is deliberately reason-blind. A refusal, an instance with no
+   * secret surface and a dropped connection are three different facts and the
+   * user is told the same thing about all three, because telling them apart is
+   * precisely the existence leak the admin floor exists to prevent.
+   */
+  const loadSecretPresence = (): void => {
+    trpc.settings.secretPresence
+      .query({})
+      .then((rows) => setSecrets({ status: 'available', rows }))
+      .catch(() => setSecrets({ status: 'unavailable' }))
+  }
+
+  /**
+   * A SECRET WRITE IS ITS OWN COMMAND, issued here and NOT through the save bar.
+   *
+   * The blob save (`saveSettingsAsCommands`) plans preference patches from a
+   * before/after diff of `PodiumSettings`. A secret is no longer IN that object
+   * on this screen — there is no value to diff — so routing these through it
+   * would mean putting the material back into the blob to take it out again.
+   * They go straight to the contracted, online-only, admin-grade commands.
+   *
+   * The response is a presence projection, so the reload below costs nothing in
+   * exposure: it re-reads presence and fingerprint, which is all there is.
+   */
+  const writeSecret = async (run: () => Promise<unknown>): Promise<void> => {
+    setSecretBusy(true)
+    setSecretError(null)
+    try {
+      await run()
+      loadSecretPresence()
+    } catch (e) {
+      // The server has already redacted this message against the contract's own
+      // declaration (`redactErrorMessage`), so a handler that built its text
+      // from the material cannot reach this line with it.
+      setSecretError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSecretBusy(false)
+    }
+  }
+
+  /**
+   * THE PRECONDITION IS NOW READ FROM PRESENCE, NOT FROM THE BLOB (POD-421).
+   *
+   * This guard used to read `settings.notifications.telegramBotToken` and refuse
+   * with "Paste a Telegram bot token first" when it was blank. POD-419 removed
+   * the material from the blob, so that member is now ALWAYS `''` — the guard
+   * would have refused every ceremony on every instance, including ones with a
+   * token perfectly well configured, and the message would have told the user to
+   * do something the screen no longer lets them do.
+   *
+   * Worth naming as a defect class rather than fixing quietly: a UI predicate
+   * over a field whose value was relocated does not fail loudly, it inverts. It
+   * kept typechecking, it kept rendering, and it started answering "no" to a
+   * question it used to answer correctly.
+   *
+   * Presence is the fact this actually needs, and it is exactly what the surface
+   * publishes. `undefined` — the surface is unavailable to this caller — is
+   * treated as NOT satisfied, which is the fail-closed arm: a member cannot
+   * start the ceremony, and the server's own `startTelegramSetup` refuses
+   * without a token anyway.
+   */
+  const botTokenPresent =
+    secrets.status === 'available' &&
+    secrets.rows.some((r) => r.key === 'notifications.telegramBotToken' && r.present)
+
   const startTelegramSetup = async () => {
     if (!settings) return
-    const token = settings.notifications.telegramBotToken.trim()
-    if (!token) {
-      setTelegramSetup({ status: 'failed', message: 'Paste a Telegram bot token first.' })
+    if (!botTokenPresent) {
+      setTelegramSetup({
+        status: 'failed',
+        message: 'An admin must save a Telegram bot token under Secrets first.',
+      })
       return
     }
 
     setError(null)
     setTelegramSetup({ status: 'starting' })
     try {
-      // The ceremony needs the token PERSISTED before it starts, and the token
-      // is a server-owned secret — so this saves through the command surface
-      // like every other write (POD-420). Offline it is refused here rather
-      // than by a Telegram API call that cannot succeed either.
-      const { saved, refusals } = await saveSettingsAsCommands(
-        trpc,
-        lastSaved ?? settings,
-        settings,
-      )
-      if (refusals.length > 0) {
-        setTelegramSetup({
-          status: 'failed',
-          message: refusalMessage(refusals) ?? 'The bot token could not be saved.',
-        })
-        return
-      }
-      setSettings(saved)
-      setLastSaved(saved)
+      // NO BLOB SAVE FIRST. The token is already persisted — it is a
+      // server-owned secret written by `settings.setSecret` from the Secrets
+      // surface, never by this screen's Save. The previous version saved the
+      // whole blob here because the token was one of its members; routing a
+      // ceremony through a preference save is now neither necessary nor honest.
       const setup = await trpc.settings.telegramSetupStart.mutate()
       setTelegramSetup({ status: 'polling', ...setup })
       setTelegramSetupNow(Date.now())
@@ -414,7 +557,7 @@ export function SettingsView(): JSX.Element {
   const filterRef = useRef<HTMLInputElement | null>(null)
   const query = searchEnabled ? filter.trim().toLowerCase() : ''
   const visibleGroups = SETTINGS_GROUPS.map((g) => ({
-    label: g.label,
+    ...g,
     tabs: g.tabs.filter(
       (t) =>
         (t.key !== 'notifications' || notificationsEnabled) &&
@@ -503,8 +646,16 @@ export function SettingsView(): JSX.Element {
             )}
             {visibleGroups.map((g) => (
               <div key={g.label} className="contents md:block">
-                <div className="mt-4 mb-1 hidden px-2 font-medium font-mono text-[8.5px] text-label uppercase tracking-[0.12em] md:block">
-                  {g.label}
+                <div className="mt-4 mb-1 hidden px-2 md:block">
+                  <div className="font-medium font-mono text-[8.5px] text-label uppercase tracking-[0.12em]">
+                    {g.label}
+                  </div>
+                  {/* The group's own sentence, in the nav rather than only on
+                      the page: the class is the thing a user needs BEFORE
+                      choosing a tab, not after. */}
+                  <p className="mt-1 max-w-[20ch] text-[10px] text-text-faint leading-snug">
+                    {g.hint}
+                  </p>
                 </div>
                 {g.tabs.map((t) => (
                   <button
@@ -532,6 +683,33 @@ export function SettingsView(): JSX.Element {
           <div className="relative min-h-0 min-w-0 flex-1">
             <div className="h-full overflow-y-auto py-4 pb-28 md:py-8">
               <div className="settings-section-enter max-w-[640px]" key={tab}>
+                {/* THE CLASS BANNER. What changing anything on this tab affects,
+                    stated on the tab itself — a nav heading is easy to scroll
+                    past, and the caveat below is the one thing on this screen a
+                    user must not miss. */}
+                {(() => {
+                  const surface = TAB_SURFACE[tab]
+                  const copy = SURFACE_COPY[surface]
+                  return (
+                    <div
+                      className="mb-4 rounded-md border border-hairline-soft bg-chip/40 px-3 py-2"
+                      data-testid={`surface-banner-${surface}`}
+                    >
+                      <div className="font-medium text-[11px] text-text-strong">{copy.label}</div>
+                      <p className="mt-0.5 max-w-[62ch] text-[11px] text-text-dim leading-normal">
+                        {copy.hint}
+                      </p>
+                      {copy.caveat && (
+                        <p
+                          className="mt-1 max-w-[62ch] text-[11px] text-warning leading-normal"
+                          data-testid="surface-caveat"
+                        >
+                          {copy.caveat}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
                 {settings ? (
                   SECTION_VIEWS[tab]({
                     settings,
@@ -544,6 +722,16 @@ export function SettingsView(): JSX.Element {
                     startTelegramSetup: () => void startTelegramSetup(),
                     resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
                     resetToDefaults: () => setSettings(DEFAULT_SETTINGS),
+                    secrets,
+                    canManageSecrets: permitted['settings.setSecret'] === true,
+                    secretBusy,
+                    secretError,
+                    setSecret: (key, value) => {
+                      void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
+                    },
+                    clearSecret: (key) => {
+                      void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
+                    },
                   })
                 ) : (
                   <div className="animate-pulse pt-2" aria-hidden="true">
