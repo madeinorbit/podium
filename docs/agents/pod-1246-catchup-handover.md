@@ -220,6 +220,50 @@ does not typecheck.
 | `repo/` — `repoIdentityFields`, `repoDurableShape` (Repo prefix entity, POD-822) | repo only in `annotations/matrix` | groups (b)/(c) |
 | `shape.ts` — `WireShape`/`wireShape`, `dropNullValues`/`restoreNullValues` | its own approach inside `replica.ts` + `removal-family.test.ts` — **both sides solved null-encoding differently** | group (d): `replica.ts` |
 
+## 2c. GROUP (b) DONE — the upstream call, and what it decided
+
+**The call: integration's POD-309 retirement WINS, and it is complete.** Verified
+rather than assumed — the four surviving `UpstreamSync` mentions in integration
+are all *comments explaining the deletion* (the `[[detector-mention-is-not-a-call]]`
+shape), plus one real import of `reportParkedUpstreamMutations` from a dedicated
+`upstream-retirement` module that dead-letters anything left queued. A retirement
+with a migration path for parked writes, per ADR 5 D8.
+
+Main's +30 lines on `upstream.ts` were **defensive no-op arms**
+(`case 'issueProjection': break`), added only to keep `change satisfies never`
+exhaustive after POD-822 introduced entity kinds — not new capability. The value
+was the interlock comment, which dies with the module it guarded.
+
+Deleted with it (the `[[proves-versus-records-on-a-delete-list]]` call — these
+PROVE the doomed writer): `upstream.ts`, `upstream.test.ts`,
+`src/test-support.ts`, `relay.upstream-issues.test.ts`,
+`router.upstream-issues.test.ts`.
+
+Also resolved: `sync/index.ts` (integration's header + `feed/index` exports),
+`adapters/sqlite/sync-repository.ts` (integration's paths + main's fuller doc
+comment naming `sync_feed`), `ledger.ts` + `ledger.test.ts` (integration's
+Authority-delegating rewrite — main's `conversationProjection` / `minAvailableSeq`
+additions are already absorbed into integration's `authority/` + `change-log.ts`).
+
+**Main's flat `feed-identity.ts` + test retired** as superseded by integration's
+`feed/` directory (registry, `assertOpaqueEpoch`, visibility, publisher). Both
+sides mint opaque UUID epochs, so both were correct; integration's is simply the
+richer structure and is what `index.ts` exports.
+
+**Verified:** `bun run --cwd packages/sync typecheck` reports **zero errors from
+`packages/sync` itself** — the only failures are unresolved conflict markers in
+`packages/protocol/src/messages/sync.ts`, which is group (c).
+
+### Two F1 hazards caught here — the sweep is real, not theoretical
+
+1. `packages/sync/src/feed-identity.test.ts` (main, merged CLEAN) imported
+   `./test-support`, which integration had **moved** to
+   `adapters/sqlite/test-support.ts`. No conflict marker anywhere.
+2. `apps/server/src/migrations/restore.ts` (main, merged CLEAN) consumes
+   `ensureFeedIdentity` from main's now-deleted `feed-identity.ts`. **Still
+   outstanding — must be repointed at integration's `feed/identity.ts` when
+   group (c) reaches `apps/server`.**
+
 ## 3. What remains, tranche by tranche
 
 ### C-remainder (4 files) — needs the vertical first
