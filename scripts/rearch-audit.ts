@@ -648,6 +648,20 @@ export const CHECKS: AuditCheck[] = [
     // these sites exist. It points at POD-1136 (still `proposed`; a
     // coordinator cannot promote one) as its provenance. Check with
     // `bun scripts/rearch-audit.ts --phase POD-1229`.
+    //
+    // SETTLED AT POD-1229, and the detector was NOT touched to get there. Both
+    // observations now carry `readerUserId` and no `readAt` at all: the policy
+    // call was "the viewer the shared `archived` flag speaks for", and naming
+    // that viewer on the wire is what removes the singleton — the value being
+    // gated on is the authority's own and it re-derives it. See
+    // `docs/agents/pod-1229-auto-archive-reader-decision.md`.
+    //
+    // Read the zero with its LIMIT: this item is name-matched over declarations
+    // that clear ENTITY_SHAPE_THRESHOLD, so a shape can fall out of the
+    // population by shedding unrelated keys rather than by shedding per-user
+    // state. Both sites were checked against exactly that — re-adding `readAt`
+    // to either observation makes the detector report it again — but the limit
+    // is general and the next zero deserves the same check.
     id: 'per-user-singletons',
     title: 'Per-user state surviving as a singleton field on a representation',
     phase: 'POD-1229',

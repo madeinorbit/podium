@@ -687,6 +687,11 @@ export function danglingRegistryEntries(
  * wire change PLUS a replica migration.
  */
 export function perUserSingletons(ctx: AuditContext): AuditSite[] {
+  assertPerUserAnchor()
+  return collectPerUserSingletons(ctx)
+}
+
+function collectPerUserSingletons(ctx: AuditContext): AuditSite[] {
   const sites: AuditSite[] = []
   for (const d of entityShapedDeclarations(ctx)) {
     if (excluded.has(`${d.file}::${d.symbol}`)) continue
@@ -701,6 +706,65 @@ export function perUserSingletons(ctx: AuditContext): AuditSite[] {
     }
   }
   return sites
+}
+
+/**
+ * The CONTROL this detector anchors on, at POD-1229 — the shape it counted right
+ * up until the change that drove it to zero, copied verbatim from that diff.
+ *
+ * From zero, "no sites" and "the detector broke" are the same output
+ * (`docs/rearch-deletion-audit.md`: a detector that stops matching is not a
+ * deletion). This item is now at zero, so it owes its own anchor on the same
+ * terms `send-turn-duplicate`, `upstream-sync-forwarder` and
+ * `publish-computed-fanout` accepted, and no looser.
+ *
+ * It is deliberately a CONTROL rather than a check that the live tree is
+ * non-empty: an emptied `PER_USER_STATE_KEYS`, a `GENERIC_KEYS` that swallowed
+ * `readAt`, a threshold raised out from under it, or a declaration parser that
+ * stopped seeing zod object bodies all report a serene zero, and only running
+ * the matcher end-to-end on a known-positive catches every one of them.
+ */
+const PER_USER_ANCHOR_FILE = 'packages/protocol/src/maintenance.ts'
+const PER_USER_ANCHOR_SOURCE = [
+  'export const IssueAutoArchiveObservation = z.object({',
+  '  issueId: z.string().min(1).max(256).pipe(IssueIdField),',
+  '  stage: z.string().min(1).max(64),',
+  '  closedReason: z.string().nullable(),',
+  '  readAt: z.string().datetime(),',
+  '  archived: z.literal(false),',
+  '  deletedAt: z.null(),',
+  '})',
+].join('\n')
+
+function assertPerUserAnchor(): void {
+  if (PER_USER_STATE_KEYS.length === 0) {
+    throw new Error(
+      'representation-audit: PER_USER_STATE_KEYS loaded EMPTY from @podium/model. Every ' +
+        'per-user-singletons count would be zero and the ratchet would read it as a deletion. ' +
+        'Fix the import; do not rebaseline.',
+    )
+  }
+  const found = collectPerUserSingletons({
+    repoRoot: '/anchor',
+    files: [
+      {
+        file: PER_USER_ANCHOR_FILE,
+        stripped: PER_USER_ANCHOR_SOURCE,
+        raw: PER_USER_ANCHOR_SOURCE,
+        isTest: false,
+      },
+    ],
+    listDir: () => [],
+  })
+  if (found.length !== 1 || found[0]?.text !== 'IssueAutoArchiveObservation.readAt') {
+    throw new Error(
+      'representation-audit: per-user-singletons no longer matches its CONTROL — the ' +
+        'pre-POD-1229 auto-archive observation, which carried `readAt` as a singleton. It ' +
+        `reported ${JSON.stringify(found.map((s) => s.text))} instead of one ` +
+        '`IssueAutoArchiveObservation.readAt`. Its live zero therefore means "detector broken", ' +
+        'not "nothing found". Fix the detector; do not rebaseline.',
+    )
+  }
 }
 
 /**
