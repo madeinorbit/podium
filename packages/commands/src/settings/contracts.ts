@@ -488,11 +488,11 @@ export const settingsUpdatePersonalInput = z.object({
  * gate, and ADR 9 D3 rule 4 makes the class non-grantable — there is deliberately
  * no "share my sidebar order" verb to authorize.
  *
- * RECORDED GAP, unchanged by this issue: the row is an instance-wide SINGLETON
- * today, not one per user. `PerUserSingletonKey` is the model's declaration of
- * the intended key and the `per-user-singletons` ratchet counts the defect. The
- * contract states the CLASS truthfully — the same call POD-311 made for the
- * issue read markers — rather than describing today's storage.
+ * POD-1213 made the class physical: values are rows keyed `(userId, key)`, the
+ * legacy shared blob no longer holds personal leaves, and every repository read
+ * and write takes the user. The member floor therefore gates an actual owning
+ * user's row rather than an intended key shape whose storage had not followed
+ * its declaration.
  */
 export const settingsUpdatePersonalContract = {
   name: 'settings.updatePersonal',
@@ -511,9 +511,9 @@ export const settingsUpdatePersonalContract = {
       'confirmation: every leaf is reversible by writing it again and ADR 1 records ' +
       '`tombstone: "never-delete"`. No `machineVerb`: a preference write places no work on owned ' +
       'compute — `hibernation` and `gitWorkflow`, the two leaves that DO describe machine behaviour, ' +
-      'are on the instance tier and are still only rows (POD-418). RECORDED GAP: the row is an ' +
-      'instance-wide singleton today, so this floor cannot yet be enforced per user; the ' +
-      '`per-user-singletons` ratchet counts it and POD-302 owns the re-key.',
+      'are on the instance tier. POD-1213 stores personal values under `(userId, key)` and resolves ' +
+      'the caller live, so this member floor now gates the owning user’s row at apply time rather ' +
+      'than describing a future storage split.',
   },
   exposure: SERVED_ON,
   delivery: PERSONAL_PREFERENCE_DELIVERY,

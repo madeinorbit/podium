@@ -418,9 +418,10 @@ export class SettingsService {
    * not by the caller — a transport that partitioned the payload itself would be
    * a second answer to "which tier is this key in", and the two would drift.
    *
-   * The `settings.changed` event carries the INSTANCE pair. Subscribers to it
-   * (the notify replay, the auto-continue re-arm) react to a deployment-level
-   * change; a personal change is that person's and is read per-reader at use.
+   * The `settings.changed` event carries this writer's RESOLVED pair. The notify
+   * replay and auto-continue re-arm react to personal leaves, so an instance-only
+   * pair would make those changes invisible; {@link emitSettingsChanged} records
+   * the future per-user fan-out boundary explicitly.
    */
   setSettingsFor(userId: UserId, settings: PodiumSettings): PodiumSettings {
     const previous = this.store.getSettingsFor(userId)

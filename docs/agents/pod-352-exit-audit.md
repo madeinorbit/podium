@@ -1,5 +1,93 @@
 # POD-352 exit audit — secrets/preferences split
 
+## Integration re-run at 871de0db (2026-07-31)
+
+**CLOSE verdict.** This re-run supersedes the historical POD-421 gate below.
+All seven exit items are at zero after POD-1213. One adjacent managed-credential
+billing question remains deliberately undecided by ADR 9 and is not silently
+answered by closing this settings umbrella.
+
+| # | Re-measured item | Verdict and non-vacuous evidence |
+|---|---|---|
+| 1 | No secret material on wire, client storage/outbox, logs, audit rows, or errors | **zero.** `bun run audit:settings` and `bun run audit:client-secrets` both found every planted fixture before reporting clean. Focused server tests passed 97/97. The Playwright admin arm planted a real key, required a visible presence/fingerprint first, then found no material in the document or any captured settings response. |
+| 2 | Every settings field classified in both directions; unknown fields fail closed | **zero.** The settings audit reconciled 39 derived leaves (24 personal, 10 instance, 5 secret) with the live shape and exercised its planted unknown/secret controls. |
+| 3 | Every settings command declares and consumes exposure, delivery, role, and redaction | **zero.** Seven contracts reconcile with the derived router. The three declarations this umbrella called out now decide behavior; mutation results are recorded below. |
+| 4 | No serialized effective-capability snapshot | **zero.** Role is resolved at apply time through `users.roleOf`; `settings.viewer` remains an unstored rendering hint. Authz/wiring tests passed 43/43 before mutation. |
+| 5 | No cross-user preference leakage | **zero.** POD-1213 moved personal preferences to `user_preferences(user_id, key, value_json)`. Storage/migration tests passed 36/36, including two users writing the same path, caller-scoped reads, no inheritance from another user, migration copy-before-clear, secret refusal, and resolved-view change events. The real member UI run edited preferences while the secret surface remained unavailable. |
+| 6 | No `instance_id` in the settings family | **zero.** A fresh `rg 'instance_id\\|instanceId'` over model, commands, server settings/storage, and web settings returned no matches. |
+| 7 | Per-user/instance boundary agrees with the user-state ledger and has one migration owner | **zero.** `personalPreferenceKeys` now participates as `per-user-state` through the existing `preferences-personal-keys` row; the durable-class audit found all planted fixtures and then reported 88 clean stores. POD-1213 owns the single storage migration; POD-1076/POD-380 do not also migrate these keys. Mutating the real tier-to-ledger mapping changed the contract visibility and failed two tests. |
+
+### The three declarations genuinely decide outcomes
+
+These were mutated in real source, one at a time, and restored before the green
+baseline was rerun. A grep was not accepted as enforcement evidence.
+
+| Declaration mutation | Required changed outcome |
+|---|---|
+| Personal-preference tier mapped from `preferencesPersonal` to `preferencesInstance` | 2 failures: the ledger row changed from personal to instance and `settings.updatePersonal` visibility disagreed with the deployment substrate (106 other assertions passed). |
+| `settings.updatePersonal.policy.roleFloor` raised from `member` to `admin` | 3 failures: a real member tRPC write was refused, the member-floor table changed, and the client rendering hint denied the write (43 other assertions passed). |
+| Shared secret `redaction.inputPaths` changed from `['value']` to `[]` | 9 failures across direct redaction, applied/refused audit rows read from SQLite, event details, and error-message material checks (41 other assertions passed). |
+
+This establishes the umbrella's finding in its stronger form: each declaration
+has a consumer that changes a product or persisted outcome. POD-1224 owns the
+repo-wide annotation sweep; it is not duplicated here.
+
+### Runtime/UI verification
+
+The current UI had retained the pre-POD-1213 warning that preferences were an
+instance-wide blob. This re-run replaces it with the measured guarantee: saved
+for the current account, with other members' values kept separate. Component
+tests passed 20/20 and command/service tests passed 89/89.
+
+Real-app Playwright verification used an isolated leased server:
+
+- admin: 3/3 focused secret interactions passed (presence/fingerprint and no
+  value, replacement rotates the fingerprint, destructive clear removes
+  presence);
+- member: 8/8 passed, 4 admin-only cases skipped by construction; the secret
+  surface returned the indistinguishable unavailable state with no key names,
+  presence, fingerprint, or response material, while personal preference editing
+  succeeded;
+- the prior red was non-product: `seedSecret` hard-coded port 8799 and planted
+  material in a different concurrent instance. The harness now derives its HTTP
+  endpoint from `PORT`, and the same three flows pass on the isolated port.
+
+### The two parked policy questions
+
+**O1 — May a non-admin see secret presence/fingerprint? Answered: no.** ADR 3
+Amendment 1, D15.3 requires every contract whose policy names the `secret`
+resource kind to require the `admin` role. `settings.secretPresence` names
+that resource and is therefore admin-only. ADR 1 D6 separately constrains the
+admin projection to presence plus fingerprint, never value. The member runtime
+arm proves the declaration controls the route and screen. The earlier
+“fail-closed placeholder” description was stale: the ADR pack records the role
+decision.
+
+**O2 — Does managed-credential usage bill the delegating human or the machine
+owner? Deliberately unanswered, outside this umbrella.** ADR 9 M2 says the
+delegating human is plausible but accounting is per-feature; ADR 9 O5 says this
+must not be modelled speculatively, assigns it to the human/product and accounts
+feature owner, and places it no earlier than Phase 3. Managed account
+credentials remain outside the settings secret store. Closing POD-352 therefore
+does not choose a billing principal.
+
+### Re-run commands
+
+- `bun install`
+- `bun run audit:settings`
+- `bun run audit:client-secrets`
+- `bun run audit:durable-classes`
+- focused model/command/sync tests: 209/209
+- focused storage/migration tests: 36/36
+- focused server auth/redaction/fingerprint/wiring tests: 97/97
+- focused web tests: 20/20
+- focused command/service tests after UI/comment correction: 89/89
+- isolated Playwright admin: 3/3; member: 8/8 with 4 intentional skips
+
+---
+
+## Historical POD-421 gate (superseded above)
+
 Closed out by **POD-421** (3.7d), the last of #352's four children. Every item is
 answered against a named artifact from the sibling that produced it, cited rather
 than re-derived, per POD-352's instruction that POD-418/419/420's evidence is
@@ -253,7 +341,7 @@ surface.
 
 ---
 
-## Summary
+## Historical pre-POD-1213 summary (superseded)
 
 | # | Item | Verdict |
 |---|---|---|
