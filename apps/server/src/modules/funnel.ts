@@ -208,7 +208,13 @@ export class WriteFunnel {
     fromSeq: number
     seq: number
     minAvailableSeq: number
-    changes: MetadataChange[]
+    changes: {
+      seq: number
+      entity: string
+      entityId: string
+      op: 'upsert' | 'remove' | 'evict'
+      value?: unknown
+    }[]
   } | { kind: 'bootstrap-required'; reason: string } {
     const identity = this.deps.serving.identity()
     if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
@@ -230,7 +236,34 @@ export class WriteFunnel {
       fromSeq: from ?? 0,
       seq: delivery.throughSeq,
       minAvailableSeq: this.deps.serving.retentionFloor(),
-      changes: delivery.changes.flatMap(toBusChange),
+      // THE v2 ROW SHAPE, DERIVED FROM `ScopedChange` — NOT `toBusChange`.
+      //
+      // Measured against a live server rather than reasoned about: the first
+      // draft reused `toBusChange`, which produces the v1 `MetadataChange` whose
+      // target field is `id`. The v2 row's is `entityId`, so every healed row
+      // reached the replica with `entityId: undefined` and installed as
+      // `issue:undefined` — a silent corruption on the RARE path (rung 1 heal),
+      // invisible to any test that only exercised the push path. `toBusChange`
+      // stays where it belongs, on the v1 pipe.
+      //
+      // `evict` is expressible here and carries no value, which is the other
+      // reason this cannot borrow the v1 mapping: v1 has no such op.
+      changes: delivery.changes.map((change) =>
+        change.op === 'upsert'
+          ? {
+              seq: change.seq,
+              entity: change.entity,
+              entityId: change.entityId,
+              op: 'upsert' as const,
+              value: change.value,
+            }
+          : {
+              seq: change.seq,
+              entity: change.entity,
+              entityId: change.entityId,
+              op: change.op,
+            },
+      ),
     }
   }
 

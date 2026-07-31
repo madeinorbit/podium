@@ -87,12 +87,18 @@ export class PushedBootstrapSource {
    * that was in fact fresh, wedging the walk until the timeout. A counter cannot.
    */
   private tick = 0
+  /**
+   * Set between asking for a world and receiving one. See {@link reset}: it is
+   * what tells a self-inflicted socket close apart from a real drop.
+   */
+  private requesting = false
 
   constructor(private readonly deps: BootstrapSourceDeps) {}
 
   /** A `feedBootstrap` arrived. Supersedes whatever was in the slot. */
   offer(chunk: BootstrapChunk): void {
     this.tick += 1
+    this.requesting = false
     const waiter = this.waiter
     if (waiter !== undefined) {
       // Handed straight to the walk that is waiting — never parked in the slot
@@ -124,15 +130,35 @@ export class PushedBootstrapSource {
     }
   }
 
-  /** The socket dropped: any pending walk is failed rather than left hanging, and
-   *  the slot is cleared because a world from a dead connection has no position
-   *  the next connection will resume from. */
+  /**
+   * The socket dropped.
+   *
+   * TWO CASES, AND COLLAPSING THEM IS A HEAL LOOP — measured against a live
+   * server, not reasoned about. A re-bootstrap ASKS for a reconnect
+   * ({@link BootstrapSourceDeps.requestFreshWorld}), so the very next thing that
+   * happens is the socket closing, which arrives here. Failing the waiter on that
+   * close abandons the walk that requested it; the Replica retries down its
+   * ladder, asks again, and the cycle repeats until `settled()` gives up with "the
+   * ladder is not resolving downward". That is exactly what the live run produced.
+   *
+   * So a close that this source CAUSED is not an abandonment: the walk keeps
+   * waiting, and the world arrives on the socket that replaces the one that just
+   * went away. Any other close — a real network drop, a shutdown — still fails the
+   * walk, because there is then nothing coming.
+   */
   reset(reason: string): void {
     this.slot = undefined
+    if (this.requesting) return
     const fail = this.failWaiter
     this.waiter = undefined
     this.failWaiter = undefined
     fail?.(new Error(`bootstrap abandoned: ${reason}`))
+  }
+
+  /** True while a walk is waiting for a world. Read by the sink, which must not
+   *  re-enter the Replica's `connect()` and disturb a walk already in flight. */
+  isWalking(): boolean {
+    return this.waiter !== undefined
   }
 
   private take(freshAfter: number | undefined): Promise<BootstrapChunk> {
@@ -152,6 +178,7 @@ export class PushedBootstrapSource {
         if (this.waiter !== settle) return
         this.waiter = undefined
         this.failWaiter = undefined
+        this.requesting = false
         reject(
           new Error(
             `no feedBootstrap within ${BOOTSTRAP_CHUNK_TIMEOUT_MS}ms. The replica keeps its last ` +
@@ -184,7 +211,10 @@ export class PushedBootstrapSource {
      * the waiter, an asynchronous one lands on the waiter, and the slot is only
      * ever used for a world nobody was waiting for.
      */
-    if (ask) this.deps.requestFreshWorld()
+    if (ask) {
+      this.requesting = true
+      this.deps.requestFreshWorld()
+    }
     return pending
   }
 }

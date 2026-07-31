@@ -45,6 +45,11 @@
       "types": "./src/replica/index.ts",
       "import": "./src/replica/index.ts"
     },
+    "./replica/feed": {
+      "@podium/source": "./src/replica/feed/index.ts",
+      "types": "./src/replica/feed/index.ts",
+      "import": "./src/replica/feed/index.ts"
+    },
     "./router": {
       "@podium/source": "./src/router.ts",
       "types": "./src/router.ts",
