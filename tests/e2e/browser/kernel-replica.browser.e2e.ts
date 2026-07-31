@@ -181,11 +181,17 @@ test.describe('the web engine on the kernel replica', () => {
     // ESTABLISH the flag-off state rather than assuming it — see setKernelReplica.
     await setKernelReplica(page, false)
 
+    // BACK VIA `openApp`, not a bare goto: leaving Settings restores whichever
+    // view was last persisted, and on this harness that is Tasks — which has no
+    // `complementary` sidebar at all. A bare `goto('/')` plus a sidebar wait
+    // silently assumed the Work view and timed out for a reason with nothing to
+    // do with the read path. `openApp` is what the other tests here use, and it
+    // navigates to the workspace explicitly.
+    await openApp(page)
+
     // WITH THE FLAG OFF the app resolves the shipped path. This assertion is the
     // counterfactual for every `expectKernelPath` below: it shows the marker is a
     // measurement and not a constant.
-    await page.goto(`/?server=${RELAY}&e2e=1`)
-    await sidebar(page).waitFor({ state: 'visible', timeout: 120_000 })
     await expect
       .poll(async () => replicaPath(page), { timeout: 60_000, intervals: [200] })
       .toBe('legacy')
@@ -217,6 +223,8 @@ test.describe('the web engine on the kernel replica', () => {
     // assertion about PAINT rather than about eventual arrival: a client that
     // waited for the network would not have rows this early.
     await page.reload({ waitUntil: 'domcontentloaded' })
+    // A reload keeps the workspace view, so the sidebar is the right thing to
+    // wait on here — unlike the post-Settings navigation above.
     await sidebar(page).waitFor({ state: 'visible', timeout: 120_000 })
     await expect
       .poll(async () => (await sidebarText(page)).length, { timeout: 8_000, intervals: [100] })
