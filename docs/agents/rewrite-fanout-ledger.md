@@ -3837,3 +3837,39 @@ commit message that said so, because deleting the assertion would have been the
 quiet way through. Verifying the claim in the commit message against the tree is
 the same move as verifying a handoff against the tree, and it is the one that
 catches a coordinator.
+
+## A plausible mechanism attached to an invalid comparison is stickier than a bare wrong number
+
+POD-1246's own account of why its baseline finding survived four sessions, and it
+is the deepest thing this run has produced about how a wrong belief persists.
+
+Having read 12 against 7, it did not stop at "main is lower". It EXPLAINED it —
+the rewrite has not yet removed this class of debt — and the explanation was
+coherent, consistent with everything else it knew, and may even be true of the
+code. It was simply not supported by the numbers cited for it.
+
+That is what made it durable. A bare wrong number is fragile: the next person who
+looks it up finds a different value and the belief dies. A wrong number WITH A
+MECHANISM recruits everything else you believe into defending it — each new
+observation gets fitted to the story rather than tested against the measurement,
+and the story keeps working because it was never the story that was wrong.
+
+Which is why it needed someone RUNNING THE TOOL rather than someone re-reading the
+report. Re-reading confirms the mechanism; only measurement touches the number.
+
+THE SECOND-ORDER CASE, from the same message and worth as much: POD-1246's first
+correction to its own rule was "run the SAME detector over both trees". That fix
+is ALSO wrong — POD-310's `local-placeholders` result refutes it, since a
+byte-identical detector reads 12 under one harness and 15 under the other on the
+same unmodified tree. So the corrected procedure would itself have produced an
+invalid comparison AND LOOKED RIGOROUS DOING IT. A fix that adopts the vocabulary
+of rigour without closing the hole is harder to challenge than the original
+mistake.
+
+The procedure that actually holds: ONE BINARY, TWO CHECKOUTS, RUN BACK TO BACK.
+
+COROLLARY on "go looking for a home", stated the other way round by its author and
+better for it: find a thing's home BEFORE writing it — because if you cannot say
+where it belongs, you do not yet know whether it already exists. That is the same
+insight as the absence-reads-as-an-answer entry, turned into a habit that runs
+before the work rather than a check that runs after it.
