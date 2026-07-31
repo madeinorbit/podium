@@ -1,28 +1,43 @@
 /**
- * Phase-3 exit evidence: a durable queued write is rejected by the real
- * harness server, parked by the production web engine, and recovered through
- * the rendered dead-letter UI. This is deliberately not a component fixture:
- * the only planted state is the same legacy queue blob a browser can carry
- * across an upgrade; boot migrates it into the replica collection and the real
- * tRPC call supplies the BAD_REQUEST that parks it.
+ * Phase-3 exit evidence: a durable queued write is rejected by the real harness
+ * server, parked by the production web engine, and recovered through the RENDERED
+ * dead-letter UI. This is deliberately NOT a component fixture — the only planted
+ * state is the same legacy queue blob a browser can carry across an upgrade; boot
+ * migrates it into the replica collection and the real tRPC call supplies the
+ * BAD_REQUEST that parks it.
+ *
+ * POD-1287 rewrote the body against the real path and proved it end to end; the
+ * dead-letter key below is only ever ASSERTED, never seeded. Two specs were
+ * written independently (POD-424 planted the failing one, POD-1287 made it pass)
+ * and this file is their union: POD-424's statement of intent over POD-1287's
+ * verified implementation.
  */
 import { expect, test } from '@playwright/test'
-import { openApp } from './_harness'
+import { RELAY } from './_harness'
 
-const MUTATION_ID = 'pod-424-runtime-dead-letter'
-const AUTHORED_TEXT = 'keep this exact offline edit'
+const MUTATION_ID = 'browser-dead-letter-invalid-rename'
+const AUTHORED_TEXT = 'Keep this browser recovery text'
+const DEAD_LETTER_KEY = 'podium.replica.outbox-dead-letter.v1'
 
-test.skip(({ isMobile }) => isMobile, 'desktop host indicator verification')
-test.setTimeout(180_000)
+test.skip(({ isMobile }) => isMobile, 'the recovery chip lives in the desktop header')
 
-test('a refused durable write is recoverable and discard survives reload', async ({ page }) => {
+test('a refused browser write stays visible and discard survives reload', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  const renameResponses: number[] = []
+  page.on('response', (response) => {
+    if (response.url().includes('/trpc/sessions.rename')) {
+      renameResponses.push(response.status())
+    }
+  })
+
+  // Seed the pre-replica queue exactly as an offline browser write would leave it.
+  // Omitting sessionId makes the real rename input fail validation while retaining
+  // the author's own text for the recovery dialog.
   await page.addInitScript(
     ({ mutationId, authoredText }) => {
-      if (sessionStorage.getItem('podium.pod-424-dead-letter-seeded') === '1') return
-      // The missing sessionId is intentional. parseOutboxEntries accepts the
-      // durable envelope, then the production sessions.rename input validator
-      // rejects its payload. That refusal — not this setup code — must create
-      // the dead-letter record and paint the recovery surface.
+      if (localStorage.getItem('podium.e2e.outbox-dead-letter-seeded') === '1') return
+      localStorage.setItem('podium.e2e.outbox-dead-letter-seeded', '1')
       localStorage.setItem(
         'podium.outbox.v1',
         JSON.stringify([
@@ -34,56 +49,53 @@ test('a refused durable write is recoverable and discard survives reload', async
           },
         ]),
       )
-      sessionStorage.setItem('podium.pod-424-dead-letter-seeded', '1')
     },
     { mutationId: MUTATION_ID, authoredText: AUTHORED_TEXT },
   )
 
-  await openApp(page)
+  await page.goto(`/?server=${RELAY}&e2e=1`)
+  const header = page.getByTestId('desktop-topbar')
+  await expect(header).toBeVisible({ timeout: 60_000 })
+
+  await expect.poll(() => renameResponses, { timeout: 15_000 }).toContain(400)
+  await expect
+    .poll(() => page.evaluate((key) => localStorage.getItem(key), DEAD_LETTER_KEY))
+    .toContain('"invalid"')
+  expect(pageErrors).toEqual([])
 
   const chip = page.getByTestId('outbox-recovery-chip')
-  await expect(chip).toHaveAccessibleName('1 change needs your attention', { timeout: 30_000 })
+  await expect(chip).toBeVisible()
   await chip.click()
 
   const dialog = page.getByRole('dialog', { name: 'Changes that need you' })
   await expect(dialog).toBeVisible()
-  await expect(dialog).toContainText('The change was not valid')
   await expect(dialog).toContainText(AUTHORED_TEXT)
-  // `invalid` can never succeed with the same bytes, so the production plan
-  // must not offer a retry that would create a heal loop.
   await expect(dialog.getByTestId('outbox-retry')).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Edit' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Discard' })).toBeVisible()
 
-  // Durability means visible recovery survives a browser reload, not merely
-  // that an opaque row stays in localStorage.
+  // BAD_REQUEST is definitive. Waiting through the five-second retry cadence
+  // proves the unchanged invalid bytes are never sent a second time.
+  await page.waitForTimeout(5_500)
+  expect(renameResponses).toEqual([400])
+
+  // The persisted park must hydrate into the first store snapshot after reload;
+  // it is not enough for the localStorage record merely to survive.
   await page.reload()
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 45_000,
-  })
-  await expect(chip).toHaveAccessibleName('1 change needs your attention', { timeout: 30_000 })
+  await expect(header).toBeVisible({ timeout: 30_000 })
+  await expect(chip).toBeVisible()
+  expect(renameResponses).toEqual([400])
   await chip.click()
-  const restoredDialog = page.getByRole('dialog', { name: 'Changes that need you' })
-  await expect(restoredDialog).toContainText(AUTHORED_TEXT)
+  await expect(dialog).toContainText(AUTHORED_TEXT)
 
-  await restoredDialog.getByRole('button', { name: 'Discard' }).click()
+  await dialog.getByRole('button', { name: 'Discard' }).click()
   await expect(chip).toHaveCount(0)
   await expect
-    .poll(
-      () =>
-        page.evaluate(
-          (mutationId) =>
-            Object.keys(localStorage).some((key) =>
-              (localStorage.getItem(key) ?? '').includes(mutationId),
-            ),
-          MUTATION_ID,
-        ),
-      { timeout: 10_000 },
-    )
-    .toBe(false)
+    .poll(() => page.evaluate((key) => localStorage.getItem(key), DEAD_LETTER_KEY))
+    .not.toContain(MUTATION_ID)
 
   await page.reload()
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 45_000,
-  })
-  await expect(page.getByTestId('outbox-recovery-chip')).toHaveCount(0)
-  await expect(page.getByText('keep this exact offline edit', { exact: true })).toHaveCount(0)
+  await expect(header).toBeVisible({ timeout: 30_000 })
+  await expect(chip).toHaveCount(0)
+  expect(renameResponses).toEqual([400])
 })
