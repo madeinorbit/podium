@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { existsSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import { hostname } from 'node:os'
@@ -280,7 +281,12 @@ export async function startServer(
   // until a bot token + chat id are set; settings.changed re-arms it live.
   messaging = new MessagingService({
     bus: registry.modules.bus,
-    getSettings: () => store.settings.getSettings(),
+    // Resolved for the sole account (POD-1213): the messaging bridge routes on
+    // `notifications.telegramChatId`, which is now a PER-USER outbound address.
+    // Spelled out rather than defaulted — this build's transport cannot name a
+    // person, so the sole account is the only true answer, and POD-315 replaces
+    // the argument.
+    getSettings: () => store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
     // POD-419: the bot token is server-only material; the chat id stays routing.
     telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,

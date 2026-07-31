@@ -14,7 +14,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import { AgentKind, asIssueId, asSessionId } from '@podium/model'
+import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -485,7 +485,10 @@ export class SessionsService {
     this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.publicationShadowCompare = deps.publicationShadowCompare ?? false
     this.autoContinue = new AutoContinueController({
-      isEnabled: () => this.store.settings.getSettings().autoContinue.enabled,
+      // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
+      // so it is resolved for a user. See `settingsViewer` below for why that
+      // user is spelled out rather than defaulted.
+      isEnabled: () => this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
       sendContinue: (sessionId) => {
         this.continueSession({ sessionId })
       },
@@ -1573,7 +1576,7 @@ export class SessionsService {
     const requested = AgentKind.safeParse(input.agentKind)
     const agentKind = requested.success
       ? requested.data
-      : resolveRole(this.store.settings.getSettings(), 'coding').harness
+      : resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').harness
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any spawn
     // side effect [spec:SP-cc60]. The last line of defense for the agent-spawn path
     // (issue start/add-session pre-check earlier, before mutating start state).
@@ -3231,7 +3234,7 @@ export class SessionsService {
     const parsed = AgentKind.safeParse(input.agentKind)
     const agentKind = parsed.success
       ? parsed.data
-      : resolveRole(this.store.settings.getSettings(), 'coding').harness
+      : resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').harness
     // Validate connectivity, harness installation, and login before cloning.
     this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
     const sourceRepo = this.store.repos
@@ -3839,7 +3842,7 @@ export class SessionsService {
     const accountId =
       input.agentKind === 'shell'
         ? undefined
-        : (input.accountId ?? resolveRole(this.store.settings.getSettings(), 'coding').accountId)
+        : (input.accountId ?? resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId)
     const session = new Session({
       sessionId,
       agentKind: input.agentKind,
@@ -3922,11 +3925,26 @@ export class SessionsService {
    * rule; selecting a different harness must not inherit that harness's model or effort
    * [spec:SP-7ff1].
    */
+  /**
+   * WHOSE PREFERENCES A SESSION-SPAWNING READ USES (POD-1213).
+   *
+   * `roles.*` and `autoContinue.*` are `preferences-personal` and live on
+   * `user_preferences` now, so a read of the instance blob would see the model's
+   * defaults rather than anyone's choices. `FIRST_ADMIN_USER_ID` is spelled out
+   * here for the reason `IssueService.broadcastViewer` spells it out: this
+   * build's transport authenticates one shared password, so the sole account is
+   * the only true answer — and POD-315 replaces this body with the requesting
+   * principal, with every caller already asking the question.
+   */
+  private settingsViewer(): UserId {
+    return FIRST_ADMIN_USER_ID
+  }
+
   private modelDefaults(
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
   ): { model?: string; subagentModel?: string; effort?: string; seedCliTheme?: boolean } {
-    const settings = this.store.settings.getSettings()
+    const settings = this.store.settings.getSettingsFor(this.settingsViewer())
     const coding = settings.roles.coding
     const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
     const explicitModel = override?.model
@@ -3969,7 +3987,7 @@ export class SessionsService {
    *  special-cases shell for the same reason of shape: a shell is not an agent.) */
   private accountEnv(
     agentKind: AgentKind,
-    accountId = resolveRole(this.store.settings.getSettings(), 'coding').accountId,
+    accountId = resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').accountId,
   ): { env?: Record<string, string> } {
     if (agentKind === 'shell') return {}
     return resolveAccountEnv(this.store.accounts, accountId)

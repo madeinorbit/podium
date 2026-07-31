@@ -361,7 +361,7 @@ describe('SessionRegistry', () => {
 
   it('pins one exact workflow revision without exposing it in the human prompt, and starts a run', () => {
     const reg = new SessionRegistry()
-    reg.modules.settings.setSettings({
+    reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...reg.modules.settings.getSettings(),
       experimental: { workflows: true, specs: true },
     })
@@ -2001,7 +2001,7 @@ describe('agent state', () => {
       // one goes through the online-sensitive command that exists for it.
       reg.modules.settings.setSecret('notifications.telegramBotToken', '123456:secret')
       const settings = reg.modules.settings.getSettings()
-      reg.modules.settings.setSettings({
+      reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
         ...settings,
         experimental: { ...settings.experimental, notifications: true },
         notifications: {
@@ -2018,7 +2018,7 @@ describe('agent state', () => {
 
       telegram.mockClear()
       const updated = reg.modules.settings.getSettings()
-      reg.modules.settings.setSettings({
+      reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
         ...updated,
         notifications: {
           ...updated.notifications,
@@ -3610,7 +3610,7 @@ describe('SessionRegistry — auto-continue', () => {
 
   function enableAutoContinue(reg: SessionRegistry) {
     const s = reg.modules.settings.getSettings()
-    reg.modules.settings.setSettings({
+    reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...s,
       autoContinue: { enabled: true, promptDismissed: false },
     })
@@ -3639,7 +3639,7 @@ describe('SessionRegistry — auto-continue', () => {
       state: erroredState,
     })
     expect(daemon).not.toContainEqual(continueInput)
-    reg.modules.settings.setSettings({
+    reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
@@ -3658,7 +3658,7 @@ describe('SessionRegistry — auto-continue', () => {
     })
     expect(daemon).toContainEqual(continueInput)
     // Cancel the live loop so no real backoff timer dangles past the test.
-    reg.modules.settings.setSettings({
+    reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
@@ -3677,7 +3677,7 @@ describe('SessionRegistry — auto-continue', () => {
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far
     enableAutoContinue(reg)
     expect(daemon).toContainEqual(continueInput) // flipping on arms the errored session
-    reg.modules.settings.setSettings({
+    reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })

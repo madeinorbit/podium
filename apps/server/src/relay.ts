@@ -311,7 +311,15 @@ export class SessionRegistry {
     })
     const notify = new NotifyService(
       {
-        getSettings: () => this.store.settings.getSettings(),
+      // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
+      // preferences, which no longer live on the instance blob — an unresolved
+      // read would see the model's defaults instead of the operator's choices.
+      // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
+      // `IssueService.broadcastViewer` uses: this build's transport cannot name
+      // a person (one shared password), so the sole account is the only true
+      // answer, and POD-315/POD-1077 replace the argument rather than finding a
+      // hidden read.
+        getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
         appendEvent: (e) => this.store.events.appendEvent(e),
@@ -1103,7 +1111,10 @@ export class SessionRegistry {
       store: this.store,
       artifacts: issueArtifacts,
       listSessions: () => sessionsSvc.listSessions(),
-      getSettings: () => this.store.settings.getSettings(),
+      // Resolved for the sole account (POD-1213): the issue service reads
+      // `roles.coding` — a personal preference — beside instance-tier git
+      // workflow policy. See the note on `NotifyService` above.
+      getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
       spawnSession: (o) =>
         sessionsSvc.createSession({
           cwd: o.cwd,

@@ -13,6 +13,7 @@ import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
 import {
   asThreadId,
+  FIRST_ADMIN_USER_ID,
   HarnessAgent,
   type IssueWire,
   type SessionId,
@@ -419,7 +420,11 @@ export class SuperagentService {
     const { inputId, threadId, text, focus } = queued
     let thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
-    const settings = this.store.settings.getSettings()
+    // PERSONAL (POD-1213): `roles.superagent` is *"you, automated"* — one
+    // human's delegation — so it resolves for a user. `FIRST_ADMIN_USER_ID`
+    // spelled out, never defaulted: this build authenticates one shared
+    // password, and POD-315 replaces the argument with the real principal.
+    const settings = this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID)
     const intended = superagentHarnessAgent(settings)
     const frozen = HarnessAgent.safeParse(thread.agentKind)
     // Freeze the agent onto the thread on first contact. On later turns, if the

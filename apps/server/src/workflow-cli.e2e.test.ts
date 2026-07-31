@@ -20,6 +20,7 @@
  * they cross both halves of the cutover.
  */
 
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,7 +39,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ port: 0 })
     const registry = server.registry
-    registry.modules.settings.setSettings({
+    registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...registry.modules.settings.getSettings(),
       experimental: { workflows: true },
     })

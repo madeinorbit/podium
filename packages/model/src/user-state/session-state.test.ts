@@ -25,6 +25,7 @@ import {
   issueOverlayOf,
   NO_ISSUE_USER_STATE,
 } from './issue-state'
+import { PersonalPreferenceState } from './preference-state'
 import {
   NO_SESSION_USER_STATE,
   PinState,
@@ -34,20 +35,30 @@ import {
 } from './session-state'
 
 describe('the family list is the thing every totality assertion below reads', () => {
-  it('covers inventory §7.1 completely: six schemas plus three declared non-members', () => {
-    // Six + three = the nine distinct facts §7.1 enumerates once the three issue
+  it('covers inventory §7.1 completely: seven schemas plus two declared non-members', () => {
+    // Seven + two = the nine distinct facts §7.1 enumerates once the three issue
     // markers are recognised as one key. If a member is ever dropped, this fails
     // BEFORE the it.each blocks below quietly stop checking it.
-    expect(PER_USER_STATE_FAMILY).toHaveLength(6)
-    expect(PER_USER_STATE_NON_MEMBERS).toHaveLength(3)
+    //
+    // The counts MOVED at POD-1213 (6 + 3 → 7 + 2): `personalPreferenceKeys` was
+    // a declared non-member for as long as personal preferences lived in the
+    // instance-wide settings blob, and became a member when they got their own
+    // `(user_id, key)` table. The pair is asserted together on purpose — a member
+    // that arrived without leaving the non-member list, or left it without
+    // arriving, changes exactly one of these two numbers.
+    expect(PER_USER_STATE_FAMILY).toHaveLength(7)
+    expect(PER_USER_STATE_NON_MEMBERS).toHaveLength(2)
     expect(PER_USER_STATE_FAMILY.map((m) => m.name).sort()).toEqual([
       'issueMessageReadState',
       'issueUserState',
+      'personalPreference',
       'pin',
       'sessionReadState',
       'sessionSnooze',
       'tabOrder',
     ])
+    // The moved entry is gone from the OTHER list, not merely added to this one.
+    expect(PER_USER_STATE_NON_MEMBERS.map((n) => n.name)).not.toContain('personalPreferenceKeys')
   })
 
   it('every member names a real table, and no two members claim the same one', () => {
@@ -103,6 +114,10 @@ describe('every member composes the ONE (userId, entityId) fragment', () => {
     expect(PinState.shape.entityId.safeParse(42).success).toBe(false)
     expect(TabOrderState.shape.entityId.safeParse(42).success).toBe(false)
     expect(IssueMessageReadState.shape.entityId.safeParse(42).success).toBe(false)
+    // A personal preference's entity half is a dotted settings PATH, so it
+    // declines the brand for the same reason and must still refuse a non-string.
+    expect(PersonalPreferenceState.shape.entityId.safeParse('sidebar.repoSort').success).toBe(true)
+    expect(PersonalPreferenceState.shape.entityId.safeParse(42).success).toBe(false)
   })
 
   it('no member carries a `visibility` field — the class is a matrix annotation, never a per-row value', () => {

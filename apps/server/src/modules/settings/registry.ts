@@ -34,12 +34,22 @@ import {
   type SettingsContractName,
   type TransportTag,
 } from '@podium/commands'
+import type { UserId } from '@podium/model'
 import type { z } from 'zod'
 import type { SettingsService } from './service'
 
-/** A settings handler is a method ON the service; everything it needs (the
- *  store, the bus, the fingerprint key) is already a constructor dependency. */
-export type SettingsHandler<In, Out> = (svc: SettingsService, input: In) => Out
+/**
+ * A settings handler is a method ON the service; everything it needs (the store,
+ * the bus, the fingerprint key) is already a constructor dependency.
+ *
+ * `actor` — WHO IS WRITING — is the exception, and it is a parameter for the
+ * reason POD-1213 made the per-user reads take one: it is a fact about the
+ * REQUEST, not about the service, and a service that could resolve it itself
+ * would be a service that answers for one identity forever. Every handler
+ * receives it; the ones whose target is instance-wide or server-owned ignore it,
+ * which is visible here rather than hidden behind two handler shapes.
+ */
+export type SettingsHandler<In, Out> = (svc: SettingsService, input: In, actor: UserId) => Out
 
 /** One contract joined to the service method that implements it. */
 export interface SettingsCommand {
@@ -59,14 +69,22 @@ export interface SettingsCommand {
 export const SETTINGS_COMMANDS_TRPC = {
   'settings.updatePersonal': {
     contract: SETTINGS_CONTRACTS['settings.updatePersonal'],
-    handler: ((svc, input) => svc.updatePreferences(input.values)) satisfies SettingsHandler<
+    // THE OWNING USER DECIDES WHERE THE VALUE LANDS (POD-1213). The contract's
+    // role floor already re-checks this user at drain; passing the actor is what
+    // makes the row it writes theirs rather than the instance's.
+    handler: ((svc, input, actor) =>
+      svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.updatePersonal']['input']>,
       unknown
     >,
   },
   'settings.updateInstance': {
     contract: SETTINGS_CONTRACTS['settings.updateInstance'],
-    handler: ((svc, input) => svc.updatePreferences(input.values)) satisfies SettingsHandler<
+    // Same method, and the actor is carried rather than dropped: the store routes
+    // BY CLASSIFICATION, so an instance patch reaches the shared blob no matter
+    // who sends it. One routing answer, not one per command.
+    handler: ((svc, input, actor) =>
+      svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.updateInstance']['input']>,
       unknown
     >,

@@ -1,4 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asSessionId, type SessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -128,7 +128,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       const attach = () =>
         registry.gateway.attachDaemon('local', (msg) => controls.push(msg))
       attach()
-      registry.modules.settings.setSettings(
+      registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, 
         normalizeSettings({
           notifications: {
             web: true,

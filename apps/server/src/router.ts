@@ -6,6 +6,7 @@ import {
   AutomationScheduleKind,
   AutomationSessionMode,
   asThreadId,
+  asUserId,
   IssueIdField,
   isAgentKind,
   ResumeRef,
@@ -319,9 +320,14 @@ export const appRouter = t.router({
     // no partial-merge ambiguity. PodiumSettings fills defaults for missing keys.
     // REFUSES a secret change (`assertNoSecretChange`), so the only way to write
     // credential material is the derived, online-sensitive, admin-grade pair.
+    // ON BEHALF OF THE CALLER (POD-1213): the blob it posts spans two homes now,
+    // and the personal leaves land on the caller's own rows. The split is the
+    // store's, by classification — this seam supplies only WHO.
     set: t.procedure
       .input(PodiumSettings)
-      .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
+      .mutation(({ ctx, input }) =>
+        mods(ctx).settings.setSettingsFor(asUserId(soleHumanPrincipal(ctx.capability).userId), input),
+      ),
     /**
      * WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT (POD-421).
      *
