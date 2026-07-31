@@ -82,7 +82,7 @@ export const SYNC_QUERIES = {
    * A SIBLING OF `changesSince`, NOT A REPLACEMENT, for the length of the
    * rollout window: the two serve the two wire versions, and both read the same
    * Authority through the same principal, so neither can see rows the other
-   * cannot. `changesSince` disappears with `LegacyWireV1Adapter`.
+   * cannot. `changesSince` disappears with the v1 edge adapter it serves.
    *
    * The cursor is the D1 TRIPLE and not a bare integer. That is the difference
    * that makes this query answerable at all — a `seq` alone names a position on

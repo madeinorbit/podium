@@ -117,6 +117,8 @@ interface Client {
   /** `(entity, entityId)` keys the client holds, sorted. The comparison snapshot. */
   keys(): string[]
   freshWorldRequests: number
+  /** Surfaced storage degradations (D4.4). Asserted empty — see `online`. */
+  readonly degradations: unknown[]
 }
 
 describe('POD-376 divergence matrix', () => {
@@ -139,9 +141,15 @@ describe('POD-376 divergence matrix', () => {
     principal: ConformancePrincipal,
     opts: { databaseName?: string } = {},
   ): Promise<Client> {
+    const degradations: unknown[] = []
     const store = await IndexedDbSyncStore.open({
       factory,
       databaseName: opts.databaseName ?? `replica-${principal.kind}-${JSON.stringify(principal)}`,
+      // COLLECTED AND ASSERTED, not discarded. D4.4 requires degradation to be
+      // surfaced rather than silent, and a matrix that ran against a store which
+      // had quietly fallen back to memory would be asserting cold-start paint on
+      // state that never touched IndexedDB — an all-green probe measuring nothing.
+      onDegraded: (degradation) => degradations.push(degradation),
     })
     const view = store.viewFor('default')
     const events: ReplicaEvent[] = []
@@ -210,6 +218,7 @@ describe('POD-376 divergence matrix', () => {
       get freshWorldRequests() {
         return freshWorldRequests
       },
+      degradations,
     }
     clients.push(client)
     return client
@@ -220,6 +229,11 @@ describe('POD-376 divergence matrix', () => {
     client.sink.connected()
     await client.replica.settled()
     await client.store.settled()
+    // The storage stayed DURABLE through the bootstrap. Every case below asserts
+    // on persisted state, and a store that degraded to memory would satisfy most
+    // of them while proving nothing about IndexedDB.
+    expect(client.degradations).toEqual([])
+    expect(client.store.viewFor('default').cache.durability()).toBe('durable')
   }
 
   // ── 1–3: the ordinary cases ────────────────────────────────────────────────

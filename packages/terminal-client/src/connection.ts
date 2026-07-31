@@ -102,7 +102,7 @@ export interface SocketHubOptions {
    * kernel Replica.
    *
    * PROVIDING THIS IS THE ADVERTISEMENT. `hello` gains `wireVersion`, so the
-   * server resolves the identity adapter instead of `LegacyWireV1Adapter` and
+   * server resolves the identity adapter instead of the v1 translation, and
    * this connection receives `feedBootstrap` / `feedDelta` / `feedRescope` /
    * `feedResyncRequired` untranslated — which is what carries `(feedId, epoch,
    * seq)`, the certified range, `minAvailableSeq`, and the `evict` op that v1
@@ -1050,7 +1050,7 @@ export class SocketHub {
     // ---- wire v2 (POD-308 built it, POD-376 consumes it) ----
     // WHICH WIRE THIS HUB SPEAKS IS PER CONNECTION, not per build. Without a
     // `feed` sink the hub sends no `wireVersion`, the server serves it through
-    // `LegacyWireV1Adapter`, and these frames never arrive — so forwarding to an
+    // the v1 edge adapter, and these frames never arrive — so forwarding to an
     // absent sink is the correct no-op rather than a swallowed frame. With one,
     // `hello` announces the version and the server's identity adapter passes the
     // canonical frames through untouched.
