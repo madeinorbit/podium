@@ -11,6 +11,7 @@
 
 import type { ServerMessage } from '@podium/protocol'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
+import type { FeedScopingGrade } from '@podium/sync'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LegacyWireV1Adapter, LEGACY_WIRE_V1_EXPIRY } from './legacy-wire-v1-adapter'
 import { type EdgePeer, type FeedFrame, WireFeedEdge } from './wire-feed-edge'
@@ -57,7 +58,11 @@ class Peer implements EdgePeer {
   }
 }
 
-const edge = () => new WireFeedEdge({ diagnostics: () => [] })
+/** The existing suite's server: today's shipped composition, one shared password
+ *  and one principal. POD-376's scoping gate is a no-op here BY DESIGN, and the
+ *  cases below prove it stays one. */
+const edge = (grade: FeedScopingGrade = 'device-unscoped') =>
+  new WireFeedEdge({ diagnostics: () => [], visibilityGrade: () => grade })
 
 describe('every peer is served from the one feed', () => {
   let subject: WireFeedEdge
@@ -247,5 +252,79 @@ describe('the legacy adapter carries a MECHANICAL expiry', () => {
     // fails the build. Asserted here so the two cannot drift silently.
     expect(MIN_SUPPORTED_VERSION).toBeLessThan(LEGACY_WIRE_V1_EXPIRY.expiresWhenMinSupportedReaches)
     expect(edge().expiredAdapters()).toEqual([])
+  })
+})
+
+/**
+ * POD-376 — THE FLAG IS NOT A VISIBILITY BYPASS.
+ *
+ * The property under test is stated in `docs/agents/pod-376-shadow-comparison-basis.md`
+ * §3: an off-flag client rides wire v1, whose adapter cannot express `evict`, and
+ * against an authority that can actually revoke that is not a fallback — it is a
+ * path that renders a row and then loses it as a disconnect. So the refusal moves
+ * to ADMISSION.
+ *
+ * ORDER IS DELIBERATE. Every case that asserts the gate says NO is preceded by a
+ * case proving it can say YES on the same axis, because a gate that refuses
+ * everything passes a refusal-only suite and refuses the product in production.
+ */
+describe('POD-376 · a scoped authority refuses a wire that cannot express evict', () => {
+  it('YES on the version axis: a per-principal authority admits a v2 peer', () => {
+    // Without this, the v1 refusal below would be satisfied by a gate that
+    // refuses every peer whenever the grade is per-principal.
+    const subject = edge('per-principal')
+    expect(subject.attach(new Peer('v2', WIRE_VERSION))).toBeNull()
+    expect(subject.versions().totalPeers).toBe(1)
+  })
+
+  it('YES on the grade axis: a device-unscoped authority admits a v1 peer', () => {
+    // Today's shipped composition. One principal means nothing is ever revoked
+    // from anybody, so a wire with no eviction is COMPLETE — the gate must not
+    // fire here, or the cutover breaks every existing client for no reason.
+    const subject = edge('device-unscoped')
+    expect(subject.attach(new Peer('legacy-pwa', 1))).toBeNull()
+    expect(subject.versions().totalPeers).toBe(1)
+  })
+
+  it('NO: a per-principal authority refuses a v1 peer, and says WHY', () => {
+    const subject = edge('per-principal')
+    const refusal = subject.attach(new Peer('legacy-pwa', 1))
+    expect(refusal).toMatchObject({
+      status: 426,
+      // NOT 'unsupported-version'. v1 is inside the advertised window and another
+      // server would serve it happily; what refuses it here is this deployment's
+      // visibility state, and telling the user to upgrade for the wrong reason is
+      // the collapse `UpgradeRequiredReason` exists to prevent.
+      reason: 'scoping-requires-eviction',
+      offered: 1,
+    })
+    expect(subject.support().min).toBeLessThanOrEqual(1)
+  })
+
+  it('NO, and BEFORE any row reaches it — the refusal is at admission, not on the first evict', () => {
+    // This is the actual property. The pre-existing behaviour (translate throws,
+    // publishTo drops the peer) also ends with the peer gone, and would satisfy a
+    // test that only checked the end state. What must be true is that the peer
+    // never received a row in the first place.
+    const subject = edge('per-principal')
+    const peer = new Peer('legacy-pwa', 1)
+    expect(subject.attach(peer)).not.toBeNull()
+    subject.publish(bootstrap([upsert(1, 'session', 's1', session('s1'))]))
+    subject.publish(delta(1, 2, [upsert(2, 'issue', 'i1', issue('i1'))]))
+    expect(peer.received).toEqual([])
+    expect(subject.versions().totalPeers).toBe(0)
+  })
+
+  it('reads the grade LIVE: a peer admissible a moment ago is refused after the policy moves', () => {
+    // The gate must not be able to be satisfied by a value captured at
+    // construction. Same edge, same peer version, different answer — which is
+    // only possible if the grade is consulted per admission.
+    let grade: FeedScopingGrade = 'device-unscoped'
+    const subject = new WireFeedEdge({ diagnostics: () => [], visibilityGrade: () => grade })
+    expect(subject.attach(new Peer('early', 1))).toBeNull()
+    grade = 'per-principal'
+    expect(subject.attach(new Peer('late', 1))).toMatchObject({
+      reason: 'scoping-requires-eviction',
+    })
   })
 })

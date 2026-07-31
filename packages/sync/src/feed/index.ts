@@ -42,6 +42,7 @@ export {
   type EntityKey,
   type EntityRef,
   type FeedPrincipal,
+  type FeedScopingGrade,
   type FeedVisibilityPolicy,
   type VisibilityAnchorPort,
   type VisibilityDecision,

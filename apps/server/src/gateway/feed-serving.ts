@@ -136,7 +136,13 @@ export class FeedServing {
         sizeOf: (frame) => JSON.stringify(frame).length,
       },
     })
-    this.edge = new WireFeedEdge({ diagnostics: () => deps.diagnostics() })
+    this.edge = new WireFeedEdge({
+      diagnostics: () => deps.diagnostics(),
+      // Straight through to the Authority, which delegates to the policy object
+      // it was constructed with. No value is stored anywhere on this path, so
+      // there is nothing that can go stale (POD-376).
+      visibilityGrade: () => deps.authority.visibilityGrade(),
+    })
   }
 
   /**

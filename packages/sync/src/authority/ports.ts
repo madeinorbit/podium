@@ -26,7 +26,7 @@ import type {
   ArbitrationRejection,
   ArbitrationRequest,
 } from './arbitration'
-import type { FeedPrincipal } from '../feed/visibility'
+import type { FeedPrincipal, FeedScopingGrade } from '../feed/visibility'
 import type { StagedChangeSpec, SequencedChange, StoredChangeRow } from './change-lifecycle'
 import type { ScopedBootstrap, ScopedDelivery } from './scoping'
 
@@ -147,6 +147,17 @@ export interface AuthorityPort {
 
   /** The highest seq ever assigned. 0 before any change. */
   cursor(): number
+
+  /**
+   * What kind of answer this Authority's visibility policy gives (POD-376).
+   *
+   * READ OFF THE INSTALLED POLICY OBJECT, never off a deployment config. A
+   * serving edge uses it to refuse a wire version that cannot express `evict`
+   * while this Authority can actually revoke — and a config that could disagree
+   * with the object would make that refusal wrong in the one direction that
+   * matters, silently.
+   */
+  visibilityGrade(): FeedScopingGrade
 
   /**
    * The INSTALLED WORLD for one principal, at the current head (POD-1203).

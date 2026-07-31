@@ -93,7 +93,12 @@ import type {
   ChangeSubscriber,
   TransactPort,
 } from './ports'
-import type { FeedPrincipal, FeedVisibilityPolicy, VisibilityAnchorPort } from '../feed/visibility'
+import type {
+  FeedPrincipal,
+  FeedScopingGrade,
+  FeedVisibilityPolicy,
+  VisibilityAnchorPort,
+} from '../feed/visibility'
 import { principalIdOf } from '../feed/visibility'
 import {
   DEFAULT_RESCOPE_THRESHOLD,
@@ -262,6 +267,18 @@ export class Authority implements AuthorityPort {
 
   cursor(): number {
     return this.deps.store.maxChangeSeq()
+  }
+
+  /**
+   * The grade of the policy this Authority was CONSTRUCTED with (POD-376).
+   *
+   * One line, and it is a delegation rather than a stored copy on purpose: a
+   * field set in the constructor would be a second place the answer lives, and a
+   * policy swapped at any point would leave it stale in the direction that lets a
+   * revoke-capable authority claim it cannot revoke.
+   */
+  visibilityGrade(): FeedScopingGrade {
+    return this.deps.visibility.grade
   }
 
   /**
