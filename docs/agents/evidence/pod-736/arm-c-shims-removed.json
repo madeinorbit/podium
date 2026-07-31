@@ -1,0 +1,139 @@
+{
+  "label": "authority-feed-shims-removed",
+  "at": "2026-07-31T02:42:42.006Z",
+  "scale": {
+    "sessions": 588,
+    "issues": 800,
+    "cycles": 250
+  },
+  "principals": [
+    {
+      "digest": "fe4b0831e597aa75",
+      "kind": "user",
+      "sliceSize": {
+        "last": 1388,
+        "min": 1388,
+        "max": 1388,
+        "samples": 1
+      },
+      "phases": {
+        "ws.attach": {
+          "count": 250,
+          "p50Ms": 0.32,
+          "p90Ms": 2,
+          "p99Ms": 6.66
+        },
+        "ws.detach": {
+          "count": 250,
+          "p50Ms": 0.24,
+          "p90Ms": 0.82,
+          "p99Ms": 5.61
+        },
+        "feedPublish.total": {
+          "count": 500,
+          "p50Ms": 0.34,
+          "p90Ms": 1.47,
+          "p99Ms": 5.58
+        },
+        "feedPublish.scope": {
+          "count": 500,
+          "p50Ms": 0.02,
+          "p90Ms": 0.02,
+          "p99Ms": 0.2
+        },
+        "feedPublish.frame": {
+          "count": 500,
+          "p50Ms": 0.19,
+          "p90Ms": 0.47,
+          "p99Ms": 3.6
+        },
+        "feedPublish.fanout": {
+          "count": 500,
+          "p50Ms": 0.07,
+          "p90Ms": 0.13,
+          "p99Ms": 2.62
+        },
+        "feedBootstrap.total": {
+          "count": 1,
+          "p50Ms": 32.98,
+          "p90Ms": 32.98,
+          "p99Ms": 32.98
+        },
+        "feedBootstrap.read": {
+          "count": 1,
+          "p50Ms": 32.52,
+          "p90Ms": 32.52,
+          "p99Ms": 32.52
+        }
+      }
+    }
+  ],
+  "deploymentWide": {
+    "ws.attach": {
+      "count": 250,
+      "p50Ms": 0.32,
+      "p90Ms": 2,
+      "p99Ms": 6.66
+    },
+    "ws.detach": {
+      "count": 250,
+      "p50Ms": 0.24,
+      "p90Ms": 0.82,
+      "p99Ms": 5.61
+    },
+    "feedPublish.total": {
+      "count": 500,
+      "p50Ms": 0.34,
+      "p90Ms": 1.47,
+      "p99Ms": 5.58
+    },
+    "feedPublish.scope": {
+      "count": 500,
+      "p50Ms": 0.02,
+      "p90Ms": 0.02,
+      "p99Ms": 0.2
+    },
+    "feedPublish.frame": {
+      "count": 500,
+      "p50Ms": 0.19,
+      "p90Ms": 0.47,
+      "p99Ms": 3.6
+    },
+    "feedPublish.fanout": {
+      "count": 500,
+      "p50Ms": 0.07,
+      "p90Ms": 0.13,
+      "p99Ms": 2.62
+    },
+    "feedBootstrap.total": {
+      "count": 1,
+      "p50Ms": 32.98,
+      "p90Ms": 32.98,
+      "p99Ms": 32.98
+    },
+    "feedBootstrap.read": {
+      "count": 1,
+      "p50Ms": 32.52,
+      "p90Ms": 32.52,
+      "p99Ms": 32.52
+    },
+    "sessionsBroadcast.total": {
+      "count": 500,
+      "p50Ms": 18.85,
+      "p90Ms": 33.06,
+      "p99Ms": 48.35
+    },
+    "sessionsBroadcast.publishIssues": {
+      "count": 500,
+      "p50Ms": 14.29,
+      "p90Ms": 25.34,
+      "p99Ms": 41.01
+    }
+  },
+  "interaction": {
+    "count": 500,
+    "p50Ms": 20.43,
+    "p90Ms": 34.92,
+    "p99Ms": 50.39
+  }
+}

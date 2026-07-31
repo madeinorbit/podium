@@ -3,7 +3,7 @@ import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { Capability } from './issue-authz'
 import type { IssueCaller } from './modules/issues/registry'
-import { perf } from './modules/perf/registry'
+import { DEPLOYMENT, perf } from './modules/perf/registry'
 import type { PublicationAuthority } from './modules/sessions/session'
 import type { SuperagentService } from './modules/superagent'
 import type { RegistryModules, SessionRegistry } from './relay'
@@ -81,7 +81,15 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
     return await next()
   } finally {
     const ms = performance.now() - start
-    perf.record('rpc', path, ms)
+    // ATTRIBUTED TO THE DEPLOYMENT, and that is a claim rather than a shrug
+    // [POD-736]. This seam has no per-connection principal to name: every /trpc
+    // caller is minted OPERATOR by construction (see `Context.capability`), so
+    // deriving a "principal" from the capability here would produce a dimension
+    // that LOOKS per-user while being decided by one shared login — the same
+    // well-typed lie `gateway/client-principal.ts` refuses for the feed. The
+    // per-principal switch dimension lives on the FEED path, which has a real
+    // principal; when /trpc gains one (POD-315), this line gains it too.
+    perf.record('rpc', path, ms, DEPLOYMENT)
     if (ms >= SLOW_RPC_WARN_MS) {
       const now = Date.now()
       const last = lastSlowWarnAt.get(path) ?? 0

@@ -447,11 +447,11 @@ runbooks live in this document (section per gate below or in the phase section).
 | POD-359 ADR pack sign-off | Reads and signs off the pack before Phase 1 entry: the 8 original ADRs **plus ADR 9 (identity, ownership, sharing) and the amendments to ADRs 1/2/3/4/7** carrying the 2026-07-29 multi-user decisions | `docs/adr/` (the pack itself; decision record in `docs/multi-user-readiness.md`; sign-off procedure in POD-359) | POD-359 issue artifacts + signed ADR frontmatter |
 | POD-377 / POD-332 device smokes | *(multi-user)* both now include a **second-user pass** — see their descriptions | POD-377 / POD-332 descriptions | those issues' artifacts |
 | POD-351 walking-skeleton sign-off | Verifies session.rename on the target path (online/offline, two clients, crash/reconnect); USER sign-off | POD-351 description + §Phase 1 ledger section | POD-351 issue artifacts (shadow-comparison record, runtime evidence) |
-| POD-310 live upgrade rehearsal | Runs the local-topology upgrade on the real fleet (VPS + remote daemon + phone PWA); rollback drill | This document, Phase 2 section (runbook committed by POD-310) | POD-310 issue artifacts + quantitative checks recorded here |
+| POD-310 live upgrade rehearsal | Runs the local-topology upgrade on the real fleet (VPS + remote daemon + phone PWA); rollback drill; switch latency from the POD-736 harness, per principal with slice size | This document, Phase 2 section (runbook committed by POD-310) | POD-310 issue artifacts + quantitative checks recorded here |
 | POD-377 mobile cutover device smoke | Real-device smoke of the SQLite replica migration | POD-377 description | POD-377 issue artifacts |
 | POD-332 mobile slices device smoke | Real-device smoke: cold-start offline paint, reconnect drain, terminal parity | POD-332 description | POD-332 issue artifacts |
 | POD-327 remote-daemon soak | 48h live remote-daemon soak (paired VPS) without manual intervention; may run on an isolated named instance per [spec:SP-15aa] | POD-327 description + Phase 5 section | POD-327 issue artifacts |
-| POD-337 fleet soak + release | 72h+ local-topology fleet soak, two redeploys + one daemon self-update; quantitative criteria within thresholds; "clean" as defined in POD-337 | This document, Phase 7 section (runbook committed by POD-337) | POD-337 issue artifacts |
+| POD-337 fleet soak + release | 72h+ local-topology fleet soak, two redeploys + one daemon self-update; quantitative criteria within thresholds (switch latency from the POD-736 harness, per principal with slice size); "clean" as defined in POD-337 | This document, Phase 7 section (runbook committed by POD-337) | POD-337 issue artifacts |
 
 ---
 
@@ -1196,9 +1196,39 @@ outbox age + dead-letter count, gap-heal time, bootstrap snapshot time, reconnec
 behavior, render counts, memory per pane, zero-data-loss crash tests. The POD-310
 upgrade-rehearsal runbook is committed into this section.
 
+**SWITCH LATENCY HAS ONE CANONICAL SOURCE, AND IT IS NOT A SPREADSHEET (POD-736).**
+Both POD-310's rehearsal and POD-337's gate read switch latency from the harness
+POD-701 built and POD-736 re-pointed at the Authority feed:
+
+- `bun scripts/switch-latency-ab.ts --label <arm> --out <arm>.json` — the server's
+  share, per principal, at representative scale.
+- `tests/e2e/switch-bench.ts` — the number a user feels (gesture to chat first
+  paint), through a real browser. Unchanged by the cutover.
+- `perf.snapshot`'s `phases` and `byPrincipal` — the live read on any instance.
+
+**EVERY QUANTITATIVE SWITCH CHECK IS RECORDED PER PRINCIPAL WITH ITS SLICE SIZE, or
+it is not recorded.** The feed is per-principal after POD-1077, so a p50 over one
+person's slice and a p50 over the whole feed are different measurements, and
+comparing them reports a speedup that is really a smaller working set.
+`--compare` REFUSES an arm pair that shares no principal, whose slice sizes
+differ, or whose slice size was never measured (`samples === 0` is not a slice of
+0) — a comparison that does not control for slice size is invalid, not noisy.
+
+Retired phase names are not lost: `PHASE_MIGRATION` in `packages/protocol/src/perf.ts`
+maps each `sessionsBroadcast.*` phase to its delta-feed successor, and
+`apps/server/src/modules/perf/harness-live.test.ts` fails if the map ever names a
+phase nobody emits. The harness files are whitelisted in the deletion audit
+(`MEASUREMENT_HARNESS` in `scripts/rearch-audit.ts`), which fails when one goes
+missing — they are permanent instrumentation, not debt, and they are unusually
+easy to sweep up because they were built to instrument the pipeline POD-1203
+deleted. Worked example and the recorded pre/post A/B:
+`docs/agents/pod-736-harness-evidence.md`.
+
 **Verification steps (gate POD-310, HUMAN):** rehearsal on the real local topology
 (VPS + remote daemon + phone PWA), in-place DB upgrade, zero lost sessions, rollback
-drill tested once; `podium issue needs-human` set at the gate. `podium issue tree 289`.
+drill tested once; switch latency recorded from the POD-736 harness above, PER
+PRINCIPAL WITH SLICE SIZE, as an issue artifact; `podium issue needs-human` set at
+the gate. `podium issue tree 289`.
 
 #### LEDGER ENTRY — POD-305 (2.1 Authority): in-place upgrade and its rollback
 
@@ -1965,7 +1995,9 @@ retired against an equivalent (POD-335), docs rewrite from the per-phase as-buil
 sections (POD-336), topology closure — shipped layout vs proposal, every deviation
 explicit (POD-356), release gate (POD-337): deletion audit at ZERO across the entire
 inventory (incl. the expired N/N-1 adapter; the negotiation MECHANISM is permanent and
-exempt), quantitative criteria measured against the Phase-2 thresholds, chaos matrix,
+exempt), quantitative criteria measured against the Phase-2 thresholds — switch latency
+from the POD-736 harness, per principal with slice size, and no other source —
+chaos matrix,
 all-target packaging with real-binary smoke, file-size report as a review signal with
 a named god-object reviewer pass, and the 72h+ fleet soak (HUMAN GATE).
 

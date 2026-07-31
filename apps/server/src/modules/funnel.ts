@@ -12,6 +12,8 @@ import {
   type ScopedDelivery,
 } from '@podium/sync'
 import type { EventBus } from './bus'
+import { perfPrincipal } from './perf/principal'
+import { perf } from './perf/registry'
 
 export interface WriteFunnelDeps {
   bus: EventBus
@@ -304,9 +306,23 @@ export class WriteFunnel {
   flushDeltas(): void {
     this.flushScheduled = false
     if (this.pending.length === 0) return
+    // `feedPublish.total` IS `sessionsBroadcast.total`'s successor, and the
+    // equivalence is structural rather than asserted [POD-736]: the deleted
+    // phase timed one whole coalesced publication of session truth to every
+    // connection, and so does this — the burst is coalesced here, then framed
+    // and delivered once per connection inside `serving.publish`. There is no
+    // other tail; a client sees nothing this method did not push.
+    const t0 = performance.now()
+    const perfKey = perfPrincipal(DEVICE_GRADE_PRINCIPAL)
     const queued = this.pending
     this.pending = []
-    for (const delivery of coalesce(queued)) {
+    const deliveries = coalesce(queued)
+    // `feedPublish.scope` is `sessionsBroadcast.list`'s successor: the work that
+    // decides WHAT this principal gets. The Authority evaluated the slice before
+    // handing it over (that cost lands in the committing write), so what is left
+    // to time on this side is the coalescing that merges the evaluated ranges.
+    perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
+    for (const delivery of deliveries) {
       // POSITION FIRST, DELIVERY SECOND, and the order is transcribed from the
       // deleted `sendMetadataDelta`: it advanced the prepared-publication
       // worker's cursor and scheduled a rebuild BEFORE walking the connections.
@@ -316,6 +332,7 @@ export class WriteFunnel {
       this.deps.onPublished(delivery.throughSeq)
       this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     }
+    perf.record('phase', 'feedPublish.total', performance.now() - t0, perfKey)
   }
 }
 

@@ -83,6 +83,8 @@ import type {
   ServerFrame,
 } from '@podium/sync'
 import { FeedPublisher } from '@podium/sync'
+import { perfPrincipal } from '../modules/perf/principal'
+import { perf } from '../modules/perf/registry'
 import {
   type EdgePeer,
   type FeedFrame,
@@ -167,7 +169,15 @@ export class FeedServing {
    *  at. The one place a connection acquires a position. */
   private serveWorld(peer: FeedPeer, principal: FeedPrincipal): void {
     // ONE synchronous pass: the world, and the position it was read at.
+    const t0 = performance.now()
     const world = this.deps.authority.bootstrap(principal)
+    const perfKey = perfPrincipal(principal)
+    // THE SLICE SIZE, measured at the ONE point the whole visible world is
+    // enumerated [POD-736]. A delta batch's `changes.length` is churn and would
+    // read as a shrinking working set on a quiet server; a bootstrap is the
+    // principal's world, which is the number an A/B has to control for.
+    perf.observeSliceSize(perfKey, world.changes.length)
+    perf.record('phase', 'feedBootstrap.read', performance.now() - t0, perfKey)
     const identity = this.deps.identity.current()
     const bootstrap: FeedBootstrapMessage = {
       type: 'feedBootstrap',
@@ -191,12 +201,13 @@ export class FeedServing {
     const existing = this.connections.get(peer.id)
     if (existing === undefined) {
       this.connections.set(peer.id, this.publisher.connect(peer.id, world.throughSeq, principal))
-      return
+    } else {
+      // A RE-SERVE. `rearm` is the publisher's own "this replica has just
+      // re-bootstrapped, resume from here" — the same call a demoted connection
+      // takes back. Reusing it keeps ONE way for a position to be set.
+      existing.rearm(world.throughSeq)
     }
-    // A RE-SERVE. `rearm` is the publisher's own "this replica has just
-    // re-bootstrapped, resume from here" — the same call a demoted connection
-    // takes back. Reusing it keeps ONE way for a position to be set.
-    existing.rearm(world.throughSeq)
+    perf.record('phase', 'feedBootstrap.total', performance.now() - t0, perfKey)
   }
 
   /**
@@ -250,8 +261,21 @@ export class FeedServing {
    * about, and there is no other tick in this server that would come back for it.
    */
   publish(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+    // THE RE-POINTED SWITCH PHASES [POD-736]. `sessionsBroadcast.stringify` and
+    // `.fanout` named the two halves of the deleted snapshot pipeline —
+    // serialize the payload, then walk the connections. The same two halves are
+    // here, doing the same work over the feed: FRAME (per-connection `fromSeq`,
+    // watermark coalescing, the bounded queue) and FANOUT (drain each
+    // connection's certified frames through its version adapter). The names
+    // changed because the pipeline they named is gone; `PHASE_MIGRATION` in
+    // `@podium/protocol` is the map a recorded baseline resolves through.
+    const perfKey = perfPrincipal(principal)
+    const t0 = performance.now()
     this.publisher.publish(principal, delivery)
+    const tFramed = performance.now()
+    perf.record('phase', 'feedPublish.frame', tFramed - t0, perfKey)
     this.flush(delivery.throughSeq)
+    perf.record('phase', 'feedPublish.fanout', performance.now() - tFramed, perfKey)
   }
 
   /** Roll the epoch and demote every connection to a re-bootstrap (D1 → D7 r4). */

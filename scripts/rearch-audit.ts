@@ -35,7 +35,7 @@
  * Pure logic is exported for scripts/rearch-audit.test.ts.
  */
 
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { changeRowRestatements } from './change-row-audit'
@@ -990,6 +990,47 @@ export const CHECKS: AuditCheck[] = [
       }),
   },
   {
+    /**
+     * THE TWO DIRTY-SCOPING SHIMS (POD-722/POD-723), COUNTED AT LAST.
+     *
+     * These were named as deletion-audit items when POD-736 was written and were
+     * never actually registered — so "delete the shims at the cutover" was an
+     * instruction with no instrument behind it, and an item nobody counts is an
+     * item nobody has to reach zero on. Registering them is the point even
+     * though POD-736 MEASURED that they must not be deleted yet (18x switch
+     * regression at 588 sessions / 800 issues — see
+     * docs/agents/pod-736-harness-evidence.md): the difference between a comment
+     * saying "interim" and a scheduled deletion is exactly a gate counting the
+     * sites, and this run has paid for that distinction more than once.
+     *
+     * THE EXPIRY CONDITION, NAMED SO IT CAN ARRIVE: both shims exist to suppress
+     * the O(issues x sessions) `allWire()` rebuild that a SESSION-driven publish
+     * triggers. They become deletable when the issue projection stops being
+     * rebuilt from a session list at all — i.e. when IssueWire stops embedding
+     * SessionMeta[] and a session change reaches issue clients as its own change
+     * row. That is a representation change (ADR 4), not a timing one, and it is
+     * what POD-337 must see at zero.
+     *
+     * Anchored on the STATE each shim keeps rather than on its comment marker: a
+     * comment can be deleted while the mechanism stays, which is the shape of a
+     * detector that reports a win for a rename.
+     */
+    id: 'issue-wire-dirty-scoping-shims',
+    title: 'Interim dirty-scoping shims on the issue wire rebuild (POD-722/723)',
+    phase: 'POD-337',
+    unit: 'piece of dirty-set state kept solely to skip the session-driven issue rebuild',
+    collect: (ctx) => [
+      ...grep(ctx, {
+        roots: ['apps/server/src/modules/sessions/service.ts'],
+        pattern: /private (?:last)?[iI]ssueProjectionGeneration\b/,
+      }),
+      ...grep(ctx, {
+        roots: ['apps/server/src/modules/issues/service/core.ts'],
+        pattern: /private (?:readonly )?(?:wireCache|issueInputsGen)\b/,
+      }),
+    ],
+  },
+  {
     id: 'mobile-client-value',
     title: 'MobileClientValue bespoke mobile surface',
     phase: 'POD-332',
@@ -1174,6 +1215,69 @@ function printSites(r: AuditResult): void {
 
 const KNOWN_FLAGS = new Set(['--update-baseline', '--json', '--sites', '--phase'])
 
+/**
+ * THE MEASUREMENT HARNESS — EXPLICITLY NOT DEBT [POD-736].
+ *
+ * ---------------------------------------------------------------------------
+ * WHY A DELETION AUDIT NEEDS A KEEP LIST AT ALL
+ * ---------------------------------------------------------------------------
+ *
+ * Everything else in this file counts things that must reach zero. These files
+ * must reach zero NEVER, and they are unusually easy to sweep up: the
+ * switch-latency harness was BUILT to instrument the `publishComputed` pipeline
+ * that POD-308/POD-1203 deleted, so a sweep aimed at "code belonging to the
+ * deleted pipeline" catches it by every reasonable heuristic. It is also the only
+ * quantitative source POD-310's rehearsal and POD-337's release gate have.
+ *
+ * A COMMENT SAYING "KEEP THIS" IS NOT A WHITELIST. This run's standing lesson is
+ * that a declaration nothing reads is indistinguishable from an enforced one, so
+ * this list is READ: {@link assertHarnessPresent} fails the audit if any entry
+ * has gone missing. Deleting the harness therefore reddens the gate that the
+ * deletion was supposedly satisfying, which is the only arrangement that makes
+ * the protection real.
+ *
+ * Note what it does NOT do: it does not assert the files still WORK. That is
+ * `apps/server/src/modules/perf/harness-live.test.ts`, which drives the real
+ * composition and fails when the harness stops observing the serving path. A
+ * present-but-dark harness is the failure mode this list cannot see, and saying
+ * so here is what stops someone reading this as more protection than it is.
+ */
+const MEASUREMENT_HARNESS: readonly string[] = [
+  // The wire contract, including PHASE_MIGRATION — the retired names' map.
+  'packages/protocol/src/perf.ts',
+  // The ring, the per-principal partitions and the slice-size dimension.
+  'apps/server/src/modules/perf/registry.ts',
+  // The one derivation of the partition key, so every site moves together.
+  'apps/server/src/modules/perf/principal.ts',
+  // perf.report / perf.reset / perf.snapshot — the operator-facing surface.
+  'apps/server/src/modules/perf/commands.ts',
+  'apps/server/src/modules/perf/queries.ts',
+  // The gate that proves the harness observes the LIVE path, not a remainder.
+  'apps/server/src/modules/perf/harness-live.test.ts',
+  // The A/B bench POD-310 and POD-337 consume, and its client-side counterpart.
+  'scripts/switch-latency-ab.ts',
+  'scripts/switch-bench-serve.ts',
+  'tests/e2e/switch-bench.ts',
+  // The client half of the trace contract.
+  'packages/client-core/src/perf/switch-trace.ts',
+]
+
+/** Fails the audit when a whitelisted harness file has been deleted. */
+function assertHarnessPresent(repoRoot: string): void {
+  const missing = MEASUREMENT_HARNESS.filter((rel) => !existsSync(join(repoRoot, rel)))
+  if (missing.length === 0) return
+  console.error(
+    'Deletion audit: the switch-latency measurement harness is MISSING files. These are\n' +
+      'whitelisted as permanent instrumentation, not as debt — POD-310\u2019s rehearsal and\n' +
+      'POD-337\u2019s release gate have no other quantitative source for switch latency. If a\n' +
+      'file genuinely moved, update MEASUREMENT_HARNESS in scripts/rearch-audit.ts in the\n' +
+      'same commit; if it was deleted with the pipeline it used to instrument, that is the\n' +
+      'exact mistake POD-736 exists to prevent.\n',
+  )
+  for (const rel of missing) console.error(`  missing: ${rel}`)
+  process.exit(2)
+}
+
 function main(): void {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const argv = process.argv.slice(2)
@@ -1209,6 +1313,7 @@ function main(): void {
     process.exit(2)
   }
 
+  assertHarnessPresent(repoRoot)
   const ctx = loadContext(repoRoot)
   const results = runAudit(ctx)
   const total = results.reduce((n, r) => n + r.count, 0)
