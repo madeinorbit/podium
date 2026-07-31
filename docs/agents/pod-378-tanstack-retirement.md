@@ -151,7 +151,7 @@ Run: `bun run audit:phase2-client`
 | `world-assumption` — client code that assumes it holds the WORLD | **0** | ADR 4 D7.3's rationale is amended in `engine/overlay.ts`; no affirmative claim survives |
 | `client-visibility-filter` — the Replica arbitrating scoping | **0** | none found. The two near misses are layout (`RightRail`) and §3.1.4 M5's required affordance rendering a server-supplied `unauthorized` (`NewPanelMenu`) — both correct, and both pinned as non-findings |
 | `per-user-state-local-home` — a local copy of anything POD-1076 moved | **0** | see §3.1 |
-| `unattributed-store-read` — a persisted store adopted without a principal | **2** | **the deletion blocker, mechanized** — see §3.2 |
+| `unattributed-store-read` — a persisted store adopted without a principal | **6** | the deletion blocker, mechanized — and after the POD-1223 merge it is more than that; see §3.2 and §3.3 |
 
 ### 3.1 Why the per-user-state item is genuinely zero rather than unexamined
 
@@ -173,8 +173,57 @@ Both are the surviving TanStack composition roots from §1. `packages/sync/src/a
 resolves to discard, discarded work is dead-lettered with its payload redacted. Neither root calls
 it, because neither builds the kernel store the gate was written for.
 
-**This item reaches zero when POD-1220/POD-1223 land and the TanStack roots are deleted — the same
-event.** The audit now says so mechanically rather than by anyone remembering.
+**The two TanStack roots reach zero when POD-1220 lands and this issue deletes them.** The audit says
+so mechanically rather than by anyone remembering.
+
+### 3.3 After the POD-1223 merge: the gate POD-377 built is called from NOWHERE
+
+Re-running the audit on integration turned two findings into six, and the increase is not noise.
+
+**First, my own detector was the thing that was wrong.** `COMPOSITION_ROOTS` was a hardcoded list of
+two. The merge added two production roots — `apps/web/src/lib/kernelReplica.ts` and
+`apps/web/src/lib/shadow/runner.ts` — and the audit went on reporting the same two findings, so a
+reader would have concluded the new roots were clean when the detector had never looked at them. Not
+a gate that cannot refuse: **a gate pointed at the wrong wall.** Roots are now DISCOVERED
+(`discoverCompositionRoots`), which also caught the mirror-image bug on the way — the discovery pass
+first reported the files that *declare* `createReplica` / `createKernelReplica`, because
+`export function createReplica(` matches a construction pattern perfectly. Requiring call shape fixed
+it; naming the two declaring files would have suppressed a real call appearing in either later.
+
+The old probe guard, `COMPOSITION_ROOTS.length > 0`, passes happily while the list is two names out
+of four. It is deleted and replaced by three cases — discovery of a new root, definition-is-not-a-call,
+and tests/perf excluded — mutation-proved by pinning discovery back to a fixed list, which turns
+exactly those three red.
+
+**Second, and this is the finding that matters:**
+
+```
+$ grep -rn "migrateLegacyReplica|decideLegacyAdoption|LegacyIdentityEvidence" apps/web/src apps/mobile/src
+(no matches)
+```
+
+POD-377 built the attribution gate, POD-378 verified it is correct, and **no client calls it.** Six
+sites build a client replica over persisted storage and not one establishes that the store belongs to
+the current principal:
+
+| Site | Reading |
+|---|---|
+| `apps/web/src/lib/kernelReplica.ts:90` | **NEW, and the sharpest.** The kernel web path opens `IndexedDbSyncStore` and adopts whatever it finds. The path built to replace the unattributed one is also unattributed |
+| `apps/web/src/lib/shadow/runner.ts:110` | **NEW.** The shadow harness builds the legacy replica over persisted storage to compare against — so the comparison runs over a store nobody attributed |
+| `apps/web/src/lib/desktopReplica.ts:135` | the TanStack root; closes when this issue deletes it |
+| `apps/mobile/src/client/MobileClientProvider.tsx:208` | the TanStack root; closes when POD-1220 lands |
+| `packages/client-core/src/engine/engine.ts:297` | `createReplica()` with no storage argument — the fallback defaults to `window.localStorage`, so it adopts ambient state whenever nothing is injected |
+| `packages/client-core/src/replica/legacy-snapshot.ts:124` | POD-377's fixture capture, over a caller-supplied `Map`. Benign in effect, and reported rather than silently excluded — the exclusion rule is tests and perf harnesses, and this is neither |
+
+This is the ledger's own "a declaration with no consumer is indistinguishable from an enforced one",
+arriving at a new site — and worse than the usual instance, because the gate here is not metadata but
+a **security decision that POD-307 specified as fail-closed**. Every handoff that cites the gate,
+including this document's own §4.1 row, reads as though it protects the client. It protects nothing
+until something calls it.
+
+**Not this issue's to fix**, and I am not going to quietly widen scope into it: the web wiring is
+POD-1223's and the mobile wiring is POD-1220's. Both have been mailed. What this issue owes is that
+the condition is now *counted* rather than believed.
 
 ---
 
