@@ -1,6 +1,6 @@
 # POD-1213 — Personal preferences get per-user storage
 
-**Status:** review · branch `issue/1213-per-user-preference-storage` (off `issue/279-integration`, no merges from main or the base)
+**Status:** review · branch `issue/1213-per-user-preference-storage`, REBASED onto `issue/279-integration` (rebased, never merged — the diff is exactly this issue's four commits against the new base). The rebase was needed to reach POD-1211's membership gate, which does not exist on the older base.
 
 ## What landed
 
@@ -74,6 +74,19 @@ user:sole sidebar.repoSort           = "alphabetical"
 BLOB sidebar: {"repoSort":"lastUsed","repoOrder":[],"groupByRepo":false}   ← no personal value on the shared row
 BLOB gitWorkflow.mergeStyle: "pr"   hibernation.memoryPct: 71             ← instance tier still shared
 ```
+
+## Durable-class membership (POD-1211's gate, added after this branched)
+
+`user_preferences` is declared in `DURABLE_STORES` naming the EXISTING row
+`preferences-personal-keys`, whose visibility is `per-user-state` — the never-grantable family.
+Argued rather than defaulted, and argued in both directions against POD-1211's own reasoning for
+`settings-audit-trail`: `personal` is refused because it is GRANTABLE, `secret` is refused because
+that class exists to never replicate and a preference must reach its owner's replicas. Full
+adjudication: `docs/agents/pod-1213-preference-class-membership.md`.
+
+Gate: `durable-class audit: clean — 88 durable stores, every one on the matrix or explained`.
+Mutants: removing the entry reports `drizzle-table-undeclared`; mistyping the row id reports
+`store-names-a-row-that-does-not-exist`.
 
 ## For POD-421's exit audit
 
