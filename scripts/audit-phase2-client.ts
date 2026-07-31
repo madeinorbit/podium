@@ -461,6 +461,27 @@ export function runPhase2ClientAudit(repoRoot: string): AuditItem[] {
       findings: perUserStateLocalHome(product),
     },
     {
+      /**
+       * A FINDING IN SHARED CODE IS REPORTED CORRECTLY AND IS STILL UNFIXABLE IN
+       * PLACE. Named here because it is a property of this item's findings that
+       * the detector cannot see, and the reader who hits it next will otherwise
+       * lose time looking for a fix that cannot exist where the finding points.
+       *
+       * This item reported `packages/client-core/src/engine/engine.ts:297` —
+       * accurately: `client-core/src` is a client root and the line really did
+       * construct a replica. But client-core is PLATFORM-NEUTRAL, and attribution
+       * needs the CURRENT PRINCIPAL, which shared code has no way to know. So the
+       * file could not host its own fix. A platform agent picking that finding up
+       * would have found nothing to do there — quieter than an uncounted site,
+       * and it lasts just as long.
+       *
+       * POD-1239's resolution is the general one: MOVE THE CONSTRUCTION to a
+       * platform file where the principal is reachable (here
+       * apps/web/src/lib/webReplica.ts), then fix it there. The count does not
+       * move — it is a swap, not an addition — which is the tell that the work
+       * was relocation rather than remediation, and is exactly what should
+       * happen.
+       */
       id: 'unattributed-store-read',
       title: 'a persisted store adopted without establishing the current principal',
       unit: 'composition root that never asks',

@@ -3018,3 +3018,39 @@ Two more from the same handoff:
     result read as a pass, in a human procedure where nobody would think to
     question it. Human checklists need the yes-first rule as much as code does —
     arguably more, because a person cannot mutate the product to test their step.
+
+## A finding in SHARED code is reported correctly and is still unfixable in place
+
+POD-1239 found this while correcting a number it had given me, which is the right
+order of events.
+
+`audit:phase2-client` reported
+`packages/client-core/src/engine/engine.ts:297` — accurately. `client-core/src`
+is a client root and that line really did construct a replica over ambient
+storage. But client-core is PLATFORM-NEUTRAL, and attribution needs the CURRENT
+PRINCIPAL, which shared code has no way to know. The file could not host its own
+fix.
+
+So the finding was true, correctly located, and actionable by nobody. A platform
+agent picking it up would have opened the file, found no principal to reach for,
+and moved on. That is QUIETER than an uncounted site and it lasts just as long —
+a real finding nobody can close looks identical to a finding nobody has got to
+yet.
+
+THE RESOLUTION IS RELOCATION, NOT REMEDIATION: move the construction to a
+platform file where the principal is reachable, then fix it there. The count does
+not move — it is a SWAP, one member replaced — and that non-movement is the tell
+that the work was relocation. A reviewer expecting the number to drop will read a
+correct fix as no progress.
+
+I have named this in the audit item's own header rather than trying to detect it.
+It is a property of the findings the instrument produces and cannot see, and the
+next reader of a client-core finding needs to know to move the construction rather
+than hunt for a principal that is not there.
+
+THE META-POINT, which POD-1239 put better than I would: three defects in this
+family, three different agents, one shape. My patch caught their line
+renumbering, because they verified verdicts and not locations. Their patch caught
+my mention-vs-call. This one was them believing a detector's POPULATION instead of
+running it. Every time, THE INSTRUMENT WAS TRUSTED ABOUT WHERE IT POINTED RATHER
+THAN WHAT IT DECIDED. The verdict gets checked; the coordinates do not.
