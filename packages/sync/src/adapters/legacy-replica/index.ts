@@ -8,5 +8,7 @@
  * is what lets ONE module serve both the web's `localStorage` and mobile's
  * hydrated AsyncStorage bridge.
  */
+export * from './adoption'
+export * from './migrate'
 export * from './import'
 export * from './keys'
