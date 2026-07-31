@@ -2372,3 +2372,50 @@ Filed as POD-1227, scoped to a script, a NON-BLOCKING job, and a truthful census
 of how many of the 70 actually pass — with the brief stating that "41 of 70
 fail" is a successful outcome. Closing it by skipping to green would reproduce
 the original defect exactly.
+||||||| 1c192dcc
+## POD-423 — Phase 1 exit gate CLOSED, and the answer to "grep for the CONSUMER"
+
+Phase 1 exits at `1c192dcc`. Verdict and full evidence:
+`docs/gates/pod-423-phase-1-exit-gate.md`; ledger entry in `docs/rearchitecture-v3.md`
+§Phase 1. Oracle GREEN on 5 lanes, typecheck `--force` 23/23 uncached, deletion audit
+ratcheted 186 → 178 sites baseline exact, 87 durable stores all matrixed or explained, and
+all 80 wire golden cases captured before the entity-schema move byte-identical today.
+
+**The section immediately above asked that the consumer sweep be attached to a phase exit
+gate. This is that gate, so here is the answer for Phase 1's declarations — and the method
+generalises.** A grep for the consumer proves a reference exists. It does not prove the
+reference DECIDES anything; a consumer that reads a field and then ignores its value reads
+identically. The stronger form, and the one used here, is: **mutate the declaration in real
+source and require the outcome to change.** That is a consumer test with no false pass,
+because a declaration nobody acts on cannot change an outcome by definition.
+
+Run against every declarative annotation Phase 1 added, nine mutations, nine refusals — the
+brand vocabulary the id detector derives (including the spelling where only the DIRECTORY
+names the entity), the `UNBRANDED` exclusion markers (counted and ratcheted at 17, not
+invisible), `OWNERSHIP_MATRIX_INDEX` membership, `DECLARED_OMISSIONS`, the agent-kind and
+`stateDir` canonical-symbol guards, and the instance-partition rule in both its key and its
+DDL-column form. Each was reverted atomically with match count, file hash and grep-back
+checked. **Two of the nine were green on a branch point inside this run** — the
+directory-named id (POD-1212) and the `instance_id` column (POD-1168) — which is the measure
+of how much a grep-for-the-consumer would have missed.
+
+**What this gate refused to do, recorded because refusing was the point.**
+`per-user-singletons` stands at 2 while POD-1076, which owns it, is `done` — against the
+unconditional phase-close rule, with `audit:rearch --phase POD-1076` exiting 1 and naming
+both sites. The repo has a legitimate mechanism (a recorded re-phase, used once for
+`change-row-typings` → POD-308) and it was not used. **The gate did not apply it itself.** An
+exit gate that edits a mapping in order to let itself close is the same defect as a detector
+that cannot say NO, one level up — and it would have been indistinguishable from a clean
+pass in every artifact downstream. Escalated to the coordinator instead: re-phase with a
+written reason, or reopen POD-1076.
+
+**One "environment artifact" was not one.** The prior POD-423 session attributed the
+multi-instance oracle red to this host. It is a defect in the `bash -i` PATH probe that fails
+on any stock Debian/Ubuntu host — `/etc/bash.bashrc` prints the sudo hint to STDOUT when
+`$HOME/.sudo_as_admin_successful` is absent, and the test deliberately runs under a fresh
+temp `$HOME` — and it is invisible to any developer whose real `$HOME` has that file, which
+is exactly why it read as local. Fixed generically (marker-delimited answer, so any startup
+chatter is discarded rather than the one banner we saw), refusal preserved and re-proven.
+**"It fails only on my box" and "it fails on every box that has not run sudo yet" produce the
+same sentence and opposite obligations**; the tiebreaker is to reproduce it outside the
+product, which took one line.

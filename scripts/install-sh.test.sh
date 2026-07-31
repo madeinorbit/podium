@@ -120,9 +120,16 @@ echo "== install persists ~/.local/bin on PATH for future login shells =="
 # next SSH login. Probe REAL shells with a scrubbed environment (env -i) so a host that already
 # has podium on PATH cannot mask a regression — assert the resolved path, not just success.
 CLEAN_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Startup files write to STDOUT, so the probe's answer must be DELIMITED rather than read
+# off the whole stream. Stock Debian/Ubuntu's /etc/bash.bashrc prints the sudo hint whenever
+# $HOME/.sudo_as_admin_successful is absent — and this test always runs under a fresh $HOME,
+# so `bash -i` emits it on every such host and the raw capture can never equal a path. The
+# marker discards ANY chatter, not just the banner we happen to know about; an empty or
+# missing answer still fails, so the probe keeps its refusing arm.
 for probe in "sh -l" "bash -l" "bash -i"; do
-  resolved="$(env -i HOME="$HOME" PATH="$CLEAN_PATH" TERM=dumb \
-    $probe -c 'command -v podium' 2>/dev/null || true)"
+  probe_out="$(env -i HOME="$HOME" PATH="$CLEAN_PATH" TERM=dumb \
+    $probe -c 'printf "podium-probe:%s\n" "$(command -v podium)"' 2>/dev/null || true)"
+  resolved="$(printf '%s\n' "$probe_out" | sed -n 's/^podium-probe://p' | tail -n1)"
   test "$resolved" = "$HOME/.local/bin/podium" \
     || { echo "FAIL: '$probe' resolved podium to '${resolved:-<nothing>}'"; exit 1; }
 done
