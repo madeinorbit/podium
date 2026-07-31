@@ -40,7 +40,7 @@
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, mods, t } from '../../trpc'
-import { recordSettingsCommand, redactErrorMessage } from './audit'
+import { redactErrorMessage } from './audit'
 import { settingsAuthzDeps, settingsAuthzFailure } from './authz'
 import {
   isSettingsCommandExposedOn,
@@ -110,12 +110,14 @@ function runSettingsCommand(
   input: unknown,
 ): unknown | Promise<unknown> {
   const deps = settingsAuthzDeps(ctx)
-  const audit = {
-    repo: ctx.registry.sessionStore.settingsAudit,
-    now: () => new Date().toISOString(),
-  }
+  // ONE `mods(ctx)`, used for both the trail and the handler. Two calls would be
+  // two `router-triple-access` sites where one is needed, and the audit
+  // repository is deliberately NOT reached out of `ctx.registry.sessionStore`:
+  // it is a dependency of the SERVICE (`SettingsService.recordCommand`), so the
+  // transport never touches the store.
+  const service = mods(ctx).settings
   const record = (outcome: 'applied' | 'refused', error?: string): void => {
-    recordSettingsCommand(audit, {
+    service.recordCommand({
       command: name,
       outcome,
       principal: deps.principal,
@@ -138,7 +140,7 @@ function runSettingsCommand(
   // carries a `satisfies SettingsHandler<…>` over its own contract's inferred
   // input), and `SettingsProcedures` re-derives the per-command types for the
   // client. This erasure is the one place the two meet.
-  const run = handler as (svc: ReturnType<typeof mods>['settings'], input: unknown) => unknown
+  const run = handler as (svc: typeof service, input: unknown) => unknown
 
   // A handler may be sync or async, and BOTH must be recorded. Awaiting a
   // synchronous result would make every settings write a microtask later than it
@@ -158,7 +160,7 @@ function runSettingsCommand(
 
   let result: unknown
   try {
-    result = run(mods(ctx).settings, input)
+    result = run(service, input)
   } catch (e) {
     return fail(e)
   }

@@ -178,23 +178,21 @@ export const NAMED_SITES: readonly { readonly file: string; readonly why: string
     file: 'packages/runtime/src/settings.ts',
     why: 'POD-418 — the legacy blob still DECLARES the members so the classification stays total',
   },
-  // ── apps/web: POD-421 replaces these with the presence/fingerprint surface ─
-  {
-    file: 'apps/web/src/features/settings/sections/keys.tsx',
-    why: 'POD-421 — renders the three provider-key inputs; serves `` after POD-419',
-  },
-  {
-    file: 'apps/web/src/features/settings/sections/integrations.tsx',
-    why: 'POD-421 — renders the Linear key input; serves `` after POD-419',
-  },
-  {
-    file: 'apps/web/src/features/settings/sections/notifications.tsx',
-    why: 'POD-421 — renders the bot-token input; serves `` after POD-419',
-  },
-  {
-    file: 'apps/web/src/features/settings/SettingsView.tsx',
-    why: 'POD-421 — gates the Telegram pairing button on the token being configured',
-  },
+  // ── apps/web: EMPTY, and the emptiness is POD-421's deliverable ───────────
+  //
+  // Four entries stood here — `keys.tsx`, `integrations.tsx`,
+  // `notifications.tsx` and `SettingsView.tsx` — each reading a secret member
+  // off the settings blob, each recorded by POD-419 with POD-421 as its owner.
+  // All four are gone: the first two are DELETED (their entire content was
+  // password inputs bound to blob members), and the other two stopped naming a
+  // secret member when the bot token moved to the presence surface and the
+  // Telegram precondition started reading presence instead of the blob.
+  //
+  // The census ratcheted 5 → 1, and this gate is what made that a REQUIREMENT
+  // rather than a nicety: it fails on a NAMED_SITE that no longer names a
+  // secret, so an absorbed surface cannot read as progress on a ratchet nobody
+  // edited. It named all four the moment they went, by file, before any test
+  // did.
 ]
 
 /**
@@ -545,12 +543,37 @@ function probe(): Finding[] {
   }
   // …and a NAMED site with the same text must NOT fire, or the allowlist is
   // decorative.
-  no(auditBlobReads(asFiles(NAMED_SITES[3]?.file as string, BLOB_CONSUMER), tokens), 'named site')
+  //
+  // THE FIXTURE IS CHOSEN BY EXISTENCE, NOT BY INDEX (POD-421). This read
+  // `NAMED_SITES[3]`, which was fine while the list had five entries and became
+  // `undefined` the moment POD-421 ratcheted it to one — `asFiles(undefined)`
+  // then plants the fixture under the path `"undefined"`, which is NOT a named
+  // site, so the check fires and the probe reports the INSTRUMENT as broken.
+  //
+  // It was right to fail rather than to pass, but it failed for the wrong
+  // reason and it would have been silenced by re-indexing. A positional anchor
+  // into a list this gate exists to SHRINK is the same defect class POD-386
+  // found in the per-family audits: an anchor that rides on a property of the
+  // data rather than on its meaning reports that property.
+  const probeSite = NAMED_SITES.at(-1)?.file
+  if (probeSite === undefined) {
+    // The list emptying is a legitimate end state — every consumer rewired —
+    // but it must not leave these two checks silently unexercised.
+    failures.push({
+      check: 'blob-secret-read',
+      where: '<probe>',
+      detail:
+        'NAMED_SITES is empty, so the allowlist and ratchet checks have no fixture to plant. ' +
+        'That is the success end state of this gate, and it means both checks must be retired ' +
+        'deliberately rather than left passing vacuously.',
+    })
+  }
+  no(auditBlobReads(asFiles(probeSite ?? '<none>', BLOB_CONSUMER), tokens), 'named site')
 
   // The ratchet's other direction.
   yes(
     'named-site-vanished',
-    auditVanishedSites(asFiles(NAMED_SITES[3]?.file as string, 'const x = 1'), tokens),
+    auditVanishedSites(asFiles(probeSite ?? '<none>', 'const x = 1'), tokens),
     'emptied named site',
   )
   yes('named-site-vanished', auditVanishedSites([], tokens), 'deleted named site')

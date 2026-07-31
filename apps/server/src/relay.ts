@@ -299,6 +299,9 @@ export class SessionRegistry {
       // POD-315 deletes the module — making this line a compile error that has
       // to name the real principal.
       mintingUser: deviceGradeSoleOwner,
+      // The append-only settings trail (POD-421). Injected here so the transport
+      // never reaches into the store for it.
+      audit: { repo: this.store.settingsAudit, now: () => new Date(this.now()).toISOString() },
       ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
       ...(options.generateTelegramSetupCode
         ? { generateTelegramSetupCode: options.generateTelegramSetupCode }
