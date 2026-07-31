@@ -29,7 +29,7 @@
  */
 
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
-import { createReplica } from './replica'
+import { createReplica, memoryStorage } from './replica'
 
 /**
  * The recognisable payload every queued entry in the capture carries.
@@ -111,17 +111,25 @@ const PRE_REPLICA_DEVICE: LegacyReplicaSnapshot = {
 }
 
 async function captureCollectionsDevice(): Promise<LegacyReplicaSnapshot> {
-  const data = new Map<string, string>(Object.entries(PRE_REPLICA_DEVICE))
-  const storage = {
-    getItem: (k: string) => data.get(k) ?? null,
-    setItem: (k: string, v: string) => void data.set(k, v),
-    removeItem: (k: string) => void data.delete(k),
-  }
+  // `memoryStorage()` RATHER THAN A HAND-ROLLED MAP, and the reason is the client
+  // audit rather than economy (POD-1252). Its `unattributed-store-read` item asks
+  // whether a composition root adopts a PERSISTED store without establishing whose
+  // it is, and it reported this file — accurately as a construction, wrongly as a
+  // persisted one. This module cannot host the fix that finding implies: it is
+  // platform-neutral, attribution needs the current principal, and shared code has
+  // no way to know one. But it is also not the thing the item is about — this
+  // store is a private Map that dies with the function.
+  //
+  // So the store says so in the one form the detector can check. The seam is
+  // identical to what was here; what changed is that "persists nothing" is now a
+  // fact a machine reads off the construction instead of a claim in a comment.
+  const storage = memoryStorage()
+  for (const [key, value] of Object.entries(PRE_REPLICA_DEVICE)) storage.setItem(key, value)
 
   // Seeded with the ancient blob so the capture goes through the replica's OWN
   // one-time fold of it: the entry ends up inside the outbox collection and the
   // standalone key is deleted, which is what a real recent device looks like.
-  const replica = createReplica({ storage, enumerateKeys: () => [...data.keys()] })
+  const replica = createReplica({ storage, enumerateKeys: () => storage.keys() })
 
   replica.applySnapshot('sessions', [
     { sessionId: 'sess_1', title: 'a session', agentKind: 'claude-code' } as unknown as SessionMeta,
@@ -174,5 +182,5 @@ async function captureCollectionsDevice(): Promise<LegacyReplicaSnapshot> {
   // timeout before an assertion is a flake in this lane.
   for (let i = 0; i < 50; i += 1) await Promise.resolve()
 
-  return Object.fromEntries([...data.entries()].sort(([a], [b]) => (a < b ? -1 : 1)))
+  return Object.fromEntries(Object.entries(storage.snapshot()).sort(([a], [b]) => (a < b ? -1 : 1)))
 }

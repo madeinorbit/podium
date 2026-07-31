@@ -847,6 +847,16 @@ class TanstackReplica implements Replica {
                 input: r.input,
                 queuedAt: r.queuedAt,
                 ...(r.state !== undefined ? { state: r.state } : {}),
+                // THE PARK METADATA, which this list forgot (found by POD-1252
+                // giving the web root's refusal a place to put an unattributable
+                // queue). `toDeadLetter` treats an entry with `state:'dead-letter'`
+                // and no `deadLetter` as NOT A PARK, so every entry POD-316 parked
+                // on the localStorage path came back unrecognised after a reload —
+                // durable in storage, invisible in the recovery UI, which is the
+                // silent poison-drop D9 invariant 1 forbids by name, one layer
+                // down. Explicit reconstruction is the right shape; it just has to
+                // list every field the entry actually carries.
+                ...(r.deadLetter !== undefined ? { deadLetter: r.deadLetter } : {}),
                 ...(r.resolvedAt !== undefined ? { resolvedAt: r.resolvedAt } : {}),
                 ...(r.baseline !== undefined ? { baseline: r.baseline } : {}),
                 ...(r.chained !== undefined ? { chained: r.chained } : {}),

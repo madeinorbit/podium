@@ -284,4 +284,37 @@ describe('replica outbox storage: in-place entry transitions (#263 review findin
     const c = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
     expect(c.load()).toEqual([])
   })
+
+  it('a PARKED entry reads back as a park — the reason survives the reload, not just the state', () => {
+    // Found by POD-1252, and it had been shipping: `load()`'s explicit
+    // reconstruction listed `state` but not `deadLetter`, and `toDeadLetter` treats
+    // an entry marked `dead-letter` WITHOUT that metadata as not-a-park. So every
+    // entry POD-316 parked on the localStorage path survived in storage and
+    // vanished from the recovery UI on the next boot — durable and invisible, which
+    // is D9 invariant 1's silent poison-drop wearing the storage layer's clothes.
+    //
+    // Asserted on the ROUND TRIP rather than on the save: the write was always
+    // fine, and a test that only checked the in-memory collection would have been
+    // green throughout.
+    const storage = memoryStorage()
+    const prefix = 'ob.park'
+    const parked = {
+      mutationId: 'm-parked',
+      kind: 'rename',
+      input: null,
+      queuedAt: 1000,
+      state: 'dead-letter' as const,
+      deadLetter: {
+        reason: { code: 'unauthorized' as const },
+        parkedFrom: 'rejected' as const,
+        deadLetteredAt: 2000,
+        attempts: 0,
+      },
+    }
+    createReplica({ storage, keyPrefix: prefix }).outboxDeadLetterStorage().save([parked])
+    const reloaded = createReplica({ storage, keyPrefix: prefix })
+      .outboxDeadLetterStorage()
+      .load()
+    expect(reloaded).toEqual([parked])
+  })
 })

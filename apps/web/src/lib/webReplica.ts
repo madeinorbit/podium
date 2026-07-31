@@ -30,20 +30,73 @@
  * nothing was hidden and nothing new exposed.
  *
  * ---------------------------------------------------------------------------
- * THIS ROOT IS DELIBERATELY UNATTRIBUTED, AND SAYING SO IS THE POINT
+ * AND THE GATE IT WAS BUILT TO HOST (POD-1252)
  * ---------------------------------------------------------------------------
  *
- * It does not call the gate yet. Wiring the browser's attribution belongs to
- * POD-1223, which owns the web client's identity plumbing; inventing a second,
- * competing call here would collide with the work already in flight.
+ * POD-1239 stopped one line short on purpose — it left this root a FINDING rather
+ * than inventing a second attribution call while POD-1223 owned the web client's
+ * identity plumbing. POD-1223 shipped (`kernelReplica.ts`), so the collision it was
+ * avoiding no longer exists and the call lands here.
  *
- * So it is a FINDING: red today at the `createReplica` call below, green the day
- * POD-1223's attribution lands here. A finding that names a file which CAN host its
- * own fix is a different object from one that cannot — both are counted, only one
- * can be closed.
+ * WHICH FAMILIES A REFUSAL TOUCHES is not obvious and is decided in
+ * `legacyStoreAttribution.ts`: entity rows and the cursor are DELETED, ui
+ * preferences are LEFT, and queued work is PARKED — never adopted, never destroyed.
+ * The distinction matters because POD-1220 found the failure mode where a gate has
+ * a caller and no effect: on their root, entities and the cursor were retired
+ * unconditionally either way, so only the outbox binding made the call mean
+ * anything. Here it is the reverse — this replica KEEPS serving the store it opens,
+ * so the entity discard is the load-bearing effect, and
+ * `webReplica.attribution.test.ts` measures it by re-opening the same store and
+ * requiring the rows to be gone.
  */
 
-import { createReplica, type Replica } from '@podium/client-core/replica'
+import {
+  createReplica,
+  type Replica,
+  type StorageApi,
+  type StorageEventApi,
+} from '@podium/client-core/replica'
+import {
+  decideLegacyAdoption,
+  type LegacyIdentityEvidence,
+} from '@podium/sync/adapters/legacy-replica'
+import {
+  defaultWebEvidence,
+  discardUnattributedEntityRows,
+  NO_IMPORT_PLAN,
+  parkUnattributedOutbox,
+  WEB_REPLICA_PRINCIPAL,
+} from './legacyStoreAttribution'
+
+export interface CreateWebReplicaOptions {
+  /**
+   * WHO THIS DEVICE'S EXISTING STORE BELONGS TO — the attribution gate's input.
+   *
+   * Defaults to `single-account` under the shared-password grade; injected rather
+   * than hardcoded so a test can present `unknown` or a foreign ledger and observe
+   * the REFUSAL. See {@link defaultWebEvidence} for why the default is a claim
+   * about this tree rather than a convenience.
+   */
+  readonly evidence?: LegacyIdentityEvidence
+  /**
+   * Seam for tests; defaults to the browser's own store.
+   *
+   * The three ambient values move together, because they describe ONE store: a
+   * caller that injects storage and inherits `window` for the other two would get
+   * cross-tab events and a key enumeration belonging to a different store than the
+   * one the collections read. That coupling — injecting a store silently changing
+   * an unrelated behaviour — is the defect POD-1239 removed from the replica
+   * itself, and re-introducing it one layer up would be the same bug in a new home.
+   */
+  readonly storage?: StorageApi
+  readonly storageEventApi?: StorageEventApi
+  readonly enumerateKeys?: () => string[]
+  /** Clock seam, so a parked entry's `deadLetteredAt` is not a moving target. */
+  readonly now?: () => number
+  /** Surfaced rather than swallowed (ADR 6 D4.4): a discard is a real state a
+   *  person notices, and `redactedCount` is work that lost its payload. */
+  readonly onDiscarded?: (detail: { reason: string; redactedCount: number }) => void
+}
 
 /**
  * Everything ambient, stated.
@@ -59,10 +112,50 @@ import { createReplica, type Replica } from '@podium/client-core/replica'
  *  - `enumerateKeys`    the one-time ui-state migration folds prefix-matched legacy
  *                       keys in, and prefix matching cannot probe keys individually.
  */
-export function createWebReplica(): Replica {
-  return createReplica({
-    storage: window.localStorage,
-    storageEventApi: window,
-    enumerateKeys: () => Object.keys(window.localStorage),
+export function createWebReplica(options: CreateWebReplicaOptions = {}): Replica {
+  const storage = options.storage ?? window.localStorage
+  const now = options.now ?? Date.now
+
+  // ---- THE ATTRIBUTION GATE, before a single row is read -------------------
+  //
+  // Called with an EMPTY plan on purpose: the decision and the records are two
+  // things `decideLegacyAdoption` returns, and only the decision applies at a root
+  // that migrates nothing into the kernel store. Re-deriving the rule locally
+  // would fork it, and a second copy of a privacy rule is worse than an off-label
+  // call to the first.
+  const adoption = decideLegacyAdoption(
+    NO_IMPORT_PLAN,
+    options.evidence ?? defaultWebEvidence(WEB_REPLICA_PRINCIPAL),
+    now(),
+  )
+  if (!adoption.adopt) {
+    // FAIL CLOSED, and BEFORE the construction below: the legacy replica loads its
+    // collections out of storage as it is built, so a discard that ran afterwards
+    // would be a discard of rows the engine could already have been handed.
+    discardUnattributedEntityRows(storage)
+  }
+
+  // The browser's three ambient values, unchanged when nothing is injected —
+  // POD-1239's "byte-for-byte what it was" still holds. An injected store gets
+  // NEITHER of the other two by default; see the options doc for why.
+  const injected = options.storage !== undefined
+  const replica = createReplica({
+    storage,
+    storageEventApi: options.storageEventApi ?? (injected ? undefined : window),
+    enumerateKeys:
+      options.enumerateKeys ?? (injected ? () => [] : () => Object.keys(window.localStorage)),
   })
+
+  if (!adoption.adopt) {
+    // AFTER the construction, because the three outbox homes are read through the
+    // replica's own seams — one decoder shared with the writer rather than a
+    // second parse of the collection blob format.
+    const redactedCount = parkUnattributedOutbox(replica, now())
+    console.warn(
+      `[podium] web replica store not adopted (${adoption.reason}) — rows discarded, ${redactedCount} queued entr${redactedCount === 1 ? 'y' : 'ies'} parked`,
+    )
+    options.onDiscarded?.({ reason: adoption.reason, redactedCount })
+  }
+
+  return replica
 }
