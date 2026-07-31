@@ -3487,6 +3487,17 @@ list (POD-378), a coordinator brief citing a symbol that appeared only in commen
 (mine), and now a merge conclusion drawn from a grep miss. THE SEARCH TERM IS AN
 ASSUMPTION ABOUT HOW THE ANSWER IS SPELLED.
 
+AND THE COUNTERMEASURE IS NOT "SEARCH HARDER" — POD-1246's refinement, which is
+the actionable half. Those four are not four people being careless; they are the
+SAME SHAPE AT FOUR ALTITUDES: detector, gate, brief, merge conclusion. So the fix
+is procedural: NEVER LET A ZERO TERMINATE AN INQUIRY. A zero routes to a second
+question — "where would this live if it existed?" — the way a failing test routes
+to a diagnosis rather than to a verdict.
+
+That is cheap, and it is CHECKABLE IN REVIEW: if a report concludes absence, ask
+what the second search was. A report that cannot name one has not established
+absence; it has established that one spelling is missing.
+
 The follow-on call is also right and worth keeping: integration's `conflict?` is
 OPTIONAL, which is exactly the hole main's `registry.ts:161` conditional type
 closes. Re-declaring that type over `ConflictClass` keeps the compiler enumerating
