@@ -437,3 +437,88 @@ merge-blocking for **web** specifically, since web's placement is live.
 - Five mutants, each applied and reverted atomically; all five killed, each precisely (§2.3)
 - `bun run audit:phase2-client` — three items ZERO, one at 2 with both sites named
 - `bun scripts/rearch-audit.ts` — OK, 29 items, 178 sites, baseline exact (no item is mapped to this phase)
+
+---
+
+## 6. The deletion itself, mapped before it is unblocked
+
+Written while blocked on POD-1220 so the last step is mechanical. Two things make this
+more than "delete a file", and both are invisible until you try it.
+
+### 6.1 The kernel path types-depends on the library being deleted
+
+`replica.ts` does not only IMPLEMENT the legacy replica — it OWNS the contract, and the
+new code reads its contract out of it:
+
+| Importer | Takes from `../replica` |
+|---|---|
+| `kernel/facade.ts:58-66` | `Replica`, `ReplicaHydrateResult`, `ReplicaKind`, `ReplicaRows`, `TranscriptWindow`, `UiState` |
+| `kernel/side-cache.ts:36-47` | `LEGACY_UI_KEYS`, `LEGACY_UI_MAP_PREFIXES`, `LEGACY_UI_PREFIXES`, `MIRRORED_UI_KEYS`, `REPLICA_TRANSCRIPT_ITEM_CAP`, `REPLICA_TRANSCRIPT_CONVERSATION_CAP`, `StorageApi`, `StorageEventApi`, `TranscriptWindow`, `UiState` |
+| `kernel/kinds.ts:20` | `ReplicaKind`, `ReplicaRows` |
+
+**And the sting is in the last two type names.** `StorageApi` and `StorageEventApi` are
+not ours:
+
+```
+replica.ts:65   import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
+replica.ts:77   export type { PersistedCollectionPersistence, StorageApi, StorageEventApi }
+```
+
+`grep -rn "interface StorageApi"` across `packages` and `apps` returns **nothing** — the
+only declaration is inside `@tanstack/db`, re-exported through `replica.ts`, and consumed
+by the **kernel** side cache. So:
+
+> The dependency cannot leave the lockfile by deleting the legacy replica. The
+> replacement's own type surface routes through it.
+
+They are trivial structural interfaces (`getItem` / `setItem` / `removeItem`, and
+add/removeEventListener), so this is small — but it must happen FIRST, and it is exactly
+the step that turns "remove the dep" into a surprise. **Order: extract the contract into a
+client-core-owned module (re-declaring the two storage interfaces), re-point the three
+kernel importers, and only then delete.** Acceptance is the lockfile, so a build that
+still type-checks is not evidence — `grep tanstack bun.lock` is.
+
+### 6.2 POD-377's drift guard drives the writer this issue deletes
+
+`legacy-snapshot.ts:32` imports `createReplica` and drives the REAL legacy writer to produce
+the captured fixture; `legacy-snapshot.test.ts` exists to fail "when the writer drifts away
+from the fixture that was written", and `packages/sync/src/adapters/legacy-replica/migrate.test.ts`
+plus `scripts/capture-legacy-replica-snapshot.ts` consume it. Deleting the writer takes the
+guard's subject with it.
+
+**This is not a conflict, and it would be easy to mistake for one.** The guard protects
+against the writer drifting away from the fixture. Once the writer is deleted **drift becomes
+impossible by construction** — there is no longer a writer to drift. The fixture stops being a
+regenerable capture and becomes what it should be from then on: a **frozen historical record of
+what old clients actually wrote**, which is precisely what the migration must keep being tested
+against.
+
+So the resolution is:
+
+- **KEEP** `__fixtures__/captured-legacy-replica.json` and `migrate.test.ts`. The migration's
+  whole job is reading stores written by builds that no longer exist; a frozen fixture is the
+  correct shape for that, not a degraded one.
+- **DELETE** `legacy-snapshot.ts`, `legacy-snapshot.test.ts` and
+  `scripts/capture-legacy-replica-snapshot.ts` — the capture and drift-guard path, whose
+  subject is gone.
+- **SAY SO IN THE COMMIT.** A later reader finding a fixture nothing can regenerate will
+  assume it rotted. It did not; it was sealed, deliberately, on the day the writer died.
+
+### 6.3 The rest, which is mechanical
+
+Delete: `replica.ts`, `react.ts`, `async-storage.ts`, `replica.test.ts`,
+`replica.sqlite.test.ts`, `legacy-keys.test.ts`, `apps/web/src/app/replica.ts` (shim),
+`apps/web/src/lib/desktopReplica.ts`, and the web tests bound to the legacy adapter
+(`app/replica.test.ts`, `app/outbox.test.ts`, `app/ui-state.test.ts`,
+`app/store.replica.test.tsx`).
+
+Re-point: `engine.ts:297`'s `createReplica()` fallback — and per §3.3 the right move is to
+require the replica so the fallback cannot exist, converting POD-1239's fifth site into a type
+error; `apps/web/src/lib/shadow/runner.ts` (the shadow harness compares AGAINST the legacy
+path, so it retires with it); `apps/web/src/perf/large-state.frontend-perf.tsx`;
+`MobileClientProvider.tsx` (POD-1220's, landing now).
+
+Then: drop `@tanstack/db`, `@tanstack/react-db` and `@tanstack/db-sqlite-persistence-core` from
+`apps/web/package.json` and `packages/client-core/package.json`, `bun install`, and verify
+against the LOCKFILE. `packages/sync/src/adapters/legacy-replica/keys.ts` keeps its key-name
+constants — it names the old key space on purpose and takes no dependency on the library.
