@@ -67,28 +67,28 @@
  * remove/evict distinction a claim about DISK.
  */
 
-import { createRequire } from 'node:module'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { IDBFactory } from 'fake-indexeddb'
 import { ConformanceAuthority, type ConformancePrincipal } from '@podium/sync'
-import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
+import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
-  SqliteSyncStore,
   type SqlDatabaseLike,
+  SqliteSyncStore,
   type SqlValue,
 } from '@podium/sync/adapters/mobile-sqlite'
 import {
-  Replica,
   type BootstrapChunk,
   type DeltaFrame,
+  Replica,
   type ReplicaEvent,
 } from '@podium/sync/replica'
 import type { FeedServerFrame } from '@podium/terminal-client'
+import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { PushedBootstrapSource } from './feed/bootstrap-source'
 import { FeedAuthorityClient } from './feed/authority-client'
+import { PushedBootstrapSource } from './feed/bootstrap-source'
 import { FeedSink } from './feed/sink'
 
 const ALICE: ConformancePrincipal = { kind: 'user', userId: 'user:alice' }
@@ -302,287 +302,285 @@ interface Client {
   keys(): string[]
 }
 
-describe.each([webBackend, mobileBackend].map((make) => [make().name, make] as const))(
-  'POD-378 removal family — %s',
-  (_name, makeBackend) => {
-    let backend: Backend
-    let authority: ConformanceAuthority
-    let clients: Client[]
+describe.each(
+  [webBackend, mobileBackend].map((make) => [make().name, make] as const),
+)('POD-378 removal family — %s', (_name, makeBackend) => {
+  let backend: Backend
+  let authority: ConformanceAuthority
+  let clients: Client[]
 
-    beforeEach(() => {
-      backend = makeBackend()
-      authority = new ConformanceAuthority()
-      clients = []
+  beforeEach(() => {
+    backend = makeBackend()
+    authority = new ConformanceAuthority()
+    clients = []
+  })
+
+  afterEach(() => {
+    backend.cleanup()
+    clients = []
+  })
+
+  /** One client: the real store, the real kernel Replica, the real feed consumer. */
+  async function openClient(principal: ConformancePrincipal, id: string): Promise<Client> {
+    const opened = await backend.open(id)
+    const events: ReplicaEvent[] = []
+    const bootstraps = new PushedBootstrapSource({
+      requestFreshWorld: () => {
+        // The transport would reconnect and the server would push. Explicit
+        // here, so a case that needs one and does not get it FAILS on the
+        // bootstrap timeout rather than silently reading a stale slot.
+        client.pushWorld()
+      },
     })
-
-    afterEach(() => {
-      backend.cleanup()
-      clients = []
-    })
-
-    /** One client: the real store, the real kernel Replica, the real feed consumer. */
-    async function openClient(principal: ConformancePrincipal, id: string): Promise<Client> {
-      const opened = await backend.open(id)
-      const events: ReplicaEvent[] = []
-      const bootstraps = new PushedBootstrapSource({
-        requestFreshWorld: () => {
-          // The transport would reconnect and the server would push. Explicit
-          // here, so a case that needs one and does not get it FAILS on the
-          // bootstrap timeout rather than silently reading a stale slot.
-          client.pushWorld()
-        },
-      })
-      const port = authority.portFor(principal)
-      const replica = new Replica({
-        store: opened.cache as never,
-        authority: new FeedAuthorityClient({
-          fetchChangesSince: async (cursor) => {
-            const reply = await port.changesSince(cursor)
-            if (reply.kind === 'bootstrap-required') {
-              return {
-                kind: 'bootstrap-required',
-                ...(reply.reason === undefined ? {} : { reason: reply.reason }),
-              }
-            }
+    const port = authority.portFor(principal)
+    const replica = new Replica({
+      store: opened.cache as never,
+      authority: new FeedAuthorityClient({
+        fetchChangesSince: async (cursor) => {
+          const reply = await port.changesSince(cursor)
+          if (reply.kind === 'bootstrap-required') {
             return {
-              kind: 'delta',
-              feedId: reply.feedId,
-              epoch: reply.epoch,
-              fromSeq: reply.fromSeq,
-              seq: reply.seq,
-              minAvailableSeq: reply.minAvailableSeq,
-              changes: reply.changes.map((change) =>
-                change.op === 'upsert'
-                  ? {
-                      seq: change.seq,
-                      entity: change.entity,
-                      entityId: change.entityId,
-                      op: 'upsert' as const,
-                      value: change.payload,
-                    }
-                  : {
-                      seq: change.seq,
-                      entity: change.entity,
-                      entityId: change.entityId,
-                      op: change.op,
-                    },
-              ),
+              kind: 'bootstrap-required',
+              ...(reply.reason === undefined ? {} : { reason: reply.reason }),
             }
-          },
-          bootstraps,
-        }),
-        onEvent: (event) => events.push(event),
-      })
-      const sink = new FeedSink({ replica, bootstraps })
-      const client: Client = {
-        id,
-        replica,
-        sink,
-        events,
-        since: (mark, type) => events.slice(mark).filter((event) => event.type === type),
-        pushWorld: () => {
-          void (async () => {
-            for await (const chunk of port.bootstrap()) sink.frame(asWireBootstrap(chunk))
-          })()
+          }
+          return {
+            kind: 'delta',
+            feedId: reply.feedId,
+            epoch: reply.epoch,
+            fromSeq: reply.fromSeq,
+            seq: reply.seq,
+            minAvailableSeq: reply.minAvailableSeq,
+            changes: reply.changes.map((change) =>
+              change.op === 'upsert'
+                ? {
+                    seq: change.seq,
+                    entity: change.entity,
+                    entityId: change.entityId,
+                    op: 'upsert' as const,
+                    value: change.payload,
+                  }
+                : {
+                    seq: change.seq,
+                    entity: change.entity,
+                    entityId: change.entityId,
+                    op: change.op,
+                  },
+            ),
+          }
         },
-        pushDelta: (from, upTo) =>
-          sink.frame(asWireDelta(authority.frameFor(principal, from, upTo))),
-        keys: () =>
-          replica
-            .entities()
-            .map((row) => `${row.entity}:${row.entityId}`)
-            .sort(),
-      }
-      clients.push(client)
-      return client
+        bootstraps,
+      }),
+      onEvent: (event) => events.push(event),
+    })
+    const sink = new FeedSink({ replica, bootstraps })
+    const client: Client = {
+      id,
+      replica,
+      sink,
+      events,
+      since: (mark, type) => events.slice(mark).filter((event) => event.type === type),
+      pushWorld: () => {
+        void (async () => {
+          for await (const chunk of port.bootstrap()) sink.frame(asWireBootstrap(chunk))
+        })()
+      },
+      pushDelta: (from, upTo) => sink.frame(asWireDelta(authority.frameFor(principal, from, upTo))),
+      keys: () =>
+        replica
+          .entities()
+          .map((row) => `${row.entity}:${row.entityId}`)
+          .sort(),
     }
+    clients.push(client)
+    return client
+  }
 
-    async function online(client: Client): Promise<void> {
-      client.sink.connected()
-      await client.replica.settled()
+  async function online(client: Client): Promise<void> {
+    client.sink.connected()
+    await client.replica.settled()
+  }
+
+  /** A session row the cases can move around. */
+  function session(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return { id, title: id, ...extra }
+  }
+
+  // ── 1. A DELETE IS GONE, AND GONE FOR EVERYONE ──────────────────────────
+
+  it('renders a delete as gone-and-deleted, on disk and for every principal', async () => {
+    authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
+    authority.grant(ALICE.userId, 'session', 's1')
+    authority.grant(BOB.userId, 'session', 's1')
+    const alice = await openClient(ALICE, 'alice')
+    const bob = await openClient(BOB, 'bob')
+    await online(alice)
+    await online(bob)
+    expect(alice.keys()).toContain('session:s1')
+    expect(bob.keys()).toContain('session:s1')
+
+    const mark = alice.events.length
+    const from = authority.head()
+    authority.append({ entity: 'session', entityId: 's1', op: 'remove' })
+    alice.pushDelta(from)
+    bob.pushDelta(from)
+    await alice.replica.settled()
+    await bob.replica.settled()
+
+    // THE DISTINGUISHING ASSERTION, and it is `exitKind` rather than absence:
+    // absence is what all three removals have in common, so a case asserting
+    // only absence passes just as well when a delete is applied as an eviction.
+    expect(alice.replica.exitKind('session', 's1')).toBe('removed')
+    expect(bob.replica.exitKind('session', 's1')).toBe('removed')
+    expect(alice.since(mark, 'removed')).toHaveLength(1)
+    expect(alice.since(mark, 'evicted')).toHaveLength(0)
+
+    // Gone from the DURABLE bytes, read through a store that never held it.
+    const durable = await backend.reopen('alice')
+    expect(durable.map((row) => `${row.entity}:${row.entityId}`)).not.toContain('session:s1')
+  })
+
+  // ── 2. A REVOKED SHARE LEAVES MY VIEW AND IS NOT A DELETION ─────────────
+
+  it('renders a revoked share as gone-from-my-view, never as a deletion', async () => {
+    authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
+    authority.grant(ALICE.userId, 'session', 's1')
+    authority.grant(BOB.userId, 'session', 's1')
+    const alice = await openClient(ALICE, 'alice')
+    const bob = await openClient(BOB, 'bob')
+    await online(alice)
+    await online(bob)
+    expect(bob.keys()).toContain('session:s1')
+
+    const mark = bob.events.length
+    const from = authority.head()
+    authority.revoke(BOB.userId, 'session', 's1')
+    bob.pushDelta(from)
+    alice.pushDelta(from)
+    await bob.replica.settled()
+    await alice.replica.settled()
+
+    // D14.1/D14.5. The row left Bob's view; it was NOT deleted.
+    expect(bob.replica.exitKind('session', 's1')).toBe('evicted')
+    expect(bob.since(mark, 'evicted')).toHaveLength(1)
+    // The half that makes the distinction load-bearing rather than cosmetic: no
+    // deletion semantics anywhere on Bob's side. A `removed` event here would
+    // fire the domain's "deleted" reactions for a row that still exists.
+    expect(bob.since(mark, 'removed')).toHaveLength(0)
+    expect(bob.replica.exitKind('session', 's1')).not.toBe('removed')
+
+    // AND IT STILL EXISTS. This is the assertion no single-client fixture can
+    // make, and it is what separates an eviction from a tombstone: the row is
+    // untouched for the principal who still holds the grant.
+    expect(alice.keys()).toContain('session:s1')
+    expect(alice.replica.exitKind('session', 's1')).toBeUndefined()
+
+    // On disk, on both sides, through stores that never held the live state.
+    expect((await backend.reopen('bob')).map((r) => `${r.entity}:${r.entityId}`)).not.toContain(
+      'session:s1',
+    )
+    expect((await backend.reopen('alice')).map((r) => `${r.entity}:${r.entityId}`)).toContain(
+      'session:s1',
+    )
+  })
+
+  // ── 3. A WATERMARK-SKIPPED RANGE IS NOTHING AT ALL ──────────────────────
+
+  it('renders a watermark-skipped range as nothing, advances the cursor, and starts no heal', async () => {
+    authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
+    authority.grant(BOB.userId, 'session', 's1')
+    const bob = await openClient(BOB, 'bob')
+    await online(bob)
+    const settled = bob.replica.stats()
+    const keysBefore = bob.keys()
+    const mark = bob.events.length
+
+    // A range Bob may not see ANY of: three rows granted only to Alice. The
+    // suppression is the authority's own evaluation, not a literal — `frameFor`
+    // resolves every seq in the covered range against Bob's grants, so the
+    // watermark that arrives is the residue of a real refusal.
+    const from = authority.head()
+    for (const id of ['a1', 'a2', 'a3']) {
+      authority.append({ entity: 'session', entityId: id, op: 'upsert', payload: session(id) })
+      authority.grant(ALICE.userId, 'session', id)
     }
+    const head = authority.head()
+    bob.pushDelta(from, head)
+    await bob.replica.settled()
 
-    /** A session row the cases can move around. */
-    function session(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
-      return { id, title: id, ...extra }
-    }
+    // NOTHING RENDERED — not the rows, and not a gap where they were.
+    expect(bob.keys()).toEqual(keysBefore)
+    expect(bob.since(mark, 'upserted')).toHaveLength(0)
+    expect(bob.since(mark, 'removed')).toHaveLength(0)
+    expect(bob.since(mark, 'evicted')).toHaveLength(0)
 
-    // ── 1. A DELETE IS GONE, AND GONE FOR EVERYONE ──────────────────────────
+    // THE CURSOR STILL ADVANCED. Without this a suppressed range is an
+    // invisible permanent gap, which is the exact failure ADR 2 names as the
+    // reason a filter without a watermark is a protocol break.
+    const last = bob.since(mark, 'cursor').at(-1) as
+      | Extract<ReplicaEvent, { type: 'cursor' }>
+      | undefined
+    expect(last?.cursor.seq).toBe(head)
+    expect(last?.watermarkOnly).toBe(true)
+    expect(bob.replica.stats().watermarksApplied).toBeGreaterThan(settled.watermarksApplied)
 
-    it('renders a delete as gone-and-deleted, on disk and for every principal', async () => {
-      authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
-      authority.grant(ALICE.userId, 'session', 's1')
-      authority.grant(BOB.userId, 'session', 's1')
-      const alice = await openClient(ALICE, 'alice')
-      const bob = await openClient(BOB, 'bob')
-      await online(alice)
-      await online(bob)
-      expect(alice.keys()).toContain('session:s1')
-      expect(bob.keys()).toContain('session:s1')
+    // AND NO HEAL LOOP. The counters, not the absence of a thrown error: a heal
+    // that fires and succeeds leaves the same rows behind and would pass every
+    // assertion above.
+    expect(bob.replica.stats().heals).toBe(settled.heals)
+    expect(bob.replica.stats().bootstraps).toBe(settled.bootstraps)
+    expect(bob.since(mark, 'heal')).toHaveLength(0)
+    expect(bob.replica.stats().pendingGaps).toBe(0)
+  })
 
-      const mark = alice.events.length
-      const from = authority.head()
-      authority.append({ entity: 'session', entityId: 's1', op: 'remove' })
-      alice.pushDelta(from)
-      bob.pushDelta(from)
-      await alice.replica.settled()
-      await bob.replica.settled()
+  // ── 4. PRESENT → ABSENT IS A NULLING, NOT A RETENTION ───────────────────
 
-      // THE DISTINGUISHING ASSERTION, and it is `exitKind` rather than absence:
-      // absence is what all three removals have in common, so a case asserting
-      // only absence passes just as well when a delete is applied as an eviction.
-      expect(alice.replica.exitKind('session', 's1')).toBe('removed')
-      expect(bob.replica.exitKind('session', 's1')).toBe('removed')
-      expect(alice.since(mark, 'removed')).toHaveLength(1)
-      expect(alice.since(mark, 'evicted')).toHaveLength(0)
-
-      // Gone from the DURABLE bytes, read through a store that never held it.
-      const durable = await backend.reopen('alice')
-      expect(durable.map((row) => `${row.entity}:${row.entityId}`)).not.toContain('session:s1')
+  it('applies a field going present→absent as a nulling, not a silent retention', async () => {
+    // The shape that bit this codebase before (#170): an issue is snoozed, so
+    // the row carries `deferUntil`; the server clears the snooze and the wire
+    // simply STOPS carrying the field. An in-place merge that treats an absent
+    // key as "unchanged" keeps the stale value forever, and the UI keeps showing
+    // a snooze the user cleared — with no event left to correct it.
+    authority.append({
+      entity: 'issue',
+      entityId: 'i1',
+      op: 'upsert',
+      payload: { id: 'i1', title: 'i1', deferUntil: '2026-07-07T00:00:00.000Z' },
     })
+    authority.grant(BOB.userId, 'issue', 'i1')
+    const bob = await openClient(BOB, 'bob')
+    await online(bob)
+    expect((bob.replica.view('issue', 'i1') as Record<string, unknown>).deferUntil).toBe(
+      '2026-07-07T00:00:00.000Z',
+    )
 
-    // ── 2. A REVOKED SHARE LEAVES MY VIEW AND IS NOT A DELETION ─────────────
-
-    it('renders a revoked share as gone-from-my-view, never as a deletion', async () => {
-      authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
-      authority.grant(ALICE.userId, 'session', 's1')
-      authority.grant(BOB.userId, 'session', 's1')
-      const alice = await openClient(ALICE, 'alice')
-      const bob = await openClient(BOB, 'bob')
-      await online(alice)
-      await online(bob)
-      expect(bob.keys()).toContain('session:s1')
-
-      const mark = bob.events.length
-      const from = authority.head()
-      authority.revoke(BOB.userId, 'session', 's1')
-      bob.pushDelta(from)
-      alice.pushDelta(from)
-      await bob.replica.settled()
-      await alice.replica.settled()
-
-      // D14.1/D14.5. The row left Bob's view; it was NOT deleted.
-      expect(bob.replica.exitKind('session', 's1')).toBe('evicted')
-      expect(bob.since(mark, 'evicted')).toHaveLength(1)
-      // The half that makes the distinction load-bearing rather than cosmetic: no
-      // deletion semantics anywhere on Bob's side. A `removed` event here would
-      // fire the domain's "deleted" reactions for a row that still exists.
-      expect(bob.since(mark, 'removed')).toHaveLength(0)
-      expect(bob.replica.exitKind('session', 's1')).not.toBe('removed')
-
-      // AND IT STILL EXISTS. This is the assertion no single-client fixture can
-      // make, and it is what separates an eviction from a tombstone: the row is
-      // untouched for the principal who still holds the grant.
-      expect(alice.keys()).toContain('session:s1')
-      expect(alice.replica.exitKind('session', 's1')).toBeUndefined()
-
-      // On disk, on both sides, through stores that never held the live state.
-      expect((await backend.reopen('bob')).map((r) => `${r.entity}:${r.entityId}`)).not.toContain(
-        'session:s1',
-      )
-      expect((await backend.reopen('alice')).map((r) => `${r.entity}:${r.entityId}`)).toContain(
-        'session:s1',
-      )
+    const from = authority.head()
+    authority.append({
+      entity: 'issue',
+      entityId: 'i1',
+      op: 'upsert',
+      payload: { id: 'i1', title: 'i1' },
     })
+    bob.pushDelta(from)
+    await bob.replica.settled()
 
-    // ── 3. A WATERMARK-SKIPPED RANGE IS NOTHING AT ALL ──────────────────────
+    // THE ROW SURVIVES — this is not a removal, and a fix that dropped the row
+    // would satisfy a naive "deferUntil is gone" assertion.
+    expect(bob.keys()).toContain('issue:i1')
+    expect(bob.replica.exitKind('issue', 'i1')).toBeUndefined()
 
-    it('renders a watermark-skipped range as nothing, advances the cursor, and starts no heal', async () => {
-      authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
-      authority.grant(BOB.userId, 'session', 's1')
-      const bob = await openClient(BOB, 'bob')
-      await online(bob)
-      const settled = bob.replica.stats()
-      const keysBefore = bob.keys()
-      const mark = bob.events.length
+    // KEY SET, not value. `toEqual` treats an undefined-valued key as absent, so
+    // a value assertion passes just as well against a row that still carries the
+    // field set to undefined — and a JSON round trip through storage would then
+    // resurrect nothing, but an in-place merge on the NEXT delta would.
+    const view = bob.replica.view('issue', 'i1') as Record<string, unknown>
+    expect(Object.keys(view).sort()).toEqual(['id', 'title'])
+    expect('deferUntil' in view).toBe(false)
 
-      // A range Bob may not see ANY of: three rows granted only to Alice. The
-      // suppression is the authority's own evaluation, not a literal — `frameFor`
-      // resolves every seq in the covered range against Bob's grants, so the
-      // watermark that arrives is the residue of a real refusal.
-      const from = authority.head()
-      for (const id of ['a1', 'a2', 'a3']) {
-        authority.append({ entity: 'session', entityId: id, op: 'upsert', payload: session(id) })
-        authority.grant(ALICE.userId, 'session', id)
-      }
-      const head = authority.head()
-      bob.pushDelta(from, head)
-      await bob.replica.settled()
-
-      // NOTHING RENDERED — not the rows, and not a gap where they were.
-      expect(bob.keys()).toEqual(keysBefore)
-      expect(bob.since(mark, 'upserted')).toHaveLength(0)
-      expect(bob.since(mark, 'removed')).toHaveLength(0)
-      expect(bob.since(mark, 'evicted')).toHaveLength(0)
-
-      // THE CURSOR STILL ADVANCED. Without this a suppressed range is an
-      // invisible permanent gap, which is the exact failure ADR 2 names as the
-      // reason a filter without a watermark is a protocol break.
-      const last = bob.since(mark, 'cursor').at(-1) as
-        | Extract<ReplicaEvent, { type: 'cursor' }>
-        | undefined
-      expect(last?.cursor.seq).toBe(head)
-      expect(last?.watermarkOnly).toBe(true)
-      expect(bob.replica.stats().watermarksApplied).toBeGreaterThan(settled.watermarksApplied)
-
-      // AND NO HEAL LOOP. The counters, not the absence of a thrown error: a heal
-      // that fires and succeeds leaves the same rows behind and would pass every
-      // assertion above.
-      expect(bob.replica.stats().heals).toBe(settled.heals)
-      expect(bob.replica.stats().bootstraps).toBe(settled.bootstraps)
-      expect(bob.since(mark, 'heal')).toHaveLength(0)
-      expect(bob.replica.stats().pendingGaps).toBe(0)
-    })
-
-    // ── 4. PRESENT → ABSENT IS A NULLING, NOT A RETENTION ───────────────────
-
-    it('applies a field going present→absent as a nulling, not a silent retention', async () => {
-      // The shape that bit this codebase before (#170): an issue is snoozed, so
-      // the row carries `deferUntil`; the server clears the snooze and the wire
-      // simply STOPS carrying the field. An in-place merge that treats an absent
-      // key as "unchanged" keeps the stale value forever, and the UI keeps showing
-      // a snooze the user cleared — with no event left to correct it.
-      authority.append({
-        entity: 'issue',
-        entityId: 'i1',
-        op: 'upsert',
-        payload: { id: 'i1', title: 'i1', deferUntil: '2026-07-07T00:00:00.000Z' },
-      })
-      authority.grant(BOB.userId, 'issue', 'i1')
-      const bob = await openClient(BOB, 'bob')
-      await online(bob)
-      expect((bob.replica.view('issue', 'i1') as Record<string, unknown>).deferUntil).toBe(
-        '2026-07-07T00:00:00.000Z',
-      )
-
-      const from = authority.head()
-      authority.append({
-        entity: 'issue',
-        entityId: 'i1',
-        op: 'upsert',
-        payload: { id: 'i1', title: 'i1' },
-      })
-      bob.pushDelta(from)
-      await bob.replica.settled()
-
-      // THE ROW SURVIVES — this is not a removal, and a fix that dropped the row
-      // would satisfy a naive "deferUntil is gone" assertion.
-      expect(bob.keys()).toContain('issue:i1')
-      expect(bob.replica.exitKind('issue', 'i1')).toBeUndefined()
-
-      // KEY SET, not value. `toEqual` treats an undefined-valued key as absent, so
-      // a value assertion passes just as well against a row that still carries the
-      // field set to undefined — and a JSON round trip through storage would then
-      // resurrect nothing, but an in-place merge on the NEXT delta would.
-      const view = bob.replica.view('issue', 'i1') as Record<string, unknown>
-      expect(Object.keys(view).sort()).toEqual(['id', 'title'])
-      expect('deferUntil' in view).toBe(false)
-
-      // And after a reload, through a store that never saw the first payload.
-      const durable = await backend.reopen('bob')
-      const row = durable.find((r) => r.entity === 'issue' && r.entityId === 'i1')
-      expect(row).toBeDefined()
-      expect(Object.keys(row?.value as Record<string, unknown>).sort()).toEqual(['id', 'title'])
-    })
-  },
-)
+    // And after a reload, through a store that never saw the first payload.
+    const durable = await backend.reopen('bob')
+    const row = durable.find((r) => r.entity === 'issue' && r.entityId === 'i1')
+    expect(row).toBeDefined()
+    expect(Object.keys(row?.value as Record<string, unknown>).sort()).toEqual(['id', 'title'])
+  })
+})
