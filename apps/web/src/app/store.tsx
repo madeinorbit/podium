@@ -16,6 +16,7 @@ import {
   useStoreSelector as useCoreStoreSelector,
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
+import type { FeedSinkPort } from '@podium/terminal-client'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
@@ -39,6 +40,7 @@ export function StoreProvider({
   onFatalError,
   engineOverrides,
   createReplicaFn,
+  feed,
   children,
 }: {
   config: ServerOrigin
@@ -48,6 +50,10 @@ export function StoreProvider({
   /** Desktop passthrough (POD-789): the Tauri shell injects an already-hydrated
    *  SQLite-backed replica; browsers leave this unset (localStorage default). */
   createReplicaFn?: () => Replica
+  /** Kernel-replica passthrough (POD-1223): supplied together with the
+   *  kernel-backed `createReplicaFn` when the flag resolves to the kernel path.
+   *  Providing it makes the engine's hub advertise wire v2. */
+  feed?: FeedSinkPort
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
@@ -68,6 +74,7 @@ export function StoreProvider({
       notices={NOTICES}
       engineOverrides={engineOverrides}
       createReplicaFn={createReplicaFn}
+      feed={feed}
     >
       {children}
     </CoreStoreProvider>

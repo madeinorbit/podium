@@ -194,10 +194,31 @@ What is evidenced, in three separate claims that must not be run together:
    revoke-as-eviction with a real deletion beside it as the counterfactual, a 200-frame watermark
    stretch, and a scoped re-bootstrap with the outbox surviving. This proves the mechanism carries
    the remove/evict distinction end to end; it does not prove per-person isolation.
-3. **NOT evidenced, and not claimed:**
+3. **NOT evidenced by POD-376, and not claimed by it:**
    - **The real UI.** The engine swap that would put this consumer behind the app's read model needs
      a store-neutral client `Replica` facade over `{cache, outbox}`. POD-377 claimed and owns that
      file (`packages/client-core/src/replica/`), so it is not on this branch. Everything up to and
      including the wire is verified on the real stack; the last hop into the rendered UI is not.
+
+     **CLOSED BY POD-1223, and the ownership note above turned out to be wrong.** POD-377 shipped
+     and closed WITHOUT the facade — its merge landed the D6 legacy-snapshot migration only, and
+     `apps/mobile` still constructs the TanStack `createReplica`. POD-1223 wrote it (POD-1228,
+     `packages/client-core/src/replica/kernel/`), store-neutral so mobile adopts the same file, and
+     wired the engine behind the flag. The last hop is covered by
+     `tests/e2e/browser/kernel-replica.browser.e2e.ts`.
+
+     One correction to §2.1 that the running harness forced, recorded here because this document is
+     the authority and the harness is not: `A` is **presence only**. `sync.feedSlice` returns keys
+     and deliberately no payloads ("a debugging aid the largest response on the wire"), so content
+     and revision comparison happens between `K` and `L`, and `A`'s role is exactly the one §2.2
+     needs — AFFIRMING membership of the slice. A digest fabricated for `A` would compare
+     `undefined` against `undefined` and read as agreement: a third opinion that always agrees is
+     worse than no third opinion.
+
+     A second correction, found by running it: the digest must exclude the storage layer's
+     `$`-prefixed bookkeeping (`$collectionId`, `$key`, `$origin`, `$synced`). `$collectionId`
+     embeds a per-instance nonce, so leaving it in reported `content-drift` on every row — a
+     comparison that fails on everything, which is as useless as one that passes on everything. The
+     exclusion is symmetric, for the same reason provenance is.
    - **The second-account check.** Blocked on per-user login, and recorded as blocked rather than as
      a passing box.

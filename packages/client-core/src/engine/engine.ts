@@ -20,12 +20,27 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
-import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, ArtifactId, HostMetricsWire, IssueId, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import type {
+  AgentKind,
+  ArtifactId,
+  AutomationRunWire,
+  AutomationWire,
+  ConversationSummaryWire,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  HostMetricsWire,
+  IssueId,
+  IssueWire,
+  MachineWire,
+  SessionId,
+  SessionMeta,
+  WorkState,
+} from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
-import type { SocketHub } from '@podium/terminal-client'
+import type { FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { Outbox, OutboxEntry } from '../outbox'
@@ -140,6 +155,13 @@ export interface EngineInit<TApi extends PodiumClientApi> {
   routerWindow?: RouterWindow
   /** Test seam: replaces SocketHub construction (engine unit tests inject a fake). */
   createHub?: CreateHub
+  /**
+   * WIRE v2 / kernel replica (POD-1223). Supplied together with a
+   * `createReplicaFn` that returns the kernel-backed facade: the platform layer
+   * builds the whole assembly (store, kernel Replica, feed sink) and hands the
+   * engine its two ends. Absent ⇒ the shipped v1 path, byte-for-byte unchanged.
+   */
+  feed?: FeedSinkPort
   /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
   spawnConfirmGraceMs?: number
 }
@@ -197,8 +219,7 @@ const asSessionIdOrNull = (v: string | null | undefined): SessionId | null =>
  *  the URL route and `localStorage` hand back raw strings, and this is the one
  *  place they re-enter the id space — so the store's issue-selection surface can
  *  be branded end to end without a cast at every consumer. */
-const asIssueIdOrNull = (v: string | null | undefined): IssueId | null =>
-  v ? asIssueId(v) : null
+const asIssueIdOrNull = (v: string | null | undefined): IssueId | null => (v ? asIssueId(v) : null)
 
 export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly replica: Replica
@@ -235,6 +256,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  never changes again would otherwise keep a stuck entry painted forever. */
   private awaitingSweepTimer: ReturnType<typeof setTimeout> | null = null
   private readonly spawnConfirmGraceMs: number
+  /** True when this engine runs on the wire-v2 feed (POD-1223). */
+  private readonly onFeed: boolean
   /** Live spawn-confirm grace timers (#263 review round 2). Cleared in
    *  dispose(): a replaced engine's late timer must not roll back overlays or
    *  toast after its successor took over the same storage/session state. */
@@ -279,7 +302,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       replica: this.replica,
       onFatalError: (m) => this.onFatalError(m),
       createHub: init.createHub,
+      feed: init.feed,
     })
+    this.onFeed = init.feed !== undefined
     this.outbox = createEngineOutbox({
       api: this.api,
       replica: this.replica,
@@ -516,12 +541,19 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // replica clears itself and cold-starts).
     void this.replica.hydrate().then((snap) => {
       if (
+        // ON THE FEED PATH THERE IS NOTHING TO SEED, and seeding would be
+        // wrong rather than merely redundant: `seedMetadata` fills the hub's
+        // WIRE-v1 metadata lists, which a v2 hub never reads and never
+        // reconciles. Cold-start paint is preserved by a different mechanism —
+        // the kernel Replica's store is already open, so `rows()` reads the
+        // persisted slice on the first render, before any frame arrives.
+        !this.onFeed &&
         snap.sessions.length +
           snap.issues.length +
           snap.conversations.length +
           snap.automations.length +
           snap.automationRuns.length >
-        0
+          0
       ) {
         this.hub.seedMetadata(snap)
       }

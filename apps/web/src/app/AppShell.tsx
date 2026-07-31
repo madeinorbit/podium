@@ -19,8 +19,11 @@ import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-com
 import { desktopReplicaFactory } from '@/lib/desktopReplica'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
+import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
+import { useKernelReplica } from '@/lib/use-kernel-replica'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
 import { AsciiLoader } from './AsciiLoader'
@@ -46,7 +49,7 @@ import {
 import { StoreProvider, useStoreSelector } from './store'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
-import { serverConfig } from './trpc'
+import { makeTrpc, serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
 
@@ -80,12 +83,34 @@ function useDesktopReplica(): { createReplicaFn?: () => Replica } | null {
   return resolved
 }
 
+/**
+ * Attach the engine's hub to the kernel assembly (POD-1223).
+ *
+ * A re-bootstrap is a reconnect, so `PushedBootstrapSource` needs the hub — and
+ * the hub is built by the engine FROM the assembly, so it cannot be handed over
+ * at construction. This runs inside the provider, where the hub exists.
+ */
+function KernelHubAttach({ assembly }: { assembly: KernelAssembly }): null {
+  const hub = useStoreSelector((s) => s.hub)
+  useEffect(() => {
+    assembly.attachHub(hub)
+  }, [assembly, hub])
+  return null
+}
+
 export function AppShell(): JSX.Element {
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   const desktopReplica = useDesktopReplica()
+  // One tRPC client for the gate, memoized on the origin so the gate's effect
+  // does not re-run (and re-open IndexedDB) on every render.
+  const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
+  const kernel = useKernelReplica({ httpOrigin: config.httpOrigin, trpc: gateTrpc })
 
-  if (!desktopReplica) {
+  // The store must not mount until BOTH gates settle: the desktop SQLite
+  // replica and the kernel-replica decision. Each one is a synchronous read the
+  // engine makes at construction.
+  if (!desktopReplica || kernel.status === 'resolving') {
     return (
       <TooltipProvider>
         <LoadingScreen />
@@ -107,8 +132,22 @@ export function AppShell(): JSX.Element {
           <StoreProvider
             config={config}
             onFatalError={setAppError}
-            createReplicaFn={desktopReplica.createReplicaFn}
+            createReplicaFn={
+              kernel.status === 'kernel'
+                ? kernel.assembly.createReplicaFn
+                : desktopReplica.createReplicaFn
+            }
+            feed={kernel.status === 'kernel' ? kernel.assembly.feed : undefined}
           >
+            {kernel.status === 'kernel' ? <KernelHubAttach assembly={kernel.assembly} /> : null}
+            {kernel.status === 'kernel' && kernel.shadow ? (
+              <ShadowComparisonRunner
+                assembly={kernel.assembly}
+                trpc={gateTrpc}
+                wsClientUrl={config.wsClientUrl}
+                authorityScoped={kernel.authorityScoped}
+              />
+            ) : null}
             <ThemeUiStateMirror />
             <BrowserOpenOverlay />
             <ConfirmProvider>

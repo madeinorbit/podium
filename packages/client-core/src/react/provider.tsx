@@ -17,6 +17,7 @@
  * web and mobile bind exactly as before.
  */
 
+import type { FeedSinkPort } from '@podium/terminal-client'
 import type { JSX } from 'react'
 import {
   createContext,
@@ -69,6 +70,10 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   notices?: StoreNotices
   /** Replica factory — mobile injects the AsyncStorage-backed one. Called once. */
   createReplicaFn?: () => Replica
+  /** Wire-v2 feed sink (POD-1223). Supplied WITH the kernel-backed
+   *  `createReplicaFn` by the platform's composition root; the two are one
+   *  assembly and neither half is meaningful alone. */
+  feed?: FeedSinkPort
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: engine timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
@@ -84,6 +89,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   formatError = defaultFormatError,
   notices = NOOP_NOTICES,
   createReplicaFn,
+  feed,
   routerWindow,
   engineOverrides,
   children,
@@ -123,6 +129,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
           info: (m, d) => latest.current.notices.info(m, d),
         },
         createReplicaFn,
+        feed,
         routerWindow,
         ...engineOverrides,
       }),

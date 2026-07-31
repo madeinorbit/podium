@@ -5995,6 +5995,36 @@
       "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"],\"groupByRepo\":true},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"}}"
     },
     {
+      "schema": "PersonalPreferenceState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "PersonalPreferenceState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
       "schema": "PerUserKey",
       "variant": "minimal",
       "wire": {

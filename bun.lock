@@ -175,6 +175,7 @@
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",
+        "@podium/sync": "workspace:*",
         "@podium/telemetry": "workspace:*",
         "@podium/terminal-client": "workspace:*",
         "@podium/terminal-client-react": "workspace:*",
