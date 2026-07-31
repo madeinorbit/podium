@@ -13,6 +13,87 @@ lost; the analysis is the expensive part and it is all here.
 A patch of the staged resolutions is at
 `docs/agents/evidence/pod-1246-tranche-abc.patch` (untracked, ~876 KB).
 
+
+## 0b. READ BEFORE TRUSTING ANY TYPECHECK IN THIS MERGE
+
+**While a single conflict marker exists anywhere in a project's source, `tsgo`
+reports ONLY SYNTAX errors and performs NO SEMANTIC CHECKING.** Measured, not
+inferred:
+
+- `apps/server` typecheck emits 294 errors: **290 × TS1185** (conflict marker) and
+  **2 × TS1128**. Zero semantic errors.
+- A blatant `const __probe: number = "not a number"` appended to `registry.ts`
+  produces **no error at all** in that run.
+- The identical probe in `packages/model` — which has no markers and no workspace
+  deps — is correctly reported as **TS2322**.
+
+### What this invalidates, including my own claims
+
+| Claim | Status |
+|---|---|
+| Group (a): `@podium/model` typechecks clean | **VALID.** Zero-dependency leaf, no markers in its graph — semantic checking was live, and the probe proves it. |
+| Group (b): "zero errors from `packages/sync` itself, only protocol markers" | **NOT EVIDENCE.** Re-tested with a probe in `ledger.ts`: not reported. The run emitted 36 × TS1185 and nothing else. The statement was literally true and meaningless — the instrument could not have said no. |
+| Group (c): `conflict.ts` "resolves, no errors" | **NOT EVIDENCE**, same reason. The import is *plausibly* fixed; it is not verified. |
+
+This is the `[[instrument-must-say-yes-first]]` failure, made while citing that
+principle elsewhere in this document. A green from an instrument that cannot go
+red is not a weak signal — it is no signal.
+
+### Consequences for the remaining work
+
+1. **"A group is done when its consumers compile" is UNACHIEVABLE mid-merge.** The
+   compile signal is syntax-only until the last marker in the dependency graph is
+   gone. Per-group typecheck still catches *syntax* damage, which is worth having
+   — just do not call it verification.
+2. **The registry's compiler-driven enumeration cannot run yet.** The tripwire is
+   installed (`def()`'s `ContractDeclaresConflict` constraint) but **INERT** until
+   `apps/server` and its deps are marker-free. It has NOT been proven to fire.
+   Prove it before relying on it: with markers cleared, remove one contract's
+   `conflict` and confirm the compiler names that call site.
+3. **Sequence accordingly:** clear every remaining marker in `apps/server` +
+   `packages/protocol` FIRST, even resolving some files provisionally, then let the
+   compiler enumerate. Applying 43 declarations before the compiler can check them
+   is the memory test this whole mechanism exists to avoid.
+4. The only trustworthy mid-merge instruments are the ones that do not depend on
+   semantic analysis: `bun run lint:shadowing`, the unit lane on marker-free
+   packages, and targeted `git show main:<f> | grep -vxFf` audits.
+
+
+## 0c. THE EXP-REV CHAIN HAS FIVE LINKS. INTEGRATION HAS ONE, AND IT IS THE WRONG ONE.
+
+Every earlier note in this document said "preserve main's enforcement". That
+undersells it and could produce a WORSE outcome than dropping exp-rev entirely.
+Measured across the merged tree:
+
+| # | Link | Where | State in the merged tree |
+|---|---|---|---|
+| 1 | `issues.revision` COLUMN | migration `20260717092407` | **PRESENT** — additive, survives the merge, `DEFAULT 1 NOT NULL` |
+| 2 | The INCREMENT on every write | `apps/server/src/store/issues.ts` | main only — **CONFLICTED**, resolvable now. Main calls it "THE revision assignment (ADR 2 D3) … the issues table's only SQL … a fresh revision with no call-site cooperation". Integration's copy: `grep revision` → nothing. |
+| 3 | The FIELD on the entity/wire | main: `IssueWire.revision: Revision.optional()` | main only — integration's `packages/model` has **no revision field anywhere** on the issue entity, wire or projection |
+| 4 | The DECLARATION per command | `conflict: 'exp-rev'` on the contract | main only — integration declares **0 of 43** |
+| 5 | The ENFORCEMENT → 409 | registry dispatcher → `conflict.ts` | main only |
+
+**The column exists and nothing writes it, nothing reads it, and nothing declares
+against it.** That is not a neutral half-state — it is a trap:
+
+- `DEFAULT 1 NOT NULL` means **every row reads revision 1, forever**, because
+  nothing increments it.
+- If a later change wires enforcement (POD-1247) without link 2, every write
+  carrying `expectedRevision: 1` MATCHES and every other value is refused. The
+  guard would pass exactly the writes it exists to catch, and look like it is
+  working — a green concurrency check over a frozen counter.
+
+**So a PARTIAL preservation is worse than none.** Resolving `store/issues.ts` to
+integration's side, on its own, is the single most damaging call available in this
+merge, and nothing in the tree would report it: no conflict (it is a resolution),
+no shadowing (one definition), no typecheck (semantic checking is off — §0b), and
+`issues.expected-revision.test.ts` cannot run while markers remain.
+
+**Rule for whoever resolves the rest:** links 2–5 land together or not at all. If
+context runs out mid-chain, say which links are in and which are not — a chain
+described as "exp-rev preserved" when link 2 is missing is the most expensive
+sentence this handover could contain.
+
 ---
 
 ## 0. Read this first — three findings that change how the rest must be done

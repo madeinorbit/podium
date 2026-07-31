@@ -3942,3 +3942,54 @@ entries, then run gates and `typecheck --force`. No marker was present for any o
 them, so those claims stand. That is luck as much as design; the procedure existed
 for a different reason (verifying the commit rather than the working tree) and
 happened to close this hole too.
+
+## PARTIAL PRESERVATION IS WORSE THAN NONE — a green guard over a frozen counter
+
+POD-1246's exp-rev finding, and it corrects every note on the subject in this
+run, mine included. "Preserve main's enforcement" undersells it and could produce
+a WORSE result than dropping optimistic concurrency entirely.
+
+THE CHAIN HAS FIVE LINKS. Integration has ONE, and it is the wrong one:
+
+  1 COLUMN       issues.revision, DEFAULT 1 NOT NULL   PRESENT (additive migration)
+  2 INCREMENT    apps/server/src/store/issues.ts       MAIN ONLY — verified here:
+                                                       integration's copy mentions
+                                                       revision ZERO times, main's
+                                                       thirteen
+  3 FIELD        revision on the issue entity/wire     MAIN ONLY — integration's
+                                                       model has no such field
+  4 DECLARATION  conflict: 'exp-rev' per contract      MAIN ONLY, 0 of 43
+  5 ENFORCEMENT  dispatcher -> conflict.ts -> 409      MAIN ONLY
+
+THE TRAP: the column exists and NOTHING WRITES IT. `DEFAULT 1 NOT NULL` plus no
+increment means every row reads revision 1 forever. Add wire enforcement without
+link 2 and every write carrying `expectedRevision: 1` MATCHES, while every other
+value is refused. THE GUARD PASSES EXACTLY THE WRITES IT EXISTS TO CATCH, and
+presents as working. A green concurrency check over a frozen counter.
+
+So resolving `store/issues.ts` to integration's side on its own is the single most
+damaging call available in this merge — and it is the call a reasonable person
+makes, because integration's structure is generally the target architecture.
+
+AND NOTHING IN THE TREE WOULD REPORT IT. No conflict, because it is a resolution.
+No shadowing, because there is one definition. No typecheck, because semantic
+checking is off while markers remain. And `issues.expected-revision.test.ts`
+cannot run for the same reason. FOUR INSTRUMENTS, ALL SILENT, on the most
+dangerous available change.
+
+THE RULE: LINKS 2-5 LAND TOGETHER OR NOT AT ALL, and if context runs out
+mid-chain, SAY WHICH LINKS ARE IN. "exp-rev preserved" written while link 2 is
+missing is the most expensive sentence a handover could contain — it is a claim
+that the property holds, made about a system where the property is not merely
+absent but actively counterfeit.
+
+GENERALISATION beyond this merge: a mechanism assembled from N links can be
+DEFEATED by preserving N-1 of them, and the failure mode of the partial assembly
+is usually SILENT SUCCESS rather than obvious breakage — because the surviving
+links keep producing the shape of a working system. Before preserving "half of X",
+ask what the half does ON ITS OWN. Sometimes the honest options are all-or-nothing.
+
+This also revises what POD-1247 inherits: not "wire the engine to existing
+enforcement" but "wire the engine to a chain whose links 2 and 3 may or may not be
+present". Its first act must be to verify all five rather than assume the merge
+preserved them.
