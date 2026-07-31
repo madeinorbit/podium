@@ -114,11 +114,10 @@ describe('the parser names PROCEDURES, not schema fields', () => {
     expect(names).toContain('specs')
     expect(names).toContain('settings')
     expect(blocks.find((b) => b.name === 'specs')?.keys).toEqual([])
-    expect(blocks.find((b) => b.name === 'settings')?.keys).toEqual([
-      'set',
-      'telegramSetupStart',
-      'telegramSetupPoll',
-    ])
+    // `set` alone since POD-1080 contracted the telegram binding ceremony; the
+    // parser still has a NON-EMPTY anchor here, which is the point of reading a
+    // pending router at all (a parser finding nothing passes every claim).
+    expect(blocks.find((b) => b.name === 'settings')?.keys).toEqual(['set'])
   })
 })
 

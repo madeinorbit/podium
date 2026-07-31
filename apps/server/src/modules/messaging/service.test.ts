@@ -1,4 +1,5 @@
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, type SessionId } from '@podium/model'
+import type { TelegramChatBinding } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptItem } from '@podium/model'
 import { EventBus } from '../bus'
@@ -7,6 +8,17 @@ import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './servi
 import { chunkTelegramText, parseTelegramUpdates } from './telegram'
 import { TOPIC_INACTIVITY_MS } from './topic-recap'
 import type { ChannelAdapter, InboundChatMessage } from './types'
+
+/** The bound chat every inbound fixture in this file speaks from. Without a
+ *  binding the gate refuses the message and nothing below would run — which is
+ *  itself the load-bearing behaviour, asserted in `telegram-binding.test.ts`. */
+const BOUND_USER = asUserId('user:sole')
+const boundChat = (chatId: string): TelegramChatBinding => ({
+  userId: BOUND_USER,
+  chatId,
+  boundAt: '2026-07-31T00:00:00.000Z',
+  boundBy: { actor: { kind: 'user', id: BOUND_USER }, onBehalfOf: BOUND_USER },
+})
 
 describe('parseTelegramUpdates', () => {
   it('extracts text messages and the last update id', () => {
@@ -93,7 +105,10 @@ describe('chunkTelegramText', () => {
 interface Harness {
   service: MessagingService
   bus: EventBus
-  inbound: (text: string, opts?: { threadRef?: string; callback?: { id: string; data: string } }) => void
+  inbound: (
+    text: string,
+    opts?: { threadRef?: string; callback?: { id: string; data: string }; chatId?: string },
+  ) => void
   sent: Array<{ chatId: string; text: string; threadRef?: string; buttons?: unknown }>
   typingCalls: Array<{ chatId: string; threadRef?: string }>
   sendTurn: ReturnType<typeof vi.fn>
@@ -203,6 +218,9 @@ function makeHarness(
     restartThreadImpl?: () => void
     topicRecap?: boolean
     transcriptItems?: TranscriptItem[]
+    /** Override the binding table — `[]` is an instance where chat `42` speaks
+     *  for nobody (POD-1080). */
+    bindings?: TelegramChatBinding[]
   } = {},
 ): Harness {
   const bus = new EventBus()
@@ -294,6 +312,11 @@ function makeHarness(
       : {}),
     createTelegram: () => adapter,
     registerTelegramCommands,
+    // Chat `42` is BOUND — the harness's inbound messages come from it, and
+    // without a binding every one of them is refused at the gate (ADR 3
+    // Amendment 1 D22.2). `telegram-binding.test.ts` is where the refusal
+    // itself is asserted, against this same harness shape.
+    telegramBindings: { list: () => opts.bindings ?? [boundChat('42')] },
   })
   service.configure()
   return {
@@ -318,7 +341,7 @@ function makeHarness(
       onMessage?.({
         source: {
           channel: 'telegram',
-          chatId: '42',
+          chatId: opts?.chatId ?? '42',
           ...(opts?.threadRef ? { threadRef: opts.threadRef } : {}),
         },
         text,
@@ -1113,6 +1136,7 @@ describe('MessagingService', () => {
       },
       createTelegram: () => adapter,
       registerTelegramCommands: vi.fn(async () => {}),
+      telegramBindings: { list: () => [boundChat('42')] },
     })
     service.configure()
     onMessage?.({
@@ -1162,5 +1186,74 @@ describe('MessagingService', () => {
     expect(h.sent).toEqual([])
     expect(fetch).toHaveBeenCalledOnce()
     vi.unstubAllGlobals()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The identity gate (POD-1080, ADR 3 Amendment 1 D22)
+// ---------------------------------------------------------------------------
+
+describe('an inbound chat must resolve to a user, or nothing happens', () => {
+  it('BOUND: the message reaches the superagent (the positive control)', async () => {
+    // First, so every refusal below is a refusal of something this suite has
+    // shown itself able to deliver. Without it, a gate that refused every
+    // message would satisfy the whole describe block.
+    const h = makeHarness({ bindings: [boundChat('42')] })
+    h.inbound('status?')
+    await flush()
+    expect(h.sendTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('UNBOUND: an empty binding table means the message does nothing at all', async () => {
+    const h = makeHarness({ bindings: [] })
+    h.inbound('status?')
+    await flush()
+    expect(h.sendTurn).not.toHaveBeenCalled()
+  })
+
+  it('UNBOUND: and says NOTHING back — the refusal discloses nothing', async () => {
+    // D22.2: the refusal must not disclose more than an unbound chat already
+    // knows. A "you are not authorised" reply would confirm a Podium instance is
+    // behind this bot to anyone who found the handle.
+    const h = makeHarness({ bindings: [] })
+    h.inbound('status?')
+    await flush()
+    expect(h.sent).toEqual([])
+  })
+
+  it('A DIFFERENT chat’s binding does not admit this one', async () => {
+    // The binding must be matched, not merely PRESENT. A gate that checked
+    // "are there any bindings at all" passes the two tests above and fails here.
+    const h = makeHarness({ bindings: [boundChat('9999')] })
+    h.inbound('status?')
+    await flush()
+    expect(h.sendTurn).not.toHaveBeenCalled()
+  })
+
+  it('refuses a SLASH COMMAND from an unbound chat', async () => {
+    // The gate sits before the three-way split, so each arm needs its own case:
+    // a check on only the plain-turn path would leave /issues and callbacks open.
+    const h = makeHarness({ bindings: [], issues: { list: () => [liveIssue()] as never } })
+    h.inbound('/issues')
+    await flush()
+    expect(h.sent).toEqual([])
+  })
+
+  it('refuses a CALLBACK press from an unbound chat', async () => {
+    const h = makeHarness({ bindings: [], issues: { list: () => [liveIssue()] as never } })
+    h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
+    await flush()
+    expect(h.sent).toEqual([])
+    expect(h.sendTurn).not.toHaveBeenCalled()
+  })
+
+  it('ADMITS the same slash command and callback once the chat IS bound', async () => {
+    // The positive control for the two arms above, so "slash commands are
+    // refused" cannot be satisfied by a slash path that never worked here.
+    const h = makeHarness({ bindings: [boundChat('42')], issues: { list: () => [liveIssue()] as never } })
+    h.inbound('/issues')
+    await flush()
+    expect(h.sent.length).toBeGreaterThan(0)
   })
 })

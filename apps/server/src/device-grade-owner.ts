@@ -40,8 +40,11 @@
 import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 
 /**
- * The owner to record when a machine is paired or provisioned by a connection
- * this build cannot attribute to a specific person.
+ * The user to record when a connection this build cannot attribute to a specific
+ * person acts as one — a machine paired or provisioned, or (POD-1080) a Telegram
+ * claim code minted, which needs the SAME fact and deliberately does not get a
+ * fourth name for it. One name is one deletion when POD-315 lands, and the
+ * allowlist is the census of what that deletion has to visit.
  *
  * A FUNCTION rather than a re-exported constant, for the reason
  * `soleHumanPrincipal` is one: the call site is what the audit counts, and a

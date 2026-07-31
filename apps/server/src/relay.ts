@@ -4,6 +4,7 @@ import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { AgentKind, SessionMeta } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
+import { deviceGradeSoleOwner } from './device-grade-owner'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
@@ -287,6 +288,15 @@ export class SessionRegistry {
         conversations.readTranscriptFromLake(session, input),
     })
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
+      telegramBindings: this.store.telegramBindings,
+      // THE PLACEHOLDER, AT THE COMPOSITION ROOT (POD-1080). The claim code must
+      // be stamped with the transport principal's user; this build's transport
+      // is one shared password (`CLIENT_PRINCIPAL_GRADE === 'device'`), so the
+      // only true answer available is the sole account. `deviceGradeSoleOwner`
+      // says that in its name, `audit:machine-grants` counts this call site, and
+      // POD-315 deletes the module — making this line a compile error that has
+      // to name the real principal.
+      mintingUser: deviceGradeSoleOwner,
       ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
       ...(options.generateTelegramSetupCode
         ? { generateTelegramSetupCode: options.generateTelegramSetupCode }

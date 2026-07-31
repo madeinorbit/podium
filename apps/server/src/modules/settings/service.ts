@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { applySettingsPatch, readSettingsLeaf } from '@podium/commands'
-import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey } from '@podium/model'
+import {
+  redeemTelegramClaimCode,
+  SERVER_SECRET_KEYS,
+  type SecretPresenceWire,
+  type ServerSecretKey,
+  type TelegramChatBinding,
+  type TelegramClaimCode,
+  telegramClaimCodeIsLive,
+  type UserId,
+} from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
@@ -25,10 +34,25 @@ export interface TelegramSetupClient {
   acknowledgeUpdates?(botToken: string, offset: number): Promise<void>
 }
 
+/**
+ * A pending ceremony: the MINT plus the bot it was minted against.
+ *
+ * The mint is `TelegramClaimCode`, so the user it confers is a field of the
+ * ceremony from the moment the ceremony exists — not something resolved later
+ * from whatever the redemption happens to have in scope. That is the whole
+ * mechanism (ADR 3 Amendment 1 D22, POD-1080): identity is captured on the
+ * authenticated transport at mint time and carried opaquely to redemption.
+ */
 interface PendingTelegramSetup {
-  code: string
+  mint: TelegramClaimCode
   botUsername: string
-  expiresAtMs: number
+}
+
+/** The write half of the binding table, as the narrowest port the ceremony
+ *  needs. A port rather than the repository so this module does not depend on
+ *  the store, and so a test can observe the binding directly. */
+export interface TelegramBindingWriter {
+  upsert(binding: TelegramChatBinding): void
 }
 
 export interface TelegramSetupStartResult {
@@ -171,6 +195,29 @@ type SecretStore = Pick<
 >
 
 export interface SettingsServiceOptions {
+  /**
+   * WHERE A REDEEMED BINDING IS WRITTEN, and it is REQUIRED — not optional with
+   * a no-op default.
+   *
+   * POD-1075's shape, for its reason: an absent writer would make the ceremony
+   * report `connected` while binding nothing, and every inbound message would
+   * then be refused by a gate that looks like it is working. A missing
+   * dependency must be a compile error, never a silently unbound instance.
+   */
+  telegramBindings: TelegramBindingWriter
+  /**
+   * THE USER A CLAIM CODE IS MINTED FOR — the transport principal, and REQUIRED
+   * for the reason `createClientSession` takes its user as a required parameter
+   * (POD-1075): a service-level default is the one place per-user binding could
+   * silently keep stamping one id for everybody while every ceremony still
+   * works.
+   *
+   * The composition root passes `deviceGradeSoleOwner`, because this build's
+   * transport cannot tell two humans apart; `bun run audit:machine-grants`
+   * counts that call site, and it becomes a compile error when POD-315 deletes
+   * the placeholder.
+   */
+  mintingUser: () => UserId
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -194,6 +241,8 @@ export interface SettingsServiceOptions {
 export class SettingsService {
   private readonly telegramSetups = new Map<string, PendingTelegramSetup>()
   private readonly telegramSetup: TelegramSetupClient
+  private readonly telegramBindings: TelegramBindingWriter
+  private readonly mintingUser: () => UserId
   private readonly generateTelegramSetupCode: () => string
   private readonly now: () => number
   private readonly fingerprintKey: () => Buffer
@@ -205,8 +254,10 @@ export class SettingsService {
     private readonly store: SettingsStore,
     private readonly secrets: SecretStore,
     private readonly bus: EventBus,
-    options: SettingsServiceOptions = {},
+    options: SettingsServiceOptions,
   ) {
+    this.telegramBindings = options.telegramBindings
+    this.mintingUser = options.mintingUser
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
@@ -407,12 +458,28 @@ export class SettingsService {
   /** True while a pairing window is open — the messaging bridge pauses its
    *  getUpdates long-poll so the setup flow's polls don't 409 [spec:SP-5d81]. */
   hasPendingTelegramSetup(): boolean {
+    const now = this.nowIso()
     for (const setup of this.telegramSetups.values()) {
-      if (this.now() <= setup.expiresAtMs) return true
+      if (telegramClaimCodeIsLive(setup.mint, now)) return true
     }
     return false
   }
 
+  /** The clock as the model's predicates take it. One conversion, here, so no
+   *  call site re-derives "is this mint still live" from raw milliseconds. */
+  private nowIso(): string {
+    return new Date(this.now()).toISOString()
+  }
+
+  /**
+   * MINT A CLAIM CODE FOR THE CALLING PRINCIPAL — half one of the ceremony
+   * (ADR 3 Amendment 1 D22.1, `settings.telegramSetupStart`).
+   *
+   * The user is stamped HERE, from {@link SettingsServiceOptions.mintingUser},
+   * and never at redemption. That ordering is the mechanism: at this moment the
+   * caller is on an authenticated transport, and at redemption the only thing
+   * present is a chat id the sender controls.
+   */
   async startTelegramSetup(): Promise<TelegramSetupStartResult> {
     const botToken = this.secrets.getOrEmpty('notifications.telegramBotToken').trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')
@@ -420,21 +487,43 @@ export class SettingsService {
     const { username } = await this.telegramSetup.getMe(botToken)
     const code = this.generateTelegramSetupCode()
     const setupId = randomUUID()
-    const expiresAtMs = this.now() + TELEGRAM_SETUP_TTL_MS
-    this.telegramSetups.set(setupId, { code, botUsername: username, expiresAtMs })
+    const createdAt = this.nowIso()
+    const expiresAt = new Date(this.now() + TELEGRAM_SETUP_TTL_MS).toISOString()
+    const mint: TelegramClaimCode = {
+      code,
+      userId: this.mintingUser(),
+      createdAt,
+      expiresAt,
+    }
+    this.telegramSetups.set(setupId, { mint, botUsername: username })
     return {
       setupId,
       code,
       botUsername: username,
       telegramUrl: telegramSetupUrl(username, code),
-      expiresAt: new Date(expiresAtMs).toISOString(),
+      expiresAt,
     }
   }
 
+  /**
+   * REDEEM A PRESENTED CODE AND BIND THE CHAT — half two (D22.1,
+   * `settings.telegramSetupPoll`).
+   *
+   * The binding's user comes from `setup.mint`, through
+   * `redeemTelegramClaimCode`, which HAS NO USER PARAMETER. Nothing in this
+   * method can supply one: not the matched update, not the caller, not an
+   * ambient default. That is what makes "who does this chat speak as" a property
+   * of the mechanism rather than of a string somebody sent.
+   *
+   * An unknown or expired `setupId` returns the SAME `expired` result, per the
+   * contract's error-consistency cell: distinguishing them would tell a caller
+   * whether someone else's ceremony is open.
+   */
   async pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
     const setup = this.telegramSetups.get(setupId)
     if (!setup) return { status: 'expired' }
-    if (this.now() > setup.expiresAtMs) {
+    const now = this.nowIso()
+    if (!telegramClaimCodeIsLive(setup.mint, now)) {
       this.telegramSetups.delete(setupId)
       return { status: 'expired' }
     }
@@ -444,10 +533,26 @@ export class SettingsService {
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const updates = await this.telegramSetup.getUpdates(botToken)
-    const match = updates.find((update) => telegramTextHasCode(update.text, setup.code))
-    if (!match) return { status: 'pending', expiresAt: new Date(setup.expiresAtMs).toISOString() }
+    const match = updates.find((update) => telegramTextHasCode(update.text, setup.mint.code))
+    if (!match) return { status: 'pending', expiresAt: setup.mint.expiresAt }
 
     const chatId = String(match.chatId)
+    const binding = redeemTelegramClaimCode(setup.mint, chatId, now)
+    if (!binding) {
+      // The mint was live a few lines ago, so this is the chat id failing the
+      // model's own shape check. Consume the mint and refuse: a ceremony that
+      // matched a code but could not produce a binding must not leave a live
+      // code behind, and must not report success.
+      this.telegramSetups.delete(setupId)
+      return { status: 'expired' }
+    }
+    this.telegramBindings.upsert(binding)
+
+    // The INBOUND half is now the binding above. This write is the OUTBOUND
+    // routing address, which is a different fact on a different row
+    // (`preferences-personal`, `secret: 'preference'`) and is unchanged by this
+    // issue: it is still an instance-wide singleton, and making notification
+    // routing per-user is ADR 9 D8 S3's work, not this ceremony's.
     const next = this.setSettings({
       ...current,
       notifications: {

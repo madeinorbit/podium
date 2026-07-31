@@ -408,6 +408,35 @@ export const clientSessions = sqliteTable("client_sessions", {
 	expiresAt: text("expires_at").notNull(),
 });
 
+// TELEGRAM CHAT BINDING (POD-1080, ADR 3 Amendment 1 D22; ADR 1 matrix row
+// `telegram-chat-binding`). The row that turns an inbound chat id — a value THE
+// SENDER CONTROLS — into a user, without ever reading identity out of the
+// message. It is written only by the redemption half of the claim-code
+// ceremony, and the user it records comes from the MINT.
+//
+// THE PRIMARY KEY IS `chat_id` ALONE, and that is the load-bearing decision.
+// The matrix keys this row `(userId, chatId)`, which this satisfies; what it
+// ADDS is that a chat can name at most one user. Resolution has to be a
+// FUNCTION: with two rows for one chat the resolver must either choose — and
+// every tie-break rule (first, newest, lowest id) hands the chat to whoever can
+// cause the second row — or refuse, which is a live edge going dark. The
+// constraint means the second row cannot exist. `resolveTelegramPrincipal` still
+// refuses on ambiguity, because a model that trusts a database constraint it
+// cannot see is a model that fails open when the constraint is dropped.
+//
+// One person may hold MANY chats (phone, desktop group, a forum) — that
+// direction is unconstrained, and it is the direction that is safe.
+export const telegramChatBindings = sqliteTable("telegram_chat_bindings", {
+	chatId: text("chat_id").primaryKey(),
+	userId: text("user_id").notNull(),
+	boundAt: text("bound_at").notNull(),
+	// The attribution pair (ADR 3 Amendment 1 D17), stored in the same three
+	// columns the `grants` table uses so the shape is one shape.
+	actorKind: text("actor_kind").notNull(),
+	actorId: text("actor_id"),
+	onBehalfOf: text("on_behalf_of"),
+});
+
 // `changes` and `applied_mutations` moved to
 // packages/sync/src/adapters/sqlite/schema.ts at POD-305. They are GENERIC SYNC
 // INFRASTRUCTURE (ADR 1 §10), not product entities, so the sync adapter owns

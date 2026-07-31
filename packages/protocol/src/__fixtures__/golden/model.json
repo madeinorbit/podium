@@ -8665,6 +8665,152 @@
       "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"sessionIds\":[\"sessionIds[0]\"]}"
     },
     {
+      "schema": "TelegramChatBinding",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "chatId": "chatId",
+        "boundAt": "boundAt",
+        "boundBy": {
+          "actor": {
+            "kind": "user",
+            "id": "boundBy.actor.id"
+          },
+          "onBehalfOf": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"chatId\":\"chatId\",\"boundAt\":\"boundAt\",\"boundBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"boundBy.actor.id\"},\"onBehalfOf\":null}}"
+    },
+    {
+      "schema": "TelegramChatBinding",
+      "variant": "full/arm0",
+      "wire": {
+        "userId": "userId",
+        "chatId": "chatId",
+        "boundAt": "boundAt",
+        "boundBy": {
+          "actor": {
+            "kind": "user",
+            "id": "boundBy.actor.id"
+          },
+          "onBehalfOf": "boundBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"chatId\":\"chatId\",\"boundAt\":\"boundAt\",\"boundBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"boundBy.actor.id\"},\"onBehalfOf\":\"boundBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TelegramChatBinding",
+      "variant": "full/arm1",
+      "wire": {
+        "userId": "userId",
+        "chatId": "chatId",
+        "boundAt": "boundAt",
+        "boundBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "boundBy.actor.id"
+          },
+          "onBehalfOf": "boundBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"chatId\":\"chatId\",\"boundAt\":\"boundAt\",\"boundBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"boundBy.actor.id\"},\"onBehalfOf\":\"boundBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TelegramChatBinding",
+      "variant": "full/arm2",
+      "wire": {
+        "userId": "userId",
+        "chatId": "chatId",
+        "boundAt": "boundAt",
+        "boundBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "boundBy.actor.id"
+          },
+          "onBehalfOf": "boundBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"chatId\":\"chatId\",\"boundAt\":\"boundAt\",\"boundBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"boundBy.actor.id\"},\"onBehalfOf\":\"boundBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TelegramChatBinding",
+      "variant": "full/arm3",
+      "wire": {
+        "userId": "userId",
+        "chatId": "chatId",
+        "boundAt": "boundAt",
+        "boundBy": {
+          "actor": {
+            "kind": "system",
+            "job": "boundBy.actor.job"
+          },
+          "onBehalfOf": "boundBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"chatId\":\"chatId\",\"boundAt\":\"boundAt\",\"boundBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"boundBy.actor.job\"},\"onBehalfOf\":\"boundBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TelegramChatIdField",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "TelegramChatIdField",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "TelegramClaimCode",
+      "variant": "minimal",
+      "wire": {
+        "code": "code",
+        "userId": "userId",
+        "createdAt": "createdAt",
+        "expiresAt": "expiresAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"code\":\"code\",\"userId\":\"userId\",\"createdAt\":\"createdAt\",\"expiresAt\":\"expiresAt\"}"
+    },
+    {
+      "schema": "TelegramClaimCode",
+      "variant": "full",
+      "wire": {
+        "code": "code",
+        "userId": "userId",
+        "createdAt": "createdAt",
+        "expiresAt": "expiresAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"code\":\"code\",\"userId\":\"userId\",\"createdAt\":\"createdAt\",\"expiresAt\":\"expiresAt\"}"
+    },
+    {
       "schema": "ThreadId",
       "variant": "minimal",
       "wire": "x",

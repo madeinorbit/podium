@@ -322,12 +322,6 @@ export const appRouter = t.router({
       .input(PodiumSettings)
       .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
     ...settingsFamily,
-    // A stateful pairing ceremony over a third-party API, not a settings write
-    // with a payload.
-    telegramSetupStart: t.procedure.mutation(({ ctx }) => mods(ctx).settings.startTelegramSetup()),
-    telegramSetupPoll: t.procedure
-      .input(z.object({ setupId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
   }),
   perf: t.router(perfFamilyProcedures()),
   // Experimental feature flags [spec:SP-f4b9] — same auth as settings.get.

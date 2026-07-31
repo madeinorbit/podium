@@ -255,12 +255,26 @@ describe('tiers are separated, and an unclassified change is refused', () => {
 })
 
 describe('the online-only set is derived and non-empty', () => {
-  it('names exactly the two secret commands', () => {
+  it('names the two secret commands and both halves of the binding ceremony', () => {
     // Non-empty is the load-bearing half: an empty set would make every
     // "secrets are never queued" assertion in this file vacuously true.
+    //
+    // The ceremony pair joined it when POD-1080 contracted it, and DERIVED is
+    // why nobody had to remember: the filter reads `delivery.class`, so the mint
+    // (`online-sensitive`) and the redeem (`online-only`) appear here on the
+    // same commit that declared them.
     expect([...ONLINE_ONLY_SETTINGS_COMMANDS].sort()).toEqual([
       'settings.clearSecret',
       'settings.setSecret',
+      'settings.telegramSetupPoll',
+      'settings.telegramSetupStart',
     ])
+  })
+
+  it('EXCLUDES the offline-eligible arms — the filter can say no', () => {
+    // Without this, a filter that returned every command would satisfy the
+    // assertion above's "non-empty" purpose and its membership list.
+    expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('settings.updatePersonal')
+    expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('settings.updateInstance')
   })
 })
