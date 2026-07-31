@@ -21,6 +21,7 @@ const roots: string[] = []
 const machineA = asMachineId('machine-a')
 const machineB = asMachineId('machine-b')
 const alice = asUserId('user:alice')
+const bob = asUserId('user:bob')
 const issueA = asIssueId('issue-a')
 
 async function store(): Promise<BindingStore> {
@@ -169,12 +170,156 @@ describe('SessionBinding transition vocabulary', () => {
         sessionId: before.sessionId,
         claimantMachineId: machineA,
         machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user', userId: alice },
         requestedGeneration: 2,
         attemptId: `attempt-${kind}`,
       }),
     )
     expect(after.observationGeneration).toBe(2)
     expect(JSON.stringify(after.delegationHistory)).toBe(delegation)
+  })
+
+  it('two same-principal reattaches produce one durable winner and one redundant result', async () => {
+    const bindings = await store()
+    const before = await spawn(bindings, 'same-principal-race', 'codex')
+    const request = (transitionId: string) =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId,
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId: alice },
+        requestedGeneration: 2,
+        attemptId: 'podium-same-principal-race',
+      })
+
+    const outcomes = await Promise.all([request('race:same:a'), request('race:same:b')])
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(['applied', 'redundant'])
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const row = await persisted.read(before.sessionId)
+    expect(row?.observationGeneration).toBe(2)
+    expect(row?.transitionHistory.filter((entry) => entry.event === 'reattach')).toEqual([
+      expect.objectContaining({
+        transitionId: 'race:same:a',
+        reattachClaim: {
+          principal: { kind: 'user', userId: alice },
+          requestedGeneration: 2,
+          attemptId: 'podium-same-principal-race',
+        },
+      }),
+    ])
+    expect(
+      (
+        await persisted.transition({
+          event: 'reattach',
+          transitionId: 'race:same:after-restart',
+          sessionId: before.sessionId,
+          claimantMachineId: machineA,
+          machineAccess: 'allowed',
+          sessionAccess: 'allowed',
+          principal: { kind: 'user', userId: alice },
+          requestedGeneration: 2,
+          attemptId: 'podium-same-principal-race',
+        })
+      ).status,
+    ).toBe('redundant')
+  })
+
+  it.each([
+    ['alice-first', alice, bob],
+    ['bob-first', bob, alice],
+  ])('two-principal reattach race is deterministic when %s', async (_case, first, second) => {
+    const bindings = await store()
+    const before = await spawn(bindings, `two-principal-race-${_case}`, 'claude-code')
+    const request = (transitionId: string, userId: typeof alice) =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId,
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId },
+        requestedGeneration: 2,
+        attemptId: `podium-two-principal-race-${_case}`,
+      })
+
+    const outcomes = await Promise.all([
+      request(`race:${_case}:first`, first),
+      request(`race:${_case}:second`, second),
+    ])
+    expect(outcomes[0]?.status).toBe('applied')
+    expect(outcomes[1]).toEqual({
+      status: 'denied',
+      event: 'reattach',
+      reason: 'not-claimant',
+      terminal: true,
+    })
+
+    const row = await bindings.read(before.sessionId)
+    expect(
+      row?.transitionHistory.findLast((entry) => entry.event === 'reattach')?.reattachClaim
+        ?.principal,
+    ).toEqual({ kind: 'user', userId: first })
+    // Reattach ownership is arbitration metadata only. It cannot rewrite the
+    // agent's human or widen the scope it was spawned with.
+    expect(row && bindings.currentDelegation(row)).toMatchObject({
+      onBehalfOf: alice,
+      grantedScope: { kind: 'subtree', rootId: issueA },
+    })
+
+    const unreachable = await bindings.transition({
+      event: 'reattach',
+      transitionId: `race:${_case}:offline`,
+      sessionId: before.sessionId,
+      claimantMachineId: machineA,
+      machineAccess: 'unreachable',
+      sessionAccess: 'allowed',
+      principal: { kind: 'user', userId: second },
+      requestedGeneration: 3,
+    })
+    expect(unreachable).toEqual({
+      status: 'unreachable',
+      event: 'reattach',
+      reason: 'machine-unreachable',
+      terminal: true,
+    })
+  })
+
+  it('keeps invisible and nonexistent sessions uniform below policy', async () => {
+    const bindings = await store()
+    const existing = await spawn(bindings, 'private-session', 'grok')
+    const denied = {
+      event: 'reattach' as const,
+      transitionId: 'invisible',
+      claimantMachineId: machineA,
+      // If arbitration consulted placement first, this would leak that the
+      // invisible session names a visible-but-denied machine.
+      machineAccess: 'denied' as const,
+      sessionAccess: 'not-found' as const,
+      principal: { kind: 'user' as const, userId: bob },
+      requestedGeneration: 2,
+    }
+    const invisible = await bindings.transition({ ...denied, sessionId: existing.sessionId })
+    const missing = await bindings.transition({
+      ...denied,
+      transitionId: 'missing',
+      sessionId: asSessionId('no-such-session'),
+    })
+
+    const uniform = {
+      status: 'denied',
+      event: 'reattach',
+      reason: 'not-found',
+      terminal: true,
+    }
+    expect(invisible).toEqual(uniform)
+    expect(missing).toEqual(uniform)
+    expect((await bindings.read(existing.sessionId))?.transitionHistory).toHaveLength(1)
   })
 
   it('HOOK-REPIN consumes hook and process receipts as sources of the same event', async () => {

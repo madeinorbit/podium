@@ -9,6 +9,7 @@ import {
   asAgentIdentityId,
   asMachineId,
   asSessionId,
+  asUserId,
   type ConversationId,
   type DelegationScope,
   type MachineId,
@@ -106,6 +107,17 @@ export interface BindingTransitionReceipt {
   transitionId: string
   event: SessionBindingEvent
   recordedAt: string
+  /**
+   * The identity reference that won one reattach generation. It contains no
+   * rights or capability result; policy is re-run before every transition.
+   * Keeping the accepted reference makes a same-generation retry deterministic
+   * across daemon restart and leaves POD-644 a durable CAS hook to extend.
+   */
+  reattachClaim?: {
+    principal: BindingSpawnPrincipal
+    requestedGeneration: number
+    attemptId: string | null
+  }
 }
 
 export interface SessionBindingRecord {
@@ -263,6 +275,8 @@ export type RepinEvidenceSource = 'hook-receipt' | 'process-ownership-receipt'
  * consumes this answer; it never owns or reconstructs the fleet ACL.
  */
 export type BindingMachineAccess = 'allowed' | 'denied' | 'unreachable'
+/** Authorization above arbitration collapses invisible and nonexistent rows. */
+export type BindingSessionAccess = 'allowed' | 'not-found'
 
 export type BindingSpawnPrincipal =
   | { kind: 'user'; userId: UserId }
@@ -295,6 +309,9 @@ export type SessionBindingTransition =
       event: 'reattach'
       claimantMachineId: MachineId
       machineAccess: BindingMachineAccess
+      sessionAccess: BindingSessionAccess
+      /** Server-authored from the authenticated transport principal. */
+      principal: BindingSpawnPrincipal
       requestedGeneration: number
       attemptId?: string | null
     })
@@ -356,6 +373,12 @@ export type SessionBindingTransitionOutcome =
       terminal: true
     }
   | {
+      status: 'denied'
+      event: 'reattach'
+      reason: 'not-found' | 'not-claimant'
+      terminal: true
+    }
+  | {
       status: 'unreachable'
       event: 'spawn' | 'reattach' | 'adopt'
       reason: 'machine-unreachable'
@@ -366,6 +389,11 @@ export type SessionBindingTransitionOutcome =
       event: SessionBindingEvent
       reason: BindingTransitionRejection
       terminal: true
+    }
+  | {
+      status: 'redundant'
+      event: 'reattach'
+      binding: SessionBindingRecord
     }
 
 export class BindingStoreVersionError extends Error {
@@ -489,6 +517,25 @@ function parseDelegation(value: unknown, index: number): BindingDelegationObserv
   }
 }
 
+function parseBindingPrincipal(value: unknown, path: string): BindingSpawnPrincipal {
+  if (!isRecord(value)) throw new Error(`${path} must be an object`)
+  switch (value.kind) {
+    case 'user':
+      return { kind: 'user', userId: asUserId(requiredString(value.userId, `${path}.userId`)) }
+    case 'agent':
+      return {
+        kind: 'agent',
+        parentBindingId: asSessionId(
+          requiredString(value.parentBindingId, `${path}.parentBindingId`),
+        ),
+      }
+    case 'system':
+      return { kind: 'system' }
+    default:
+      throw new Error(`${path}.kind is invalid`)
+  }
+}
+
 function parseBinding(value: unknown): SessionBindingRecord {
   if (!isRecord(value)) throw new Error('binding must be an object')
   const version = value.schemaVersion
@@ -537,13 +584,42 @@ function parseBinding(value: unknown): SessionBindingRecord {
       if (!(SESSION_BINDING_EVENTS as readonly string[]).includes(event)) {
         throw new Error(`transitionHistory[${index}].event is invalid`)
       }
+      const reattachClaim = entry.reattachClaim
+      if (reattachClaim !== undefined && !isRecord(reattachClaim)) {
+        throw new Error(`transitionHistory[${index}].reattachClaim must be an object`)
+      }
+      const requestedGeneration = reattachClaim?.requestedGeneration
+      if (
+        requestedGeneration !== undefined &&
+        (!Number.isSafeInteger(requestedGeneration) || Number(requestedGeneration) < 0)
+      ) {
+        throw new Error(
+          `transitionHistory[${index}].reattachClaim.requestedGeneration must be a non-negative integer`,
+        )
+      }
       return {
+        ...entry,
         transitionId: requiredString(
           entry.transitionId,
           `transitionHistory[${index}].transitionId`,
         ),
         event: event as SessionBindingEvent,
         recordedAt: requiredString(entry.recordedAt, `transitionHistory[${index}].recordedAt`),
+        ...(reattachClaim
+          ? {
+              reattachClaim: {
+                principal: parseBindingPrincipal(
+                  reattachClaim.principal,
+                  `transitionHistory[${index}].reattachClaim.principal`,
+                ),
+                requestedGeneration: Number(requestedGeneration),
+                attemptId: optionalNullableString(
+                  reattachClaim.attemptId,
+                  `transitionHistory[${index}].reattachClaim.attemptId`,
+                ),
+              },
+            }
+          : {}),
       }
     }),
     transfer: (value.transfer ?? null) as BindingTransfer | null,
@@ -599,12 +675,23 @@ function withTransitionReceipt(
   transition: SessionBindingTransition,
   recordedAt: string,
 ): SessionBindingRecord {
+  const receipt: BindingTransitionReceipt = {
+    transitionId: transition.transitionId,
+    event: transition.event,
+    recordedAt,
+    ...(transition.event === 'reattach'
+      ? {
+          reattachClaim: {
+            principal: transition.principal,
+            requestedGeneration: transition.requestedGeneration,
+            attemptId: transition.attemptId ?? null,
+          },
+        }
+      : {}),
+  }
   return {
     ...binding,
-    transitionHistory: [
-      ...binding.transitionHistory,
-      { transitionId: transition.transitionId, event: transition.event, recordedAt },
-    ],
+    transitionHistory: [...binding.transitionHistory, receipt],
   }
 }
 
@@ -986,6 +1073,12 @@ export class BindingStore {
    * delegation reference and identity evidence.
    */
   async transition(input: SessionBindingTransition): Promise<SessionBindingTransitionOutcome> {
+    // Authorization runs before arbitration. The lower layer therefore never
+    // reads the binding for a caller policy has reduced to `not-found`, and its
+    // answer is byte-identical to the genuinely missing-row case below.
+    if (input.event === 'reattach' && input.sessionAccess === 'not-found') {
+      return { status: 'denied', event: 'reattach', reason: 'not-found', terminal: true }
+    }
     if (input.event === 'spawn' || input.event === 'reattach' || input.event === 'adopt') {
       const placement = machineAccessOutcome(input.event, input.machineAccess)
       if (placement) return placement
@@ -994,7 +1087,10 @@ export class BindingStore {
     const prior = this.writes.get(input.sessionId) ?? Promise.resolve()
     const next = prior.then(async (): Promise<SessionBindingTransitionOutcome> => {
       const current = await this.read(input.sessionId)
-      if (current?.transitionHistory.some((entry) => entry.transitionId === input.transitionId)) {
+      if (
+        input.event !== 'reattach' &&
+        current?.transitionHistory.some((entry) => entry.transitionId === input.transitionId)
+      ) {
         return { status: 'unchanged', event: input.event, binding: current }
       }
 
@@ -1079,10 +1175,28 @@ export class BindingStore {
         }
 
         case 'reattach': {
-          if (!current) return transitionRejected(input.event, 'binding-missing')
+          if (!current) {
+            return { status: 'denied', event: 'reattach', reason: 'not-found', terminal: true }
+          }
           if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
           if (current.claimantMachineId !== input.claimantMachineId) {
             return transitionRejected(input.event, 'claimant-mismatch')
+          }
+          const acceptedClaim = current.transitionHistory.findLast(
+            (entry) =>
+              entry.event === 'reattach' &&
+              entry.reattachClaim?.requestedGeneration === input.requestedGeneration,
+          )?.reattachClaim
+          if (acceptedClaim) {
+            if (stableEqual(acceptedClaim.principal, input.principal)) {
+              return { status: 'redundant', event: 'reattach', binding: current }
+            }
+            return {
+              status: 'denied',
+              event: 'reattach',
+              reason: 'not-claimant',
+              terminal: true,
+            }
           }
           if (input.requestedGeneration < current.observationGeneration) {
             return transitionRejected(input.event, 'stale-generation')
