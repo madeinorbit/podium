@@ -33,17 +33,43 @@ should run and **nothing constructs a kernel `Replica` from its answer**. The wi
 mapping, the feed consumer, both storage adapters and the legacy-replica migration all exist and are
 green; the one missing piece is the facade that lets the engine read through them.
 
-**Correction from POD-1220 (2026-07-31), and it changes who to chase.** Saying "two blocking
-children" understates the coupling: POD-1223 needs the *same* file POD-1220 does, so **three issues
-wait on one facade**, not two on two. And **nothing is in flight** — POD-1220 is backlog, unclaimed,
-and has neither branch nor worktree (POD-377 was merged at `1c78ed9f` and its worktree was reclaimed
-with it), while POD-1223 is `planning`. The two have mailed each other to settle ownership before
-either starts; either owning it is fine, and POD-1220 has said it will pick it up with a workspace if
-the coordinator confirms nobody else is scheduled.
+### 1.1 Correction — the facade is already WRITTEN; the ask is a MERGE, not an assignment
 
-**So the scheduling ask is one item, not three:** put the client `Replica` facade over
-`{cache: ReplicaCacheStore, outbox: OutboxStorePort}` on someone, in
-`packages/client-core/src/replica/`. POD-1223, POD-1220 and this issue all unblock on it.
+The paragraph above was drafted from issue stages and was wrong. POD-1220 checked the LIVE state and
+found what none of our three briefs names; **verified here independently** rather than taken on
+report:
+
+```
+$ git ls-tree -r --name-only issue/1223-web-engine-on-the-kernel-replica \
+    -- packages/client-core/src/replica/kernel/
+packages/client-core/src/replica/kernel/facade.test.ts
+packages/client-core/src/replica/kernel/facade.ts
+packages/client-core/src/replica/kernel/index.ts
+packages/client-core/src/replica/kernel/kinds.ts
+packages/client-core/src/replica/kernel/side-cache.ts
+```
+
+The same path is **absent from `issue/279-integration` and from `main`**. It landed under
+**POD-1228 (Store-neutral client Replica facade, stage `done`)** — a sibling none of POD-378,
+POD-1220 or POD-1223 names — and rides on POD-1223's branch, which carries four commits (`9a35c240`,
+`4f80506d`, `7bb510ed`, `392e2788`) and has already built the web engine on that facade plus the
+shadow-comparison harness.
+
+**So the ask is: merge POD-1223 (which carries POD-1228's facade) into integration.** Nothing needs
+writing. An agent told to "put the facade on someone" would write a duplicate of a finished one —
+the exact fork all three issues have declined to create by hand.
+
+Once it lands, POD-1220's scope collapses to consuming it from `apps/mobile` (open `SqliteSyncStore`
+via `fromExpoSqlite`, `viewFor(principal)`, `createSideCache` + `createKernelReplica`,
+`migrateLegacyReplica` once before the first read). POD-1220 is therefore blocked on POD-1223
+merging, not on anyone's availability.
+
+**This issue's deletion unblocks on the same merge** — plus POD-1220's mobile consumption, since
+`apps/mobile` is the second TanStack composition root.
+
+**But the merge should not happen before §4.3 is answered.** Reviewing the facade to close this
+issue's guarantee inventory turned up two guarantees it does not carry and one instrument that
+cannot say NO.
 
 **Decision taken, with no human available (POD-279 fan-out rule 2):** do not write a second facade.
 POD-1220's brief states that POD-376 explicitly agreed to consume POD-1220's file rather than write
@@ -170,7 +196,8 @@ it lives after the deletion.
 | Delta idempotence, and in-order remove-then-upsert | adapter `applyOperations` + conformance |
 | **present → absent applied as a nulling** | **`removal-family.test.ts` (this issue) — see §4.3** |
 | remove / evict stay distinguishable on disk | `conformance/instantiation.ts` + `removal-family.test.ts` |
-| Outbox durability, loud on failure, entries never dropped silently | outbox store conformance + `legacy-replica/migrate` tests |
+| Outbox entries never dropped silently on MIGRATION | `legacy-replica/{migrate,import}` tests |
+| Outbox durability, **loud on quota failure** | **NOT carried — see §4.3 finding 1** |
 | Legacy localStorage/AsyncStorage store migrated or cleanly re-bootstrapped | `legacy-replica/{adoption,migrate,import}` + POD-377's captured-snapshot fixture |
 
 ### 4.2 NOT yet covered — guarantees with no kernel-path home, owned by POD-1220/POD-1223
@@ -196,9 +223,58 @@ by simply removing the file:
 5. **Cross-tab consistency.** Today it comes free from the lib's `storage` events. IndexedDB gives no
    equivalent for free; two tabs of the same browser profile are a real configuration.
 
-**Recommendation to whoever lands the facade:** treat §4.2 as acceptance criteria for POD-1220, not
-as follow-up. Each item is currently held up by an implementation that is scheduled for deletion,
-which is the precise shape "retiring a guarantee by accident" takes.
+### 4.3 Re-graded against the facade that actually exists — three of five carried, two NOT, and one instrument that cannot say NO
+
+§4.2 was written before §1.1 established that the facade already exists on
+`issue/1223-web-engine-on-the-kernel-replica`. Re-graded against that code:
+
+| §4.2 item | Verdict against `kernel/facade.ts` + `kernel/side-cache.ts` |
+|---|---|
+| 1. transcript-window LRU | **CARRIED.** `side-cache.ts` uses `REPLICA_TRANSCRIPT_ITEM_CAP` / `REPLICA_TRANSCRIPT_CONVERSATION_CAP`, same caps, same write-time eviction order |
+| 2. coalesced notifications | **CARRIED** — the facade's `batch`/pending machinery |
+| 3. non-converging flush bound | **CARRIED** by the same machinery |
+| 4. stable empty-rows identity | **CARRIED** — a shared frozen `EMPTY` |
+| 5. cross-tab consistency | **CARRIED** — `side-cache` keeps the `storage`-event behaviour |
+
+Good news, and it is why the merge is the right ask. Two things it does **not** carry:
+
+**Finding 1 — the outbox's LOUD-on-quota posture is silently dropped. This is the serious one.**
+
+The legacy replica routes the outbox family through a deliberately separate storage wrapper:
+
+> *"Loud (never-degrade) storage for the outbox-family collections: unlike the entity blobs, a lost
+> outbox entry is a lost user write — a quota-dead write is a data-loss risk and is logged loudly
+> instead of swallowed."* — `replica.ts`, `outboxLoudStorage()`, which `console.error`s
+> *"queued offline writes may be LOST on reload"* and **rethrows**.
+
+The replacement does the opposite. `side-cache.ts`'s single `write` helper is documented
+*"Best-effort: a quota failure degrades persistence, it does not break the UI"* and its `catch {}` is
+**empty** — and `outboxStorage()` / `outboxAwaitingStorage()` both go through it. So on the kernel
+path a quota-denied outbox write is swallowed with no log, no throw, and no `onDegraded`.
+
+That contradicts ADR 6 D4.3 — queued entries are *"durable on the same footing as entity rows …
+losing them on crash is a correctness bug, not degraded UX"* — and D4.4's never-silent posture. It is
+also worse than it looks on web, because `apps/web/src/lib/kernelReplica.ts:117` backs the side cache
+with `globalThis.localStorage` while entities go to IndexedDB: the outbox is left on the ~5MB blob
+store whose quota failures are the origin of issue #181, with the one mechanism that made those
+failures visible removed.
+
+This is precisely the class the brief's last-chance check exists to catch — a guarantee held up by
+the outgoing implementation's *incidental* behaviour, which disappears when the file does.
+
+**Finding 2 — `facade.test.ts` is a single instrument, and both consumers inherit it.**
+
+It runs against `memoryStorage()` and a hand-written stub cache. No real IndexedDB, no real SQLite.
+That is the failure POD-1220 named, one level up from where we were discussing it: the file the web
+AND mobile consumers both read through is tested against a `Map`. This issue's own
+`removal-family.test.ts` demonstrates the cost concretely — the `settled()` fence bug was invisible
+on SQLite and visible only on IndexedDB, and the per-adapter merge mutants each killed only their own
+lane. A facade suite that cannot tell the two engines apart cannot see either.
+
+**Recommendation, and it is a small diff, not a re-plan:** POD-1223's merge should carry (a) the loud
+outbox wrapper ported onto `side-cache`'s outbox keys, with a test that a denied write is surfaced
+rather than swallowed, and (b) at least one facade case per real engine. Both are cheaper before the
+merge than after, and neither changes the facade's shape.
 
 ---
 
