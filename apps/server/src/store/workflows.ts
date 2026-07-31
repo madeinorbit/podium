@@ -255,6 +255,7 @@ export class WorkflowsRepository {
         row.scopeRef,
         row.actor.kind,
         row.actor.id,
+        row.ownerUserId,
         row.now,
         row.now,
       )

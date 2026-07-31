@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 /**
  * #198 — origin is derived from the caller (deterministic, unforgeable) and
  * audience is agent-declared, and the orphan-internal warning fires when an
@@ -20,6 +21,7 @@ const ctx = (registry: SessionRegistry, capability: Capability) =>
     repos: {} as never,
     superagent: {} as never,
     capability,
+    principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   })
 
 /** Issue mutations are typed loosely at this seam; these cases assert on the wire. */

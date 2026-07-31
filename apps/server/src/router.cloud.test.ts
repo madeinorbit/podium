@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -28,7 +29,7 @@ function caller(
   registry.gateway.attachDaemon('local', onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-  const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR })
+  const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
   return { call, registry }
 }
 

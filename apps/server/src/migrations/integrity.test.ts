@@ -14,7 +14,7 @@
  * fresh-schema equivalent for those tests, so they are dropped, not adapted.
  */
 
-import { asIssueId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, SOLE_USER_ID, asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow } from '../store'
 import { SessionStore } from '../store'
@@ -29,6 +29,8 @@ function rawDb(s: SessionStore): {
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
     id: asIssueId('iss_x'), repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
+    ownerUserId: FIRST_ADMIN_USER_ID, visibility: 'personal', createdByActor: FIRST_ADMIN_USER_ID,
+    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
     defaultModel: 'auto', defaultEffort: 'auto',
     linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,

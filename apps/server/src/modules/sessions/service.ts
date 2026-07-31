@@ -1,4 +1,3 @@
-import { sessionSpawnerParentId } from '../../steward'
 import type {
   AccountId,
   ActorRef,
@@ -14,7 +13,8 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
+import { AgentKind, asIssueId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { sessionSpawnerParentId } from '../../steward'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -32,21 +32,16 @@ import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
  */
 export type SessionWirePrincipal = ActorRef
 
-import type { MachinePrincipal } from '@podium/protocol'
-import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
-import type { ClientPrincipal } from '../../gateway/client-principal'
-import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
-import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import {
   computePriorities,
   FIRST_ADMIN_USER_ID,
-  OPERATOR,
   repoNameFromOrigin,
   type SessionUserOverlay,
 } from '@podium/model'
+import type { MachinePrincipal } from '@podium/protocol'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
@@ -55,32 +50,36 @@ import {
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
-  FEED_MESSAGE_TYPES,
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
   type DraftEditMessage,
+  FEED_MESSAGE_TYPES,
   formatSessionRef,
+  type IssueDepProjection,
+  type IssueProjection,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type IssueDepProjection,
-  type IssueProjection,
-  type RepoProjection,
   type ObservationInputOrigin,
   type ObservationProvider,
+  type RepoProjection,
   type ServerMessage,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
-// OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
-// binding, so importing it from both is a duplicate identifier rather than two
-// different capabilities — verified before deduping, because two same-named symbols
+import { userCommandPrincipal } from '../../command-principal'
+import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
+import type { ClientPrincipal } from '../../gateway/client-principal'
+import { feedPrincipalOf } from '../../gateway/client-principal'
+import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 // from different modules is exactly the shape that is a real vocabulary fork.
 import type { Capability } from '../../issue-authz'
 import {
@@ -88,7 +87,6 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
@@ -112,7 +110,6 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import { feedPrincipalOf } from '../../gateway/client-principal'
 import { perfPrincipal } from '../perf/principal'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
@@ -129,7 +126,7 @@ import {
   verifiedCommonBundleBases,
 } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
-import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
+import { PresenceRegistry, userPresencePrincipal } from './presence-registry'
 import {
   createViewKey,
   type PreparedPublication,
@@ -1455,15 +1452,21 @@ export class SessionsService {
   sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined {
     const session = this.sessions.get(sessionId)
     if (!session) return undefined
+    const resourceKind = session.issueId ? 'issue' : 'session'
+    const resourceId = session.issueId ?? sessionId
+    const parentOwner = session.issueId
+      ? this.store.issues.getIssue(session.issueId)?.ownerUserId
+      : session.ownerUserId
+    if (!parentOwner) return undefined
     const grants = [
       ...new Set(
         this.store.grants
-          .listForResource('session', sessionId)
+          .listForResource(resourceKind, resourceId)
           .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
           .map((edge) => edge.grantee),
       ),
     ]
-    return { owner: session.ownerUserId, grants }
+    return { owner: parentOwner, grants }
   }
 
   /**
@@ -1538,8 +1541,6 @@ export class SessionsService {
   createSession(input: {
     /** Authenticated human owner; every production caller supplies this. */
     ownerUserId?: UserId
-    /** Issue grant edges copied at birth so issue-owned work stays shared. */
-    inheritedGrants?: { grantee: UserId; verb: GrantVerb }[]
     agentKind?: AgentKind
     cwd: string
     title?: string
@@ -1630,7 +1631,6 @@ export class SessionsService {
     const spawned = this.spawn({
       agentKind,
       ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
-      inheritedGrants: input.inheritedGrants,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
@@ -3175,7 +3175,7 @@ export class SessionsService {
    */
   handoffSession(
     input: { sessionId: SessionId; machineId: string },
-    caller: HandoffCaller = { capability: OPERATOR },
+    caller: HandoffCaller,
   ): Promise<{ ok: true; newCwd: string }> {
     // THE GATE IS BUILT PER DISPATCH, not held on the coordinator. Two callers
     // with different rights can have transfers in flight at once, so a stored gate
@@ -3842,7 +3842,6 @@ export class SessionsService {
   private spawn(input: {
     agentKind: AgentKind
     ownerUserId?: UserId
-    inheritedGrants?: { grantee: UserId; verb: GrantVerb }[]
     cwd: string
     title?: string
     /** Curated name at birth (spawner-prescribed or other); pairs with nameSource. */
@@ -3923,22 +3922,6 @@ export class SessionsService {
     // for a genuinely issueless spawn) — allocate the permanent ref now.
     const additionalWrite = this.prepareSessionRefAllocation(session)
     this.persist(session, additionalWrite)
-    const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
-    const inheritedAt = new Date().toISOString()
-    for (const grant of input.inheritedGrants ?? []) {
-      this.store.grants.upsert({
-        resourceKind: 'session',
-        resourceId: sessionId,
-        grantee: grant.grantee,
-        verb: grant.verb,
-        owner: ownerUserId,
-        visibility: 'personal',
-        createdAt: inheritedAt,
-        actorKind: 'system',
-        actorId: 'inheritance',
-        onBehalfOf: ownerUserId,
-      })
-    }
     const observationLease = this.fenceObservation(session)
     this.toMachine(machineId, {
       type: 'spawn',
@@ -4323,7 +4306,7 @@ export class SessionsService {
    * model does not already settle. See `gateway/client-principal.ts`.
    */
   onSessionClientFrame(
-    _principal: ClientPrincipal,
+    principal: ClientPrincipal,
     client: ClientConn,
     msg: SessionsClientFrame,
   ): void {
@@ -4439,7 +4422,7 @@ export class SessionsService {
         this.presenceEnvelope().execute(
           'sessions.setDraft',
           { sessionId: msg.sessionId, edit: { kind: 'replace', text: msg.text } },
-          soleHumanWsPrincipal(OPERATOR, id),
+          userPresencePrincipal(userCommandPrincipal(asUserId(principal.user), principal.role), id),
           'ws',
         )
         break

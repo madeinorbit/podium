@@ -27,6 +27,10 @@ import {
 function row(over: Partial<UnbrandIds<IssueRow>> = {}): IssueRow {
   return {
     id: 'iss_1',
+    ownerUserId: 'user:sole',
+    visibility: 'personal',
+    createdByActor: 'user:sole',
+    createdByOnBehalfOf: 'user:sole',
     repoPath: '/repo',
     repoId: 'repo_1',
     seq: 13,

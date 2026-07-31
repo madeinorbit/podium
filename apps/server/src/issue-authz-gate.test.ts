@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
@@ -16,6 +17,7 @@ function caller(capability: Capability, shared?: SessionRegistry) {
     repos: {} as never,
     superagent: {} as never,
     capability,
+    principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   })
 }
 

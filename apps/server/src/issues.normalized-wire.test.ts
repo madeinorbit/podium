@@ -1,5 +1,5 @@
-import { asIssueId, asSessionId } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
+import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -31,6 +31,10 @@ function issueRow(i: number): IssueRow {
   // the row literal readable and the type honest.
   return {
     id: `iss_${i}`,
+    ownerUserId: FIRST_ADMIN_USER_ID,
+    visibility: 'personal',
+    createdByActor: FIRST_ADMIN_USER_ID,
+    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     repoPath: '/repo',
     repoId: 'repo_1',
     seq: i,
@@ -87,6 +91,7 @@ function seedSession(
   const id = `sess_${i}`
   store.sessions.upsertSession({
     id: asSessionId(id),
+    ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'shell',
     cwd: `/repo/.worktrees/w${i % ISSUE_COUNT}`,
     title: `session ${i}`,
@@ -132,6 +137,7 @@ function client(registry: SessionRegistry, caps: string[] | undefined): string {
   const id = registry.clientGateway.attachClient(() => {})
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
+    wireVersion: WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
     ...(caps ? { caps } : {}),
@@ -314,24 +320,28 @@ describe('D7.2: every session change performs zero issue membership scans [POD-7
   })
 })
 
-describe('capless attach paint keeps the session-free residue [POD-797]', () => {
+describe('current scoped attach paints session-free issue projections [POD-797]', () => {
   it('paints current issue data without embedding sessions', () => {
     const { registry } = world({ issues: 3, sessions: 2 })
     const inbox: ServerMessage[] = []
     const id = registry.clientGateway.attachClient((message) => inbox.push(message))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
+    wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
     registry.modules.sessions.flushBroadcasts()
-    const painted = inbox.find((message) => message.type === 'issuesChanged')
+    const painted = inbox.find((message) => message.type === 'feedBootstrap')
     expect(painted).toBeDefined()
-    if (!painted || painted.type !== 'issuesChanged') return
-    expect(painted.issues).toHaveLength(3)
-    expect(painted.issues[0]).not.toHaveProperty('sessions')
-    expect(painted.issues[0]).not.toHaveProperty('sessionSummary')
-    expect(painted.issues[0]).not.toHaveProperty('unread')
+    if (!painted || painted.type !== 'feedBootstrap') return
+    const issues = painted.changes
+      .filter((change) => change.entity === 'issue' && change.op === 'upsert')
+      .map((change) => change.value as Record<string, unknown>)
+    expect(issues).toHaveLength(3)
+    expect(issues[0]).not.toHaveProperty('sessions')
+    expect(issues[0]).not.toHaveProperty('sessionSummary')
+    expect(issues[0]).not.toHaveProperty('unread')
   })
 })
 

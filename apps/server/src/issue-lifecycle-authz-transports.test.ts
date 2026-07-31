@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { asIssueId, type IssueId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -101,7 +102,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         registry,
         repos: {} as never,
         superagent: {} as never,
-        capability: OPERATOR,
+        capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
       })
       await caller.issues.reparent({ id: f.moving.id, parentId: f.newParent.id })
       await caller.issues.supersede({ oldId: f.superseded.id, newId: f.replacement.id })

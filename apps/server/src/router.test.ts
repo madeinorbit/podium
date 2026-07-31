@@ -3,12 +3,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import { OPERATOR } from './issue-authz'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+
+const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
 function caller() {
   const registry = new SessionRegistry()
@@ -17,7 +20,7 @@ function caller() {
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     registry,
-    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: TEST_PRINCIPAL }),
   }
 }
 
@@ -29,7 +32,7 @@ describe('appRouter', () => {
     registry.gateway.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
+    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: TEST_PRINCIPAL })
     const refreshed = await call.models.refresh()
     expect(refreshed.byAgent.grok?.[0]?.value).toBe('grok-build')
     expect((await call.models.catalog()).byAgent.grok?.[0]?.value).toBe('grok-build')
@@ -164,7 +167,7 @@ describe('appRouter', () => {
       registry,
       repos,
       superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
-      capability: OPERATOR,
+      capability: OPERATOR, principal: TEST_PRINCIPAL,
     })
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     const p = call.sessions.transcriptRead({ sessionId, direction: 'before', limit: 100 })
@@ -214,7 +217,7 @@ describe('appRouter', () => {
       registry,
       repos,
       superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
-      capability: OPERATOR,
+      capability: OPERATOR, principal: TEST_PRINCIPAL,
     })
 
     await expect(call.settings.telegramSetupStart()).resolves.toMatchObject({
@@ -254,7 +257,7 @@ function repoCaller() {
       registry,
       repos,
       superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
-      capability: OPERATOR,
+      capability: OPERATOR, principal: TEST_PRINCIPAL,
     }),
   }
 }

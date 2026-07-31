@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 /**
  * `telemetry.*` tRPC tests [spec:SP-f933].
  *
@@ -24,7 +25,7 @@ function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
     registry,
     repos,
     superagent,
-    capability: OPERATOR,
+    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     ...(telemetry ? { telemetry: telemetry as never } : {}),
   })
 }

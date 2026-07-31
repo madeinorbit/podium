@@ -542,6 +542,10 @@ export async function startServer(
           // Same gate as the HTTP guard: open unless a password is set, then require a valid
           // session cookie on the upgrade request.
           userForClient: (req) => requestPrincipal(req.headers.cookie)?.user,
+          roleForClient: (req) => {
+            const principal = requestPrincipal(req.headers.cookie)
+            return principal ? store.users.roleOf(principal.user) : undefined
+          },
           ...(opts.resolvePublicationAuthority
             ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
             : {}),

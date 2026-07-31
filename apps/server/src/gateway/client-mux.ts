@@ -59,7 +59,7 @@ import { feedPrincipalOf, userClientPrincipal } from './client-principal'
 import type { ClientConn, ClientRegistry } from './client-registry'
 import type { FeedServing } from './feed-serving'
 import type { ClientPublicationAuthority } from '../modules/sessions/session'
-import type { UserId } from '@podium/model'
+import type { UserId, UserRole } from '@podium/model'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 
 const asTestUser = (): UserId => FIRST_ADMIN_USER_ID
@@ -107,6 +107,7 @@ const DISPATCH: Dispatcher = {
 export interface ClientTransport {
   /** Authenticated account stamped by the websocket upgrade. */
   userId?: UserId
+  userRole?: UserRole
   /** Outbound sink for this socket (backpressure-guarded by the caller). */
   send: ClientConn['send']
   /** Prepared-bytes sink + the main authority's publication world, when one was
@@ -165,11 +166,18 @@ export class ClientMux {
   attachClient(peer: ClientPeer, publication?: ClientPublicationAuthority): string {
     const transport = transportOf(peer, publication)
     const id = this.deps.registry.nextId()
+    if (transport.userId !== undefined && transport.userRole === undefined) {
+      throw new Error('authenticated client role is unavailable')
+    }
+    const principal =
+      transport.userId === undefined
+        ? userClientPrincipal(id, asTestUser(), 'admin')
+        : userClientPrincipal(id, transport.userId, transport.userRole as UserRole)
     const conn: ClientConn = {
       id,
       // TRANSPORT-DERIVED, always. The connection id is minted above and is the
       // only input; nothing a client can send participates.
-      principal: userClientPrincipal(id, transport.userId ?? asTestUser()),
+      principal,
       send: transport.send,
       ...(transport.publication ? { publication: transport.publication } : {}),
       publicationBootstrapped: false,

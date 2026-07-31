@@ -143,6 +143,9 @@ export class SessionsRepository {
   }
 
   upsertSession(row: SessionRow): void {
+    if (!row.ownerUserId) {
+      throw new Error(`upsertSession: ownerUserId is required for ${row.id}`)
+    }
     // Strict on write: never persist an out-of-enum agentKind. That value later fails
     // the sessionsChanged zod-parse on every client and silently blanks the whole list
     // (see relay.createSession, which resolves the 'auto' sentinel before it gets here).
@@ -211,7 +214,7 @@ export class SessionsRepository {
       )
       .run(
         row.id,
-        row.ownerUserId ?? 'user:sole',
+        row.ownerUserId,
         row.agentKind,
         row.model ?? null,
         row.effort ?? null,

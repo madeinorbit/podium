@@ -10,7 +10,7 @@
  */
 
 import { SOLE_USER_ID } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, waitFor, willChange } from './oracle-support'
 
@@ -162,7 +162,8 @@ describe('oracle: read state', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
-    o.reg.clientGateway.attachClient((m) => second.push(m))
+    const secondId = o.reg.clientGateway.attachClient((m) => second.push(m))
+    o.reg.clientGateway.routeClientFrame(secondId, { type: 'hello', wireVersion: WIRE_VERSION, clientId: '', viewport: { cols: 80, rows: 24, dpr: 1 } })
 
     await o.call.sessions.markRead({ sessionId })
 
@@ -361,7 +362,9 @@ describe('oracle: composer drafts', () => {
     const author: ServerMessage[] = []
     const authorId = o.reg.clientGateway.attachClient((m) => author.push(m))
     const watcher: ServerMessage[] = []
-    o.reg.clientGateway.attachClient((m) => watcher.push(m))
+    o.reg.clientGateway.routeClientFrame(authorId, { type: 'hello', wireVersion: WIRE_VERSION, clientId: '', viewport: { cols: 80, rows: 24, dpr: 1 } })
+    const watcherId = o.reg.clientGateway.attachClient((m) => watcher.push(m))
+    o.reg.clientGateway.routeClientFrame(watcherId, { type: 'hello', wireVersion: WIRE_VERSION, clientId: '', viewport: { cols: 80, rows: 24, dpr: 1 } })
 
     o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'half typed' }, authorId)
 

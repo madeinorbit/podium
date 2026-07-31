@@ -1,3 +1,4 @@
+import { resolvePrincipal } from '../../command-principal'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
  * read until now.
@@ -236,7 +237,7 @@ describe('the derived fleet router actually calls the gate', () => {
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {
       store,
-      call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+      call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
     }
   }
 

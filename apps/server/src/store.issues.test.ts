@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, SOLE_USER_ID } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, SOLE_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
@@ -60,6 +60,10 @@ describe('issues child tables (P1)', () => {
 function baseRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
     id: asIssueId('iss_x'),
+    ownerUserId: FIRST_ADMIN_USER_ID,
+    visibility: 'personal',
+    createdByActor: FIRST_ADMIN_USER_ID,
+    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     repoPath: '/r',
     seq: 1,
     title: 'X',

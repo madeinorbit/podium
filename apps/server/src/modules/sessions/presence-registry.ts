@@ -58,6 +58,7 @@ import {
 
 import type { MutationLedgerPort } from '@podium/sync'
 import type { SessionStore } from '../../store'
+import type { UserCommandPrincipal } from '../../command-principal'
 import type { SessionsService } from './service'
 
 /**
@@ -102,8 +103,9 @@ export interface PresencePrincipal {
 }
 
 /**
- * The sole principal until POD-1075 mints real accounts: the cookie-authed human,
- * unconstrained (`OPERATOR`), acting as {@link SOLE_USER_ID}.
+ * Compatibility constructor for the first administrator. A direct human now has
+ * `actorUser` attribution, so directness is identified by the absence of an agent
+ * session rather than by an empty actor slot.
  *
  * A FUNCTION, not a constant, so a caller cannot mutate the shared object — and
  * so every call site that will need a real principal is one grep away.
@@ -113,7 +115,7 @@ export function soleHumanPrincipal(capability: Capability): PresencePrincipal {
     userId: SOLE_USER_ID,
     capability,
     onBehalfOf: SOLE_USER_ID,
-    humanDirect: capabilityAttribution(capability).actor === null,
+    humanDirect: capability.actorSessionId === undefined,
   }
 }
 
@@ -122,6 +124,19 @@ export function soleHumanPrincipal(capability: Capability): PresencePrincipal {
  * (both are the one shared password today) but carrying the attached client's id,
  * which the draft handler needs.
  */
+export function userPresencePrincipal(
+  principal: UserCommandPrincipal,
+  clientId?: string,
+): PresencePrincipal {
+  return {
+    userId: principal.user,
+    capability: principal.capability,
+    onBehalfOf: principal.user,
+    humanDirect: true,
+    ...(clientId ? { clientId } : {}),
+  }
+}
+
 export function soleHumanWsPrincipal(capability: Capability, clientId: string): PresencePrincipal {
   return { ...soleHumanPrincipal(capability), clientId }
 }

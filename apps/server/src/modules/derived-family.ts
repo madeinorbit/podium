@@ -62,7 +62,6 @@ import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
-import { soleHumanPrincipal } from './sessions/presence-registry'
 import { type Context, mods, t } from '../trpc'
 
 /**
@@ -364,6 +363,12 @@ function assertSurfaceMatchesDeclarations(
  * these things drift — one gains a member and the other does not, and the reads
  * and the writes of the same family start seeing different state.
  */
+const callerUserId = (ctx: Context): string => {
+  if (ctx.principal?.kind === 'user') return ctx.principal.user
+  if (ctx.principal?.kind === 'agent' && ctx.principal.onBehalfOf) return ctx.principal.onBehalfOf
+  throw new Error('authenticated human principal is required')
+}
+
 export const familyState = (ctx: Context): FamilyState => ({
   modules: mods(ctx),
   repos: ctx.repos,
@@ -371,12 +376,7 @@ export const familyState = (ctx: Context): FamilyState => ({
   store: ctx.registry.sessionStore,
   cloud: ctx.cloud,
   caller: {
-    userId:
-      ctx.principal?.kind === 'user'
-        ? ctx.principal.user
-        : ctx.principal?.kind === 'agent'
-          ? ctx.principal.onBehalfOf
-          : soleHumanPrincipal(ctx.capability).userId,
+    userId: callerUserId(ctx),
     actorSessionId: ctx.capability.actorSessionId,
   },
   publicationAuthority: ctx.publicationAuthority,

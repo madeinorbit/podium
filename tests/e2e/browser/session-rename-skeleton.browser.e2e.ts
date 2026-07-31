@@ -32,8 +32,8 @@
  */
 
 import { join } from 'node:path'
-import { expect, type Page, test } from '@playwright/test'
-import { openApp } from './_harness'
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
+import { openApp, RELAY } from './_harness'
 
 /**
  * Screenshots land in the REPO, not in test-results/: they are this issue's runtime
@@ -44,7 +44,37 @@ const EVIDENCE = join(import.meta.dirname, '../../../docs/evidence/pod-351')
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: join(EVIDENCE, `${name}.png`), fullPage: false })
 
-test.skip(({ isMobile }) => isMobile, 'desktop verification: the rename affordance is the sidebar row')
+const PHASE3_EVIDENCE = join(import.meta.dirname, '../../../docs/evidence/pod-1283')
+const phase3Shot = (page: Page, name: string) =>
+  page.screenshot({ path: join(PHASE3_EVIDENCE, `${name}.png`), fullPage: false })
+const HTTP = RELAY.replace(/^ws/, 'http')
+const OWNER_PASSWORD = process.env.PODIUM_PASSWORD
+
+async function rpc<T>(
+  request: APIRequestContext,
+  proc: string,
+  input?: unknown,
+  method: 'post' | 'get' = 'post',
+): Promise<T> {
+  const response =
+    method === 'get'
+      ? await request.get(`${HTTP}/trpc/${proc}`)
+      : await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
+  if (!response.ok()) throw new Error(`${proc} -> ${response.status()}: ${await response.text()}`)
+  const body = (await response.json()) as { result?: { data?: T } }
+  return body.result?.data as T
+}
+
+async function login(request: APIRequestContext, userId: string, password: string): Promise<void> {
+  const response = await request.post(`${HTTP}/auth/login`, { data: { userId, password } })
+  if (!response.ok())
+    throw new Error(`login ${userId} -> ${response.status()}: ${await response.text()}`)
+}
+
+test.skip(
+  ({ isMobile }) => isMobile,
+  'desktop verification: the rename affordance is the sidebar row',
+)
 test.setTimeout(240_000)
 
 /**
@@ -94,6 +124,18 @@ async function openSessionId(page: Page): Promise<string> {
   return id
 }
 
+/** Connect the real app without asking its empty state to spawn an agent. The
+ * recovery test creates its controlled target after the feed is attached. */
+async function openBareApp(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
+  const params = new URLSearchParams({ server: RELAY, e2e: '1' })
+  await page.goto(`/?${params}`)
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
+  await sidebar(page).waitFor({ state: 'visible', timeout: 60_000 })
+}
+
 /** Rename through the UI exactly as a user does: double-click the tab, type, Enter. */
 async function renameViaUi(page: Page, sessionId: string, to: string): Promise<void> {
   const tab = workspaceTab(page, sessionId)
@@ -116,6 +158,18 @@ async function renameViaUi(page: Page, sessionId: string, to: string): Promise<v
     if (attempt === 1) throw new Error(`rename editor never opened for ${sessionId}`)
   }
 
+  await editor.fill(to)
+  await editor.press('Enter')
+}
+
+/** The same real editor, reached through the work-list row so the recovery
+ * journey does not need a live terminal panel. */
+async function renameViaSidebar(page: Page, sessionId: string, to: string): Promise<void> {
+  const row = sidebar(page).locator(`[data-session="${sessionId}"]`)
+  await row.waitFor({ state: 'visible', timeout: 45_000 })
+  await row.getByRole('button').first().dblclick()
+  const editor = row.locator('input[type="text"]').first()
+  await editor.waitFor({ state: 'visible', timeout: 10_000 })
   await editor.fill(to)
   await editor.press('Enter')
 }
@@ -225,4 +279,118 @@ test.describe('session.rename on the target path, end to end', () => {
 
     await observer.close()
   })
+})
+
+test('kernel Outbox dead-letter retry, edit, and discard after a live apply refusal', async ({
+  browser,
+  context: ownerContext,
+  page: ownerPage,
+}) => {
+  test.skip(!OWNER_PASSWORD, 'requires PODIUM_PASSWORD so two production principals can log in')
+  if (!OWNER_PASSWORD) return
+
+  const owner = 'user:sole'
+  const member = 'user:phase3-member'
+  const memberPassword = 'phase3-member-password'
+  await login(ownerContext.request, owner, OWNER_PASSWORD)
+
+  const account = await ownerContext.request.post(`${HTTP}/auth/users`, {
+    data: {
+      userId: member,
+      displayName: 'Phase 3 Member',
+      role: 'member',
+      password: memberPassword,
+    },
+  })
+  if (!account.ok()) {
+    throw new Error(`create member -> ${account.status()}: ${await account.text()}`)
+  }
+
+  const repos = await rpc<string[]>(ownerContext.request, 'repos.list', undefined, 'get')
+  const repoPath = repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
+  const controlContext = await browser.newContext({ baseURL: HTTP })
+  const memberContext = await browser.newContext({ baseURL: HTTP })
+  try {
+    await login(controlContext.request, owner, OWNER_PASSWORD)
+    await login(memberContext.request, member, memberPassword)
+    await openBareApp(ownerPage)
+    await ownerPage.getByRole('button', { name: 'Choose agent and repo' }).click()
+    await ownerPage.getByRole('menuitem', { name: 'New Shell' }).click()
+    const sessionId = await openSessionId(ownerPage)
+    const memberSessions = await rpc<Array<{ sessionId: string }>>(
+      memberContext.request,
+      'sessions.list',
+      undefined,
+      'get',
+    )
+    expect(memberSessions.map((session) => session.sessionId)).not.toContain(sessionId)
+    const chip = ownerPage.getByTestId('outbox-recovery-chip')
+
+    const restore = async (): Promise<void> => {
+      await rpc(controlContext.request, 'sessions.create', {
+        sessionId,
+        cwd: repoPath,
+        agentKind: 'shell',
+        title: 'Phase 3 restored session',
+      })
+    }
+    const serverName = async (): Promise<string | undefined> => {
+      const sessions = await rpc<Array<{ sessionId: string; name?: string }>>(
+        controlContext.request,
+        'sessions.list',
+        undefined,
+        'get',
+      )
+      return sessions.find((session) => session.sessionId === sessionId)?.name
+    }
+    const parkMissingTarget = async (name: string): Promise<void> => {
+      await ownerContext.setOffline(true)
+      await renameViaUi(ownerPage, sessionId, name)
+      await expect(workspaceTab(ownerPage, sessionId)).toContainText(name)
+      await rpc(controlContext.request, 'sessions.kill', { sessionId })
+      await ownerContext.setOffline(false)
+      await expect(
+        ownerPage.getByText(/queued change \(rename\) needs your attention/i).last(),
+      ).toBeVisible({
+        timeout: 10_000,
+      })
+      await expect(chip).toBeVisible({ timeout: 30_000 })
+    }
+
+    const retried = `phase3-retry-${Date.now()}`
+    await parkMissingTarget(retried)
+    await chip.click()
+    await expect(ownerPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await phase3Shot(ownerPage, '01-live-authorization-dead-letter')
+    await restore()
+    await ownerPage.getByTestId('outbox-retry').click()
+    await expect(chip).toBeHidden({ timeout: 30_000 })
+    await expect.poll(serverName).toBe(retried)
+
+    const originalEdit = `phase3-edit-original-${Date.now()}`
+    const edited = `phase3-edit-recovered-${Date.now()}`
+    await parkMissingTarget(originalEdit)
+    await chip.click()
+    await expect(ownerPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await ownerPage.getByRole('button', { name: 'Edit', exact: true }).click()
+    await ownerPage.getByRole('textbox', { name: 'Your text' }).fill(edited)
+    await phase3Shot(ownerPage, '02-edit-recovery-before-send')
+    await restore()
+    await ownerPage.getByRole('button', { name: 'Save and send', exact: true }).click()
+    await expect(chip).toBeHidden({ timeout: 30_000 })
+    await expect.poll(serverName).toBe(edited)
+
+    const discarded = `phase3-discard-${Date.now()}`
+    await parkMissingTarget(discarded)
+    await chip.click()
+    await phase3Shot(ownerPage, '03-discard-recovery-before-cancel')
+    await ownerPage.getByRole('button', { name: 'Discard', exact: true }).click()
+    await expect(chip).toBeHidden({ timeout: 30_000 })
+    expect(await serverName()).not.toBe(discarded)
+  } finally {
+    await ownerContext.setOffline(false).catch(() => undefined)
+    await controlContext.close()
+    await memberContext.close()
+  }
 })

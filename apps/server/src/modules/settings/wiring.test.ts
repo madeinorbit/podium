@@ -1,3 +1,4 @@
+import { resolvePrincipal } from '../../command-principal'
 /**
  * THE SETTINGS GATE AND TRAIL, AGAINST THE REAL DERIVED ROUTER (POD-421).
  *
@@ -60,7 +61,7 @@ function harness(role: UserRole | undefined) {
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     store,
-    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
     audit: () => store.settingsAudit.list(),
   }
 }

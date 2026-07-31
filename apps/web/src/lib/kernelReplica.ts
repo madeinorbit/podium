@@ -62,7 +62,6 @@ export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
  * keyed `default` holds rows captured before anyone could be attributed, and
  * POD-377's rule applies — adopt only when attribution is CERTAIN.
  */
-export const KERNEL_REPLICA_PRINCIPAL = 'default'
 
 export interface KernelAssembly {
   /** Handed to the engine; called once. */
@@ -82,7 +81,7 @@ export interface KernelAssembly {
 export interface OpenKernelAssemblyOptions {
   readonly trpc: Trpc
   readonly databaseName?: string
-  readonly principal?: string
+  readonly principal: string
   /** Injected by tests (fake-indexeddb); defaults to the browser's. */
   readonly factory?: IdbFactoryLike
   /** Surfaced rather than swallowed (ADR 6 D4). */
@@ -109,7 +108,7 @@ export interface OpenKernelAssemblyOptions {
    * can present `unknown` or a foreign ledger and observe the REFUSAL, which is
    * the only way to know the gate can say no.
    */
-  readonly evidence?: LegacyIdentityEvidence
+  readonly evidence: LegacyIdentityEvidence
 }
 
 export async function openKernelAssembly(
@@ -126,7 +125,7 @@ export async function openKernelAssembly(
       console.warn('[podium] kernel replica storage degraded', detail)
     },
   })
-  const view = store.viewFor(options.principal ?? KERNEL_REPLICA_PRINCIPAL)
+  const view = store.viewFor(options.principal)
 
   // ---- THE ATTRIBUTION GATE, before a single row is read ------------------
   //
@@ -134,10 +133,7 @@ export async function openKernelAssembly(
   // and the records are two things it returns, and only the decision applies
   // here. Re-deriving the rule locally would fork it, and a second copy of a
   // privacy rule is worse than an off-label call to the first.
-  const evidence: LegacyIdentityEvidence = options.evidence ?? {
-    kind: 'single-account',
-    principal: options.principal ?? KERNEL_REPLICA_PRINCIPAL,
-  }
+  const evidence: LegacyIdentityEvidence = options.evidence
   const adoption = decideLegacyAdoption(
     { verdict: 'import', outbox: [], retireKeys: [], rejected: [], cursorDiscarded: false },
     evidence,
@@ -172,8 +168,8 @@ export async function openKernelAssembly(
     outbox: view.outbox,
     resolveCommand: outboxCommandFor,
     attribution: {
-      actor: { kind: 'user', userId: options.principal ?? KERNEL_REPLICA_PRINCIPAL },
-      onBehalfOf: options.principal ?? KERNEL_REPLICA_PRINCIPAL,
+      actor: { kind: 'user', userId: options.principal },
+      onBehalfOf: options.principal,
     },
     onDegraded: (detail) => options.onDegraded?.(detail),
   })

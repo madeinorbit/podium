@@ -152,6 +152,7 @@ describe('SessionStore repos', () => {
 function row(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     id: asSessionId('id-1'),
+    ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'claude-code',
     cwd: '/proj',
     title: 'proj',

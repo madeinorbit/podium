@@ -1,6 +1,5 @@
 import type {
   ArtifactId,
-  GrantVerb,
   IssueColorSlot,
   IssueId,
   IssueTree,
@@ -138,8 +137,6 @@ export interface DepReportEntry {
  *  instead of hand-copying it as `ShowSession` (#20). Re-exported here because
  *  `IssueTreeNode` and this module's consumers name it from here — the
  *  definition moved, the import surface did not (POD-366). */
-export type { IssueTreeSession }
-
 /** One node of an epic subtree payload — see tree() (issue #82).
  *
  *  DEFINED IN `@podium/model` since POD-1141, for the same reason
@@ -147,7 +144,7 @@ export type { IssueTreeSession }
  *  `apps/server`, so it hand-copied this shape (inventory §3 #7, a drifted
  *  duplicate that dropped `id` and `type`). The definition moved; this module's
  *  import surface did not. */
-export type { IssueTree, IssueTreeNode }
+export type { IssueTree, IssueTreeNode, IssueTreeSession }
 
 export interface IssueDeps {
   store: SessionStore
@@ -174,8 +171,6 @@ export interface IssueDeps {
     spawnedBy?: string
     machineId?: string
     ownerUserId?: import('@podium/model').UserId
-    /** Grant edges inherited from the issue at session birth. */
-    inheritedGrants?: { grantee: import('@podium/model').UserId; verb: GrantVerb }[]
   }): {
     sessionId: SessionId
     agentId?: string

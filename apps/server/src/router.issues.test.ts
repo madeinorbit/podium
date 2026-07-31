@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { asIssueId, asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
@@ -57,7 +58,7 @@ describe('issues.* subtree scope (P1a)', () => {
       registry,
       repos: {} as never,
       superagent: {} as never,
-      capability: OPERATOR,
+      capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'epic root', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'unrelated', startNow: false })
@@ -73,6 +74,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
+      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
       overrideScope,
     })
 
@@ -103,7 +105,7 @@ describe('issues.* subtree scope (P1a)', () => {
       registry,
       repos: {} as never,
       superagent: {} as never,
-      capability: OPERATOR,
+      capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
     })
     await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
   })
@@ -121,7 +123,7 @@ describe('issues.* subtree scope (P1a)', () => {
       registry,
       repos: {} as never,
       superagent: {} as never,
-      capability: OPERATOR,
+      capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
     })
     const w = (await op.issues.setNeedsHuman({
       id: A.id,
@@ -327,7 +329,7 @@ describe('issues.mail* (agent mail #103)', () => {
       registry,
       repos: {} as never,
       superagent: {} as never,
-      capability: OPERATOR,
+      capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'mine', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'other', startNow: false })
@@ -343,6 +345,7 @@ describe('issues.mail* (agent mail #103)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
+      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
       overrideScope,
     })
 
@@ -433,7 +436,7 @@ describe('issues router create/list/update', () => {
       registry,
       repos: {} as never,
       superagent: {} as never,
-      capability: OPERATOR,
+      capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
     })
   }
 
@@ -468,7 +471,7 @@ describe('issues.subscription* authz (Phase B)', () => {
       registry,
       repos: {} as never,
       superagent: {} as never,
-      capability: OPERATOR,
+      capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'root A', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'root B', startNow: false })
@@ -484,6 +487,7 @@ describe('issues.subscription* authz (Phase B)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
+      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
       overrideScope,
     })
   const scopedTo = (id: string) =>

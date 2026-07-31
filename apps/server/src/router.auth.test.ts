@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,7 +15,7 @@ function caller() {
   registry.gateway.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-  return appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
+  return appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
 }
 
 describe('auth tRPC (set / change / clear the login password)', () => {

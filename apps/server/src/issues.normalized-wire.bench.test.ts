@@ -1,4 +1,5 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
+import { WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -25,6 +26,10 @@ function issueRow(i: number): IssueRow {
   // the row literal readable and the type honest.
   return {
     id: `iss_${i}`,
+    ownerUserId: FIRST_ADMIN_USER_ID,
+    visibility: 'personal',
+    createdByActor: FIRST_ADMIN_USER_ID,
+    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     repoPath: '/repo',
     repoId: 'repo_1',
     seq: i,
@@ -74,6 +79,7 @@ function seedSession(store: SessionStore, i: number): string {
   const id = `sess_${i}`
   store.sessions.upsertSession({
     id: asSessionId(id),
+    ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'shell',
     cwd: `/repo/.worktrees/w${i % ISSUE_COUNT}`,
     title: `session ${i}`,
@@ -119,6 +125,7 @@ function world() {
   const attachScans = issueMembershipScanCount()
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
+    wireVersion: WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
   })

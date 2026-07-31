@@ -397,6 +397,13 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       if (ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
       return { ...UNADDRESSABLE_SEND }
     }
+    if (target.status === 'reconnecting') {
+      return {
+        ok: false,
+        reason: 'machine unreachable',
+        disposition: 'dead_letter',
+      }
+    }
     return substrateSend(ctx, input, lifecycle)
   }
 }

@@ -350,6 +350,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // the awaiting-truth stage; a poison drop repaints without it.
       onApplied: (entry) => this.onMutationApplied(entry),
       onDropped: (entry) => this.onMutationDropped(entry),
+      // The park changes recovery state at this exact point. Publish it here so
+      // the recovery surface does not depend on a later queue-size notification.
+      onDeadLetter: () => this.apply({ outboxDeadLetters: this.outbox.deadLetters() }),
     })
     // Restore the DURABLE awaiting-truth stage (#263 review finding 1): a
     // reload inside the resolution→covering-truth window must keep painting

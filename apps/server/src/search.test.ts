@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -182,7 +183,7 @@ describe('search.query tRPC', () => {
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {
       registry,
-      trpc: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+      trpc: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
     }
   }
 

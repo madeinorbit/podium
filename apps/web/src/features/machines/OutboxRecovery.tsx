@@ -42,7 +42,7 @@ import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { AlertTriangle } from 'lucide-react'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -232,6 +232,9 @@ export function OutboxRecoveryIndicator({ compact }: { compact?: boolean }): JSX
     shallowEqual,
   )
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (deadLetters.length === 0) setOpen(false)
+  }, [deadLetters.length])
   if (deadLetters.length === 0) return null
 
   const count = deadLetters.length

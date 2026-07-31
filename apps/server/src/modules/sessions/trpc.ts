@@ -74,7 +74,7 @@ import {
 } from '@podium/commands'
 import { type SessionHandoffOutput, sessionHandoffInput } from '@podium/commands'
 
-import type { TRPCMutationProcedure } from '@trpc/server'
+import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { PinState, SnoozeMap } from '../../store/types'
 import { type Context, mods, t } from '../../trpc'
@@ -84,7 +84,7 @@ import {
   type SessionCommandKey,
   type SessionCommandResult,
 } from './command-plane'
-import { PresenceRegistry, soleHumanPrincipal } from './presence-registry'
+import { PresenceRegistry, userPresencePrincipal } from './presence-registry'
 import { dispatchRename } from './rename-adapter'
 
 // ---------------------------------------------------------------------------
@@ -196,7 +196,10 @@ function presenceRegistryFor(ctx: Context): PresenceRegistry {
 /** The transport principal for a tRPC call. One shared password ⇒ the sole human
  *  (§3.2); POD-1075 replaces this with a real per-user principal. */
 export function presencePrincipal(ctx: Context) {
-  return soleHumanPrincipal(ctx.capability)
+  if (!ctx.principal || ctx.principal.kind !== 'user') {
+    throw new Error('authenticated user principal is required')
+  }
+  return userPresencePrincipal(ctx.principal)
 }
 
 // ---------------------------------------------------------------------------
@@ -232,21 +235,21 @@ export function presencePrincipal(ctx: Context) {
  * instance (asserted with `toBe` in `packages/commands/src/sessions/rename.test.ts`),
  * so there is one schema object and the two envelopes cannot diverge on the wire.
  *
- * ## The return type stays `void`, deliberately
+ * ## The public return type stays `void`, deliberately
  *
  * The presence class's refusal shape is a silent no-op (§3.1.5, pinned by POD-379).
- * Surfacing the target path's richer outcome to THIS transport would make a denial
- * distinguishable from a not-found and turn the procedure into an existence oracle.
- * The outcome is not discarded — it is what the outbox drain reads to dead-letter a
- * rejected offline write (POD-316), where the caller is already authorized and the
- * reason leaks nothing.
+ * A successful call still returns no value. A missing target and an unauthorized
+ * target now throw the SAME `UNAUTHORIZED` shape: that preserves the no-existence-
+ * oracle rule while giving the kernel Outbox a definitive refusal to dead-letter.
+ * An authorized arbitration rejection is a conflict and may be named because the
+ * caller has already passed the target authorization check.
  */
 function renameProcedure(): PresenceProcedure<'sessions.rename'> {
   return t.procedure
     .input(sessionPresenceInputs['sessions.rename'])
     .mutation(({ ctx, input }): void => {
       const modules = familyState(ctx).modules
-      dispatchRename(
+      const dispatch = dispatchRename(
         {
           sessions: modules.sessions,
           mutations: modules.mutations,
@@ -257,6 +260,16 @@ function renameProcedure(): PresenceProcedure<'sessions.rename'> {
         },
         input,
       )
+      if (dispatch === undefined) return
+      if (dispatch.outcome === 'denied' || dispatch.outcome === 'not-exposed') {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'command refused' })
+      }
+      if (dispatch.outcome === 'invalid-input') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid command input' })
+      }
+      if (!dispatch.result.ok) {
+        throw new TRPCError({ code: 'CONFLICT', message: dispatch.result.reason })
+      }
     }) as PresenceProcedure<'sessions.rename'>
 }
 

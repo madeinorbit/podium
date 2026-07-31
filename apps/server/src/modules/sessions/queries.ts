@@ -20,14 +20,29 @@
  */
 
 import { SessionIdField } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { defineQuery } from '../query-table'
 import type { FamilyState } from '../derived-family'
 
 const q = defineQuery<FamilyState>()
 
+function mayReadSession(state: FamilyState, sessionId: string): boolean {
+  const target = state.modules.sessions.sessionOwner(sessionId as never)
+  return (
+    target !== undefined &&
+    (target.owner === state.caller.userId || target.grants.includes(state.caller.userId))
+  )
+}
+
+function assertMayReadSession(state: FamilyState, sessionId: string): void {
+  if (!mayReadSession(state, sessionId)) throw new TRPCError({ code: 'NOT_FOUND' })
+}
+
 export const SESSION_QUERIES = {
-  list: q(z.object({}).passthrough().optional(), (s) => s.modules.sessions.listSessions()),
+  list: q(z.object({}).passthrough().optional(), (s) =>
+    s.modules.sessions.listSessions().filter((session) => mayReadSession(s, session.sessionId)),
+  ),
   /** On-demand transcript window for the chat view — a pure disk read via the
    *  daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
    *  `limit` items before (older) or after (newer) it. No anchor = the latest
@@ -40,7 +55,10 @@ export const SESSION_QUERIES = {
       direction: z.enum(['before', 'after']),
       limit: z.number().int().positive().max(2000),
     }),
-    (s, input) => s.modules.rpc.readTranscript(input),
+    (s, input) => {
+      assertMayReadSession(s, input.sessionId)
+      return s.modules.rpc.readTranscript(input)
+    },
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
    *  issue stage/todos, last commits, files touched, unacked count — NO
@@ -56,14 +74,18 @@ export const SESSION_QUERIES = {
       turns: z.coerce.number().int().positive().optional(),
       cursor: z.string().optional(),
     }),
-    (s, input) => s.modules.readToolkit.read(input, s.caller.actorSessionId ?? 'operator'),
+    (s, input) => {
+      assertMayReadSession(s, input.sessionId)
+      return s.modules.readToolkit.read(input, s.caller.actorSessionId ?? 'operator')
+    },
   ),
   /** Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
-  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), (s, input) =>
-    s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator'),
-  ),
+  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), (s, input) => {
+    assertMayReadSession(s, input.sessionId)
+    return s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
+  }),
 } as const
 
 export const SYNC_QUERIES = {

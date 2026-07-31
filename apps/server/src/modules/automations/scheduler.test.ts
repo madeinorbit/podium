@@ -431,6 +431,9 @@ describe('AutomationsService.tick — spawn', () => {
       defaultModel: 'auto',
       defaultEffort: 'auto',
       type: 'automation',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      createdByActor: 'system:automation',
+      createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     })
     // The prompt is NEVER handed to createSession: initialPrompt is argv-only and
     // silently becomes a draft on opencode/cursor [spec:SP-17db].

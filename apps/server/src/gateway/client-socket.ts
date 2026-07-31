@@ -22,7 +22,7 @@
  */
 
 import { parseClientMessage, WIRE_VERSION } from '@podium/protocol'
-import type { UserId } from '@podium/model'
+import type { UserId, UserRole } from '@podium/model'
 import type { IncomingMessage } from 'node:http'
 import type { PublicationAuthority } from '../modules/sessions/session'
 import type { SessionRegistry } from '../relay'
@@ -33,6 +33,7 @@ import { warnDroppedFrame } from './ws-send'
 export interface ClientAuthorityOptions {
   /** Account resolved from the authenticated upgrade cookie. */
   userId?: UserId
+  userRole?: UserRole
   /** Resolve a revocable, request-specific publication world on the real socket path. */
   resolvePublicationAuthority?: (req: IncomingMessage) => PublicationAuthority
   /** ViewKey identity supplied by the main authority (defaults to local operator). */
@@ -85,14 +86,15 @@ export function wireClientSocket(
   // The plane applies its own budget: this file never names a byte count, so it
   // cannot name the daemon plane's (POD-391).
   const sink = CLIENT_PLANE_LIVENESS.sink(ws)
-  if (auth.userId === undefined) {
-    console.warn('[podium] rejected client with no authenticated account')
+  if (auth.userId === undefined || auth.userRole === undefined) {
+    console.warn('[podium] rejected client with incomplete authenticated account')
     ws.terminate()
     return undefined
   }
   const id = registry.clientGateway.attachClient({
     send: sink.send,
     userId: auth.userId,
+    userRole: auth.userRole,
     publication: { ...authority, sendPrepared: sink.sendPrepared },
   })
   ws.on('message', (raw: import('ws').RawData) => {

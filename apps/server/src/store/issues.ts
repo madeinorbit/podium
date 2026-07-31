@@ -32,6 +32,9 @@ export class IssuesRepository {
   ) {}
 
   upsertIssue(row: IssueRow): void {
+    if (!row.ownerUserId || !row.visibility || !row.createdByActor || row.createdByOnBehalfOf === undefined) {
+      throw new Error(`upsertIssue: complete ownership attribution is required for ${row.id}`)
+    }
     // Strict on write: stage is a load-bearing enum (the board column + zod-validated
     // on the wire). defaultAgent is intentionally NOT validated here — 'auto' is a
     // legal stored sentinel resolved to a concrete kind only at spawn time.
@@ -121,10 +124,10 @@ export class IssuesRepository {
       )
       .run(
         row.id,
-        row.ownerUserId ?? 'user:sole',
-        row.visibility ?? 'personal',
-        row.createdByActor ?? row.ownerUserId ?? 'user:sole',
-        row.createdByOnBehalfOf ?? row.ownerUserId ?? null,
+        row.ownerUserId,
+        row.visibility,
+        row.createdByActor ?? row.ownerUserId,
+        row.createdByOnBehalfOf,
         row.repoPath,
         row.repoId ?? this.resolveRepoIdForPath(row.repoPath),
         row.seq,

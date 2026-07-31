@@ -1,5 +1,5 @@
-import type { MetadataChange } from '@podium/protocol'
-import { asSessionId } from '@podium/model'
+import { WIRE_VERSION, type MetadataChange } from '@podium/protocol'
+import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { ServerMessage } from '@podium/protocol'
@@ -40,6 +40,8 @@ async function start(
   handle = attachWebSockets(server as Server, registry, {
     // biome-ignore lint/suspicious/noExplicitAny: test double for IncomingMessage
     authorizeClient: authorizeClient as any,
+    userForClient: () => FIRST_ADMIN_USER_ID,
+    roleForClient: () => 'admin',
     ...(resolvePublicationAuthority ? { resolvePublicationAuthority } : {}),
   })
   await new Promise<void>((res) => (server as Server).listen(0, res))
@@ -100,6 +102,7 @@ async function connectDeltaClient(url: string, world: string) {
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
           caps: ['metadataDelta'],
+          wireVersion: WIRE_VERSION,
         }),
       )
       resolve()
@@ -234,7 +237,10 @@ describe('/client WS auth gate', () => {
         sessionStateFrames(bob.frames).length === 1,
     )
 
-    registry.modules.sessions.renameSession({ sessionId: asSessionId(bobSession), name: 'BOB-SECRET' })
+    registry.modules.sessions.renameSession({
+      sessionId: asSessionId(bobSession),
+      name: 'BOB-SECRET',
+    })
     registry.modules.sessions.flushBroadcasts()
     await until(
       () =>

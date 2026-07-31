@@ -9,9 +9,9 @@ import {
   type SessionMetaInput,
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import { sessionsForIssue } from './issue-util'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
+import { sessionsForIssue } from './issue-util'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
@@ -385,7 +385,7 @@ describe('IssueService unread (#124)', () => {
     let clock = '2026-06-30T00:00:00.000Z'
     const store = new SessionStore(':memory:')
     /** Every change row the service published — see `issueTestPlumbing`. */
-  const broadcast = vi.fn()
+    const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
       listSessions: () => [],
@@ -487,7 +487,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     let clock = '2026-06-30T00:00:00.000Z'
     const store = new SessionStore(':memory:')
     /** Every change row the service published — see `issueTestPlumbing`. */
-  const broadcast = vi.fn()
+    const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
       listSessions: () => [],
@@ -1056,6 +1056,7 @@ describe('IssueService.start', () => {
       model: 'auto',
       effort: 'auto',
       initialPrompt: 'do the thing',
+      ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${created.id}`,
     })
   })
@@ -1241,6 +1242,7 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
+      ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${a.id}`,
     })
   })
@@ -1295,6 +1297,7 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'opus',
       effort: 'high',
+      ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${a.id}`,
     })
   })
@@ -1320,6 +1323,7 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
+      ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${a.id}`,
     })
     svc.addShell(a.id)

@@ -31,10 +31,11 @@ export interface Context {
   cloud?: CloudRuntimeProvider
   /** Request-scoped world used by websocket publication and sync catch-up. */
   publicationAuthority?: PublicationAuthority
-  /** What this caller may do with issues (authz, distinct from the login authn on /trpc).
-   *  Every HTTP caller is the OPERATOR today; the in-process MCP passes its own. */
+  /** What this caller may do with issues. The authenticated principal below is
+   *  mandatory so no production or test transport can silently become the
+   *  historical ambient operator. */
   capability: Capability
-  principal?: CommandPrincipal
+  principal: CommandPrincipal
   /** Set by the daemon relay when an agent passed --outside-scope, allowing a knowing
    *  write outside its subtree. Undefined for the operator (/trpc) and the superagent. */
   overrideScope?: boolean
@@ -64,7 +65,7 @@ export function mods(ctx: Context): RegistryModules {
 export function issueCaller(ctx: Context): IssueCaller {
   return {
     capability: ctx.capability,
-    ...(ctx.principal ? { principal: ctx.principal } : {}),
+    principal: ctx.principal,
     ...(ctx.overrideScope !== undefined ? { overrideScope: ctx.overrideScope } : {}),
   }
 }

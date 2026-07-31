@@ -1,4 +1,4 @@
-import { asSessionId, type RepoId, type SessionId } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, type RepoId, type SessionId } from '@podium/model'
 /**
  * ORACLE — session handoff across two machines (POD-379 for POD-642).
  *
@@ -26,11 +26,14 @@ import { join } from 'node:path'
 import { asUserId, type MachineId } from '@podium/model'
 import type { ControlMessage, UserId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type Capability, OPERATOR } from '../../issue-authz'
+import type { Capability } from '../../issue-authz'
+import { userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { machineUseGateFor } from './handoff/access'
 import { SessionStore } from '../../store'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
+
+const TEST_CAPABILITY = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability
 
 const SHA = 'a'.repeat(40)
 
@@ -94,8 +97,20 @@ async function handoffFixture(
   } = {},
 ): Promise<HandoffFixture> {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x', ownerUserId: 'user:sole' })
-  store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'source',
+    hostname: 'source',
+    tokenHash: 'x',
+    ownerUserId: 'user:sole',
+  })
+  store.machines.upsertMachine({
+    id: 'm2',
+    name: 'target',
+    hostname: 'target',
+    tokenHash: 'y',
+    ownerUserId: 'user:sole',
+  })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',
@@ -246,7 +261,10 @@ const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'mana
         ? {
             machine: 'm2' as MachineId,
             owner: 'bob' as UserId,
-            grants: m2Grants.map((grant) => ({ subject: grant.subject as UserId, verb: grant.verb })),
+            grants: m2Grants.map((grant) => ({
+              subject: grant.subject as UserId,
+              verb: grant.verb,
+            })),
             name: 'target',
           }
         : undefined,
@@ -276,14 +294,14 @@ const revocableFleet = (state: { m2: ('see' | 'use' | 'manage')[] }) => ({
 
 const gateForPrincipal = (user: string, ownership: ReturnType<typeof revocableFleet>) =>
   machineUseGateFor({
-    principal: { kind: 'user', user: user as UserId, capability: OPERATOR },
+    principal: { kind: 'user', user: user as UserId, capability: TEST_CAPABILITY },
     ownership,
   })
 
 /** The gate a real transport would build, for a principal that is `alice`. */
 const aliceGate = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }[]) =>
   machineUseGateFor({
-    principal: { kind: 'user', user: 'alice' as UserId, capability: OPERATOR },
+    principal: { kind: 'user', user: 'alice' as UserId, capability: TEST_CAPABILITY },
     ownership: twoPersonFleet(m2Grants),
   })
 
@@ -311,10 +329,13 @@ describe('oracle: handoff success across two machines', () => {
   it(`${MUST_NOT_CHANGE}: the row is re-homed onto the target and resumed there, and the source is told to kill`, async () => {
     const f = await handoffFixture()
 
-    const result = await f.reg.modules.sessions.handoffSession({
-      sessionId: f.sessionId,
-      machineId: 'm2',
-    })
+    const result = await f.reg.modules.sessions.handoffSession(
+      {
+        sessionId: f.sessionId,
+        machineId: 'm2',
+      },
+      { capability: TEST_CAPABILITY },
+    )
 
     expect(result).toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
     expect(meta(f)).toMatchObject({
@@ -339,7 +360,10 @@ describe('oracle: handoff success across two machines', () => {
   it(`${MUST_NOT_CHANGE}: the whole two-machine step sequence, in order — nothing irreversible happens before the TARGET verified a common base`, async () => {
     const f = await handoffFixture()
 
-    await f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' })
+    await f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: TEST_CAPABILITY },
+    )
 
     // ONE stream across both machines. Exact equality, so a reordering, an extra
     // round-trip or a dropped step all fail — including the one this test exists
@@ -381,7 +405,7 @@ describe('oracle: handoff success across two machines', () => {
     await expect(
       f.reg.modules.sessions.handoffSession(
         { sessionId: f.sessionId, machineId: 'm2' },
-        { capability: { role: 'worker', scope: { kind: 'all' } } },
+        { capability: { ...TEST_CAPABILITY, role: 'worker' } },
       ),
     ).resolves.toMatchObject({ ok: true })
   })
@@ -397,7 +421,7 @@ describe('oracle: handoff success across two machines', () => {
       await messageOf(() =>
         f.reg.modules.sessions.handoffSession(
           { sessionId: f.sessionId, machineId: 'm2' },
-          { capability: OPERATOR },
+          { capability: TEST_CAPABILITY },
         ),
       ),
       // DENIED, and distinguishable from unreachable: alice can SEE m2, so she is
@@ -420,13 +444,13 @@ describe('oracle: handoff success across two machines', () => {
     const invisible = await messageOf(() =>
       f.reg.modules.sessions.handoffSession(
         { sessionId: f.sessionId, machineId: 'm2' },
-        { capability: OPERATOR },
+        { capability: TEST_CAPABILITY },
       ),
     )
     const nonexistent = await messageOf(() =>
       f.reg.modules.sessions.handoffSession(
         { sessionId: f.sessionId, machineId: 'no-such-machine' },
-        { capability: OPERATOR },
+        { capability: TEST_CAPABILITY },
       ),
     )
 
@@ -449,7 +473,7 @@ describe('oracle: handoff success across two machines', () => {
       await messageOf(() =>
         f.reg.modules.sessions.handoffSession(
           { sessionId: f.sessionId, machineId: 'm2' },
-          { capability: OPERATOR },
+          { capability: TEST_CAPABILITY },
         ),
       ),
     ).toBe('target machine is offline')
@@ -462,7 +486,10 @@ describe('oracle: handoff refusals that must not move anything', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: TEST_CAPABILITY },
+        ),
       ),
     ).toBe('target repository has no verified common bundle base')
 
@@ -480,7 +507,10 @@ describe('oracle: handoff refusals that must not move anything', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm1' }),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm1' },
+          { capability: TEST_CAPABILITY },
+        ),
       ),
     ).toBe('session is already on that machine')
   })
@@ -495,7 +525,10 @@ describe('oracle: handoff refusals that must not move anything', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: shell.sessionId, machineId: 'm2' }),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: shell.sessionId, machineId: 'm2' },
+          { capability: TEST_CAPABILITY },
+        ),
       ),
     ).toBe('session harness does not support handoff')
   })
@@ -507,7 +540,10 @@ describe('oracle: mid-transfer crash', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: TEST_CAPABILITY },
+        ),
       ),
     ).toBe('source exploded mid-export')
 
@@ -538,7 +574,10 @@ describe('oracle: mid-transfer crash', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: TEST_CAPABILITY },
+        ),
       ),
       // Refused as UNAUTHORIZED, not as absent: alice kept `see`, so she is told she
       // may not run agents there rather than that the machine vanished (M5).
@@ -574,7 +613,10 @@ describe('oracle: mid-transfer crash', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: TEST_CAPABILITY },
+        ),
       ),
     ).toBe("you do not have access to run agents on machine 'target'")
 
@@ -593,7 +635,10 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     const f = await handoffFixture()
     const before = rowOf(f)
 
-    await f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' })
+    await f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: TEST_CAPABILITY },
+    )
 
     const after = rowOf(f)
     const changed = Object.keys({ ...before, ...after })
@@ -616,7 +661,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     const human = await handoffFixture()
     await human.reg.modules.sessions.handoffSession(
       { sessionId: human.sessionId, machineId: 'm2' },
-      { capability: { role: 'admin', scope: { kind: 'all' }, actorUser: 'alice' } },
+      { capability: TEST_CAPABILITY },
     )
 
     const agent = await handoffFixture()
@@ -627,7 +672,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
           role: 'admin',
           scope: { kind: 'all' },
           actorSessionId: asSessionId('sess-agent-7'),
-          onBehalfOf: asUserId('alice'),
+          onBehalfOf: FIRST_ADMIN_USER_ID,
         },
       },
     )
@@ -635,13 +680,19 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     // The counterfactual the pair exists for: both moves were made FOR alice, so
     // an on-behalf-of alone cannot tell them apart. Only the actor half can.
     expect(handoffRecords(human)).toEqual([
-      { actor: 'alice', actorKind: 'user', onBehalfOf: null, fromMachineId: 'm1', toMachineId: 'm2' },
+      {
+        actor: FIRST_ADMIN_USER_ID,
+        actorKind: 'user',
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+        fromMachineId: 'm1',
+        toMachineId: 'm2',
+      },
     ])
     expect(handoffRecords(agent)).toEqual([
       {
         actor: 'sess-agent-7',
         actorKind: 'agent',
-        onBehalfOf: asUserId('alice'),
+        onBehalfOf: FIRST_ADMIN_USER_ID,
         fromMachineId: 'm1',
         toMachineId: 'm2',
       },
@@ -660,11 +711,17 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
         // input has no such fields — which is the first half of the defence.
         ...({ actor: 'mallory', onBehalfOf: 'mallory', capability: { role: 'admin' } } as object),
       },
-      { capability: { role: 'admin', scope: { kind: 'all' }, actorUser: 'alice' } },
+      { capability: TEST_CAPABILITY },
     )
 
     expect(handoffRecords(f)).toEqual([
-      { actor: 'alice', actorKind: 'user', onBehalfOf: null, fromMachineId: 'm1', toMachineId: 'm2' },
+      {
+        actor: FIRST_ADMIN_USER_ID,
+        actorKind: 'user',
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+        fromMachineId: 'm1',
+        toMachineId: 'm2',
+      },
     ])
   })
 })
@@ -672,12 +729,18 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
 describe('oracle: duplicate dispatch', () => {
   it(`${MUST_NOT_CHANGE}: a SECOND handoff after the first completed is refused as already-there, not run twice`, async () => {
     const f = await handoffFixture()
-    await f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' })
+    await f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: TEST_CAPABILITY },
+    )
     const importsAfterFirst = f.target.filter((m) => m.type === 'handoffImportRequest').length
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: TEST_CAPABILITY },
+        ),
       ),
     ).toBe('session is already on that machine')
     expect(f.target.filter((m) => m.type === 'handoffImportRequest')).toHaveLength(
@@ -689,8 +752,14 @@ describe('oracle: duplicate dispatch', () => {
     const f = await handoffFixture()
 
     const settled = await Promise.allSettled([
-      f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
-      f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+      f.reg.modules.sessions.handoffSession(
+        { sessionId: f.sessionId, machineId: 'm2' },
+        { capability: TEST_CAPABILITY },
+      ),
+      f.reg.modules.sessions.handoffSession(
+        { sessionId: f.sessionId, machineId: 'm2' },
+        { capability: TEST_CAPABILITY },
+      ),
     ])
 
     // REWRITTEN BY POD-642, WHICH IS WHAT THE will-change TAG WAS FOR. Before the
@@ -725,7 +794,13 @@ describe('oracle: duplicate dispatch', () => {
     // The counterfactual this name needs: m3 is a fully eligible target — paired,
     // online, with the same logged-in harness and the same repo — so the refusal
     // below is about the transfer already in flight and not about m3.
-    f.store.machines.upsertMachine({ id: 'm3', name: 'third', hostname: 'third', tokenHash: 'z', ownerUserId: 'user:sole' })
+    f.store.machines.upsertMachine({
+      id: 'm3',
+      name: 'third',
+      hostname: 'third',
+      tokenHash: 'z',
+      ownerUserId: 'user:sole',
+    })
     f.store.machines.setMachineInventory(
       'm3',
       JSON.stringify({
@@ -738,14 +813,20 @@ describe('oracle: duplicate dispatch', () => {
     f.store.repos.addRepo('/third/repo', 'm3', 'git@github.com:example/repo.git')
     f.reg.gateway.attachDaemon('m3', () => {})
 
-    const first = f.reg.modules.sessions.handoffSession({
-      sessionId: f.sessionId,
-      machineId: 'm2',
-    })
-    const second = f.reg.modules.sessions.handoffSession({
-      sessionId: f.sessionId,
-      machineId: 'm3',
-    })
+    const first = f.reg.modules.sessions.handoffSession(
+      {
+        sessionId: f.sessionId,
+        machineId: 'm2',
+      },
+      { capability: TEST_CAPABILITY },
+    )
+    const second = f.reg.modules.sessions.handoffSession(
+      {
+        sessionId: f.sessionId,
+        machineId: 'm3',
+      },
+      { capability: TEST_CAPABILITY },
+    )
 
     await expect(second).rejects.toThrow('session handoff already in progress')
     await expect(first).resolves.toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
@@ -768,13 +849,13 @@ describe('oracle: duplicate dispatch', () => {
       caller.capability.actorUser === 'carol'
         ? gateForPrincipal('carol', revocableFleet({ m2: [] }))
         : machineUseGateFor({
-            principal: { kind: 'user', user: 'alice' as UserId, capability: OPERATOR },
+            principal: { kind: 'user', user: 'alice' as UserId, capability: TEST_CAPABILITY },
             ownership: revocableFleet({ m2: ['see', 'use'] }),
           })
 
     const initiator = f.reg.modules.sessions.handoffSession(
       { sessionId: f.sessionId, machineId: 'm2' },
-      { capability: OPERATOR },
+      { capability: TEST_CAPABILITY },
     )
     const joiner = f.reg.modules.sessions.handoffSession(
       { sessionId: f.sessionId, machineId: 'm2' },
@@ -792,20 +873,23 @@ describe('oracle: duplicate dispatch', () => {
     const f = await handoffFixture({ failExport: true })
 
     const first = await messageOf(() =>
-      f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+      f.reg.modules.sessions.handoffSession(
+        { sessionId: f.sessionId, machineId: 'm2' },
+        { capability: TEST_CAPABILITY },
+      ),
     )
     // The retry must reach the daemon legs again and fail on the SAME cause. A
     // slot released only on the success path would answer 'session handoff already
     // in progress' here — permanently, for the life of the process — and every
     // other test in this file would still pass.
     const second = await messageOf(() =>
-      f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+      f.reg.modules.sessions.handoffSession(
+        { sessionId: f.sessionId, machineId: 'm2' },
+        { capability: TEST_CAPABILITY },
+      ),
     )
 
-    expect([first, second]).toEqual([
-      'source exploded mid-export',
-      'source exploded mid-export',
-    ])
+    expect([first, second]).toEqual(['source exploded mid-export', 'source exploded mid-export'])
     expect(f.count('m1', 'handoffExportRequest')).toBe(2)
   })
 })
@@ -821,7 +905,10 @@ describe('oracle: worktree reuse on the target', () => {
       machineId: 'm2',
     })
 
-    await f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' })
+    await f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: TEST_CAPABILITY },
+    )
 
     expect(f.target).toContainEqual(
       expect.objectContaining({
@@ -846,7 +933,10 @@ describe('oracle: worktree reuse on the target', () => {
       code: 0,
     })
 
-    await f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' })
+    await f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: TEST_CAPABILITY },
+    )
 
     const importRequest = f.target.find((m) => m.type === 'handoffImportRequest')
     // An empty guard list is OMITTED from the wire rather than sent as [].

@@ -1,3 +1,4 @@
+import { resolvePrincipal } from '../../command-principal'
 /**
  * Session-write ORACLE support (POD-379, the migration oracle for POD-312).
  *
@@ -33,7 +34,7 @@
  */
 
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import { WIRE_VERSION, type ControlMessage, type ServerMessage } from '@podium/protocol'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
@@ -186,14 +187,20 @@ export function makeOracle(
       })
     }
   })
-  reg.clientGateway.attachClient((msg) => client.push(msg))
+  const clientId = reg.clientGateway.attachClient((msg) => client.push(msg))
+  reg.clientGateway.routeClientFrame(clientId, {
+    type: 'hello',
+    wireVersion: WIRE_VERSION,
+    clientId: '',
+    viewport: { cols: 80, rows: 24, dpr: 1 },
+  })
   const repos = new RepoRegistry(reg, reg.sessionStore)
   const superagent = new SuperagentService(reg.modules, repos, reg.sessionStore)
   const call = appRouter.createCaller({
     registry: reg,
     repos,
     superagent,
-    capability: OPERATOR,
+    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
   })
   return {
     reg,

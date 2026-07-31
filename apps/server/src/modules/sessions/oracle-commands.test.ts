@@ -12,7 +12,7 @@
 
 import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import { WIRE_VERSION, type ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -328,6 +328,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     // that is not this caller — otherwise the test passes on a session nobody
     // controls and proves nothing about gating.
     const controllerId = o.reg.clientGateway.attachClient(() => {})
+    o.reg.clientGateway.routeClientFrame(controllerId, { type: 'hello', wireVersion: WIRE_VERSION, clientId: '', viewport: { cols: 80, rows: 24, dpr: 1 } })
     o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
     expect(o.meta(sessionId).controllerId).toBe(controllerId)
     o.daemon.length = 0

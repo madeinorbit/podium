@@ -1,6 +1,6 @@
 import {
-  DEFER_NEXT_MESSAGE,
   asUserId,
+  DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueWire,
   type OrphanIssue,
@@ -175,9 +175,6 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       ...(initialPrompt ? { initialPrompt } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
-      inheritedGrants: this.d.store.grants
-        .listForResource('issue', row.id)
-        .map((edge) => ({ grantee: asUserId(edge.grantee), verb: edge.verb })),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return {

@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -353,6 +353,7 @@ describe('store: sessions.issue_id round-trip', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession({
       id: asSessionId('sx'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
       cwd: '/r',
       title: 't',

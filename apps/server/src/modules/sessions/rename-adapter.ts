@@ -43,7 +43,7 @@
 import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import type { PresencePrincipal, PresenceRegistry } from './presence-registry'
-import { renameOnTargetPath, type RenameServices } from './rename-target-path'
+import { renameOnTargetPath, type RenameDispatch, type RenameServices } from './rename-target-path'
 
 /** Which path a rename should take. */
 export type RenamePath = 'target' | 'legacy'
@@ -108,15 +108,19 @@ export interface RenameDispatchDeps {
 }
 
 /**
- * Route one rename. Returns nothing: BOTH paths are `void` at the tRPC boundary,
- * which is §3.1.5's consistent-error rule — surfacing the target path's richer
- * outcome to this transport would make a denial distinguishable from a not-found.
+ * Route one rename. The target verdict stays internal to the transport adapter:
+ * the tRPC boundary uses it to turn every authorization/not-found refusal into
+ * the same error shape, while successful calls retain the public `void` result.
+ * The legacy rollback path has no verdict and therefore returns `undefined`.
  */
-export function dispatchRename(deps: RenameDispatchDeps, input: unknown): void {
+export function dispatchRename(
+  deps: RenameDispatchDeps,
+  input: unknown,
+): RenameDispatch | undefined {
   const { sessions, mutations } = deps
   if (renamePath() === 'legacy') {
     deps.legacyRegistry().execute('sessions.rename', input, deps.legacyPrincipal, 'trpc')
     return
   }
-  renameOnTargetPath({ sessions, mutations }, input, deps.principal, 'trpc')
+  return renameOnTargetPath({ sessions, mutations }, input, deps.principal, 'trpc')
 }

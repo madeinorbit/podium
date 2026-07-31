@@ -119,7 +119,7 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
     )
   }
   const stored = fromStorage(row)
-  if (!row.ownerUserId || !row.createdByActor || !row.createdByOnBehalfOf) {
+  if (!row.ownerUserId || !row.createdByActor || row.createdByOnBehalfOf === undefined) {
     throw new Error('issue ' + row.id + ' has incomplete ownership attribution')
   }
   const actor = row.createdByActor.startsWith('session:')

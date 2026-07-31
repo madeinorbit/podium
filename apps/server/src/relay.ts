@@ -1,33 +1,33 @@
-import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { AgentKind, SessionMeta } from '@podium/model'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
-import { ClientMux } from './gateway/client-mux'
-import { FeedServing } from './gateway/feed-serving'
-import { ClientRegistry } from './gateway/client-registry'
-import { DaemonMux } from './gateway/daemon-mux'
 import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
+import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
 import {
-  type VisibilityAnchorPort,
   DEVICE_GRADE_PRINCIPAL,
   FeedIdentityRegistry,
   GrantEdgeVisibilityPolicy,
   Ledger,
   MutationLedger,
+  type VisibilityAnchorPort,
 } from '@podium/sync'
-import { getFeatureStates, isFeatureEnabled } from './features'
-import { checkIssueAccess } from './issue-authz'
-import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import {
   onBehalfOfUser,
   resolvePrincipal,
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
-import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
+import { getFeatureStates, isFeatureEnabled } from './features'
+import { ClientMux } from './gateway/client-mux'
+import { ClientRegistry } from './gateway/client-registry'
+import { DaemonMux } from './gateway/daemon-mux'
+import { FeedServing } from './gateway/feed-serving'
+import { checkIssueAccess } from './issue-authz'
+import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
@@ -78,7 +78,7 @@ import { HeadlessService } from './modules/superagent/headless'
 import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
-import { sessionSpawnerParentId, StewardService } from './steward'
+import { StewardService, sessionSpawnerParentId } from './steward'
 import { SessionStore } from './store'
 import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
@@ -433,7 +433,8 @@ export class SessionRegistry {
           const session = sessionsSvc
             .listSessions()
             .find((candidate) => candidate.resume?.value === ref.entityId)
-          return session ? sessionsSvc.sessionOwner(session.sessionId)?.owner === userId : false
+          const owner = session ? sessionsSvc.sessionOwner(session.sessionId) : undefined
+          return owner?.owner === userId || owner?.grants.includes(userId) === true
         }
         if (ref.entity === 'automation') {
           return this.store.automations.get(ref.entityId)?.ownerUserId === userId
@@ -451,9 +452,21 @@ export class SessionRegistry {
         if (ref.entity !== 'issue') return null
         const audience = this.store.grants.visibilityAudienceFor('issue', ref.entityId)
         if (audience.length === 0) return null
+        const issueSessions = sessionsSvc
+          .listSessions()
+          .filter((session) => session.issueId === ref.entityId)
         const subjects = [
           { entity: 'issue' as const, entityId: ref.entityId },
           { entity: 'issueProjection' as const, entityId: ref.entityId },
+          ...issueSessions.map((session) => ({
+            entity: 'session' as const,
+            entityId: session.sessionId,
+          })),
+          ...issueSessions.flatMap((session) =>
+            session.resume
+              ? [{ entity: 'conversation' as const, entityId: session.resume.value }]
+              : [],
+          ),
           ...(issues?.allDepProjections() ?? [])
             .filter((row) => parseIssueDepId(row.id)?.fromId === ref.entityId)
             .map((row) => ({ entity: 'issueDep' as const, entityId: row.id })),
@@ -467,6 +480,12 @@ export class SessionRegistry {
         }
         if (ref.entity === 'issueDep') {
           return issues?.allDepProjections()?.find((row) => row.id === ref.entityId)?.value
+        }
+        if (ref.entity === 'session') {
+          return sessionsSvc.listSessions().find((session) => session.sessionId === ref.entityId)
+        }
+        if (ref.entity === 'conversation') {
+          return conversations?.allConversations().find((row) => row.id === ref.entityId)
         }
         return undefined
       },
@@ -1306,7 +1325,6 @@ export class SessionRegistry {
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
           ...(o.machineId ? { machineId: o.machineId } : {}),
           ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
-          ...(o.inheritedGrants ? { inheritedGrants: o.inheritedGrants } : {}),
         }),
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>

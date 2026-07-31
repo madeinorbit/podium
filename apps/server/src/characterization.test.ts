@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { asIssueId, asUserId, type SessionId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -219,7 +220,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       registry: reg,
       repos: {} as never,
       superagent: {} as never,
-      capability: OPERATOR,
+      capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
     })
 
   it('create → claim → comment → close yields identical rows, events, comments, and folded oplog via IssueService, the CLI command registry, and the tRPC router', async () => {
@@ -564,7 +565,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         registry: reg,
         repos: {} as never,
         superagent: {} as never,
-        capability: OPERATOR,
+        capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
       })
       const caller = (capability: Capability, overrideScope = false) =>
         appRouter.createCaller({
@@ -572,6 +573,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
           repos: {} as never,
           superagent: {} as never,
           capability,
+          principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
           overrideScope,
         })
       const A = await op.issues.create({ repoPath: '/r', title: 'mine', startNow: false })

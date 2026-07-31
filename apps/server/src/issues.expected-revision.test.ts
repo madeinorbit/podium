@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { TRPCError } from '@trpc/server'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { describe, expect, it } from 'vitest'
@@ -25,7 +26,7 @@ function callerFor(registry: SessionRegistry) {
     registry,
     repos: {} as never,
     superagent: {} as never,
-    capability: OPERATOR,
+    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
   })
 }
 
@@ -310,7 +311,7 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
             registry,
             repos: {} as never,
             superagent: {} as never,
-            capability: OPERATOR,
+            capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
           }) as never,
       })
 

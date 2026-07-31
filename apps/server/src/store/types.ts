@@ -111,7 +111,7 @@ export interface TerminalCandidateRecord {
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
   id: SessionId
-  /** Immutable human owner; optional only for pre-ownership fixture literals. */
+  /** Immutable human owner; optional only at legacy adapter boundaries. */
   ownerUserId?: UserId
   agentKind: string
   /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
@@ -287,7 +287,7 @@ export interface MachineRecord {
  */
 export interface IssueRow {
   id: IssueId
-  /** Immutable accountable human owner; optional only for legacy fixture literals. */
+  /** Immutable accountable ownership; optional only at legacy adapter boundaries. */
   ownerUserId?: UserId
   visibility?: VisibilityClass
   createdByActor?: string
