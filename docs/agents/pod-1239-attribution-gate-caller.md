@@ -241,19 +241,32 @@ Case 4 is a defect I did not set out to find: today a commented-out construction
 innocent file *into* the population and reports it as an unattributed root. The mention
 problem runs in both directions, and blanking comments once fixes both.
 
-### One judgement the patch does not make, flagged rather than hidden
+### The judgement I left open — RESOLVED by POD-1220, who writes the first caller
 
-If a client wraps the gate in a helper — `attributeStore()` in some other module — and the
-root calls the helper, this stricter rule reports the root as unattributed. That is a false
-positive, and I would rather POD-378 decide it than have me pick: either require the gate
-to be named at the root (defensible — the root is where the decision belongs, and one hop
-of indirection is where a "fix" hides), or resolve one import hop. **Do not resolve it with
-an allowlist** — an allowlist is where a real one hides, which is that file's own stated
-principle.
+If a client wraps the gate in a helper and the root calls the helper, the stricter rule
+reports that root unattributed. I declined to decide it alone. POD-1220's answer, as the
+author of the repo's first real `migrateLegacyReplica` call:
 
-POD-1220 is landing the first real caller of `migrateLegacyReplica` (mobile, at first open
-before any read). Their call SHAPE, not merely its presence, is what should be pinned as
-the pattern the audit counts.
+> **NAME THE GATE AT THE ROOT.** Call `migrateLegacyReplica` in call position in the
+> composition root and assemble the host object inline. I would choose that even without a
+> grader requiring it, and the grader is the weaker of the two reasons.
+>
+> The stronger one is that this is the security-relevant call on the platform, and the
+> question a reader arrives with is "does mobile attribute its store before adopting it?" —
+> that question is asked OF the file that composes the store. A helper is better factoring
+> for almost anything else and worse for this: it moves the answer one hop from where it is
+> looked for, and one hop is enough for the next person to assume it does not happen.
+
+With the caveat they attached, which belongs here so it does not get lost:
+
+> I would not extend that to a general rule. "Inline it so the audit can see it" is a bad
+> principle applied broadly — it shapes code around a detector. What justifies it here is
+> that the root IS the right home for the call, and the detector happens to agree. **When
+> those two come apart, fix the detector.**
+
+So the patch needs no import-hop resolution: require the call at the root, because the root
+is where the call belongs. And explicitly **not** by allowlist — an allowlist is where a
+real one hides, which is that file's own stated principle.
 
 ---
 
