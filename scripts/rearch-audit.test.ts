@@ -584,9 +584,22 @@ describe('CLI exit codes', () => {
   // `legacy-wire-v1-adapter` item, which would push that moment out to Phase 7 when the
   // N-1 adapter is finally deleted. Either way the trigger is "POD-308 goes fully
   // clear", not any one item.
+  //
+  // THE EXPIRY ARRIVED, 2026-07-31, and exactly as predicted above — by a RE-PHASE
+  // rather than by the counts moving. POD-310's Phase 2 exit gate found POD-308
+  // mapped to two items it could never clear: `legacy-wire-v1-adapter`, which
+  // POD-308's own job was to BIRTH and whose expiry is Phase 7 data, and
+  // `change-row-typings`, real debt whose owner had closed. The coordinator
+  // re-phased them to POD-337 and POD-1251 respectively, each with its reason
+  // recorded at the item. So POD-308 became the phase that REACHED ZERO.
+  //
+  // Fixed the shape the comment asked for, not by deletion: POD-1251 is the live
+  // subject now and POD-308 has moved to the clear arm. Both directions kept, and
+  // the same expiry note applies to POD-1251 the day it composes its last
+  // restatement.
   it('gates a phase whose items are still alive, and clears one that reached zero', () => {
-    expect(run(['--phase', 'POD-308'])).toBe(1)
-    expect(run(['--phase', 'POD-309'])).toBe(0)
+    expect(run(['--phase', 'POD-1251'])).toBe(1)
+    expect(run(['--phase', 'POD-308'])).toBe(0)
   })
 
   it('an output flag cannot disable the gate', () => {
