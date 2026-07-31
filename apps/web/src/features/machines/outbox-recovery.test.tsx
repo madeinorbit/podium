@@ -142,7 +142,8 @@ describe('dead-letter recovery, at runtime', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
 
     expect(outbox.deadLetters()).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: /Retry after fixing access/ }))
+    expect(screen.getByTestId('outbox-retry').textContent).toBe('Retry after fixing access')
+    fireEvent.click(screen.getByTestId('outbox-retry'))
     // It is out of the parked set and back in the queue — the recovery worked,
     // rather than the button merely existing.
     expect(outbox.deadLetters()).toHaveLength(0)
@@ -167,7 +168,12 @@ describe('dead-letter recovery, at runtime', () => {
     fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
 
-    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull()
+    // Asserted on the BUTTON's absence, not on its label. A first draft of this
+    // matched /Retry/ by accessible name, and survived a mutant that rendered
+    // the button unconditionally — because with no label the name simply did not
+    // match, so an always-present retry button read as absent. The instrument
+    // could not say no.
+    expect(screen.queryByTestId('outbox-retry')).toBeNull()
     expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
   })
 

@@ -149,7 +149,7 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
                 and that absence is a property of the CODE, so it never varies
                 between two situations that share one. */}
             {copy.retryLabel && (
-              <Button size="sm" onClick={onRetry}>
+              <Button size="sm" data-testid="outbox-retry" onClick={onRetry}>
                 {copy.retryLabel}
               </Button>
             )}
