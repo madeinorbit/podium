@@ -2334,3 +2334,41 @@ killed the walk that requested it, and a v2 catch-up reply built with the v1 row
 mapper that installed every healed row as `entity:undefined` — survived design,
 review and a green unit matrix, and appeared only against a booted server. All
 three were on the reconnect/heal path.
+
+## An instrument that says NO exactly once, and is never asked again
+
+The sign-flipped twin of this run's dominant defect. Not a gate that cannot
+refuse — a gate that refuses correctly, once, and is then never invoked.
+
+`tests/e2e/browser/**/*.browser.e2e.ts`: 70 Playwright suites on the integration
+branch, in NO script, NO lane and NO CI job. Each was executed once, by hand, by
+the agent that wrote it, and never since. `ci.yml` documents its own gap in a
+comment directly above the oracle lane.
+
+Three things make this worse than a coverage hole:
+
+  - IT READS AS PROTECTION. "Runtime verified" appears in handoffs and in merge
+    commit messages — several of mine — whose authority comes entirely from
+    these files. The claim was true at the moment it was written and has decayed
+    silently ever since.
+  - IT GREW DURING THE FAN-OUT, 54 -> 70, because every UI-touching child
+    correctly adds one. Doing the right thing enlarges the unprotected body.
+  - THE ISSUE THAT NAMED IT IS CLOSED. POD-756's title is "browser e2e suite
+    runs in no lane"; it is marked DONE; the lane does not exist. Its agent
+    corrected the COUNT and the citation consistency — real work — and the
+    deliverable in the title was never built. A closed issue is a stronger
+    claim than an open one, so this hid better after being "fixed".
+
+Two rules earned here:
+
+  1. A test that no lane invokes is DOCUMENTATION. Adding one is not neutral,
+     because it will be cited as evidence. Either put it in a lane or say in the
+     handoff that it is unprotected — POD-421 did exactly this and was right to.
+  2. When closing an issue, grade against the LITERAL title and acceptance
+     text, not against the work performed. Correcting a count inside an issue
+     about a missing lane is progress on the issue and completion of nothing.
+
+Filed as POD-1227, scoped to a script, a NON-BLOCKING job, and a truthful census
+of how many of the 70 actually pass — with the brief stating that "41 of 70
+fail" is a successful outcome. Closing it by skipping to green would reproduce
+the original defect exactly.
