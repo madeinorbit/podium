@@ -29,12 +29,24 @@ function hasTable(db: SqlDatabase, name: string): boolean {
   )
 }
 
-function revision(db: SqlDatabase): number {
-  return (
-    db.prepare("SELECT revision FROM issues WHERE id = 'iss_keep_revision'").get() as {
-      revision: number
-    }
-  ).revision
+type StoredFeedIdentity = {
+  singleton: number
+  feed_id: string
+  epoch: string
+  minted_at: number
+}
+
+function feedIdentity(db: SqlDatabase): StoredFeedIdentity {
+  return db
+    .prepare('SELECT singleton, feed_id, epoch, minted_at FROM feed_identity')
+    .get() as StoredFeedIdentity
+}
+
+function issueRevision(db: SqlDatabase): { id: string; revision: number } {
+  return db.prepare("SELECT id, revision FROM issues WHERE id = 'iss_keep_revision'").get() as {
+    id: string
+    revision: number
+  }
 }
 
 describe('the dead sync_feed migration', () => {
@@ -61,13 +73,24 @@ describe('the dead sync_feed migration', () => {
       'INSERT INTO issues (id, repo_path, seq, title, stage, default_agent, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run('iss_keep_revision', '/repo', 1, 'Keep revision', 'backlog', 'codex', 9, 't', 't')
 
-    expect(hasTable(db, 'sync_feed')).toBe(true)
-    expect(revision(db)).toBe(9)
+    const expectedFeedIdentity = {
+      singleton: 1,
+      feed_id: 'live-feed',
+      epoch: 'live-epoch',
+      minted_at: 1,
+    }
+    const expectedIssueRevision = { id: 'iss_keep_revision', revision: 9 }
 
-    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS, { dbPath })).toEqual([migration.name])
+    expect(hasTable(db, 'sync_feed')).toBe(true)
+    expect(feedIdentity(db)).toEqual(expectedFeedIdentity)
+    expect(issueRevision(db)).toEqual(expectedIssueRevision)
+
+    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1), { dbPath })).toEqual([
+      migration.name,
+    ])
     expect(hasTable(db, 'sync_feed')).toBe(false)
-    expect(hasTable(db, 'feed_identity')).toBe(true)
-    expect(revision(db)).toBe(9)
+    expect(feedIdentity(db)).toEqual(expectedFeedIdentity)
+    expect(issueRevision(db)).toEqual(expectedIssueRevision)
     db.close()
 
     const backups = readdirSync(dir).filter(
@@ -85,15 +108,17 @@ describe('the dead sync_feed migration', () => {
       feed_id: 'dead-feed',
       epoch: 'dead-epoch',
     })
-    expect(revision(reopened)).toBe(9)
+    expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     expect(restored.feedId).toBe('live-feed')
     expect(restored.previousEpoch).toBe('live-epoch')
     expect(restored.epoch).not.toBe('live-epoch')
 
-    expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS)).toEqual([migration.name])
+    expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS.slice(0, cut + 1))).toEqual([
+      migration.name,
+    ])
     expect(hasTable(reopened, 'sync_feed')).toBe(false)
     expect(hasTable(reopened, 'feed_identity')).toBe(true)
-    expect(revision(reopened)).toBe(9)
+    expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     reopened.close()
   })
 })
