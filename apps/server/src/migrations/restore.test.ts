@@ -17,10 +17,12 @@ import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sql
 import { type FeedIdentity, FeedIdentityRegistry, Ledger, SyncRepository } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { backupDatabase } from './backup'
-import { applyBaselineSchema } from './index'
+import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { applyBaselineSchema, runDrizzleMigrations } from './index'
 import { restoreCliMain, restoreDatabase } from './restore'
 
 const PLENTY = () => Number.MAX_SAFE_INTEGER
+const FEED_IDENTITY_SINGLETON_MIGRATION = 'feed-identity-singleton'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -115,6 +117,44 @@ describe('the migration creates the feed-identity table', () => {
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
     expect(new SyncRepository(db).readFeedIdentity()).toEqual(identity)
+  })
+
+  it('preserves the existing identity while adding the singleton constraint', () => {
+    const cut = DRIZZLE_MIGRATIONS.findIndex((migration) =>
+      migration.name.includes(FEED_IDENTITY_SINGLETON_MIGRATION),
+    )
+    expect(cut).toBeGreaterThan(0)
+
+    const db = openDatabase(':memory:')
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
+        )
+        .get(),
+    ).toBeDefined()
+
+    const expected = {
+      singleton: 1,
+      feed_id: 'feed_existing',
+      epoch: 'epoch_existing',
+      minted_at: 1_720_000_000_000,
+    }
+    db.prepare(
+      'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (?, ?, ?, ?)',
+    ).run(expected.singleton, expected.feed_id, expected.epoch, expected.minted_at)
+
+    const before = db
+      .prepare('SELECT singleton, feed_id, epoch, minted_at FROM feed_identity')
+      .all()
+    expect(before).toEqual([expected])
+
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
+
+    const after = db.prepare('SELECT singleton, feed_id, epoch, minted_at FROM feed_identity').all()
+    expect(after).toEqual(before)
+    db.close()
   })
 
   it('one database is one feed — a bump REPLACES the identity rather than appending', () => {
