@@ -1,7 +1,13 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asRepoId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  asRepoId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+} from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -300,6 +306,20 @@ async function handoffRegistry(
               manifest,
               stagePath: '/home/source/.podium/handoff/package.tgz',
               sizeBytes: 3,
+              binding: {
+                transferId: msg.binding?.transferId ?? 'missing-transfer',
+                sessionId: msg.sessionId,
+                agentKind: 'claude-code',
+                fromMachineId: asMachineId('m1'),
+                toMachineId: asMachineId('m2'),
+                observationGeneration: 2,
+                delegation: {
+                  actor: asAgentIdentityId(msg.sessionId),
+                  onBehalfOf: asUserId('user:sole'),
+                  grantedScope: { kind: 'all' },
+                  parentBindingId: null,
+                },
+              },
             },
       )
     }
@@ -311,6 +331,13 @@ async function handoffRegistry(
         data: Buffer.from('pkg').toString('base64'),
         sizeBytes: 3,
         eof: true,
+      })
+    if (msg.type === 'handoffBindingFinalizeRequest')
+      reg.gateway.routeDaemonFrame('m1', {
+        type: 'handoffBindingFinalizeResult',
+        requestId: msg.requestId,
+        ok: true,
+        observationGeneration: 2,
       })
   })
   reg.gateway.attachDaemon('m2', (msg) => {
@@ -362,6 +389,14 @@ async function handoffRegistry(
           ? `${targetRepoPath}/.worktrees/x/apps/web`
           : `${targetRepoPath}/.worktrees/x`,
         ...(opts.oldDaemon ? {} : { worktreeRoot: `${targetRepoPath}/.worktrees/x` }),
+        observationGeneration: 2,
+      })
+    if (msg.type === 'handoffBindingFinalizeRequest')
+      reg.gateway.routeDaemonFrame('m2', {
+        type: 'handoffBindingFinalizeResult',
+        requestId: msg.requestId,
+        ok: true,
+        observationGeneration: 2,
       })
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.

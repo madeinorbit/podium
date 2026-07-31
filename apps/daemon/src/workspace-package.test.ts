@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process'
 import { access, copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BindingStore } from './binding-store'
 import {
   cleanWorkspacePeeks,
   exportWorkspaceSnapshot,
@@ -38,6 +40,51 @@ afterEach(() => {
 })
 
 describe('workspace package', () => {
+  it('fetch is non-binding COPY semantics: source stays live and target gets no session row', async () => {
+    const source = await repo('ws-non-binding-source')
+    const base = git(source, 'rev-parse', 'HEAD')
+    const fetcher = await mkdtemp(join(tmpdir(), 'podium-ws-non-binding-fetcher-'))
+    roots.push(fetcher)
+    execFileSync('git', ['clone', source, fetcher])
+    const state = await home('ws-non-binding-state')
+    const sourceBindings = await BindingStore.open({ dir: join(state, 'source-bindings') })
+    const targetBindings = await BindingStore.open({ dir: join(state, 'target-bindings') })
+    const sessionId = asSessionId('workspace-fetch-source-session')
+    const spawned = await sourceBindings.transition({
+      event: 'spawn',
+      transitionId: 'workspace-fetch:spawn',
+      sessionId,
+      agentKind: 'codex',
+      claimantMachineId: asMachineId('source-machine'),
+      machineAccess: 'allowed',
+      principal: { kind: 'user', userId: asUserId('user:alice') },
+      issueId: asIssueId('issue-workspace-fetch'),
+      attemptId: 'source-attempt',
+    })
+    if (spawned.status !== 'applied') throw new Error('source binding setup failed')
+    const sourceBefore = JSON.stringify(spawned.binding)
+
+    const sourceHome = await home('ws-non-binding-source')
+    const fetcherHome = await home('ws-non-binding-fetcher')
+    const exported = await exportWorkspaceSnapshot({
+      fetchId: 'workspace-fetch-copy',
+      cwd: source,
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source-machine',
+      homeDir: sourceHome,
+    })
+    await stageFor(exported, fetcherHome, 'workspace-fetch-copy')
+    await importWorkspaceSnapshot({
+      fetchId: 'workspace-fetch-copy',
+      repoPath: fetcher,
+      homeDir: fetcherHome,
+    })
+
+    expect(JSON.stringify(await sourceBindings.read(sessionId))).toBe(sourceBefore)
+    expect(await targetBindings.read(sessionId)).toBeNull()
+  })
+
   it('fetch materializes unpushed commits + dirty + untracked state, source untouched', async () => {
     const source = await repo('ws-source')
     const base = git(source, 'rev-parse', 'HEAD')

@@ -8,6 +8,7 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   IssueId,
+  MachineId,
   MachineQuotaWire,
   RepoId,
   ResumeRef,
@@ -25,6 +26,9 @@ import type {
   FileAssetResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
+  HandoffBindingExportInstruction,
+  HandoffBindingFinalizeResultMessage,
+  HandoffBindingImportInstruction,
   HandoffChunkReadResultMessage,
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
@@ -142,6 +146,10 @@ export class DaemonRpcService {
   private readonly pendingHandoffImports = new Map<
     string,
     (r: Omit<HandoffImportResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingHandoffBindingFinalizes = new Map<
+    string,
+    (r: Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>) => void
   >()
   private readonly pendingWorkspaceExports = new Map<
     string,
@@ -409,6 +417,7 @@ export class DaemonRpcService {
       title?: string
       issueId?: IssueId
       sourceMachineId: string
+      binding: HandoffBindingExportInstruction
     },
     machineId: string,
   ): Promise<Omit<HandoffExportResultMessage, 'type' | 'requestId'>> {
@@ -466,6 +475,7 @@ export class DaemonRpcService {
     worktreeName: string,
     machineId: string,
     occupiedWorktreePaths: string[] = [],
+    binding?: HandoffBindingImportInstruction,
   ): Promise<Omit<HandoffImportResultMessage, 'type' | 'requestId'>> {
     return this.request(
       this.pendingHandoffImports,
@@ -479,6 +489,34 @@ export class DaemonRpcService {
         repoPath,
         worktreeName,
         ...(occupiedWorktreePaths.length > 0 ? { occupiedWorktreePaths } : {}),
+        ...(binding ? { binding } : {}),
+      }),
+      machineId,
+    )
+  }
+
+  handoffBindingFinalize(
+    input: {
+      sessionId: SessionId
+      transitionId: string
+      machineAccess: 'allowed' | 'denied' | 'unreachable'
+      transferId: string
+      role: 'source' | 'target'
+      phase: 'commit' | 'abort'
+      fromMachineId: MachineId
+      toMachineId: MachineId
+    },
+    machineId: string,
+  ): Promise<Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingHandoffBindingFinalizes,
+      'hf',
+      30_000,
+      () => ({ ok: false, error: 'handoff binding finalize timed out' }),
+      (requestId) => ({
+        type: 'handoffBindingFinalizeRequest',
+        requestId,
+        ...input,
       }),
       machineId,
     )
@@ -879,6 +917,10 @@ export class DaemonRpcService {
   onHandoffImportResult(msg: HandoffImportResultMessage): void {
     const { type: _t, requestId, ...payload } = msg
     DaemonRpcService.settle(this.pendingHandoffImports, requestId, payload)
+  }
+  onHandoffBindingFinalizeResult(msg: HandoffBindingFinalizeResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingHandoffBindingFinalizes, requestId, payload)
   }
 
   onWorkspaceExportResult(msg: WorkspaceExportResultMessage): void {

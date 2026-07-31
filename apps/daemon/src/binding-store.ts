@@ -31,7 +31,20 @@ const BINDINGS_DIR = 'bindings'
 const RECEIPT_NAME = /^([\w.-]+)\.json$/
 const CLAIM_NAME = /^([\w.-]+?)\.json\.\d+\.[0-9a-f-]+\.ack$/
 
-export type BindingState = 'unbound' | 'bound' | 'conflicted' | 'retired'
+/**
+ * `exporting` and `adopting` are deliberately NON-LIVE ownership states.
+ * During a handoff there may be a durable row on both machines, but never two
+ * rows entitled to launch the agent. `exported` is terminal on that host until
+ * a later round-trip explicitly adopts the same SessionId back onto it.
+ */
+export type BindingState =
+  | 'unbound'
+  | 'bound'
+  | 'conflicted'
+  | 'exporting'
+  | 'adopting'
+  | 'exported'
+  | 'retired'
 export type ObservationConfidence = 'exact' | 'heuristic'
 export type ObservationSource =
   | 'native-hook'
@@ -97,11 +110,14 @@ export interface BindingDelegationObservation {
 
 export interface BindingTransfer {
   transferId: string
+  side: 'source' | 'target'
   phase: 'claimed' | 'committed' | 'aborted'
   fromMachineId: MachineId
   toMachineId: MachineId
   claimedAt: string
   settledAt: string | null
+  /** State restored when a claim aborts. `null` means no row predated import. */
+  priorState: BindingState | null
 }
 export interface BindingTransitionReceipt {
   transitionId: string
@@ -253,6 +269,30 @@ export interface ObserveBindingInput {
   observedAt: string
   pendingServerAck?: { nativeKind: string; value: string }
 }
+
+/** The delegation operand that crosses hosts. This is identity, not authority:
+ * importing it must never replace the human with the importing principal, and
+ * no resolved permission/capability is representable here. */
+export interface BindingAdoptDelegation {
+  actor: AgentIdentityId
+  onBehalfOf: UserId
+  grantedScope: DelegationScope
+  parentBindingId: SessionId | null
+}
+
+/** Native ids and paths are re-observed on the target at import time. */
+export interface BindingAdoptObservation {
+  channel: BindingObservationChannel
+  value: string
+  nativeKind?: string
+}
+
+export interface BindingAdoption {
+  agentKind: AgentKind
+  observationGeneration: number
+  delegation: BindingAdoptDelegation
+  observations: readonly BindingAdoptObservation[]
+}
 /**
  * The complete binding event vocabulary. `adopt` is intentionally present even
  * though POD-644 owns the control-plane import choreography: callers can depend
@@ -337,10 +377,15 @@ export type SessionBindingTransition =
       event: 'adopt'
       machineAccess: BindingMachineAccess
       transferId: string
-      phase: 'claim' | 'commit' | 'abort'
+      role: 'source' | 'target'
+      phase: 'claim' | 'commit' | 'abort' | 'launch'
       fromMachineId: MachineId
       toMachineId: MachineId
       at: string
+      /** Required only for the target claim, after native artifacts are placed. */
+      adoption?: BindingAdoption
+      /** A launch creates a new host-local attempt, never a new delegation. */
+      attemptId?: string
     })
 
 export type BindingTransitionRejection =
@@ -354,6 +399,8 @@ export type BindingTransitionRejection =
   | 'stale-generation'
   | 'claimant-mismatch'
   | 'transfer-conflict'
+  | 'adoption-missing'
+  | 'adoption-identity-mismatch'
   | 'unsupported-agent-transition'
 
 /**
@@ -548,7 +595,11 @@ function parseBinding(value: unknown): SessionBindingRecord {
   }
   assertNoAuthoritySnapshot(value)
   const state = value.state
-  if (!['unbound', 'bound', 'conflicted', 'retired'].includes(String(state))) {
+  if (
+    !['unbound', 'bound', 'conflicted', 'exporting', 'adopting', 'exported', 'retired'].includes(
+      String(state),
+    )
+  ) {
     throw new Error('binding state is invalid')
   }
   if (!Array.isArray(value.observations)) throw new Error('binding observations must be an array')
@@ -700,6 +751,49 @@ function transitionRejected(
   reason: BindingTransitionRejection,
 ): SessionBindingTransitionOutcome {
   return { status: 'rejected', event, reason, terminal: true }
+}
+
+export interface BindingOwnershipClaim {
+  sessionId: SessionId
+  machineId: MachineId
+  transferId: string
+  role: 'source' | 'target'
+  phase: BindingTransfer['phase']
+}
+
+/**
+ * Authority-free ordering of two durable cross-host claims. For one transfer,
+ * an imported target outranks its exporting source: target claim is written
+ * only after files and native artifacts landed, while the source claim is
+ * already non-live. Unrelated crashed transfers use the server-minted transfer
+ * id as a stable tie-breaker; machine clocks are deliberately absent.
+ *
+ * This answers only WHO owns the binding. The returned claimant must still
+ * pass a live machine-use check at its first apply.
+ */
+export function arbitrateBindingOwnership(
+  left: BindingOwnershipClaim,
+  right: BindingOwnershipClaim,
+): BindingOwnershipClaim {
+  if (left.sessionId !== right.sessionId) {
+    throw new Error('cannot arbitrate bindings for different sessions')
+  }
+  const rank = (claim: BindingOwnershipClaim): number => {
+    if (claim.phase === 'aborted') return 0
+    if (claim.role === 'target') return claim.phase === 'committed' ? 4 : 3
+    return claim.phase === 'committed' ? 2 : 1
+  }
+  // An aborted claim is a dead right under every transfer id. Lexical ordering
+  // exists only to choose among still-live competing transfers.
+  if (left.phase === 'aborted' && right.phase !== 'aborted') return right
+  if (right.phase === 'aborted' && left.phase !== 'aborted') return left
+  if (left.transferId === right.transferId) {
+    const delta = rank(left) - rank(right)
+    if (delta !== 0) return delta > 0 ? left : right
+  }
+  const leftKey = `${left.transferId}\u0000${left.machineId}\u0000${left.role}`
+  const rightKey = `${right.transferId}\u0000${right.machineId}\u0000${right.role}`
+  return leftKey >= rightKey ? left : right
 }
 
 function fileStem(sessionId: SessionId): string {
@@ -1175,7 +1269,12 @@ export class BindingStore {
           if (!current) {
             return { status: 'denied', event: 'reattach', reason: 'not-found', terminal: true }
           }
-          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
+          if (current.state === 'retired' || current.state === 'exported') {
+            return transitionRejected(input.event, 'binding-retired')
+          }
+          if (current.state === 'exporting' || current.state === 'adopting') {
+            return transitionRejected(input.event, 'transfer-conflict')
+          }
           if (current.claimantMachineId !== input.claimantMachineId) {
             return transitionRejected(input.event, 'claimant-mismatch')
           }
@@ -1212,7 +1311,12 @@ export class BindingStore {
 
         case 'hook-repin': {
           if (!current) return transitionRejected(input.event, 'binding-missing')
-          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
+          if (current.state === 'retired' || current.state === 'exported') {
+            return transitionRejected(input.event, 'binding-retired')
+          }
+          if (current.state === 'exporting' || current.state === 'adopting') {
+            return transitionRejected(input.event, 'transfer-conflict')
+          }
           if (current.agentKind === 'shell') {
             return transitionRejected(input.event, 'unsupported-agent-transition')
           }
@@ -1251,7 +1355,12 @@ export class BindingStore {
 
         case 'headless-allocation': {
           if (!current) return transitionRejected(input.event, 'binding-missing')
-          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
+          if (current.state === 'retired' || current.state === 'exported') {
+            return transitionRejected(input.event, 'binding-retired')
+          }
+          if (current.state === 'exporting' || current.state === 'adopting') {
+            return transitionRejected(input.event, 'transfer-conflict')
+          }
           if (current.agentKind === 'shell') {
             return transitionRejected(input.event, 'unsupported-agent-transition')
           }
@@ -1286,59 +1395,204 @@ export class BindingStore {
         }
 
         case 'adopt': {
-          if (!current) return transitionRejected(input.event, 'binding-missing')
-          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
-          if (current.claimantMachineId !== input.fromMachineId) {
-            return transitionRejected(input.event, 'claimant-mismatch')
-          }
-          if (
-            current.transfer &&
-            current.transfer.transferId !== input.transferId &&
-            current.transfer.phase === 'claimed'
-          ) {
-            return transitionRejected(input.event, 'transfer-conflict')
-          }
-          if (input.phase === 'claim') {
+          if (input.role === 'source') {
+            if (!current) return transitionRejected(input.event, 'binding-missing')
+            if (current.state === 'retired' || current.state === 'exported') {
+              return transitionRejected(input.event, 'binding-retired')
+            }
+            if (current.claimantMachineId !== input.fromMachineId) {
+              return transitionRejected(input.event, 'claimant-mismatch')
+            }
+            if (input.phase === 'claim') {
+              if (current.transfer?.phase === 'claimed') {
+                return transitionRejected(input.event, 'transfer-conflict')
+              }
+              changed = {
+                ...current,
+                state: 'exporting',
+                attemptId: null,
+                transfer: {
+                  transferId: input.transferId,
+                  side: 'source',
+                  phase: 'claimed',
+                  fromMachineId: input.fromMachineId,
+                  toMachineId: input.toMachineId,
+                  claimedAt: input.at,
+                  settledAt: null,
+                  priorState: current.state,
+                },
+              }
+            } else {
+              if (
+                !current.transfer ||
+                current.transfer.transferId !== input.transferId ||
+                current.transfer.side !== 'source'
+              ) {
+                return transitionRejected(input.event, 'transfer-conflict')
+              }
+              if (input.phase === 'commit') {
+                if (current.transfer.phase !== 'claimed') {
+                  return transitionRejected(input.event, 'transfer-conflict')
+                }
+                changed = {
+                  ...current,
+                  state: 'exported',
+                  attemptId: null,
+                  transfer: {
+                    ...current.transfer,
+                    phase: 'committed',
+                    settledAt: input.at,
+                  },
+                }
+              } else if (input.phase === 'abort') {
+                if (current.transfer.phase !== 'claimed') {
+                  return transitionRejected(input.event, 'transfer-conflict')
+                }
+                changed = {
+                  ...current,
+                  state: current.transfer.priorState ?? 'unbound',
+                  transfer: {
+                    ...current.transfer,
+                    phase: 'aborted',
+                    settledAt: input.at,
+                  },
+                }
+              } else {
+                if (current.transfer.phase !== 'aborted' || !input.attemptId) {
+                  return transitionRejected(input.event, 'transfer-conflict')
+                }
+                changed = { ...current, attemptId: input.attemptId }
+              }
+            }
+          } else if (input.phase === 'claim') {
+            const adoption = input.adoption
+            if (!adoption) return transitionRejected(input.event, 'adoption-missing')
+            if (
+              current &&
+              current.state !== 'exported' &&
+              !(
+                current.state === 'retired' &&
+                current.transfer?.side === 'target' &&
+                current.transfer.phase === 'aborted'
+              )
+            ) {
+              return transitionRejected(input.event, 'transfer-conflict')
+            }
+            const priorDelegation = current?.delegationHistory.at(-1)
+            if (
+              priorDelegation &&
+              !stableEqual(
+                {
+                  actor: priorDelegation.actor,
+                  onBehalfOf: priorDelegation.onBehalfOf,
+                  grantedScope: priorDelegation.grantedScope,
+                  parentBindingId: priorDelegation.parentBindingId,
+                },
+                adoption.delegation,
+              )
+            ) {
+              return transitionRejected(input.event, 'adoption-identity-mismatch')
+            }
+            const recordedAt = this.now()
+            const observations = [...(current?.observations ?? [])]
+            for (const imported of adoption.observations) {
+              const predecessor = observations.findLast(
+                (entry) => entry.channel === imported.channel,
+              )
+              observations.push({
+                observationId: randomUUID(),
+                ...imported,
+                confidence: 'exact',
+                source: 'handoff-import',
+                observedAt: input.at,
+                recordedAt,
+                supersedes: predecessor?.observationId ?? null,
+              })
+            }
+            const delegationHistory = current?.delegationHistory.length
+              ? current.delegationHistory
+              : [
+                  {
+                    observationId: randomUUID(),
+                    ...adoption.delegation,
+                    observedAt: input.at,
+                    recordedAt,
+                    supersedes: null,
+                    retired: false,
+                  },
+                ]
             changed = {
-              ...current,
+              schemaVersion: 1,
+              ...(current ?? {}),
+              sessionId: input.sessionId,
+              conversationId: current?.conversationId ?? null,
+              agentKind: adoption.agentKind,
+              claimantMachineId: input.toMachineId,
+              attemptId: null,
+              observationGeneration: adoption.observationGeneration,
+              observations,
+              delegationHistory,
+              transitionHistory: current?.transitionHistory ?? [],
               transfer: {
                 transferId: input.transferId,
+                side: 'target',
                 phase: 'claimed',
                 fromMachineId: input.fromMachineId,
                 toMachineId: input.toMachineId,
                 claimedAt: input.at,
                 settledAt: null,
+                priorState: current?.state ?? null,
               },
+              state: 'adopting',
+              createdAt: current?.createdAt ?? input.at,
+              retiredAt: null,
             }
           } else {
             if (
+              !current ||
               !current.transfer ||
               current.transfer.transferId !== input.transferId ||
-              current.transfer.phase !== 'claimed'
+              current.transfer.side !== 'target'
             ) {
               return transitionRejected(input.event, 'transfer-conflict')
             }
-            changed =
-              input.phase === 'commit'
-                ? {
-                    ...current,
-                    claimantMachineId: input.toMachineId,
-                    attemptId: null,
-                    observationGeneration: current.observationGeneration + 1,
-                    transfer: {
-                      ...current.transfer,
-                      phase: 'committed',
-                      settledAt: input.at,
-                    },
-                  }
-                : {
-                    ...current,
-                    transfer: {
-                      ...current.transfer,
-                      phase: 'aborted',
-                      settledAt: input.at,
-                    },
-                  }
+            if (input.phase === 'commit') {
+              if (current.transfer.phase !== 'claimed') {
+                return transitionRejected(input.event, 'transfer-conflict')
+              }
+              changed = {
+                ...current,
+                state: 'bound',
+                transfer: {
+                  ...current.transfer,
+                  phase: 'committed',
+                  settledAt: input.at,
+                },
+              }
+            } else if (input.phase === 'abort') {
+              if (current.transfer.phase !== 'claimed') {
+                return transitionRejected(input.event, 'transfer-conflict')
+              }
+              changed = {
+                ...current,
+                state: current.transfer.priorState ?? 'retired',
+                retiredAt: current.transfer.priorState === null ? input.at : current.retiredAt,
+                transfer: {
+                  ...current.transfer,
+                  phase: 'aborted',
+                  settledAt: input.at,
+                },
+              }
+            } else {
+              if (
+                current.transfer.phase !== 'committed' ||
+                current.state !== 'bound' ||
+                !input.attemptId
+              ) {
+                return transitionRejected(input.event, 'transfer-conflict')
+              }
+              changed = { ...current, attemptId: input.attemptId }
+            }
           }
           changed = withTransitionReceipt(changed, input, this.now())
           break

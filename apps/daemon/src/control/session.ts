@@ -272,7 +272,7 @@ export const MISSING_SESSION_BINDING_MESSAGE =
   'server-minted SessionBinding instruction is required'
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
-  if (!msg.binding) {
+  if ((!msg.binding && !msg.adoptedBinding) || (msg.binding && msg.adoptedBinding)) {
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -280,8 +280,27 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
     return
   }
-  if (msg.binding) {
-    const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
+  const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
+  if (msg.adoptedBinding) {
+    const outcome = await ctx.sessionBinding.transition({
+      event: 'adopt',
+      transitionId: msg.adoptedBinding.transitionId,
+      sessionId: msg.sessionId,
+      machineAccess: msg.adoptedBinding.machineAccess,
+      transferId: msg.adoptedBinding.transferId,
+      role: msg.adoptedBinding.role,
+      phase: 'launch',
+      fromMachineId: asMachineId(msg.adoptedBinding.fromMachineId),
+      toMachineId: asMachineId(msg.adoptedBinding.toMachineId),
+      at: new Date().toISOString(),
+      attemptId: label,
+    })
+    const failure = bindingFailureMessage(outcome)
+    if (failure) {
+      ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: failure })
+      return
+    }
+  } else if (msg.binding) {
     const outcome = await ctx.sessionBinding.transition({
       event: 'spawn',
       transitionId: msg.binding.transitionId,

@@ -24,8 +24,15 @@
  * more; it must not grow a correlation mechanism of its own.
  */
 
-import type { HandoffManifestV1, ResumeRef, SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { HandoffManifestV1, MachineId, ResumeRef, SessionId } from '@podium/model'
+import type {
+  ControlMessage,
+  HandoffBindingExportInstruction,
+  HandoffBindingImportInstruction,
+  HandoffBindingTransfer,
+  SessionBindingAdoptLaunchInstruction,
+} from '@podium/protocol'
+import type { CommandPrincipal } from '../../../command-principal'
 import type { Capability } from '../../../issue-authz'
 import type { Session } from '../session'
 
@@ -40,7 +47,7 @@ import type { Session } from '../session'
  */
 type ExportableAgentKind = HandoffManifestV1['agentKind']
 
-/** The four daemon legs, exactly as `DaemonRpcService` already exposes them. */
+/** The five daemon legs, exactly as `DaemonRpcService` already exposes them. */
 export interface HandoffRpcPort {
   repoOp(
     op: 'revParseVerify',
@@ -61,6 +68,7 @@ export interface HandoffRpcPort {
       title?: string
       issueId?: string
       sourceMachineId: string
+      binding: HandoffBindingExportInstruction
     },
     machineId: string,
   ): Promise<{
@@ -69,6 +77,7 @@ export interface HandoffRpcPort {
     stagePath?: string
     sizeBytes?: number
     manifest?: { worktreeName: string }
+    binding?: HandoffBindingTransfer
   }>
   handoffReadChunk(
     stagePath: string,
@@ -88,7 +97,27 @@ export interface HandoffRpcPort {
     worktreeName: string,
     machineId: string,
     occupiedWorktreePaths?: string[],
-  ): Promise<{ ok: boolean; error?: string; newCwd?: string; worktreeRoot?: string }>
+    binding?: HandoffBindingImportInstruction,
+  ): Promise<{
+    ok: boolean
+    error?: string
+    newCwd?: string
+    worktreeRoot?: string
+    observationGeneration?: number
+  }>
+  handoffBindingFinalize(
+    input: {
+      sessionId: SessionId
+      transitionId: string
+      machineAccess: 'allowed' | 'denied' | 'unreachable'
+      transferId: string
+      role: 'source' | 'target'
+      phase: 'commit' | 'abort'
+      fromMachineId: MachineId
+      toMachineId: MachineId
+    },
+    machineId: string,
+  ): Promise<{ ok: boolean; error?: string; observationGeneration?: number }>
 }
 
 /** One registered repository, as `store.repos.listRepos()` reports it. */
@@ -169,7 +198,10 @@ export interface HandoffPorts {
     title?: string
     machineId: string
   }): Promise<{ sessionId: SessionId }>
-  resurrectSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }>
+  resurrectSession(input: {
+    sessionId: SessionId
+    adoptedBinding?: SessionBindingAdoptLaunchInstruction
+  }): Promise<{ ok: boolean; reason?: string }>
   /** Durable attribution record (ADR 3 D17 / ADR 9 D5 A3) — see the coordinator. */
   recordEvent(event: { ts: string; kind: string; subject: string; payload: unknown }): void
   /** Injected so a transfer that takes real time is testable without one. */
@@ -185,4 +217,6 @@ export interface HandoffPorts {
  */
 export interface HandoffCaller {
   readonly capability: Capability
+  /** Complete transport principal; never reconstructed from the manifest. */
+  readonly principal: CommandPrincipal
 }

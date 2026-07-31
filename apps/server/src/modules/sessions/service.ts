@@ -66,6 +66,7 @@ import {
   type ObservationProvider,
   type RepoProjection,
   type ServerMessage,
+  type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
@@ -75,6 +76,7 @@ import { resolveRole } from '@podium/runtime'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
+import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -3182,14 +3184,27 @@ export class SessionsService {
    */
   handoffSession(
     input: { sessionId: SessionId; machineId: string },
-    caller: HandoffCaller = { capability: OPERATOR },
+    caller: { capability: Capability; principal?: CommandPrincipal } = {
+      capability: OPERATOR,
+    },
   ): Promise<{ ok: true; newCwd: string }> {
     // THE GATE IS BUILT PER DISPATCH, not held on the coordinator. Two callers
     // with different rights can have transfers in flight at once, so a stored gate
     // would answer the last installer's rights for both — and the coordinator's
     // apply-time re-checks would replay one frozen answer, which is the exact
     // snapshot ADR 3 D16 forbids.
-    return this.handoffs().handoff(input, caller, this.machineUseGate(caller))
+    const normalized: HandoffCaller = {
+      capability: caller.capability,
+      principal:
+        caller.principal ??
+        resolvePrincipal(caller.capability, {
+          parentSessionOf: (sessionId) =>
+            sessionSpawnerParentId(
+              this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
+            ),
+        }),
+    }
+    return this.handoffs().handoff(input, normalized, this.machineUseGate(normalized))
   }
 
   /**
@@ -3517,8 +3532,10 @@ export class SessionsService {
    *  [spec:SP-9904]. */
   resurrectSession({
     sessionId,
+    adoptedBinding,
   }: {
     sessionId: SessionId
+    adoptedBinding?: SessionBindingAdoptLaunchInstruction
   }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
@@ -3542,14 +3559,15 @@ export class SessionsService {
     // the spawn being on the wire before queueText returns [POD-197].
     const ensured = this.ensureSessionWorktree(session)
     if (ensured instanceof Promise) {
-      return ensured.then((e) => this.finishResurrect(session, e))
+      return ensured.then((e) => this.finishResurrect(session, e, adoptedBinding))
     }
-    return Promise.resolve(this.finishResurrect(session, ensured))
+    return Promise.resolve(this.finishResurrect(session, ensured, adoptedBinding))
   }
 
   private finishResurrect(
     session: Session,
     ensured: { ok: boolean; reason?: string; cwd?: string },
+    adoptedBinding?: SessionBindingAdoptLaunchInstruction,
   ): { ok: boolean; reason?: string } {
     const sessionId = session.sessionId
     if (!ensured.ok) return { ok: false, reason: ensured.reason }
@@ -3577,6 +3595,7 @@ export class SessionsService {
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
+      ...(adoptedBinding ? { adoptedBinding } : {}),
       ...(observationLease
         ? {
             observationGeneration: observationLease.observationGeneration,

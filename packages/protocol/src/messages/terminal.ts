@@ -3,6 +3,7 @@ import {
   DelegationScope,
   Geometry,
   IssueIdField,
+  MachineIdField,
   ResumeRef,
   SessionIdField,
   UserIdField,
@@ -461,6 +462,20 @@ export const SessionBindingReattachInstruction = z.object({
 })
 export type SessionBindingReattachInstruction = z.infer<typeof SessionBindingReattachInstruction>
 
+/** Launch proof for a binding that the handoff import already adopted. It
+ * resets only the host-local attempt; delegation is read from the binding. */
+export const SessionBindingAdoptLaunchInstruction = z.object({
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+  transferId: z.string().min(1),
+  role: z.enum(['source', 'target']),
+  fromMachineId: MachineIdField,
+  toMachineId: MachineIdField,
+})
+export type SessionBindingAdoptLaunchInstruction = z.infer<
+  typeof SessionBindingAdoptLaunchInstruction
+>
+
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
   sessionId: SessionIdField,
@@ -471,6 +486,9 @@ export const SpawnMessage = z.object({
   geometry: Geometry,
   /** Server-authored from the authenticated transport principal. */
   binding: SessionBindingSpawnInstruction.optional(),
+  /** Mutually exclusive with `binding`: the binding already exists because a
+   * handoff imported it before this process launch (born-pin). */
+  adoptedBinding: SessionBindingAdoptLaunchInstruction.optional(),
   // Settings-driven model defaults. Absent = the harness decides (no flag/env).
   model: z.string().optional(),
   subagentModel: z.string().optional(),

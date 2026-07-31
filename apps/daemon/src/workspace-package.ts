@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -43,7 +43,9 @@ async function sourceKnownShas(cwd: string, shas: string[]): Promise<string[]> {
  * and stage a thin bundle for transfer. Fully lazy [spec:SP-6d57]: the snapshot ref
  * is created and deleted inside this call — nothing survives but the staged
  * archive, which the chunk reader deletes at EOF. The worktree and any live
- * session in it are untouched (temp index, no checkout, no kill).
+ * session in it are untouched (temp index, no checkout, no kill). This is COPY
+ * semantics, not HANDOFF: it never emits ADOPT, creates a target SessionBinding,
+ * or terminally exports the source binding.
  */
 export async function exportWorkspaceSnapshot(input: {
   /** A per-request transfer correlation id — NOT a session id. It reaches

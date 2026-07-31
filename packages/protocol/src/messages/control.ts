@@ -16,6 +16,7 @@ import {
   ImageUploadRequestMessage,
 } from './files'
 import {
+  HandoffBindingFinalizeRequestMessage,
   HandoffChunkReadRequestMessage,
   HandoffExportRequestMessage,
   HandoffImportChunkMessage,
@@ -66,6 +67,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HandoffChunkReadRequestMessage,
   HandoffImportChunkMessage,
   HandoffImportRequestMessage,
+  HandoffBindingFinalizeRequestMessage,
   WorkspaceExportRequestMessage,
   WorkspaceImportRequestMessage,
   WorkspaceCleanRequestMessage,

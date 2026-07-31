@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   AgentKind,
+  asAgentIdentityId,
   asIssueId,
   asMachineId,
   asSessionId,
@@ -11,6 +12,7 @@ import {
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  arbitrateBindingOwnership,
   BindingStore,
   SESSION_BINDING_EVENTS,
   type SessionBindingRecord,
@@ -39,6 +41,17 @@ function applied(outcome: SessionBindingTransitionOutcome): SessionBindingRecord
     throw new Error(`expected applied binding, got ${outcome.status}`)
   }
   return outcome.binding
+}
+
+const delegationOperand = (binding: SessionBindingRecord) => {
+  const delegation = binding.delegationHistory.at(-1)
+  if (!delegation) throw new Error('delegation missing')
+  return {
+    actor: delegation.actor,
+    onBehalfOf: delegation.onBehalfOf,
+    grantedScope: delegation.grantedScope,
+    parentBindingId: delegation.parentBindingId,
+  }
 }
 
 async function spawn(
@@ -540,9 +553,7 @@ describe('SessionBinding transition vocabulary', () => {
     expect(conflict.state).toBe('conflicted')
   })
 
-  it.each(
-    HarnessAgent.options,
-  )('HOOK-REPIN preserves delegation for %s', async (kind) => {
+  it.each(HarnessAgent.options)('HOOK-REPIN preserves delegation for %s', async (kind) => {
     const bindings = await store()
     const before = await spawn(bindings, `hook-${kind}`, kind)
     const delegation = JSON.stringify(before.delegationHistory)
@@ -560,7 +571,6 @@ describe('SessionBinding transition vocabulary', () => {
     expect(after.state).toBe('bound')
     expect(JSON.stringify(after.delegationHistory)).toBe(delegation)
   })
-
 
   it.each(
     HarnessAgent.options,
@@ -618,36 +628,298 @@ describe('SessionBinding transition vocabulary', () => {
     }
   })
 
-  it.each(AgentKind.options)('ADOPT carries delegation unchanged for %s', async (kind) => {
-    const bindings = await store()
-    const before = await spawn(bindings, `adopt-${kind}`, kind)
-    const delegation = JSON.stringify(before.delegationHistory)
-    await bindings.transition({
-      event: 'adopt',
-      transitionId: `adopt:${kind}:claim`,
-      sessionId: before.sessionId,
-      machineAccess: 'allowed',
-      transferId: `transfer-${kind}`,
-      phase: 'claim',
-      fromMachineId: machineA,
-      toMachineId: machineB,
-      at: '2026-07-31T12:00:00.000Z',
+  it.each(
+    AgentKind.options,
+  )('ADOPT moves %s across hosts without re-minting the importing principal', async (kind) => {
+    const source = await store()
+    const target = await store()
+    const before = await spawn(source, `adopt-${kind}`, kind, {
+      attemptId: `source-attempt-${kind}`,
     })
-    const committed = applied(
-      await bindings.transition({
+    expect(before.attemptId).toBe(`source-attempt-${kind}`)
+    const delegation = delegationOperand(before)
+    const transferId = `transfer-${kind}`
+    const sourceClaim = applied(
+      await source.transition({
         event: 'adopt',
-        transitionId: `adopt:${kind}:commit`,
+        transitionId: `adopt:${kind}:claim`,
         sessionId: before.sessionId,
         machineAccess: 'allowed',
-        transferId: `transfer-${kind}`,
+        transferId,
+        role: 'source',
+        phase: 'claim',
+        fromMachineId: machineA,
+        toMachineId: machineB,
+        at: '2026-07-31T12:00:00.000Z',
+      }),
+    )
+    expect(sourceClaim).toMatchObject({ state: 'exporting', attemptId: null })
+
+    const carried = source.currentDelegation(sourceClaim)
+    if (!carried) throw new Error('source delegation missing')
+    const targetClaim = applied(
+      await target.transition({
+        event: 'adopt',
+        transitionId: `adopt:${kind}:target-claim`,
+        sessionId: before.sessionId,
+        machineAccess: 'allowed',
+        transferId,
+        role: 'target',
+        phase: 'claim',
+        fromMachineId: machineA,
+        toMachineId: machineB,
+        at: '2026-07-31T12:00:00.500Z',
+        adoption: {
+          agentKind: kind,
+          observationGeneration: before.observationGeneration + 1,
+          delegation: {
+            actor: carried.actor,
+            onBehalfOf: carried.onBehalfOf,
+            grantedScope: carried.grantedScope,
+            parentBindingId: carried.parentBindingId,
+          },
+          observations: [
+            { channel: 'resume-ref', nativeKind: `native-${kind}`, value: `id-${kind}` },
+            { channel: 'cwd', value: `/target/${kind}` },
+            { channel: 'worktree-pin', value: `/target/${kind}` },
+          ],
+        },
+      }),
+    )
+    expect(targetClaim).toMatchObject({
+      sessionId: before.sessionId,
+      claimantMachineId: machineB,
+      state: 'adopting',
+      attemptId: null,
+    })
+    // BORN-PIN: imported native and worktree observations exist before commit or launch.
+    expect(targetClaim.observations.slice(-3)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          channel: 'cwd',
+          value: `/target/${kind}`,
+          source: 'handoff-import',
+        }),
+        expect.objectContaining({
+          channel: 'worktree-pin',
+          value: `/target/${kind}`,
+          source: 'handoff-import',
+        }),
+      ]),
+    )
+
+    const sourceCommitted = applied(
+      await source.transition({
+        event: 'adopt',
+        transitionId: `adopt:${kind}:source-commit`,
+        sessionId: before.sessionId,
+        machineAccess: 'allowed',
+        transferId,
+        role: 'source',
         phase: 'commit',
         fromMachineId: machineA,
         toMachineId: machineB,
         at: '2026-07-31T12:00:01.000Z',
       }),
     )
-    expect(committed.claimantMachineId).toBe(machineB)
-    expect(JSON.stringify(committed.delegationHistory)).toBe(delegation)
+    const targetCommitted = applied(
+      await target.transition({
+        event: 'adopt',
+        transitionId: `adopt:${kind}:target-commit`,
+        sessionId: before.sessionId,
+        machineAccess: 'allowed',
+        transferId,
+        role: 'target',
+        phase: 'commit',
+        fromMachineId: machineA,
+        toMachineId: machineB,
+        at: '2026-07-31T12:00:01.100Z',
+      }),
+    )
+    expect(sourceCommitted).toMatchObject({ state: 'exported', attemptId: null })
+    expect(targetCommitted).toMatchObject({ state: 'bound', claimantMachineId: machineB })
+    expect(delegationOperand(targetCommitted)).toEqual(delegation)
+    // The importing machine is Bob's. ADOPT has no importer identity input, so
+    // importing Alice's session cannot turn Bob into its human.
+    expect(JSON.stringify(targetCommitted.delegationHistory)).not.toContain('bob')
+  })
+
+  it('round-trip A→B→A reuses the terminal source row and advances observations', async () => {
+    const a = await store()
+    const b = await store()
+    const original = await spawn(a, 'round-trip', 'codex')
+    const delegation = a.currentDelegation(original)
+    if (!delegation) throw new Error('delegation missing')
+    const adopt = async (
+      source: BindingStore,
+      target: BindingStore,
+      fromMachineId: typeof machineA,
+      toMachineId: typeof machineA,
+      transferId: string,
+      generation: number,
+      cwd: string,
+    ) => {
+      applied(
+        await source.transition({
+          event: 'adopt',
+          transitionId: `${transferId}:source-claim`,
+          sessionId: original.sessionId,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'source',
+          phase: 'claim',
+          fromMachineId,
+          toMachineId,
+          at: '2026-07-31T13:00:00.000Z',
+        }),
+      )
+      applied(
+        await target.transition({
+          event: 'adopt',
+          transitionId: `${transferId}:target-claim`,
+          sessionId: original.sessionId,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'target',
+          phase: 'claim',
+          fromMachineId,
+          toMachineId,
+          at: '2026-07-31T13:00:00.100Z',
+          adoption: {
+            agentKind: 'codex',
+            observationGeneration: generation,
+            delegation: {
+              actor: delegation.actor,
+              onBehalfOf: delegation.onBehalfOf,
+              grantedScope: delegation.grantedScope,
+              parentBindingId: delegation.parentBindingId,
+            },
+            observations: [
+              {
+                channel: 'rollout-path',
+                nativeKind: 'codex-thread',
+                value: `${cwd}/rollout.jsonl`,
+              },
+              { channel: 'worktree-pin', value: cwd },
+            ],
+          },
+        }),
+      )
+      applied(
+        await source.transition({
+          event: 'adopt',
+          transitionId: `${transferId}:source-commit`,
+          sessionId: original.sessionId,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'source',
+          phase: 'commit',
+          fromMachineId,
+          toMachineId,
+          at: '2026-07-31T13:00:00.200Z',
+        }),
+      )
+      return applied(
+        await target.transition({
+          event: 'adopt',
+          transitionId: `${transferId}:target-commit`,
+          sessionId: original.sessionId,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'target',
+          phase: 'commit',
+          fromMachineId,
+          toMachineId,
+          at: '2026-07-31T13:00:00.300Z',
+        }),
+      )
+    }
+    const onB = await adopt(a, b, machineA, machineB, 'a-to-b', 2, '/b/worktree')
+    const backOnA = await adopt(b, a, machineB, machineA, 'b-to-a', 3, '/a/stale-reused')
+    expect(onB).toMatchObject({ claimantMachineId: machineB, observationGeneration: 2 })
+    expect(backOnA).toMatchObject({
+      claimantMachineId: machineA,
+      observationGeneration: 3,
+      state: 'bound',
+    })
+    expect(backOnA.observations.at(-1)).toMatchObject({
+      channel: 'worktree-pin',
+      value: '/a/stale-reused',
+    })
+    expect(delegationOperand(backOnA)).toEqual(delegationOperand(original))
+  })
+
+  it('post-crash arbitration is order-independent and authorization remains live', async () => {
+    const sessionId = asSessionId('post-crash-race')
+    const sourceClaim = {
+      sessionId,
+      machineId: machineA,
+      transferId: 'transfer',
+      role: 'source' as const,
+      phase: 'claimed' as const,
+    }
+    const targetClaim = {
+      sessionId,
+      machineId: machineB,
+      transferId: 'transfer',
+      role: 'target' as const,
+      phase: 'claimed' as const,
+    }
+    expect(arbitrateBindingOwnership(sourceClaim, targetClaim)).toBe(targetClaim)
+    expect(arbitrateBindingOwnership(targetClaim, sourceClaim)).toBe(targetClaim)
+    const unrelated = { ...sourceClaim, transferId: 'z-transfer', machineId: machineB }
+    expect(arbitrateBindingOwnership(sourceClaim, unrelated)).toBe(unrelated)
+    expect(arbitrateBindingOwnership(unrelated, sourceClaim)).toBe(unrelated)
+    const aborted = { ...unrelated, transferId: 'zz-transfer', phase: 'aborted' as const }
+    expect(arbitrateBindingOwnership(sourceClaim, aborted)).toBe(sourceClaim)
+    expect(arbitrateBindingOwnership(aborted, sourceClaim)).toBe(sourceClaim)
+
+    const target = await store()
+    applied(
+      await target.transition({
+        event: 'adopt',
+        transitionId: 'winner:claim',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'transfer',
+        role: 'target',
+        phase: 'claim',
+        fromMachineId: machineA,
+        toMachineId: machineB,
+        at: '2026-07-31T13:59:59.000Z',
+        adoption: {
+          agentKind: 'codex',
+          observationGeneration: 2,
+          delegation: {
+            actor: asAgentIdentityId('post-crash-agent'),
+            onBehalfOf: alice,
+            grantedScope: { kind: 'all' },
+            parentBindingId: null,
+          },
+          observations: [{ channel: 'worktree-pin', value: '/target/worktree' }],
+        },
+      }),
+    )
+    const denied = await target.transition({
+      event: 'adopt',
+      transitionId: 'winner:first-apply',
+      sessionId,
+      machineAccess: 'denied',
+      transferId: 'transfer',
+      role: 'target',
+      phase: 'launch',
+      fromMachineId: machineA,
+      toMachineId: machineB,
+      at: '2026-07-31T14:00:00.000Z',
+      attemptId: 'attempt',
+    })
+    expect(denied).toEqual({
+      status: 'denied',
+      event: 'adopt',
+      reason: 'machine-use-denied',
+      terminal: true,
+    })
+    expect(await target.read(sessionId)).toMatchObject({ state: 'adopting', attemptId: null })
   })
 
   it('machine-use denial is a stable terminal outcome distinct from unreachable', async () => {

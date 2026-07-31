@@ -48,16 +48,16 @@
  * `attributionOf(machinePrincipal).onBehalfOf` is `null` by construction.
  */
 
+import { asMachineId } from '@podium/model'
 import type { DaemonMessage, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
-import { asMachineId } from '@podium/model'
+import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import {
   type DaemonPortId,
   daemonPlaneClassFor,
   daemonPortsFor,
   type SessionsDaemonFrame,
 } from './daemon-frame-routing'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import type { ControlSend, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
 
 /**
@@ -138,14 +138,18 @@ const DISPATCH: Dispatcher = {
 
   // ---- conversations: discovery is per-machine ----
   conversationsChanged: (ports, principal, msg) =>
-    ports.conversations().onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed),
+    ports
+      .conversations()
+      .onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed),
   transcriptMirrorResult: (ports, _principal, msg) =>
     ports.conversations().onTranscriptMirrorResult(msg),
   // Dual ownership, preserved from the pre-extraction switch: a scan is BOTH a
   // conversation discovery and the reply to an RPC. Order matters and is the
   // table's, not a send site's.
   scanResult: (ports, principal, msg) => {
-    ports.conversations().onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed)
+    ports
+      .conversations()
+      .onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed)
     ports.rpc.onScanResult(msg)
   },
 
@@ -166,6 +170,7 @@ const DISPATCH: Dispatcher = {
   handoffChunkReadResult: (ports, _p, msg) => ports.rpc.onHandoffChunkReadResult(msg),
   handoffImportChunkResult: (ports, _p, msg) => ports.rpc.onHandoffImportChunkResult(msg),
   handoffImportResult: (ports, _p, msg) => ports.rpc.onHandoffImportResult(msg),
+  handoffBindingFinalizeResult: (ports, _p, msg) => ports.rpc.onHandoffBindingFinalizeResult(msg),
   workspaceExportResult: (ports, _p, msg) => ports.rpc.onWorkspaceExportResult(msg),
   workspaceImportResult: (ports, _p, msg) => ports.rpc.onWorkspaceImportResult(msg),
   workspaceCleanResult: (ports, _p, msg) => ports.rpc.onWorkspaceCleanResult(msg),
