@@ -359,6 +359,11 @@ class TanstackReplica implements Replica {
     this.now = init.now ?? Date.now
     this.persistedInit = init.persisted
     const storage = init.storage ?? legacyMigrationStorage(init)
+    // TRUE ONLY IN SQLITE MODE, and that is what makes the reach below safe:
+    // `legacyMigrationStorage` returns a store ONLY when `init.persisted` is set,
+    // so this says "the store we hold is the OLD blob store the one-time
+    // migration reads", never "the store the collections persist into".
+    const readingMigrationStore = init.storage === undefined && storage !== undefined
     // Web storage usability, probed even in SQLite mode (migration reads it).
     const webStorageUsable = probeStorage(storage)
     // SQLite mode is durable by construction (the caller already opened the
@@ -367,18 +372,29 @@ class TanstackReplica implements Replica {
     // Unusable storage (private mode / quota / SSR) → the SAME collections run
     // over an in-memory adapter: everything works, nothing survives a reload.
     this.storage = webStorageUsable && storage ? storage : memoryStorage()
-    // Cross-tab wiring only when we're really on a shared window.localStorage
-    // AND it backs the collections (SQLite mode has one window, no events).
+    // Cross-tab wiring only when the caller supplied an event source AND that
+    // source backs the collections (SQLite mode has one window, no events).
+    // The `window` fallback that used to sit here is GONE, and it was already
+    // unreachable: it required `init.storage === undefined && webStorageUsable`,
+    // and `probeStorage(undefined)` is false unless `legacyMigrationStorage`
+    // produced a store — which happens only in `persisted` mode, which this
+    // branch excludes. Dead either way; keeping it left a second ambient reach
+    // for a later edit to widen back into an adoption.
     this.storageEventApi =
       webStorageUsable && !init.persisted
-        ? (init.storageEventApi ??
-          (init.storage === undefined && typeof window !== 'undefined'
-            ? window
-            : NOOP_STORAGE_EVENTS))
+        ? (init.storageEventApi ?? NOOP_STORAGE_EVENTS)
         : NOOP_STORAGE_EVENTS
+    // The migration's key enumerator, not the replica's. Prefix-matched legacy
+    // ui-state keys cannot be probed individually, so the SQLite migration needs
+    // to list the old localStorage — the same store, and the same one-time job,
+    // as {@link legacyMigrationStorage}. Keyed on that store now rather than on
+    // `init.storage === undefined`: injecting a store must not silently also
+    // decide anything about enumeration. Nothing here ADOPTS — in every path
+    // where no store is injected outside SQLite mode, `this.storage` is
+    // `memoryStorage()` and this returns `[]`.
     this.enumerateKeys =
       init.enumerateKeys ??
-      (webStorageUsable && init.storage === undefined && typeof window !== 'undefined'
+      (webStorageUsable && readingMigrationStore
         ? () => Object.keys(window.localStorage)
         : () => [])
     this.nonce = ++instanceSeq
