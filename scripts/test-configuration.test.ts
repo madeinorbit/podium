@@ -1,11 +1,12 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import acceptanceConfig from '../vitest.acceptance.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
+import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import unitConfig from '../vitest.unit.config'
+import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 
 type Project = string | { test?: { name?: string; exclude?: string[]; retry?: number } }
@@ -86,6 +87,46 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
   })
 
+  it('keeps every browser suite reachable from a script and a CI job [POD-1227]', () => {
+    // The hole this closes: 70 `*.browser.e2e.ts` suites existed with no script and
+    // no job, each run once by hand and never again, while handoffs cited them as
+    // runtime verification. POD-756 counted them and the lane still never appeared.
+    // So the lane's EXISTENCE is asserted here, not left to a comment.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts['test:browser'], 'the browser lane script is gone').toBe(
+      'bun scripts/browser-lane.ts',
+    )
+
+    const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    expect(ci, 'ci.yml has no job invoking the browser lane').toMatch(
+      /^\s*run: bun run test:browser\b/m,
+    )
+    // Playwright is not preinstalled on the runner: without this the whole lane
+    // errors on setup and reads as "0 failures" under continue-on-error.
+    expect(ci).toMatch(/playwright install --with-deps/)
+    // Every project the config declares needs a leg, or a whole device class goes
+    // unrun while the job still reports. Mobile-only suites (`test.skip(({ isMobile
+    // }) => !isMobile)`) exist ONLY on the pixel/webkit legs.
+    for (const project of ['chromium-desktop', 'chromium-pixel', 'webkit-iphone'])
+      expect(ci, `browser lane has no CI leg for ${project}`).toContain(project)
+
+    // Quarantine must name suites that exist. A stale entry excludes nothing while
+    // still reading as a deliberate exclusion — the runner exits 2 on one, and this
+    // catches it without booting a browser.
+    const suites = readdirSync(new URL('../tests/e2e/browser/', import.meta.url)).filter((f) =>
+      f.endsWith('.browser.e2e.ts'),
+    )
+    expect(suites.length).toBeGreaterThan(0)
+    for (const q of QUARANTINE) {
+      expect(suites, `quarantined suite "${q.suite}" does not exist`).toContain(q.suite)
+      // "flaky"/"broken" is not a quarantine reason: a suite that runs and fails
+      // belongs in the census as a failure. Quarantine is for what CANNOT run.
+      expect(q.reason.length, `quarantine "${q.suite}" needs a reason`).toBeGreaterThan(20)
+    }
+  })
+
   it('keeps the oracle lane set, its runner, and CI in sync [POD-295]', () => {
     // The oracle is defined in three places that can drift apart silently: the lane
     // set (scripts/oracle.ts), the local runner (`bun run oracle`), and the CI job.
@@ -145,8 +186,7 @@ describe('test lane configuration', () => {
         expect(
           match[1].trim(),
           `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
-        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/,
-        )
+        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/)
       }
     }
   })
