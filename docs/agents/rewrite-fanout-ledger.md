@@ -3087,3 +3087,45 @@ Two more from the same tranche, both about the unit of judgement:
     so any line from the other side that did NOT survive has to be justified out
     loud. A three-way merge you cannot audit afterwards is a confident side-take
     wearing better clothes.
+
+## The rewrite branch is not ahead on every axis — measured, against my own claim
+
+I told POD-1246 that integration's deletion-audit numbers are lower than main's
+"because the rewrite genuinely removed the debt", and to check each key. It
+checked, and I was wrong as a generalisation. Measured across all 21 shared keys:
+
+    change-row-typings   integration 12   main 7
+    local-placeholders   integration 16   main 12
+
+Those two, and only those two. Taking integration's baseline wholesale — the
+obvious move, on the branch that is supposed to be the improvement — absorbs a
+regression on both.
+
+WHY, and it is the whole shape of this catch-up: main's POD-797 DELETED the
+legacy local issues wire, and integration REBUILT it. Two independent correct
+answers to the same question, landed on two branches, and the one with more
+recent work is not automatically the one with less debt.
+
+THREE THINGS THAT FOLLOW, all of which POD-1246 got right and my brief did not:
+
+  - THE DETECTOR SETS DIFFER (30 integration / 23 main / 32 union), so
+    "lower per key" is not even well-defined until the SCRIPT merges. A baseline
+    comparison presumes a shared vocabulary of what is being counted.
+  - THE BASELINE IS A MEASUREMENT OF THE MERGED TREE, NOT A MERGE DECISION. Same
+    for the boundary allowlist: integration deleted three entries because it FIXED
+    the debt (ternaries became record lookups); main still has the ternaries.
+    Which entries belong depends on which CODE wins, which is a later tranche. A
+    provisional value taken only so a gate can run must be flagged and must not
+    ship.
+  - A DETECTOR READING 0 IS STILL A RATCHET and must survive the merge. Main's
+    two extra detectors both belong, and one of them is not a counting detector at
+    all but a registered-residue entry whose array, type, reporting and test
+    integration lacks entirely.
+
+THE META-POINT, and it is now twice in one run: BOTH TIMES MY OWN HAZARD NOTE WAS
+HALF RIGHT, and both times an implementer caught it by measuring rather than
+reasoning. First `docs/adr` ("integration supersedes main" — false, main had
+content integration lacked, and the unit of judgement turned out to be the HUNK
+rather than the file). Now the baseline. A coordinator's note about a hazard is a
+belief about a plan, not a fact about the tree, and it decays exactly like a brief
+does. Write them so they can be checked, and expect them to be.
