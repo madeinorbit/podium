@@ -136,15 +136,16 @@ export class PushedBootstrapSource {
   }
 
   private take(freshAfter: number | undefined): Promise<BootstrapChunk> {
+    let ask = false
     if (freshAfter !== undefined) {
       const held = this.slot
       this.slot = undefined
       if (held !== undefined && held.offeredAt > freshAfter) return Promise.resolve(held.chunk)
       // Either nothing was pushed, or what was pushed predates this walk and has
-      // just been dropped. Both mean: ask, then wait.
-      this.deps.requestFreshWorld()
+      // just been dropped. Both mean: ask — but NOT yet. See below.
+      ask = true
     }
-    return new Promise<BootstrapChunk>((resolve, reject) => {
+    const pending = new Promise<BootstrapChunk>((resolve, reject) => {
       const setTimer = this.deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
       const clearTimer = this.deps.clearTimer ?? ((h) => clearTimeout(h as never))
       const timer = setTimer(() => {
@@ -168,5 +169,22 @@ export class PushedBootstrapSource {
         reject(error)
       }
     })
+    /**
+     * ASK ONLY ONCE THE WAITER IS REGISTERED, AND THIS ORDER IS LOAD-BEARING.
+     *
+     * `requestFreshWorld` is not required to be asynchronous. Over a real socket
+     * it is (`forceClose` → reconnect → admission → push), but the seam is a plain
+     * callback and a caller that pushes SYNCHRONOUSLY is entirely reasonable —
+     * every test harness does. Asking before the promise existed meant `offer`
+     * found no waiter, parked the world in the slot, and the walk then waited for
+     * a push that had already happened: a deadlock reachable only from the fast
+     * path, which is the shape that survives a review and hangs a suite.
+     *
+     * Registering first makes both timings identical: a synchronous push lands on
+     * the waiter, an asynchronous one lands on the waiter, and the slot is only
+     * ever used for a world nobody was waiting for.
+     */
+    if (ask) this.deps.requestFreshWorld()
+    return pending
   }
 }
