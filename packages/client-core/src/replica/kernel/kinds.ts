@@ -17,7 +17,7 @@
  * "not mine" — never "corrupt".
  */
 
-import type { ReplicaKind, ReplicaRows } from '../replica'
+import type { ReplicaKind, ReplicaRows } from '../contract'
 
 /** Kernel entity name → engine collection kind. */
 const ENTITY_TO_KIND = {

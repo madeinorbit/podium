@@ -44,7 +44,7 @@ import {
   type StorageEventApi,
   type TranscriptWindow,
   type UiState,
-} from '../replica'
+} from '../contract'
 
 export interface SideCacheInit {
   storage: StorageApi
