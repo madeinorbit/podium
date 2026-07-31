@@ -69,6 +69,10 @@ export const ROW = {
   composerDraft: id('composer-draft'),
   queuedMessages: id('queued-agent-messages'),
   daemonObservedRuntime: id('daemon-observed-runtime'),
+  sessionObservationBookkeeping: id('session-observation-bookkeeping'),
+  sessionUploads: id('session-uploads'),
+  headlessTurnSpool: id('headless-turn-spool'),
+  offers: id('agent-offers'),
   sessionLiveEphemeral: id('session-live-ephemeral'),
   hostMetrics: id('host-metrics'),
   provenanceEnvelope: id('provenance-envelope'),
@@ -78,6 +82,9 @@ export const ROW = {
   needsHuman: id('needs-human-group'),
   issueGraph: id('issue-graph'),
   issueComments: id('issue-comments'),
+  activityEvents: id('activity-events'),
+  eventSubscriptions: id('event-subscriptions'),
+  subscriptionDeliveries: id('subscription-deliveries'),
   issueMessages: id('issue-messages'),
   issueMessageReadAt: id('issue-message-read-at'),
   artifacts: id('artifacts'),
@@ -87,6 +94,8 @@ export const ROW = {
   blobs: id('blobs'),
 
   repoPrefix: id('repo-prefix'),
+  harnessDiscoveryCache: id('harness-discovery-cache'),
+  harnessHookSettings: id('harness-hook-settings'),
   /** The living project spec (pspec v1) — files in a repo, NOT a replicated
    *  table. Added by POD-385; see the row for why it is `owned-compute`. */
   pspecComponent: id('pspec-component'),
@@ -98,10 +107,20 @@ export const ROW = {
   serverSecrets: id('server-owned-secrets'),
   managedCredentials: id('managed-credentials'),
   configFeatures: id('config-features'),
+  settingsAuditTrail: id('settings-audit-trail'),
 
   locks: id('advisory-locks'),
   approvals: id('approval-requests'),
   automations: id('automations-and-runs'),
+  // POD-1211's coordination-shaped adoptions. Each is server-internal
+  // bookkeeping the SWEEP found with no row at all; see `serverBookkeeping`
+  // for why they are `personal`-with-no-owner rather than substrate.
+  maintenanceLease: id('maintenance-lease'),
+  maintenanceCommandReceipts: id('maintenance-command-receipts'),
+  stewardState: id('steward-state'),
+  notificationFacts: id('notification-facts'),
+  wakeCooldowns: id('message-wake-cooldowns'),
+  idAllocationCounters: id('id-allocation-counters'),
   // The workflow surface, as FIVE classes rather than the one row it used to
   // be (POD-731). The split is not cosmetic: revisions inherit their definition
   // while runs inherit the ISSUE they advance, and one row cannot carry two
@@ -119,6 +138,7 @@ export const ROW = {
   handoffBundle: id('handoff-bundle'),
 
   changeLog: id('change-log'),
+  feedIdentity: id('feed-identity'),
   appliedMutations: id('applied-mutations'),
   clientOutbox: id('client-outbox'),
   replicaCursor: id('replica-cursor'),
@@ -193,6 +213,88 @@ const perUserState = (
   ...row,
 })
 
+/**
+ * SERVER-INTERNAL BOOKKEEPING — POD-1211's shape, declared once.
+ *
+ * The sweep (POD-385, `docs/agents/pod-385-matrix-coverage-sweep.md`) found a
+ * family of durable classes that are (a) written only by the Authority itself as
+ * `system`, (b) never replicated to any replica, and (c) owned by nobody:
+ * janitor leases and their idempotency receipts, the steward's cursor KV, the
+ * notification arbiter's once-until-ack claims, wake cooldowns, subscription
+ * delivery receipts, id allocation counters, the feed's identity row.
+ *
+ * WHY `personal` AND NOT `deployment-substrate`, WHICH IS WHAT THEY LOOK LIKE.
+ * `advisory-locks` and `applied-mutations` are the two neighbours these most
+ * resemble, and both are substrate — so substrate is the obvious reading, and it
+ * is the one this pass deliberately does NOT take. ADR 1 Amendment 1 D9.3 makes
+ * the classification ratchet ONE-WAY: moving a class *toward* privacy is
+ * per-feature policy, moving anything INTO `deployment-substrate` requires an
+ * ADR 1 amendment, because substrate means TENANT-VISIBLE and widening is always
+ * reviewed (ADR 9 D4 rule 4). POD-1211 is chartered to classify classes that had
+ * no row; it is not chartered to widen the tenant-visible floor, and it ran with
+ * no human available to take that decision. So each row here is classified in
+ * the direction that is free — private — and says on its face that substrate is
+ * its plausible eventual home. Nothing is lost by waiting: none of these rows
+ * reaches a client at all, so `personal` and `deployment-substrate` are
+ * indistinguishable at every surface that exists today. What IS gained is that
+ * the class is now DECLARED, which is the whole point: before this, an
+ * unclassified class and a deliberately-private one returned the same value from
+ * `visibilityClassOf` and both read green.
+ *
+ * `owner: none / substrate` with `visibility: 'personal'` is therefore exact
+ * rather than contradictory: nobody owns the row, AND no principal may see it
+ * through a scoped feed. `blobs` already carries the same pairing (no owner,
+ * `personal`) for a different reason.
+ */
+const serverBookkeeping = (
+  row: Pick<MatrixRow, 'id' | 'section' | 'title' | 'sites' | 'idMinting'> & Partial<MatrixRow>,
+): MatrixRow => ({
+  home: 'server',
+  writers: ['system'],
+  replication: 'none',
+  replicationNote:
+    'Never replicated and never projected onto the wire. It is in this matrix for its ADR 9 D4 visibility declaration, which every durable class owes whether or not it replicates (the `pspec-component` and `instance-id` precedent).',
+  conflict: 'single-writer',
+  conflictNote:
+    'The Authority is the only writer, so there is no second copy to arbitrate against.',
+  tombstone: 'hard-delete',
+  tombstoneNote: 'Swept by retention or by the lifecycle of whatever it is bookkeeping for.',
+  offline: 'n/a',
+  secret: 'public',
+  owner: {
+    kind: 'none',
+    reason: 'substrate',
+    note:
+      'Nobody owns it: it is the Authority’s own bookkeeping, not a row belonging to whoever caused it. ' +
+      'Classified `personal` rather than `deployment-substrate` on the ADR 1 Amendment 1 D9.3 ratchet — ' +
+      'privacy is free, exposure needs an amendment — and unobservably so, because the class reaches no client.',
+  },
+  visibility: 'personal',
+  grants: {
+    kind: 'none',
+    reason: 'derived',
+    note: 'Nothing to share: there is no surface on which a principal reads this class, so there is no read to grant.',
+  },
+  attribution: {
+    actor: 'required',
+    onBehalfOf: 'none-representable',
+    note: 'A `system` act with no human behind it — explicitly absent, never defaulted to an operator.',
+  },
+  systemWriter: 'may-write',
+  systemWriterRule: SYSTEM_WRITER_RULE,
+  inheritanceOnCreate: {
+    kind: 'not-applicable',
+    reason: 'Bookkeeping has no parent and no owner to inherit.',
+  },
+  visibilityMutability: {
+    mutable: false,
+    verbs: [],
+    note: 'Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal.',
+  },
+  open: [],
+  ...row,
+})
+
 // ---------------------------------------------------------------------------
 // §1 Identity & deployment scope
 // ---------------------------------------------------------------------------
@@ -202,7 +304,7 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     id: ROW.instanceId,
     section: 'identity-and-deployment-scope',
     title: 'InstanceId (deployment partition)',
-    sites: ['packages/runtime/src/instance.ts'],
+    sites: ['`<stateDir>/instance.json` — the state-dir identity marker', 'packages/runtime/src/instance.ts'],
     home: 'runtime-local',
     idMinting:
       'Operator / `PODIUM_INSTANCE` / CLI `--instance`; `INSTANCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/`, default `default`',
@@ -458,7 +560,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     id: ROW.sessionReadAt,
     section: 'sessions',
     title: 'Session `readAt` (moved out of the labels group by Amendment 1 D10)',
-    sites: ['`sessions.read_at` (a SINGLETON column today — the non-compliance)'],
+    sites: ['`session_user_state` — keyed `(user_id, session_id)` (POD-1076; it was a SINGLETON `sessions.read_at` column until then)'],
     conflictNote:
       'Read state is a fact about a READER. Keyed `(userId, sessionId)` it is single-writer by construction; today it is one instance-wide column, which asserts that exactly one person exists.',
   }),
@@ -466,7 +568,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     id: ROW.snooze,
     section: 'sessions',
     title: 'Snooze (`snoozes` / `snoozedUntil`)',
-    sites: ['`snoozes` (keyed `session_id` today)', 'packages/model/src/predicates/snooze.ts'],
+    sites: ['`snoozes` (keyed `session_id` today)', 'packages/model/src/predicates/snooze.ts', 'THE ONE MEMBER STILL KEYED ON THE ENTITY ALONE: POD-1076 re-keyed readAt / pins / tab order and left this one, so a snooze is still instance-wide.'],
     conflictNote:
       '"Stop bothering ME until Tuesday" is not a property of the session. Because the stored and wire values stay the strings they already are, the move is a RE-KEY, not a re-representation (model README invariant 2).',
   }),
@@ -666,6 +768,160 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     },
     open: [],
   },
+  // -------------------------------------------------------------------------
+  // POD-1211 — the session-adjacent half of POD-385's fourteen, plus the two
+  // FILESYSTEM-BACKED session stores its method could not see at all. `uploads`
+  // and `headless-turns` are directories under the state dir; no schema
+  // mentions them, exactly as no schema mentions pspec.
+  // -------------------------------------------------------------------------
+  {
+    id: ROW.offers,
+    section: 'sessions',
+    title: 'Agent action offers (`offers`)',
+    sites: [
+      '`offers` — keyed `session_id`, at most one live offer per session',
+      'apps/server/src/store/sessions.ts',
+      'apps/server/src/relay.ts',
+      '[spec:SP-c7f1]',
+    ],
+    home: 'server',
+    idMinting: 'Key `session_id` — the session IS the id',
+    writers: ['agent-session', 'operator', 'system'],
+    replication: 'server-to-clients',
+    replicationNote: 'The offer bar is a live surface; an offer with no reader is pointless.',
+    conflict: 'cmd',
+    conflictNote:
+      'Post / clear against a single-row-per-session key. A new offer REPLACES the old one — that is the product rule (a stale offer self-clears), not a merge.',
+    tombstone: 'hard-delete',
+    tombstoneNote:
+      'Cleared by the operator’s next turn, by the agent’s own next turn, and cascaded on session delete.',
+    offline: 'online-only',
+    secret: 'public',
+    secretNote: 'Prompt text and issue-artifact paths; no credential material.',
+    owner: {
+      kind: 'inherits',
+      from: ROW.sessionIdentity,
+      note: 'An offer is the session speaking to its owner; it has no life apart from the session.',
+    },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.sessionIdentity },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'The posting agent is the actor; the offer is FOR its on-behalf-of human, which is what makes an offer an attention-routing act.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.sessionIdentity },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE: follows its session. `offers()` reads EVERY row in one statement today, with no principal in the query.',
+    },
+    open: [],
+  },
+  serverBookkeeping({
+    id: ROW.sessionObservationBookkeeping,
+    section: 'sessions',
+    title:
+      'Session observation leases, rebinds and terminal candidates (`session_observation_checkpoints`, `session_observation_rebinds`, `session_terminal_candidates`)',
+    sites: [
+      '`session_observation_checkpoints` — keyed `session_id`',
+      '`session_observation_rebinds` — keyed `session_id`, cascades from the checkpoint',
+      '`session_terminal_candidates` — keyed `session_id`, cascades from the checkpoint',
+      'apps/server/src/store/observation-checkpoints.ts',
+      '[spec:SP-cdb2]',
+    ],
+    idMinting: 'Key `session_id` in all three; the generation counters are server-allocated',
+    writers: ['system', 'daemon'],
+    conflictNote:
+      'ONE row per session in each table, written only by the observation path, with staleness refused by GENERATION rather than merged — a rebind from an old observer generation is rejected, not applied late. All three agree on every column, which is why they are one row and the workflow surface was five: nothing here disagrees.',
+    tombstoneNote: 'Cascades with the session (`ON DELETE CASCADE` from the checkpoint row).',
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'none-representable',
+      note: 'The observer is a machine/system principal watching a session; there is no human behind an observation.',
+    },
+  }),
+  {
+    id: ROW.sessionUploads,
+    section: 'sessions',
+    title: 'Session uploads (`<stateDir>/uploads/<sessionId>/`)',
+    sites: [
+      '`<stateDir>/uploads/<sessionId>/<id><ext>` — files on the daemon host, in NO schema',
+      'apps/daemon/src/session-uploads.ts',
+      'apps/daemon/src/upload.ts',
+    ],
+    home: 'runtime-local',
+    idMinting: 'Daemon-minted file id under a per-session directory',
+    writers: ['operator', 'agent-session'],
+    replication: 'none',
+    replicationNote:
+      'Bytes on the daemon’s disk, referenced by path from the agent’s prompt. Not a replicated aggregate — it is in this matrix for its ADR 9 D4 declaration, on the `pspec-component` precedent.',
+    conflict: 'n/a',
+    conflictNote: 'Content-per-file with a minted id; two uploads are two files and never contend.',
+    tombstone: 'hard-delete',
+    tombstoneNote: 'Swept by a 24h TTL (`UPLOADS_TTL_MS`) on an hourly GC, and on session delete.',
+    offline: 'online-only',
+    secret: 'public',
+    secretNote:
+      'USER-SUPPLIED BYTES: whatever a person dropped into a session. Public in the matrix’s sense (no credential material by construction) but never public in the product’s.',
+    owner: {
+      kind: 'inherits',
+      from: ROW.sessionIdentity,
+      note: 'The session the file was uploaded into.',
+    },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.sessionIdentity },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'never-writes',
+    inheritanceOnCreate: { kind: 'parent', from: ROW.sessionIdentity },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE: follows its session, and the path is GUESSABLE by construction (`uploads/<sessionId>/<id>`), so whatever serves these bytes must check the session grant rather than the path.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.headlessTurnSpool,
+    section: 'sessions',
+    title: 'Durable headless turn spool (`<stateDir>/headless-turns/<hash>/`)',
+    sites: [
+      '`<stateDir>/headless-turns/<sha256(turnId)>/` — `input.txt`, `stdout.jsonl`, `result.json`, `mcp.json`, … in NO schema',
+      'apps/daemon/src/durable-headless.ts',
+    ],
+    home: 'runtime-local',
+    idMinting:
+      'Directory name is `sha256(turnId)`; the turn id is minted by whoever started the turn',
+    writers: ['agent-session', 'system'],
+    replication: 'none',
+    replicationNote:
+      'Daemon-local spool that lets a headless turn survive a daemon restart. Never replicated; in the matrix for its D4 declaration.',
+    conflict: 'n/a',
+    conflictNote:
+      'One directory per turn, written by the one process running that turn, with atomic file replacement.',
+    tombstone: 'hard-delete',
+    tombstoneNote:
+      'Removed when the turn is reaped; a crashed turn leaves its directory until the next sweep, which is what makes the spool durable.',
+    offline: 'observe-only',
+    secret: 'secret-presence',
+    secretNote:
+      'THE SHARPEST CELL ON THIS ROW: `input.txt` is the prompt, `stdout.jsonl` is the agent’s whole output, and `mcp.json` is a HARNESS CONFIG that can name credentials. Conversation content and configuration on a plain filesystem path, with no row in any schema to make anyone look.',
+    owner: { kind: 'inherits', from: ROW.sessionIdentity, note: 'The session whose turn it is.' },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.sessionIdentity },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.sessionIdentity },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE: follows its session. Nothing serves these files over the wire today; the risk is a future diagnostic that does.',
+    },
+    open: [],
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -813,7 +1069,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     id: ROW.issueComments,
     section: 'issues-and-tracker',
     title: 'Issue comments',
-    sites: ['apps/server/src/modules/issues/service/crud.ts (`cmt_<uuid>`)'],
+    sites: ['`issue_comments`', 'apps/server/src/modules/issues/service/crud.ts (`cmt_<uuid>`)'],
     home: 'server',
     idMinting: '`cmt_<uuid>` server-minted',
     writers: ['operator', 'agent-session'],
@@ -877,14 +1133,14 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     id: ROW.issueMessageReadAt,
     section: 'issues-and-tracker',
     title: 'Issue message / issue `readAt` (moved by Amendment 1 D10)',
-    sites: ['`issue_messages.read_at`', '`issues.read_at`'],
+    sites: ['`issue_user_state` — keyed `(user_id, issue_id)`, carrying `read_at` / `tucked_at` / `pinned_at`', '`issue_message_user_state` — keyed `(user_id, issue_message_id)`', '(both POD-1076; the markers were `issues.read_at` and `issue_messages.read_at` columns until then)'],
     conflictNote: 'Two more SINGLETON `read_at` columns today; the same re-key as the session one.',
   }),
   {
     id: ROW.artifacts,
     section: 'issues-and-tracker',
     title: 'Artifacts (snapshotted files)',
-    sites: ['apps/server (artifact storage)'],
+    sites: ['`<stateDir>/artifacts` — IssueArtifactStore (apps/server/src/relay.ts)', 'apps/server (artifact storage)'],
     home: 'server',
     idMinting: 'Server artifact id',
     writers: ['operator', 'agent-session'],
@@ -906,6 +1162,125 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows its parent.' },
     open: [],
   },
+  // -------------------------------------------------------------------------
+  // POD-1211 — the issue-adjacent half of POD-385's fourteen.
+  // -------------------------------------------------------------------------
+  {
+    id: ROW.activityEvents,
+    section: 'issues-and-tracker',
+    title: 'Activity event log (`podium_events`)',
+    sites: [
+      '`podium_events`',
+      'apps/server/src/store/events.ts',
+      'apps/server/src/modules/events/retention.ts',
+    ],
+    home: 'server',
+    idMinting: 'Server `id` AUTOINCREMENT; the cursor a reader carries is that id',
+    writers: ['system', 'operator', 'agent-session'],
+    replication: 'server-to-clients',
+    replicationNote:
+      'Read through the `issues.events` query with a cursor, NOT through the change log — a second read path over durable rows, which is why it needed its own row rather than riding `change-log`’s.',
+    conflict: 'append',
+    conflictNote:
+      'Append-only, by the server alone. An event is a record that something happened; nothing merges.',
+    tombstone: 'hard-delete',
+    tombstoneNote:
+      'Pruned by age AND by a count cap (`apps/server/src/modules/events/retention.ts`); a cursor older than the retained window silently misses what was pruned, which the store documents on `listEventsSince`.',
+    offline: 'online-only',
+    secret: 'public',
+    secretNote: 'Payloads are free-form JSON per kind and must not carry `secret-value` material.',
+    owner: {
+      kind: 'none',
+      reason: 'derived',
+      note: 'An event names a SUBJECT — a session, an issue, a repo path — and derives its reachability from that subject, exactly as `blobs` derives its from every referencing entity. Naming one owner would lie for every kind whose subject is a different class.',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'none',
+      reason: 'derived',
+      note: 'Not grantable on its own: an event is readable only VIA a subject the principal may see.',
+    },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'INVENTORY GAP, stated rather than fixed here: the table has `kind` / `subject` / `payload` and NO actor columns, so who caused an event is recoverable only from whatever the payload happened to include. The row declares the obligation; the schema does not yet carry it.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'not-applicable',
+      reason:
+        'Derived: an event inherits nothing at create, because its reachability is resolved through its subject at read time.',
+    },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE, and this is the row’s sharpest edge: `issues.events` is a CURSOR READ OVER EVERY SUBJECT IN THE INSTANCE with no per-principal filter, so the scoped feed must filter it by subject the way it filters the change log — a filter without a watermark here is a silently short page rather than a protocol break, which makes it easier to get wrong and harder to notice.',
+    },
+    open: ['O1'],
+    openNote:
+      'O1: an event row discloses that a subject EXISTS and that something happened to it, ahead of any decision about the subject’s own visibility. Marked at the site where the existence question is concrete, not resolved.',
+  },
+  {
+    id: ROW.eventSubscriptions,
+    section: 'issues-and-tracker',
+    title: 'Event subscriptions (`subscriptions`)',
+    sites: [
+      '`subscriptions`',
+      'apps/server/src/store/events.ts',
+      'apps/server/src/modules/issues/service/crud.ts (`subscriptionSetEnabled`)',
+    ],
+    home: 'server',
+    idMinting: 'Server id',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'cmd',
+    conflictNote:
+      'Subscribe / unsubscribe / enable are commands against a row keyed by its subscriber; nothing merges.',
+    tombstone: 'hard-delete',
+    tombstoneNote:
+      'Unsubscribe removes the row; `enabled = 0` is the softer state and is a different act.',
+    offline: 'online-only',
+    secret: 'public',
+    owner: {
+      kind: 'user',
+      resolves: 'on-behalf-of-human',
+      note: 'A subscription is a ROUTING INTENT belonging to whoever will be woken by it: the human behind the `(subscriber_kind, subscriber_id)` principal. `origin = auto` rows are created by the server on that principal’s behalf and are owned the same way — the server subscribes you, it does not own your attention.',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'none',
+      reason: 'derived',
+      note: 'Not shareable. "Share my subscription" would mean routing MY wakes to someone else, which is a subscription of THEIRS to create, not a grant on this row.',
+    },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'on-behalf-of-human',
+      note: 'DECLARED as the subscriber’s human rather than the SOURCE entity’s owner: subscribing to somebody else’s issue must not hand them your subscription.',
+    },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke', 'account-disable'],
+      note: 'PHASE 2 MUST HANDLE on TWO axes: the subscription list must be scoped to its subscriber, and a revoke on the SOURCE entity must stop delivery — a subscription that outlives the subscriber’s access to what it watches is a leak with a schedule.',
+    },
+    open: [],
+  },
+  serverBookkeeping({
+    id: ROW.subscriptionDeliveries,
+    section: 'issues-and-tracker',
+    title: 'Subscription delivery receipts (`subscription_deliveries`)',
+    sites: [
+      '`subscription_deliveries` — keyed `(subscription_id, event_id)`',
+      'apps/server/src/store/events.ts',
+    ],
+    idMinting: 'Key `(subscription_id, event_id)` — the pair IS the receipt',
+    conflictNote:
+      'At-most-once delivery: `INSERT OR IGNORE` returning "did this insert" is the whole mechanism, so the receipt is the dedupe and there is nothing to merge.',
+    tombstoneNote:
+      'Pruned with the events they reference; a receipt for a pruned event can never be needed again.',
+  }),
 ]
 
 // ---------------------------------------------------------------------------
@@ -917,7 +1292,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     id: ROW.conversationRegistry,
     section: 'conversations-and-transcripts',
     title: 'Conversation registry',
-    sites: ['packages/model/src/entities/conversation.ts', 'docs/spec/conversation-registry.md'],
+    sites: ['`conversation_identities`', 'packages/model/src/entities/conversation.ts', 'docs/spec/conversation-registry.md'],
     home: 'server',
     idMinting: 'Server-stable Podium conversation id',
     writers: ['system', 'operator'],
@@ -948,7 +1323,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     id: ROW.segments,
     section: 'conversations-and-transcripts',
     title: 'Segments / native evidence',
-    sites: ['packages/transcript', 'the disk lake'],
+    sites: ['`conversation_segments` — keyed `(machine_id, native_id)`', 'packages/transcript', 'the disk lake'],
     home: 'server',
     idMinting: 'Composite `(machine_id, native_id)`',
     writers: ['daemon', 'system'],
@@ -974,7 +1349,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     id: ROW.blobs,
     section: 'conversations-and-transcripts',
     title: 'Blobs (content-addressed)',
-    sites: ['the content-addressed store'],
+    sites: ['the content-addressed store', '`<stateDir>/transcripts` — the mirror lake on disk (`mirrorLakeDir`, apps/server/src/server.ts)'],
     home: 'server',
     idMinting: 'sha256 — identity IS the hash',
     writers: ['system'],
@@ -1137,17 +1512,122 @@ const REPO_ROWS: readonly MatrixRow[] = [
     id: ROW.pins,
     section: 'repos-pins-tabs',
     title: 'Pins',
-    sites: ['`pins` (keyed `(kind, id)` today — a singleton)'],
+    sites: ['`pins` — keyed `(user_id, kind, id)` (POD-1076; `(kind, id)` and therefore a singleton until then)'],
     conflictNote: 'The sidebar is "my tasks" (readiness header decision), so a pin is mine by definition.',
   }),
   perUserState({
     id: ROW.tabOrder,
     section: 'repos-pins-tabs',
     title: 'Tab order / sidebar layout',
-    sites: ['`tab_order` (keyed `worktree` today — a singleton)'],
+    sites: ['`tab_order` — keyed `(user_id, worktree)` (POD-1076; `worktree` alone and therefore a singleton until then)'],
     conflictNote: 'Layout is per person by definition. The whole order vector was one field-LWW group; keyed per user it is single-writer instead.',
     tombstoneNote: 'Scrubbed with sessions, and cascades on user deletion.',
   }),
+  // -------------------------------------------------------------------------
+  // POD-1211 — two per-machine FILESYSTEM stores. Neither appears in any
+  // drizzle schema: `discovery.db` is a SECOND SQLite database, created at
+  // runtime with `CREATE TABLE IF NOT EXISTS` under the state dir, and the
+  // hooks directory is plain files. Amendment 1 D13.5 / ADR 9 D3 rule 3 puts
+  // both with the machine they describe.
+  // -------------------------------------------------------------------------
+  {
+    id: ROW.harnessDiscoveryCache,
+    section: 'repos-pins-tabs',
+    title: 'Harness discovery cache (`<stateDir>/discovery.db`)',
+    sites: [
+      '`<stateDir>/discovery.db` — its own SQLite file, tables `conversation_cache` and `meta`, created at runtime and in NO drizzle schema',
+      'packages/harness/src/discovery/cache.ts',
+    ],
+    home: 'runtime-local',
+    idMinting: 'Keyed by the provider’s own session/file identity on that host',
+    writers: ['daemon', 'system'],
+    replication: 'none',
+    replicationNote:
+      'A per-machine derived index over harness transcript files on that host’s disk. What replicates is the CONVERSATION REGISTRY built from it, not the cache.',
+    conflict: 'n/a',
+    conflictNote:
+      'Derived: it is rebuilt from the files it indexes, so a lost or stale cache is a re-scan and never a merge.',
+    tombstone: 'hard-delete',
+    tombstoneNote:
+      'Deletable at any time; the next discovery pass rebuilds it from the provider files.',
+    offline: 'observe-only',
+    secret: 'secret-presence',
+    secretNote:
+      'Indexes CONVERSATION metadata — titles, paths, project directories — for every harness on the host, including sessions Podium never started.',
+    owner: {
+      kind: 'inherits',
+      from: ROW.machine,
+      note: 'Amendment 1 D13.5: a per-machine fact inherits the machine’s scoping. It indexes what is on THAT disk and means nothing anywhere else.',
+    },
+    visibility: 'owned-compute',
+    grants: {
+      kind: 'inherits',
+      from: ROW.machine,
+      note: '`see` on the machine; the cache is never separately grantable.',
+    },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'none-representable',
+      note: 'A machine principal indexing its own disk.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.machine },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['grant-see', 'revoke', 'transfer-owner'],
+      note: 'PHASE 2 MUST HANDLE: appears and disappears with the machine grant, like every other per-machine fact.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.harnessHookSettings,
+    section: 'repos-pins-tabs',
+    title: 'Harness hook settings (`<stateDir>/hooks/`)',
+    sites: [
+      '`<stateDir>/hooks/` — harness settings files written by the daemon, in NO schema',
+      'apps/daemon/src/daemon.ts',
+    ],
+    home: 'runtime-local',
+    idMinting: 'Path per harness; the daemon owns the layout',
+    writers: ['daemon'],
+    replication: 'none',
+    replicationNote:
+      'Host configuration for the agent CLIs this daemon launches. Never replicated.',
+    conflict: 'n/a',
+    conflictNote:
+      'The daemon rewrites the files it owns; there is no second writer to arbitrate against.',
+    tombstone: 'hard-delete',
+    tombstoneNote: 'Regenerated on the next daemon boot.',
+    offline: 'n/a',
+    secret: 'secret-presence',
+    secretNote:
+      'Harness configuration, not credentials — but it names what the agent may reach, so it is not `public`.',
+    owner: {
+      kind: 'inherits',
+      from: ROW.machine,
+      note: 'Configuration OF a machine, inheriting that machine’s scoping (D13.5).',
+    },
+    visibility: 'owned-compute',
+    grants: {
+      kind: 'inherits',
+      from: ROW.machine,
+      note: 'Changing what a host’s agents may do is `manage` on the machine, never a personal write.',
+    },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'none-representable',
+      note: 'The daemon writing its own host configuration.',
+    },
+    systemWriter: 'never-writes',
+    inheritanceOnCreate: { kind: 'parent', from: ROW.machine },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['grant-see', 'grant-manage', 'revoke', 'transfer-owner'],
+      note: 'PHASE 2 MUST HANDLE: follows the machine, and `manage` rather than `see` is the verb that matters — editing hooks changes what every agent on that host does.',
+    },
+    open: [],
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1213,6 +1693,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     section: 'settings-secrets-accounts',
     title: 'Server-owned secrets (`apiKeys.*`, `integrations.linearApiKey`, `notifications.telegramBotToken`)',
     sites: [
+      '`server_secrets`',
       'packages/model/src/settings/secrets.ts (`ServerSecret` at rest; `SecretPresenceWire` on the wire, POD-418)',
       'packages/runtime/src/settings.ts (the legacy in-blob groups POD-419 scrubs)',
     ],
@@ -1302,6 +1783,57 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     visibilityMutability: { mutable: false, verbs: [], note: 'Tenant-visible from creation.' },
     open: [],
   },
+  // -------------------------------------------------------------------------
+  // POD-1211, second pass. POD-421 merged to the integration branch AFTER this
+  // issue branched and brought a new durable table with it; the membership gate
+  // built here caught it on its first contact with the world. Classified to the
+  // same standard as the fourteen rather than to make the gate go green.
+  // -------------------------------------------------------------------------
+  {
+    id: ROW.settingsAuditTrail,
+    section: 'settings-secrets-accounts',
+    title: 'Settings audit trail (`settings_audit_events`) — who changed what, and who was refused',
+    sites: ['`settings_audit_events`', 'apps/server/src/store/settings-audit.ts', 'apps/server/src/modules/settings/audit.ts', 'POD-421'],
+    home: 'server',
+    idMinting: 'Server `id` AUTOINCREMENT — append order is the only order it has',
+    writers: ['system'],
+    replication: 'none',
+    replicationNote:
+      'NEVER REPLICATED, and that is a PROHIBITION here rather than a description of today. The class is `secret`, so `packages/sync/src/feed/visibility.ts` refuses it with `secret-never-replicates` — a reader added to this table later cannot reach it through the feed by accident, which is the property the trail most needs and the one a `personal` declaration would not have given it.',
+    conflict: 'append',
+    conflictNote: 'Append-only, by the server alone, including the REFUSALS — a trail that recorded only successes could not answer "who tried to rotate this key", which is among the first questions asked of one. Nothing merges and nothing is amended.',
+    tombstone: 'never-delete',
+    tombstoneNote:
+      'An audit trail that can be pruned by the principals it audits is not one. No retention policy exists yet; when one is written it is an ADMIN-GRADE act (D15) and belongs with the same governance as secret rotation, not with the event-log retention sweep.',
+    offline: 'never-enqueue',
+    secret: 'secret-presence',
+    secretNote:
+      'Values never reach it: `detail_json` is written through the CONTRACT’s own `redaction` metadata and `redacted_paths` records what was withheld, so a redaction is a stated fact rather than an absence a reader must infer. What the row DOES hold is secret IDENTITY — which key was rotated, by whom, when — which is `secret-presence` exactly, and is precisely what the row is for.',
+    owner: {
+      kind: 'none',
+      reason: 'secret',
+      note:
+        'THE REASON THIS IS NOT `personal`: there is no owner to be private TO. A row names an ACTOR and an ON-BEHALF-OF, and describes a write to a setting that may be instance-scoped or another person’s — three different principals, none of which owns the record of the act. `personal` would additionally have made it grantable, and "share my audit trail" is not a thing anybody should be able to do. Reading an audit trail is an ADMIN act (D15), which is the governance `secret` carries and `personal` does not.',
+    },
+    visibility: 'secret',
+    grants: NO_GRANTS_SECRET,
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'THE ROW IS THE PAIR. Both halves are stamped from the authenticated transport and neither is reachable from an input (ADR 3 D7), and `on_behalf_of` is NULL for a `system` principal BY CONSTRUCTION — enforced twice, in the writer and by a CHECK constraint, because ADR 9 D8 S5 says a system act must never acquire a human.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'Secret: no owner and no grants to inherit (D15). A trail entry inherits nothing from the setting it records — that is what keeps a refused write auditable when the target was never touched.' },
+    visibilityMutability: {
+      mutable: false,
+      verbs: [],
+      note: 'Never replicated and not grantable, so no principal’s view of it can change. What multi-user changes is WHO MAY READ IT, which is admin-grade and is the open item below rather than a mutability event.',
+    },
+    open: ['O1'],
+    openNote:
+      'O1, AND THE PART THAT IS NOT THIS ISSUE’S TO DECIDE. The table has NO READER today, deliberately and in writing (POD-421, the `workflow_events` standing). WHO may read it when a reader is added — instance admins only, or also the person whose setting was changed, or the actor — is a D15 governance call with an existence-leak edge: the trail discloses which secrets exist and whose preferences changed, to whoever can see it. This row makes the surface impossible to add unnoticed (the class refuses replication) and answers none of it. POD-421 also recorded the coupled condition: if a reader is added, the per-user rows become a cross-user surface and `PREFERENCE_REDACTION` must be revisited before it ships.',
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1348,7 +1880,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     id: ROW.approvals,
     section: 'coordination',
     title: 'Approval requests',
-    sites: ['apps/server approvals module'],
+    sites: ['`approval_requests`', 'apps/server approvals module'],
     home: 'server',
     idMinting: 'Server id',
     writers: ['daemon', 'agent-session', 'operator'],
@@ -1380,7 +1912,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     id: ROW.automations,
     section: 'coordination',
     title: 'Automations / runs',
-    sites: ['packages/model/src/entities/automation.ts', '`automations`'],
+    sites: ['packages/model/src/entities/automation.ts', '`automations`', '`automation_runs`'],
     home: 'server',
     idMinting: 'Server id',
     writers: ['operator', 'system'],
@@ -1555,6 +2087,100 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-disable'], note: 'PHASE 2 MUST HANDLE: `runs()` and `runFor()` were the other two read-shaped operator branches — every run in the instance, and any run by id. And `account-disable` is load-bearing here rather than theoretical: runs are long-lived and UNATTENDED, so revoking a person must stop their in-flight runs advancing with no reaper to write.' },
     open: [],
   },
+  // -------------------------------------------------------------------------
+  // POD-1211 — the coordination-shaped half of POD-385's fourteen.
+  //
+  // Two rows for the janitor, not one, and the reason is POD-731's test rather
+  // than taste: the LEASE is a lease machine (`cmd` — grant / renew / fence /
+  // expire) and the COMMAND RECEIPTS are dedupe bookkeeping (`single-writer`,
+  // keyed by the run key). One row cannot carry two conflict rules, and a note
+  // is not a column a totality test can check.
+  // -------------------------------------------------------------------------
+  serverBookkeeping({
+    id: ROW.maintenanceLease,
+    section: 'coordination',
+    title: 'Janitor maintenance lease (`maintenance_leases`)',
+    sites: [
+      '`maintenance_leases`',
+      'apps/server/src/store/maintenance.ts',
+      'apps/janitor/src/janitor.ts',
+      '[spec:SP-c29e]',
+    ],
+    idMinting: 'Key `name`; the holder is `(generation_id, fencing_token)`',
+    conflict: 'cmd',
+    conflictNote:
+      'A lease machine with a FENCING TOKEN — acquire / renew / expire, and a stale holder is refused by token rather than merged. The token is what makes a paused janitor’s late write refusable, so nothing here is arbitrable.',
+    tombstoneNote: 'Expiry releases the lease; the row is overwritten by the next holder.',
+    open: [],
+  }),
+  serverBookkeeping({
+    id: ROW.maintenanceCommandReceipts,
+    section: 'coordination',
+    title: 'Janitor command receipts (`maintenance_commands`)',
+    sites: ['`maintenance_commands`', 'apps/server/src/store/maintenance.ts', '[spec:SP-c29e]'],
+    idMinting: 'Key `(job_kind, run_key)`, with the fencing token of the holder that applied it',
+    conflictNote:
+      'Idempotency bookkeeping: the receipt IS the dedupe, so a second apply of the same run key finds the row and returns the recorded result rather than repeating the effect. The `applied-mutations` shape, one layer up.',
+  }),
+  serverBookkeeping({
+    id: ROW.stewardState,
+    section: 'coordination',
+    title: 'Steward cursor KV (`steward_state`)',
+    sites: ['`steward_state`', 'apps/server/src/store/events.ts', 'apps/server/src/steward.ts'],
+    idMinting: 'Key `key` — a small closed set of sweep cursors',
+    tombstoneNote: 'Overwritten in place; a deleted key simply restarts that sweep from its floor.',
+  }),
+  serverBookkeeping({
+    id: ROW.notificationFacts,
+    section: 'coordination',
+    title: 'Notification arbiter claims (`notification_facts`)',
+    sites: [
+      '`notification_facts`',
+      'apps/server/src/store/notification-facts.ts',
+      'apps/server/src/steward.ts',
+      '[spec:SP-ba61]',
+    ],
+    idMinting: 'Key `(fact_key, target)`; the target is a SESSION or a subscriber, not a user',
+    conflictNote:
+      'The once-until-ack claim (POD-880): the conflict guard is inside the single INSERT … ON CONFLICT statement, so two concurrent producers cannot both win, and a retired or expired claim is the only one that may be re-claimed.',
+    tombstoneNote:
+      'Retired on ack, on issue close, and by TTL sweep — `consumed_at` is the retirement, and rows are pruned by the steward.',
+    open: ['O1'],
+    openNote:
+      'O1 at a concrete site: the claim set discloses WHO WAS NOTIFIED ABOUT WHICH ISSUE, which is an existence fact about other people’s work. It reaches no surface today (`replication: none`), so nothing leaks; any future surface that reads it — a "why didn’t I get pinged" diagnostic is the obvious one — must decide that per O1 rather than inheriting this row’s silence.',
+  }),
+  serverBookkeeping({
+    id: ROW.wakeCooldowns,
+    section: 'coordination',
+    title: 'Message wake cooldowns (`message_wake_cooldowns`)',
+    sites: [
+      '`message_wake_cooldowns`',
+      'apps/server/src/store/messages.ts',
+      'apps/server/src/modules/messages/service.ts',
+    ],
+    idMinting: 'Key `key` — `${waking principal}|${issueId}`',
+    conflictNote:
+      'Written BEFORE the side effect it suppresses, so a crash between write and wake costs a missed wake rather than a duplicate one. Last write wins by construction because there is one writer.',
+    tombstoneNote:
+      'Overwritten by the next attempt; nothing accumulates per principal beyond one row per pair.',
+  }),
+  serverBookkeeping({
+    id: ROW.idAllocationCounters,
+    section: 'coordination',
+    title: 'Id allocation counters (`repo_draft_seq`, `issue_ref_letters`)',
+    sites: [
+      '`repo_draft_seq` — keyed `repo_id`',
+      '`issue_ref_letters` — keyed `issue_id`',
+      'apps/server/src/store/repos.ts',
+    ],
+    idMinting:
+      'The counters ARE the minting mechanism; each row is keyed by the scope it allocates within',
+    conflictNote:
+      'A monotonic allocator: the next value is read and bumped in one statement, and two allocations never return the same number. Merging two counters would hand two entities the same id, which is why there is no conflict rule to state beyond single-writer.',
+    tombstone: 'never-delete',
+    tombstoneNote:
+      'Never reset. A reused draft number or ref letter would collide with a reference someone already wrote down, so the counter outlives every row it numbered.',
+  }),
 ]
 
 // ---------------------------------------------------------------------------
@@ -1600,7 +2226,7 @@ const MESSAGING_ROWS: readonly MatrixRow[] = [
     id: ROW.messagingTopics,
     section: 'messaging-and-superagent',
     title: 'Messaging issue topics',
-    sites: ['the Telegram / bridge topic mapping'],
+    sites: ['`messaging_issue_topics`', 'the Telegram / bridge topic mapping'],
     home: 'server',
     idMinting: 'Composite keys',
     writers: ['system'],
@@ -1661,7 +2287,7 @@ const HANDOFF_ROWS: readonly MatrixRow[] = [
     id: ROW.handoffBundle,
     section: 'handoff',
     title: 'Handoff bundle / HandoffManifest (`sourceMachineId`, `exportedAt`)',
-    sites: ['packages/model/src/entities/handoff.ts'],
+    sites: ['`<stateDir>/handoff` — the staged bundle on disk (apps/server/src/modules/sessions/handoff-transfer.ts)', 'packages/model/src/entities/handoff.ts'],
     home: 'source-server-then-target-server',
     idMinting:
       'The SOURCE server mints the export (bundle / snapshot ids server-side); session ids are PRESERVED as source brands rather than re-minted, which is what makes the moved session the same session. POD-643 owns the manifest vocabulary.',
@@ -1740,6 +2366,31 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     },
     open: [],
   },
+  // POD-1211: the row POD-385's method could not have found. Its sweep
+  // enumerated `apps/server/src/migrations/schema.ts`, and `feed_identity` is
+  // declared in the sync adapter's schema — a SECOND drizzle schema file the
+  // one `drizzle.config.ts` unions into the one journal. A gate keyed on one
+  // schema file is a gate with a blind spot the size of a package.
+  serverBookkeeping({
+    id: ROW.feedIdentity,
+    section: 'sync-infrastructure',
+    title: 'Feed identity (`feed_identity`) — `(feedId, epoch)` beside the log',
+    sites: [
+      '`feed_identity` — packages/sync/src/adapters/sqlite/schema.ts',
+      'ADR 2 D1',
+      '[spec:SP-4428]',
+    ],
+    idMinting:
+      'One row, pinned by a constant primary key; `feedId` and `epoch` are minted with the log',
+    replication: 'none',
+    replicationNote:
+      'The ROW never replicates. Its VALUE is published in the handshake — a replica must be told which generation it is reading — so what crosses the wire is a protocol field, not this class, and the epoch is opaque to the client that carries it.',
+    conflictNote:
+      'One row by construction. Two rows would be two answers to "which generation is this?", and whichever a query returned would be the one clients trusted.',
+    tombstone: 'never-delete',
+    tombstoneNote:
+      'Deleting it loses the epoch that describes the seqs beside it — ADR 2 D1’s whole argument is that identity must travel with the data through a backup restore.',
+  }),
   {
     id: ROW.appliedMutations,
     section: 'sync-infrastructure',
@@ -1843,7 +2494,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.userAccount,
     section: 'multi-user-classes',
     title: 'User / account aggregate (identity, display name, role, lifecycle)',
-    sites: ['POD-1075 (packages/model/src/identity)'],
+    sites: ['`users`', 'POD-1075 (packages/model/src/identity)'],
     home: 'server',
     idMinting: 'Server-minted `UserId` (the brand is POD-1075’s; it lives transitionally in @podium/protocol’s principal module because L0 may not import it)',
     writers: ['operator', 'system'],
@@ -1878,7 +2529,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.accountCredential,
     section: 'multi-user-classes',
     title: 'Account credential material',
-    sites: ['POD-1075', 'packages/runtime/src/auth-store.ts (one password per instance today)'],
+    sites: ['`user_credentials`', 'POD-1075', 'packages/runtime/src/auth-store.ts (one password per instance today)'],
     home: 'server',
     idMinting: 'n/a',
     writers: ['operator', 'system'],
@@ -1999,7 +2650,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.telegramChatBinding,
     section: 'multi-user-classes',
     title: 'Telegram chat binding (`chatId → UserId`)',
-    sites: ['packages/runtime/src/settings.ts (`notifications.telegramChatId` — one instance-wide string today)'],
+    sites: ['`telegram_chat_bindings`', 'packages/runtime/src/settings.ts (`notifications.telegramChatId` — one instance-wide string today)'],
     idMinting: 'Keyed `(userId, chatId)` — this is where D10’s move of `telegramChatId` lands',
     conflictNote:
       'A binding CEREMONY, not a preference write: a claim code issued in the web UI and presented to the bot, the same shape as machine pairing. Content-based routing would be PAYLOAD IDENTITY, which ADR 3 D7 declares inert.',
