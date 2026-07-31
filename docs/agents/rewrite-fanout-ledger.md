@@ -2049,3 +2049,77 @@ the same clean-tree discipline would have shown all three files.
 This is the same shape as the `tail`-swallowed exit status and the
 mistyped-branch-inside-a-loop: the instrument answered a question adjacent to
 the one I was asking, and the answer to the adjacent question was yes.
+
+## THE AUTHZ CONTRACT (POD-315)
+
+`apps/server/src/authz-matrix.test.ts` is the canonical statement of what
+"authorized" means in this codebase. A change that reddens it is a change to the
+contract, not to a test. Sixteen properties, over five transport legs
+(`trpc`, `cli`, `mcp`, `relay`, offline `outbox-apply`):
+
+| # | Property | ADR |
+|---|---|---|
+| 1 | Every transport resolves to a principal naming a person, or an explicitly person-less class (`machine`, `system`), or no principal at all | D14 |
+| 2 | A forged `actor` / `onBehalfOf` / user id / delegation reference is inert — both halves of the pair, on every leg | D7.1, D14.3 |
+| 3 | Attribution is a PAIR, stamped from the transport, never collapsed; a human records a pair too, so consumers never branch on shape | D17 |
+| 4 | The delegation chain resolves LIVE at every apply; exactly one human, at the ROOT | D16.2 |
+| 5 | Revoking the human transitively stops the agent AND its sub-agents, with no reaper | D16, A1 |
+| 6 | A sub-agent never exceeds its parent; the narrowing applies at every link | D16.2/.3 |
+| 7 | The same offline envelope, drained after a revocation, is refused — and after a mid-flight GRANT, honoured | D8, D16.4 |
+| 8 | No stored allow bit: the capability's key set is exactly `role`/`scope`/`actorSessionId` | D16.1 |
+| 9 | Reads are scope-gated wherever the scope names a person; denial covered on all four transports | D19.2 |
+| 10 | Role and ownership are conjunctive in both directions | D15.2 |
+| 11 | All four outcomes reachable, including apply-time-revoked via a subtree that MOVES | D2, D19.4 |
+| 12 | Machine `see`/`use`/`manage` against owner-plus-grants; all-in-one host fails closed; ownerless grants nobody | D18 |
+| 13 | Unauthorized is distinguishable from unreachable — but only inside the `see` set | D18.5 |
+| 14 | System principals read across owners, hold `see`+`use` but never `manage`, and acquire no human | D21 |
+| 15 | An invisible target fails BYTE-IDENTICALLY to a nonexistent one, for mail and for machines | D20 |
+| 16 | Single-user parity: the capabilities the transports actually mint today still read everything | AC |
+
+Telegram (D22) is covered by POD-1080's `scripts/audit-telegram-binding.test.ts`
+("REFUSES an unbound chat") and is deliberately not duplicated here: D14.4 makes
+Telegram an INGRESS that produces a principal, not a D3 exposure tag, so it has
+no leg in a transport matrix.
+
+### Two findings worth carrying
+
+**A per-registry check is not a totality check.** Contract classification rested
+on sixteen independent `registryClassificationErrors(...)` calls, one per server
+registry. Measured: 16 of 18 registries made that call, and `issues`, `lock` and
+`perf` made none — so any contract those registries own, and any contract no
+registry imports, sat outside every instrument while the acceptance criterion
+read as satisfied. `packages/commands/src/classification-totality.test.ts`
+replaces the claim with one population gate that derives the contract set from
+the FILESYSTEM. Not from `index.ts`: a barrel-based scan inherits the exact blind
+spot it exists to catch, because a contracts module that is written, imported by
+a registry, and never re-exported is live in the product and invisible to the
+scan. Proven by planting a contract in a new module that nothing exports —
+caught.
+
+**The survivor is the finding, again.** `checkMachineVerb` documents its
+ordering as load-bearing — check `see` before the verb, or a colleague's machine
+answers "forbidden" while a nonexistent one answers "unknown", which is an
+existence oracle over somebody else's fleet. **Reordering it left the whole
+matrix green.** The mutant is genuinely equivalent, and that is the problem: the
+ordering is safe only because a *different* function, `verbsFromRow`, ends with
+`if (verbs.size > 0) verbs.add('see')`, so no principal can hold a verb without
+`see`. Nothing stated that coupling and nothing checked it. One edit — a stored
+grant read straight into the set, a new principal class with a hand-built verb
+list — and the documented ordering starts doing real work at the moment it stops
+being tested. The invariant is now asserted directly, across every principal kind
+that can hold a verb, with a floor so it cannot pass over empty sets.
+
+### Three traps this issue walked into, all caught by an instrument saying NO
+
+- **`import.meta.glob` through a typed alias type-checks and then fails at
+  load.** The transform is syntactic, so it never sees the alias. `tsgo` was
+  green on a suite that could not run — the dual gate is what caught it.
+- **Eager-globbing `./**/*.ts` imports the neighbouring test files.** The gate's
+  first run reported **419 tests** for a file declaring about a dozen: it had
+  absorbed every other suite in the package. Excluding them downstream keeps the
+  RESULTS clean while still executing them, so the exclusion belongs in the
+  pattern, with a live assertion that no test module was loaded.
+- **A matrix that expects one shape on every leg is not a matrix.** The agent
+  attribution expectation was run across all five legs, but `trpc` and `mcp` mint
+  `OPERATOR`, which has no `actorSessionId` and resolves to a HUMAN principal.
+  The suite's own first red.

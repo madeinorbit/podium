@@ -740,6 +740,57 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
     })
   })
 
+  /**
+   * A SURVIVING MUTANT, AND WHAT IT REVEALED.
+   *
+   * `checkMachineVerb` documents its ordering as load-bearing: check `see`
+   * FIRST, because "a gate that checked the verb first would answer 'forbidden'
+   * for a colleague's machine and 'unknown' for a nonexistent one — an existence
+   * oracle over somebody else's fleet". Reordering it to check the verb first
+   * left this whole suite GREEN.
+   *
+   * The mutant is equivalent, and the reason is the finding: the ordering is
+   * safe only because a DIFFERENT function upholds an unstated invariant.
+   * `verbsFromRow` ends with `if (verbs.size > 0) verbs.add('see')`, so no
+   * principal can ever hold a verb without also holding `see`, and the two
+   * orderings cannot diverge. Nothing said so, and nothing checked it.
+   *
+   * That is one edit away from an oracle: admit any path that grants `use` or
+   * `manage` without `see` — a stored grant read straight into the set, a new
+   * principal class with a hand-built verb list — and the documented ordering
+   * starts doing real work at exactly the moment it stops being tested. So the
+   * invariant is asserted here rather than left implicit, across every principal
+   * kind that can hold a verb at all.
+   */
+  it('no principal ever holds a verb without `see` — the invariant the ordering rests on', () => {
+    const withGrants = machineWorld({
+      owner: OWNER,
+      grants: [
+        { grantee: GRANTEE, verb: 'use' },
+        { grantee: OTHER, verb: 'manage' },
+      ],
+    })
+    const world = delegationWorld()
+    const principals: CommandPrincipal[] = [
+      { kind: 'user', user: OWNER, capability: { role: 'worker', scope: { kind: 'owned', userId: OWNER } } },
+      { kind: 'user', user: GRANTEE, capability: { role: 'worker', scope: { kind: 'owned', userId: GRANTEE } } },
+      { kind: 'user', user: OTHER, capability: { role: 'worker', scope: { kind: 'owned', userId: OTHER } } },
+      resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index),
+      resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index),
+      systemPrincipal('steward'),
+    ]
+    let holders = 0
+    for (const principal of principals) {
+      const verbs = machineVerbsFor(principal, 'm1', withGrants)
+      if (verbs.size === 0) continue
+      holders += 1
+      expect([...verbs], JSON.stringify(principal.kind)).toContain('see')
+    }
+    // The non-vacuity floor: an invariant nobody satisfies is satisfied
+    // trivially, and this loop would pass over six empty sets.
+    expect(holders).toBeGreaterThanOrEqual(4)
+  })
+
   it('machines: the same rule, at a second target-taking command family', () => {
     // The AC asks for the oracle test on mail AND at least one other targeted
     // command. `checkMachineVerb` answers `absent` for both, in one word.
