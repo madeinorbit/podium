@@ -1,10 +1,7 @@
 // Cross-harness child grouping (#237) [spec:SP-34d7 web]: sessions spawned by
 // another session nest under their spawner in the sidebar; consumed (exited)
 // children auto-tuck behind a disclosure. M6 also expands for native counts.
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   groupSessionsByParent,
@@ -92,9 +89,7 @@ describe('groupSessionsByParent', () => {
 
 describe('sessionsNeedChildRows', () => {
   it('expands parent + single remote child', () => {
-    expect(
-      sessionsNeedChildRows([sess('p'), sess('c', { spawnedBy: 'session:p' })]),
-    ).toBe(true)
+    expect(sessionsNeedChildRows([sess('p'), sess('c', { spawnedBy: 'session:p' })])).toBe(true)
   })
 
   it('expands a lone parent with native subagents', () => {

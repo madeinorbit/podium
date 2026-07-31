@@ -39,6 +39,10 @@ import {
   resolveReplicaMode,
 } from '@podium/client-core/replica'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import {
+  decideLegacyAdoption,
+  type LegacyIdentityEvidence,
+} from '@podium/sync/adapters/legacy-replica'
 import { Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { Trpc } from '@/app/trpc'
@@ -81,6 +85,29 @@ export interface OpenKernelAssemblyOptions {
   readonly factory?: IdbFactoryLike
   /** Surfaced rather than swallowed (ADR 6 D4). */
   readonly onDegraded?: (detail: unknown) => void
+  /**
+   * WHO THIS DEVICE'S EXISTING STORE BELONGS TO — the attribution gate's input.
+   *
+   * POD-377 built `decideLegacyAdoption` and POD-378 verified it; nothing on
+   * either client ever called it (POD-1239). A gate with no caller is
+   * indistinguishable from an enforced one in every handoff that cites it, and
+   * this one guards a privacy rule: POD-307 says an unattributable store is
+   * DISCARDED and re-bootstrapped, never adopted, because on a shared device
+   * adoption is how one person's cached rows become another person's history.
+   *
+   * The DEFAULT is `single-account`, and that is a claim about this tree rather
+   * than a convenience: `CLIENT_PRINCIPAL_GRADE` is still `device` — one shared
+   * password, `client_sessions` has no user column — so no user identities exist
+   * in the system at all and the store can only be the one operator's. That is
+   * the arm's definition verbatim.
+   *
+   * IT IS INJECTED, NOT HARDCODED, for two reasons. When per-user login lands,
+   * this becomes `multi-user` with the device's identity ledger and the default
+   * stops being true — a hardcoded arm would keep silently adopting. And a test
+   * can present `unknown` or a foreign ledger and observe the REFUSAL, which is
+   * the only way to know the gate can say no.
+   */
+  readonly evidence?: LegacyIdentityEvidence
 }
 
 export async function openKernelAssembly(
@@ -98,6 +125,33 @@ export async function openKernelAssembly(
     },
   })
   const view = store.viewFor(options.principal ?? KERNEL_REPLICA_PRINCIPAL)
+
+  // ---- THE ATTRIBUTION GATE, before a single row is read ------------------
+  //
+  // `decideLegacyAdoption` is called with an EMPTY plan on purpose: the decision
+  // and the records are two things it returns, and only the decision applies
+  // here. Re-deriving the rule locally would fork it, and a second copy of a
+  // privacy rule is worse than an off-label call to the first.
+  const evidence: LegacyIdentityEvidence = options.evidence ?? {
+    kind: 'single-account',
+    principal: options.principal ?? KERNEL_REPLICA_PRINCIPAL,
+  }
+  const adoption = decideLegacyAdoption(
+    { verdict: 'import', outbox: [], retireKeys: [], rejected: [], cursorDiscarded: false },
+    evidence,
+    Date.now(),
+  )
+  if (!adoption.adopt) {
+    // FAIL CLOSED. The cache is re-derivable at will, so discarding costs one
+    // bootstrap; adopting rows that may be someone else's costs the property the
+    // whole privacy model rests on. `discardCache()` structurally cannot reach
+    // the outbox (ADR 2 D7), so the user's unsent work survives this.
+    view.cache.discardCache()
+    console.warn(
+      `[podium] kernel replica store not adopted (${adoption.reason}) — discarded and re-bootstrapping`,
+    )
+    options.onDegraded?.({ kind: 'store-not-adopted', reason: adoption.reason })
+  }
 
   let hub: SocketHub | undefined
   let freshWorldPending = false
@@ -117,6 +171,9 @@ export async function openKernelAssembly(
     side: createSideCache({
       storage: globalThis.localStorage,
       storageEventApi: globalThis.window,
+      // The same verdict governs the legacy QUEUE: an unattributable device's
+      // unsent writes are not this user's to replay.
+      adoptLegacyOutbox: adoption.adopt,
     }),
   })
 

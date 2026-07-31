@@ -1,4 +1,12 @@
-import { asArtifactId, asIssueId, asSessionId, type IssueWire, type IssueWireInput, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  asArtifactId,
+  asIssueId,
+  asSessionId,
+  type IssueWire,
+  type IssueWireInput,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from '@/app/store'
 import {
@@ -229,7 +237,12 @@ describe('issueForPanel', () => {
     const s = sess('s1', '/elsewhere/wt', { issueId: asIssueId('i2') })
     const archived = issue({ id: 'i2', worktreePath: null, archived: true })
     expect(
-      issueForPanel({ issues: [archived], sessions: [s], cwd: '/elsewhere/wt', sessionId: asSessionId('s1') }),
+      issueForPanel({
+        issues: [archived],
+        sessions: [s],
+        cwd: '/elsewhere/wt',
+        sessionId: asSessionId('s1'),
+      }),
     ).toBeNull()
     // No sessionId (file-tab resolution) → cwd-only behavior.
     expect(
@@ -319,7 +332,11 @@ describe('artifact helpers', () => {
       }),
     ).toBe('http://x/files/asset?root=%2Fw&path=p.png&machineId=m1')
     expect(
-      artifactUrl({ httpOrigin: 'http://x', issueId: asIssueId('iss_1'), artifact: { path: 'p.png' } }),
+      artifactUrl({
+        httpOrigin: 'http://x',
+        issueId: asIssueId('iss_1'),
+        artifact: { path: 'p.png' },
+      }),
     ).toBeNull()
   })
 })

@@ -57,6 +57,20 @@ export interface SideCacheInit {
   /** Surfaced, never swallowed (ADR 6 D4.4 clause 3). Fires when a QUEUED write
    *  could not be persisted — the one loss this module must not keep quiet. */
   onDegraded?: (error: unknown) => void
+  /**
+   * May the legacy queue found on this device be ADOPTED as this user's work?
+   *
+   * Defaults to true, and the composition root sets it false when the store
+   * cannot be attributed with certainty (POD-307's fail-closed rule, POD-1239).
+   * Folding in a queue that predates per-user identity is exactly how one
+   * person's unsent writes get replayed under another person's account on a
+   * shared device — the same hazard POD-377's adoption gate exists for, arriving
+   * through the outbox instead of through the entity rows.
+   *
+   * A refusal does NOT mark the fold as done, so a later boot that CAN attribute
+   * the store still adopts it. Declining to adopt is not the same as discarding.
+   */
+  adoptLegacyOutbox?: boolean
 }
 
 /** The read/write surface `facade.ts` delegates its non-entity duties to. */
@@ -303,6 +317,10 @@ export function createSideCache(init: SideCacheInit): SideCache {
   migrateLegacyOutbox()
 
   function migrateLegacyOutbox(): void {
+    // Attribution first: an unattributable queue is LEFT WHERE IT IS, not
+    // adopted and not destroyed, and the fold stays un-marked so a later
+    // attributable boot can still take it.
+    if (init.adoptLegacyOutbox === false) return
     if (storage.getItem(`${outboxKey}.migrated`) !== null) return
     const found: OutboxEntry[] = []
     for (const key of init.legacyOutboxKeys ?? DEFAULT_LEGACY_OUTBOX_KEYS) {

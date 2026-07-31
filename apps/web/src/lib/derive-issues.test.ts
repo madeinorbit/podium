@@ -1,9 +1,4 @@
-import {
-  type IssueWireInput,
-  type SessionMetaInput,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterIssueNav, issueNavList, subIssuesOf } from './derive'
 

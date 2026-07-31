@@ -1,8 +1,4 @@
-import {
-  type SessionMetaInput,
-  type GitRepositoryWire,
-  type SessionMeta,
-} from '@podium/model'
+import type { GitRepositoryWire, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   dedupeSessionsByResume,
@@ -55,7 +51,8 @@ describe('worktreeForCwd', () => {
 
 describe('sessionsForWorktree (containment grouping)', () => {
   const roots = ['/repo', '/repo/.worktrees/feat']
-  const at = (id: string, cwd: string): SessionMeta => sess(id, 1, { cwd } as Partial<SessionMetaInput>)
+  const at = (id: string, cwd: string): SessionMeta =>
+    sess(id, 1, { cwd } as Partial<SessionMetaInput>)
 
   it('a session whose cwd is a SUBDIRECTORY of the worktree still shows in it', () => {
     const list = [at('a', '/repo/packages/web'), at('b', '/repo')]
@@ -126,7 +123,10 @@ describe('sidebarSections (containment grouping)', () => {
     ]
     const sessions = [
       sess('agent', 1, { cwd: '/repo/.worktrees/feat' } as Partial<SessionMetaInput>),
-      sess('sh', 1, { cwd: '/repo/.worktrees/feat', agentKind: 'shell' } as Partial<SessionMetaInput>),
+      sess('sh', 1, {
+        cwd: '/repo/.worktrees/feat',
+        agentKind: 'shell',
+      } as Partial<SessionMetaInput>),
     ]
     const sections = sidebarSections(repos, sessions, EMPTY_PINS, NOW, issues)
     const worktrees = sections.repos.flatMap((r) => r.worktrees)

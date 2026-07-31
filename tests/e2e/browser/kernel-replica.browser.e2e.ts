@@ -115,15 +115,46 @@ async function setKernelReplica(page: Page, on: boolean): Promise<void> {
   const toggle = row.getByRole('switch').first()
   await expect(toggle).toBeEnabled({ timeout: 30_000 })
   const want = on ? 'true' : 'false'
-  if ((await toggle.getAttribute('aria-checked')) !== want) {
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-checked', want)
-    await page.getByRole('button', { name: /^Save$/ }).click()
-    await expect(page.getByText('Saved.', { exact: true })).toBeVisible({ timeout: 15_000 })
-  }
+  if ((await toggle.getAttribute('aria-checked')) === want) return
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', want)
+
+  // "Save changes" on the DIRTY BAR, and the bar reading "Saved ✓" is the
+  // confirmation. Measured against the running app rather than copied: the
+  // affordance in `experimental-settings.browser.e2e.ts` is `/^Save$/` plus
+  // "Saved.", and neither exists — that spec is one of the suites POD-1227's
+  // census finds red. Inheriting its locators made this suite fail for a reason
+  // that had nothing to do with the cutover: the toggle flipped, nothing
+  // persisted, and the app correctly resolved to the legacy path afterwards.
+  const save = page.getByRole('button', { name: /^Save changes$/ })
+  await expect(save).toBeVisible({ timeout: 15_000 })
+  await save.click()
+  await expect(page.getByText('Saved ✓')).toBeVisible({ timeout: 15_000 })
+  // The dirty bar's button goes away once the blob is committed; asserting the
+  // toast alone would pass on a save that was refused.
+  await expect(save).toBeHidden({ timeout: 15_000 })
 }
 
 const enableKernelReplica = (page: Page) => setKernelReplica(page, true)
+
+/**
+ * LEAVE SETTINGS THE WAY A USER DOES, and why this is not ceremony.
+ *
+ * The Settings screen is an overlay over whichever view was last active, and on
+ * this harness that ends up being Tasks — which renders no `complementary`
+ * sidebar at all. Every helper that waits for the sidebar (including
+ * `_harness.openApp`'s `gotoWorkspace`) then times out, and the failure reads as
+ * "the app never booted" when the app is fine and simply showing a different
+ * screen. Three of this suite's four tests failed exactly that way.
+ *
+ * Clicking the primary nav's Work button puts the app back where those helpers
+ * expect it, with a real gesture rather than a navigation trick.
+ */
+async function leaveSettings(page: Page): Promise<void> {
+  const work = page.getByRole('button', { name: 'Work', exact: true }).first()
+  await work.click({ timeout: 30_000 })
+  await sidebar(page).waitFor({ state: 'visible', timeout: 60_000 })
+}
 
 const workspaceTab = (page: Page, sessionId: string) =>
   page.locator(`[data-session="${sessionId}"][role="button"]`)
@@ -168,17 +199,25 @@ test.describe('the web engine on the kernel replica', () => {
   }) => {
     // ESTABLISH the flag-off state rather than assuming it — see setKernelReplica.
     await setKernelReplica(page, false)
+    await leaveSettings(page)
+
+    // BACK VIA `openApp`, not a bare goto: leaving Settings restores whichever
+    // view was last persisted, and on this harness that is Tasks — which has no
+    // `complementary` sidebar at all. A bare `goto('/')` plus a sidebar wait
+    // silently assumed the Work view and timed out for a reason with nothing to
+    // do with the read path. `openApp` is what the other tests here use, and it
+    // navigates to the workspace explicitly.
+    await openApp(page)
 
     // WITH THE FLAG OFF the app resolves the shipped path. This assertion is the
     // counterfactual for every `expectKernelPath` below: it shows the marker is a
     // measurement and not a constant.
-    await page.goto(`/?server=${RELAY}&e2e=1`)
-    await sidebar(page).waitFor({ state: 'visible', timeout: 120_000 })
     await expect
       .poll(async () => replicaPath(page), { timeout: 60_000, intervals: [200] })
       .toBe('legacy')
 
     await enableKernelReplica(page)
+    await leaveSettings(page)
 
     // A reload is what a user gets: the gate resolves before the store mounts.
     await openApp(page)
@@ -195,6 +234,7 @@ test.describe('the web engine on the kernel replica', () => {
     page,
   }) => {
     await enableKernelReplica(page)
+    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
     const seeded = await sidebarText(page)
@@ -205,6 +245,8 @@ test.describe('the web engine on the kernel replica', () => {
     // assertion about PAINT rather than about eventual arrival: a client that
     // waited for the network would not have rows this early.
     await page.reload({ waitUntil: 'domcontentloaded' })
+    // A reload keeps the workspace view, so the sidebar is the right thing to
+    // wait on here — unlike the post-Settings navigation above.
     await sidebar(page).waitFor({ state: 'visible', timeout: 120_000 })
     await expect
       .poll(async () => (await sidebarText(page)).length, { timeout: 8_000, intervals: [100] })
@@ -218,6 +260,7 @@ test.describe('the web engine on the kernel replica', () => {
     context,
   }) => {
     await enableKernelReplica(page)
+    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
 
@@ -272,6 +315,7 @@ test.describe('the web engine on the kernel replica', () => {
 
   test('the optimistic spawn grace window is unchanged with the flag on', async ({ page }) => {
     await enableKernelReplica(page)
+    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
 

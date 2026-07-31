@@ -1,9 +1,9 @@
 import {
   asRepoId,
-  type IssueWireInput,
-  type SessionMetaInput,
   type IssueWire,
+  type IssueWireInput,
   type SessionMeta,
+  type SessionMetaInput,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -455,7 +455,9 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
 
   it('suppresses an unread issue row that has a currently-working session', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWireInput>, [working('a', '/w')])),
+      rowUnreadEmphasized(
+        issueRow({ unread: true } as Partial<IssueWireInput>, [working('a', '/w')]),
+      ),
     ).toBe(false)
   })
 
@@ -469,7 +471,9 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
 
   it('leaves a read row un-emphasized regardless of working state', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: false } as Partial<IssueWireInput>, [working('a', '/w')])),
+      rowUnreadEmphasized(
+        issueRow({ unread: false } as Partial<IssueWireInput>, [working('a', '/w')]),
+      ),
     ).toBe(false)
   })
 })

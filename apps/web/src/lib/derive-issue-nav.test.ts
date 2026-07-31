@@ -1,4 +1,10 @@
-import { asSessionId, type IssueWire, type IssueWireInput, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  asSessionId,
+  type IssueWire,
+  type IssueWireInput,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterBoardScope } from '@/features/issues/issues-display'
 import {

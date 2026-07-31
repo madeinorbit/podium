@@ -1,5 +1,5 @@
-import type { SessionId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
+import type { SessionId } from '@podium/model'
 import { useCallback } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { isSessionWorking } from '@/lib/derive'
