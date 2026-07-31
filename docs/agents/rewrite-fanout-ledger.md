@@ -2582,3 +2582,41 @@ ui-state and transcripts stay best-effort. Without it, "the outbox rethrows"
 drifts into "everything rethrows" on the next reading, and a preference write
 that takes the app down is a worse defect than the one being fixed. A rule that
 says only what to do, and never where it stops, gets over-applied.
+
+## A targeted lane that omits packages/protocol cannot see a wire change
+
+My own error, caught two merges later. POD-1213 added a
+`PersonalPreferenceState` schema; the wire golden for the `model` family was
+never regenerated. I merged it green, because the targeted lane I ran —
+`apps/server packages/model packages/commands packages/sync scripts` — did not
+include `packages/protocol`, which is where `wire-golden.test.ts` lives.
+
+The lane was not wrong for the CODE the issue touched. It was wrong for the
+BLAST RADIUS: any change to a schema that appears on the wire is observable only
+in a package the diff never mentions. Targeted lanes are chosen from the diff,
+and this class of regression is invisible in the diff by construction.
+
+RULE: if a diff touches `packages/model`, `packages/commands` or any schema
+declaration, the targeted lane MUST include `packages/protocol`. The goldens are
+the only instrument that sees a wire change, and they live somewhere else.
+
+POD-1229 hit the same thing from the other side an hour later — it changed the
+maintenance observations from `readAt` to `readerUserId`, never regenerated, and
+reported a lane green that named `protocol` among its packages. Two agents, one
+coordinator, same blind spot in one session.
+
+TWO THINGS ABOUT REGENERATING, since the fix is always "regenerate":
+
+  - It only runs with the source condition. `bun scripts/update-wire-fixtures.ts`
+    dies with "Cannot find module '@podium/model'";
+    `bun --conditions @podium/source scripts/update-wire-fixtures.ts` works. The
+    failure looks like a broken install, which is the same false signal three
+    agents chased this run.
+  - REVIEW THE DIFF, DO NOT TRUST THE REGENERATION. Additive is the safe shape:
+    mine was 30 lines added, 0 removed, one file, one new `"schema"` value. A
+    regeneration that CHANGES or REMOVES cases is a wire break wearing a fixture
+    update's clothes, and the tool will happily write it either way.
+
+The person who changed the shape should regenerate, not the integrator: the
+fixture records what the wire used to be, and only the author can say the diff
+contains just the intended change.
