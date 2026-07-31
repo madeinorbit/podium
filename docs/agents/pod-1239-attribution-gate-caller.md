@@ -135,6 +135,54 @@ grep-verified before the next.
 |---|---|
 | restore the ambient reach (`legacyMigrationStorage` returns `window.localStorage` unconditionally) | **2 of 3 cases RED** |
 | disable the engine guard (`if (false)`) | **RED**, exactly the refusal case |
+| **the gate itself: `decideLegacyAdoption` forced to `const adopt = true`** | **3 RED** — all three unattributable arms, through POD-1220's real mobile composition root |
+| drop `storage:` from `createWebReplica` | **4 RED** in `store.replica.test.tsx` — the reload cases now depend on the explicit seam |
+
+The third one is the mutation this issue actually turns on, and it could not be performed
+until POD-1220's caller reached integration: identity-unknown, multiple-identities and
+foreign-identity all went red through the real root and green again on revert. The one case
+that did **not** move — "discards and re-bootstraps" — is correct as written, not a hole:
+POD-1220 documented that the entity/cursor discard is unconditional and is the half the gate
+does not govern.
+
+### The web tests were asserting the defect (POD-279's send-back)
+
+Four cases in `apps/web/src/app/store.replica.test.tsx` failed against the fix. Each builds a
+second replica that must see the first one's rows — *"a fresh provider over the same
+storage"* — and the sharing worked **only** because `createReplica()` with no arguments
+reached for `window.localStorage` itself. That reach is the defect. A test cannot assert it
+and be satisfied by its removal.
+
+Reading taken: **the test was wrong**. The seeds and rereads now go through
+`createWebReplica()`, the same composition root `StoreProvider` uses, so the two replicas
+share a store because a web file said so rather than because client-core guessed it was in a
+browser. Assertions unchanged.
+
+The rejected reading — that a no-argument `createReplica()` is a supported persistence
+contract, so degrading it to memory is data loss and the throw belongs there too — fails on
+what memory mode is FOR. Node, SSR and client-core's own tests want an in-memory replica and
+have no principal to attribute to; a throw there breaks the correct callers. The throw
+belongs where a platform root is *required and absent*, which is `createEngine`. No product
+path reaches memory silently: the web root passes `storage`, the desktop root passes
+`persisted`.
+
+### The second ambient reach, and why only one of the two survived
+
+POD-279 also flagged `enumerateKeys` and `storageEventApi`, both still keyed on
+`init.storage === undefined`. Neither adopted — `this.storage` is `memoryStorage()` in that
+branch — but both were the same inference wearing a different hat.
+
+- `storageEventApi`'s `window` fallback: **deleted**, and it was already unreachable.
+  It required `init.storage === undefined && webStorageUsable`, and `probeStorage(undefined)`
+  is false unless `legacyMigrationStorage` produced a store — which happens only in
+  `persisted` mode, which that branch excludes. Dead code, but dead code a later edit could
+  widen back into an adoption.
+- `enumerateKeys`' `Object.keys(window.localStorage)`: **kept, re-keyed**. It is the SQLite
+  migration's key enumerator, paired with the migration's storage — prefix-matched legacy
+  ui-state keys cannot be probed individually, so deleting it strips the migration of its
+  input, the same argument that kept `legacyMigrationStorage`. It now keys on
+  `readingMigrationStore` (the store came from the migration reach) rather than on "no
+  storage was injected", so injecting a store no longer silently decides enumeration too.
 
 The ambient test was also red *before* the fix, on all three cases — including `writes`
 showing the old code writing this user's rows into the previous user's localStorage.
@@ -332,9 +380,19 @@ real one hides, which is that file's own stated principle.
 - **POD-1223** — attribution for `kernelReplica.ts`, `shadow/runner.ts`, and
   `apps/web/src/lib/webReplica.ts` (the root created here, deliberately red).
 - **POD-1220** — mobile's caller; already in flight.
-- **POD-378** — §3 patch, or their preferred variant of it.
-- **This issue** — closes when the audit's unattributed-store item has a refusing arm that
-  a commented mention cannot satisfy, and at least one real caller per client is counted by
-  it.
+- **POD-378** — DONE: applied as 45fbb83e (credited "found by POD-1239"), after writing the
+  three probe cases first and confirming all three failed against their unpatched detector.
+  The line-renumbering defect my patch text introduced was theirs to catch and mine to own.
+- **This issue** — the two conditions are met. The audit's unattributed-store item has a
+  refusing arm that a commented mention cannot satisfy (call shape, not mention), and the
+  gate has a real caller counted by it: `MobileClientProvider.tsx`, proven by mutating
+  `decideLegacyAdoption` itself and watching three arms go red through that root.
+
+  What remains RED is deliberate and belongs to POD-1223: `webReplica.ts:63`,
+  `shadow/runner.ts:110`, `desktopReplica.ts:135` (POD-378 deletes that one) and
+  `legacy-snapshot.ts:124`. The count did not move — `engine.ts:297` swapped for
+  `webReplica.ts:63`. That swap is the result: a finding that named shared, platform-neutral
+  code which **could not host its own fix** became a finding in a web file a web agent can
+  close.
 
 Do not let "POD-377 verified it" appear in a handoff again without naming the caller.
