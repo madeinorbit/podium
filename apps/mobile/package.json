@@ -48,6 +48,6 @@
     "build:web": "expo export -p web && bun scripts/patch-web-html.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   }
 }
