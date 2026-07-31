@@ -137,6 +137,25 @@ async function setKernelReplica(page: Page, on: boolean): Promise<void> {
 
 const enableKernelReplica = (page: Page) => setKernelReplica(page, true)
 
+/**
+ * LEAVE SETTINGS THE WAY A USER DOES, and why this is not ceremony.
+ *
+ * The Settings screen is an overlay over whichever view was last active, and on
+ * this harness that ends up being Tasks — which renders no `complementary`
+ * sidebar at all. Every helper that waits for the sidebar (including
+ * `_harness.openApp`'s `gotoWorkspace`) then times out, and the failure reads as
+ * "the app never booted" when the app is fine and simply showing a different
+ * screen. Three of this suite's four tests failed exactly that way.
+ *
+ * Clicking the primary nav's Work button puts the app back where those helpers
+ * expect it, with a real gesture rather than a navigation trick.
+ */
+async function leaveSettings(page: Page): Promise<void> {
+  const work = page.getByRole('button', { name: 'Work', exact: true }).first()
+  await work.click({ timeout: 30_000 })
+  await sidebar(page).waitFor({ state: 'visible', timeout: 60_000 })
+}
+
 const workspaceTab = (page: Page, sessionId: string) =>
   page.locator(`[data-session="${sessionId}"][role="button"]`)
 
@@ -180,6 +199,7 @@ test.describe('the web engine on the kernel replica', () => {
   }) => {
     // ESTABLISH the flag-off state rather than assuming it — see setKernelReplica.
     await setKernelReplica(page, false)
+    await leaveSettings(page)
 
     // BACK VIA `openApp`, not a bare goto: leaving Settings restores whichever
     // view was last persisted, and on this harness that is Tasks — which has no
@@ -197,6 +217,7 @@ test.describe('the web engine on the kernel replica', () => {
       .toBe('legacy')
 
     await enableKernelReplica(page)
+    await leaveSettings(page)
 
     // A reload is what a user gets: the gate resolves before the store mounts.
     await openApp(page)
@@ -213,6 +234,7 @@ test.describe('the web engine on the kernel replica', () => {
     page,
   }) => {
     await enableKernelReplica(page)
+    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
     const seeded = await sidebarText(page)
@@ -238,6 +260,7 @@ test.describe('the web engine on the kernel replica', () => {
     context,
   }) => {
     await enableKernelReplica(page)
+    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
 
@@ -292,6 +315,7 @@ test.describe('the web engine on the kernel replica', () => {
 
   test('the optimistic spawn grace window is unchanged with the flag on', async ({ page }) => {
     await enableKernelReplica(page)
+    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
 
