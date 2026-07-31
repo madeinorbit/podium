@@ -208,13 +208,37 @@ export const REPLICA_TRANSCRIPT_CONVERSATION_CAP = 50
 
 export const REPLICA_KEY_PREFIX = 'podium.replica'
 
+/**
+ * A Map-backed store that ALSO reports what it holds.
+ *
+ * The readout is not a debugging convenience — it is what makes "this replica
+ * persists nothing" a checkable claim rather than a comment. Two callers already
+ * needed it and each hand-rolled its own Map because `memoryStorage()` hid its
+ * own: `legacy-keys.test.ts` ("`memoryStorage()` hides its map; this one is the
+ * same seam with the key set observable, which is the whole measurement") and
+ * `legacy-snapshot.ts`, whose entire job is to hand back every key the writer
+ * wrote. A seam that has to be re-implemented to be observed is a seam that gets
+ * re-implemented slightly differently each time.
+ */
+export interface MemoryStorage extends StorageApi {
+  /** Every key currently held, in insertion order. */
+  keys(): string[]
+  /** The whole store as a plain object — a copy, so a later write cannot
+   *  retroactively change a snapshot someone already took. */
+  snapshot(): Record<string, string>
+}
+
 /** Map-backed StorageApi for the private-mode fallback — same seam, no DOM.
- *  Also the explicit adapter for private/ephemeral mode on any platform. */
-export function memoryStorage(): StorageApi {
+ *  Also the explicit adapter for private/ephemeral mode on any platform, and the
+ *  one construction the client audit's unattributed-store item accepts as proof
+ *  that a composition root persists nothing (`scripts/audit-phase2-client.ts`). */
+export function memoryStorage(): MemoryStorage {
   const data = new Map<string, string>()
   return {
     getItem: (k) => data.get(k) ?? null,
     setItem: (k, v) => void data.set(k, v),
     removeItem: (k) => void data.delete(k),
+    keys: () => [...data.keys()],
+    snapshot: () => Object.fromEntries(data),
   }
 }
