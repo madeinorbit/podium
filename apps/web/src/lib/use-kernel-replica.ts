@@ -37,6 +37,20 @@ export type KernelReplicaGate =
       readonly authorityScoped: boolean
     }
 
+declare global {
+  /**
+   * WHICH READ PATH THIS TAB RESOLVED TO — a diagnostic, and the only way a
+   * browser test can tell the two paths apart.
+   *
+   * Without it a runtime spec asserting "the app works with the flag on" is
+   * indistinguishable from one asserting "the app works", because both paths
+   * render the same UI when they are both correct. That is the whole hazard: a
+   * green cutover spec that silently ran the legacy path proves nothing. It is
+   * written by the gate and read by nobody in the product.
+   */
+  var __podiumReplicaPath: 'legacy' | 'kernel' | 'kernel-with-shadow' | undefined
+}
+
 export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): KernelReplicaGate {
   const { httpOrigin, trpc } = args
   const [gate, setGate] = useState<KernelReplicaGate>({ status: 'resolving' })
@@ -48,6 +62,7 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
       const { mode, serverGrade } = await resolveWebReplicaMode({ httpOrigin, trpc })
       if (!alive) return
       if (mode.path === 'legacy') {
+        globalThis.__podiumReplicaPath = 'legacy'
         setGate({ status: 'legacy', mode })
         return
       }
@@ -58,6 +73,7 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
           return
         }
         opened = assembly
+        globalThis.__podiumReplicaPath = mode.path
         setGate({
           status: 'kernel',
           mode,
@@ -70,6 +86,7 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
         // indistinguishable from a flag that worked.
         console.warn('[podium] kernel replica unavailable — running the legacy path', error)
         if (alive) {
+          globalThis.__podiumReplicaPath = 'legacy'
           setGate({
             status: 'legacy',
             mode,
