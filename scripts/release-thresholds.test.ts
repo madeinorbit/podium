@@ -168,7 +168,9 @@ describe('release-criteria thresholds do not drift from the constants they inher
     // §T1 row 9 states a ceiling AND the per-pane figure derived from it. Two numbers
     // that must agree by arithmetic drift apart the moment one is edited alone.
     const cap = Number(
-      read('apps/web/src/features/terminal/use-warm-set.ts').match(/^const DESKTOP_N = (\d+)$/m)?.[1],
+      read('apps/web/src/features/terminal/use-warm-set.ts').match(
+        /^const DESKTOP_N = (\d+)$/m,
+      )?.[1],
     )
     expect(cap).toBeGreaterThan(0)
     const CEILING_MB = 1000 // "≤ 1.0 GB" in the table
