@@ -3262,3 +3262,50 @@ Operational repeat, one level down from the earlier entry: a conflicted WORKSPAC
 `package.json` breaks `bun install` exactly as the root one breaks the `podium`
 CLI. Resolve every conflicted `package.json` in a group before anything else in
 that group.
+
+## The merge hazard git cannot see: a CLEAN file broken by a module the other side moved
+
+POD-1246 hit this twice in one group, and it is the most under-appreciated risk in
+a large catch-up because it is invisible in the artefact everyone works from — the
+conflict list.
+
+A file merges CLEAN. No marker, no conflict, git is satisfied. And it imports a
+module the OTHER side moved or deleted:
+
+  - `packages/sync/src/feed-identity.test.ts` (main's) imported `./test-support`,
+    which integration had moved to `adapters/sqlite/test-support.ts`. Caught only
+    by checking the import graph rather than the conflict list.
+  - `apps/server/src/migrations/restore.ts` (main's) consumes `ensureFeedIdentity`
+    from main's `feed-identity.ts`, which this merge retires in favour of
+    integration's `feed/identity.ts`. Nothing flags it until the server fails to
+    build, several groups later.
+
+GIT REPORTS CONFLICTS, NOT BREAKAGE. Conflict = both sides edited the same lines.
+Breakage = one side edited lines the other side's file DEPENDS ON. The second is
+strictly larger, it is the interesting set in a semantic merge, and a conflict
+count of zero says nothing about it.
+
+THE CHECK, and it must be per-group rather than at the end: after resolving a
+group, TYPECHECK THE PACKAGES THAT DEPEND ON IT, not just the ones you edited. A
+group is not done when its own files compile — it is done when its consumers
+still do. POD-1246 ran `bun run --cwd packages/sync typecheck` and got zero errors
+from sync itself, with the only failures in `packages/protocol` where group (c)
+lives. That is the shape to want: a clean edge, and a known frontier.
+
+Corollary for the "explain every line that did not survive" method: it audits
+DELETIONS you made deliberately. It cannot see a file you never touched that
+depended on one. Both need doing.
+
+Two smaller things from the same group, both about misreading a diff's size:
+
+  - MAIN'S "+30 LINES ON A FILE INTEGRATION DELETED" WAS NOT CAPABILITY. They were
+    defensive no-op arms (`case 'issueDep': break`) added only to keep a
+    `satisfies never` exhaustiveness check passing after new entity kinds
+    arrived. The real content was an interlock COMMENT, and it dies with the
+    module it guarded. Line count overstated the stakes; reading them settled it
+    in minutes.
+  - "THE MODULE IS GONE" AND "THE RETIREMENT IS COHERENT" ARE DIFFERENT CLAIMS.
+    Integration's POD-309 retirement won because it ships a dead-letter path for
+    anything an operator had already queued — a retirement WITH a migration,
+    per ADR 5 D8, rather than an amputation. Absence of the module was never the
+    evidence.
