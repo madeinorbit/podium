@@ -176,16 +176,20 @@ directions, because both should read source with comments and strings removed.
 const CALLS_THE_GATE = /\b(?:decideLegacyAdoption|migrateLegacyReplica)\s*\(/
 
 /**
- * Source with comments and string literals blanked.
+ * Source with comments and string literals blanked, LINE STRUCTURE PRESERVED.
  *
  * Both halves of this detector read it: a MENTION of the gate in a comment must not
  * grade a root clean, and a COMMENTED-OUT construction must not promote an innocent
  * file into the population. Blanking only ever removes text, so it cannot invent a
  * finding — a real call is never inside a comment or a string literal.
+ *
+ * The block-comment arm blanks CHARACTERS and keeps newlines. Collapsing a block
+ * comment to a single space renumbers every finding after it, and this file's whole
+ * output is `file:line` — see the note below.
  */
 function withoutCommentsOrStrings(source: string): string {
   return source
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
     .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
     .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
@@ -240,6 +244,31 @@ before/after contrast is the evidence, not the after column alone:
 Case 4 is a defect I did not set out to find: today a commented-out construction promotes an
 innocent file *into* the population and reports it as an unattributed root. The mention
 problem runs in both directions, and blanking comments once fixes both.
+
+**APPLIED** by POD-378 as 45fbb83e on `issue/378-2-3e-remove-tanstack-db-delete-tracking`.
+They wrote the three cases as probes FIRST and ran them against their own unpatched
+detector; all three failed, so the holes are confirmed by that file's own suite and not
+merely by my table.
+
+### A defect my patch text introduced, and how it was caught
+
+My first version blanked block comments to a **single space**, which collapses a multi-line
+comment onto one line and **renumbers every finding after it**. `desktopReplica.ts:135` was
+reported as `:98` — right file, fictional line.
+
+Nothing caught it. The count was unchanged, all 20 cases stayed green, and POD-378 only
+noticed by diffing the printed output against a known-good run from an hour earlier. This
+whole detector's output is `file:line`, and *a report whose line numbers are confidently
+wrong is worse than one with none* — it sends the reader to an innocent line and spends the
+trust they need to act on the next finding.
+
+The fix is above: blank characters, keep newlines. POD-378 added a probe with a multi-line
+header asserting the call is reported at line 5.
+
+It is worth naming what this was. My patch removed text a detector reads, and I checked that
+the VERDICTS were right without checking that the LOCATIONS still were. Same family as the
+bug the patch fixes — an instrument reporting confidently about something it had stopped
+measuring correctly.
 
 ### The judgement I left open — RESOLVED by POD-1220, who writes the first caller
 

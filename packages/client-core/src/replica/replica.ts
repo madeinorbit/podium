@@ -154,10 +154,15 @@ export interface ReplicaInit {
    *  remaining reach (SQLite mode's legacy-blob migration source). */
   storage?: StorageApi
   /** Key enumerator for the one-time ui-state migration (prefix-matched legacy
-   *  keys can't be probed individually). Defaults to Object.keys(localStorage)
-   *  when running on the real window.localStorage; empty otherwise. */
+   *  keys can't be probed individually). Empty unless supplied — the browser
+   *  passes it explicitly from `webReplica.ts`. (It still falls back to
+   *  Object.keys(localStorage) in SQLite mode, whose legacy-blob migration is the
+   *  one place the replica may still reach ambient storage — POD-1239.) */
   enumerateKeys?: () => string[]
-  /** Cross-tab sync events; defaults to window. Tests usually omit both. */
+  /** Cross-tab sync events. NOOP unless supplied — the browser passes `window`
+   *  explicitly from `webReplica.ts`. This used to default to `window` whenever
+   *  `storage` was absent, which coupled two unrelated decisions: injecting a
+   *  store silently switched cross-tab sync off (POD-1239). */
   storageEventApi?: StorageEventApi
   /** Key namespace, `podium.replica` by default (keys get `.<kind>.v1` suffixes). */
   keyPrefix?: string
