@@ -268,9 +268,18 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
   }
 }
+export const MISSING_SESSION_BINDING_MESSAGE =
+  'server-minted SessionBinding instruction is required'
+
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
-  // A missing instruction is an older-server compatibility path: launch as
-  // before, but never synthesize a human or write a fake delegation locally.
+  if (!msg.binding) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: MISSING_SESSION_BINDING_MESSAGE,
+    })
+    return
+  }
   if (msg.binding) {
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const outcome = await ctx.sessionBinding.transition({
@@ -306,6 +315,14 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
 // reattach for sessions we already hold — re-confirm the bind instead of spawning a
 // duplicate client), and gated so the spawn fan-out can't fork everything in one tick.
 async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise<void> {
+  if (!msg.binding) {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: MISSING_SESSION_BINDING_MESSAGE,
+    })
+    return
+  }
   if (msg.binding) {
     const outcome = await ctx.sessionBinding.transition({
       event: 'reattach',

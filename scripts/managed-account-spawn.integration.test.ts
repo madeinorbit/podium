@@ -125,6 +125,16 @@ function makeHarness(settingsDir: string): Harness {
     // DaemonContext` below erases the shape, and scripts/ is outside the typecheck.
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     primeInjector: { reset: () => {} },
+    // Binding semantics have their own transition suite. This lane observes the
+    // downstream real PTY environment, so it supplies an accepted transition
+    // service while still requiring the server-authored instruction below.
+    sessionBinding: {
+      transition: async (input: { event: 'spawn' }) => ({
+        status: 'unchanged' as const,
+        event: input.event,
+        binding: {} as never,
+      }),
+    },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
   } as unknown as DaemonContext
@@ -203,6 +213,11 @@ async function spawnAndDumpEnv(
         agentKind: 'shell',
         cwd: process.cwd(),
         geometry: { cols: 120, rows: 30 },
+        binding: {
+          transitionId: `managed-account:${sessionId}`,
+          machineAccess: 'allowed',
+          principal: { kind: 'user', userId: 'managed-account-test-user' },
+        },
         ...(env ? { env } : {}),
       }),
     ),
@@ -210,6 +225,7 @@ async function spawnAndDumpEnv(
 
   await sessionHandlers.spawn(h.ctx, msg)
 
+  await waitFor(() => h.sent.some((m) => m.type === 'bind' || m.type === 'spawnError'))
   const bind = h.sent.find((m) => m.type === 'bind')
   const spawnError = h.sent.find((m) => m.type === 'spawnError')
   expect(spawnError, `daemon refused to spawn: ${JSON.stringify(spawnError)}`).toBeUndefined()
