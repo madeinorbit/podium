@@ -84,6 +84,22 @@ export interface KernelCacheRead {
 export interface KernelReplicaInit {
   readonly cache: KernelCacheRead
   readonly side: SideCache
+  /**
+   * The outbox's durable home, when it is NOT the side cache.
+   *
+   * ADR 6 D1 names outbox entries among what localStorage/AsyncStorage MUST NOT
+   * hold "on any path". The side cache is a `StorageApi` blob store, so it
+   * satisfies D1 for ui-state and transcripts and NOT for the outbox. Mobile
+   * passes its SQLite store view here and lands the queue in the entity rows'
+   * own transaction domain; web needs its own compliant seam and keeps the side
+   * cache only until it has one.
+   *
+   * OPTIONAL, and defaulting to the side cache, DELIBERATELY: making it required
+   * would have changed web's behaviour in the same commit that gave mobile a
+   * correct placement, and a cutover that changes two things at once cannot be
+   * bisected when one of them is wrong.
+   */
+  readonly outbox?: { readonly queued: OutboxStorage; readonly awaiting: OutboxStorage }
 }
 
 /** What the composition root drives, beyond the `Replica` interface itself. */
@@ -260,8 +276,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       }
     },
 
-    outboxStorage: (): OutboxStorage => side.outboxStorage(),
-    outboxAwaitingStorage: (): OutboxStorage => side.outboxAwaitingStorage(),
+    outboxStorage: (): OutboxStorage => init.outbox?.queued ?? side.outboxStorage(),
+    outboxAwaitingStorage: (): OutboxStorage =>
+      init.outbox?.awaiting ?? side.outboxAwaitingStorage(),
     uiState: (): UiState => side.uiState(),
 
     async flush(): Promise<void> {

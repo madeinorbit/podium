@@ -284,6 +284,40 @@ describe('row subscriptions', () => {
   })
 })
 
+describe('the outbox seam is injectable, and defaults to the side cache', () => {
+  const stub = (tag: string) => ({ load: () => [{ mutationId: tag }] as never[], save: () => {} })
+
+  it('uses an injected outbox when one is supplied — mobile lands the queue in SQLite', () => {
+    const cache = new FakeCache()
+    const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
+    const replica = createKernelReplica({
+      cache,
+      side,
+      outbox: { queued: stub('injected-queued'), awaiting: stub('injected-awaiting') },
+    })
+    expect(replica.outboxStorage().load()).toEqual([{ mutationId: 'injected-queued' }])
+    expect(replica.outboxAwaitingStorage().load()).toEqual([{ mutationId: 'injected-awaiting' }])
+  })
+
+  it('falls back to the side cache when none is — web behaviour is UNCHANGED', () => {
+    // The counterfactual for the case above, and the reason the field is
+    // optional: giving mobile a correct placement must not silently move web's
+    // queue in the same commit.
+    const cache = new FakeCache()
+    const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
+    side
+      .outboxStorage()
+      .save([{ mutationId: 'from-side-cache', kind: 'rename', input: {}, queuedAt: 1 }])
+    const replica = createKernelReplica({ cache, side })
+    expect(
+      replica
+        .outboxStorage()
+        .load()
+        .map((e) => e.mutationId),
+    ).toEqual(['from-side-cache'])
+  })
+})
+
 describe('the wire-v1 write path is REFUSED, loudly', () => {
   // The point of these four: a facade wired to a v1 hub must fail at the first
   // frame. A no-op would leave the engine painting a frozen slice while the hub
@@ -492,6 +526,73 @@ describe('the side cache', () => {
           .outboxStorage()
           .load(),
       ).toEqual([])
+    })
+  })
+
+  describe('a denied outbox write is SURFACED, never swallowed', () => {
+    /**
+     * A storage that denies writes the way a real browser does at quota.
+     *
+     * The rest of this file runs over `memoryStorage()`, which never denies
+     * anything — so the outbox's catch is unreachable there BY CONSTRUCTION and
+     * a case written against it would have passed before the fix existed. This
+     * double is what makes the quota path expressible at all.
+     */
+    function denyingStorage(deny: (key: string) => boolean) {
+      const map = new Map<string, string>()
+      return {
+        getItem: (k: string) => map.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          if (deny(k)) {
+            const error = new Error('QuotaExceededError')
+            error.name = 'QuotaExceededError'
+            throw error
+          }
+          map.set(k, v)
+        },
+        removeItem: (k: string) => {
+          map.delete(k)
+        },
+      }
+    }
+
+    const entry = { mutationId: 'm1', kind: 'rename', input: {}, queuedAt: 1 }
+
+    it('RETHROWS when the queue cannot be persisted, and reports the degradation', () => {
+      // ADR 6 D4.3: queued entries are durable on the same footing as entity
+      // rows — losing them is a correctness bug, not degraded UX. A caller must
+      // not be allowed to believe a queued write is safe when it is not.
+      const degraded: unknown[] = []
+      const side = createSideCache({
+        storage: denyingStorage((k) => k.includes('outbox')),
+        enumerateKeys: () => [],
+        onDegraded: (error) => degraded.push(error),
+      })
+      expect(() => side.outboxStorage().save([entry])).toThrow(/QuotaExceeded/)
+      expect(degraded).toHaveLength(1)
+    })
+
+    it('the awaiting-truth stage is held to the same standard', () => {
+      const degraded: unknown[] = []
+      const side = createSideCache({
+        storage: denyingStorage((k) => k.includes('outbox')),
+        enumerateKeys: () => [],
+        onDegraded: (error) => degraded.push(error),
+      })
+      expect(() => side.outboxAwaitingStorage().save([entry])).toThrow(/QuotaExceeded/)
+      expect(degraded).toHaveLength(1)
+    })
+
+    it('ui-state and transcripts stay BEST-EFFORT — a quota there must not break the UI', () => {
+      // The counterfactual that keeps the rule above from being "throw on every
+      // write": a lost sidebar width is not a correctness bug, and a preference
+      // write that took the app down would be a worse defect than the one fixed.
+      const side = createSideCache({
+        storage: denyingStorage(() => true),
+        enumerateKeys: () => [],
+      })
+      expect(() => side.uiState().set('podium.view', 'issues')).not.toThrow()
+      expect(() => side.putTranscriptWindow('c1', [])).not.toThrow()
     })
   })
 

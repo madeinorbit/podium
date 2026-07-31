@@ -54,6 +54,9 @@ export interface SideCacheInit {
   now?: () => number
   /** Overridable for tests; defaults to the two homes the legacy path uses. */
   legacyOutboxKeys?: readonly string[]
+  /** Surfaced, never swallowed (ADR 6 D4.4 clause 3). Fires when a QUEUED write
+   *  could not be persisted — the one loss this module must not keep quiet. */
+  onDegraded?: (error: unknown) => void
 }
 
 /** The read/write surface `facade.ts` delegates its non-entity duties to. */
@@ -131,12 +134,50 @@ function readLegacyOutbox(storage: StorageApi, key: string): OutboxEntry[] {
   return entries
 }
 
-/** Best-effort: a quota failure degrades persistence, it does not break the UI. */
+/** Best-effort — UI-STATE AND TRANSCRIPTS ONLY. A quota failure there degrades
+ *  persistence and does not break the UI: a lost sidebar width is not a
+ *  correctness bug, and a preference write that took the app down would be a
+ *  worse defect than the one it guarded against. The outbox is NOT this; see
+ *  `writeQueued`. */
 function writeJson(storage: StorageApi, key: string, value: unknown): void {
   try {
     storage.setItem(key, JSON.stringify(value))
   } catch {
     // best-effort, exactly like the legacy path's degraded mode
+  }
+}
+
+/**
+ * THE OUTBOX IS NOT BEST-EFFORT.
+ *
+ * ADR 6 D4.3 puts queued entries on the same footing as entity rows: losing them
+ * on a crash is a correctness bug, not degraded UX. The legacy path routed the
+ * outbox family through a separate loud wrapper for exactly this reason, and
+ * dropping that on the way to the kernel path is a regression rather than a
+ * simplification — an empty catch here means a user's offline rename is gone and
+ * the app said nothing.
+ *
+ * Log, surface (D4.4 clause 3), and RETHROW. The rethrow is the load-bearing
+ * part: a caller must not be allowed to believe a queued write is safe when it
+ * is not. The asymmetry is the whole argument — a lost queued write is not
+ * recoverable, while a replayed one is a no-op, because every entry carries a
+ * stable `mutationId` the server dedupes on.
+ */
+function writeQueued(
+  storage: StorageApi,
+  key: string,
+  value: unknown,
+  onDegraded: (error: unknown) => void,
+): void {
+  try {
+    storage.setItem(key, JSON.stringify(value))
+  } catch (error) {
+    console.error(
+      '[podium] OUTBOX persistence failed (storage quota?) — queued offline writes may be LOST on reload',
+      error,
+    )
+    onDegraded(error)
+    throw error
   }
 }
 
@@ -287,7 +328,8 @@ export function createSideCache(init: SideCacheInit): SideCache {
 
   const outboxAt = (key: string): OutboxStorage => ({
     load: () => readJson<OutboxEntry[]>(storage, key, []) as OutboxEntry[],
-    save: (entries: OutboxEntry[]) => writeJson(storage, key, entries),
+    save: (entries: OutboxEntry[]) =>
+      writeQueued(storage, key, entries, (error) => init.onDegraded?.(error)),
   })
 
   return {
