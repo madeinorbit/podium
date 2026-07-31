@@ -264,6 +264,129 @@ richer structure and is what `index.ts` exports.
    outstanding — must be repointed at integration's `feed/identity.ts` when
    group (c) reaches `apps/server`.**
 
+## 2d. GROUP (c) PARTIAL — the carry-forward, a group-(b) defect, and the registry strategy
+
+37/109. Group (c) is NOT complete: `registry.ts` (48 hunks) and 9 other files remain.
+What follows is worth more than the file count.
+
+### The carry-forward is fixed — and I had named the wrong symbol
+
+`apps/server/src/migrations/restore.ts` did **not** import `ensureFeedIdentity`
+(that grep hit two comments — the `[[detector-mention-is-not-a-call]]` shape, in
+my own earlier finding). The real break was **`remintEpoch`**, which group (b)
+deleted with main's `feed-identity.ts`.
+
+Fixed by mirroring `relay.ts:389`'s canonical wiring: `FeedIdentityRegistry` over
+a `{readIdentity, writeIdentity}` port on `SyncRepository`, bumping with cause
+`'restore'` — which integration's `EpochBumpCause` defines for exactly this
+[spec:SP-4428] runbook. Integration's `bump()` also *refuses* a mint that returns
+the epoch it is replacing, a guard main's helper lacked. Also repointed the table
+probe `sync_feed` → `feed_identity` and six stale doc references.
+
+### A REAL DEFECT I INTRODUCED IN GROUP (b), found here
+
+`sync-repository.ts` had **`readFeedIdentity()` defined TWICE** — main's against
+`sync_feed`/`id=1` and integration's against `feed_identity`/`singleton=1`. Git
+auto-merged them as separate method blocks (the conflict was only in the header
+and imports), the second silently wins, and **tsgo reports nothing**. My group (b)
+"typecheck clean" claim was true as stated and still missed this.
+
+Resolved by measurement: main's `initFeedIdentity`/`setEpoch` have **zero callers**
+in the merged tree; integration's pair is live in `relay.ts` + two suites. Deleted
+main's trio. Both migrations survive, so `sync_feed` remains as an unused table —
+harmless, but note it before anyone reads it as live.
+
+**Lesson for the remaining groups:** duplicate class members from a clean
+auto-merge are invisible to both the conflict list AND the typechecker. When two
+sides restructure the same class, grep for repeated member names.
+
+### `packages/protocol/src/version.ts` — resolved, union, one stale claim caught
+
+Both sides expanded the docs complementarily (integration: the support-window
+architecture; main: the three version namespaces, ADR 2 D4). Hunk 2 was a genuine
+disagreement, settled by measurement: `isProtocolCompatible` has **zero**
+production callers, `versionSupport` is the live gate (`ws-server.ts`,
+`negotiation.ts`), so main's `@deprecated` is correct.
+
+**Caught a claim that main wrote true and the merge made false:** "MIN_SUPPORTED_
+VERSION === WIRE_VERSION === 1" — integration's `WIRE_VERSION = 2` survives, so
+the window is now `[1,2]` and the two checks genuinely disagree for a v1 peer.
+Rewrote it to say so. 6/6 tests pass.
+
+### THE REGISTRY STRATEGY — this is the important part
+
+48 hunks, but they are NOT 48 judgements. **37 touch concurrency, and almost all
+have the shape `ours = empty, theirs = N lines`**: main ADDED a concurrency
+declaration (`concurrency: EXPECTED_REVISION`) and an envelope merge
+(`.merge(rev)`) to each of ~35 command defs; integration restructured the file
+and has none of it (`grep -c concurrency` over integration's registry: **0**).
+
+So the resolution is not "pick a side" — it is **take integration's structure and
+re-apply main's concurrency declarations onto it.**
+
+**TWO TRIPWIRES MAKE THIS SAFE, AND BOTH ALREADY EXIST:**
+
+1. **Compiler.** Main's `registry.ts:161`:
+   `} & (K extends 'mutation' ? { concurrency: CommandConcurrency } : { concurrency?: never })`
+   Preserve this conditional type and **the compiler lists every mutation def
+   missing a declaration.** 35 careful judgements become a compiler-driven
+   checklist that cannot be silently incomplete.
+2. **Test — already survived the merge, clean.**
+   `apps/server/src/issues.expected-revision.test.ts` (12 cases: 409 CONFLICT with
+   the current revision reported, rebase-and-retry, LWW when omitted, append-only
+   with no precondition). It is IN THE MERGED TREE NOW. **The registry job reduces
+   to "make this test pass," and dropping main's enforcement cannot satisfy it.**
+
+#### CORRECTION — the vocabulary ALREADY EXISTS, under a different name
+
+My first pass said integration has "zero concurrency" and the vocabulary needs
+re-creating. **That was wrong, and wrong in the exact way this merge keeps
+punishing.** I grepped the registry for the NAME `concurrency` instead of asking
+what question the symbol answers.
+
+Integration deleted `protocol/commands.ts` by ABSORBING it — its own
+`packages/commands/src/index.ts` says so: "`protocol/commands.ts` is
+`framework.ts`". And `framework.ts:166` declares:
+
+```ts
+export type ConflictClass =
+  | 'exp-rev' | 'field-LWW' | 'single-writer' | 'append' | 'cmd' | 'op-stream'
+```
+
+with `conflict?: ConflictClass` on `CommandDef`. That answers the **identical**
+question as main's `CommandConcurrency` and is **richer** — 6 ADR 1 classes
+against main's 3. Main's only unique payload is the `rule: string` on
+`command-specific`.
+
+So the three parts come apart cleanly, and only two are missing:
+
+| Part | integration | main |
+|---|---|---|
+| Vocabulary | **`ConflictClass`, 6 members — the target** | `CommandConcurrency`, 3 members |
+| Declarations on issue commands | **NONE** (`grep -c "conflict: '"` on `issues/contracts.ts` → 0) | ~35 defs |
+| Enforcement (dispatcher → 409) | **NONE** | yes, + the surviving test |
+
+**Revised registry resolution:**
+
+1. Keep integration's `ConflictClass` as the vocabulary. Do NOT resurrect main's.
+2. Map main's declarations onto it per def:
+   `concurrency: EXPECTED_REVISION` → `conflict: 'exp-rev'`, `{kind:'append'}` →
+   `'append'`, `{kind:'command-specific', rule}` → `'cmd'` (carry `rule` into the
+   adjacent comment, or extend the type — a deliberate call, not a silent drop).
+3. Preserve main's enforcement, re-pointed at `def.conflict === 'exp-rev'`.
+4. **Keep main's tripwire and adapt it:** integration's `conflict?` is OPTIONAL,
+   which is exactly the hole main's `registry.ts:161` conditional type closes.
+   Re-declare it over `ConflictClass` so a mutation def still cannot omit it:
+   `} & (K extends 'mutation' ? { conflict: ConflictClass } : { conflict?: never })`
+   Without this the compiler stops enumerating the missing defs and the work
+   becomes 35 manual checks again.
+5. `CommandEnvelope` / `RevisionedCommandEnvelope` / `byIdRev`: integration's issue
+   contracts already inline `mutationId: z.string().max(128).pipe(MutationIdField)
+   .optional()`, so only the `expectedRevision` half is genuinely absent. It
+   composes `Revision`, which group (a) ported to
+   `packages/model/src/fields/primitives.ts`, and `MutationId`, which integration
+   already has in `@podium/model`'s `ids/brands.ts`.
+
 ## 3. What remains, tranche by tranche
 
 ### C-remainder (4 files) — needs the vertical first
