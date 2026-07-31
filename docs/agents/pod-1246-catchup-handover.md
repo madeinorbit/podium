@@ -94,6 +94,54 @@ context runs out mid-chain, say which links are in and which are not — a chain
 described as "exp-rev preserved" when link 2 is missing is the most expensive
 sentence this handover could contain.
 
+
+## 0d. `protocol/messages/sync.ts` IS BLOCKED — and the block is the second partial-mechanism trap
+
+Protocol is otherwise clear (`commands.ts` deleted as absorbed into
+`packages/commands/framework.ts`; `messages/issues.ts` resolved to integration,
+since POD-300 moved the 391-line vocabulary to `@podium/model` as both sides
+planned). **`sync.ts` is the last protocol file and I deliberately did NOT
+resolve it.**
+
+Five of its seven hunks are mechanical: integration refactored repetitive zod arms
+into helpers (`metadataChangeArm(...)`, `changesSinceDeltaArm/SnapshotArm`) — same
+content, less repetition, integration wins.
+
+**Hunks 2 and 6 are not mechanical.** Main ADDED three entity kinds to the change
+feed and to the snapshot (POD-796 / POD-822): `issueProjection`, `issueDep`,
+`repo`. Integration's arm list has **none of them**, and the payload types are
+absent from integration entirely:
+
+| Type | Integration |
+|---|---|
+| `IssueProjection` | **ABSENT** |
+| `IssueDepProjection` | **ABSENT** — needs main's `issue/dep.ts` |
+| `RepoProjection` | **ABSENT** — needs main's `repo/` |
+
+Those last two are exactly the **group (a) port-back debt** — deleted there because
+they were coupled to consumers, and this is the consumer. The coupling was real.
+
+**Why I did not resolve it to integration's structure:** doing so silently drops
+POD-796/822's normalized issue feed, which is the §0c pattern again — the newer
+branch's form is right, the older branch's content is missing, and taking the form
+loses the content with nothing reporting it. Resolving hunks 2 and 6 requires
+first deciding the dep/repo entity port-back.
+
+**A grep trap here, recorded because it nearly misled me:** integration's
+`packages/sync/src/change-log.ts:130` exports a FUNCTION called `issueProjection`
+that strips volatile fields to compute a dirty key. It is not main's
+`IssueProjection` TYPE and answers a different question. A name search for
+"issueProjection" over integration returns a hit and reads as "integration has
+this". It does not.
+
+### Practical consequence for the marker-clearing sequence
+
+§0b says clear all markers so semantic typechecking comes back, then let the
+compiler enumerate. `sync.ts` cannot be cleared without the dep/repo decision, so
+that decision is now on the critical path for EVERYTHING downstream — it gates the
+typechecker, which gates the registry tripwire, which gates the 43 declarations.
+It is the next thing to do, and it is a modelling decision rather than a merge one.
+
 ---
 
 ## 0. Read this first — three findings that change how the rest must be done

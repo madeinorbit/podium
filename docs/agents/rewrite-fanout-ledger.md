@@ -4037,3 +4037,52 @@ constant is only sound if the regex actually found the constant — otherwise a
 rename produces the same green as agreement. Renaming the constant fires the
 match-count row FIRST. That is the anti-vacuity discipline applied to a
 documentation guard, where it is least expected and most needed.
+
+## Same name, different KIND — a function that shadows a type in a name search
+
+Third instance of same-name-different-thing in this merge, and the first where the
+collision crosses KINDS rather than sitting between two types.
+
+Integration's `packages/sync/src/change-log.ts:134` exports
+
+    export function issueProjection(value: unknown): string
+
+which strips volatile fields to compute a dirty key. Main has an
+`IssueProjection` TYPE — a normalized entity on the change feed. A name search
+over integration returns a hit, and the hit reads as "integration has this".
+
+It does not. The function answers "what is this row's dirty key?"; the type
+answers "what shape does a normalized issue take on the wire?". Different
+questions, different kinds, one string.
+
+WHY THIS ONE IS WORSE than the earlier two: a type-versus-type collision at least
+puts two comparable things side by side, and the question test separates them. A
+FUNCTION returning `string` and a TYPE describing an entity do not look alike at
+all — but a grep does not report kinds, so the confusion happens entirely inside
+the search result, before any comparison begins. The instrument flattens the
+distinction that would have resolved it.
+
+The run's rule already covers it and needed no amendment — ask what question the
+symbol answers — but the CASE is worth having, because the earlier examples were
+both type-versus-type and a reader could reasonably have thought that was the
+shape of the hazard.
+
+## "Links in / links out" used on a session's own report
+
+POD-1246 closed a session at 40/109 with this, unprompted:
+
+    Of the exp-rev chain, links 2-5 are ALL STILL OUT. Nothing I did this session
+    added any of them. Link 1 is in because it was always in. DO NOT LET ANYONE
+    READ 40/109 AS PROGRESS ON EXP-REV.
+
+That is the rule from the five-link entry applied to its own progress number, and
+it is the harder direction: the rule was written to stop a HANDOVER overclaiming,
+and here it is used to stop a COUNT overclaiming. A merge-progress figure is a
+count of resolved conflicts; it says nothing about which properties survived, and
+the two get conflated by everyone reading a status line — including the
+coordinator writing one.
+
+Worth generalising: when reporting a progress metric alongside a property the
+work is supposed to preserve, state the property's status SEPARATELY and in its
+own terms. "40/109" and "exp-rev links 2-5 are out" are both true, and only the
+second answers the question anyone actually has.
