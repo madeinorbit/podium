@@ -307,13 +307,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'applied_mutations', kind: 'drizzle-table', row: 'applied-mutations' },
   { store: 'feed_identity', kind: 'drizzle-table', row: 'feed-identity' },
   {
-    store: 'sync_feed',
-    kind: 'drizzle-table',
-    row: null,
-    notEntityState:
-      'SUPERSEDED, and still created because migrations are history. This branch shipped `sync_feed` (migration 20260717092407) as the feed-identity store; main shipped `feed_identity` (20260730181721) for the same concept, and the POD-1246 catch-up merge brought both migrations into one chain — so a fresh database gets both tables and only `feed_identity` is ever read or written (`SyncRepository`). It is not a second class of durable state; it is one class with a dead second table. Removing it is a migration, tracked as #1267 — the row stays here until then rather than being deleted from the inventory, because an undeclared table is exactly what this gate exists to catch.',
-  },
-  {
     store: 'upstream_outbox',
     kind: 'drizzle-table',
     row: null,
