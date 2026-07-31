@@ -16,6 +16,7 @@ import {
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResultLenient,
+  WIRE_VERSION,
 } from '@podium/protocol'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 
@@ -96,6 +97,55 @@ export interface SocketHubOptions {
    * are the hub's own (not copies): treat them as read-only.
    */
   onMetadataApplied?: (state: MetadataAppliedState) => void
+  /**
+   * WIRE v2 (POD-376): opt this hub into the FEED, and hand every frame to the
+   * kernel Replica.
+   *
+   * PROVIDING THIS IS THE ADVERTISEMENT. `hello` gains `wireVersion`, so the
+   * server resolves the identity adapter instead of `LegacyWireV1Adapter` and
+   * this connection receives `feedBootstrap` / `feedDelta` / `feedRescope` /
+   * `feedResyncRequired` untranslated — which is what carries `(feedId, epoch,
+   * seq)`, the certified range, `minAvailableSeq`, and the `evict` op that v1
+   * cannot express at all.
+   *
+   * MUTUALLY EXCLUSIVE WITH {@link fetchChangesSince}, and refused at
+   * construction. The two are the SAME read served by two wire versions, and a
+   * hub given both would apply v1 lists and v2 frames onto one client — two
+   * definitions of "now" inside one connection, which is precisely the shape the
+   * serving-path cutover deleted on the server. POD-376's shadow comparison runs
+   * the two paths as two CONNECTIONS for exactly this reason; a hub that could
+   * hold both would have made the comparison vacuous, since one path would be
+   * feeding the other.
+   */
+  feed?: FeedSinkPort
+}
+
+/** The frames the v2 wire carries. Narrowed off the parsed union rather than
+ *  restated, so a new member of the family is a compile error here. */
+export type FeedServerFrame = Extract<
+  ServerMessage,
+  { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' }
+>
+
+/**
+ * Where v2 frames go. Implemented by the kernel Replica's client-side consumer
+ * (`@podium/client-core/replica/feed`); the transport knows nothing about
+ * replicas, cursors or storage.
+ *
+ * The two lifecycle calls are here rather than left to the embedder because the
+ * transport is the only thing that knows when the socket is up: the kernel
+ * Replica's `stale` posture — "visible, never blank" — is entered on
+ * {@link disconnected} and resumed from the persisted cursor on
+ * {@link connected}, and an embedder polling `hub.connected` would enter it late
+ * and at a different moment than the frames stop.
+ */
+export interface FeedSinkPort {
+  /** The socket is open and `hello` has advertised the wire version. */
+  connected(): void
+  /** The socket ended. The replica holds its last-known slice, marked stale. */
+  disconnected(): void
+  /** One frame, in arrival order. Order IS the correctness property (ADR 2 D9). */
+  frame(frame: FeedServerFrame): void
 }
 
 /** Snapshot of the hub's metadata state handed to `onMetadataApplied`. */
@@ -311,6 +361,15 @@ export class SocketHub {
   }
 
   constructor(opts: SocketHubOptions) {
+    if (opts.feed !== undefined && opts.fetchChangesSince !== undefined) {
+      throw new Error(
+        'SocketHub: `feed` (wire v2) and `fetchChangesSince` (wire v1 delta mode) are the same read ' +
+          'on two wire versions, and a hub given both would apply v1 lists and v2 frames onto one ' +
+          'client — two definitions of "now" inside one connection. Pick the version this connection ' +
+          'speaks; POD-376 runs the shadow comparison as two connections precisely so neither path ' +
+          'can be fed by the other.',
+      )
+    }
     this.opts = opts
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
   }
@@ -357,7 +416,17 @@ export class SocketHub {
         // Delta mode is negotiated per connection — advertise it only when the
         // embedder wired a changesSince fetcher (see SocketHubOptions).
         ...(this.opts.fetchChangesSince ? { caps: [CAP_METADATA_DELTA] } : {}),
+        // WIRE v2 (POD-376). Sent only in feed mode: an absent `wireVersion` IS
+        // the v1 advertisement (`wire-feed-edge.ts` — "a pre-cutover client
+        // cannot be made to send a field it was never built with"), so a hub
+        // with no feed sink must keep saying nothing rather than announcing a
+        // version it has nowhere to put.
+        ...(this.opts.feed ? { wireVersion: WIRE_VERSION } : {}),
       })
+      // The replica resumes from its persisted cursor here — BEFORE the attaches
+      // and presence below, so the position is established at the same moment the
+      // server starts framing for this connection.
+      this.opts.feed?.connected()
       // Catch up on whatever the metadata stream did while we were away (or take
       // the bootstrap snapshot on a first connect). The attach-time snapshots the
       // server sends pre-hello already painted the UI; this establishes the cursor.
@@ -422,6 +491,10 @@ export class SocketHub {
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
+    // D7 stale-visible: the replica keeps serving its last-known slice, marked
+    // stale. Told here rather than by an embedder watching `connected`, so the
+    // posture changes at the same instant the frames stop.
+    this.opts.feed?.disconnected()
     // A heal retry is pointless with the socket down (and deltas queued during an
     // outage are superseded by the reconnect heal) — the onopen path re-enters.
     if (this.healRetryTimer !== undefined) {
@@ -514,6 +587,31 @@ export class SocketHub {
       // already dead — exactly the case we're cleaning up
     }
     this.onSocketClosed()
+  }
+
+  /**
+   * Ask the server for a fresh world, by ending this socket (POD-376).
+   *
+   * THE SERVER PUSHES BOOTSTRAPS AND THE CLIENT CANNOT REQUEST ONE. That is
+   * `FeedServing`'s design and it is right — a connection acquires its position in
+   * one synchronous pass at admission, and a client-requested world would have to
+   * be read at some other moment, which is the window the pre-cutover bootstrap
+   * covered "by hope". But the kernel Replica PULLS: every rung of D7's ladder
+   * that terminates at re-bootstrap calls `AuthorityReadPort.bootstrap()`, and
+   * something has to make a world arrive.
+   *
+   * Reconnecting is that something, and it is not a workaround: a fresh socket is
+   * admitted, served its world at `throughSeq`, and framed from exactly there —
+   * the same one-pass guarantee, obtained the only way the protocol offers it. The
+   * cost is one socket cycle per re-bootstrap, which is already the rare path.
+   *
+   * `forceClose` rather than `close`: this must land in the RECONNECT path, not
+   * the intentional-shutdown path, or nothing would reopen.
+   */
+  requestFreshWorld(): void {
+    if (this.socket === undefined) return
+    this.forceClose()
+    this.scheduleReconnect()
   }
 
   attach(sessionId: SessionId, cb: SessionCallbacks = {}): SessionConnection {
@@ -949,23 +1047,39 @@ export class SocketHub {
     metadataDelta: (msg) => {
       this.ingestDelta(msg)
     },
-    // ---- wire v2 (POD-308) ----
-    // THIS BUILD IS A WIRE v1 PEER, deliberately and for one rollout window.
-    // `hello` advertises no `wireVersion`, so the server serves it through the
-    // legacy v1 edge adapter and these frames never arrive. They are handled
-    // explicitly rather than left off the table because the table is TOTAL: a
-    // silent gap is what the exhaustiveness check exists to prevent, and an
-    // ignored frame must be an ignored frame ON PURPOSE.
+    // ---- wire v2 (POD-308 built it, POD-376 consumes it) ----
+    // WHICH WIRE THIS HUB SPEAKS IS PER CONNECTION, not per build. Without a
+    // `feed` sink the hub sends no `wireVersion`, the server serves it through
+    // `LegacyWireV1Adapter`, and these frames never arrive — so forwarding to an
+    // absent sink is the correct no-op rather than a swallowed frame. With one,
+    // `hello` announces the version and the server's identity adapter passes the
+    // canonical frames through untouched.
+    //
+    // FORWARDED RAW, IN ARRIVAL ORDER, AND NOTHING ELSE HAPPENS HERE. No
+    // cursor bookkeeping, no gap detection, no heal — every one of those is the
+    // kernel Replica's, and a transport that did any of them would be the second
+    // place the ladder lives. Note in particular what is NOT done: this does not
+    // call `healMetadata()` on a suspect frame the way `metadataDelta` does. The
+    // v2 frame certifies its own range, so a gap is something the Replica sees in
+    // `fromSeq` and resolves down its own ladder; healing from here would be the
+    // transport deciding a rung.
     //
     // The rollout order is server → clients → daemons
-    // (docs/rearch-wire-cutover-rollout.md): consuming the feed here — cursor
-    // triple, certified range, evict, rescope — is the CLIENT step, and doing it
-    // in the same change as the server step would have made the two
-    // undeployable separately, which is the whole property the window buys.
-    feedDelta: () => {},
-    feedBootstrap: () => {},
-    feedRescope: () => {},
-    feedResyncRequired: () => {},
+    // (docs/rearch-wire-cutover-rollout.md): this is the CLIENT step, and it stays
+    // separately deployable because the sink is optional — a build that ships it
+    // with the flag off is byte-for-byte a v1 peer.
+    feedDelta: (msg) => {
+      this.opts.feed?.frame(msg)
+    },
+    feedBootstrap: (msg) => {
+      this.opts.feed?.frame(msg)
+    },
+    feedRescope: (msg) => {
+      this.opts.feed?.frame(msg)
+    },
+    feedResyncRequired: (msg) => {
+      this.opts.feed?.frame(msg)
+    },
     sessionsChanged: (msg) => {
       this.sessionList = msg.sessions
       this.emit('sessions', this.sessionList)

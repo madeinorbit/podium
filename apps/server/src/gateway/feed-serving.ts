@@ -291,6 +291,26 @@ export class FeedServing {
     return this.edge.expiredAdapters()
   }
 
+  /**
+   * The persisted `(feedId, epoch)` this server is serving (ADR 2 D1).
+   *
+   * Exposed because the wire-v2 CATCH-UP read is an HTTP query rather than a
+   * frame, and a cursor without feed identity is the bare integer D1 forbids. The
+   * push path gets identity for free — every frame carries it — and this is the
+   * one place the pull path can obtain the same triple from the same registry,
+   * rather than a second source of "which feed is this".
+   */
+  identity(): { readonly feedId: string; readonly epoch: string } {
+    return this.deps.identity.current()
+  }
+
+  /** ADR 2 D5's retention floor, read live. 0 means nothing has been pruned —
+   *  the same value and the same source every published frame carries, so a
+   *  catch-up reply cannot advertise a different floor than a delta. */
+  retentionFloor(): number {
+    return this.deps.retention.minAvailableSeq() ?? 0
+  }
+
   /** Connections the publisher is framing for. Telemetry and tests. */
   connectionCount(): number {
     return this.connections.size

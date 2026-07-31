@@ -11,7 +11,13 @@ function recordingServing() {
   const published: ScopedDelivery[] = []
   return {
     published,
-    port: { publish: (_principal: unknown, delivery: ScopedDelivery) => published.push(delivery) },
+    port: {
+      publish: (_principal: unknown, delivery: ScopedDelivery) => published.push(delivery),
+      // Fixed identity: these cases exercise the publication pipe, not D1. The
+      // v2 catch-up read has its own coverage where the identity actually varies.
+      identity: () => ({ feedId: 'feed-test', epoch: 'epoch-test' }),
+      retentionFloor: () => 0,
+    },
     /** Every row across every published delivery, in publication order. */
     rows: () =>
       published.flatMap((d) => (d.kind === 'batch' ? d.changes : [])),

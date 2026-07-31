@@ -76,6 +76,46 @@ export const SYNC_QUERIES = {
     z.object({ cursor: z.number().int().nonnegative().nullable() }),
     (s, input) => s.modules.sessions.syncChangesSince(input.cursor, s.publicationAuthority),
   ),
+  /**
+   * WIRE v2 CATCH-UP (POD-376) — rung 1 of the kernel Replica's D7 ladder.
+   *
+   * A SIBLING OF `changesSince`, NOT A REPLACEMENT, for the length of the
+   * rollout window: the two serve the two wire versions, and both read the same
+   * Authority through the same principal, so neither can see rows the other
+   * cannot. `changesSince` disappears with `LegacyWireV1Adapter`.
+   *
+   * The cursor is the D1 TRIPLE and not a bare integer. That is the difference
+   * that makes this query answerable at all — a `seq` alone names a position on
+   * an unnamed number line, and the honest answer to a cursor from another feed
+   * is "re-bootstrap", which this shape can express and the v1 one cannot.
+   */
+  feedChangesSince: q(
+    z.object({
+      cursor: z
+        .object({
+          feedId: z.string().min(1),
+          epoch: z.string().min(1),
+          seq: z.number().int().nonnegative(),
+        })
+        .nullable(),
+    }),
+    (s, input) => s.modules.funnel.feedChangesSince(input.cursor),
+  ),
+  /**
+   * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
+   *
+   * A DIAGNOSTIC READ, and the third snapshot of the shadow comparison. It exists
+   * so the comparison can classify an absence against what the Authority says
+   * rather than suppress it — see
+   * `docs/agents/pod-376-shadow-comparison-basis.md` §2.2.
+   *
+   * It leaks nothing the feed does not already deliver: it is
+   * `AuthorityPort.bootstrap` for the SAME principal, evaluated through the SAME
+   * policy object, reduced to keys. A principal that may not see a row does not
+   * receive its key here either — which is exactly the property that makes it
+   * usable as the comparison's basis.
+   */
+  feedSlice: q(z.object({}).optional(), (s) => s.modules.funnel.feedSlice()),
 } as const
 
 const noInput = z.object({}).passthrough().optional()
