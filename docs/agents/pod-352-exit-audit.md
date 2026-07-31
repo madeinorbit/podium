@@ -29,6 +29,28 @@ plants real material through the contracted command and asserts it appears in
 neither the rendered document nor **any** `/trpc` response body the page
 receives, with the captured-body list asserted non-empty first.
 
+> **QUALIFIER — that suite runs in NO lane, so it verifies but does not
+> REGRESSION-PROTECT (POD-352 review, verified).** `vitest.integration.config.ts`
+> includes `tests/e2e/**/*.test.{ts,tsx}` and `**/*e2e*.test.{ts,tsx}`; both
+> require `.test.`, which `.browser.e2e.ts` does not have. It IS matched by
+> `tests/e2e/playwright.config.ts`, but **no `package.json` script and no CI job
+> invokes playwright** — `@playwright/test` appears only as a devDependency, and
+> `.github/workflows/ci.yml` says so in as many words: the browser suite "no
+> script or lane currently runs at all — see **POD-756**". This file is the
+> **70th** suite in that position.
+>
+> What that does and does not cost: the verification happened (admin 9/9, member
+> 8/8, on demand, with counts), so the claim about the CURRENT build stands.
+> What is weakened is the forward guarantee — nothing re-runs it, so from here
+> the no-material-on-screen property is protected by the unit and audit lanes
+> only, and a future change that put a secret back on screen would be caught by
+> those or not at all. Wiring the lane is POD-756's; 70 suites is not this
+> issue's to adopt.
+>
+> Recorded because the omission is the same kind this audit polices elsewhere: an
+> instrument that verifies once and is then never run again is indistinguishable,
+> from the evidence alone, from one that runs on every commit.
+
 `settings.experimental` is whitelisted as intentionally-replicated preference
 data (POD-419), so the audit does not false-positive on it.
 

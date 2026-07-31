@@ -123,11 +123,21 @@ grep-back confirmed the new text, only the target dirty, reverted atomically wit
 | `bun run audit:router-mutations` | exit 0 |
 | `bun run migration:check` | Everything's fine |
 | `bun run migration:manifest` | regenerated, committed |
-| browser e2e, **admin** | **9 passed** |
-| browser e2e, **member** (`PODIUM_E2E_ACCOUNT_ROLE=member`) | **8 passed** |
+| browser e2e, **admin** | **9 passed** — run on demand; see the lane caveat below |
+| browser e2e, **member** (`PODIUM_E2E_ACCOUNT_ROLE=member`) | **8 passed** — same |
 
 No red was observed in any lane this issue ran, so none of the run's known-red
 list is being invoked.
+
+**The browser suite runs in NO lane** (POD-352 review, verified independently).
+`vitest.integration.config.ts` requires `.test.` in the filename, which
+`.browser.e2e.ts` does not have; `tests/e2e/playwright.config.ts` matches it, but
+no `package.json` script and no CI job invokes playwright, and `ci.yml` names
+**POD-756** as the owner. This file is the 70th suite in that position. The runs
+above happened and their counts are real, so the claim about this build stands —
+what is absent is the FORWARD guarantee, and the exit audit's item 1 now says so
+rather than letting "runtime verified" imply "re-verified on every commit".
+Wiring the lane is POD-756's and 70 suites is not this issue's to adopt.
 
 `apps/web` is excluded from `vitest.unit.config.ts`, so its suites are run from
 inside `apps/web` and the `Test Files`/`Tests` counts are quoted rather than the
