@@ -3732,3 +3732,59 @@ cause.
 RULE: a guard comparing two packages belongs in the one that already depends on
 the other. If neither does, the comparison needs a third package, not an import
 that happens to resolve.
+
+## A shared KEY is not a shared definition — the symbol rule, one level up
+
+POD-1246's own diagnosis of how its baseline finding survived four sessions, and
+it unifies several entries above into one statement.
+
+It spent this run writing the rule that A SHARED NAME IS NOT A SHARED DEFINITION
+for symbols — `Revision` and `ChangeRevisionField`, `Timestamp` and `Instant`.
+Then it read two committed baseline JSONs side by side and treated A SHARED KEY as
+a shared definition for MEASUREMENTS. Same trap, one level up: the artefacts were
+two instruments' outputs, not two readings of one instrument.
+
+Its stored rule, deliberately blunt: NEVER COMPARE TWO COMMITTED BASELINES. Check
+out each tree in turn and run the SAME detector over both. A number is only
+comparable to another number the same instrument produced.
+
+WHY IT SURVIVED SO LONG, which is the part worth generalising. The near-miss it
+caught earlier — a parser reporting 15 mutations with no declaration when main's
+own conditional type makes one mandatory — was caught because THE DATA
+CONTRADICTED THE TYPE, and a visible contradiction prompts a check. Here the data
+contradicted nothing: both numbers were plausible, and the instrument difference
+was invisible in the artefact. Nothing looked wrong, so nothing prompted a check,
+and it took POD-310 actually running the tool to surface it.
+
+THE GENERALISABLE FORM: WHEN TWO NUMBERS DISAGREE, ASK WHETHER ONE INSTRUMENT
+PRODUCED BOTH BEFORE REASONING ABOUT WHAT THE DIFFERENCE MEANS. The reasoning
+about the difference is the trap — it is exactly what produced a confident causal
+story ("main deleted the wire, integration rebuilt it") that was plausible, may
+even be true of the code, and was not supported by the numbers cited for it.
+
+And POD-310 sharpened it once more: even a BYTE-IDENTICAL detector is not portable
+between trees. `local-placeholders` reads 12 under main's instrument on main's
+tree and 15 under integration's instrument on that SAME unmodified tree. The +3
+is the harness — grep roots, loadContext — not the code. So "same detector" is not
+sufficient either; only one binary, two checkouts, run back to back.
+
+## Going looking for a home keeps revealing the architecture
+
+Third time this move has paid in one merge, and it is worth naming as a technique
+rather than luck.
+
+  - Searching for where to PUT main's concurrency vocabulary is what revealed
+    integration had already absorbed `protocol/commands.ts` into `framework.ts`
+    with a richer `ConflictClass` — the grep for the NAME had returned zero and
+    read as a finished answer.
+  - Searching for where to PUT the `conflict` field is what revealed that
+    `CommandContractBase` has no such field and that `def()` merges from the L1
+    contract — so the tripwire both a coordinator and an implementer had specified
+    would have been applied to a parallel type and enforced NOTHING while looking
+    exactly like enforcement.
+  - Searching for an importer of a deleted module is what found the two F1 breaks.
+
+The common shape: asking "where does this belong?" forces you to read the
+structure, whereas asking "does this exist?" only reads an index. The first
+question cannot be answered by a grep, which is precisely why it finds what greps
+miss.
