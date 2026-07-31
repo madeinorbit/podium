@@ -118,7 +118,22 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     // `feedPrincipalOf` stops matching what the funnel publishes for — the two
     // must be the same value or a connection is never published to at all.
     expect(slice, 'the live feed principal has no partition').toBeDefined()
-    expect(slice?.phases['feedPublish.total']?.count).toBeGreaterThan(0)
+    // EVERY feed phase, not just one. Asserting `feedPublish.total` alone let a
+    // measured mutant survive: `total` is recorded in `modules/funnel.ts` and
+    // `frame`/`fanout` in `gateway/feed-serving.ts`, so swapping only the
+    // serving edge's attribution to DEPLOYMENT passed all six tests while half
+    // the switch cost silently left the principal's partition. A partition
+    // missing half its phases still yields a plausible p50 — which is the
+    // failure this whole file exists to make impossible.
+    for (const name of Object.keys(snap.phases).filter((n) => n.startsWith('feedPublish.'))) {
+      expect(
+        slice?.phases[name]?.count,
+        `${name} is recorded deployment-wide but missing from the live principal's partition`,
+      ).toBeGreaterThan(0)
+    }
+    // …and the aggregate really had those phases, so the loop above is not
+    // iterating over an empty list.
+    expect(Object.keys(snap.phases).filter((n) => n.startsWith('feedPublish.')).length).toBe(4)
     // The slice size was MEASURED, not defaulted. `samples: 0` would mean the
     // bootstrap never reported one, and `last` would then be a 0 that reads as
     // an empty world — the exact ambiguity `PerfSliceSize.samples` exists for.
