@@ -2,8 +2,8 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import { type DaemonHandle, startDaemon } from '../../../apps/daemon/src/daemon'
-import { LOCAL_MACHINE_ID } from '../../../apps/server/src/local-machine'
 import { type ServerHandle, startServer } from '../../../apps/server/src/server'
 
 const FIXTURE = fileURLToPath(
