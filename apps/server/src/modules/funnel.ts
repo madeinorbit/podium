@@ -1,5 +1,16 @@
-import type { MetadataChange } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL, type AuthorityPort, type ScopedChange, type ScopedDelivery } from '@podium/sync'
+import type {
+  FeedChangesSinceReply,
+  FeedCursorField,
+  MetadataChange,
+} from '@podium/protocol'
+import { toFeedChange } from '../gateway/feed-serving'
+import {
+  DEVICE_GRADE_PRINCIPAL,
+  type AuthorityPort,
+  type FeedScopingGrade,
+  type ScopedChange,
+  type ScopedDelivery,
+} from '@podium/sync'
 import type { EventBus } from './bus'
 
 export interface WriteFunnelDeps {
@@ -40,6 +51,11 @@ export interface WriteFunnelDeps {
 /** What the funnel needs of the serving edge. Narrow so a test can drive it. */
 export interface FeedServingPort {
   publish(principal: typeof DEVICE_GRADE_PRINCIPAL, delivery: ScopedDelivery): void
+  /** ADR 2 D1's `(feedId, epoch)`. Needed by the wire-v2 catch-up read, which is
+   *  an HTTP query and therefore has no frame to read identity off. */
+  identity(): { readonly feedId: string; readonly epoch: string }
+  /** ADR 2 D5's floor, from the SAME source every published frame reads it from. */
+  retentionFloor(): number
 }
 
 /**
@@ -163,6 +179,102 @@ export class WriteFunnel {
   cursor(): number {
     return this.deps.authority.cursor()
   }
+
+  /** What kind of answer this server's visibility policy gives (POD-376). A
+   *  passthrough, so there is one source and no copy. */
+  visibilityGrade(): FeedScopingGrade {
+    return this.deps.authority.visibilityGrade()
+  }
+
+  /**
+   * WIRE v2 CATCH-UP — the pull half of the kernel Replica's D7 ladder (POD-376).
+   *
+   * The push path carries a replica from frame to frame. Rung 1 is the other
+   * half: a replica that detects a gap, or comes back from `stale`, asks for the
+   * range it missed, and the answer must be CERTIFIED — `fromSeq`, `seq` and
+   * `minAvailableSeq` together — or a scoped reply is a filter without a
+   * watermark, which is the protocol break ADR 2 Am1 D13 exists to prevent.
+   *
+   * SAME AUTHORITY CALL AS EVERY OTHER READ. `changesSince(cursor, principal)`
+   * with the principal this transport can name; there is no second filter here,
+   * so a row suppressed on the live path is suppressed here identically.
+   *
+   * FEED IDENTITY IS CHECKED BEFORE THE RANGE, and a mismatch answers
+   * `bootstrap-required` rather than an empty delta. D1 compares epochs by
+   * EQUALITY ONLY, and a cursor from another feed names a `seq` that means
+   * nothing here — serving a range against it would be arithmetic on two
+   * different number lines. The replica's own rung 4 would catch it on the next
+   * frame; catching it here means the wrong answer is never produced.
+   */
+  feedChangesSince(cursor: FeedCursorField | null): FeedChangesSinceReply {
+    const identity = this.deps.serving.identity()
+    if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
+      return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
+    }
+    const from = cursor?.seq ?? null
+    const delivery = this.deps.authority.changesSince(from, DEVICE_GRADE_PRINCIPAL)
+    if (delivery === null) return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
+    if (delivery.kind !== 'batch') {
+      // The authority derived a rescope for this range. Answering it as a delta
+      // would hide an authz event inside a catch-up; the honest answer to "catch
+      // me up" when the rights moved is "you cannot be caught up".
+      return { kind: 'bootstrap-required', reason: 'rescope' }
+    }
+    return {
+      kind: 'delta',
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      fromSeq: from ?? 0,
+      seq: delivery.throughSeq,
+      minAvailableSeq: this.deps.serving.retentionFloor(),
+      // NOT `toBusChange`, and this cost a live-server debugging session: that
+      // helper produces the v1 `MetadataChange`, whose target field is `id`. The
+      // v2 row's is `entityId`, so every healed row reached the replica with
+      // `entityId: undefined` and installed as `issue:undefined` — silent
+      // corruption on the RARE path (rung 1), invisible to any test exercising
+      // only the push path. `toBusChange` stays where it belongs, on the v1 pipe.
+      //
+      // The mapping itself is `toFeedChange`, shared with the bootstrap the
+      // serving edge builds, so a catch-up row and a pushed row cannot differ.
+      changes: delivery.changes.map(toFeedChange),
+    }
+  }
+
+  /**
+   * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
+   *
+   * The third snapshot of the shadow comparison — see
+   * `docs/agents/pod-376-shadow-comparison-basis.md` §2.1. It is NOT a fourth
+   * opinion about visibility: it is `AuthorityPort.bootstrap`, the same call
+   * `FeedServing.serveWorld` makes, through the same policy object. That identity
+   * is the whole reason the comparison can classify an absence rather than
+   * suppress it — a harness that computed its own expectation of the slice would
+   * be grading the cutover against a second implementation of the thing under
+   * test.
+   *
+   * Keys and revisions only, never payloads: the classification needs identity
+   * and a version, and shipping every row's value to a diagnostic read would make
+   * a debugging aid the largest response on the wire.
+   */
+  feedSlice(): {
+    feedId: string
+    epoch: string
+    throughSeq: number
+    rows: { entity: string; entityId: string }[]
+  } {
+    const identity = this.deps.serving.identity()
+    const world = this.deps.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
+    return {
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      throughSeq: world.throughSeq,
+      rows: world.changes.map((change) => ({
+        entity: change.entity,
+        entityId: change.entityId,
+      })),
+    }
+  }
+
 
   // ---- THE ordered, coalesced delivery pipe (#256) ----
   // Appends arrive synchronously and in seq order (single-threaded process, one

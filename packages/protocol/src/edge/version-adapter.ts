@@ -92,12 +92,29 @@ export class WireVersionError extends Error {
   }
 }
 
-/** A peer outside the support window. The gateway answers 426 Upgrade Required
+/**
+ * WHY a peer was refused. Both answers are 426 and the two are NOT interchangeable.
+ *
+ * `unsupported-version` is a rollout fact: the peer is outside the advertised
+ * window and a newer build fixes it. `scoping-requires-eviction` is a
+ * DEPLOYMENT-STATE fact: the version is inside the window and would be served
+ * happily by a different server — this one runs an authority that can revoke, and
+ * the peer's wire has no way to say "gone from your view" as distinct from
+ * "deleted" (ADR 2 Am1 D14.5).
+ *
+ * Collapsing them would tell a user with a current build to upgrade, forever, and
+ * would hide a visibility decision behind a version number — the same
+ * "authz event looks like a performance event" mistake D14.4 separates `rescope`
+ * from `resync-required` to avoid.
+ */
+export type UpgradeRequiredReason = 'unsupported-version' | 'scoping-requires-eviction'
+
+/** A peer the gateway will not serve. The gateway answers 426 Upgrade Required
  *  and the peer self-updates; the body carries the window so the peer can tell
  *  its user something true rather than "connection failed". */
 export interface UpgradeRequired {
   readonly status: 426
-  readonly reason: 'unsupported-version'
+  readonly reason: UpgradeRequiredReason
   readonly offered: number
   readonly support: { readonly wire: number; readonly min: number }
   readonly message: string
@@ -214,5 +231,32 @@ export function upgradeRequired(
     message:
       `wire version ${offered} is ${direction}; this server serves ${support.min}–${support.wire}. ` +
       `Update and reconnect.`,
+  }
+}
+
+/**
+ * Refuse a peer whose wire cannot express an eviction, on a server whose authority
+ * can revoke (POD-376).
+ *
+ * REFUSED BEFORE THE WORLD IS SERVED, which is the whole point. The alternative —
+ * admit it, serve it rows, and drop it when the first `evict` arrives — has the
+ * peer render data it may already have lost the right to see, and then present the
+ * loss as a disconnect. That is not a fallback; it is a visibility bypass with a
+ * delay on it.
+ */
+export function upgradeRequiredForScoping(
+  offered: number,
+  support: { wire: number; min: number } = { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION },
+): UpgradeRequired {
+  return {
+    status: 426,
+    reason: 'scoping-requires-eviction',
+    offered,
+    support,
+    message:
+      `wire version ${offered} cannot express 'evict' — a row leaving YOUR view as distinct from ` +
+      `being deleted — and this server's authority evaluates visibility per principal. Serving you ` +
+      `would mean showing rows that cannot later be withdrawn honestly. Update to wire ` +
+      `${support.wire} and reconnect.`,
   }
 }

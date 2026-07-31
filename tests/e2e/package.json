@@ -5,13 +5,18 @@
   "type": "module",
   "dependencies": {
     "@podium/agent-bridge": "workspace:*",
+    "@podium/client-core": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/pty": "workspace:*",
+    "@podium/sync": "workspace:*",
+    "@podium/terminal-client": "workspace:*",
+    "@trpc/client": "^11.0.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "@types/ws": "^8.5.13"
+    "@types/ws": "^8.5.13",
+    "fake-indexeddb": "^6.2.5"
   }
 }

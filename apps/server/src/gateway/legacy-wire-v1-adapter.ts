@@ -68,10 +68,10 @@ import type {
   ServerMessage,
   UnknownFeedChange,
   WireAdapterExpiry,
-  WireVersionAdapter,
 } from '@podium/protocol'
 import type {
   FeedFrame,
+  FeedWireAdapter,
   LegacyAdvisoryKind,
   LegacyAdvisorySource,
   LegacyPeer,
@@ -132,11 +132,23 @@ export interface LegacyWireV1Deps {
 }
 
 export class LegacyWireV1Adapter
-  implements WireVersionAdapter<FeedFrame, ServerMessage, LegacyPeer>, LegacyAdvisorySource
+  implements FeedWireAdapter, LegacyAdvisorySource
 {
   readonly version = 1
   readonly name = 'legacy-wire-v1'
   readonly expiry = LEGACY_WIRE_V1_EXPIRY
+  /**
+   * FALSE, and this field is the declaration that makes `translate`'s throw
+   * (below) unreachable rather than merely rare (POD-376).
+   *
+   * v1 has `remove` and nothing else, and folding an `evict` into it would make a
+   * revoked share render as a deletion and a later re-grant as a resurrection —
+   * which is why this adapter throws on one. Throwing is the right last line, but
+   * it fires AFTER the peer has been served rows; declaring the incapacity here
+   * lets `WireFeedEdge.attach` refuse the peer before it is served anything at
+   * all, on a server whose authority can actually revoke.
+   */
+  readonly expressesEvict = false
 
   /** entity kind → (entityId → wire value), in feed arrival order. */
   private readonly projection = new Map<LegacyKind, Map<string, unknown>>(

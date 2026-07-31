@@ -66,6 +66,7 @@
 import type { ConversationDiagnosticWire } from '@podium/model'
 import type {
   FeedBootstrapMessage,
+  FeedChange,
   FeedDeltaMessage,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
@@ -136,7 +137,13 @@ export class FeedServing {
         sizeOf: (frame) => JSON.stringify(frame).length,
       },
     })
-    this.edge = new WireFeedEdge({ diagnostics: () => deps.diagnostics() })
+    this.edge = new WireFeedEdge({
+      diagnostics: () => deps.diagnostics(),
+      // Straight through to the Authority, which delegates to the policy object
+      // it was constructed with. No value is stored anywhere on this path, so
+      // there is nothing that can go stale (POD-376).
+      visibilityGrade: () => deps.authority.visibilityGrade(),
+    })
   }
 
   /**
@@ -285,6 +292,26 @@ export class FeedServing {
     return this.edge.expiredAdapters()
   }
 
+  /**
+   * The persisted `(feedId, epoch)` this server is serving (ADR 2 D1).
+   *
+   * Exposed because the wire-v2 CATCH-UP read is an HTTP query rather than a
+   * frame, and a cursor without feed identity is the bare integer D1 forbids. The
+   * push path gets identity for free — every frame carries it — and this is the
+   * one place the pull path can obtain the same triple from the same registry,
+   * rather than a second source of "which feed is this".
+   */
+  identity(): { readonly feedId: string; readonly epoch: string } {
+    return this.deps.identity.current()
+  }
+
+  /** ADR 2 D5's retention floor, read live. 0 means nothing has been pruned —
+   *  the same value and the same source every published frame carries, so a
+   *  catch-up reply cannot advertise a different floor than a delta. */
+  retentionFloor(): number {
+    return this.deps.retention.minAvailableSeq() ?? 0
+  }
+
   /** Connections the publisher is framing for. Telemetry and tests. */
   connectionCount(): number {
     return this.connections.size
@@ -358,15 +385,21 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
 /**
  * A bootstrap row, in the wire's spelling.
  *
+ * SHARED WITH THE CATCH-UP READ (POD-376). `WriteFunnel.feedChangesSince` maps
+ * its rows through this same function, so a row served over HTTP and the same row
+ * pushed as a frame cannot differ — which is not hypothetical: the first draft of
+ * that read used the V1 mapper and shipped every healed row with an undefined
+ * target id.
+ *
  * BOTH SIDES DERIVED, never restated: the input is the kernel's `ScopedChange`
  * and the output is one element of the frame's own `changes` array. A hand-written
  * field list here would be a third definition of a change row — invisible to
  * every golden fixture, because a restatement is byte-identical on the wire — and
  * `rearch-audit`'s `change-row-typings` item counts exactly that mistake.
  */
-function toFeedChange(change: ScopedChange): FeedBootstrapMessage['changes'][number] {
+export function toFeedChange(change: ScopedChange): FeedChange {
   const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
   return (
     change.op === 'upsert' ? { ...base, op: 'upsert', value: change.value } : { ...base, op: change.op }
-  ) as FeedBootstrapMessage['changes'][number]
+  ) as FeedChange
 }

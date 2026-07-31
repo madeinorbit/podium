@@ -221,6 +221,81 @@ export const FeedCursorField = z.object({
 })
 export type FeedCursorField = z.infer<typeof FeedCursorField>
 
+/**
+ * THE v2 CATCH-UP REPLY — rung 1 of ADR 2 D7's ladder, as an HTTP answer (POD-376).
+ *
+ * The v1 sibling is `SyncChangesSinceResult` in `messages/sync.ts`; this is its
+ * wire-v2 counterpart and it disappears with that one.
+ *
+ * WHY IT LIVES HERE AND NOT AT EITHER END. It is a WIRE shape with two ends —
+ * the server's `sync.feedChangesSince` produces it, the client's
+ * `AuthorityReadPort` consumes it — and the first draft of POD-376 declared it
+ * structurally at BOTH, plus a third structural row type in the client's frame
+ * mapper. Three hand-restated change-row field lists, which `rearch-audit`'s
+ * `change-row-typings` item counted immediately and correctly: the restatements
+ * had already drifted, since these carried `evict` while other copies carried
+ * only `upsert | remove`. Composing here is the deletion.
+ *
+ * THE ROWS ARE {@link FeedChange} — the same union the frames carry, not a
+ * parallel one. A catch-up reply and a delta certify the same range over the same
+ * vocabulary; the only reason they are different types at all is that one is a
+ * WebSocket frame with a `type` discriminator and the other is an HTTP result
+ * with a `kind` one. Sharing the rows is what stops a row from meaning one thing
+ * on the socket and another over HTTP.
+ *
+ * THE RANGE FIELDS ARE {@link CertifiedRangeFields}, spread and not restated, for
+ * the reason that constant's own comment gives: a filter without a watermark is a
+ * protocol break, and the watermark is these fields. A catch-up reply that could
+ * drift to an optional `fromSeq` would be a heal that cannot prove contiguity.
+ */
+export const FeedChangesSinceReply = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('delta'), ...CertifiedRangeFields, changes: z.array(FeedChange) }),
+  /**
+   * "I cannot serve you a delta from there." Carries a reason because the three
+   * causes — compacted past your cursor, a feed identity that is not this feed,
+   * and a derived rescope — are operationally different, and a replica that saw
+   * only "no" could not tell a retention problem from an authz event.
+   */
+  z.object({ kind: z.literal('bootstrap-required'), reason: z.string().optional() }),
+])
+export type FeedChangesSinceReply = z.infer<typeof FeedChangesSinceReply>
+
+/**
+ * {@link FeedChangesSinceReply} as CONSUMERS type it (kind-tolerant).
+ *
+ * The same strict/lenient split `FeedDeltaMessageLenient` and
+ * `SyncChangesSinceResultLenient` already make, for the same reason and no other:
+ * ADR 2 D4's lenient-parsing rule says a replica that does NOT know an entity
+ * kind must still advance its cursor past it rather than quarantining it into an
+ * invisible permanent gap. A newer server's catch-up reply can carry a kind this
+ * build has never heard of, so the consumer's type has to admit one — while a
+ * KNOWN kind with an invalid value still fails, which is what `UnknownFeedChange`
+ * excludes the known kinds for.
+ *
+ * The producer keeps the strict type. Both compose the same rows, so this is a
+ * tolerance at the edge and not a second vocabulary.
+ */
+export const FeedChangesSinceReplyLenient = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('delta'),
+    ...CertifiedRangeFields,
+    changes: z.array(FeedChangeLenient),
+  }),
+  z.object({ kind: z.literal('bootstrap-required'), reason: z.string().optional() }),
+])
+export type FeedChangesSinceReplyLenient = z.infer<typeof FeedChangesSinceReplyLenient>
+
+/**
+ * One row of a v2 change list — frames and the catch-up reply alike.
+ *
+ * An ALIAS of {@link FeedChangeLenient} rather than a fresh object type, and the
+ * alias earns its name: it is what a consumer writes when it means "a change row,
+ * whatever kind it turns out to be", and having a name is what stops the next
+ * mapper from writing the five keys out again. A strict row is a member of this
+ * union, so a producer-typed row is assignable without a cast.
+ */
+export type FeedChangeRow = FeedChangeLenient
+
 export type FeedServerMessage =
   | FeedDeltaMessage
   | FeedBootstrapMessage

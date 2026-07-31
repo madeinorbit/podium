@@ -149,6 +149,29 @@ export interface VisibilityDecision {
 }
 
 /**
+ * WHAT KIND OF ANSWER A POLICY GIVES — declared by the policy itself (POD-376).
+ *
+ * Not a config string and not a deployment flag: a serving edge that needed to
+ * know whether it is scoping must read the OBJECT that is actually installed, or
+ * the two can drift and the drift is silent in the direction that matters. A
+ * config saying `unscoped` beside a grant-edge policy is a wrong answer that
+ * looks like a decision.
+ *
+ * The consumer is POD-376's rule that a client may not select a read path whose
+ * wire cannot express `evict` while the authority can actually revoke. `evict` is
+ * the whole difference: a `device-unscoped` policy has one principal, so nothing
+ * is ever revoked from anybody and a wire with no eviction is complete. Against a
+ * `per-principal` policy that same wire is a path that renders a row and then
+ * dies on the first revoke — see `docs/agents/pod-376-shadow-comparison-basis.md`
+ * §3.
+ */
+export type FeedScopingGrade =
+  /** One principal; every authenticated connection sees the same slice. */
+  | 'device-unscoped'
+  /** Slices differ per principal; rows can enter and leave a view. */
+  | 'per-principal'
+
+/**
  * The DATA half, injected. Three questions, each answerable only by whoever holds
  * the tables.
  *
@@ -233,6 +256,16 @@ export interface VisibilityAnchorPort {
  * can supply a deny-all or an allow-all to prove the filter is load-bearing.
  */
 export interface FeedVisibilityPolicy {
+  /**
+   * What kind of answer this policy gives. REQUIRED, so a new policy cannot
+   * arrive without declaring it — an optional field here would be read as
+   * `?? 'device-unscoped'` at the one use site, and `device-unscoped` is exactly
+   * the value that says "no wire needs to express an eviction". A policy that
+   * forgot to declare would then be indistinguishable from one that cannot
+   * revoke, and POD-376's gate would be present with its refusing arm
+   * unreachable.
+   */
+  readonly grade: FeedScopingGrade
   decide(principal: FeedPrincipal, ref: EntityRef): VisibilityDecision
   mayDeliver(principal: FeedPrincipal, ref: EntityRef): boolean
 }
@@ -247,6 +280,10 @@ export interface FeedVisibilityPolicy {
  * over-broad `mayRead`.
  */
 export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
+  /** Rows enter and leave a principal's view here — every refusal reason below
+   *  is reachable, and each one is an `evict` the moment the state moves. */
+  readonly grade = 'per-principal' as const
+
   constructor(private readonly state: VisibilityStatePort) {}
 
   decide(principal: FeedPrincipal, ref: EntityRef): VisibilityDecision {
@@ -343,6 +380,11 @@ export const DEVICE_GRADE_PRINCIPAL: FeedPrincipal = {
  * audited allowlist.
  */
 export class DeviceGradeUnscopedPolicy implements FeedVisibilityPolicy {
+  /** One principal, so nothing is ever revoked from anybody: a wire with no way
+   *  to say `evict` is COMPLETE against this policy, and POD-376's gate lets a
+   *  legacy peer in. The day this export is deleted, that stops being true. */
+  readonly grade = 'device-unscoped' as const
+
   decide(): VisibilityDecision {
     return { visible: true, reason: 'substrate' }
   }

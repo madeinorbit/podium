@@ -55,10 +55,13 @@ import {
   PeerVersionTelemetry,
   type UpgradeRequired,
   WIRE_VERSION,
+  type WireVersionAdapter,
   WireVersionAdapterRegistry,
   isUpgradeRequired,
   upgradeRequired,
+  upgradeRequiredForScoping,
 } from '@podium/protocol'
+import type { FeedScopingGrade } from '@podium/sync'
 import { LegacyWireV1Adapter } from './legacy-wire-v1-adapter'
 
 /** The canonical frame. v2 IS the canonical shape — the current wire is never a
@@ -92,14 +95,40 @@ export interface LegacyPeer {
   readonly acceptsDelta: boolean
 }
 
+/**
+ * A feed adapter, plus the ONE question the scoped feed has to ask of a wire
+ * version before it will serve a peer at it (POD-376).
+ *
+ * Declared on this feed-specific interface and NOT on L1's generic
+ * `WireVersionAdapter`, because "can this version express an eviction" is a
+ * question about the feed's vocabulary and L1 must not learn what an `evict` is.
+ * Declared as a required member rather than duck-typed like {@link
+ * LegacyAdvisorySource}, because the two are opposites: `advisory` is v1 debt that
+ * expires, and this is a permanent property every future wire version has to state
+ * about itself. A wire that forgot to state it would default to the permissive
+ * answer, which is exactly the fails-OPEN gate this run keeps paying for.
+ */
+export interface FeedWireAdapter
+  extends WireVersionAdapter<FeedFrame, ServerMessage, LegacyPeer> {
+  /**
+   * Can this version say "gone from YOUR view" as something OTHER than "deleted"
+   * (ADR 2 Am1 D14.5)? If it cannot, a principal-scoped authority must not serve
+   * it — see {@link WireFeedEdge.attach}.
+   */
+  readonly expressesEvict: boolean
+}
+
 /** The current wire needs no translation, and saying that explicitly is what
  *  keeps "v2 is canonical" from being an assumption spread across call sites. */
-class IdentityWireAdapter {
+class IdentityWireAdapter implements FeedWireAdapter {
   readonly version = WIRE_VERSION
   readonly name = `identity-v${WIRE_VERSION}`
   /** PERMANENT — the identity path is not a translation and outlives every one
    *  of them. The registry refuses this on any other version. */
   readonly expiry = null
+  /** The canonical frame family carries `op: 'evict'` as its own member of the
+   *  removal union, so the identity path expresses it by not touching it. */
+  readonly expressesEvict = true
   translate(frame: FeedFrame): readonly ServerMessage[] {
     return [frame]
   }
@@ -107,6 +136,17 @@ class IdentityWireAdapter {
 
 export interface WireFeedEdgeDeps {
   diagnostics(): ConversationDiagnosticWire[]
+  /**
+   * The grade of the visibility policy the Authority is ACTUALLY running, read
+   * live per admission (POD-376).
+   *
+   * A function and not a value: a value captured at construction is a second
+   * place the answer lives, and it goes stale in the direction that lets a
+   * revoke-capable server keep admitting peers that cannot be told about a
+   * revoke. `Authority.visibilityGrade()` delegates to the policy object itself,
+   * so this chain has no copy in it anywhere.
+   */
+  visibilityGrade(): FeedScopingGrade
 }
 
 /** One connected peer, from the edge's side. */
@@ -122,16 +162,46 @@ export class WireFeedEdge {
   private readonly telemetry = new PeerVersionTelemetry()
   private readonly peers = new Map<string, EdgePeer>()
 
-  constructor(deps: WireFeedEdgeDeps) {
+  /**
+   * The eviction capability of each registered version.
+   *
+   * A SECOND MAP because L1's registry is generic over `WireVersionAdapter` and
+   * hands back that type, which has no `expressesEvict` and must not grow one.
+   * Kept honest by {@link register} being the only way into either map: there is
+   * no path that adds an adapter to the registry without recording its answer
+   * here, so a version cannot arrive with its capability unknown and be read as
+   * permissive.
+   */
+  private readonly evictCapable = new Map<number, boolean>()
+
+  constructor(private readonly deps: WireFeedEdgeDeps) {
     this.registry = new WireVersionAdapterRegistry<FeedFrame, ServerMessage, LegacyPeer>()
-      .register(new IdentityWireAdapter())
-      // TEMPORARY, and mechanically so — see `legacy-wire-v1-adapter.ts`. When
-      // MIN_SUPPORTED_VERSION reaches 2, `scripts/audit-wire-adapters.ts` fails
-      // while this registration exists.
-      .register(new LegacyWireV1Adapter({ diagnostics: () => deps.diagnostics() }))
+    this.register(new IdentityWireAdapter())
+    // TEMPORARY, and mechanically so — see `legacy-wire-v1-adapter.ts`. When
+    // MIN_SUPPORTED_VERSION reaches 2, `scripts/audit-wire-adapters.ts` fails
+    // while this registration exists.
+    this.register(new LegacyWireV1Adapter({ diagnostics: () => deps.diagnostics() }))
     // A window that advertises a version with no adapter is a boot failure, not
     // a surprise on the first old client to connect.
     this.registry.assertCoversWindow()
+  }
+
+  private register(adapter: FeedWireAdapter): void {
+    this.registry.register(adapter)
+    this.evictCapable.set(adapter.version, adapter.expressesEvict)
+  }
+
+  /**
+   * Can the wire this peer speaks express an eviction?
+   *
+   * An UNKNOWN version answers `false`, not `true`. It is unreachable today —
+   * `resolve` has already refused anything unregistered before this is consulted
+   * — but the default is the one that matters: a lookup miss defaulting to "yes,
+   * it can" is a gate whose refusing arm disappears the moment the two maps ever
+   * disagree.
+   */
+  private expressesEvict(version: number): boolean {
+    return this.evictCapable.get(version) ?? false
   }
 
   /**
@@ -140,10 +210,28 @@ export class WireFeedEdge {
    * An ABSENT `wireVersion` in `hello` means 1: a pre-cutover client cannot be
    * made to send a field it was never built with, so the absence IS the
    * advertisement, and every build since sends it.
+   *
+   * TWO REFUSALS, NOT ONE (POD-376). The first is the rollout window. The second
+   * is the scoping gate: against a `per-principal` authority, a version whose
+   * adapter cannot express `evict` is refused HERE, before {@link
+   * FeedServing.serveWorld} reads a single row for it. The alternative was
+   * already in the tree and is not a fallback — `publishTo` catches the v1
+   * adapter refusing an `evict` and drops the peer, which means the peer has by
+   * then rendered a row it may no longer see and experiences the withdrawal as a
+   * disconnect. Failing at admission converts that into a refusal the peer can
+   * report truthfully.
+   *
+   * With today's `DeviceGradeUnscopedPolicy` this arm is never taken, and that is
+   * correct rather than dead: one principal means nothing is ever revoked from
+   * anybody, so a wire with no eviction is complete. It becomes live on the day
+   * the composition root names a real policy — which is the day it must.
    */
   attach(peer: EdgePeer): UpgradeRequired | null {
     const resolved = this.registry.resolve(peer.wireVersion)
     if (isUpgradeRequired(resolved)) return resolved
+    if (this.deps.visibilityGrade() === 'per-principal' && !this.expressesEvict(peer.wireVersion)) {
+      return upgradeRequiredForScoping(peer.wireVersion, this.support())
+    }
     this.peers.set(peer.id, peer)
     this.telemetry.connected(peer.id, peer.wireVersion)
     return null
