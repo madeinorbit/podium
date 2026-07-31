@@ -2454,3 +2454,46 @@ scoping this kind of work, the sweep is the smaller half of the deliverable.
 
 Both were sent back rather than classified by the coordinator: a row chosen to
 make a gate go green is the same defect one level up. Both came back argued.
+
+## "Most restrictive wins" is not a rule — argue the class DOWN when replication says so
+
+POD-421's settings audit trail took `secret`, correctly, and the argument was
+mechanical: `packages/sync/src/feed/visibility.ts` refuses a declared-`secret`
+class with `secret-never-replicates`, which is exactly the property an audit
+trail of privileged writes needs.
+
+POD-1213's `user_preferences` looked like the same shape — per-user, sensitive,
+default-closed instinct says take the strictest class available. It is the
+inverse, and the difference is REPLICATION:
+
+  - `personal` is GRANTABLE. "Share my sidebar order and my Telegram chat id"
+    is a verb that must not exist, so `personal` is wrong in the dangerous
+    direction — the same reason POD-1211's brief flagged the three
+    per-user-state-shaped classes as its sharpest cases.
+  - `secret` is wrong in the opposite direction. A preference row MUST
+    replicate, to the owning user's own replicas, or the settings screen cannot
+    load offline. The very refusal that made `secret` right for the trail breaks
+    the feature here.
+  - `per-user-state` (ADR 9 D3 rule 4) is non-grantable BY CONSTRUCTION —
+    sharing an entity never shares anybody's per-user rows — and still
+    replicates to its owner. That is the property the table needs.
+
+Two rules earned.
+
+FIRST, THE STRICTEST CLASS IS NOT THE SAFE DEFAULT. It is a choice with
+consequences in both directions, and the tiebreaker is a FALSIFIABLE
+CONSEQUENCE — "the settings screen could not load offline" — not a ranking of
+how private each class sounds. An agent reaching for the most restrictive
+option is making a decision while appearing not to.
+
+SECOND, CHECK WHETHER THE ROW ALREADY EXISTS BEFORE MINTING ONE. POD-1213's
+real answer was not a classification: `preferences-personal-keys` was already
+there, already `per-user-state`, and the table simply joins its `sites`. A new
+row would have been a second place to keep the same five security cells in sync
+— which is the defect the matrix exists to prevent, arriving through the fix for
+it. POD-1080 made the same call reusing `pairing-token` for its claim code.
+
+Corollary caught in the same exchange: a matrix row's `sites` prose is a CLAIM
+about the tree. POD-1213's row still said these keys live in "one instance-wide
+blob today", which its own migration made false. Stale `sites` is
+representation-registry rot one level up, in the docs, where no detector reads.
