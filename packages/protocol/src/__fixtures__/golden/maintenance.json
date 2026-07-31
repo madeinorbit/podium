@@ -129,14 +129,14 @@
         "issueId": "issueId",
         "stage": "stage",
         "closedReason": null,
-        "readAt": "2026-01-02T03:04:05.000Z",
+        "readerUserId": "readerUserId",
         "archived": false,
         "deletedAt": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"stage\":\"stage\",\"closedReason\":null,\"readAt\":\"2026-01-02T03:04:05.000Z\",\"archived\":false,\"deletedAt\":null}"
+      "encoded": "{\"issueId\":\"issueId\",\"stage\":\"stage\",\"closedReason\":null,\"readerUserId\":\"readerUserId\",\"archived\":false,\"deletedAt\":null}"
     },
     {
       "schema": "IssueAutoArchiveObservation",
@@ -145,14 +145,14 @@
         "issueId": "issueId",
         "stage": "stage",
         "closedReason": "closedReason",
-        "readAt": "2026-01-02T03:04:05.000Z",
+        "readerUserId": "readerUserId",
         "archived": false,
         "deletedAt": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"stage\":\"stage\",\"closedReason\":\"closedReason\",\"readAt\":\"2026-01-02T03:04:05.000Z\",\"archived\":false,\"deletedAt\":null}"
+      "encoded": "{\"issueId\":\"issueId\",\"stage\":\"stage\",\"closedReason\":\"closedReason\",\"readerUserId\":\"readerUserId\",\"archived\":false,\"deletedAt\":null}"
     },
     {
       "schema": "MaintenanceCommand",
@@ -277,7 +277,7 @@
           "issueId": "observed.issueId",
           "stage": "observed.stage",
           "closedReason": "observed.closedReason",
-          "readAt": "2026-01-02T03:04:05.000Z",
+          "readerUserId": "observed.readerUserId",
           "archived": false,
           "deletedAt": null
         }
@@ -285,7 +285,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":5,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"issue-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":5,\"observed\":{\"issueId\":\"observed.issueId\",\"stage\":\"observed.stage\",\"closedReason\":\"observed.closedReason\",\"readAt\":\"2026-01-02T03:04:05.000Z\",\"archived\":false,\"deletedAt\":null}}"
+      "encoded": "{\"protocolVersion\":5,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"issue-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":5,\"observed\":{\"issueId\":\"observed.issueId\",\"stage\":\"observed.stage\",\"closedReason\":\"observed.closedReason\",\"readerUserId\":\"observed.readerUserId\",\"archived\":false,\"deletedAt\":null}}"
     },
     {
       "schema": "MaintenanceCommand",
@@ -300,14 +300,14 @@
           "sessionId": "observed.sessionId",
           "issueId": "observed.issueId",
           "stoppedAt": "2026-01-02T03:04:05.000Z",
-          "readAt": "2026-01-02T03:04:05.000Z",
+          "readerUserId": "observed.readerUserId",
           "archived": false
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":6,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"session-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":6,\"observed\":{\"sessionId\":\"observed.sessionId\",\"issueId\":\"observed.issueId\",\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readAt\":\"2026-01-02T03:04:05.000Z\",\"archived\":false}}"
+      "encoded": "{\"protocolVersion\":6,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"session-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":6,\"observed\":{\"sessionId\":\"observed.sessionId\",\"issueId\":\"observed.issueId\",\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readerUserId\":\"observed.readerUserId\",\"archived\":false}}"
     },
     {
       "schema": "MaintenanceCommand",
@@ -598,13 +598,13 @@
         "sessionId": "sessionId",
         "issueId": null,
         "stoppedAt": "2026-01-02T03:04:05.000Z",
-        "readAt": "2026-01-02T03:04:05.000Z",
+        "readerUserId": "readerUserId",
         "archived": false
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"issueId\":null,\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readAt\":\"2026-01-02T03:04:05.000Z\",\"archived\":false}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"issueId\":null,\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readerUserId\":\"readerUserId\",\"archived\":false}"
     },
     {
       "schema": "SessionAutoArchiveObservation",
@@ -613,13 +613,13 @@
         "sessionId": "sessionId",
         "issueId": "issueId",
         "stoppedAt": "2026-01-02T03:04:05.000Z",
-        "readAt": "2026-01-02T03:04:05.000Z",
+        "readerUserId": "readerUserId",
         "archived": false
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readAt\":\"2026-01-02T03:04:05.000Z\",\"archived\":false}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readerUserId\":\"readerUserId\",\"archived\":false}"
     },
     {
       "schema": "StewardPollObservation",
