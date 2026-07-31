@@ -3993,3 +3993,47 @@ This also revises what POD-1247 inherits: not "wire the engine to existing
 enforcement" but "wire the engine to a chain whose links 2 and 3 may or may not be
 present". Its first act must be to verify all five rather than assume the merge
 preserved them.
+
+## A threshold with no instrument silently becomes "not checked"
+
+POD-1253's finding while fixing the release criteria, and it is the release-gate
+form of this run's dominant defect.
+
+It fixed 15 threshold rows and then separately reported that SIX of the ten
+criteria are wholly or partly unmeasurable today: no boot timing exists anywhere;
+nothing samples DB size over time; `perf.snapshot` measures the SERVER'S SHARE of
+sync lag rather than end-to-end; render counts wait on an unbuilt probe.
+
+Fixing a number does NOT create an instrument. A criterion with a threshold and
+no measurement reads, in every report and every gate summary, exactly like a
+criterion that passed — because nothing runs, nothing fails, and the row has a
+number in it. THE THRESHOLD IS THE PART PEOPLE CHECK FOR; ITS ABSENCE IS LOUD AND
+ITS UNMEASURABILITY IS SILENT.
+
+So the measurement gap has to be stated SEPARATELY from the threshold, in its own
+list, or the act of fixing thresholds actively conceals it.
+
+THREE ROWS IT REFUSED TO FIX, and the reasoning generalises:
+  - gap-heal time — the conformance suite runs on a FIXTURE CLOCK and cannot
+    produce a wall-clock number even in principle. Not "hard to measure": the
+    instrument is incapable of the units.
+  - DB growth RATE — "a rate without its load is not a number".
+  - render counts — blocked on an unbuilt probe, and "fixing a number for an
+    instrument nobody built fixes nothing".
+
+An honest UNDETERMINED with the experiment written out is a better deliverable
+than a plausible number, because the number would have been graded against and
+the experiment can actually be run.
+
+TWO MORE HABITS WORTH COPYING. It LABELLED ITS OWN WEAKEST ROW (the desktop
+memory ceiling — bounded above by a past leak incident, bounded below by nothing),
+which tells the next reader where to push first. And it noted that INHERITING A
+NUMBER IS NOT THE SAME AS JUSTIFYING IT: several constants it adopted have no
+recorded original justification in their own files, so the chain of reasoning
+terminates in a value someone once chose.
+
+AND THE GUARD ASSERTS MATCH-COUNT BEFORE VALUE. Pinning a doc row against a source
+constant is only sound if the regex actually found the constant — otherwise a
+rename produces the same green as agreement. Renaming the constant fires the
+match-count row FIRST. That is the anti-vacuity discipline applied to a
+documentation guard, where it is least expected and most needed.
