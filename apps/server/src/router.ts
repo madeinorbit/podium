@@ -87,6 +87,7 @@ import {
   SYNC_QUERIES,
   TAB_QUERIES,
 } from './modules/sessions/queries'
+import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
@@ -321,6 +322,38 @@ export const appRouter = t.router({
     set: t.procedure
       .input(PodiumSettings)
       .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
+    /**
+     * WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT (POD-421).
+     *
+     * The brief's rule is that an admin-grade control must be rendered
+     * DISABLED WITH A STATED REASON rather than editable-then-refused, and
+     * that requires the client to know the answer before the attempt. This is
+     * how it learns it.
+     *
+     * IT IS DERIVED FROM THE SAME GATE THE SERVER ENFORCES —
+     * `settingsCommandsPermitted` calls `settingsAuthzFailure`, once per
+     * command — so the disabled state and the refusal cannot disagree. A UI
+     * computing its own answer from a second rule is exactly how a control
+     * ends up enabled for a write the server refuses.
+     *
+     * IT IS NOT A CAPABILITY SNAPSHOT, and POD-352's exit audit turns on the
+     * distinction. Nothing here is stored, enqueued, or attached to a contract
+     * or an outbox entry: it is recomputed per request from the live account
+     * role, and the server re-runs the identical gate at apply time whatever
+     * the client believed (ADR 3 D8). The client's copy is a rendering hint
+     * with no authority.
+     *
+     * HAND-WRITTEN, and the reason is the same one that keeps `settings.get`
+     * hand-written: a `visibility` class names the state a command WRITES, and
+     * this describes the CALLER rather than any settings state. Giving it one
+     * would be a well-typed lie of the kind POD-1075 refused. It is named as
+     * an exception in `router.settings-guard.test.ts` and counted by
+     * `scripts/audit-settings-commands.ts`, so the exception is visible rather
+     * than assumed.
+     */
+    viewer: t.procedure.query(({ ctx }) => ({
+      permitted: settingsCommandsPermitted(settingsAuthzDeps(ctx)),
+    })),
     ...settingsFamily,
   }),
   perf: t.router(perfFamilyProcedures()),

@@ -31,7 +31,7 @@
  */
 
 import { SETTINGS_COMMAND_NAMES, SETTINGS_CONTRACTS } from '@podium/commands'
-import { asUserId, FIRST_ADMIN_USER_ID, type UserRole } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import {
@@ -52,16 +52,20 @@ const person: CommandPrincipal = {
  *  member's agent must be refused exactly where the member is (ADR 9 D5 A1/A2). */
 const agent: CommandPrincipal = {
   kind: 'agent',
-  agentSessionId: asUserId('sess-1') as never,
+  agentSessionId: asSessionId('sess-1'),
   onBehalfOf: FIRST_ADMIN_USER_ID,
   capability: { role: 'admin', scope: { kind: 'all' } },
   chain: [],
 }
 
-const deps = (role: UserRole | undefined, principal = person): SettingsAuthzDeps => ({
-  principal,
-  role,
-})
+// `principal` is annotated rather than inferred from its default: an inferred
+// `person` narrows the parameter to `UserCommandPrincipal`, and every agent and
+// system case below then fails to typecheck. Vitest could not have seen it —
+// this is the type-level breakage the in-package typecheck exists for.
+const deps = (
+  role: UserRole | undefined,
+  principal: CommandPrincipal = person,
+): SettingsAuthzDeps => ({ principal, role })
 
 const ADMIN_FLOOR = SETTINGS_COMMAND_NAMES.filter(
   (n) => SETTINGS_CONTRACTS[n].policy.roleFloor === 'admin',
