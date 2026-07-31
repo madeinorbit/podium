@@ -68,8 +68,11 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   formatError?: (error: unknown, fallback: string) => string
   /** UI notices (web: sonner toasts). Default: silent. */
   notices?: StoreNotices
-  /** Replica factory — mobile injects the AsyncStorage-backed one. Called once. */
-  createReplicaFn?: () => Replica
+  /** Replica factory — mobile injects the AsyncStorage-backed one. Called once.
+   *  REQUIRED since POD-1239 (see EngineInit.createReplicaFn): the platform
+   *  composition root builds the replica, so that there IS a root to hold
+   *  responsible for attributing its persisted store. */
+  createReplicaFn: () => Replica
   /** Wire-v2 feed sink (POD-1223). Supplied WITH the kernel-backed
    *  `createReplicaFn` by the platform's composition root; the two are one
    *  assembly and neither half is meaningful alone. */

@@ -45,7 +45,7 @@ import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { Outbox, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
-import { createReplica, type Replica, type UiState } from '../replica/replica'
+import type { Replica, UiState } from '../replica/replica'
 import {
   createRouter,
   type MainView,
@@ -149,8 +149,28 @@ export interface EngineInit<TApi extends PodiumClientApi> {
   formatError?: (error: unknown, fallback: string) => string
   /** UI notices (web: sonner toasts). Default: silent. */
   notices?: StoreNotices
-  /** Replica factory — mobile injects the AsyncStorage-backed one. Called once. */
-  createReplicaFn?: () => Replica
+  /**
+   * Replica factory — mobile injects the AsyncStorage-backed one. Called once.
+   *
+   * REQUIRED since POD-1239. It used to be optional, falling back to
+   * `createReplica()` with no storage argument, which resolved
+   * `window.localStorage` on its own — so the flag-off browser client adopted
+   * ambient state on every boot.
+   *
+   * The client audit DID count that site — measured, not assumed: it reported
+   * `engine.ts:297` on integration. The problem was where it POINTED. This file is
+   * shared and platform-neutral, and attribution needs the CURRENT PRINCIPAL, which
+   * client-core cannot know. So the finding named a file that could not host its own
+   * fix; a platform agent reading it would find nothing here to do, which is a
+   * quieter failure than an uncounted site and lasts just as long.
+   *
+   * Requiring the factory deletes the construction rather than defaulting it, so
+   * every replica is built at a platform root that CAN answer the question. Audit
+   * membership changes by exactly one — `engine.ts:297` out,
+   * `apps/web/src/lib/webReplica.ts` in — and the count does not move, because
+   * nothing was hidden and nothing new exposed. The finding became actionable.
+   */
+  createReplicaFn: () => Replica
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: replaces SocketHub construction (engine unit tests inject a fake). */
@@ -294,7 +314,18 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // Persistent local replica (docs/spec/thin-client-replica.md). Constructed
     // synchronously so its persisted cursor can seed the hub's first
     // changesSince; entity hydration happens async in start().
-    this.replica = init.createReplicaFn ? init.createReplicaFn() : createReplica()
+    // No fallback (POD-1239): an engine that can build its own replica is a
+    // construction site outside every composition root. The runtime check exists
+    // because the type is only half the guard — an untyped caller omitting the
+    // factory must fail LOUDLY here rather than quietly adopt ambient storage.
+    if (typeof init.createReplicaFn !== 'function') {
+      throw new Error(
+        'createEngine requires createReplicaFn: the platform composition root builds the replica ' +
+          'and is responsible for establishing that its persisted store belongs to the current ' +
+          'principal (POD-307 / POD-1239).',
+      )
+    }
+    this.replica = init.createReplicaFn()
     this.ui = this.replica.uiState()
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,

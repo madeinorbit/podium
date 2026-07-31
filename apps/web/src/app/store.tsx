@@ -20,6 +20,7 @@ import type { FeedSinkPort } from '@podium/terminal-client'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
+import { createWebReplica } from '../lib/webReplica'
 import { formatAppError } from './AppErrorPage'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 
@@ -39,7 +40,11 @@ export function StoreProvider({
   config,
   onFatalError,
   engineOverrides,
-  createReplicaFn,
+  // The browser's default arrives HERE rather than inside the engine (POD-1239).
+  // AppShell passes `undefined` on the flag-off, non-Tauri path, and a
+  // destructuring default fires on `undefined` — so this is the same one branch
+  // it always was, moved to where it is a named composition root.
+  createReplicaFn = createWebReplica,
   feed,
   children,
 }: {
@@ -48,7 +53,10 @@ export function StoreProvider({
   /** Test seam passthrough (see client-core StoreProviderProps.engineOverrides). */
   engineOverrides?: { spawnConfirmGraceMs?: number }
   /** Desktop passthrough (POD-789): the Tauri shell injects an already-hydrated
-   *  SQLite-backed replica; browsers leave this unset (localStorage default). */
+   *  SQLite-backed replica; the kernel path (POD-1223) injects the kernel-backed
+   *  facade. Unset = the plain browser, which gets {@link createWebReplica} —
+   *  an EXPLICIT root rather than the engine's old ambient localStorage reach
+   *  (POD-1239). */
   createReplicaFn?: () => Replica
   /** Kernel-replica passthrough (POD-1223): supplied together with the
    *  kernel-backed `createReplicaFn` when the flag resolves to the kernel path.
