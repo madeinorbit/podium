@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SOLE_USER_ID, asSessionId, type AgentPhase, type AgentRuntimeState, type SessionId } from '@podium/model'
+import {
+  SOLE_USER_ID,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  resolveTelegramPrincipal,
+  type AgentPhase,
+  type AgentRuntimeState,
+  type SessionId,
+} from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -1888,6 +1896,26 @@ describe('agent state', () => {
         { botToken: '123456:secret', chatId: '129784115' },
         expect.stringContaining('Telegram notifications are connected'),
       )
+
+      // POD-1080: the ceremony now writes a BINDING, and this is the only test
+      // that sees it through the real composition root — a real `SessionStore`,
+      // the real `SessionRegistry` wiring, and the real `deviceGradeSoleOwner`
+      // that supplies the minting user. The service-level tests can vary that
+      // user; only this one proves the root actually supplies one.
+      const bindings = store.telegramBindings.list()
+      expect(bindings).toHaveLength(1)
+      expect(bindings[0]?.chatId).toBe('129784115')
+      expect(bindings[0]?.userId).toBe(FIRST_ADMIN_USER_ID)
+      // …and it RESOLVES, which is what the inbound gate will ask. Asserting the
+      // row exists is not the same claim as the chat being usable.
+      expect(resolveTelegramPrincipal(bindings, '129784115')).toEqual({
+        ok: true,
+        userId: FIRST_ADMIN_USER_ID,
+      })
+      // The negative control on the same live table: any OTHER chat still
+      // resolves to nobody, so the ceremony bound one chat rather than opening
+      // the edge.
+      expect(resolveTelegramPrincipal(bindings, '99999').ok).toBe(false)
     } finally {
       store.close()
     }
