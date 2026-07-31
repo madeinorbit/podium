@@ -392,6 +392,27 @@ positions are in a baseline key. The same scan also classifies drizzle columns
 free. A zero here means "no zod schema declares a raw entity id", not "no raw
 entity id exists".
 
+### 2026-07-31 — POD-1203 drives `publish-computed-fanout` to zero: 13 vanished, 0 moved
+
+| Item | Was → now | Verdict |
+| --- | --- | --- |
+| `publish-computed-fanout` | 13 → 0 | **13 vanished, 0 moved.** `publishComputed` and `fanOutSnapshot` are deleted, and grepping their destinations finds no code home: the serving path that replaced them (`apps/server/src/gateway/feed-serving.ts`) constructs no entity message of its own — a legacy client's full lists are folded out of the feed by the expiring v1 adapter, which is one of two sites `bun run audit:serving-path` allows. The identifier still appears in PROSE, in comments explaining the deletion; the detector strips comments, which is why the count is honest. |
+| `change-row-typings` | 12 → 12 | **Unchanged, and it was briefly 14.** The first cut of `feed-serving.ts` restated a change row inline for its bootstrap mapping. Derived from the frame's own `changes` element type instead — a third definition of a change row is byte-identical on the wire and therefore invisible to every golden fixture, which is exactly what this item counts. |
+
+**A ZEROED DETECTOR NOW CARRIES ITS OWN ANCHOR.** From zero, this detector's count
+can only ever mean "nothing found" — which is what a BROKEN detector reports too.
+It joins `ZERO_BY_DESIGN` on the terms `send-turn-duplicate` set and
+`upstream-sync-forwarder` followed, and no looser: `collect` THROWS when its roots
+match no files and when its pattern stops matching either of two control strings
+copied from the diff that deleted them (a call site, and the composition-root
+wiring). Each control is proven load-bearing on its own, because two controls that
+can only fail together are one control wearing two names.
+
+**The phase gate did not flip, and that was predicted in place.** `--phase POD-308`
+still exits 1: the phase owns `legacy-wire-v1-adapter` (6, expiring at Phase 7) and
+`change-row-typings` (12). `scripts/rearch-audit.test.ts` names POD-308 as its live
+example and asserts BOTH directions; nothing there needed to change.
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`

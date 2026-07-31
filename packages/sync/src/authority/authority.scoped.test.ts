@@ -505,7 +505,7 @@ describe('bootstrap — the installed world for ONE principal', () => {
     expect(world.changes[0]?.op === 'upsert' && world.changes[0].value).toEqual({ v: 2 })
   })
 
-  it('is read at the head, so the delta stream resumes with no window', () => {
+  it('is read at the head, so the delta stream resumes with no gap', () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('a'))
     authority.capture([upsert('a', { v: 1 })])

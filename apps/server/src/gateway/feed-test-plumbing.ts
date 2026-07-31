@@ -14,14 +14,7 @@
  */
 
 import type { ConversationDiagnosticWire } from '@podium/model'
-import {
-  Authority,
-  DeviceGradeNoAnchors,
-  DeviceGradeUnscopedPolicy,
-  FeedIdentityRegistry,
-  Ledger,
-  type FeedIdentity,
-} from '@podium/sync'
+import { Authority, FeedIdentityRegistry, Ledger, type FeedIdentity } from '@podium/sync'
 import { SessionStore } from '../store'
 import { FeedServing } from './feed-serving'
 
@@ -59,9 +52,3 @@ export function feedTestPlumbing(
   })
   return { serving, ledger, authority: ledger.authority, store }
 }
-
-/** The policy pair a device-grade composition names explicitly (POD-1077). */
-export const DEVICE_GRADE_KERNEL_DEPS = {
-  visibility: new DeviceGradeUnscopedPolicy(),
-  anchors: new DeviceGradeNoAnchors(),
-} as const
