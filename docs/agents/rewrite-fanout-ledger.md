@@ -4382,3 +4382,36 @@ THE RULE FOR ABSENCE CLAIMS: one route is a search, two is a coincidence, three
 differently-keyed routes is evidence — and at least one of them must not share a
 key with the route that first produced the answer. Naming which route erred is
 part of the report.
+
+## ONE BIT PER CLAIM: mark every handover statement MEASURED or INFERRED
+
+The constructive form of the handover-is-an-instrument entry, and the cheapest
+practice in this document.
+
+The defect it fixes: "both sides solved null-encoding differently" was written as
+an OBSERVATION and read as a FINDING for four sessions, and THE TWO ARE
+INDISTINGUISHABLE IN PROSE. Nothing about the sentence signals which it was. So a
+reader has no way to know whether to test it, and a claim that blocks work goes
+untested precisely because it is already written down.
+
+THE PRACTICE: one bit per claim. MEASURED means someone ran something and this is
+the output. INFERRED means someone reasoned from what they saw. Both are useful and
+neither is shameful — the bit is not a quality grade, it is a routing instruction.
+
+WHAT IT BUYS: AN INFERRED CLAIM THAT BLOCKS WORK IS THE FIRST THING THE NEXT
+SESSION SHOULD TEST, and it cannot be if it reads identically to a measured one.
+That single sentence, marked INFERRED, would have been re-checked on the next
+session's first pass instead of the fifth — and the null-encoding blocker would
+never have reached a coordinator brief, let alone two.
+
+It applies to this ledger too. Entries here that say "measured", "verified here"
+or quote a command are the first kind; entries that generalise from a case are the
+second. Where an entry does both, the measurement is the part to trust and the
+generalisation is the part to re-derive when it next matters.
+
+COMPANION RULE, for the other direction — reporting an ABSENCE: one route is a
+search, two is a coincidence, three differently-keyed routes is evidence, and at
+least one must NOT share a key with the route that first produced the answer.
+NAME WHICH ROUTE ERRED as part of the report; POD-1246 did it by instinct and it
+is better as a requirement, because the erring route is the one the next person
+will otherwise reach for first.
