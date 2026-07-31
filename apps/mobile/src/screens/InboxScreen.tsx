@@ -113,6 +113,10 @@ export function InboxScreen() {
       }
     >
       {client.error ? <Text style={styles.error}>{client.error}</Text> : null}
+      {/* Never silent (ADR 6 D4.4): queued work a storage migration could not
+          attribute to this account, and storage degradation, are both things the
+          user is owed rather than log lines. */}
+      {client.notice ? <Text style={styles.notice}>{client.notice}</Text> : null}
       <SectionList
         sections={sections}
         keyExtractor={(session) => session.sessionId}
@@ -192,6 +196,12 @@ const styles = StyleSheet.create({
   },
   error: {
     color: color.danger,
+    fontSize: font.small,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.sm,
+  },
+  notice: {
+    color: color.textDim,
     fontSize: font.small,
     paddingHorizontal: space.xl,
     paddingBottom: space.sm,

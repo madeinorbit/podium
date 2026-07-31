@@ -63,7 +63,18 @@ export interface ExpoSqliteExecuteResultLike {
 }
 
 export interface ExpoSqliteStatementLike {
-  executeSync(params?: SqlValue[]): ExpoSqliteExecuteResultLike
+  /**
+   * `params` is REQUIRED, and the first real caller (POD-1220) is why.
+   *
+   * It was optional while this shim had no consumer holding the actual package.
+   * The real `SQLiteStatement.executeSync` overloads take `SQLiteBindParams`,
+   * which `SqlValue[]` satisfies and `SqlValue[] | undefined` does not — so an
+   * optional parameter here made a real `SQLiteDatabase` UNASSIGNABLE to this
+   * interface, which is the one thing the structural typing exists to allow.
+   * Nothing was ever passing `undefined`: {@link fromExpoSqlite} always supplies
+   * the array.
+   */
+  executeSync(params: SqlValue[]): ExpoSqliteExecuteResultLike
   finalizeSync(): void
 }
 

@@ -18,6 +18,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMutationId } from '@podium/protocol'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
 import type { OutboxAttribution, OutboxCommand } from '@podium/sync/outbox'
@@ -255,5 +256,89 @@ describe('a write that cannot be persisted is LOUD, never swallowed', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(degraded).toEqual([])
+  })
+})
+
+/**
+ * A row in a state the CLIENT Outbox does not know belongs to neither home.
+ *
+ * Found by POD-1220 giving the attribution gate its first caller. `decideLegacyAdoption`
+ * parks the entries of a device it cannot attribute as `dead-letter` records with the
+ * payload redacted — deliberately kept, so POD-316 can tell the user work was lost.
+ * The split used to be a BOOLEAN ("accepted, or else queued"), so those parked rows
+ * came back through `queued.load()` as drainable work and the engine would have
+ * replayed, under the current user's name, the mutations the gate had just refused to
+ * attribute to them. The gate had a caller and no effect.
+ */
+describe('a state neither client home owns', () => {
+  const PARKED = {
+    mutationId: asMutationId('mut_parked'),
+    command: COMMANDS['sessions.rename'] as OutboxCommand,
+    input: null,
+    partitionKey: 'legacy-import',
+    attribution: ATTRIBUTION,
+    state: 'dead-letter' as const,
+    queuedAt: 5,
+    attempts: 0,
+  }
+
+  it('is invisible to BOTH homes — a parked dead letter is not drainable work', async () => {
+    const file = newFile()
+    const store = await SqliteSyncStore.open({
+      openDatabase: () => openDatabase(file),
+      deleteDatabase: () => rmSync(file, { force: true }),
+      onDegraded: () => {},
+    })
+    cleanups.push(() => store.close())
+    const view = store.viewFor(PRINCIPAL)
+    await view.outbox.apply({
+      put: [PARKED],
+      expect: [{ mutationId: PARKED.mutationId, expect: 'absent' }],
+    })
+
+    const storages = await createKernelOutboxStorage({
+      outbox: view.outbox,
+      resolveCommand,
+      attribution: ATTRIBUTION,
+      onDegraded: () => {},
+    })
+
+    expect(storages.queued.load()).toEqual([])
+    expect(storages.awaiting.load()).toEqual([])
+    // And it is genuinely IN the store — otherwise both lines above pass by the
+    // fixture having written nothing, which is the same shape as the right answer.
+    expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual(['mut_parked'])
+  })
+
+  it('is not DELETED by a save from a home that cannot see it', async () => {
+    // A view that removed rows outside its own home would turn "the client rewrote
+    // its queue" into "the record of the user's lost work disappeared".
+    const file = newFile()
+    const store = await SqliteSyncStore.open({
+      openDatabase: () => openDatabase(file),
+      deleteDatabase: () => rmSync(file, { force: true }),
+      onDegraded: () => {},
+    })
+    cleanups.push(() => store.close())
+    const view = store.viewFor(PRINCIPAL)
+    await view.outbox.apply({
+      put: [PARKED],
+      expect: [{ mutationId: PARKED.mutationId, expect: 'absent' }],
+    })
+
+    const storages = await createKernelOutboxStorage({
+      outbox: view.outbox,
+      resolveCommand,
+      attribution: ATTRIBUTION,
+      onDegraded: () => {},
+    })
+    storages.queued.save([entry()])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect((await view.outbox.read()).map((r) => r.mutationId).sort()).toEqual([
+      'mut_1',
+      'mut_parked',
+    ])
   })
 })

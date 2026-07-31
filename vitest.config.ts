@@ -12,6 +12,12 @@ export const nodeTestExclude = [
   '**/.worktrees/**',
   '**/*.bun.test.ts',
   'apps/web/**',
+  // apps/mobile, like apps/web, brings its own config: React Native ships
+  // Flow-typed source this lane cannot parse, so its suites need the
+  // react-native -> react-native-web alias and the expo-sqlite stub that
+  // `apps/mobile/vitest.config.ts` supplies. Without this line the node lane
+  // collects them and dies in the transform (POD-1220).
+  'apps/mobile/**',
 ]
 
 /** Shared resolve (workspace aliases + @podium/source condition) and common node test
@@ -135,8 +141,9 @@ export default defineConfig({
   test: {
     passWithNoTests: true,
     // Two projects so one root `vitest run` covers the whole workspace with the
-    // right environment per suite: everything except apps/web runs under node;
-    // apps/web needs happy-dom and its own aliases, so it brings its own config.
+    // right environment per suite: everything except apps/web and apps/mobile runs
+    // under node; each of those needs happy-dom and its own aliases, so each brings
+    // its own config.
     // No retry here — retry policy belongs to the lanes (unit 0, integration 1).
     projects: [
       {
@@ -148,6 +155,7 @@ export default defineConfig({
         },
       },
       './apps/web/vitest.config.ts',
+      './apps/mobile/vitest.config.ts',
     ],
   },
 })
