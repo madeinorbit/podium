@@ -229,9 +229,58 @@ function outOfScope(opts?: { override?: boolean }): AuthDecision {
 /** THE authz decision for a caller — the single enforcement function (invariant 2
  *  of the extension contract above). Distinguishes a hard role denial
  *  ('forbidden') from a scope violation the caller may knowingly override
- *  ('confirm-required'). Reads are scope-free (read-all). A write/manage with no
- *  `issue` is additive (e.g. create) and allowed once the role permits it — scope
- *  only gates mutations of an EXISTING issue.
+ *  ('confirm-required'). A write/manage with no `issue` is additive (e.g. create)
+ *  and allowed once the role permits it — scope only gates mutations of an
+ *  EXISTING issue.
+ *
+ *  ── READS ARE NO LONGER UNCONDITIONALLY ALLOWED (POD-315, ADR 3 Amendment 1 D19.2)
+ *
+ *  This function used to open with `if (action === 'read') return 'allow'`. D19.2
+ *  names that exact line and calls its removal *"the one place where extending
+ *  the closed set is not additive"*, which is why it is called out here rather
+ *  than left to be noticed in a diff: the line got shorter and every read path in
+ *  the product now runs the scope switch.
+ *
+ *  WHAT GATES A READ, PRECISELY: **owner and grant scopes** — D19.2's own words,
+ *  and the narrowest reading that is also the correct one. A read is decided by
+ *  the same ownership rule as a write whenever the capability's scope NAMES A
+ *  PERSON (`owned`, `self`). The three scopes that name no person (`all`, `none`,
+ *  `subtree`) keep read-allow, each saying so on its own branch.
+ *
+ *  WHY `subtree` READS STAY ALLOWED, though it is the scope agents actually
+ *  carry. A subtree capability is an ISSUE-TREE WRITE scope — the thing
+ *  `--outside-scope` confirms crossing (ADR 3 D2) — not a visibility set. Gating
+ *  reads by it would deny an agent every sibling issue, which is neither what
+ *  A2's narrow default is about (what an agent may CHANGE) nor survivable: ADR 3
+ *  Amendment 1 D20.2 requires that an agent may address any issue **its human can
+ *  see, including outside its own subtree**, and the single-user parity criterion
+ *  requires today's behaviour to be reproduced exactly. Visibility is bounded by
+ *  the HUMAN CEILING (`@podium/commands`' `HumanCeiling`), which is a different
+ *  question asked of a different fact, and answering it here would be the second
+ *  permission check invariant 2 forbids.
+ *
+ *  WHY THIS IS NOT DEAD CODE, WHICH IS THE REASON D19.2 INSISTS ON IT. Nothing
+ *  mints an `owned` or `self` capability SCOPE today (verified: the only
+ *  producers of the `owned` shape are `presence-registry.ts` and
+ *  `rename-target-path.ts`, and both build owned TARGETS, not scopes). So this
+ *  change denies nothing that is currently allowed — its entire value is that
+ *  read denial becomes REPRESENTABLE and therefore testable before the transport
+ *  can tell two humans apart. Amendment 1's rejected-alternatives table is
+ *  explicit that the opposite order — flip the transport first, gate reads later
+ *  — leaves "every ownership check dead code on the one transport humans actually
+ *  use, so nothing would be tested until the flip".
+ *
+ *  ALSO REJECTED, BY THE ADR AND NOT BY THIS FILE: keeping reads scope-free and
+ *  filtering rows at the projection layer. That means the authority computed a
+ *  forbidden row and hoped every projection dropped it (D19, rejected
+ *  alternatives).
+ *
+ *  An ISSUE target under an `owned` scope stays `forbidden` for reads exactly as
+ *  it already is for writes: {@link AuthTarget}'s issue arm carries no owner or
+ *  grant facts, so ownership is UNDECIDABLE for it, and default-closed (§3.1.1)
+ *  means undecidable resolves to refusal. Giving issues an owner is the extension
+ *  point — add the facts to that arm, and this branch decides them with the rule
+ *  it already has.
  *
  *  The scope match is an EXHAUSTIVE switch: a new `IssueScope` member fails to
  *  compile here until it declares its own rule, rather than inheriting whatever
@@ -243,15 +292,16 @@ export function authorize(
   opts?: { override?: boolean },
 ): AuthDecision {
   if (!ROLE_ACTIONS[cap.role].includes(action)) return 'forbidden'
-  if (action === 'read') return 'allow'
   const scope = cap.scope
   switch (scope.kind) {
     case 'all':
       return 'allow'
     case 'none':
+      if (action === 'read') return 'allow' // no person in this scope — see READS above
       // Additive (no existing target) is a role question, not a scope one.
       return issue ? outOfScope(opts) : 'allow'
     case 'subtree': {
+      if (action === 'read') return 'allow' // no person in this scope — see READS above
       if (!issue) return 'allow'
       // A subtree capability is an ISSUE-tree capability. Handing it an owned
       // entity or a per-user row is not a scope violation to be overridden — it is
