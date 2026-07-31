@@ -21,6 +21,7 @@ const roots: string[] = []
 const machineA = asMachineId('machine-a')
 const machineB = asMachineId('machine-b')
 const alice = asUserId('user:alice')
+const bob = asUserId('user:bob')
 const issueA = asIssueId('issue-a')
 
 async function store(): Promise<BindingStore> {
@@ -169,12 +170,322 @@ describe('SessionBinding transition vocabulary', () => {
         sessionId: before.sessionId,
         claimantMachineId: machineA,
         machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user', userId: alice },
         requestedGeneration: 2,
         attemptId: `attempt-${kind}`,
       }),
     )
     expect(after.observationGeneration).toBe(2)
     expect(JSON.stringify(after.delegationHistory)).toBe(delegation)
+  })
+
+  it('two same-principal reattaches produce one durable winner and one redundant result', async () => {
+    const bindings = await store()
+    const before = await spawn(bindings, 'same-principal-race', 'codex')
+    const request = (transitionId: string) =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId,
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId: alice },
+        requestedGeneration: 2,
+        attemptId: 'podium-same-principal-race',
+      })
+
+    const outcomes = await Promise.all([request('race:same:a'), request('race:same:b')])
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(['applied', 'redundant'])
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const row = await persisted.read(before.sessionId)
+    expect(row?.observationGeneration).toBe(2)
+    expect(row?.transitionHistory.filter((entry) => entry.event === 'reattach')).toEqual([
+      expect.objectContaining({
+        transitionId: 'race:same:a',
+        reattachClaim: {
+          principal: { kind: 'user', userId: alice },
+          requestedGeneration: 2,
+          attemptId: 'podium-same-principal-race',
+        },
+      }),
+    ])
+    expect(
+      (
+        await persisted.transition({
+          event: 'reattach',
+          transitionId: 'race:same:after-restart',
+          sessionId: before.sessionId,
+          claimantMachineId: machineA,
+          machineAccess: 'allowed',
+          sessionAccess: 'allowed',
+          principal: { kind: 'user', userId: alice },
+          requestedGeneration: 2,
+          attemptId: 'podium-same-principal-race',
+        })
+      ).status,
+    ).toBe('redundant')
+  })
+
+  it('applies one transitionId exactly once when 30 identical reattaches arrive together', async () => {
+    const bindings = await store()
+    const before = await spawn(bindings, 'same-transition-race', 'codex')
+    const request = () =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId: 'race:same-transition',
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId: alice },
+        requestedGeneration: 2,
+        attemptId: 'attempt-same-transition',
+      })
+
+    const outcomes = await Promise.all(Array.from({ length: 30 }, request))
+    expect(outcomes.filter((outcome) => outcome.status === 'applied')).toHaveLength(1)
+    expect(outcomes.filter((outcome) => outcome.status === 'unchanged')).toHaveLength(29)
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const row = await persisted.read(before.sessionId)
+    expect(row).toMatchObject({
+      observationGeneration: 2,
+      attemptId: 'attempt-same-transition',
+    })
+    expect(
+      row?.transitionHistory.filter((entry) => entry.transitionId === 'race:same-transition'),
+    ).toHaveLength(1)
+  })
+
+  it('reattaches a 30-session reconnect burst without cross-wiring durable observations', async () => {
+    const bindings = await store()
+    const sessions = await Promise.all(
+      Array.from({ length: 30 }, (_, index) =>
+        spawn(bindings, `reconnect-burst-${index}`, 'codex', {
+          attemptId: `attempt-before-${index}`,
+        }),
+      ),
+    )
+    await Promise.all(
+      sessions.map((session, index) =>
+        bindings.transition({
+          event: 'hook-repin',
+          transitionId: `burst:hook:${index}`,
+          sessionId: session.sessionId,
+          evidenceSource: 'hook-receipt',
+          value: `native-${index}`,
+          nativeKind: 'codex-thread',
+          observedAt: `2026-07-31T10:00:${String(index).padStart(2, '0')}.000Z`,
+          pendingServerAck: { nativeKind: 'codex-thread', value: `native-${index}` },
+        }),
+      ),
+    )
+
+    const outcomes = await Promise.all(
+      sessions.map((session, index) =>
+        bindings.transition({
+          event: 'reattach',
+          transitionId: `burst:reattach:${index}`,
+          sessionId: session.sessionId,
+          claimantMachineId: machineA,
+          machineAccess: 'allowed',
+          sessionAccess: 'allowed',
+          principal: { kind: 'user' as const, userId: alice },
+          requestedGeneration: 2,
+          attemptId: `attempt-after-${index}`,
+        }),
+      ),
+    )
+    expect(outcomes.every((outcome) => outcome.status === 'applied')).toBe(true)
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const rows = await Promise.all(sessions.map((session) => persisted.read(session.sessionId)))
+    expect(rows).toHaveLength(30)
+    rows.forEach((row, index) => {
+      expect(row).toMatchObject({
+        sessionId: `reconnect-burst-${index}`,
+        observationGeneration: 2,
+        attemptId: `attempt-after-${index}`,
+      })
+      expect(
+        row?.observations.map((entry) => ({
+          value: entry.value,
+          pendingServerAck: entry.pendingServerAck,
+        })),
+      ).toEqual([
+        {
+          value: `native-${index}`,
+          pendingServerAck: { nativeKind: 'codex-thread', value: `native-${index}` },
+        },
+      ])
+      expect(row?.transitionHistory.map((entry) => entry.event)).toEqual([
+        'spawn',
+        'hook-repin',
+        'reattach',
+      ])
+    })
+  })
+
+  it.each([
+    'reattach-first',
+    'hook-first',
+  ] as const)('serializes a reattach racing hook-repin without losing either write (%s)', async (order) => {
+    const bindings = await store()
+    const before = await spawn(bindings, `mixed-race-${order}`, 'codex', {
+      attemptId: 'attempt-before',
+    })
+    const delegation = JSON.stringify(before.delegationHistory)
+    const reattach = () =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId: `mixed:${order}:reattach`,
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId: alice },
+        requestedGeneration: 2,
+        attemptId: 'attempt-after',
+      })
+    const hook = () =>
+      bindings.transition({
+        event: 'hook-repin',
+        transitionId: `mixed:${order}:hook`,
+        sessionId: before.sessionId,
+        evidenceSource: 'hook-receipt',
+        value: `native-${order}`,
+        nativeKind: 'codex-thread',
+        observedAt: '2026-07-31T11:00:00.000Z',
+        pendingServerAck: {
+          nativeKind: 'codex-thread',
+          value: `native-${order}`,
+        },
+      })
+    const operations = order === 'reattach-first' ? [reattach, hook] : [hook, reattach]
+
+    const outcomes = await Promise.all(operations.map((operation) => operation()))
+    expect(outcomes.every((outcome) => outcome.status === 'applied')).toBe(true)
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const row = await persisted.read(before.sessionId)
+    expect(row).toMatchObject({
+      state: 'bound',
+      observationGeneration: 2,
+      attemptId: 'attempt-after',
+    })
+    expect(row?.observations).toEqual([
+      expect.objectContaining({
+        channel: 'resume-ref',
+        value: `native-${order}`,
+        pendingServerAck: {
+          nativeKind: 'codex-thread',
+          value: `native-${order}`,
+        },
+      }),
+    ])
+    expect(row?.transitionHistory.map((entry) => entry.event)).toEqual([
+      'spawn',
+      ...(order === 'reattach-first'
+        ? (['reattach', 'hook-repin'] as const)
+        : (['hook-repin', 'reattach'] as const)),
+    ])
+    expect(JSON.stringify(row?.delegationHistory)).toBe(delegation)
+  })
+
+  it.each([
+    ['alice-first', alice, bob],
+    ['bob-first', bob, alice],
+  ])('two-principal reattach race is deterministic when %s', async (_case, first, second) => {
+    const bindings = await store()
+    const before = await spawn(bindings, `two-principal-race-${_case}`, 'claude-code')
+    const request = (transitionId: string, userId: typeof alice) =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId,
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId },
+        requestedGeneration: 2,
+        attemptId: `podium-two-principal-race-${_case}`,
+      })
+
+    const outcomes = await Promise.all([
+      request(`race:${_case}:first`, first),
+      request(`race:${_case}:second`, second),
+    ])
+    expect(outcomes[0]?.status).toBe('applied')
+    expect(outcomes[1]).toEqual({
+      status: 'denied',
+      event: 'reattach',
+      reason: 'not-claimant',
+      terminal: true,
+    })
+
+    const row = await bindings.read(before.sessionId)
+    expect(
+      row?.transitionHistory.findLast((entry) => entry.event === 'reattach')?.reattachClaim
+        ?.principal,
+    ).toEqual({ kind: 'user', userId: first })
+    // Reattach ownership is arbitration metadata only. It cannot rewrite the
+    // agent's human or widen the scope it was spawned with.
+    expect(row && bindings.currentDelegation(row)).toMatchObject({
+      onBehalfOf: alice,
+      grantedScope: { kind: 'subtree', rootId: issueA },
+    })
+
+    const unreachable = await bindings.transition({
+      event: 'reattach',
+      transitionId: `race:${_case}:offline`,
+      sessionId: before.sessionId,
+      claimantMachineId: machineA,
+      machineAccess: 'unreachable',
+      sessionAccess: 'allowed',
+      principal: { kind: 'user', userId: second },
+      requestedGeneration: 3,
+    })
+    expect(unreachable).toEqual({
+      status: 'unreachable',
+      event: 'reattach',
+      reason: 'machine-unreachable',
+      terminal: true,
+    })
+  })
+
+  it('keeps invisible and nonexistent sessions uniform below policy', async () => {
+    const bindings = await store()
+    const existing = await spawn(bindings, 'private-session', 'grok')
+    const denied = {
+      event: 'reattach' as const,
+      transitionId: 'invisible',
+      claimantMachineId: machineA,
+      // If arbitration consulted placement first, this would leak that the
+      // invisible session names a visible-but-denied machine.
+      machineAccess: 'denied' as const,
+      sessionAccess: 'not-found' as const,
+      principal: { kind: 'user' as const, userId: bob },
+      requestedGeneration: 2,
+    }
+    const invisible = await bindings.transition({ ...denied, sessionId: existing.sessionId })
+    const missing = await bindings.transition({
+      ...denied,
+      transitionId: 'missing',
+      sessionId: asSessionId('no-such-session'),
+    })
+
+    const uniform = {
+      status: 'denied',
+      event: 'reattach',
+      reason: 'not-found',
+      terminal: true,
+    }
+    expect(invisible).toEqual(uniform)
+    expect(missing).toEqual(uniform)
+    expect((await bindings.read(existing.sessionId))?.transitionHistory).toHaveLength(1)
   })
 
   it('HOOK-REPIN consumes hook and process receipts as sources of the same event', async () => {

@@ -188,6 +188,8 @@ function withTestBindingInstruction(message: unknown): unknown {
       binding: {
         transitionId: `test:reattach:${sessionId}:${String(frame.observationGeneration ?? 1)}`,
         machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user', userId: TEST_BINDING_USER },
       },
     }
   }

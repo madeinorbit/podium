@@ -330,6 +330,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       sessionId: msg.sessionId,
       claimantMachineId: asMachineId(ctx.machineId),
       machineAccess: msg.binding.machineAccess,
+      sessionAccess: msg.binding.sessionAccess,
+      principal: msg.binding.principal,
       requestedGeneration: msg.observationGeneration ?? 1,
       attemptId: msg.durableLabel,
     })
@@ -631,9 +633,17 @@ function bindingFailureMessage(outcome: SessionBindingTransitionOutcome): string
   switch (outcome.status) {
     case 'applied':
     case 'unchanged':
+    case 'redundant':
       return undefined
     case 'denied':
-      return 'you do not have access to this machine'
+      switch (outcome.reason) {
+        case 'machine-use-denied':
+          return 'you do not have access to this machine'
+        case 'not-found':
+          return 'session not found'
+        case 'not-claimant':
+          return 'session reattach claimed by another principal'
+      }
     case 'unreachable':
       return 'target machine is unreachable'
     case 'rejected':

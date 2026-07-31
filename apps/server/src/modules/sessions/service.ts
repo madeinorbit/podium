@@ -91,7 +91,8 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { ownershipFromMachines } from '../../machine-access'
+import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
+import { systemPrincipal } from '../../command-principal'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
   ObservationLeaseRecord,
@@ -1287,8 +1288,17 @@ export class SessionsService {
         (viewTiers.get(a.sessionId) ?? 3) - (viewTiers.get(b.sessionId) ?? 3) ||
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
+    const recoveryMachineAccess =
+      machineUseDecision(
+        systemPrincipal('session-rebind'),
+        machineId,
+        ownershipFromMachines(this.machines),
+      ) === 'granted'
+        ? 'allowed'
+        : 'denied'
     for (const s of probes) {
       const observationLease = this.fenceObservation(s)
+      const requestedGeneration = observationLease?.observationGeneration ?? 1
       this.toMachine(machineId, {
         type: 'reattach',
         sessionId: s.sessionId,
@@ -1296,6 +1306,12 @@ export class SessionsService {
         agentKind: s.agentKind,
         cwd: s.cwd,
         geometry: s.geometry,
+        binding: {
+          transitionId: `reattach:${s.sessionId}:${requestedGeneration}`,
+          machineAccess: recoveryMachineAccess,
+          sessionAccess: 'allowed',
+          principal: { kind: 'system' },
+        },
         ...(observationLease
           ? {
               observationGeneration: observationLease.observationGeneration,
@@ -1646,7 +1662,12 @@ export class SessionsService {
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(issueId ? { issueId } : {}),
-      ...(input.binding ? { binding: input.binding } : {}),
+      binding: input.binding ?? {
+        // Internal pre-account callers act as the instance's one authenticated
+        // human. Keeping this mint on the server makes every process spawn carry
+        // an explicit principal while the daemon remains unable to invent one.
+        principal: { kind: 'user', userId: FIRST_ADMIN_USER_ID },
+      },
       sessionId,
     })
     preparedInstructions.commit()

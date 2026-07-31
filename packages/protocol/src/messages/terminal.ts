@@ -454,6 +454,10 @@ export type SessionBindingSpawnInstruction = z.infer<typeof SessionBindingSpawnI
 export const SessionBindingReattachInstruction = z.object({
   transitionId: z.string().min(1),
   machineAccess: BindingMachineAccess,
+  /** Already policy-collapsed: invisible and nonexistent are both not-found. */
+  sessionAccess: z.enum(['allowed', 'not-found']),
+  /** Server-authored from the authenticated transport, never client payload. */
+  principal: SessionBindingSpawnPrincipal,
 })
 export type SessionBindingReattachInstruction = z.infer<typeof SessionBindingReattachInstruction>
 

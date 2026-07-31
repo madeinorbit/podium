@@ -55,7 +55,17 @@ describe('SessionRegistry', () => {
       cwd: '/proj',
     })
     expect(daemon).toContainEqual(
-      expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        agentKind: 'claude-code',
+        cwd: '/proj',
+        binding: {
+          transitionId: `spawn:${sessionId}`,
+          machineAccess: 'allowed',
+          principal: { kind: 'user', userId: FIRST_ADMIN_USER_ID },
+        },
+      }),
     )
     expect(reg.modules.sessions.listSessions()).toMatchObject([
       {
@@ -1413,6 +1423,13 @@ describe('SessionRegistry', () => {
         sessionId,
         durableLabel: `podium-${sessionId}`,
         geometry: { cols: 173, rows: 47 },
+        observationGeneration: 2,
+        binding: {
+          transitionId: `reattach:${sessionId}:2`,
+          machineAccess: 'allowed',
+          sessionAccess: 'allowed',
+          principal: { kind: 'system' },
+        },
       }),
     )
     store2.close()
