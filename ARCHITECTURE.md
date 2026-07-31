@@ -119,6 +119,14 @@ system jobs do not yet construct system principals for their writes. Telegram bi
 the exception: inbound chats resolve through the claim-code binding or are refused, while
 the bot token remains server-only.
 
+The browser's flag-off engine classifies definitive outbox refusals and persists them in
+the replica's third, non-drainable `outbox-dead-letter` collection. Its rendered recovery
+component is mounted in `HostIndicators`. The as-built last hop is currently broken:
+POD-424 drove a real HTTP 400 through the isolated Playwright harness and observed the
+correct durable `invalid` record, while the recovery chip remained absent both live and
+after reload. Focused outbox and component suites stay green because they do not cross
+that engine/replica-to-render boundary; POD-1287 owns the repair.
+
 These are current-state facts, not deferred architecture. The authoritative gate record
 and remediation boundary are in `docs/gates/pod-424-phase-3-exit-gate.md`.
 

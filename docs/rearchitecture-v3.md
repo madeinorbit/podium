@@ -2185,6 +2185,18 @@ It inherited the same-commit landing run from POD-1246/POD-1273 (forced typechec
 9,138 node tests, 1,456 web tests, 34 mobile tests, 14 Bun SQLite tests, clean shadowing,
 and the exact 31-item/197-site architecture baseline), rather than duplicating that work.
 
+After dependencies were installed in the gate's own worktree, an expected-revision suite
+proved tree identity at 141/141. Focused policy, offline/outbox, and web recovery lanes
+passed 300/300, 205/205, and 29/29 respectively. The gate's required umbrella run stopped
+in the node step at 9,133 passed / 5 failed / 19 skipped; isolated reruns cleared the three
+audit/wire timeouts and the live-scale benchmark, while POD-1184's daemon reconnect test
+remained red under a self-reported starved scheduler. That local red is recorded rather
+than substituted for the attributable green landing run above.
+
+The Playwright prerequisite also exposed a real Metro omission: `.wasm` was not an asset
+extension, so Expo called an existing SQLite WASM file missing. Adding the extension made
+the mobile web prerequisite bundle that exact asset and exit 0.
+
 **The real-tree counterfactuals fired, with one detector repaired.** Twelve hash-guarded
 production mutations challenged visibility, exposure, runtime defaults, durable-class
 membership, machine authorization, Telegram refusal, secret scrubbing, router mutations,
@@ -2203,13 +2215,20 @@ does not substitute for a second authenticated human crossing the real boundarie
 **Required policy subjects are absent.** There are no registry share/unshare commands or
 production rescope emitter; superagent state has no owner; scheduled automations have no
 creator attribution/current-rights execution; and no production steward, expiry, or boot
-reconcile path invokes the system principal. The web client still drains the legacy outbox,
-so the offline dead-letter interaction has not been verified in the real application.
+reconcile path invokes the system principal.
+
+**The offline zero failed in the real application.** The official desktop Playwright
+harness planted a durable rename, the real tRPC validator returned HTTP 400, and the
+production replica parked an `invalid` record in its non-drainable dead-letter collection.
+The recovery chip never rendered, live or after a reload that preserved the exact record.
+The component's 29/29 green tests inject their store slice and therefore do not prove this
+last hop. POD-1287 is the blocking repair.
 
 **No open policy choice was silently converted into a default.** The missing owner/grant
 inheritance, cross-owner grant authority, graph-edge disclosure, reparent confirmation,
 existence leakage, and loss-of-access dead-letter wording remain open. POD-1283 owns the
-blocking production-policy completion. Phase 4 and Phase 6 entry remain blocked, and
+production-policy completion and POD-1287 the dead-letter last hop. Phase 4 and Phase 6
+entry remain blocked, and
 POD-290 may not close. The detailed evidence is in
 `docs/gates/pod-424-phase-3-exit-gate.md`.
 
