@@ -4415,3 +4415,45 @@ least one must NOT share a key with the route that first produced the answer.
 NAME WHICH ROUTE ERRED as part of the report; POD-1246 did it by instinct and it
 is better as a requirement, because the erring route is the one the next person
 will otherwise reach for first.
+
+## A CLEAN AUDIT COUNT IS NOT THE PROPERTY — demonstrated twice, in both directions
+
+POD-1220 warned that `unattributed-store-read` could reach 0 with the security
+property still absent. POD-1252 was told to test that rather than inherit it, and
+did, on the branch that closed the item. MEASURED, three mutants, one at a time,
+each reverted before the next:
+
+  FORCE `decideLegacyAdoption` TO `adopt = true`. Nine cases go red across the two
+    real composition roots — three refusal arms and the effect assertion on each,
+    plus the outbox park. The five adopting cases stay green, which is what says
+    the suite is measuring the DECISION rather than asserting a constant.
+
+  MAKE THE DISCARD A NO-OP — the `discardCache()` that quietly does nothing, which
+    is the failure POD-1223 named. THE AUDIT STILL REPORTS ZERO. The gate is still
+    called, still at the root, still in call position; only its effect is gone, and
+    the count cannot see an effect. The only red is the counterfactual that re-opens
+    the same store and requires the rows to be GONE.
+
+  SWAP THE SHADOW HARNESS'S `memoryStorage()` FOR `window.localStorage`. The audit
+    fires on that exact file and line. This is the other direction and it matters
+    just as much: the exemption this issue added is not a blanket, and the file
+    that carries it cannot silently become a persisted root.
+
+THE GENERAL SHAPE, and it is not specific to this audit: A DETECTOR OVER CALL SHAPE
+CAN ONLY EVER GRADE CALL SHAPE. It answers "was the question asked", never "did the
+answer change anything" — those are two claims, and closing an item on the first
+while reporting the second is the substitution this whole run keeps finding. When a
+gate's finding is closed, the commit needs BOTH: the count, and a test that fails
+when the gate's effect is removed while the call stays.
+
+AND THE DIRECTION TO FIX A FALSE POSITIVE. Two of this item's four findings were
+the detector grading CONSTRUCTION where the item says PERSISTED — replicas over a
+private Map that dies with the function. The two tempting fixes are both wrong in a
+way the audit's own header predicts: calling the gate in a root that decides nothing
+teaches the next reader that the call is ceremony, and an allowlist of names is
+where a real finding hides. What was done instead is POD-1220's own rule applied to
+their own caveat — "when those two come apart, FIX THE DETECTOR" — with the
+exemption written as a POSITIVE declaration resolved per call site, so unknown
+storage still fails closed. INFERRED, and worth stating as a default: a false
+positive is a defect IN THE INSTRUMENT, and paying it off in the subject code buys
+a green at the cost of the next reader's trust in every other green.
