@@ -478,12 +478,21 @@ function LiveProvider({ children }: { children: ReactNode }) {
         onDegraded: setNotice,
       })
       if (!alive) return
-      // ADR 6 D4.4 — never silent. Parked work is work the user queued and will
-      // not see sent; a discarded cursor is a re-bootstrap they may notice as a
-      // slow first paint. Both are theirs to know about.
-      if (opened.outcome.parked > 0) {
+      // ADR 6 D4.4 — never silent, in order of how much it costs the user.
+      //
+      // PARKED and REJECTED are both work that will never be sent, and both are
+      // reported: parked entries lost the attribution question, rejected ones never
+      // reached it (undecodable, or naming a command no contract in
+      // MOBILE_OUTBOX_COMMANDS resolves). Reporting only the first would leave a
+      // whole class of lost writes announced nowhere, which is the posture D4.4
+      // rules out — and `rejected` is the class a stale contract table produces, so
+      // it is exactly the one a silent path would hide from the person who could
+      // fix it. A discarded cursor is milder: one re-bootstrap, visible as a slow
+      // first paint, so it only speaks when nothing louder has.
+      const lost = opened.outcome.parked + opened.outcome.rejected.length
+      if (lost > 0) {
         setNotice(
-          `${opened.outcome.parked} queued change(s) from an earlier session could not be attributed to this account and were not sent.`,
+          `${lost} queued change(s) from an earlier session could not be carried over and were not sent.`,
         )
       } else if (opened.outcome.cursorDiscarded) {
         setNotice('Refreshing from the server after a storage upgrade.')
