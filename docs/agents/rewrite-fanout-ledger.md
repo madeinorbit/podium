@@ -2049,3 +2049,35 @@ the same clean-tree discipline would have shown all three files.
 This is the same shape as the `tail`-swallowed exit status and the
 mistyped-branch-inside-a-loop: the instrument answered a question adjacent to
 the one I was asking, and the answer to the adjacent question was yes.
+
+## Amending a merge orphans the base a child was cut from
+
+I amended the POD-1080 merge to pick up three files I had verified but never
+staged. Correct fix, and unpushed, so amending was free — except POD-1210 had
+already been started and cut its branch from `dfd39e81`, the pre-amend commit.
+
+Amend does not rewrite history, it writes a NEW commit and moves the branch.
+The old one keeps existing, reachable only from whoever still points at it. So
+POD-1210 sat on a commit that no longer led anywhere, carrying exactly the
+defects the amend removed: `router-triple-access: 20` against a measured 18,
+and the stale fixture that made five ownership tests throw before asserting.
+Nothing warned. The child's own gates were green, because its tree was
+self-consistent — just self-consistently wrong.
+
+Merging it would have restored both, and plausibly QUIETLY: the merge base
+would be the orphan, so the child's 20 looks unchanged while integration's 18
+looks like the edit, and a resolution that "keeps the child's side" wins.
+
+Two rules:
+
+  - Before amending or rebasing anything on the integration branch, check
+    whether a child was cut from it. `git worktree list` plus a `--is-ancestor`
+    test over the live branches costs one command.
+  - When a child's branch is not an ancestor-descendant of integration, find
+    out WHY before merging. `git merge-base --is-ancestor HEAD <branch>` over
+    every live branch is a cheap sweep; it is how this was caught, and one of
+    eight came back wrong.
+
+The repair is `git rebase --onto <integration> <orphan> <branch>` — replay only
+the child's own commits. It is safe while the child's tree is clean, which is
+another reason to check `git status` in the CHILD's worktree, not just yours.
