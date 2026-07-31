@@ -18,6 +18,7 @@ import {
   PUBLISH_COMPUTED_CONTROLS,
   PUBLISH_COMPUTED_PATTERN,
   publishComputedControlMisses,
+  REGISTERED_RESIDUE,
   runAudit,
   type SourceFile,
   stripComments,
@@ -41,6 +42,18 @@ function ctxOf(files: Record<string, string>, dirs: Record<string, string[]> = {
   }))
   return { repoRoot: '/repo', files: srcs, listDir: (rel) => dirs[rel] ?? [] }
 }
+
+describe('registered residue', () => {
+  it('pins every expiring issue residue site to live production code', () => {
+    const live = loadContext(process.cwd())
+    for (const residue of REGISTERED_RESIDUE) {
+      for (const site of residue.sites) {
+        const source = live.files.find((file) => file.file === site.file)?.stripped
+        expect(source, site.file).toContain(site.needle)
+      }
+    }
+  })
+})
 
 describe('stripComments', () => {
   it('preserves line numbers across block comments', () => {

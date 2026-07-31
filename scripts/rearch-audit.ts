@@ -478,6 +478,68 @@ export function publishComputedControlMisses(patternSource: string): string[] {
   return PUBLISH_COMPUTED_CONTROLS.filter((control) => !re.test(control))
 }
 
+/**
+ * REGISTERED RESIDUE — ported from main at the POD-1246 catch-up.
+ *
+ * A COUNTED check answers "how many sites are left". This answers a different
+ * question: which KNOWN-remaining sites are deliberate, who owns them, and what
+ * event retires them. Those two are not interchangeable — a residue whose count
+ * is legitimately non-zero reads identically to one nobody has looked at, and the
+ * distinction is exactly what a catch-up merge loses first.
+ *
+ * The register is load-bearing only because `rearch-audit.test.ts` pins every
+ * `needle` against LIVE production source: an entry whose site has moved or been
+ * deleted fails there, so the register cannot quietly describe a tree that no
+ * longer exists. That is the difference between this and a comment.
+ */
+export interface RegisteredResidue {
+  id: string
+  owner: string
+  expiry: string
+  note: string
+  sites: readonly { file: string; needle: string }[]
+}
+
+export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
+  {
+    id: 'issues-forwarder-transition',
+    owner: 'POD-827',
+    expiry: 'deleted when the hub speaks projections (POD-827)',
+    note: 'POD-827 blocks normalized-as-sole-feed on hub-node installs; local clients receive only the session-free transitional issue payload.',
+    // RE-POINTED at this tree, not copied from main (POD-1246). Main's register
+    // names its own file layout, and three of its four sites are somewhere else
+    // here — a needle carried over verbatim would have failed the pin, which is
+    // the register working, not the register being wrong.
+    //
+    // The FOURTH is a deletion, not a move: main lists
+    // `packages/sync/src/upstream.ts` (`private readonly issues = new Map<string,
+    // IssueWire>()`) as the upstream hub-mirror consumer. POD-309 already landed
+    // on this branch — `upstream-sync-forwarder` records both classes and both
+    // construction sites as VANISHED, 0 MOVED — so that half of main's residue is
+    // retired here and is dropped from the register rather than re-pointed at a
+    // file that does not exist. The expiry above narrows to match: only the
+    // POD-827 condition is still outstanding.
+    sites: [
+      {
+        // The wire type moved to model at the POD-361 flip; protocol's
+        // `messages/issues.ts` now carries only the envelope messages.
+        file: 'packages/model/src/entities/issue.ts',
+        needle: 'export const IssueWire = IssueWireCore.extend(ISSUE_FLAT_PROVENANCE_SHAPE).extend(',
+      },
+      {
+        // The session-free legacy emit — a named method here rather than main's
+        // inline `snapshot:` literal.
+        file: 'apps/server/src/modules/issues/publish.ts',
+        needle: 'issuesChanged(localIssues: IssueWire[]): PublishSpec {',
+      },
+      {
+        file: 'apps/server/src/modules/issues/instrumentation.ts',
+        needle: 'export function countIssueMembershipScan(): void {',
+      },
+    ],
+  },
+]
+
 export const CHECKS: AuditCheck[] = [
   {
     /*

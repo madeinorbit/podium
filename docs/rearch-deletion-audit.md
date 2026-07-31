@@ -514,6 +514,32 @@ rather than "no longer carries per-user state". Checked explicitly here: re-addi
 Both remain inspected; the zero is a deletion. The next zero on this item deserves
 the same one-line check, and the caveat now sits next to the check itself.
 
+## Registered transitional residue
+
+Residue is code intentionally retained after its owning deletion slice reaches zero. It is
+registered in `REGISTERED_RESIDUE` in `scripts/rearch-audit.ts` with exact production sites,
+an owner, and an expiry; `rearch-audit.test.ts` pins every registered `needle` against live
+production source, so a registered site that silently moves fails there rather than going
+quietly stale. Registered residue is excluded from the slice count, while the forbidden
+old-path detector remains at zero.
+
+A COUNT and a REGISTER answer different questions, which is why both are here: a count says
+how much is left, and a register says which of what is left is deliberate, whose it is, and
+what event retires it. A residue whose count is legitimately non-zero is indistinguishable
+from one nobody has looked at until somebody writes down which it is.
+
+The Issues pilot retains one residue entry: the minimal `IssueWire` type, the session-free
+legacy issue emit, and the membership-scan regression counter. It is deleted when the hub
+speaks projections (POD-827), which is what blocks normalized-as-sole-feed on hub-node
+installs.
+
+Main's register lists a fourth site, the upstream hub-mirror consumer in
+`packages/sync/src/upstream.ts`. It is **not** re-pointed here, because on this branch it is
+already gone: `upstream-sync-forwarder` records both classes and both construction sites as
+VANISHED with none moved (POD-309 landed). Main's other three needles name different files than
+this tree does, and were re-pointed rather than copied — the register's test pins every
+needle against live source, so a carried-over path fails loudly instead of ageing quietly.
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`
