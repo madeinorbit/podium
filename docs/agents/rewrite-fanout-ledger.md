@@ -3245,10 +3245,22 @@ to claim it had never been written. Both failures are at the boundary, both are
 rare in a test fixture and universal in production.
 
 THE RULE: when unioning two independently invented vocabularies, NAME COLLISION
-IS NOT TYPE IDENTITY. Compare the DOMAINS — the actual predicate each brand
-asserts — not the names, and not the shapes. Two brands over `number` with the
-same name and different bounds are more dangerous than two with different names,
-because the collision invites the merge.
+IS NOT TYPE IDENTITY. Two brands over `number` with the same name and different
+bounds are more dangerous than two with different names, because the collision
+invites the merge.
+
+AND THE TEST THAT ACTUALLY SEPARATES THEM — POD-1246's refinement, which is
+better than comparing predicates: ASK WHAT QUESTION EACH SYMBOL ANSWERS. Both of
+these assert "integer with a bound", so reading the predicates alone shows a
+bounds difference and invites splitting the difference. Asking the question —
+"has this entity ever been written?" versus "where am I in the stream?" — makes 0
+obviously legal for one and obviously illegal for the other, and makes them
+UN-UNIONABLE rather than nearly-reconcilable.
+
+The same test settles the mirror case from the other direction: `Timestamp` and
+`Instant` answer the IDENTICAL question at different layers (field schema versus
+runtime representation), so both survive. Predicates would have made them look
+like rivals.
 
 The same handoff got the mirror case right in the other direction: main's
 `Timestamp` looks like a rival to integration's `clock.ts` and is not — `clock.ts`
