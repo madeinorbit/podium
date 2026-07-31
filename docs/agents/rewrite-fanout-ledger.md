@@ -3321,3 +3321,35 @@ Two smaller things from the same group, both about misreading a diff's size:
     anything an operator had already queued — a retirement WITH a migration,
     per ADR 5 D8, rather than an amputation. Absence of the module was never the
     evidence.
+
+## Two audits, two inputs — the diff audit is structurally blind to the import graph
+
+POD-1246's own conclusion after finding the second F1 hazard by luck, and it
+sharpens the entry above into something procedural.
+
+The "explain every line that did not survive" method — `git show main:<f> |
+grep -vxFf <resolved>` — is a good audit and it audits ONE thing: the deletions
+you made DELIBERATELY. Its input is the diff. It is structurally incapable of
+seeing a file you never touched that IMPORTED one of the things you deleted,
+because that file is not in the diff.
+
+Those are two checks with two different inputs:
+
+    reads the DIFF          -> did I lose content I meant to keep?
+    reads the IMPORT GRAPH  -> did I break something I never opened?
+
+Only the second finds the class where a file merges clean, carries no marker, and
+is broken by a module the other side moved. POD-1246 ran it once by instinct —
+noticing an importer while verifying an unrelated deletion — and caught
+`feed-identity.test.ts`. It did NOT run for `restore.ts`, which is still
+outstanding and will fail the server build several groups later.
+
+THE RULE: for every module a group deletes or moves, GREP THE TREE FOR ITS
+IMPORTERS BEFORE MOVING ON. Make it a step in the procedure, not a thing a
+careful person happens to do. Its own author's phrasing: "it should be a step,
+not an instinct."
+
+This is the same shape as everything else this run has learned about instruments:
+a check that only runs when someone remembers is a check that reports whatever
+the last person's attention allowed. The diff audit was written down and ran
+every time; the import sweep was not and ran once.
