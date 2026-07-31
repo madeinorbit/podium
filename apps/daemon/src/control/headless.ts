@@ -11,6 +11,27 @@ import type { ControlHandlers, DaemonContext } from './context'
 import { agentRelayEnv } from './session'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
+function recordHeadlessAllocation(
+  ctx: DaemonContext,
+  input: {
+    sessionId: Extract<ControlMessage, { type: 'headlessTurnRequest' }>['sessionId']
+    transitionId: string
+    attemptId: string
+    nativeKind: string
+    value: string
+  },
+): void {
+  void ctx.sessionBinding
+    .transition({
+      event: 'headless-allocation',
+      observedAt: new Date().toISOString(),
+      ...input,
+    })
+    .catch((error) =>
+      console.warn(`[podium] headless allocation transition failed for ${input.sessionId}:`, error),
+    )
+}
+
 // One live turn per session (ctx.runningHeadlessTurns); concurrent sends on a
 // thread are rejected so two writers can never race the same harness session.
 
@@ -84,6 +105,13 @@ function runHeadlessTurnRequest(
   ctx.runningHeadlessTurns.set(msg.sessionId, handle)
   if (!msg.resumeValue && msg.sessionUuid) {
     try {
+      recordHeadlessAllocation(ctx, {
+        sessionId: msg.sessionId,
+        transitionId: `headless:${msg.turnId}:${msg.sessionUuid}`,
+        attemptId: msg.turnId,
+        nativeKind: msg.agent,
+        value: msg.sessionUuid,
+      })
       ctx.observers.bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, msg.sessionUuid)
     } catch {
       // The durable turn still owns the native transcript; completion retries.
@@ -102,6 +130,13 @@ function wireTurnResult(
       // First turn: start the transcript tail immediately so streaming-to-chat
       // works from turn 1 without waiting for a bind round-trip.
       if (!msg.resumeValue) {
+        recordHeadlessAllocation(ctx, {
+          sessionId: msg.sessionId,
+          transitionId: `headless:${msg.turnId}:${harnessSessionId}`,
+          attemptId: msg.turnId,
+          nativeKind: msg.agent,
+          value: harnessSessionId,
+        })
         try {
           ctx.observers.bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
         } catch {
@@ -123,6 +158,13 @@ function wireTurnResult(
       // silently starts over in a new conversation.
       const harnessSessionId = err instanceof HeadlessTurnError ? err.harnessSessionId : undefined
       if (!msg.resumeValue && harnessSessionId) {
+        recordHeadlessAllocation(ctx, {
+          sessionId: msg.sessionId,
+          transitionId: `headless:${msg.turnId}:${harnessSessionId}`,
+          attemptId: msg.turnId,
+          nativeKind: msg.agent,
+          value: harnessSessionId,
+        })
         try {
           ctx.observers.bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
         } catch {
@@ -155,6 +197,13 @@ export const headlessHandlers: Pick<
   headlessTurnAck: (_ctx, msg) => acknowledgeDurableHeadlessTurn(msg.turnId),
   headlessBind: (ctx, msg) => {
     try {
+      recordHeadlessAllocation(ctx, {
+        sessionId: msg.sessionId,
+        transitionId: `headless-bind:${msg.requestId}`,
+        attemptId: ctx.durableLabelFor(msg.sessionId),
+        nativeKind: msg.agentKind,
+        value: msg.resumeValue,
+      })
       ctx.observers.bindHeadlessSession(msg.sessionId, msg.agentKind, msg.cwd, msg.resumeValue)
       ctx.send({ type: 'headlessBindResult', requestId: msg.requestId, ok: true })
     } catch (err) {

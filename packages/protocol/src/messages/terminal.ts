@@ -1,4 +1,12 @@
-import { AgentKind, Geometry, ResumeRef, SessionIdField } from '@podium/model'
+import {
+  AgentKind,
+  DelegationScope,
+  Geometry,
+  IssueIdField,
+  ResumeRef,
+  SessionIdField,
+  UserIdField,
+} from '@podium/model'
 import { z } from 'zod'
 import { FeedCursorField } from './feed'
 
@@ -419,6 +427,33 @@ export const AgentInstruction = z.object({
   content: z.string().min(1),
 })
 export type AgentInstruction = z.infer<typeof AgentInstruction>
+/** Server-authored identity input for SPAWN. It is derived from the
+ * authenticated transport principal; no command payload has this shape. */
+export const SessionBindingSpawnPrincipal = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user'), userId: UserIdField }),
+  z.object({ kind: z.literal('agent'), parentBindingId: SessionIdField }),
+  z.object({ kind: z.literal('system') }),
+])
+export type SessionBindingSpawnPrincipal = z.infer<typeof SessionBindingSpawnPrincipal>
+
+export const BindingMachineAccess = z.enum(['allowed', 'denied', 'unreachable'])
+export type BindingMachineAccess = z.infer<typeof BindingMachineAccess>
+
+export const SessionBindingSpawnInstruction = z.object({
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+  principal: SessionBindingSpawnPrincipal,
+  issueId: IssueIdField.optional(),
+  requestedScope: DelegationScope.optional(),
+  scopeOverrideConfirmed: z.boolean().optional(),
+})
+export type SessionBindingSpawnInstruction = z.infer<typeof SessionBindingSpawnInstruction>
+
+export const SessionBindingReattachInstruction = z.object({
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+})
+export type SessionBindingReattachInstruction = z.infer<typeof SessionBindingReattachInstruction>
 
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
@@ -428,6 +463,8 @@ export const SpawnMessage = z.object({
   cwd: z.string(),
   resume: ResumeRef.optional(),
   geometry: Geometry,
+  /** Server-authored from the authenticated transport principal. */
+  binding: SessionBindingSpawnInstruction.optional(),
   // Settings-driven model defaults. Absent = the harness decides (no flag/env).
   model: z.string().optional(),
   subagentModel: z.string().optional(),
@@ -475,6 +512,8 @@ export const ReattachMessage = z.object({
   agentKind: AgentKind,
   cwd: z.string(),
   geometry: Geometry,
+  /** Live machine-use verdict and retry identity for this reattach. */
+  binding: SessionBindingReattachInstruction.optional(),
   // Lets the daemon classify the live transcript when seeding a survivor's state
   // on reattach, so a session parked on a question keeps its 'needs answer' signal.
   resume: ResumeRef.optional(),

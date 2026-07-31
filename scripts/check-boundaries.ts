@@ -154,7 +154,12 @@ const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([])
 const AGENT_HOST_CONSUMERS: Record<string, ReadonlySet<string>> = {
   'packages/agent-bridge': new Set(['apps/daemon', 'scripts', 'packages/agent-bridge']),
   'packages/pty': new Set(['apps/daemon', 'scripts', 'packages/pty', 'packages/agent-bridge']),
-  'packages/harness': new Set(['apps/daemon', 'scripts', 'packages/harness', 'packages/agent-bridge']),
+  'packages/harness': new Set([
+    'apps/daemon',
+    'scripts',
+    'packages/harness',
+    'packages/agent-bridge',
+  ]),
 }
 
 /**
@@ -211,11 +216,7 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   // is still downward — `@podium/commands` is L1 contracts-only, forbidden from
   // importing a service, an app or any IO — so this widens what the seam may read,
   // not what it may reach.
-  'packages/issue-client': new Set([
-    'packages/commands',
-    'packages/protocol',
-    'packages/model',
-  ]),
+  'packages/issue-client': new Set(['packages/commands', 'packages/protocol', 'packages/model']),
   // The node⇄hub sync layer (issue #196: oplog, upstream dialer/forwarder,
   // transcript mirror) — sqlite/config plumbing comes from @podium/runtime;
   // apps/server injects its store repositories through narrow interfaces
@@ -787,7 +788,9 @@ function checkSyncKernelPurity(file: string, source: string): Violation[] {
     }
     if (isTest || file === SYNC_PACKAGE_BARREL) continue
     const resolved = ref.specifier.startsWith('.')
-      ? relative('/', resolve('/', dirname(file), ref.specifier)).split(sep).join('/')
+      ? relative('/', resolve('/', dirname(file), ref.specifier))
+          .split(sep)
+          .join('/')
       : ref.specifier
     if (resolved.startsWith(SYNC_ADAPTER_DIR)) {
       violations.push({
@@ -946,7 +949,9 @@ export function checkSyncBrowserReach(file: string, ref: ImportRef): Violation |
  *  extensionless spellings this repo uses. Returns null when nothing exists —
  *  which (b) reports rather than skips. */
 function resolveRelativeModule(repoRoot: string, fromFile: string, spec: string): string | null {
-  const base = relative('/', resolve('/', dirname(fromFile), spec)).split(sep).join('/')
+  const base = relative('/', resolve('/', dirname(fromFile), spec))
+    .split(sep)
+    .join('/')
   for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
     if (candidate.endsWith('.ts') || candidate.endsWith('.tsx')) {
       if (existsSync(join(repoRoot, candidate))) return candidate
@@ -1003,7 +1008,8 @@ export function checkSyncBrowserGraphAll(repoRoot: string): Violation[] {
           spec.startsWith('bun:') ||
           spec.startsWith('@podium/runtime/') ||
           SYNC_BROWSER_FORBIDDEN_NPM.has(spec) ||
-          (spec.startsWith('@podium/') && tagsFor(podiumWorkspaceOf(spec))?.platform === 'node-only')
+          (spec.startsWith('@podium/') &&
+            tagsFor(podiumWorkspaceOf(spec))?.platform === 'node-only')
         if (bad) {
           violations.push({
             file,
@@ -1024,6 +1030,27 @@ function podiumWorkspaceOf(specifier: string): string {
   return tagsFor(`packages/${name}`) !== null ? `packages/${name}` : `apps/${name}`
 }
 
+const SESSION_BINDING_CONSUMER =
+  /^(?:apps\/daemon\/src\/session-observers\.ts|apps\/daemon\/src\/control\/[^/]+\.ts)$/
+const SESSION_BINDING_DELEGATION_ACCESS =
+  /(?:\.\s*(onBehalfOf|actor|scope)\b|\b(onBehalfOf|actor|scope)\s*:)/g
+
+export function checkSessionBindingFieldAccess(file: string, source: string): Violation[] {
+  if (!SESSION_BINDING_CONSUMER.test(file) || file.endsWith('.test.ts')) return []
+  const violations: Violation[] = []
+  for (const match of stripComments(source).matchAll(SESSION_BINDING_DELEGATION_ACCESS)) {
+    const field = match[1] ?? match[2]
+    if (!field) continue
+    violations.push({
+      file,
+      specifier: field,
+      rule: 'session-binding-field-access',
+      message: `${file}: reads or writes SessionBinding delegation field '${field}' directly. Observers and control handlers consume SessionBinding; alias and delegation field names stay in the binding module and manifests (POD-416).`,
+    })
+  }
+  return violations
+}
+
 export function checkFile(
   file: string,
   source: string,
@@ -1033,6 +1060,7 @@ export function checkFile(
     ...checkModelRedefinition(file, source, modelExportNames),
     ...checkReplicaDirection(file, source),
     ...checkSyncKernelPurity(file, source),
+    ...checkSessionBindingFieldAccess(file, source),
   ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {

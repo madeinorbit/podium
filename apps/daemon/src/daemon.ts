@@ -1,17 +1,9 @@
-import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { spawnSync } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-
-import {
-  type AgentSession,
-  isAbducoAvailable,
-  isTmuxAvailable,
-  killAbducoSession,
-  killTmuxServer,
-} from '@podium/pty'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
+import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import {
   type ControlMessage,
   type DaemonHandshake,
@@ -23,6 +15,13 @@ import {
   parseDaemonHandshakeReply,
   WIRE_VERSION,
 } from '@podium/protocol'
+import {
+  type AgentSession,
+  isAbducoAvailable,
+  isTmuxAvailable,
+  killAbducoSession,
+  killTmuxServer,
+} from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -42,8 +41,8 @@ import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
-import { createBrowserOpenManager } from './browser-open'
 import { BindingStore } from './binding-store'
+import { createBrowserOpenManager } from './browser-open'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { CodexIdentityReceipts } from './codex-identity-receipts'
 import { ComposerSyncEngine } from './composer-sync'
@@ -68,6 +67,7 @@ import { OutputScheduler } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
+import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
 import { DiscoveryWorkerClient } from './worker-client'
@@ -396,6 +396,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // It is explicit: BindingStore refuses legacy facts if this value is absent.
     singleOperatorUserId: FIRST_ADMIN_USER_ID,
   })
+  const sessionBinding = new SessionBinding(bindingStore)
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
 
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
@@ -486,6 +487,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // go to the server as `agentState`. The observers registry owns all of that
   // per-session state. Started before the WS so spawns can never race it.
   const observers = createSessionObservers({
+    sessionBinding,
     send,
     homeDir,
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
@@ -494,6 +496,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // agent is idle — fed from the agent-state tracker's phase transitions.
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onExactCodexBinding: async (sessionId, nativeId) => {
+      await sessionBinding.transition({
+        event: 'hook-repin',
+        transitionId: `repin:process:codex-thread:${nativeId}`,
+        sessionId,
+        evidenceSource: 'process-ownership-receipt',
+        value: nativeId,
+        nativeKind: 'codex-thread',
+        observedAt: new Date().toISOString(),
+        pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
+      })
       if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
       // Replay sends ackRequested:true. If the socket is offline, the receipt
       // remains and the authentication path replays it after reconnect.
@@ -642,6 +654,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     codexReceiptDir,
     codexIdentityReceipts,
     bindingStore,
+    sessionBinding,
     hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
     agentRelayEndpointFor: (sessionId) => agentRelay.endpointFor(sessionId),
     agentRelayHub,

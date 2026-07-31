@@ -40,6 +40,7 @@ export type ObservationSource =
   | 'control'
   | 'adapter-observer'
   | 'legacy-control'
+  | 'headless-driver'
   | 'legacy-observer'
   | 'legacy-adapter'
 
@@ -100,6 +101,11 @@ export interface BindingTransfer {
   claimedAt: string
   settledAt: string | null
 }
+export interface BindingTransitionReceipt {
+  transitionId: string
+  event: SessionBindingEvent
+  recordedAt: string
+}
 
 export interface SessionBindingRecord {
   schemaVersion: 1
@@ -111,6 +117,7 @@ export interface SessionBindingRecord {
   observationGeneration: number
   observations: BindingObservation[]
   delegationHistory: BindingDelegationObservation[]
+  transitionHistory: BindingTransitionReceipt[]
   transfer: BindingTransfer | null
   state: BindingState
   createdAt: string
@@ -219,6 +226,132 @@ export interface ObserveBindingInput {
   observedAt: string
   pendingServerAck?: { nativeKind: string; value: string }
 }
+/**
+ * The complete binding event vocabulary. `adopt` is intentionally present even
+ * though POD-644 owns the control-plane import choreography: callers can depend
+ * on one closed event set without retrofitting a sixth arm later.
+ */
+export const SESSION_BINDING_EVENTS = [
+  'spawn',
+  'reattach',
+  'hook-repin',
+  'headless-allocation',
+  'adopt',
+] as const
+export type SessionBindingEvent = (typeof SESSION_BINDING_EVENTS)[number]
+
+/** Hook and process ownership are sibling evidence sources for ONE repin event. */
+export type RepinEvidenceSource = 'hook-receipt' | 'process-ownership-receipt'
+
+/**
+ * The result of POD-1079's live machine-use check. The binding state machine
+ * consumes this answer; it never owns or reconstructs the fleet ACL.
+ */
+export type BindingMachineAccess = 'allowed' | 'denied' | 'unreachable'
+
+export type BindingSpawnPrincipal =
+  | { kind: 'user'; userId: UserId }
+  | { kind: 'agent'; parentBindingId: SessionId }
+  | { kind: 'system' }
+
+interface BindingTransitionBase {
+  sessionId: SessionId
+  /** Stable retry key. A repeat returns the already-materialized result. */
+  transitionId: string
+}
+
+export type SessionBindingTransition =
+  | (BindingTransitionBase & {
+      event: 'spawn'
+      agentKind: AgentKind
+      claimantMachineId: MachineId
+      machineAccess: BindingMachineAccess
+      principal: BindingSpawnPrincipal
+      /** The narrow task default: the issue subtree, or `none` for an issueless session. */
+      issueId?: import('@podium/model').IssueId
+      /** An override is authority input only after the existing confirmation path accepted it. */
+      requestedScope?: DelegationScope
+      scopeOverrideConfirmed?: boolean
+      attemptId?: string | null
+      observationGeneration?: number
+      createdAt?: string
+    })
+  | (BindingTransitionBase & {
+      event: 'reattach'
+      claimantMachineId: MachineId
+      machineAccess: BindingMachineAccess
+      requestedGeneration: number
+      attemptId?: string | null
+    })
+  | (BindingTransitionBase & {
+      event: 'hook-repin'
+      evidenceSource: RepinEvidenceSource
+      value: string
+      nativeKind: string
+      observedAt: string
+      /** A known predecessor makes succession ordered; absence makes two exact heads conflict. */
+      supersedesObservationId?: string
+      pendingServerAck?: { nativeKind: string; value: string }
+    })
+  | (BindingTransitionBase & {
+      event: 'headless-allocation'
+      attemptId: string
+      nativeKind: string
+      observedAt: string
+      /** Missing means the attempt exited before allocating a native conversation. */
+      value?: string
+    })
+  | (BindingTransitionBase & {
+      event: 'adopt'
+      machineAccess: BindingMachineAccess
+      transferId: string
+      phase: 'claim' | 'commit' | 'abort'
+      fromMachineId: MachineId
+      toMachineId: MachineId
+      at: string
+    })
+
+export type BindingTransitionRejection =
+  | 'binding-exists'
+  | 'binding-missing'
+  | 'binding-retired'
+  | 'scope-widening-denied'
+  | 'parent-binding-missing'
+  | 'parent-delegation-missing'
+  | 'delegating-human-mismatch'
+  | 'stale-generation'
+  | 'claimant-mismatch'
+  | 'transfer-conflict'
+  | 'unsupported-agent-transition'
+
+/**
+ * Terminal placement refusals are separate union arms. A caller cannot mistake
+ * "you do not have access" for an offline host or an empty machine list.
+ */
+export type SessionBindingTransitionOutcome =
+  | {
+      status: 'applied' | 'unchanged'
+      event: SessionBindingEvent
+      binding: SessionBindingRecord
+    }
+  | {
+      status: 'denied'
+      event: 'spawn' | 'reattach' | 'adopt'
+      reason: 'machine-use-denied'
+      terminal: true
+    }
+  | {
+      status: 'unreachable'
+      event: 'spawn' | 'reattach' | 'adopt'
+      reason: 'machine-unreachable'
+      terminal: true
+    }
+  | {
+      status: 'rejected'
+      event: SessionBindingEvent
+      reason: BindingTransitionRejection
+      terminal: true
+    }
 
 export class BindingStoreVersionError extends Error {
   constructor(
@@ -360,6 +493,9 @@ function parseBinding(value: unknown): SessionBindingRecord {
   if (!Array.isArray(value.delegationHistory)) {
     throw new Error('binding delegationHistory must be an array')
   }
+  if (value.transitionHistory !== undefined && !Array.isArray(value.transitionHistory)) {
+    throw new Error('binding transitionHistory must be an array')
+  }
   const observationGeneration = value.observationGeneration
   if (!Number.isSafeInteger(observationGeneration) || Number(observationGeneration) < 0) {
     throw new Error('binding observationGeneration must be a non-negative integer')
@@ -380,6 +516,21 @@ function parseBinding(value: unknown): SessionBindingRecord {
     observationGeneration: Number(observationGeneration),
     observations: value.observations.map(parseObservation),
     delegationHistory: value.delegationHistory.map(parseDelegation),
+    transitionHistory: ((value.transitionHistory ?? []) as unknown[]).map((entry, index) => {
+      if (!isRecord(entry)) throw new Error(`transitionHistory[${index}] must be an object`)
+      const event = requiredString(entry.event, `transitionHistory[${index}].event`)
+      if (!(SESSION_BINDING_EVENTS as readonly string[]).includes(event)) {
+        throw new Error(`transitionHistory[${index}].event is invalid`)
+      }
+      return {
+        transitionId: requiredString(
+          entry.transitionId,
+          `transitionHistory[${index}].transitionId`,
+        ),
+        event: event as SessionBindingEvent,
+        recordedAt: requiredString(entry.recordedAt, `transitionHistory[${index}].recordedAt`),
+      }
+    }),
     transfer: (value.transfer ?? null) as BindingTransfer | null,
     state: state as BindingState,
     createdAt: requiredString(value.createdAt, 'binding.createdAt'),
@@ -399,6 +550,54 @@ function bindsNativeArtifact(channel: BindingObservationChannel): boolean {
     channel === 'rollout-path' ||
     channel === 'process-ownership'
   )
+}
+function scopeWithin(child: DelegationScope, parent: DelegationScope): boolean {
+  if (child.kind === 'none') return true
+  if (parent.kind === 'all') return true
+  if (child.kind !== parent.kind) return false
+  switch (child.kind) {
+    case 'subtree':
+      return parent.kind === 'subtree' && child.rootId === parent.rootId
+    case 'owned':
+    case 'self':
+      return parent.kind === child.kind && child.userId === parent.userId
+    default:
+      return false
+  }
+}
+
+function machineAccessOutcome(
+  event: 'spawn' | 'reattach' | 'adopt',
+  access: BindingMachineAccess,
+): Extract<SessionBindingTransitionOutcome, { status: 'denied' | 'unreachable' }> | null {
+  if (access === 'denied') {
+    return { status: 'denied', event, reason: 'machine-use-denied', terminal: true }
+  }
+  if (access === 'unreachable') {
+    return { status: 'unreachable', event, reason: 'machine-unreachable', terminal: true }
+  }
+  return null
+}
+
+function withTransitionReceipt(
+  binding: SessionBindingRecord,
+  transition: SessionBindingTransition,
+  recordedAt: string,
+): SessionBindingRecord {
+  return {
+    ...binding,
+    transitionHistory: [
+      ...binding.transitionHistory,
+      { transitionId: transition.transitionId, event: transition.event, recordedAt },
+    ],
+  }
+}
+
+function transitionRejected(
+  event: SessionBindingEvent,
+  reason: BindingTransitionRejection,
+): SessionBindingTransitionOutcome {
+  return { status: 'rejected', event, reason, terminal: true }
 }
 
 function fileStem(sessionId: SessionId): string {
@@ -606,6 +805,272 @@ export class BindingStore {
       if (this.writes.get(sessionId) === next) this.writes.delete(sessionId)
     }
   }
+  /**
+   * Apply one explicit binding event atomically. Authorization decisions arrive
+   * as inputs from their owning live resolvers; this method stores only the
+   * delegation reference and identity evidence.
+   */
+  async transition(input: SessionBindingTransition): Promise<SessionBindingTransitionOutcome> {
+    if (input.event === 'spawn' || input.event === 'reattach' || input.event === 'adopt') {
+      const placement = machineAccessOutcome(input.event, input.machineAccess)
+      if (placement) return placement
+    }
+
+    const prior = this.writes.get(input.sessionId) ?? Promise.resolve()
+    const next = prior.then(async (): Promise<SessionBindingTransitionOutcome> => {
+      const current = await this.read(input.sessionId)
+      if (current?.transitionHistory.some((entry) => entry.transitionId === input.transitionId)) {
+        return { status: 'unchanged', event: input.event, binding: current }
+      }
+
+      let changed: SessionBindingRecord | null = null
+      switch (input.event) {
+        case 'spawn': {
+          if (current) return transitionRejected(input.event, 'binding-exists')
+          const createdAt = input.createdAt ?? this.now()
+          const narrowDefault: DelegationScope = input.issueId
+            ? { kind: 'subtree', rootId: input.issueId }
+            : { kind: 'none' }
+          let delegation: {
+            actor: AgentIdentityId
+            onBehalfOf: UserId
+            grantedScope: DelegationScope
+            parentBindingId: SessionId | null
+          } | null = null
+
+          if (input.principal.kind === 'user') {
+            const grantedScope = input.requestedScope ?? narrowDefault
+            if (
+              input.requestedScope &&
+              !input.scopeOverrideConfirmed &&
+              !scopeWithin(grantedScope, narrowDefault)
+            ) {
+              return transitionRejected(input.event, 'scope-widening-denied')
+            }
+            delegation = {
+              actor: asAgentIdentityId(input.sessionId),
+              onBehalfOf: input.principal.userId,
+              grantedScope,
+              parentBindingId: null,
+            }
+          } else if (input.principal.kind === 'agent') {
+            const parent = await this.read(input.principal.parentBindingId)
+            if (!parent) return transitionRejected(input.event, 'parent-binding-missing')
+            const parentDelegation = this.currentDelegation(parent)
+            if (!parentDelegation) {
+              return transitionRejected(input.event, 'parent-delegation-missing')
+            }
+            const grantedScope = input.requestedScope ?? narrowDefault
+            if (!scopeWithin(grantedScope, parentDelegation.grantedScope)) {
+              return transitionRejected(input.event, 'scope-widening-denied')
+            }
+            delegation = {
+              actor: asAgentIdentityId(input.sessionId),
+              onBehalfOf: parentDelegation.onBehalfOf,
+              grantedScope,
+              parentBindingId: input.principal.parentBindingId,
+            }
+          }
+
+          const base: SessionBindingRecord = {
+            schemaVersion: 1,
+            sessionId: input.sessionId,
+            conversationId: null,
+            agentKind: input.agentKind,
+            claimantMachineId: input.claimantMachineId,
+            attemptId: input.attemptId ?? null,
+            observationGeneration: input.observationGeneration ?? 1,
+            observations: [],
+            delegationHistory: delegation
+              ? [
+                  {
+                    observationId: randomUUID(),
+                    ...delegation,
+                    observedAt: createdAt,
+                    recordedAt: this.now(),
+                    supersedes: null,
+                    retired: false,
+                  },
+                ]
+              : [],
+            transitionHistory: [],
+            transfer: null,
+            state: 'unbound',
+            createdAt,
+            retiredAt: null,
+          }
+          changed = withTransitionReceipt(base, input, this.now())
+          break
+        }
+
+        case 'reattach': {
+          if (!current) return transitionRejected(input.event, 'binding-missing')
+          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
+          if (current.claimantMachineId !== input.claimantMachineId) {
+            return transitionRejected(input.event, 'claimant-mismatch')
+          }
+          if (input.requestedGeneration < current.observationGeneration) {
+            return transitionRejected(input.event, 'stale-generation')
+          }
+          changed = withTransitionReceipt(
+            {
+              ...current,
+              observationGeneration: input.requestedGeneration,
+              attemptId: input.attemptId === undefined ? current.attemptId : input.attemptId,
+            },
+            input,
+            this.now(),
+          )
+          break
+        }
+
+        case 'hook-repin': {
+          if (!current) return transitionRejected(input.event, 'binding-missing')
+          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
+          if (current.agentKind === 'shell') {
+            return transitionRejected(input.event, 'unsupported-agent-transition')
+          }
+          const head = current.observations.findLast(
+            (entry) => entry.channel === 'resume-ref' && entry.confidence === 'exact',
+          )
+          const ordered =
+            !head ||
+            head.value === input.value ||
+            input.supersedesObservationId === head.observationId
+          const observation: BindingObservation = {
+            observationId: randomUUID(),
+            channel: 'resume-ref',
+            value: input.value,
+            nativeKind: input.nativeKind,
+            confidence: 'exact',
+            source: input.evidenceSource === 'hook-receipt' ? 'native-hook' : 'process',
+            observedAt: input.observedAt,
+            recordedAt: this.now(),
+            supersedes: ordered ? (head?.observationId ?? null) : null,
+            ...(ordered && input.pendingServerAck
+              ? { pendingServerAck: input.pendingServerAck }
+              : {}),
+          }
+          changed = withTransitionReceipt(
+            {
+              ...current,
+              observations: [...current.observations, observation],
+              state: ordered ? 'bound' : 'conflicted',
+            },
+            input,
+            this.now(),
+          )
+          break
+        }
+
+        case 'headless-allocation': {
+          if (!current) return transitionRejected(input.event, 'binding-missing')
+          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
+          if (current.agentKind === 'shell') {
+            return transitionRejected(input.event, 'unsupported-agent-transition')
+          }
+          const observations = [...current.observations]
+          if (input.value) {
+            const head = observations.findLast(
+              (entry) => entry.channel === 'resume-ref' && entry.confidence === 'exact',
+            )
+            observations.push({
+              observationId: randomUUID(),
+              channel: 'resume-ref',
+              value: input.value,
+              nativeKind: input.nativeKind,
+              confidence: 'exact',
+              source: 'headless-driver',
+              observedAt: input.observedAt,
+              recordedAt: this.now(),
+              supersedes: head?.observationId ?? null,
+            })
+          }
+          changed = withTransitionReceipt(
+            {
+              ...current,
+              attemptId: input.attemptId,
+              observations,
+              state: input.value ? 'bound' : current.state,
+            },
+            input,
+            this.now(),
+          )
+          break
+        }
+
+        case 'adopt': {
+          if (!current) return transitionRejected(input.event, 'binding-missing')
+          if (current.state === 'retired') return transitionRejected(input.event, 'binding-retired')
+          if (current.claimantMachineId !== input.fromMachineId) {
+            return transitionRejected(input.event, 'claimant-mismatch')
+          }
+          if (
+            current.transfer &&
+            current.transfer.transferId !== input.transferId &&
+            current.transfer.phase === 'claimed'
+          ) {
+            return transitionRejected(input.event, 'transfer-conflict')
+          }
+          if (input.phase === 'claim') {
+            changed = {
+              ...current,
+              transfer: {
+                transferId: input.transferId,
+                phase: 'claimed',
+                fromMachineId: input.fromMachineId,
+                toMachineId: input.toMachineId,
+                claimedAt: input.at,
+                settledAt: null,
+              },
+            }
+          } else {
+            if (
+              !current.transfer ||
+              current.transfer.transferId !== input.transferId ||
+              current.transfer.phase !== 'claimed'
+            ) {
+              return transitionRejected(input.event, 'transfer-conflict')
+            }
+            changed =
+              input.phase === 'commit'
+                ? {
+                    ...current,
+                    claimantMachineId: input.toMachineId,
+                    attemptId: null,
+                    observationGeneration: current.observationGeneration + 1,
+                    transfer: {
+                      ...current.transfer,
+                      phase: 'committed',
+                      settledAt: input.at,
+                    },
+                  }
+                : {
+                    ...current,
+                    transfer: {
+                      ...current.transfer,
+                      phase: 'aborted',
+                      settledAt: input.at,
+                    },
+                  }
+          }
+          changed = withTransitionReceipt(changed, input, this.now())
+          break
+        }
+      }
+
+      if (!changed) throw new Error(`binding transition ${input.event} produced no outcome`)
+      await atomicBindingWrite(this.pathFor(input.sessionId), changed)
+      return { status: 'applied', event: input.event, binding: changed }
+    })
+
+    this.writes.set(input.sessionId, next)
+    try {
+      return await next
+    } finally {
+      if (this.writes.get(input.sessionId) === next) this.writes.delete(input.sessionId)
+    }
+  }
 
   async ensureBinding(input: EnsureBindingInput): Promise<SessionBindingRecord> {
     return this.update(input.sessionId, (current) => {
@@ -633,6 +1098,7 @@ export class BindingStore {
             observationGeneration: input.observationGeneration ?? 0,
             observations: [],
             delegationHistory: [],
+            transitionHistory: [],
             transfer: null,
             state: 'unbound',
             createdAt,

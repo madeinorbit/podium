@@ -18,8 +18,8 @@ import {
   initialAgentState,
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
-
 } from '@podium/harness'
+import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
 import type {
   AgentObservation,
   ControlMessage,
@@ -27,7 +27,6 @@ import type {
   ObservationInputOrigin,
 } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentSession } from '@podium/pty'
 import {
   createSharedStatTick,
@@ -39,6 +38,7 @@ import {
 import { createGitCapture } from './git-capture'
 import { hookString } from './hook-payload'
 import { countTail, timeTask } from './loop-attribution'
+import type { SessionBinding } from './session-binding'
 import type { SessionCwdTracker } from './worktree-resolve'
 
 export type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
@@ -54,6 +54,8 @@ export interface SessionObserverInit {
 }
 
 export interface SessionObserversDeps {
+  /** The sole durable SessionBinding transition surface. */
+  sessionBinding?: SessionBinding
   send(msg: DaemonMessage): void
   /** Test/embedding override; production creates one ticker for this registry. */
   statTick?: StatTick
@@ -1302,6 +1304,21 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const fields = payload as Record<string, unknown> | null
     const harnessSessionId = hookString(payload, 'session_id', 'sessionId')
     const causalLease = causalLeases.get(sessionId)
+    if (harnessSessionId && deps.sessionBinding) {
+      void deps.sessionBinding
+        .transition({
+          event: 'hook-repin',
+          transitionId: `repin:hook:${bound.adapter.resumeKind}:${harnessSessionId}`,
+          sessionId,
+          evidenceSource: 'hook-receipt',
+          value: harnessSessionId,
+          nativeKind: bound.adapter.resumeKind,
+          observedAt: new Date().toISOString(),
+        })
+        .catch((error) =>
+          console.warn(`[podium] hook repin transition failed for ${sessionId}:`, error),
+        )
+    }
     const changedCausalBinding = Boolean(
       harnessSessionId &&
         causalLease &&

@@ -1,15 +1,16 @@
-import type { AgentSession } from '@podium/pty'
 import type { agentLaunchCommand } from '@podium/harness'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import type { SessionId, UsageBucketWire } from '@podium/model'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { AgentSession } from '@podium/pty'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
-import type { BrowserOpenManager } from '../browser-open'
 import type { BindingStore } from '../binding-store'
+import type { BrowserOpenManager } from '../browser-open'
 import type { CodexIdentityReceipts } from '../codex-identity-receipts'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
+import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
@@ -73,6 +74,8 @@ export interface DaemonContext {
   codexIdentityReceipts: CodexIdentityReceipts
   /** Durable per-machine SessionBinding and append-only alias history. */
   bindingStore: BindingStore
+  /** Canonical lifecycle API; handlers never reconstruct binding mutations. */
+  sessionBinding: SessionBinding
   /** Hook-ingest endpoint for a session (instrumentation URLs). */
   hookEndpointFor(sessionId: SessionId): string
   /** Agent-relay loopback endpoint for a session (agent env). */
