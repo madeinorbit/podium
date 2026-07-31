@@ -3220,3 +3220,45 @@ commit, or attach it to the issue. Saving the expensive analysis separately from
 the cheap mechanical state is the same instinct — POD-1246 also saved its staged
 resolutions as a patch, and said the 19 resolutions were cheap to redo while the
 analysis was not. That judgement is what made the recovery trivial.
+
+## Two brands with the same NAME and different domains — they disagree about 0
+
+POD-1246's `packages/model` union turned up the sharpest merge trap of the
+catch-up, and it is one no gate in this repo would have caught.
+
+Main's `fields.ts` has `Revision`. Integration has `ChangeRevisionField`. Both
+are "a revision number", both are branded, and the obvious move when unioning two
+packages is to notice the overlap and collapse them.
+
+They are not the same type:
+
+  - `Revision` is POSITIVE — an entity that exists has been written at least
+    once. It is the token the whole expected-revision contract is written
+    against.
+  - `ChangeRevisionField` is NONNEGATIVE — a position in the change stream,
+    which legitimately starts at 0.
+
+THEY DISAGREE ABOUT EXACTLY ONE VALUE, and it is the value a fresh stream has.
+Collapsing them would have made every new change stream's position 0 fail
+validation, or — depending which direction the collapse went — allowed an entity
+to claim it had never been written. Both failures are at the boundary, both are
+rare in a test fixture and universal in production.
+
+THE RULE: when unioning two independently invented vocabularies, NAME COLLISION
+IS NOT TYPE IDENTITY. Compare the DOMAINS — the actual predicate each brand
+asserts — not the names, and not the shapes. Two brands over `number` with the
+same name and different bounds are more dangerous than two with different names,
+because the collision invites the merge.
+
+The same handoff got the mirror case right in the other direction: main's
+`Timestamp` looks like a rival to integration's `clock.ts` and is not — `clock.ts`
+is the RUNTIME representation (epoch-ms plus adapters), `Timestamp` is the FIELD
+SCHEMA, and integration had been inlining `z.string()` at every `*At` field, which
+is the restatement `Timestamp` exists to collapse. Same-name-different-thing and
+different-name-same-layer both live in this merge; only reading the predicate
+tells them apart.
+
+Operational repeat, one level down from the earlier entry: a conflicted WORKSPACE
+`package.json` breaks `bun install` exactly as the root one breaks the `podium`
+CLI. Resolve every conflicted `package.json` in a group before anything else in
+that group.
