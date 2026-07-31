@@ -22,31 +22,24 @@
  */
 
 export {
-  type AnyCommandContract,
-  type AttributionPolicy,
-  type AuthoredAttribution,
-  type CommandAction,
-  type CommandContract,
-  type CommandContractBase,
-  type CommandPolicy,
-  type CommandResource,
-  type ConfirmationRule,
-  type ContractInput,
-  type CreationOwnership,
-  classificationErrors,
-  type DeliveryClass,
-  type DeliveryPolicy,
-  type ErrorConsistency,
-  type MachineVerb,
-  type OptimisticEffect,
-  type OptimisticReducer,
-  type RedactionPolicy,
-  type RoleFloor,
-  registryClassificationErrors,
-  SERVED_NOWHERE,
-  type TransportTag,
-  type VisibilityClass,
-} from './contract'
+  ACCOUNT_CONTRACT_NAMES,
+  ACCOUNT_CONTRACTS,
+  AccountConnectInput,
+  type AccountContractName,
+  accountsConnectContract,
+  accountsConnectInput,
+  accountsDisconnectContract,
+  accountsDisconnectInput,
+} from './accounts/contracts'
+export {
+  APPROVAL_CONTRACT_NAMES,
+  APPROVAL_CONTRACTS,
+  type ApprovalContractName,
+  approvalsApproveContract,
+  approvalsApproveInput,
+  approvalsDenyContract,
+  approvalsDenyInput,
+} from './approvals/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,
   AUTOMATION_CONTRACTS,
@@ -75,6 +68,65 @@ export {
   respectsScheduleFloor,
   SCHEDULE_FLOOR_MESSAGE,
 } from './automations/cron'
+export {
+  CLOUD_CONTRACT_NAMES,
+  CLOUD_CONTRACTS,
+  type CloudContractName,
+  cloudCreateAgentContract,
+  cloudCreateAgentInput,
+  cloudCreateMachineContract,
+  cloudCreateMachineInput,
+  cloudMoveSessionContract,
+  cloudMoveSessionInput,
+  cloudRepoInput,
+  cloudRuntimeIdInput,
+  cloudRuntimeSizeInput,
+  cloudSourceSessionInput,
+  cloudStopContract,
+  cloudStopInput,
+  cloudWakeContract,
+  cloudWakeInput,
+} from './cloud/contracts'
+export {
+  type AnyCommandContract,
+  type AttributionPolicy,
+  type AuthoredAttribution,
+  type CommandAction,
+  type CommandContract,
+  type CommandContractBase,
+  type CommandPolicy,
+  type CommandResource,
+  type ConfirmationRule,
+  type ContractInput,
+  type CreationOwnership,
+  classificationErrors,
+  type DeliveryClass,
+  type DeliveryPolicy,
+  type ErrorConsistency,
+  type MachineVerb,
+  type OptimisticEffect,
+  type OptimisticReducer,
+  type RedactionPolicy,
+  type RoleFloor,
+  registryClassificationErrors,
+  SERVED_NOWHERE,
+  type TransportTag,
+  type VisibilityClass,
+} from './contract'
+export {
+  CONVERSATION_CONTRACT_NAMES,
+  CONVERSATION_CONTRACTS,
+  type ConversationContractName,
+  conversationsSetMetaContract,
+  conversationsSetMetaInput,
+} from './conversations/contracts'
+export {
+  FILE_CONTRACT_NAMES,
+  FILE_CONTRACTS,
+  type FileContractName,
+  filesWriteContract,
+  filesWriteInput,
+} from './files/contracts'
 export {
   discoveryRefreshReposContract,
   discoveryRefreshReposInput,
@@ -124,6 +176,40 @@ export {
   type PolicyScope,
 } from './framework'
 export {
+  HOST_CONTRACT_NAMES,
+  HOST_CONTRACTS,
+  type HostContractName,
+  hostsMemoryBreakdownContract,
+  hostsMemoryBreakdownInput,
+} from './hosts/contracts'
+export {
+  AUTH_CONTRACT_NAMES,
+  AUTH_CONTRACTS,
+  type AuthContractName,
+  authClearPasswordContract,
+  authClearPasswordInput,
+  authSetPasswordContract,
+  authSetPasswordInput,
+  SETUP_CONTRACT_NAMES,
+  SETUP_CONTRACTS,
+  type SetupContractName,
+  setupCompleteContract,
+  setupCompleteInput,
+  setupConnectContract,
+  setupConnectInput,
+  setupJoinContract,
+  setupJoinInput,
+  setupSetChannelContract,
+  setupSetChannelInput,
+  TELEMETRY_CONTRACT_NAMES,
+  TELEMETRY_CONTRACTS,
+  type TelemetryContractName,
+  telemetryResetIdContract,
+  telemetryResetIdInput,
+  telemetrySetContract,
+  telemetrySetInput,
+} from './instance/contracts'
+export {
   ADDITIVE_POLICY,
   CREATES_NOTHING,
   ISSUE_ATTRIBUTION,
@@ -160,39 +246,6 @@ export {
   UNADDRESSABLE,
 } from './mail/ceiling'
 export {
-  SUPERAGENT_COMMAND_NAMES,
-  SUPERAGENT_CONTRACTS,
-  type SuperagentContractName,
-  type SuperagentUserFocus,
-  superagentClearContract,
-  superagentClearInput,
-  superagentConciergeContract,
-  superagentConciergeInput,
-  superagentInterruptTurnContract,
-  superagentInterruptTurnInput,
-  superagentOpenInTerminalContract,
-  superagentOpenInTerminalInput,
-  superagentRestartContract,
-  superagentRestartInput,
-  superagentSendTurnContract,
-  superagentSendTurnInput,
-  superagentStartBtwContract,
-  superagentStartBtwInput,
-  superagentUserFocus,
-} from './superagent/contracts'
-export {
-  SPEC_CONTRACT_NAMES,
-  SPEC_CONTRACTS,
-  type SpecContractName,
-  SpecStatus,
-  specsCreateContract,
-  specsCreateInput,
-  specsRemoveContract,
-  specsRemoveInput,
-  specsSaveContract,
-  specsSaveInput,
-} from './specs/contracts'
-export {
   awaitAgentContract,
   awaitAgentInput,
   MAIL_CONTRACTS,
@@ -228,12 +281,45 @@ export {
   senderLabel,
 } from './mail/principal'
 export {
+  MODEL_CONTRACT_NAMES,
+  MODEL_CONTRACTS,
+  type ModelContractName,
+  modelsRefreshContract,
+  modelsRefreshInput,
+} from './models/contracts'
+export {
   MUTATION_RESULT_KINDS,
   MutationEnvelope,
   MutationResult,
   type MutationResultKind,
 } from './mutations'
+export {
+  PERF_CONTRACT_NAMES,
+  PERF_CONTRACTS,
+  type PerfContractName,
+  perfReportContract,
+  perfReportInput,
+  perfResetContract,
+  perfResetInput,
+} from './perf/contracts'
 export * from './sessions/command-plane'
+export {
+  EXPORTABLE_HARNESSES,
+  type SessionHandoffInput,
+  type SessionHandoffOutput,
+  sessionHandoffContract,
+  sessionHandoffInput,
+  sessionHandoffOutput,
+} from './sessions/handoff'
+export * from './sessions/presence-commands'
+export {
+  RENAME_REJECTIONS,
+  type SessionRenameInput,
+  type SessionRenameOutcome,
+  sessionRenameContract,
+  sessionRenameInput,
+  sessionRenameReducer,
+} from './sessions/rename'
 export {
   CONTRACT_TIER,
   contractMatrixRow,
@@ -254,8 +340,8 @@ export {
   WRITABLE_PREFERENCE_PATHS,
 } from './settings/contracts'
 export {
-  type ChangedLeaf,
   applySettingsPatch,
+  type ChangedLeaf,
   changedSettingsLeaves,
   ONLINE_ONLY_SETTINGS_COMMANDS,
   type PlanOptions,
@@ -266,22 +352,38 @@ export {
   type SettingsWriteRefusal,
 } from './settings/write-plan'
 export {
-  EXPORTABLE_HARNESSES,
-  type SessionHandoffInput,
-  type SessionHandoffOutput,
-  sessionHandoffContract,
-  sessionHandoffInput,
-  sessionHandoffOutput,
-} from './sessions/handoff'
-export * from './sessions/presence-commands'
+  SPEC_CONTRACT_NAMES,
+  SPEC_CONTRACTS,
+  type SpecContractName,
+  SpecStatus,
+  specsCreateContract,
+  specsCreateInput,
+  specsRemoveContract,
+  specsRemoveInput,
+  specsSaveContract,
+  specsSaveInput,
+} from './specs/contracts'
 export {
-  RENAME_REJECTIONS,
-  type SessionRenameInput,
-  type SessionRenameOutcome,
-  sessionRenameContract,
-  sessionRenameInput,
-  sessionRenameReducer,
-} from './sessions/rename'
+  SUPERAGENT_COMMAND_NAMES,
+  SUPERAGENT_CONTRACTS,
+  type SuperagentContractName,
+  type SuperagentUserFocus,
+  superagentClearContract,
+  superagentClearInput,
+  superagentConciergeContract,
+  superagentConciergeInput,
+  superagentInterruptTurnContract,
+  superagentInterruptTurnInput,
+  superagentOpenInTerminalContract,
+  superagentOpenInTerminalInput,
+  superagentRestartContract,
+  superagentRestartInput,
+  superagentSendTurnContract,
+  superagentSendTurnInput,
+  superagentStartBtwContract,
+  superagentStartBtwInput,
+  superagentUserFocus,
+} from './superagent/contracts'
 export {
   WORKFLOW_ADVANCE_NAMES,
   WORKFLOW_CONTRACTS,

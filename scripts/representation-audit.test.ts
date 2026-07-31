@@ -141,9 +141,9 @@ export function exitedRecovery(opts: {
   })
 
   it('does not count a field group as a restatement of itself', () => {
-    expect(entityShapedDeclarations(ctxOf(RESTATED, 'packages/model/src/fields/session.ts'))).toEqual(
-      [],
-    )
+    expect(
+      entityShapedDeclarations(ctxOf(RESTATED, 'packages/model/src/fields/session.ts')),
+    ).toEqual([])
   })
 })
 
@@ -166,9 +166,10 @@ describe('the forbidden key classes fire on planted keys', () => {
       'acl',
     ]) {
       const planted = RESTATED.replace('cwd: string', `${key}: string[]\n  cwd: string`)
-      expect(capabilitySnapshots(ctxOf(planted)).map((s) => s.text), key).toEqual([
-        `WhateverWeCallIt.${key}`,
-      ])
+      expect(
+        capabilitySnapshots(ctxOf(planted)).map((s) => s.text),
+        key,
+      ).toEqual([`WhateverWeCallIt.${key}`])
     }
   })
 
@@ -183,9 +184,10 @@ describe('the forbidden key classes fire on planted keys', () => {
   it('fires on an instance or tenant partition', () => {
     for (const key of ['instance_id', 'instanceId', 'tenant_id', 'tenantId']) {
       const planted = RESTATED.replace('cwd: string', `${key}: string\n  cwd: string`)
-      expect(instancePartitions(ctxOf(planted)).map((s) => s.text), key).toEqual([
-        `WhateverWeCallIt.${key}`,
-      ])
+      expect(
+        instancePartitions(ctxOf(planted)).map((s) => s.text),
+        key,
+      ).toEqual([`WhateverWeCallIt.${key}`])
     }
   })
 })
@@ -316,7 +318,10 @@ describe('the two checks whose live answer is ZERO can say non-zero', () => {
     // The YES case for the check above: it must be able to pass, or the two cases
     // above would be satisfied by a function that always reports a violation.
     const planted = [
-      { symbol: 'RETAINED_REPRESENTATIONS', site: 'packages/model/src/representations/registry.ts' },
+      {
+        symbol: 'RETAINED_REPRESENTATIONS',
+        site: 'packages/model/src/representations/registry.ts',
+      },
     ]
     expect(danglingRegistryEntries(process.cwd(), planted)).toEqual([])
   })
@@ -328,9 +333,7 @@ describe('the two checks whose live answer is ZERO can say non-zero', () => {
     expect(() => assertVocabularyLoaded(new Set(['sessionId']), new Set())).toThrow(/loaded EMPTY/)
     // And it permits the loaded case, so the throw is about emptiness and not
     // about being called.
-    expect(() =>
-      assertVocabularyLoaded(new Set(['sessionId']), new Set(['issueId'])),
-    ).not.toThrow()
+    expect(() => assertVocabularyLoaded(new Set(['sessionId']), new Set(['issueId']))).not.toThrow()
   })
 })
 
@@ -404,7 +407,16 @@ describe('the detector’s two judgement calls are pinned', () => {
     // argument reads exactly like a field group), not for a new restatement — and
     // the change it accompanies REMOVED six real sites, ratcheting
     // `per-user-singletons` 8 -> 2.
-    expect(NOT_A_REPRESENTATION.length).toBe(38)
+    // 38 -> 39: POD-314 added `cloudSourceSessionInput`, and this is the SAME
+    // class as the 34 -> 36 bump above rather than a new restatement. The
+    // declaration did not change; its ADDRESS did, from an inline procedure input
+    // in apps/server/src/router.ts — which this detector does not scan — to its
+    // contract in packages/commands, which it does. That is POD-1180's phenomenon
+    // pointing the other way: debt moving INTO view. Excluded as a cloud-egress
+    // SOURCE ADDRESS (inventory §2.3 / §6.5 rule 2), the category the L1 transport
+    // frames already occupy, and it owes §6.4 rule 1 as POD-308 wire work exactly
+    // as they do. The accompanying change took `router-triple-access` 54 -> 6.
+    expect(NOT_A_REPRESENTATION.length).toBe(39)
     for (const e of NOT_A_REPRESENTATION) {
       expect(e.file, e.symbol).toMatch(/^(apps|packages)\/.*\.tsx?$/)
       expect(e.symbol, e.file).toMatch(/^\w+$/)

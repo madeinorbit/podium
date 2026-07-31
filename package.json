@@ -64,6 +64,7 @@
     "audit:fleet": "bun scripts/audit-fleet-commands.ts --probe && bun scripts/audit-fleet-commands.ts",
     "audit:mail": "bun scripts/audit-mail-commands.ts --probe && bun scripts/audit-mail-commands.ts",
     "audit:automations": "bun scripts/audit-automation-commands.ts --probe && bun scripts/audit-automation-commands.ts",
+    "audit:derived-families": "bun scripts/audit-derived-families.ts --probe && bun scripts/audit-derived-families.ts",
     "audit:router-mutations": "bun scripts/audit-router-mutations.ts --probe && bun scripts/audit-router-mutations.ts",
     "audit:scoped-feed": "bun scripts/audit-scoped-feed.ts --probe && bun scripts/audit-scoped-feed.ts",
     "audit:machine-grants": "bun scripts/audit-machine-grants.ts --probe && bun scripts/audit-machine-grants.ts",
