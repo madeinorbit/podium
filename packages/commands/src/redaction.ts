@@ -115,7 +115,25 @@ function replaceAtPath(value: unknown, segments: readonly string[]): unknown {
     out[index] = replaced
     return out
   }
-  if (!isPlainObject(value)) return value
+  if (!isPlainObject(value)) {
+    // A NON-PLAIN OBJECT THE PATH ACTUALLY ADDRESSES — a `Date`, a `Map`, a
+    // class instance — and this arm is the fail-closed one.
+    //
+    // The naive reading is "we cannot descend, so leave it alone", and it is
+    // FAIL-OPEN: a declared sensitive path resolving into a class instance would
+    // simply not be redacted, and the report would truthfully say nothing was
+    // removed while the material sat in the log. The other naive reading —
+    // rebuild it key-by-key — is POD-419's data-destroying defect exactly.
+    //
+    // So: if the container HAS the address, redact the whole container. The
+    // material is withheld, nothing is rebuilt, and the report names the path.
+    // If it does not have the address, the path resolves to nothing and the
+    // value is returned untouched (`new Date()` under a stale `a.b` declaration
+    // must not become `[redacted]`).
+    return value !== null && typeof value === 'object' && head in (value as object)
+      ? REDACTED
+      : value
+  }
   if (!Object.hasOwn(value, head)) return value
   const replaced = replaceAtPath(value[head], rest)
   if (replaced === value[head]) return value

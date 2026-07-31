@@ -120,6 +120,34 @@ describe('applyRedaction — the PRESERVATION half (POD-419: only the rebuild is
     expect(out).toEqual({ a: 5 })
   })
 
+  it('FAILS CLOSED when a declared path resolves into a non-plain object', () => {
+    // The fail-open case this arm exists for. A walker that only knows how to
+    // descend into plain objects, and returns everything else untouched, would
+    // leave the material in the log AND report truthfully that nothing was
+    // removed — the redaction reading as working at every angle.
+    class Credential {
+      constructor(readonly token: string) {}
+    }
+    const report = applyRedactionWithReport(policy({ inputPaths: ['cred.token'] }), 'input', {
+      cred: new Credential('sk-real-material'),
+    })
+    expect(report.value).toEqual({ cred: REDACTED })
+    expect(report.redactedPaths).toEqual(['cred.token'])
+    expect(JSON.stringify(report.value)).not.toContain('sk-real-material')
+  })
+
+  it('but does NOT redact a non-plain object the path does not address', () => {
+    // The control that stops the arm above from being "redact every Date it
+    // meets": a stale declaration must not turn an untouched timestamp into
+    // `[redacted]`.
+    const date = new Date('2026-07-31T00:00:00.000Z')
+    const report = applyRedactionWithReport(policy({ inputPaths: ['when.nope'] }), 'input', {
+      when: date,
+    })
+    expect((report.value as { when: unknown }).when).toBe(date)
+    expect(report.redactedPaths).toEqual([])
+  })
+
   it('does not treat a non-index path segment as an array key', () => {
     const rows = [{ value: 'keep' }]
     const out = applyRedaction(policy({ inputPaths: ['rows.value'] }), 'input', { rows }) as {
