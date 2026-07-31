@@ -54,6 +54,42 @@ export type SettingsTab =
   | 'experimental'
   | 'secrets'
 
+/** The human name of each tab. Separate from `TAB_SURFACE` so the class table
+ *  stays a classification and does not become a place copy is edited. */
+const TAB_LABEL: Record<SettingsTab, string> = {
+  sessions: 'New sessions',
+  superagent: 'Superagent',
+  workllm: 'Background LLM',
+  notifications: 'Notifications',
+  appearance: 'Appearance',
+  accounts: 'Accounts',
+  privacy: 'Privacy',
+  hibernation: 'Hibernation',
+  workflow: 'Workflow',
+  experimental: 'Experimental',
+  repos: 'Repos',
+  machines: 'Machines',
+  network: 'Network',
+  security: 'Security',
+  updates: 'Updates',
+  secrets: 'Secrets',
+}
+
+/*
+ * TAB_LABEL IS DECLARED BEFORE SETTINGS_GROUPS, AND THE ORDER IS LOAD-BEARING.
+ *
+ * `SETTINGS_GROUPS` is initialised at MODULE SCOPE and reads `TAB_LABEL` inside
+ * its map. With the declaration below it, `TAB_LABEL` is in its temporal dead
+ * zone when that map runs: the bundled app threw
+ * `Cannot read properties of undefined (reading 'sessions')` on boot and the
+ * entire shell failed to render — not the settings screen, the whole app.
+ *
+ * Nothing except a running browser could see it. The typecheck is happy (the
+ * binding exists), and every unit test imports `surfaces.ts` directly rather
+ * than through this module, so all 75 web tests stayed green against an app
+ * that could not start. This is the case the brief has in mind when it requires
+ * real clicks against a running app rather than unit assertions.
+ */
 /**
  * THE NAV, GROUPED BY VISIBILITY CLASS (POD-421) — replacing POD-127's
  * topic-based grouping.
@@ -89,27 +125,6 @@ export const SETTINGS_GROUPS: {
   ...(SURFACE_COPY[surface].caveat ? { caveat: SURFACE_COPY[surface].caveat } : {}),
   tabs: tabsOnSurface(surface).map((key) => ({ key, label: TAB_LABEL[key] })),
 }))
-
-/** The human name of each tab. Separate from `TAB_SURFACE` so the class table
- *  stays a classification and does not become a place copy is edited. */
-const TAB_LABEL: Record<SettingsTab, string> = {
-  sessions: 'New sessions',
-  superagent: 'Superagent',
-  workllm: 'Background LLM',
-  notifications: 'Notifications',
-  appearance: 'Appearance',
-  accounts: 'Accounts',
-  privacy: 'Privacy',
-  hibernation: 'Hibernation',
-  workflow: 'Workflow',
-  experimental: 'Experimental',
-  repos: 'Repos',
-  machines: 'Machines',
-  network: 'Network',
-  security: 'Security',
-  updates: 'Updates',
-  secrets: 'Secrets',
-}
 
 export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = SETTINGS_GROUPS.flatMap(
   (g) => g.tabs,

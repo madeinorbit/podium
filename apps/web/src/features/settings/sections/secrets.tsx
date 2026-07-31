@@ -77,7 +77,7 @@ export const SECRET_SURFACE_UNAVAILABLE =
 
 function Unavailable(): JSX.Element {
   return (
-    <Section title="Secrets" hint={undefined}>
+    <Section title="Managed credentials" hint={undefined}>
       <p
         className="max-w-[58ch] py-2 text-[12.5px] text-text-dim"
         data-testid="secrets-unavailable"
@@ -164,6 +164,12 @@ function SecretRow({
           type="button"
           size="sm"
           variant="outline"
+          // Keyed, not positional. A `getByRole('button', { name: 'Save' })
+          // .first()` in a spec picks whichever row renders first — which is a
+          // different secret from the one the test filled, and it fails as a
+          // disabled button rather than as a wrong target. Five identical
+          // controls need addressable ids.
+          data-testid={`secret-save-${row.key}`}
           disabled={!canManage || busy || draft.trim() === ''}
           onClick={() => {
             onSet(row.key, draft)
@@ -180,6 +186,7 @@ function SecretRow({
             type="button"
             size="sm"
             variant="ghost"
+            data-testid={`secret-clear-${row.key}`}
             disabled={!canManage || busy}
             onClick={() => onClear(row.key)}
           >
@@ -212,7 +219,7 @@ export function SecretsSection({
   if (state.status === 'unavailable') return <Unavailable />
   if (state.status === 'loading') {
     return (
-      <Section title="Secrets">
+      <Section title="Managed credentials">
         <div className="animate-pulse py-3" aria-hidden="true">
           <div className="h-3 w-40 rounded bg-chip" />
         </div>
@@ -221,10 +228,10 @@ export function SecretsSection({
   }
 
   return (
-    <Section
-      title="Secrets"
-      hint="Server-owned credentials. Podium shows whether one is configured and an opaque fingerprint for telling one key from another — the value itself never leaves the server and is never sent to this browser."
-    >
+    // No `hint`, and the title is the CONTENT rather than the class: the
+    // surface banner above already reads "Secrets" with the class sentence, and
+    // repeating both rendered the same heading and the same paragraph twice.
+    <Section title="Managed credentials">
       {error && (
         <p className="py-1 text-[12px] text-destructive" role="alert">
           {error}
