@@ -115,12 +115,24 @@ async function setKernelReplica(page: Page, on: boolean): Promise<void> {
   const toggle = row.getByRole('switch').first()
   await expect(toggle).toBeEnabled({ timeout: 30_000 })
   const want = on ? 'true' : 'false'
-  if ((await toggle.getAttribute('aria-checked')) !== want) {
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-checked', want)
-    await page.getByRole('button', { name: /^Save$/ }).click()
-    await expect(page.getByText('Saved.', { exact: true })).toBeVisible({ timeout: 15_000 })
-  }
+  if ((await toggle.getAttribute('aria-checked')) === want) return
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', want)
+
+  // "Save changes" on the DIRTY BAR, and the bar reading "Saved ✓" is the
+  // confirmation. Measured against the running app rather than copied: the
+  // affordance in `experimental-settings.browser.e2e.ts` is `/^Save$/` plus
+  // "Saved.", and neither exists — that spec is one of the suites POD-1227's
+  // census finds red. Inheriting its locators made this suite fail for a reason
+  // that had nothing to do with the cutover: the toggle flipped, nothing
+  // persisted, and the app correctly resolved to the legacy path afterwards.
+  const save = page.getByRole('button', { name: /^Save changes$/ })
+  await expect(save).toBeVisible({ timeout: 15_000 })
+  await save.click()
+  await expect(page.getByText('Saved ✓')).toBeVisible({ timeout: 15_000 })
+  // The dirty bar's button goes away once the blob is committed; asserting the
+  // toast alone would pass on a save that was refused.
+  await expect(save).toBeHidden({ timeout: 15_000 })
 }
 
 const enableKernelReplica = (page: Page) => setKernelReplica(page, true)
