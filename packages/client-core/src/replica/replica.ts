@@ -62,7 +62,7 @@ import type {
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
-import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
+import type { Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 // TYPE-ONLY on purpose: the persistence packages must never enter the browser
 // bundle (plain PWAs run the localStorage backend and load this module in the
@@ -74,158 +74,59 @@ import type {
 } from '@tanstack/db-sqlite-persistence-core'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage, parseOutboxEntries } from '../outbox'
 
-export type { PersistedCollectionPersistence, StorageApi, StorageEventApi }
+export type {
+  Replica,
+  ReplicaHydrateResult,
+  ReplicaKind,
+  ReplicaRows,
+  StorageApi,
+  StorageEventApi,
+  TranscriptWindow,
+  UiState,
+} from './contract'
+// The contract now lives in `./contract`, owned by client-core rather than by the
+// library this file is about to be deleted with (POD-378 — see that file's header).
+// Re-exported here so existing `from './replica'` imports keep working until the
+// adapter goes; when it does, the names survive it.
+export {
+  LEGACY_UI_KEYS,
+  LEGACY_UI_MAP_PREFIXES,
+  LEGACY_UI_PREFIXES,
+  MIRRORED_UI_KEYS,
+  memoryStorage,
+  REPLICA_KEY_PREFIX,
+  REPLICA_TRANSCRIPT_CONVERSATION_CAP,
+  REPLICA_TRANSCRIPT_ITEM_CAP,
+} from './contract'
+export type { PersistedCollectionPersistence }
 
-/** Wire row type per replica collection kind. */
-export interface ReplicaRows {
-  sessions: SessionMeta
-  issues: IssueWire
-  conversations: ConversationSummaryWire
-  automations: AutomationWire
-  automationRuns: AutomationRunWire
-}
-export type ReplicaKind = keyof ReplicaRows
-
-export interface ReplicaHydrateResult {
-  sessions: SessionMeta[]
-  issues: IssueWire[]
-  conversations: ConversationSummaryWire[]
-  automations: AutomationWire[]
-  automationRuns: AutomationRunWire[]
-  /** Last persisted oplog cursor, or null when never synced (cold client). */
-  cursor: number | null
-}
-
-/** A cached transcript window: the newest items read for one conversation. */
-export interface TranscriptWindow {
-  items: TranscriptItem[]
-  /** Epoch ms when the window was written — drives the "as of <time>" notice. */
-  savedAt: number
-}
-
-export interface Replica {
-  /** False when durable storage is unusable (private mode, quota). The replica
-   *  still WORKS — the same collections, live queries, and outbox run over an
-   *  in-memory storage adapter behind the same seam — it just forgets on
-   *  reload, like the old in-memory client. There is no parallel code path. */
-  readonly persistent: boolean
-  /** Load everything persisted. NEVER throws — a poisoned replica clears
-   *  itself and resolves as a cold client (spec invariant 2). */
-  hydrate(): Promise<ReplicaHydrateResult>
-  /** Full-list replace for one kind (snapshot semantics: rows not present are
-   *  removed). Rows that are byte-identical to what's stored are not rewritten. */
-  applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]): void
-  /** Delta semantics: upsert + remove by id. Idempotent. */
-  applyChanges<K extends ReplicaKind>(kind: K, upserts: ReplicaRows[K][], removeIds: string[]): void
-  getCursor(): number | null
-  /** Persist the cursor AFTER the entity writes issued before this call have
-   *  landed (spec invariant 3) — a crash between = idempotent re-apply, never a gap. */
-  setCursor(cursor: number): void
-  /** The cached newest window for a conversation key, if any. */
-  transcriptWindow(conversationKey: string): TranscriptWindow | undefined
-  /** Write-through cache of a fresh read. Bounded per spec §2.3: the newest
-   *  REPLICA_TRANSCRIPT_ITEM_CAP items, LRU-capped at
-   *  REPLICA_TRANSCRIPT_CONVERSATION_CAP conversations. */
-  putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
-  /** The underlying entity collection for `kind` — the live-query seam consumed
-   *  ONLY by `useReplicaRows` below (typed `unknown` so no TanStack type leaks
-   *  through the interface). */
-  collection(kind: ReplicaKind): unknown
-  /** Non-React read seam (#262 [spec:SP-3fe2]): the current rows for `kind`.
-   *  Returns a stable shared empty array while the collection is empty so
-   *  engine snapshots don't churn pre-hydrate. Never throws. */
-  rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][]
-  /** Non-React change seam (#262): fires on any change to `kind`'s collection
-   *  (including cross-tab storage events) — the engine re-reads `rows()` then.
-   *  Notifications are COALESCED per application (#262 review): applySnapshot /
-   *  applyChanges each run their delete+upsert transactions as one unit, so a
-   *  listener never observes the transient half-applied list between them.
-   *  Returns the unsubscribe function. Never throws. */
-  subscribeRows(kind: ReplicaKind, cb: () => void): () => void
-  /** Coalesce `subscribeRows` notifications across every write issued inside
-   *  `fn` (#262 review, nestable): listeners fire at most once per touched kind,
-   *  AFTER the outermost batch completed — i.e. against the FINAL state. Used by
-   *  the hub wiring to make a whole metadata application (bootstrap snapshot,
-   *  heal snapshot, live delta — all kinds) atomic from the engine reactions'
-   *  viewpoint. applySnapshot / applyChanges / hydrate already batch internally. */
-  batch<T>(fn: () => T): T
-  /** P6b outbox consolidation: an `OutboxStorage` backed by a replica collection
-   *  (`<prefix>.outbox.v1`), so the offline queue shares the ONE persistence
-   *  layer and gets cross-tab consistency from the lib's `storage` events. The
-   *  legacy `podium.outbox.v1` JSON blob is migrated in on first use. In
-   *  private mode the queue lives in the in-memory storage — it drains while
-   *  the tab lives and is lost on reload (best-effort, like everything else). */
-  outboxStorage(): OutboxStorage
-  /** Separate durable home for the outbox's awaiting-truth stage (#263 review
-   *  round 2): `<prefix>.outbox-awaiting.v1`, a collection OLD builds never
-   *  read — a downgraded client (PWA cache rollback) loading the queued
-   *  collection can't re-drain held entries as queued mutations. */
-  outboxAwaitingStorage(): OutboxStorage
-  /** ONE UI persistence mechanism (issue #15 Phase 4): a versioned key→value
-   *  collection (`<prefix>.uistate.v1`) replacing the ad-hoc localStorage keys.
-   *  Known legacy keys are migrated in once and the old keys removed. */
-  uiState(): UiState
-  /** Resolves when every write issued so far has persisted (including a
-   *  fenced cursor write). localStorage writes are synchronous so this is
-   *  near-immediate there; the SQLite backend persists asynchronously —
-   *  tests and shutdown paths wait on this instead of sleeping. */
-  flush(): Promise<void>
-}
-
-/** Synchronous UI-state kv over the ui-state collection. Never throws. */
-export interface UiState {
-  get(key: string): string | null
-  /** `null` deletes the key. */
-  set(key: string, value: string | null): void
-  /** Fires on any ui-state change (including cross-tab storage events). */
-  subscribe(cb: () => void): () => void
-}
-
-/** Exact legacy localStorage keys folded into the ui-state collection. */
-export const LEGACY_UI_KEYS = [
-  'podium.view',
-  'podium.sidebarTab',
-  'podium.selectedWorktree',
-  'podium.selectedIssueId',
-  'podium.sidebarLayout',
-  'podium.dockTab',
-  'podium.paneA',
-  'podium.paneB',
-  'podium.split',
-  'podium.superOpen',
-  'podium.panelMode',
-  'podium.homeMode',
-  'podium.issues.display',
-  'podium.panelModeDefault',
-] as const
-
-/** Legacy key PREFIXES (dynamic suffixes: collapsed sections, sidebar width,
- *  dock-section open state). Each matched key migrates under its own name. */
-export const LEGACY_UI_PREFIXES = ['podium:sidebar:', 'podium.dock.section.'] as const
-
-/** Legacy PER-FILE key families (`podium.htmlmode:<tabId>` etc.) folded into ONE
- *  ui-state row per family: a JSON map { [tabId]: value }. Unbounded per-key
- *  families would otherwise litter the kv space; a map row reads/writes whole. */
-export const LEGACY_UI_MAP_PREFIXES: Record<string, string> = {
-  'podium.htmlmode:': 'podium.htmlmode',
-  'podium.mdmode:': 'podium.mdmode',
-}
-
-/** Keys MIRRORED into ui-state but NOT removed from localStorage: the theme is
- *  read before React (index.html's anti-flash script) and before the store
- *  exists (ThemeProvider wraps StoreProvider), so the raw localStorage fast
- *  path must keep working. ThemeProvider write-through keeps both in sync. */
-export const MIRRORED_UI_KEYS = ['podium.theme.preset', 'podium.theme.mode'] as const
-
-/** Spec §2.3: "last ~200 items per conversation, LRU cap ~50 conversations". */
-export const REPLICA_TRANSCRIPT_ITEM_CAP = 200
-export const REPLICA_TRANSCRIPT_CONVERSATION_CAP = 50
-
-export const REPLICA_KEY_PREFIX = 'podium.replica'
+import type {
+  Replica,
+  ReplicaHydrateResult,
+  ReplicaKind,
+  ReplicaRows,
+  StorageApi,
+  StorageEventApi,
+  TranscriptWindow,
+  UiState,
+} from './contract'
+import {
+  LEGACY_UI_KEYS,
+  LEGACY_UI_MAP_PREFIXES,
+  LEGACY_UI_PREFIXES,
+  MIRRORED_UI_KEYS,
+  memoryStorage,
+  REPLICA_KEY_PREFIX,
+  REPLICA_TRANSCRIPT_CONVERSATION_CAP,
+  REPLICA_TRANSCRIPT_ITEM_CAP,
+} from './contract'
 
 /** Bump to wipe-and-rebootstrap every SQLite-persisted collection on shape
  *  changes (the persistence layer's schemaMismatchPolicy 'reset' handles the
- *  wipe — the caller passes that policy when building the adapter). */
+ *  wipe — the caller passes that policy when building the adapter).
+ *
+ *  Stays HERE rather than in `./contract`: it versions the outgoing adapter's
+ *  own on-disk layout and retires with it. */
 export const REPLICA_SQLITE_SCHEMA_VERSION = 1
 
 /** SQLite-persisted mode (POD-789). Built by the platform layer (desktop:
@@ -332,8 +233,7 @@ function jsonRowsEqual(left: unknown, right: unknown): boolean {
   const bKeys = Object.keys(b).filter((key) => b[key] !== undefined)
   if (aKeys.length !== bKeys.length) return false
   for (const key of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(b, key) || !jsonRowsEqual(a[key], b[key]))
-      return false
+    if (!Object.hasOwn(b, key) || !jsonRowsEqual(a[key], b[key])) return false
   }
   return true
 }
@@ -359,17 +259,6 @@ function replaceContents(draft: Record<string, unknown>, value: Record<string, u
 /** Collections are identified globally by id; give each adapter instance a
  *  unique id (same storageKey) so tests can build several without colliding. */
 let instanceSeq = 0
-
-/** Map-backed StorageApi for the private-mode fallback — same seam, no DOM.
- *  Also the explicit adapter for private/ephemeral mode on any platform. */
-export function memoryStorage(): StorageApi {
-  const data = new Map<string, string>()
-  return {
-    getItem: (k) => data.get(k) ?? null,
-    setItem: (k, v) => void data.set(k, v),
-    removeItem: (k) => void data.delete(k),
-  }
-}
 
 const NOOP_STORAGE_EVENTS: StorageEventApi = {
   addEventListener: () => {},

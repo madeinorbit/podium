@@ -63,7 +63,7 @@ import type {
   ReplicaRows,
   TranscriptWindow,
   UiState,
-} from '../replica'
+} from '../contract'
 import { kindForEntity } from './kinds'
 import type { SideCache } from './side-cache'
 
