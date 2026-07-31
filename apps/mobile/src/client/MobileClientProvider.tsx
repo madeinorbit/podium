@@ -227,13 +227,19 @@ export const MOBILE_REPLICA_DB = 'podium-replica.db'
  * The principal this device's slice is stored under.
  *
  * `CLIENT_PRINCIPAL_GRADE` is still `device` — `/auth/status` is a shared-password
- * gate and {@link AuthStatus} carries no user identity — so there is exactly one
+ * gate and `auth.ts`'s `AuthStatus` carries no user identity — so there is exactly one
  * principal this app can name and it is this constant. It is NOT a placeholder to
  * fill in with a user id later without thought: when per-user login lands, a store
  * keyed `default` holds rows captured before anyone could be attributed, and
  * POD-377's rule applies — adopt only when attribution is CERTAIN.
  */
 export const MOBILE_REPLICA_PRINCIPAL = 'default'
+
+/** `ENQUEUEABLE_DELIVERY` is declared against the WHOLE delivery union while
+ *  `OutboxCommand` narrows to the single member it names. The cast is that
+ *  narrowing and nothing else — it is the same value, reused rather than
+ *  re-spelled, so a rename of the class reaches this table. */
+const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
 
 /**
  * The CONTRACT TABLE, which `readLegacyReplica` and the outbox binding both refuse
@@ -251,12 +257,6 @@ export const MOBILE_REPLICA_PRINCIPAL = 'default'
  * the client has never re-authored a queued mutation shape. That is a statement
  * about today, and the day one of them changes, the entry here changes with it.
  */
-/** `ENQUEUEABLE_DELIVERY` is declared against the WHOLE delivery union while
- *  `OutboxCommand` narrows to the single member it names. The cast is that
- *  narrowing and nothing else — it is the same value, reused rather than
- *  re-spelled, so a rename of the class reaches this table. */
-const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
-
 export const MOBILE_OUTBOX_COMMANDS: Record<keyof OutboxKinds, OutboxCommand> = {
   resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery },
   rename: { name: 'sessions.rename', version: 1, delivery },
