@@ -276,6 +276,42 @@ I am recording this rather than repeating the premise because an exit gate that 
 misleading number through is doing the opposite of its job — and because a ratchet file is a
 *measurement*, so the only way to compare two of them is to re-run one tool over both trees.
 
+**This correction lands on a live coordination belief, so it needs to reach POD-1246.** The
+ledger's section *"The rewrite branch is not ahead on every axis — measured, against my own
+claim"* records exactly two keys where integration is said to regress against main:
+
+```
+    change-row-typings   integration 12   main 7
+    local-placeholders   integration 16   main 12
+```
+
+Both figures are read off the two branches' **baseline files**, i.e. two different
+instruments' outputs. Re-measured with **one** instrument (integration's) over **both** trees:
+
+| key | detector identical across branches? | ledger's figures | one instrument, both trees |
+|---|---|---|---|
+| `change-row-typings` | **NO** — redefined at POD-305; main has no `change-row-audit.ts` | integration 12 / main 7 | **integration 12 / main 22** — integration is ahead by 10 |
+| `local-placeholders` | **YES** — byte-identical `collect` | integration 16 / main 12 | **integration 16 / main 15** — integration is behind by 1 |
+
+So the ledger's conclusion is **wrong on the first key and overstated ~4x on the second**. Its
+own bullet already anticipated this — *"THE DETECTOR SETS DIFFER (30 integration / 23 main /
+32 union), so 'lower per key' is not even well-defined until the SCRIPT merges"* — and the
+prose above that bullet then asserts the regression as fact anyway. The bullet was right.
+
+The `local-placeholders` gap is worth one further note, because it is not a stale baseline and
+someone will otherwise assume it is: **main's own audit on main's own tree is `baseline
+exact` (22 items, 259 sites, exit 0).** Main's `12` is a *true* count under *main's*
+instrument; integration's instrument counts `15` on that same unmodified tree. The +3 is a
+difference in the measuring apparatus (`grep`/`loadContext`), not drift in the code. Which
+means the ledger's own recorded rule — *the baseline is a measurement of the merged tree, not
+a merge decision* — is the operative one for both keys, and neither branch's baseline file
+should be taken wholesale on the strength of a per-key comparison that was never like-for-like.
+
+The causal story the ledger tells for the regression (main's POD-797 deleted the legacy local
+issues wire; integration rebuilt it) may still be true as a description of the code. What the
+measurement refutes is the *inference from the numbers* — those two baseline figures cannot
+support it, because they were not produced by the same instrument.
+
 ### 3.4 — The two closed client sites are genuinely closed
 
 Recorded because "two of six closed" is the kind of claim a no-op could satisfy. Both closures
