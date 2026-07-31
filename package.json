@@ -57,6 +57,7 @@
     "lint": "biome check . && bun run lint:boundaries && bun scripts/render-systemd.ts --check",
     "lint:boundaries": "bun scripts/check-boundaries.ts",
     "audit:rearch": "bun scripts/rearch-audit.ts",
+    "audit:declared-consumers": "bun scripts/audit-declared-consumers.ts",
     "audit:issues": "bun scripts/audit-issue-commands.ts --probe && bun scripts/audit-issue-commands.ts",
     "audit:sessions": "bun scripts/audit-session-commands.ts --probe && bun scripts/audit-session-commands.ts",
     "audit:superagent": "bun scripts/audit-superagent-commands.ts --probe && bun scripts/audit-superagent-commands.ts",
