@@ -43,9 +43,17 @@ const NAMES = SETTINGS_COMMAND_NAMES
 const ALL = NAMES.map((name) => SETTINGS_CONTRACTS[name])
 
 describe('the family is complete and classified', () => {
-  it('declares six contracts: one per tier, the secret CLEAR arm, and the ceremony pair', () => {
+  it('declares seven contracts: one per tier, the secret CLEAR and READ arms, and the ceremony pair', () => {
+    // SEVEN as of POD-421, which added `settings.secretPresence` — the presence
+    // READ POD-420 recorded as this issue's ("`settings.get` is deliberately
+    // absent … what it returns is POD-419's question and POD-421's"). The number
+    // rose because a surface became CLASSIFIED, not because one was absorbed:
+    // the read existed as `SettingsService.secretPresenceList()` with its
+    // `roleFloor` decided nowhere. Widening a pin is only a defect when the
+    // commit does not say why.
     expect(NAMES).toEqual([
       'settings.clearSecret',
+      'settings.secretPresence',
       'settings.setSecret',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
@@ -106,7 +114,15 @@ describe('the secret arms are never queueable, and the matrix says so too', () =
   const secrets = NAMES.filter((n) => CONTRACT_TIER[n] === 'server-secret')
 
   it('there ARE secret arms — the claims below are not vacuous', () => {
-    expect(secrets).toEqual(['settings.clearSecret', 'settings.setSecret'])
+    expect(secrets).toEqual([
+      'settings.clearSecret',
+      // The READ answers to the same `server-secrets` row as the two writes, so
+      // it is subject to the same never-queueable claim rather than exempted
+      // from it — a presence projection served from an offline cache would
+      // answer "is a key configured" from before it was cleared.
+      'settings.secretPresence',
+      'settings.setSecret',
+    ])
   })
 
   for (const name of ['settings.setSecret', 'settings.clearSecret'] as const) {
@@ -334,7 +350,11 @@ describe('redaction was reviewed, and the answers differ where the tiers differ'
     // outwards and are asserted separately below — widening this loop over them
     // would have meant either a false claim or a weakened one.
     const blobArms = (NAMES as SettingsContractName[]).filter((n) => CONTRACT_TIER[n] !== undefined)
-    expect(blobArms).toHaveLength(4)
+    // FIVE since POD-421: the presence read is a `server-secrets`-tier arm whose
+    // output is `SecretPresenceWire[]`, built independently of `ServerSecret` so
+    // that it has no value key to strip. It inherits the claim by tier
+    // membership exactly as the comment above intends.
+    expect(blobArms).toHaveLength(5)
     for (const name of blobArms) {
       expect(SETTINGS_CONTRACTS[name].redaction.outputPaths).toEqual([])
       expect(SETTINGS_CONTRACTS[name].redaction.reviewed).toBe(true)

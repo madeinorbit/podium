@@ -91,6 +91,17 @@ export const SETTINGS_COMMANDS_TRPC = {
   // same reason the others are: the ceremony's logic — who the mint names, what
   // redemption may read — is in the service and the model, where its refusing
   // arms are testable without a transport.
+  // THE PRESENCE READ (POD-421). POD-420 left `settings.get` uncontracted and
+  // named this one as this issue's; joining it here rather than hand-writing it
+  // in `router.ts` is what puts its `roleFloor` behind the derived gate instead
+  // of behind nothing.
+  'settings.secretPresence': {
+    contract: SETTINGS_CONTRACTS['settings.secretPresence'],
+    handler: ((svc) => svc.secretPresenceList()) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.secretPresence']['input']>,
+      unknown
+    >,
+  },
   'settings.telegramSetupStart': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
     handler: ((svc) => svc.startTelegramSetup()) satisfies SettingsHandler<

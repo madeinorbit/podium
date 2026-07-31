@@ -55,6 +55,7 @@ import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
 import { ServerSecretsRepository } from './store/server-secrets'
+import { SettingsAuditRepository } from './store/settings-audit'
 import { SettingsRepository } from './store/settings'
 import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
@@ -86,6 +87,10 @@ export class SessionStore {
    *  out of the settings blob that round-trips to the browser. Same reasoning as
    *  `accounts` below, now applied to the material that was left behind. */
   readonly secrets: ServerSecretsRepository
+  /** The settings family's append-only audit trail (POD-421, ADR 9 D5 A3) — who
+   *  changed which setting, and who was refused. Server-only and projected into
+   *  nothing; see `store/settings-audit.ts` for why that is load-bearing. */
+  readonly settingsAudit: SettingsAuditRepository
   /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
    *  Deliberately NOT in the settings blob, which round-trips to the browser. */
   readonly accounts: AccountsRepository
@@ -163,6 +168,7 @@ export class SessionStore {
     this.superagent = new SuperagentRepository(this.db)
     this.settings = new SettingsRepository(this.db)
     this.secrets = new ServerSecretsRepository(this.db)
+    this.settingsAudit = new SettingsAuditRepository(this.db)
     this.accounts = new AccountsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
     this.grants = new GrantsRepository(this.db)

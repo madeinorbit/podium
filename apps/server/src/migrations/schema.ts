@@ -138,6 +138,73 @@ export const serverSecrets = sqliteTable("server_secrets", {
 	updatedAt: text("updated_at").notNull(),
 });
 
+/**
+ * THE SETTINGS AUDIT TRAIL (POD-421, 3.7d) — append-only, server-only, and the
+ * first record this family has had of WHO changed what.
+ *
+ * Shaped on `workflow_events` (POD-731) rather than invented: the columns that
+ * matter are the same columns, and a second answer to "how is attribution
+ * stored" is the fork this programme exists to end.
+ *
+ * ADR 9 D5 A3 — ATTRIBUTION IS A PAIR AND IS NEVER COLLAPSED. `actor_kind` +
+ * `actor_id` is WHICH agent, session or person acted; `on_behalf_of` is WHICH
+ * HUMAN it acted for. Both are stamped from the authenticated transport (ADR 3
+ * D7: payload identity is inert) and neither is reachable from an input. Two
+ * columns and not one, because "did a person or an agent rotate this key?" and
+ * "whose authority was it under?" are different questions — the same reason
+ * `nameSource` and `humanQuestionAskedBy` exist ([spec:SP-eb60]).
+ *
+ * `on_behalf_of` IS NULLABLE, and the null is load-bearing rather than lazy:
+ * ADR 9 D8 S5 says system automations have no human behind them and MUST NOT be
+ * given one. A `system` write therefore stores `actor_kind = 'system'` with
+ * `on_behalf_of` NULL. `NOT NULL DEFAULT ''` was rejected for POD-731's reason —
+ * an empty string compares equal to itself, so "none by construction" and "we
+ * failed to record one" stop being distinguishable the moment anything groups by
+ * this column.
+ *
+ * WHAT IT MAY HOLD. `detail_json` is written through the contract's own
+ * `redaction` metadata (`@podium/commands`' `redactReport`), so credential
+ * material cannot reach this table by construction; `redacted_paths` names what
+ * was withheld, so a redaction is a RECORDED fact rather than an absence a
+ * reader has to infer. Secret VALUES stay out; secret IDENTITY — which key was
+ * rotated, by whom, when — is precisely what the row is for.
+ *
+ * NO READER, DELIBERATELY, AND SAID OUT LOUD. Nothing in the product projects
+ * this table into a wire shape, a replica or a UI — the same standing as
+ * `workflow_events` (POD-730 §9). That is what keeps it out of POD-352's
+ * cross-user-leakage item today: a preference value recorded here reaches no
+ * other user's replica because it reaches no replica at all. If a reader is ever
+ * added, the per-user rows become a cross-user surface and `PREFERENCE_REDACTION`
+ * has to be revisited before it ships. Recorded here rather than assumed.
+ */
+export const settingsAuditEvents = sqliteTable("settings_audit_events", {
+	id: integer().primaryKey({ autoIncrement: true }),
+	/** The dotted contract name, e.g. `settings.setSecret`. */
+	command: text().notNull(),
+	/** `applied` or `refused` — a refusal is an audit fact, not an absence.
+	 *  A trail that records only successes cannot answer "who TRIED to rotate
+	 *  this key", which is the question an audit trail exists for. */
+	outcome: text().notNull(),
+	/** ADR 9 D1's principal kinds. `system` is the arm that must never carry a
+	 *  human — see `on_behalf_of` above. */
+	actorKind: text("actor_kind").notNull(),
+	actorId: text("actor_id"),
+	onBehalfOf: text("on_behalf_of"),
+	/** The redacted payload. Never the material. */
+	detailJson: text("detail_json", {"mode":"json"}).default({}).notNull(),
+	/** Which declared paths were withheld from `detail_json`. */
+	redactedPaths: text("redacted_paths", {"mode":"json"}).default([]).notNull(),
+	createdAt: text("created_at").notNull(),
+},
+(table) => [index("settings_audit_events_command").on(table.command, table.id),
+check("settings_audit_events_outcome", sql`outcome IN ('applied', 'refused')`),
+check("settings_audit_events_actor_kind", sql`actor_kind IN ('user', 'agent', 'machine', 'system')`),
+// ADR 9 D8 S5, enforced at the STORE and not only in the writer: a system
+// principal has no human, and giving one a name is the failure this constraint
+// makes unrepresentable rather than merely discouraged.
+check("settings_audit_events_system_has_no_human", sql`actor_kind <> 'system' OR on_behalf_of IS NULL`),
+]);
+
 // Human-facing ids (#474): stable presentable refs on top of internal ids.
 export const repoPrefixes = sqliteTable("repo_prefixes", {
 	repoId: text("repo_id").primaryKey(),

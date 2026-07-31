@@ -16,7 +16,8 @@
  * verbs, and the contract half is now an exact correspondence rather than an
  * emptiness check:
  *
- *   · every `settings.*` contract declaring `trpc` MUST be served, as a mutation;
+ *   · every `settings.*` contract declaring `trpc` MUST be served, under the
+ *     VERB ITS `action` DECLARES — a query for a read, a mutation for a write;
  *   · every served `settings.*` procedure MUST be either a named hand-written
  *     exception or a contract the table declares.
  *
@@ -75,10 +76,24 @@ const HAND_WRITTEN: Record<string, 'query' | 'mutation'> = {
   'settings.set': 'mutation',
 }
 
-/** The contracted half, DERIVED from the table — so a fifth contract must appear
- *  in the router without anyone editing this file, and a deleted one fails. */
-const DERIVED: Record<string, 'mutation'> = Object.fromEntries(
-  SETTINGS_COMMAND_NAMES.map((name) => [name, 'mutation' as const]),
+/**
+ * The contracted half, DERIVED from the table — so an eighth contract must
+ * appear in the router without anyone editing this file, and a deleted one
+ * fails.
+ *
+ * THE VERB IS DERIVED TOO, as of POD-421, and that is a strengthening rather
+ * than a concession to the new read. It used to be the literal `'mutation'` for
+ * every entry, which was true only because every contract happened to be a
+ * write; `settings.secretPresence` is a READ and is served as a query. Reading
+ * `policy.action` here means the guard now fails when a command is served under
+ * the WRONG VERB — a check it could not previously make, because its expectation
+ * was a constant rather than a claim about the contract.
+ */
+const DERIVED: Record<string, 'query' | 'mutation'> = Object.fromEntries(
+  SETTINGS_COMMAND_NAMES.map((name) => [
+    name,
+    SETTINGS_CONTRACTS[name].policy.action === 'read' ? ('query' as const) : ('mutation' as const),
+  ]),
 )
 
 const EXPECTED_SURFACE: Record<string, string> = { ...HAND_WRITTEN, ...DERIVED }
@@ -105,14 +120,16 @@ describe('the settings surface is EXACTLY its contracts plus its named exception
     }
   })
 
-  it('every contract declaring trpc IS served, as a mutation', () => {
+  it('every contract declaring trpc IS served, under the verb its action declares', () => {
     // The direction POD-385's defect lives in: a contract naming a transport no
     // dispatcher reads. Derived from the table, so it cannot be satisfied by an
     // empty one — the next test proves the table is not empty.
     for (const name of SETTINGS_COMMAND_NAMES) {
       const contract = SETTINGS_CONTRACTS[name]
       if (!contract.exposure.includes('trpc')) continue
-      expect(typeOf(name), `${name} declares trpc exposure but nothing serves it`).toBe('mutation')
+      expect(typeOf(name), `${name} declares trpc exposure but nothing serves it`).toBe(
+        DERIVED[name],
+      )
     }
   })
 
@@ -147,15 +164,26 @@ describe('this guard can say NO', () => {
   it('the contract table is NOT empty — the derived half has content', () => {
     // Without this, "every contract declaring trpc is served" passes perfectly
     // against a table naming nothing, which is the emptiness POD-732 named.
-    expect(SETTINGS_COMMAND_NAMES.length).toBe(6)
+    expect(SETTINGS_COMMAND_NAMES.length).toBe(7)
     expect(Object.keys(DERIVED).sort()).toEqual([
       'settings.clearSecret',
+      'settings.secretPresence',
       'settings.setSecret',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
       'settings.updateInstance',
       'settings.updatePersonal',
     ])
+  })
+
+  it('the verb check notices a READ served as a MUTATION', () => {
+    // The defect the derived verb exists to catch, planted. Before POD-421 the
+    // expectation was the literal 'mutation' for every contract, so this defect
+    // was not merely undetected — it was the guard's own expectation.
+    const wrongVerb = { ...DERIVED, 'settings.secretPresence': 'mutation' as const }
+    expect(wrongVerb).not.toEqual(DERIVED)
+    expect(DERIVED['settings.secretPresence']).toBe('query')
+    expect(typeOf('settings.secretPresence')).toBe('query')
   })
 
   it('the equality check notices a settings write NO CONTRACT NAMES', () => {
