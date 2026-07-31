@@ -55,12 +55,13 @@ describe('kind mapping', () => {
     ] as const) {
       expect(kindForEntity(entityForKind(kind))).toBe(kind)
     }
-    // The naive `+ 's'` rule this table replaces would have produced
-    // `automationRuns` from `automationRun` by luck and `conversations` from
-    // `conversation` by luck, so the case that matters is the plain assertion
-    // that the singular names are what the server actually emits.
     expect(entityForKind('automationRuns')).toBe('automationRun')
     expect(entityForKind('sessions')).toBe('session')
+    // MEASURED, not assumed: replacing the table with a naive `entity + 's'`
+    // leaves this round-trip GREEN — all five names happen to pluralise that
+    // way. The assertion that actually kills that mutant is the leniency case
+    // below, because `+ 's'` claims to know every entity in the world. Said
+    // here so nobody reads this test as the one guarding the mapping.
   })
 
   it('reports an unrendered entity as not-mine rather than throwing (ADR 2 D4 leniency)', () => {
