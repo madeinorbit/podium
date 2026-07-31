@@ -3097,9 +3097,26 @@ checked, and I was wrong as a generalisation. Measured across all 21 shared keys
     change-row-typings   integration 12   main 7
     local-placeholders   integration 16   main 12
 
-Those two, and only those two. Taking integration's baseline wholesale — the
-obvious move, on the branch that is supposed to be the improvement — absorbs a
-regression on both.
+Those two, and only those two.
+
+**CORRECTED — the change-row-typings half of that was NOT A COMPARISON.** POD-310
+caught it: THE TWO BRANCHES RUN DIFFERENT DETECTORS UNDER THE SAME KEY NAME.
+Main's counts exported NAMES in a single file
+(`packages/protocol/src/messages/sync.ts`) and main has no `change-row-audit.ts`
+at all; this branch's counts hand-restated field lists REPO-WIDE, redefined at
+POD-305. Verified here: `git show main:scripts/change-row-audit.ts` does not
+exist, and main's item unit reads "exported name in the change-row family".
+
+Run ONE tool over BOTH trees — main checked out into a throwaway detached
+worktree — and the real numbers are integration 12, MAIN 22. The rewrite REMOVED
+ten restatements. The "regression" was an artifact of comparing two different
+measurements that happened to share a key.
+
+THE RULE, which is the ratchet-files-are-measurements rule one turn further: TO
+COMPARE TWO RATCHET FILES YOU MUST RUN ONE TOOL OVER BOTH TREES. Two baseline
+JSONs are two instruments' outputs, not two readings of one instrument, and a
+shared key name is not evidence they measure the same thing. `local-placeholders`
+has not been re-measured this way and its comparison is therefore also unproven.
 
 WHY, and it is the whole shape of this catch-up: main's POD-797 DELETED the
 legacy local issues wire, and integration REBUILT it. Two independent correct

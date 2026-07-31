@@ -1,10 +1,12 @@
 # POD-1246 — main catch-up: resolved prefix and honest map
 
-**State: merge IN PROGRESS, not committed. 19 of 109 conflicts resolved.**
+**State: merge IN PROGRESS, not committed. 38 of 109 conflicts resolved.**
+(Groups (a) model union, (b) sync/upstream, and (c) partial — registry structure
+taken, declarations mapped in §2e and not yet applied.)
 Branch `issue/1246-main-catch-up-for-the-rewrite-branch`, merging `main` into it
 (never the reverse). Integration untouched. Nothing pushed.
 
-This document is the deliverable for the part that is *not* done. The 19
+This document is the deliverable for the part that is *not* done. The
 resolutions are cheap to redo from the decision table below if the merge state is
 lost; the analysis is the expensive part and it is all here.
 
@@ -409,6 +411,105 @@ So the three parts come apart cleanly, and only two are missing:
    composes `Revision`, which group (a) ported to
    `packages/model/src/fields/primitives.ts`, and `MutationId`, which integration
    already has in `@podium/model`'s `ids/brands.ts`.
+
+
+## 2e. THE REGISTRY MAPPING — extracted from main, verified, 43/43
+
+Group (c) continued. `registry.ts` is resolved to **integration's structure**
+(`git checkout --ours`), which is correct: all six non-concurrency hunks favour
+integration, including main's `issueWrite` hub-forwarding, which POD-309 retired
+(consistent with the group (b) call). What remains is re-applying the declarations.
+
+### Where they go — one layer down from where the method said
+
+Integration's `def()` merges `input` and `action` **from the L1 contract**
+(`ISSUE_CONTRACTS` in `packages/commands/src/issues/contracts.ts`). So the
+declaration belongs on the CONTRACT, not the registry def, and the tripwire must
+sit there too. Note `CommandContractBase` (`contract.ts:305`) has **no `conflict`
+field at all** — the `conflict?: ConflictClass` seen earlier is on framework.ts's
+older `CommandDef`, a parallel type the issue contracts do not use.
+
+`contract.ts`'s own header gives the argument for making it REQUIRED rather than
+optional, in integration's words about `visibility`: *"a missing X must mean Y …
+and that default is not reachable if the field can simply be absent."* There is no
+safe default merge policy — integration's `arbitration.ts` says exactly that — so
+`conflict` has the same claim to being required. Making it required on
+`CommandContractBase` cascades to every namespace; scoping the requirement to the
+issue table avoids that. **That choice is the one open design decision left here.**
+
+### THE `rule` STRING IS NOT OPTIONAL — settled by integration's own engine
+
+Main's `cmd(...)` declarations carry a rule string; integration's `ConflictClass`
+is a bare union with no payload. This looked like a "decide deliberately" call and
+it is actually decided by evidence: `packages/sync/src/authority/arbitration.ts:116`
+says a command rule is **REQUIRED** for `cmd` rows and the module **throws** rather
+than waving one through — *"otherwise it is a synonym for unchecked."* So the 15
+rule strings must survive as DATA (an extra contract field), not as comments.
+Dropping them would hand POD-1247 fifteen rows its own engine refuses to arbitrate.
+
+### The complete mapping, extracted from main (23 exp-rev / 5 append / 15 cmd)
+
+A parse that missed the `cmd('…')` helper form initially reported 15 as
+undeclared. They are not — main's conditional type makes a declaration mandatory
+for every mutation, and all 43 have one. Verified against the source before use.
+
+| command | conflict | main's `rule` (cmd rows only) |
+|---|---|---|
+| `action` | `cmd` | git action; guarded by branch/worktree state, not a revision |
+| `addComment` | `append` | — |
+| `addSession` | `cmd` | live-path spawn; guarded by worktree/session state, not a revision |
+| `addShell` | `cmd` | live-path spawn; guarded by worktree/session state, not a revision |
+| `answerQuestion` | `exp-rev` | — |
+| `applySuggestion` | `exp-rev` | — |
+| `archive` | `exp-rev` | — |
+| `attachSession` | `append` | — |
+| `claim` | `exp-rev` | — |
+| `cleanup` | `cmd` | local git cleanup; guarded by closed+merged+clean checks, not a revision |
+| `clearNeedsHuman` | `exp-rev` | — |
+| `close` | `exp-rev` | — |
+| `create` | `append` | — |
+| `defer` | `exp-rev` | — |
+| `delete` | `exp-rev` | — |
+| `depAdd` | `exp-rev` | — |
+| `depRemove` | `exp-rev` | — |
+| `dismissSuggestion` | `exp-rev` | — |
+| `duplicate` | `exp-rev` | — |
+| `integrate` | `cmd` | local git integrate; guarded by worktree/branch state, not a revision |
+| `mailClaim` | `cmd` | message status machine; guarded by the claim check, not an issue revision |
+| `mailInbox` | `cmd` | mailbox read-and-mark; per-message delivery state, not an issue revision |
+| `mailSend` | `append` | — |
+| `markRead` | `cmd` | field-LWW read-tracking; last stamp wins, no precondition |
+| `markUnread` | `cmd` | field-LWW read-tracking; last stamp wins, no precondition |
+| `panelApply` | `exp-rev` | — |
+| `promote` | `exp-rev` | — |
+| `refreshAssistant` | `cmd` | assistant recompute; derives from current state, no caller-read baseline |
+| `reparent` | `exp-rev` | — |
+| `restore` | `exp-rev` | — |
+| `setCoordinator` | `exp-rev` | — |
+| `setLabels` | `exp-rev` | — |
+| `setNeedsHuman` | `exp-rev` | — |
+| `setState` | `exp-rev` | — |
+| `setTucked` | `cmd` | field-LWW sidebar curation; last tuck state wins |
+| `start` | `cmd` | live-path spawn; guarded by worktree/session state, not a revision |
+| `stop` | `cmd` | live-path stop; guarded by session/worktree state, not a revision |
+| `subscriptionAdd` | `append` | — |
+| `subscriptionRemove` | `cmd` | own-row delete; guarded by the ownership check, not an issue revision |
+| `subscriptionSetEnabled` | `cmd` | own-row flag toggle; guarded by the ownership check, not an issue revision |
+| `supersede` | `exp-rev` | — |
+| `undefer` | `exp-rev` | — |
+| `update` | `exp-rev` | — |
+
+### Remaining steps
+1. Add `conflict` (+ the rule field for `cmd`) to the 43 mutation contracts above.
+2. Make it required for issue mutations so the compiler enumerates omissions.
+3. Add `expectedRevision` to the 23 `exp-rev` contract inputs — it composes
+   `Revision` from `model/fields/primitives.ts` (ported in group (a)); `mutationId`
+   is already inlined on integration's contracts.
+4. Restore main's dispatcher enforcement, re-pointed at `def.conflict === 'exp-rev'`.
+5. **`apps/server/src/modules/issues/conflict.ts` still imports `@podium/domain`**
+   (main's, merged CLEAN — a live F1 hazard). Repoint to `@podium/model`.
+6. Acceptance: `apps/server/src/issues.expected-revision.test.ts`, already in the
+   tree, 12 cases. Then `bun run lint:shadowing` and typecheck the dependents.
 
 ## 3. What remains, tranche by tranche
 
