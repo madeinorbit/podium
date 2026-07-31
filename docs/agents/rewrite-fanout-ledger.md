@@ -4270,3 +4270,57 @@ range of things that turned out to be instruments — comments, counts, briefs,
 handovers, hazard notes, progress metrics and the run's own memory all behaved
 exactly like detectors, and all of them failed in the same way when nobody
 checked they could report a one.
+
+## "Which approach wins" versus "is there actually a contest"
+
+POD-1246's last act on the catch-up, and it is a better question than the one I
+briefed.
+
+I dispatched a decision: main solved null-encoding one way, integration another,
+pick one. It ran a bounded EVIDENCE pass instead and found the premise was likely
+false — and that the premise was ITS OWN, from group (a), where it had written
+"both sides solved null-encoding differently".
+
+Measured, that sentence collapsed TWO DIFFERENT CONCERNS AT TWO LAYERS under one
+label:
+
+  durable<->wire nullability MAPPING (a representation concern, ADR 4)
+      main         SYSTEMATIC — `shape.ts`: `wireShape` for the type half,
+                   `dropNullValues`/`restoreNullValues` for the value half,
+                   keyed on `=== null` / `=== undefined` rather than falsiness
+      integration  AD HOC PER FIELD, e.g. `tuckedAt:
+                   z.string().nullable().optional().catch(undefined)`
+
+  replica STORE-UPDATE semantics on a nulled field (a reactivity concern)
+      integration  `replica.ts:246` — assign `undefined`, never `delete`,
+                   because a delete is untracked and the stale value survives
+      main         does not address this at all
+
+Neither implements the other. Integration has no rival to the first — it has
+per-field handling that a convention would SUBSUME rather than contradict. So
+there is probably no decision to make, and the critical path loses a link.
+
+THE POINT, generalised: "which approach wins" PRESUPPOSES A CONTEST, and a brief
+that names two approaches manufactures one. The cheaper question, and the one to
+ask first, is IS THERE ACTUALLY A CONTEST — do these two things answer the same
+question at the same layer? This run's own name-collision rule already says to ask
+that of SYMBOLS; the failure here was not applying it to PROBLEMS. Two mechanisms
+described by the same phrase are exactly as suspicious as two types sharing a name.
+
+AND IT FLAGGED ITS OWN EVIDENCE AS WEAK IN THE RIGHT DIRECTION. Its conclusion is
+"no contest", which is an ABSENCE claim, reached by a name grep — the precise
+instrument it had spent the day proving unreliable. So it stated the finding as
+PROBABLE, not settled, and asked for confirmation from the other direction: not
+re-running the search, but asking WHERE INTEGRATION WOULD PUT such a convention
+and reading that file.
+
+I ran that confirming read. `packages/model/src/representations/registry.ts` and
+`checks.ts` are the candidate home, and they govern WHICH representations exist and
+why each is justified — not nullability mechanics. No shape-level null<->undefined
+mapping exists anywhere in integration's model by structure either. The absence
+holds on a second, differently-keyed look.
+
+That sequence — conclude absence, distrust it BECAUSE it is an absence from a
+search, and hand someone else a different way to check rather than the same one —
+is the practice this whole ledger keeps reaching for, done unprompted on its
+author's own result.
