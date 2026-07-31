@@ -1,0 +1,42 @@
+{
+  "label": "snapshot-pipeline-pre-cutover",
+  "at": "2026-07-31T02:44:57.595Z",
+  "scale": {
+    "sessions": 588,
+    "issues": 800,
+    "cycles": 250
+  },
+  "principals": [],
+  "deploymentWide": {
+    "ws.attach": {
+      "count": 250,
+      "p50Ms": 0.28,
+      "p90Ms": 0.62,
+      "p99Ms": 5.04
+    },
+    "ws.detach": {
+      "count": 250,
+      "p50Ms": 0.11,
+      "p90Ms": 0.23,
+      "p99Ms": 2.92
+    },
+    "sessionsBroadcast.total": {
+      "count": 500,
+      "p50Ms": 0.6,
+      "p90Ms": 1.05,
+      "p99Ms": 4.14
+    },
+    "sessionsBroadcast.publishIssuesSkipped": {
+      "count": 500,
+      "p50Ms": 0,
+      "p90Ms": 0,
+      "p99Ms": 0
+    }
+  },
+  "interaction": {
+    "count": 500,
+    "p50Ms": 0.9,
+    "p90Ms": 2.26,
+    "p99Ms": 6.16
+  }
+}
