@@ -3405,3 +3405,46 @@ It was caught because the implementer ran the step the brief mandated instead of
 trusting the brief's own symbol. A brief is a belief about the tree, exactly like
 a handover note and a hazard memory, and it decays the same way. Third instance
 this run of my own guidance being half right; every one was caught by measuring.
+
+## A claim TRUE on both sides separately, and FALSE in the union
+
+The deepest merge hazard this catch-up has produced, and it is a fourth category:
+no side is wrong, the COMBINATION is.
+
+`packages/protocol/version.ts` carried a comment on main stating the invariant
+
+    MIN_SUPPORTED_VERSION === WIRE_VERSION === 1
+
+True on main. Integration's `WIRE_VERSION = 2` survives the merge, so in the
+merged tree the window is `[1, 2]` — and the two checks the comment said were
+equivalent now genuinely disagree, for a v1 peer the server still serves.
+
+Nobody edited the comment. It conflicted with nothing. Every audit above is blind
+to it:
+
+  - the DIFF audit sees no lost line — the comment survived intact;
+  - the IMPORT-GRAPH sweep sees no broken import;
+  - the DUPLICATE-DECLARATION sweep sees one declaration;
+  - the typechecker sees a comment.
+
+The only thing that finds it is reading the surviving prose against the merged
+constants and asking whether it is still true. POD-1246 rewrote it to state the
+real window and why the checks differ.
+
+THE RULE: in a semantic merge, PROSE THAT ASSERTS AN INVARIANT IS AS MERGEABLE AS
+CODE AND IS NEVER CHECKED. Comments, docblocks and ADR sentences that quantify
+("=== 1", "the only", "always", "never", "both") are claims about a tree that no
+longer exists. Grep the merged result for the constants such claims name, and
+re-read every sentence that names them.
+
+This is the same family as the stale `sites` prose POD-1213 found in a matrix row
+and as POD-421's obsolete privacy caveat — documentation asserting a fact the code
+has moved past. What is new here is that NEITHER SIDE WROTE ANYTHING FALSE. The
+merge manufactured the falsehood, which means there is no author to have caught
+it and no review that would have.
+
+Corollary, from the same file: `isProtocolCompatible` has ZERO production callers
+while `versionSupport` is the live gate, so main's `@deprecated` was correct and
+integration's objection was not. Measurement settled a disagreement that reading
+could not — the same move as counting the consumers rather than arguing about the
+declaration.
