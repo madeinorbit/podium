@@ -109,7 +109,9 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import { perf } from '../perf/registry'
+import { feedPrincipalOf } from '../../gateway/client-principal'
+import { perfPrincipal } from '../perf/principal'
+import { DEPLOYMENT, perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
@@ -4279,7 +4281,7 @@ export class SessionsService {
         )
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.attach', performance.now() - t0)
+        perf.record('phase', 'ws.attach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
         break
       }
       case 'detach': {
@@ -4288,7 +4290,7 @@ export class SessionsService {
         this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id), false)
         this.broadcastSessions()
         this.pushPriorities()
-        perf.record('phase', 'ws.detach', performance.now() - t0)
+        perf.record('phase', 'ws.detach', performance.now() - t0, perfPrincipal(feedPrincipalOf(client.principal)))
         break
       }
       case 'input':
@@ -5189,7 +5191,7 @@ export class SessionsService {
     const t0 = performance.now()
     if (this.runningSessionsBroadcastGeneration !== -1) {
       this.broadcastPending = true
-      perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
+      perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
       return
     }
     // Reserve the runner before capture: projection listeners are synchronous and
@@ -5199,7 +5201,7 @@ export class SessionsService {
       this.flushVolatileSessionCaptures()
       const generation = this.sessionsGeneration_
       if (generation === this.lastSessionsBroadcastGeneration) {
-        perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
+        perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
         return
       }
       this.runningSessionsBroadcastGeneration = generation
@@ -5211,8 +5213,8 @@ export class SessionsService {
       // the list here is the issue projection, which embeds SessionMeta[].
       const sessions = issueProjectionChanged ? this.listSessions() : []
       const tList = performance.now()
-      perf.record('phase', 'sessionsBroadcast.list', tList - t0)
-      perf.record('phase', 'sessionsBroadcast.stringify', 0, 0)
+      perf.record('phase', 'sessionsBroadcast.list', tList - t0, DEPLOYMENT)
+      perf.record('phase', 'sessionsBroadcast.stringify', 0, DEPLOYMENT, 0)
       // Delta-capable publications schedule at the funnel's ordered flush, after
       // every same-tick entity append fixed the source cursor. Starting one here
       // would be superseded by that flush and discard the actor's prior view.
@@ -5237,20 +5239,20 @@ export class SessionsService {
       // POD-308 deletes the snapshot fan-out.
       const tSkip0 = performance.now()
       if (!issueProjectionChanged) {
-        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0)
+        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0, DEPLOYMENT)
       } else {
         const tIssues0 = performance.now()
         this.deps.publishIssues(sessions)
         // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
         // so the next broadcast re-publishes instead of silently skipping.
         this.lastIssueProjectionGeneration = this.issueProjectionGeneration
-        perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0)
+        perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0, DEPLOYMENT)
       }
       this.lastSessionsBroadcastGeneration = generation
     } finally {
       this.runningSessionsBroadcastGeneration = -1
     }
-    perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
+    perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
   }
 
 
@@ -5421,6 +5423,7 @@ export class SessionsService {
             'phase',
             'sessionsBroadcast.workerBytes',
             0,
+            DEPLOYMENT,
             publication.bytes.length * recipients.length,
           )
           for (const recipient of recipients) {

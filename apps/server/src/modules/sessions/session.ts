@@ -23,6 +23,8 @@ import type {
 } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import type { SessionRow } from '../../store'
+import { feedPrincipalOf } from '../../gateway/client-principal'
+import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 
 export type Send<T> = (msg: T) => void
@@ -510,7 +512,13 @@ export class Session {
         data: f.data,
       })
     }
-    perf.record('phase', 'attach.replay', performance.now() - t0, replayBytes)
+    perf.record(
+      'phase',
+      'attach.replay',
+      performance.now() - t0,
+      perfPrincipal(feedPrincipalOf(client.principal)),
+      replayBytes,
+    )
   }
 
   /**

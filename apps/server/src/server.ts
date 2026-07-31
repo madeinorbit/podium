@@ -32,7 +32,7 @@ import { probeAllModels } from './model-probe'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
-import { perf } from './modules/perf/registry'
+import { DEPLOYMENT, perf } from './modules/perf/registry'
 import type { PublicationAuthority } from './modules/sessions/session'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
@@ -159,8 +159,8 @@ export async function startServer(
     repo: store.sync,
     now: Date.now,
     onPruneMetrics: (metrics) => {
-      perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs)
-      perf.record('phase', 'changeLogPrune.boot.maxSlice', metrics.maxUninterruptedSliceMs)
+      perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs, DEPLOYMENT)
+      perf.record('phase', 'changeLogPrune.boot.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
     },
   })
   if (bootPrune.metrics.exceededPlacementThreshold) {

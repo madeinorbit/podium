@@ -39,7 +39,7 @@ import type {
 import { knownPathsFor } from '../../file-relay-policy'
 import type { SessionStore } from '../../store'
 import type { LakeReadSession } from '../conversations/service'
-import { perf } from '../perf/registry'
+import { DEPLOYMENT, perf } from '../perf/registry'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -666,16 +666,16 @@ export class DaemonRpcService {
         )
       : undefined
     if (fromDaemon && fromDaemon.items.length > 0) {
-      perf.record('phase', 'transcriptRead.daemon', performance.now() - t0)
-      perf.record('phase', 'transcriptRead.items', fromDaemon.items.length)
+      perf.record('phase', 'transcriptRead.daemon', performance.now() - t0, DEPLOYMENT)
+      perf.record('phase', 'transcriptRead.items', fromDaemon.items.length, DEPLOYMENT)
       return fromDaemon
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
     const tLake0 = performance.now()
     const fromLake = await this.deps.readTranscriptFromLake(session, input)
     if (fromLake) {
-      perf.record('phase', 'transcriptRead.lake', performance.now() - tLake0)
-      perf.record('phase', 'transcriptRead.items', fromLake.items.length)
+      perf.record('phase', 'transcriptRead.lake', performance.now() - tLake0, DEPLOYMENT)
+      perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
     }
     return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
   }

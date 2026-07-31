@@ -50,7 +50,7 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
-import { type PerfRegistry, perf } from './modules/perf/registry'
+import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
@@ -355,8 +355,8 @@ export class SessionRegistry {
       now: () => this.now(),
       transact: (fn) => this.store.transact(fn),
       onPruneMetrics: (metrics) => {
-        perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs)
-        perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs)
+        perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
+        perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
       },
     })
     this.ledger = ledger
@@ -1352,8 +1352,8 @@ export class SessionRegistry {
     // Classes remain for tests / manual pruneNow; start() is no longer called.
     this.eventRetention = new EventLogRetention(this.store.events, {
       onMetrics: (metrics) => {
-        perf.record('phase', 'eventLogPrune.total', metrics.totalDurationMs)
-        perf.record('phase', 'eventLogPrune.maxSlice', metrics.maxUninterruptedSliceMs)
+        perf.record('phase', 'eventLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
+        perf.record('phase', 'eventLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
       },
     })
     this.issueAutoArchive = new IssueAutoArchive(issues)

@@ -18,7 +18,7 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { z } from 'zod'
-import type { PerfRegistry } from './registry'
+import { DEPLOYMENT, type PerfRegistry } from './registry'
 
 export type PerfHandler<In, Out> = (svc: PerfRegistry, input: In) => Out
 
@@ -33,7 +33,15 @@ export const PERF_COMMANDS_TRPC = {
   report: {
     contract: PERF_CONTRACTS.report,
     handler: ((svc, input) => {
-      svc.pushClientTrace(input)
+      // DEPLOYMENT, and it is the honest answer rather than the convenient one
+      // [POD-736]. `perf.report` arrives over /trpc, which mints OPERATOR for
+      // every caller and carries no per-connection principal; the only other
+      // candidate is the trace's own `sessionId`, and attributing by payload is
+      // what lets one client write into another principal's partition. So the
+      // trace lands in the deployment-wide ring exactly as it always has, and the
+      // gap is recorded rather than closed by a guess — see the discovered issue
+      // filed against this seam, and `PerfRegistry.pushClientTrace`.
+      svc.pushClientTrace(input, DEPLOYMENT)
       // Live visibility, MOVED VERBATIM from the router procedure it replaces:
       // one compact line per reported switch with the three slowest gaps between
       // consecutive marks (offsets are relative to t0). Kept because operators
