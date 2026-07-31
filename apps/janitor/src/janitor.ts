@@ -3,7 +3,7 @@ import { join } from 'node:path'
 // A ROW OUT OF SQLITE IS A TRUE SERIALIZATION EDGE: the column is TEXT and the
 // value was minted by this system and written by it, so the brand is asserted
 // here rather than re-validated. This is the one place these casts belong.
-import { asAutomationId, asIssueId, asSessionId } from '@podium/model'
+import { asAutomationId, asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationFireObservation,
@@ -761,30 +761,75 @@ export class MaintenanceCommandsPrunePlanner {
 }
 
 /**
+ * WHOSE "read" the archival sweep means (POD-1210, after POD-1076/POD-1077).
+ *
+ * `sessions.read_at` and `issues.read_at` were SINGLETON columns when auto-archive
+ * was written, so the question never came up. They are now `(user_id, entity_id)`
+ * rows and the sweep has to name a reader. Three readings were on the table:
+ *
+ *   - read by ANY user — cheapest to write (an EXISTS, or MIN(read_at)), and
+ *     WRONG. `issues.archived` / `sessions.archived` are still SHARED columns:
+ *     archiving is a fact about the instance, not about a viewer. Under ANY, one
+ *     person opening a done issue and letting it age out hides it from everyone
+ *     else, including people who have never seen it. A sweep that removes work
+ *     from a colleague's board because someone else read it is the failure mode
+ *     auto-archive's read-gate exists to prevent.
+ *   - read by ALL users — never fires. An absent row means "never read", there is
+ *     no per-issue membership roster to bound "all" against, and one dormant
+ *     account freezes archival instance-wide. It also cannot be asked of a
+ *     durable snapshot: the janitor would have to enumerate the user table and
+ *     assert a negative.
+ *   - read by THE VIEWER the shared flag speaks for — what we do.
+ *
+ * That reader is not a free choice here, it is the one the AUTHORITY already
+ * picked: `IssueAttention.tryAutoArchiveObserved` and
+ * `SessionService.tryAutoArchiveStoppedObserved` revalidate the proposal against
+ * `issueOverlay(...)`/`viewerOverlay(...).readAt`, i.e. `broadcastViewer()` =
+ * `FIRST_ADMIN_USER_ID`. A janitor that observed any other reader would emit
+ * proposals the server rejects as `precondition` — auto-archive would be dead a
+ * SECOND time, silently, with a green integration test. The janitor observes;
+ * the server decides; both must ask the same person.
+ *
+ * The seam is the same one the server documents: when POD-1077 makes fan-out
+ * per-principal, `archived` becomes per-user too and this constructor argument
+ * becomes that principal. It is a parameter rather than an inlined constant so
+ * that day is an edit at the composition root, and so the tests can prove the
+ * reader is scoped by handing it a DIFFERENT user.
+ */
+const ARCHIVE_VIEWER: string = FIRST_ADMIN_USER_ID
+
+/**
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.
  * Live unread revalidation happens on the server at apply time.
  */
 /** Durable read + stopped session candidates [spec:SP-6144]. */
 export class SessionAutoArchiveReader {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(
+    private readonly db: SqlDatabase,
+    private readonly viewer: string = ARCHIVE_VIEWER,
+  ) {}
 
   async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
     return this.db
       .prepare(
-        `SELECT s.id, s.issue_id, s.stopped_at, s.read_at, s.archived
+        // INNER JOIN, not LEFT: no row in `session_user_state` for this viewer
+        // means they have never read the session, which is exactly the case the
+        // old `s.read_at IS NOT NULL` excluded.
+        `SELECT s.id, s.issue_id, s.stopped_at, sus.read_at, s.archived
          FROM sessions s
+         JOIN session_user_state sus ON sus.session_id = s.id AND sus.user_id = ?
          LEFT JOIN issues i ON i.id = s.issue_id
          WHERE s.archived = 0
            AND s.stopped_at IS NOT NULL
-           AND s.read_at IS NOT NULL
-           AND s.read_at >= s.stopped_at
-           AND s.read_at <= ?
+           AND sus.read_at IS NOT NULL
+           AND sus.read_at >= s.stopped_at
+           AND sus.read_at <= ?
            AND s.stopped_at <= ?
            AND (s.issue_id IS NULL OR i.parent_id IS NULL)
-         ORDER BY s.read_at ASC, s.id ASC
+         ORDER BY sus.read_at ASC, s.id ASC
          LIMIT ?`,
       )
-      .all(input.cutoffReadAt, input.cutoffReadAt, input.limit)
+      .all(this.viewer, input.cutoffReadAt, input.cutoffReadAt, input.limit)
       .map((row: any) => ({
         sessionId: asSessionId(row.id),
         issueId: row.issue_id === null ? null : asIssueId(row.issue_id),
@@ -796,7 +841,10 @@ export class SessionAutoArchiveReader {
 }
 
 export class IssueAutoArchiveReader {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(
+    private readonly db: SqlDatabase,
+    private readonly viewer: string = ARCHIVE_VIEWER,
+  ) {}
 
   async read(input: AutoArchiveReadInput): Promise<IssueAutoArchiveObservation[]> {
     const candidates: IssueAutoArchiveObservation[] = []
@@ -805,22 +853,28 @@ export class IssueAutoArchiveReader {
     await runTimeBudgetedJob(() => {
       if (done || candidates.length >= input.limit) return 'done'
       const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
-      const params: Array<string | number> = [input.cutoffReadAt]
-      const after = cursor ? 'AND (read_at, id) > (?, ?)' : ''
+      const params: Array<string | number> = [this.viewer, input.cutoffReadAt]
+      // The keyset key moves WITH the read timestamp: it now names the viewer's
+      // `issue_user_state.read_at`, never `issues.read_at` (dropped). It stays a
+      // TOTAL order because the reader is pinned to ONE user, so at most one row
+      // per issue survives the join and `i.id` (the issues PK) breaks every tie
+      // in `read_at` uniquely — the same guarantee the singleton column gave.
+      const after = cursor ? 'AND (ius.read_at, i.id) > (?, ?)' : ''
       if (cursor) params.push(cursor.readAt, cursor.id)
       params.push(pageSize)
       const rows = this.db
         .prepare(
-          `SELECT id, stage, closed_reason, read_at, archived, deleted_at
-           FROM issues
-           WHERE archived = 0
-             AND deleted_at IS NULL
-             AND read_at IS NOT NULL
-             AND read_at <= ?
-             AND (stage = 'done' OR closed_reason IS NOT NULL)
-             AND parent_id IS NULL
+          `SELECT i.id, i.stage, i.closed_reason, ius.read_at, i.archived, i.deleted_at
+           FROM issues i
+           JOIN issue_user_state ius ON ius.issue_id = i.id AND ius.user_id = ?
+           WHERE i.archived = 0
+             AND i.deleted_at IS NULL
+             AND ius.read_at IS NOT NULL
+             AND ius.read_at <= ?
+             AND (i.stage = 'done' OR i.closed_reason IS NOT NULL)
+             AND i.parent_id IS NULL
              ${after}
-           ORDER BY read_at ASC, id ASC
+           ORDER BY ius.read_at ASC, i.id ASC
            LIMIT ?`,
         )
         .all(...params) as Array<{
