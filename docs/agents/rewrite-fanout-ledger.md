@@ -2789,3 +2789,43 @@ The failure is asymmetric and that is why it deserves its own entry: resolving
 toward your own version loses OTHER PEOPLE'S work, so the person who made the
 mistake is the least likely to notice it, and the person harmed is not reviewing
 your branch.
+
+## A gate with two halves needs the same standard on BOTH — the lenient half is the one nobody rereads
+
+POD-1239 found this in POD-378's `unattributedStoreRead`, and it is the fourth
+appearance of "a mention is not a call" in this run — but the first where the
+SAME FUNCTION got it right on one side and wrong on the other.
+
+To be graded a ROOT, a file had to match CALL SHAPE. To be graded ATTRIBUTED —
+i.e. clean — it only had to MENTION one of the gate's three names anywhere in
+its contents:
+
+    const attributed = ASKS_WHO_OWNS_IT.test(contents)
+
+So a root carrying `// TODO: call migrateLegacyReplica here` passed. The strict
+half could be satisfied while the lenient half was faked, and the gate's own
+names are exactly the words a comment explaining the gate would contain — the
+excuse and the evidence are spelled identically.
+
+THE RULE: when a check has a positive arm and a negative arm, they need the same
+standard of evidence. Reviewers reread the arm that FAILS things, because that is
+the one that generates complaints. The arm that CLEARS things is where a weak
+test survives, precisely because nobody is annoyed by it.
+
+Two more things from the same merge worth keeping.
+
+MERGING AN INSTRUMENT RED IS SOMETIMES CORRECT. `audit:phase2-client` landed on
+integration reporting `unattributed-store-read: 6`. Those six sites predate the
+instrument; the gate is not a regression, it is the first thing able to see them.
+Holding the merge until the product was fixed would have kept the count in a
+mailbox, and silencing a gate on the day it first says NO reproduces exactly the
+defect it was built to expose. Merge it red, name the owners in the commit
+message, and put it on the known-reds list. The alternative — a green tree with
+an unbuilt gate — is the state this whole run exists to end.
+
+A TYPE-ONLY IMPORT IS ERASED BEFORE ANY TEST CAN SEE IT. The kernel replica's
+own type surface routed through the package POD-378 was deleting, so removing
+the adapter would have produced a GREEN TYPECHECK and a `bun.lock` still
+carrying `@tanstack/db`. No runtime test can observe a type-only import. The
+guard has to read the SOURCE — with a positive control, and mutation-proved by
+adding the forbidden import back.
