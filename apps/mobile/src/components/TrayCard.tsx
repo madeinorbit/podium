@@ -2,7 +2,8 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { TrayItem } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
 import { useState } from 'react'
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { offerArtifactTarget } from '../lib/offer-artifact-target'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { effectiveIssueColorHex, FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -55,6 +56,7 @@ export function TrayCard({
   const issue = item.issue
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
+  const [preview, setPreview] = useState<{ uri: string; label: string } | null>(null)
   const flowHex = effectiveIssueColorHex(issue, (id) => issues.find((i) => i.id === id))
   const hex = flowHex ?? FLOW_SLATE
   // Pick in memberSessionIds order (the server-declared membership order),
@@ -65,11 +67,7 @@ export function TrayCard({
       : (issue.memberSessionIds ?? [])
           .map((id) => sessions.find((s) => s.sessionId === id))
           .find(
-            (s) =>
-              s !== undefined &&
-              !s.archived &&
-              s.agentKind !== 'shell' &&
-              s.headless !== true,
+            (s) => s !== undefined && !s.archived && s.agentKind !== 'shell' && s.headless !== true,
           )
   const ago = relativeTime(item.since, now)
   const squareHex = issueColorHex(issue.color)
@@ -136,29 +134,32 @@ export function TrayCard({
         ) : null}
         {shown.length > 0 ? (
           <View style={styles.shots}>
-            {shown.map((a) => (
-              <Pressable
-                key={a.artifactId ?? a.path}
-                accessibilityRole="imagebutton"
-                accessibilityLabel={a.title ?? a.path}
-                onPress={() => actions.onOpenArtifact(issue, a)}
-                style={styles.shot}
-              >
-                {a.artifactId ? (
-                  <Image
-                    source={{
-                      uri: `${httpOrigin}/files/artifact/${encodeURIComponent(issue.id)}/${encodeURIComponent(a.artifactId)}/${a.entry ?? ''}`,
-                    }}
-                    style={styles.shotImg}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <Text style={styles.shotLabel} numberOfLines={1}>
-                    {a.title ?? a.path.split('/').pop()}
-                  </Text>
-                )}
-              </Pressable>
-            ))}
+            {shown.map((a) => {
+              const target = offerArtifactTarget({ httpOrigin, issue, artifact: a })
+              return (
+                <Pressable
+                  key={a.artifactId ?? a.path}
+                  accessibilityRole={target.previewable ? 'imagebutton' : 'button'}
+                  accessibilityLabel={
+                    target.previewable ? `Open image ${target.label}` : `Open ${target.label}`
+                  }
+                  onPress={() =>
+                    target.previewable && target.uri
+                      ? setPreview({ uri: target.uri, label: target.label })
+                      : actions.onOpenArtifact(issue, a)
+                  }
+                  style={({ pressed }) => [styles.shot, pressed && styles.shotPressed]}
+                >
+                  {target.previewable && target.uri ? (
+                    <Image source={{ uri: target.uri }} style={styles.shotImg} resizeMode="cover" />
+                  ) : (
+                    <Text style={styles.shotLabel} numberOfLines={1}>
+                      {target.label}
+                    </Text>
+                  )}
+                </Pressable>
+              )
+            })}
             {extra > 0 ? (
               <View style={[styles.shot, styles.shotMore]}>
                 <Text style={styles.shotLabel}>+{extra}</Text>
@@ -229,6 +230,37 @@ export function TrayCard({
             {sessionLink}
           </View>
         )}
+        <Modal
+          transparent
+          visible={preview !== null}
+          animationType="fade"
+          onRequestClose={() => setPreview(null)}
+        >
+          <View style={styles.lightbox}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close image"
+              onPress={() => setPreview(null)}
+              hitSlop={12}
+              style={({ pressed }) => [styles.lightboxClose, pressed && styles.shotPressed]}
+            >
+              <Text style={styles.lightboxCloseText}>×</Text>
+            </Pressable>
+            {preview ? (
+              <>
+                <Image
+                  source={{ uri: preview.uri }}
+                  accessibilityLabel={preview.label}
+                  style={styles.lightboxImg}
+                  resizeMode="contain"
+                />
+                <Text style={styles.lightboxLabel} numberOfLines={1}>
+                  {preview.label}
+                </Text>
+              </>
+            ) : null}
+          </View>
+        </Modal>
       </View>
     )
   }
@@ -360,6 +392,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  shotPressed: {
+    opacity: 0.65,
+  },
   shotMore: {
     width: 34,
   },
@@ -439,6 +474,40 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   cancel: {
+    ...mono(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+  },
+  lightbox: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    padding: space.lg,
+    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+  },
+  lightboxClose: {
+    position: 'absolute',
+    top: 48,
+    right: space.lg,
+    zIndex: 2,
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: color.surfaceHigh,
+  },
+  lightboxCloseText: {
+    color: color.text,
+    fontSize: 28,
+    lineHeight: 30,
+  },
+  lightboxImg: {
+    width: '100%',
+    height: '82%',
+  },
+  lightboxLabel: {
     ...mono(400),
     color: color.textDim,
     fontSize: font.tiny,
