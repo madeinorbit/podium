@@ -1,0 +1,36 @@
+GATE BASELINE (FULL 28) captured on integration at cd863d15, BEFORE the catch-up.
+Superset of docs/agents/pod-1246-gate-baseline.txt (11 gates). Agrees with it exactly.
+A gate PASS here and red after the merge is a REAL FINDING, not merge noise.
+Captured by POD-1246 via: bun run <gate> for every audit:*/lint:*/migration:* script.
+
+PASS lint:boundaries
+PASS audit:rearch
+PASS audit:declared-consumers
+FAIL audit:phase2-client
+PASS audit:issues
+PASS audit:sessions
+PASS audit:superagent
+PASS audit:workflows
+PASS audit:fleet
+PASS audit:mail
+PASS audit:automations
+PASS audit:derived-families
+PASS audit:router-mutations
+PASS audit:scoped-feed
+PASS audit:durable-classes
+PASS audit:serving-path
+PASS audit:machine-grants
+PASS audit:seam
+PASS audit:settings
+PASS audit:wire-adapters
+PASS audit:spec
+PASS audit:browser-reach
+PASS audit:client-secrets
+PASS audit:telegram-binding
+PASS lint:architecture
+PASS lint:no-nul
+PASS migration:check
+PASS migration:manifest
+--- done ---
+
+NOTE: audit:phase2-client is the ONLY red, 4 open sites, POD-1239 attribution work. Expected.
