@@ -2288,3 +2288,49 @@ that can hold a verb, with a floor so it cannot pass over empty sets.
   attribution expectation was run across all five legs, but `trpc` and `mcp` mint
   `OPERATOR`, which has no `actorSessionId` and resolves to a HUMAN principal.
   The suite's own first red.
+
+## A DECLARATION WITH NO CONSUMER IS INDISTINGUISHABLE FROM AN ENFORCED ONE
+
+POD-352 found three of these inside one subtree in under an hour, and the class
+is general enough that it belongs here rather than on that issue:
+
+  - per-user preference keys excluded from the state family, with nobody
+    shipping the storage move anywhere (POD-1213);
+  - `roleFloor` declared on all six settings contracts, enforced nowhere;
+  - `redaction` metadata declared, read by nothing.
+
+POD-421 later shipped the consumers for the last two, which is the proof they
+were absent rather than merely hard to find.
+
+WHY NO TEST CATCHES IT. The totality tests prove every field is CLASSIFIED.
+They say nothing about whether any code READS the classification. A declaration
+with no consumer passes every test a declaration with a consumer passes — the
+suite cannot tell them apart, by construction, because the only difference is
+in code that does not exist. This is not a weak test. There is no assertion you
+can add to the declaring module that distinguishes the two.
+
+It is the mirror of the POD-365 entry above and the two must not be folded
+together. There, the declaration was present and correct and its TEST was
+unfalsifiable because the default-closed fallback returned the same value as a
+real declaration — pass value equals failure value. Here the declaration is
+present, correct AND testable, and nothing consumes it. Same family, opposite
+corner; pinning membership fixes the first and does nothing for the second.
+
+THE ONLY DETECTOR IS A SWEEP, so it has to be someone's job:
+
+    for every declarative annotation this rewrite added — matrix columns,
+    contract policy fields, exclusion lists, deferrals-by-issue-name —
+    grep for the CONSUMER. No consumer means documentation with a type
+    signature.
+
+Worth attaching to a phase exit gate rather than leaving to whoever happens to
+look. A field nobody reads is not a control, and it reads as one in every
+handoff that cites it.
+
+Adjacent, from POD-376 and worth naming beside it: a suite can also exercise
+only the HAPPY path of a protocol whose risk lives entirely on the rare one.
+Three defects there — a deadlock on a synchronous push, a re-bootstrap that
+killed the walk that requested it, and a v2 catch-up reply built with the v1 row
+mapper that installed every healed row as `entity:undefined` — survived design,
+review and a green unit matrix, and appeared only against a booted server. All
+three were on the reconnect/heal path.
