@@ -1,4 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { spawnSync } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
@@ -43,6 +43,7 @@ import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { createBrowserOpenManager } from './browser-open'
+import { BindingStore } from './binding-store'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { CodexIdentityReceipts } from './codex-identity-receipts'
 import { ComposerSyncEngine } from './composer-sync'
@@ -382,6 +383,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     (process.platform === 'win32' ? undefined : join(runtimeDir, 'codex-hooks.sock'))
   const codexReceiptDir = opts.hooks?.receiptDir ?? join(runtimeDir, 'codex-identity-receipts')
   const codexIdentityReceipts = new CodexIdentityReceipts(codexReceiptDir)
+  const identityStateDir = opts.identityDir ?? stateDir()
+  const identity = loadIdentity({ dir: identityStateDir })
+  // The bundled local daemon overrides this with the server's stable local id so it
+  // attaches to the machine the server already adopted; remote daemons use their identity.
+  const machineId = opts.machineId ?? identity.machineId
+  const bindingStore = await BindingStore.open({
+    dir: join(runtimeDir, 'session-bindings'),
+    legacyStateDir: identityStateDir,
+    codexReceiptDir,
+    // POD-1075's migration creates exactly this account for every pre-user binding.
+    // It is explicit: BindingStore refuses legacy facts if this value is absent.
+    singleOperatorUserId: FIRST_ADMIN_USER_ID,
+  })
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
 
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
@@ -460,6 +474,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(repoRoot ? { repoRoot } : {}),
         ...(explicit ? { explicit: true } : {}),
       }),
+    observe: async (sessionId, channel, value) => {
+      await bindingStore.observe({
+        sessionId,
+        channel,
+        value,
+        confidence: 'exact',
+        source: channel === 'worktree-pin' ? 'launch-marker' : 'adapter-observer',
+        observedAt: new Date().toISOString(),
+      })
+    },
   })
 
   // Reattach fan-out gates (POD-612): wide gate for bridge wiring, narrow
@@ -480,10 +504,31 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // agent is idle — fed from the agent-state tracker's phase transitions.
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onExactCodexBinding: async (sessionId, nativeId) => {
+      await bindingStore.observe({
+        sessionId,
+        channel: 'resume-ref',
+        value: nativeId,
+        nativeKind: 'codex-thread',
+        confidence: 'exact',
+        source: 'adapter-observer',
+        observedAt: new Date().toISOString(),
+        pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
+      })
       if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
       // Replay sends ackRequested:true. If the socket is offline, the receipt
       // remains and the authentication path replays it after reconnect.
       await codexIdentityReceipts.replay(send)
+    },
+    onAliasObservation: (observation) => {
+      void bindingStore
+        .observe(observation)
+        .catch((error) =>
+          console.warn(
+            '[podium] could not persist alias observation',
+            observation.sessionId,
+            error,
+          ),
+        )
     },
     tailSeedGate: gates.tailSeedGate,
   })
@@ -603,11 +648,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
-  const identity = loadIdentity(opts.identityDir ? { dir: opts.identityDir } : {})
-  // The bundled local daemon overrides this with the server's stable local id so it
-  // attaches to the machine the server already adopted; remote daemons use the identity.
-  const machineId = opts.machineId ?? identity.machineId
-
   // THE explicit handler context (#195): every control-frame handler receives
   // this object instead of closing over startDaemon's scope.
   const ctx: DaemonContext = {
@@ -632,6 +672,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     hookSocketPath,
     codexReceiptDir,
     codexIdentityReceipts,
+    bindingStore,
     hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
     agentRelayEndpointFor: (sessionId) => agentRelay.endpointFor(sessionId),
     agentRelayHub,

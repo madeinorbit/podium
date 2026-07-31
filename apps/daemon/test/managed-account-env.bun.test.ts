@@ -92,8 +92,21 @@ async function dumpEnvOfSpawnedProcess(
     send: () => {},
     backend: 'none', // bare PTY child: no abduco/tmux master can outlive this test
     launch: agentLaunchCommand,
+    instanceId: 'default',
     settingsDir,
     bridges,
+    durableLabels: new Map(),
+    durableLabelFor: (id: string) => `podium-${id}`,
+    bindingStore: {
+      ensureBinding: async () => ({}),
+      observe: async () => ({}),
+      retire: async () => ({}),
+    },
+    composerEngine: {
+      has: () => false,
+      attach: () => {},
+      detach: () => {},
+    },
     outputScheduler: {
       enqueue: (_id: string, data: string) => {
         buffer += Buffer.from(data, 'base64').toString('utf8')

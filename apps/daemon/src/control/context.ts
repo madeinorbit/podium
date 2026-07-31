@@ -5,6 +5,7 @@ import type { SessionId, UsageBucketWire } from '@podium/model'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BrowserOpenManager } from '../browser-open'
+import type { BindingStore } from '../binding-store'
 import type { CodexIdentityReceipts } from '../codex-identity-receipts'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
@@ -70,6 +71,8 @@ export interface DaemonContext {
   codexReceiptDir: string
   /** Pending exact Podium ID -> native Codex ID bindings. */
   codexIdentityReceipts: CodexIdentityReceipts
+  /** Durable per-machine SessionBinding and append-only alias history. */
+  bindingStore: BindingStore
   /** Hook-ingest endpoint for a session (instrumentation URLs). */
   hookEndpointFor(sessionId: SessionId): string
   /** Agent-relay loopback endpoint for a session (agent env). */
