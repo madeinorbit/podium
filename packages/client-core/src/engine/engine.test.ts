@@ -226,6 +226,47 @@ function makeEngine(
 
 // ---------------------------------------------------------------- tests
 
+describe('engine replica construction (POD-1239)', () => {
+  it('refuses to construct without a replica factory instead of adopting ambient storage', () => {
+    // The engine used to fall back to `createReplica()` with no argument, which
+    // resolved window.localStorage itself — so the flag-off browser adopted the
+    // previous user's rows through a construction site that belonged to no
+    // composition root and therefore appeared in no audit population.
+    //
+    // The type now forbids omitting the factory, but a type is only half a guard:
+    // it is erased, and the untyped caller is exactly the one that would reach
+    // ambient storage silently. This drives the RUNTIME arm — without it, the
+    // check is a declaration whose refusing branch nothing has ever produced.
+    const init = {
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+      api: makeApi() as PodiumClientApi,
+      onFatalError: () => {},
+      createHub: () => new FakeHub() as unknown as SocketHub,
+    }
+    expect(() => createEngine(init as unknown as Parameters<typeof createEngine>[0])).toThrow(
+      /requires createReplicaFn/,
+    )
+  })
+
+  it('uses the factory it is given (the arm that must say yes)', () => {
+    // The counterfactual for the refusal above: a factory IS honoured, so the
+    // throw is about the missing factory and not about this init shape being
+    // unconstructable for some unrelated reason.
+    const replica = createReplica({ storage: memoryStorage() })
+    const { engine } = makeEngine()
+    expect(engine).toBeDefined()
+    expect(() =>
+      createEngine({
+        config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+        api: makeApi() as PodiumClientApi,
+        onFatalError: () => {},
+        createReplicaFn: () => replica,
+        createHub: () => new FakeHub() as unknown as SocketHub,
+      }),
+    ).not.toThrow()
+  })
+})
+
 describe('engine lifecycle', () => {
   it('start is idempotent; dispose→start re-arms subscriptions (StrictMode)', async () => {
     const { engine, hub, fatals } = makeEngine()

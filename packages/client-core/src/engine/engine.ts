@@ -45,7 +45,7 @@ import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { Outbox, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
-import { createReplica, type Replica, type UiState } from '../replica/replica'
+import type { Replica, UiState } from '../replica/replica'
 import {
   createRouter,
   type MainView,
@@ -149,8 +149,22 @@ export interface EngineInit<TApi extends PodiumClientApi> {
   formatError?: (error: unknown, fallback: string) => string
   /** UI notices (web: sonner toasts). Default: silent. */
   notices?: StoreNotices
-  /** Replica factory — mobile injects the AsyncStorage-backed one. Called once. */
-  createReplicaFn?: () => Replica
+  /**
+   * Replica factory — mobile injects the AsyncStorage-backed one. Called once.
+   *
+   * REQUIRED since POD-1239. It used to be optional, falling back to
+   * `createReplica()` with no storage argument, which resolved
+   * `window.localStorage` on its own — so the flag-off browser client adopted
+   * ambient state through a construction site that belonged to no composition
+   * root. The audit's population is the set of roots that build a replica, and a
+   * replica the engine builds for itself is in no such set: it cannot be graded
+   * for having asked who owns the store, because there is nowhere to ask.
+   *
+   * Making it required deletes that site rather than defaulting it. Every replica
+   * in the product is now built at a NAMED root, which is exactly the population
+   * `scripts/audit-phase2-client.ts` walks.
+   */
+  createReplicaFn: () => Replica
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: replaces SocketHub construction (engine unit tests inject a fake). */
@@ -294,7 +308,18 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // Persistent local replica (docs/spec/thin-client-replica.md). Constructed
     // synchronously so its persisted cursor can seed the hub's first
     // changesSince; entity hydration happens async in start().
-    this.replica = init.createReplicaFn ? init.createReplicaFn() : createReplica()
+    // No fallback (POD-1239): an engine that can build its own replica is a
+    // construction site outside every composition root. The runtime check exists
+    // because the type is only half the guard — an untyped caller omitting the
+    // factory must fail LOUDLY here rather than quietly adopt ambient storage.
+    if (typeof init.createReplicaFn !== 'function') {
+      throw new Error(
+        'createEngine requires createReplicaFn: the platform composition root builds the replica ' +
+          'and is responsible for establishing that its persisted store belongs to the current ' +
+          'principal (POD-307 / POD-1239).',
+      )
+    }
+    this.replica = init.createReplicaFn()
     this.ui = this.replica.uiState()
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,

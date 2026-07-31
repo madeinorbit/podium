@@ -147,7 +147,11 @@ export interface PersistedReplicaInit {
 }
 
 export interface ReplicaInit {
-  /** Storage seam (mirrors outbox.ts): tests inject a fake; defaults to window.localStorage. */
+  /** Storage seam (mirrors outbox.ts). NO AMBIENT DEFAULT (POD-1239): omitting it
+   *  gives an in-memory replica, never `window.localStorage` — a replica that
+   *  resolved global storage itself adopted the previous user's rows with no
+   *  composition root to grade. See {@link legacyMigrationStorage} for the one
+   *  remaining reach (SQLite mode's legacy-blob migration source). */
   storage?: StorageApi
   /** Key enumerator for the one-time ui-state migration (prefix-matched legacy
    *  keys can't be probed individually). Defaults to Object.keys(localStorage)
@@ -349,8 +353,7 @@ class TanstackReplica implements Replica {
     this.cursorKey = `${prefix}.cursor.v1`
     this.now = init.now ?? Date.now
     this.persistedInit = init.persisted
-    const storage =
-      init.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined)
+    const storage = init.storage ?? legacyMigrationStorage(init)
     // Web storage usability, probed even in SQLite mode (migration reads it).
     const webStorageUsable = probeStorage(storage)
     // SQLite mode is durable by construction (the caller already opened the
@@ -1423,6 +1426,33 @@ function probeStorage(storage: StorageApi | undefined): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * The ONE surviving ambient reach for `window.localStorage`, and why it survives.
+ *
+ * A replica that resolves global storage on its own adopts whatever the last
+ * person on this device left behind, with no composition root existing to be
+ * graded for having asked (POD-307 / POD-1239). So when no store is injected there
+ * is no store: {@link probeStorage} rejects `undefined` and the collections run on
+ * {@link memoryStorage} — nothing adopted, nothing persisted, `persistent` false.
+ *
+ * SQLite mode is the exception and NOT an oversight. There `storage` does not back
+ * the replica at all; it is the LEGACY web storage the one-time
+ * localStorage→SQLite migration reads blobs from and then retires (see
+ * `ReplicaInit.persisted`). Removing it would silently strip that migration of its
+ * source, so the reach stays where it is a read-and-retire of the old blobs rather
+ * than an adoption of them.
+ *
+ * That legacy read is itself unattributed, and this function is not the place to
+ * fix it: the persisted roots are named composition roots, so the client audit's
+ * unattributed-store item already grades them and they get a caller there. What is
+ * closed here is the reach that belongs to NOBODY — the one no root owns and no
+ * audit population contains, because it happens when nothing was constructed.
+ */
+function legacyMigrationStorage(init: ReplicaInit): StorageApi | undefined {
+  if (init.persisted === undefined) return undefined
+  return typeof window !== 'undefined' ? window.localStorage : undefined
 }
 
 export function createReplica(init: ReplicaInit = {}): Replica {
