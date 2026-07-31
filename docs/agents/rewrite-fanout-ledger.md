@@ -3054,3 +3054,36 @@ renumbering, because they verified verdicts and not locations. Their patch caugh
 my mention-vs-call. This one was them believing a detector's POPULATION instead of
 running it. Every time, THE INSTRUMENT WAS TRUSTED ABOUT WHERE IT POINTED RATHER
 THAN WHAT IT DECIDED. The verdict gets checked; the coordinates do not.
+
+## A conflicted package.json breaks the tool you would use to report it
+
+POD-1246 hit this in the main catch-up and it is worth knowing before you need
+it: while `package.json` carries conflict markers, the `podium` CLI itself will
+not run. So the moment the merge goes wrong is also the moment you lose the
+ability to mail anyone about it — its replies failed silently until it worked
+that out.
+
+RULE: in any catch-up or large merge, RESOLVE package.json FIRST, before anything
+else, even before reading the rest of the conflicts. It is almost always a union
+(keep both sides' scripts and deps), it takes a minute, and it keeps your
+reporting channel alive for the several hours the rest will take.
+
+The same logic extends to anything the toolchain reads to boot: lockfiles,
+tsconfig, vitest config. Resolve the tree's ABILITY TO RUN before resolving its
+content.
+
+Two more from the same tranche, both about the unit of judgement:
+
+  - THE UNIT IS THE HUNK, NOT THE FILE. I told POD-1246 that main's ADR 4 had
+    content integration lacked and to take it. True, and not sufficient: three
+    hunks were main's and belonged, but the HandoffManifest decision went the
+    other way, because integration's supersedes it — POD-300 had moved the
+    manifest, so taking main's would have re-pointed a landed decision at a file
+    the manifest no longer lives in. "Which side is ahead" is not a property a
+    FILE has.
+  - MAKE EVERY LINE OF THE OTHER SIDE EXPLAIN ITSELF. POD-1246's method beats the
+    one I briefed: after resolving, run
+        git show main:<file> | grep -vxFf <resolved-file>
+    so any line from the other side that did NOT survive has to be justified out
+    loud. A three-way merge you cannot audit afterwards is a confident side-take
+    wearing better clothes.
