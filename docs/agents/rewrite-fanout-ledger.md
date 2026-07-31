@@ -4225,3 +4225,48 @@ That is the only thing separating a real compliance note from a confident one, a
 it costs one file-open. The alternative is what happened here: everyone who read
 `issue.ts`, this coordinator included, treated the citation as evidence THE CHECK
 HAD ALREADY HAPPENED.
+
+## The one durable conclusion: every error that survived had a plausible stand-in for a measurement
+
+POD-1246's closing synthesis, and the right last entry for this run.
+
+Six corrections passed between a coordinator and one implementer in a single day.
+Four went one way, two the other, and the direction is not the point:
+
+  NONE of the six was caught by anyone being more careful.
+  ALL SIX were caught by someone RUNNING something.
+
+And each error survived for the same reason — SOMETHING PLAUSIBLE STOOD IN FOR A
+MEASUREMENT:
+
+  a COMPLIANCE COMMENT stood in for reading the clause
+      ("never stored — D7's derivation locality, already satisfied", which
+       answers D6 and not D7.2)
+  TWO COMMITTED BASELINE JSONs stood in for running one detector over both trees
+      (12 vs 7 was never a comparison; one instrument gives 12 vs 22)
+  A GREEN TYPECHECK stood in for semantic checking
+      (syntax-only while any conflict marker exists, so it could not go red)
+  A SYMBOL FROM A GREP stood in for reading the import
+      (`ensureFeedIdentity` appeared only in comments; the real import was
+       `remintEpoch`)
+  A NAME SEARCH RETURNING ZERO stood in for asking where the concept lives
+      (integration had absorbed the vocabulary under a different name, richer)
+  A CONFLICT LIST stood in for the dependency graph
+      (files that merged clean and were broken by a moved module)
+
+Every one of them LOOKED like evidence. That is what made them durable: a
+stand-in that announces itself gets checked, and a stand-in that reads exactly
+like the real thing gets cited.
+
+THE RULE THE WHOLE RUN REDUCES TO: before believing a result, ask WHAT PRODUCED
+IT — and whether that thing could have produced a different answer. A comment
+cannot. A baseline file cannot. A typechecker with markers in the tree cannot. A
+grep for a name you chose cannot. None of them can say NO, so none of their
+greens carry information.
+
+Which is the same sentence this run started with, arrived at from the other end:
+prove it can fire before believing its pass. What changed over the day is the
+range of things that turned out to be instruments — comments, counts, briefs,
+handovers, hazard notes, progress metrics and the run's own memory all behaved
+exactly like detectors, and all of them failed in the same way when nobody
+checked they could report a one.
