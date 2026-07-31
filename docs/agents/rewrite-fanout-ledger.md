@@ -4182,6 +4182,24 @@ system" is the worst place for a correct decision to be made.
 Filed separately, each becomes a decision with a test. Made inline, each is a
 line someone has to notice in a diff nobody can hold in their head.
 
+THE CAVEAT, WHICH MATTERS AS MUCH AS THE TRIGGER — POD-1246's, correcting a
+sentence of mine that invites exactly the wrong reading. "40/109 with three
+system-wide decisions correctly refused beats 70/109 with any one silently made"
+is true and is NOT A LICENCE TO REFUSE. Refusal has a real cost: each of these
+lengthened the critical path, and the null-encoding call now blocks four
+downstream things. A session that refused ten decisions on caution would produce a
+WORSE artifact than one that made all ten, because the map would be a list of
+things nobody decided.
+
+What made these three defensible is that each came with the argument laid out and
+a separate issue to hold it — so refusing MOVED the decision rather than deferring
+it.
+
+THE TEST, and it is better than "is this big?": CAN I STATE THE DECISION
+PRECISELY ENOUGH THAT SOMEONE ELSE CAN MAKE IT? If yes, file it. IF NO, IT IS NOT
+RIPE TO REFUSE EITHER — it needs more measurement first, and refusing it just
+converts a hard decision into a vague one with a ticket number.
+
 ## The reason must be recorded even when the answer is uncontroversial
 
 POD-1246's addition to the right-answer-wrong-reason entry, and it explains why
