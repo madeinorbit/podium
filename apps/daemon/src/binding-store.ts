@@ -1087,10 +1087,7 @@ export class BindingStore {
     const prior = this.writes.get(input.sessionId) ?? Promise.resolve()
     const next = prior.then(async (): Promise<SessionBindingTransitionOutcome> => {
       const current = await this.read(input.sessionId)
-      if (
-        input.event !== 'reattach' &&
-        current?.transitionHistory.some((entry) => entry.transitionId === input.transitionId)
-      ) {
+      if (current?.transitionHistory.some((entry) => entry.transitionId === input.transitionId)) {
         return { status: 'unchanged', event: input.event, binding: current }
       }
 

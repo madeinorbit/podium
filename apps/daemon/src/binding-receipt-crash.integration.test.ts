@@ -135,7 +135,7 @@ describe('binding receipt crash durability', () => {
         ),
       ).toBe('granted')
 
-      const child = spawn(process.execPath, [
+      const child = spawn('bun', [
         '--conditions=@podium/source',
         join(import.meta.dirname, 'fixtures', 'binding-receipt-crash-writer.ts'),
         dir,
@@ -144,22 +144,29 @@ describe('binding receipt crash durability', () => {
       let stderr = ''
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
-      child.stdout.on('data', (chunk: string) => {
-        stdout += chunk
+      const receiptDurable = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`crash writer did not persist its receipt: ${stderr}`))
+        }, 5_000)
+        const finish = (error?: Error): void => {
+          clearTimeout(timeout)
+          if (error) reject(error)
+          else resolve()
+        }
+        child.stdout.on('data', (chunk: string) => {
+          stdout += chunk
+          if (stdout.includes('receipt-durable')) finish()
+        })
+        child.once('exit', () => {
+          if (!stdout.includes('receipt-durable')) {
+            finish(new Error(`crash writer exited before persistence: ${stderr}`))
+          }
+        })
       })
       child.stderr.on('data', (chunk: string) => {
         stderr += chunk
       })
-      const deadline = Date.now() + 5_000
-      while (!stdout.includes('receipt-durable')) {
-        if (child.exitCode !== null || child.signalCode !== null) {
-          throw new Error(`crash writer exited before persistence: ${stderr}`)
-        }
-        if (Date.now() > deadline) {
-          throw new Error(`crash writer did not persist its receipt: ${stderr}`)
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      }
+      await receiptDurable
       child.kill('SIGKILL')
       const [code, signal] = (await once(child, 'close')) as [number | null, NodeJS.Signals | null]
       expect({ code, signal }).toEqual({ code: null, signal: 'SIGKILL' })

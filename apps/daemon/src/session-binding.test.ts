@@ -229,6 +229,172 @@ describe('SessionBinding transition vocabulary', () => {
     ).toBe('redundant')
   })
 
+  it('applies one transitionId exactly once when 30 identical reattaches arrive together', async () => {
+    const bindings = await store()
+    const before = await spawn(bindings, 'same-transition-race', 'codex')
+    const request = () =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId: 'race:same-transition',
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId: alice },
+        requestedGeneration: 2,
+        attemptId: 'attempt-same-transition',
+      })
+
+    const outcomes = await Promise.all(Array.from({ length: 30 }, request))
+    expect(outcomes.filter((outcome) => outcome.status === 'applied')).toHaveLength(1)
+    expect(outcomes.filter((outcome) => outcome.status === 'unchanged')).toHaveLength(29)
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const row = await persisted.read(before.sessionId)
+    expect(row).toMatchObject({
+      observationGeneration: 2,
+      attemptId: 'attempt-same-transition',
+    })
+    expect(
+      row?.transitionHistory.filter((entry) => entry.transitionId === 'race:same-transition'),
+    ).toHaveLength(1)
+  })
+
+  it('reattaches a 30-session reconnect burst without cross-wiring durable observations', async () => {
+    const bindings = await store()
+    const sessions = await Promise.all(
+      Array.from({ length: 30 }, (_, index) =>
+        spawn(bindings, `reconnect-burst-${index}`, 'codex', {
+          attemptId: `attempt-before-${index}`,
+        }),
+      ),
+    )
+    await Promise.all(
+      sessions.map((session, index) =>
+        bindings.transition({
+          event: 'hook-repin',
+          transitionId: `burst:hook:${index}`,
+          sessionId: session.sessionId,
+          evidenceSource: 'hook-receipt',
+          value: `native-${index}`,
+          nativeKind: 'codex-thread',
+          observedAt: `2026-07-31T10:00:${String(index).padStart(2, '0')}.000Z`,
+          pendingServerAck: { nativeKind: 'codex-thread', value: `native-${index}` },
+        }),
+      ),
+    )
+
+    const outcomes = await Promise.all(
+      sessions.map((session, index) =>
+        bindings.transition({
+          event: 'reattach',
+          transitionId: `burst:reattach:${index}`,
+          sessionId: session.sessionId,
+          claimantMachineId: machineA,
+          machineAccess: 'allowed',
+          sessionAccess: 'allowed',
+          principal: { kind: 'user' as const, userId: alice },
+          requestedGeneration: 2,
+          attemptId: `attempt-after-${index}`,
+        }),
+      ),
+    )
+    expect(outcomes.every((outcome) => outcome.status === 'applied')).toBe(true)
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const rows = await Promise.all(sessions.map((session) => persisted.read(session.sessionId)))
+    expect(rows).toHaveLength(30)
+    rows.forEach((row, index) => {
+      expect(row).toMatchObject({
+        sessionId: `reconnect-burst-${index}`,
+        observationGeneration: 2,
+        attemptId: `attempt-after-${index}`,
+      })
+      expect(
+        row?.observations.map((entry) => ({
+          value: entry.value,
+          pendingServerAck: entry.pendingServerAck,
+        })),
+      ).toEqual([
+        {
+          value: `native-${index}`,
+          pendingServerAck: { nativeKind: 'codex-thread', value: `native-${index}` },
+        },
+      ])
+      expect(row?.transitionHistory.map((entry) => entry.event)).toEqual([
+        'spawn',
+        'hook-repin',
+        'reattach',
+      ])
+    })
+  })
+
+  it.each([
+    'reattach-first',
+    'hook-first',
+  ] as const)('serializes a reattach racing hook-repin without losing either write (%s)', async (order) => {
+    const bindings = await store()
+    const before = await spawn(bindings, `mixed-race-${order}`, 'codex', {
+      attemptId: 'attempt-before',
+    })
+    const delegation = JSON.stringify(before.delegationHistory)
+    const reattach = () =>
+      bindings.transition({
+        event: 'reattach',
+        transitionId: `mixed:${order}:reattach`,
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user' as const, userId: alice },
+        requestedGeneration: 2,
+        attemptId: 'attempt-after',
+      })
+    const hook = () =>
+      bindings.transition({
+        event: 'hook-repin',
+        transitionId: `mixed:${order}:hook`,
+        sessionId: before.sessionId,
+        evidenceSource: 'hook-receipt',
+        value: `native-${order}`,
+        nativeKind: 'codex-thread',
+        observedAt: '2026-07-31T11:00:00.000Z',
+        pendingServerAck: {
+          nativeKind: 'codex-thread',
+          value: `native-${order}`,
+        },
+      })
+    const operations = order === 'reattach-first' ? [reattach, hook] : [hook, reattach]
+
+    const outcomes = await Promise.all(operations.map((operation) => operation()))
+    expect(outcomes.every((outcome) => outcome.status === 'applied')).toBe(true)
+
+    const persisted = await BindingStore.open({ dir: bindings.dir })
+    const row = await persisted.read(before.sessionId)
+    expect(row).toMatchObject({
+      state: 'bound',
+      observationGeneration: 2,
+      attemptId: 'attempt-after',
+    })
+    expect(row?.observations).toEqual([
+      expect.objectContaining({
+        channel: 'resume-ref',
+        value: `native-${order}`,
+        pendingServerAck: {
+          nativeKind: 'codex-thread',
+          value: `native-${order}`,
+        },
+      }),
+    ])
+    expect(row?.transitionHistory.map((entry) => entry.event)).toEqual([
+      'spawn',
+      ...(order === 'reattach-first'
+        ? (['reattach', 'hook-repin'] as const)
+        : (['hook-repin', 'reattach'] as const)),
+    ])
+    expect(JSON.stringify(row?.delegationHistory)).toBe(delegation)
+  })
+
   it.each([
     ['alice-first', alice, bob],
     ['bob-first', bob, alice],
