@@ -2707,3 +2707,85 @@ Two smaller things from the same handoff worth keeping:
     reaches `onDegraded` and the UI rather than the caller. Said plainly in the
     file header instead of dressed up as equivalent. A documented asymmetry is
     worth more than a symmetric-looking lie.
+
+## ONE ENGINE PROVING DURABILITY IS ONE ENGINE HIDING THE OTHER'S TIMING (POD-378)
+
+POD-378's removal-family regression runs the same four cases over BOTH shipped
+client storage adapters — IndexedDB and SQLite. That was written as coverage and
+paid for itself as an instrument check within the hour.
+
+Three cases asserted that a row was gone (or a field nulled) by opening a SECOND
+store over the same durable bytes, which is the right shape: a claim about what
+survived, made through the object that held it in memory, is the fixture
+certifying itself. On SQLite all three passed. On IndexedDB all three failed —
+and the reason is that `Replica.settled()` covers the KERNEL's work and stops
+there, while the IndexedDB commit is still sitting in the engine's request queue
+at that moment. `IndexedDbSyncStore.settled()` is the fence, and its own header
+says so.
+
+The direction of the discovery is the part to keep. Had the suite run only
+SQLite — whose commit is synchronous, so the fence is a no-op — every durability
+assertion would have been GREEN and the web lane would have been shipping
+un-fenced reads that report the PREVIOUS frame's answer. Had it run only
+IndexedDB, the failure would have looked like a product bug rather than a
+missing fence.
+
+    Two engines with different commit timing are not "the same test twice".
+    They are the only thing that can tell a durability assertion apart from an
+    assertion about a live object's cache.
+
+The same file's mutation evidence makes the point from the other side: MERGING
+the upsert over the previous value was injected into each adapter separately,
+and each mutant killed its OWN lane and left the other green — which is what
+proves the two lanes are two instruments rather than one parameterised alias.
+
+Adjacent, and cheaper to learn here than in a real absence: an "expect zero of
+X" assertion needs an event WINDOW, not a count from index 0. The watermark case
+first failed on an `upserted` event emitted by its own bootstrap three frames
+earlier. That is the benign direction. The same off-by-a-lifetime in a case
+asserting an ABSENCE passes silently, by measuring a window in which the thing
+genuinely never happened.
+
+## A REBASE THAT REPORTS SUCCESS CAN HAVE DELETED A SIBLING'S WORK (POD-378)
+
+This file is the conflict every child of this run will hit, because every child
+appends to it. POD-378 hit it rebasing onto integration and resolved it wrongly
+in a way nothing reported.
+
+The conflict came back in **diff3** form — four markers, not three:
+
+    <<<<<<< HEAD          ← integration's sections
+    ||||||| parent of …   ← the COMMON ANCESTOR's content
+    =======               ← this branch's section
+    >>>>>>> …
+
+A resolver written for the three-marker form keeps "ours", keeps "theirs", and
+has no rule for the base region. Dropping the base along with the markers deleted
+**~465 lines of integration's ledger**, including the entry a sibling had added an
+hour earlier. `git rebase --continue` then reported success, the branch built, and
+every test passed — because the ledger is documentation and nothing tests it.
+
+    A rebase reports whether it could APPLY your commits. It cannot report that
+    your resolution threw away someone else's paragraph.
+
+What caught it was not the rebase and not the suite. It was diffing the resolved
+file against the branch being rebased onto and reading the SHAPE of the diff:
+
+    git diff issue/279-integration -- <file>   # removed: 406, added: 31
+
+For an append-only file the removed count must be **zero**. That check takes
+seconds and is the only thing standing between a silent resolution and a silently
+reverted sibling. The repair is equally blunt and worth preferring to a careful
+merge: take the upstream file verbatim, append your own section, and re-diff until
+removed is 0.
+
+Generalised, because the ledger is only the most likely instance:
+
+    After any conflict resolution on a file nothing tests, diff the result
+    against the branch you resolved TOWARD and require the deletion count to
+    match what you intended to delete. Usually that is zero.
+
+The failure is asymmetric and that is why it deserves its own entry: resolving
+toward your own version loses OTHER PEOPLE'S work, so the person who made the
+mistake is the least likely to notice it, and the person harmed is not reviewing
+your branch.
