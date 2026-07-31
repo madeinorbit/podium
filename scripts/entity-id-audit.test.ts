@@ -277,18 +277,26 @@ describe('tenant inference', () => {
     // `parentId` is the planted survivor from POD-1212, in the `.nullable()`
     // chain spelling it is actually written in.
     expect(
-      inTenant('export const reparentInput = z.object({ parentId: z.string().nullable() })', CONTRACTS),
+      inTenant(
+        'export const reparentInput = z.object({ parentId: z.string().nullable() })',
+        CONTRACTS,
+      ),
     ).toHaveLength(1)
   })
 
   it('reads the tenant from a MODULE path too, not only a contracts file', () => {
     expect(
-      inTenant('export const q = z.object({ id: z.string() })', 'apps/server/src/modules/issues/queries.ts'),
+      inTenant(
+        'export const q = z.object({ id: z.string() })',
+        'apps/server/src/modules/issues/queries.ts',
+      ),
     ).toHaveLength(1)
   })
 
   it('STOPS firing when the tenant site is branded — the counterfactual', () => {
-    expect(inTenant('export const byId = z.object({ id: IssueIdField })', CONTRACTS)).toHaveLength(0)
+    expect(inTenant('export const byId = z.object({ id: IssueIdField })', CONTRACTS)).toHaveLength(
+      0,
+    )
   })
 
   it('STAYS SILENT in a tenant directory that has NO brand', () => {
@@ -296,7 +304,10 @@ describe('tenant inference', () => {
     // so there is nothing for their `id` to be flipped TO. This item counts
     // fields whose brand EXISTS; inventing one is a different piece of work.
     expect(
-      inTenant('export const byId = z.object({ id: z.string() })', 'packages/commands/src/mail/contracts.ts'),
+      inTenant(
+        'export const byId = z.object({ id: z.string() })',
+        'packages/commands/src/mail/contracts.ts',
+      ),
     ).toHaveLength(0)
   })
 
@@ -322,10 +333,13 @@ describe('tenant inference', () => {
     // The polymorphic and sub-entity sites tenant inference reaches are excluded
     // by a reasoned, RATCHETED marker — see the note above DISCRIMINATOR-less
     // design in entity-id-audit.ts.
-    const src = '/** UNBRANDED: polymorphic — `kind` says what this names. */\nexport const pinSet = z.object({ id: z.string() })'
+    const src =
+      '/** UNBRANDED: polymorphic — `kind` says what this names. */\nexport const pinSet = z.object({ id: z.string() })'
     expect(inTenant(src, 'packages/commands/src/sessions/presence.ts')).toHaveLength(0)
     expect(
-      unbrandedByDecisionFields(ctxOf(SCAFFOLD + src, 'packages/commands/src/sessions/presence.ts')),
+      unbrandedByDecisionFields(
+        ctxOf(SCAFFOLD + src, 'packages/commands/src/sessions/presence.ts'),
+      ),
     ).toHaveLength(1)
   })
 })

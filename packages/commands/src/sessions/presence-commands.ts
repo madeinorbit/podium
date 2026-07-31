@@ -182,7 +182,11 @@ const markRead: CommandDef = {
 
 const markUnread: CommandDef = { ...markRead }
 
-const snoozeSetInput = z.object({ sessionId: SessionIdField, until: z.string().nullable(), mutationId })
+const snoozeSetInput = z.object({
+  sessionId: SessionIdField,
+  until: z.string().nullable(),
+  mutationId,
+})
 
 const snoozeSet: CommandDef = {
   input: snoozeSetInput,

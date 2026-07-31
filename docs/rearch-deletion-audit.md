@@ -435,6 +435,31 @@ Three decisions are recorded rather than left implicit:
 3. **The excuse is counted too.** Without `unbranded-by-decision-ids`, the first
    item is zeroable by writing `UNBRANDED` above every field. With it, an excuse
    raises a committed number and the audit fails until the reason is recorded.
+4. **The TENANT is a third spelling of the concept** (POD-1212). Decisions 1–3
+   left a hole big enough to drive a command contract through: both spellings the
+   detector knew read a NAME, and
+
+   ```ts
+   const byId = z.object({ id: z.string() })   // ten issue commands
+   ```
+
+   has neither — the key is `id`, the declaration is `byId`, and only the
+   DIRECTORY says `Issue`. POD-1212 proved it by flipping a branded field back to
+   a bare string in `packages/commands/src/issues/contracts.ts` and watching
+   `audit:rearch` stay green. `brandOfPath` closes it by singularising path
+   segments against the same derived vocabulary: **34** sites the previous
+   detector scored as absent, 31 of them flipped. A declaration naming a
+   DIFFERENT entity vetoes the directory, so `IssueComment.id` inside `issues/`
+   is still not an `IssueId`.
+
+   A structural rule for the polymorphic case — exclude a bare `id` whose object
+   declares a `kind` sibling — was implemented and **reverted**: it silently
+   excluded `startInput` and `addSessionInput` (`agentKind` is an attribute) and
+   `actionInput` (`kind` is the verb), all three of whose ids are issue ids. What
+   makes `pinSetInput` polymorphic is its enum's MEMBERS, which is not legible at
+   the declaration. An exclusion that cannot tell those apart fails by quietly
+   not looking, which is the defect this whole item exists to prevent — so the
+   polymorphic site is answered by the ratcheted `UNBRANDED` marker instead.
 
 **Limit, stated because a grep audit is never sufficient:** only zod field
 positions are in a baseline key. The same scan also classifies drizzle columns

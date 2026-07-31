@@ -44,14 +44,24 @@
  *     boundary parse" reading (POD-423 verified it by hand at
  *     `packages/commands/src/issues/contracts.ts`).
  *
- * Both spellings of "an entity id field" are enumerated:
+ * All THREE spellings of "an entity id field" are enumerated:
  *
- *   1. a `<brand>Id`-suffixed key, at any depth; and
+ *   1. a `<brand>Id`-suffixed key, at any depth;
  *   2. a bare `id:` key at the top level of a `z.object` whose declaration NAME
  *      denotes a brand (`Account.id` in `packages/runtime/src/settings.ts`,
  *      which an eight-name grep cannot see). See {@link REPRESENTATION_SUFFIXES}
  *      for where that inference stops — `IssueComment.id` is NOT an `IssueId`,
- *      and POD-423 named it as a defect in error.
+ *      and POD-423 named it as a defect in error; and
+ *   3. a bare `id:` (or a self-referential `parentId`) in a file whose TENANT
+ *      DIRECTORY names the brand — {@link brandOfPath}, added at POD-1212.
+ *
+ * Spelling 3 exists because spellings 1 and 2 both read a NAME, and a command
+ * contract has neither: `const byId = z.object({ id: z.string() })` in
+ * `packages/commands/src/issues/` is the id of an issue, and POD-1212 proved the
+ * gap by flipping a branded field back to a bare string there and watching the
+ * whole audit stay GREEN. 34 sites were invisible for that reason. A declaration
+ * that names a DIFFERENT entity vetoes the directory ({@link declaresOtherEntity}),
+ * so spelling 3 cannot outvote the judgement spelling 2 makes.
  *
  * ---------------------------------------------------------------------------
  * THE INSTRUMENT MUST BE ABLE TO SAY NO
@@ -115,7 +125,17 @@
  *     so branding them at the declaration forces a false choice (POD-362's
  *     finding, upheld). Their names do not end in `<brand>Id`, so the detector
  *     does not reach them — that is the right answer, not a miss, and it is
- *     recorded here so a later sweep does not "fix" it.
+ *     recorded here so a later sweep does not "fix" it. Spelling 3 DOES reach
+ *     one such site (`pinSetInput.id`), which is why it carries an `UNBRANDED`
+ *     marker; see the note above {@link declaresOtherEntity} for why that is a
+ *     marker and not a structural rule.
+ *  4. **An id whose name names NEITHER its brand nor a tenant is unreachable.**
+ *     `duplicateInput.canonicalId` is an issue id and this detector cannot see
+ *     it; nor can it see `causationId` (a `mutationId` by another name). The
+ *     wider class — `requestId`, `runId`, `revisionId`, `stepId` and ~40 more,
+ *     measured at 227 sites — is mostly NOT this item's debt, because those name
+ *     entities with no brand in `packages/model` at all: there is nothing for
+ *     them to be flipped TO. Minting those brands is its own piece of work.
  *  3. **A brand can still be widened downstream.** This sees the declaration,
  *     not what a consumer does with the value.
  */
@@ -301,7 +321,10 @@ export function brandOfSymbol(
  * unmeasured HERE — correctly, because this item counts fields whose brand
  * EXISTS, and inventing one is POD-318's kind of work, not this key's.
  */
-export function brandOfPath(file: string, brandNames: readonly string[] = ID_BRANDS): string | null {
+export function brandOfPath(
+  file: string,
+  brandNames: readonly string[] = ID_BRANDS,
+): string | null {
   for (const seg of file.replace(/\.[jt]sx?$/, '').split('/')) {
     const pascal = seg
       .split('-')
