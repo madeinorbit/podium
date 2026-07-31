@@ -4151,3 +4151,59 @@ makes an edge an entity only when a replica-side join needs it.
 
 A decision recorded with the wrong justification is a precedent that misfires. The
 justification is the reusable part; the answer is not.
+
+## SMALL IN THE FILE, LARGE IN THE TREE — a usable trigger for "scope this separately"
+
+POD-1246's generalisation after the third occurrence, and it converts a judgement
+call into something you can notice.
+
+Three times in this catch-up a merge resolution turned out to smuggle a
+system-wide behaviour change:
+
+  POD-1247  switching to integration's default-closed arbitration engine changes
+            behaviour for every caller that omits `expectedRevision` — today, all
+            of them.
+  POD-1250  making `conflict` required on `CommandContractBase` cascades to every
+            namespace: sessions, mail, workflows.
+  null-encoding  porting main's `shape.ts` to unblock two sync.ts hunks would
+            decide null-encoding for the whole tree as a side effect.
+
+EACH TIME THE TELL WAS THE SAME: the change was SMALL IN THE FILE and LARGE IN THE
+TREE. A few lines in one resolution, and a semantic change everywhere the type or
+default reaches. That asymmetry is noticeable at the moment of the edit, which is
+what makes it a trigger rather than a lesson.
+
+THE RULE: when a resolution is small in the diff and large in the blast radius,
+STOP AND SCOPE IT SEPARATELY. Not because it is wrong — all three of these are
+probably right eventually — but because inside a large merge it is invisible, and
+"invisible behaviour change buried in 109 conflicts on the branch replacing a live
+system" is the worst place for a correct decision to be made.
+
+Filed separately, each becomes a decision with a test. Made inline, each is a
+line someone has to notice in a diff nobody can hold in their head.
+
+## The reason must be recorded even when the answer is uncontroversial
+
+POD-1246's addition to the right-answer-wrong-reason entry, and it explains why
+that failure is so hard to catch.
+
+THE FAILURE IS INVISIBLE AT THE MOMENT OF THE DECISION, because the outcome is
+right. Nothing looks wrong; the reviewer agrees; the work proceeds. It surfaces
+only at the NEXT case, when someone applies the recorded reason and gets an answer
+the actual rule would not have given.
+
+Which is exactly why the reason belongs in the record even when the answer is
+uncontroversial — the answer is what everyone checks, and the reason is what gets
+reused.
+
+## Treat "complies with X" as a claim with a pointer attached
+
+POD-1246's practical form of the compliance-claim entry, small enough to actually
+do: a comment saying "complies with X" is an UNVERIFIED CLAIM, and the citation is
+the gift — it tells you exactly which clause to open. Open X. Then check that the
+property the comment demonstrates is the property the clause requires.
+
+That is the only thing separating a real compliance note from a confident one, and
+it costs one file-open. The alternative is what happened here: everyone who read
+`issue.ts`, this coordinator included, treated the citation as evidence THE CHECK
+HAD ALREADY HAPPENED.
