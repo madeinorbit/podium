@@ -33,6 +33,18 @@ should run and **nothing constructs a kernel `Replica` from its answer**. The wi
 mapping, the feed consumer, both storage adapters and the legacy-replica migration all exist and are
 green; the one missing piece is the facade that lets the engine read through them.
 
+**Correction from POD-1220 (2026-07-31), and it changes who to chase.** Saying "two blocking
+children" understates the coupling: POD-1223 needs the *same* file POD-1220 does, so **three issues
+wait on one facade**, not two on two. And **nothing is in flight** — POD-1220 is backlog, unclaimed,
+and has neither branch nor worktree (POD-377 was merged at `1c78ed9f` and its worktree was reclaimed
+with it), while POD-1223 is `planning`. The two have mailed each other to settle ownership before
+either starts; either owning it is fine, and POD-1220 has said it will pick it up with a workspace if
+the coordinator confirms nobody else is scheduled.
+
+**So the scheduling ask is one item, not three:** put the client `Replica` facade over
+`{cache: ReplicaCacheStore, outbox: OutboxStorePort}` on someone, in
+`packages/client-core/src/replica/`. POD-1223, POD-1220 and this issue all unblock on it.
+
 **Decision taken, with no human available (POD-279 fan-out rule 2):** do not write a second facade.
 POD-1220's brief states that POD-376 explicitly agreed to consume POD-1220's file rather than write
 its own, and "a second client Replica facade is exactly the fork this programme exists to end". A
