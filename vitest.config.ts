@@ -49,6 +49,28 @@ export const sharedVitestConfig = {
         find: '@podium/protocol',
         replacement: fileURLToPath(new URL('./packages/protocol/src/index.ts', import.meta.url)),
       },
+      // ANCHORED, and added by POD-736 after it cost a real defect. `@podium/sync`
+      // was absent from this list, so a `scripts/` test importing it took the
+      // walk-up described above and resolved the MAIN checkout's copy — which
+      // predates POD-1077 and exports no `DEVICE_GRADE_PRINCIPAL`.
+      //
+      // WHAT THAT ACTUALLY DID, because "an import resolved elsewhere" sounds
+      // survivable: `audit-serving-path.test.ts` served a v1 peer with
+      // `principal === undefined` and PASSED, because nothing downstream read the
+      // principal. It was a green test certifying a serving path admitted with no
+      // principal at all — the run's dominant defect, arriving through the module
+      // resolver rather than through a fixture. POD-736's `perfPrincipal` reads
+      // `principal.kind` and turned it into a crash, which is how it was found.
+      //
+      // Anchored rather than a bare string: sync exposes ./replica, ./outbox,
+      // ./span and three ./adapters/* subpaths, and a prefix match would rewrite
+      // '@podium/sync/span' to '<index.ts>/span'. Subpath specifiers therefore
+      // still resolve through the exports map; no test imports one today, and the
+      // day one does it wants its own anchored entry rather than a prefix.
+      {
+        find: /^@podium\/sync$/,
+        replacement: fileURLToPath(new URL('./packages/sync/src/index.ts', import.meta.url)),
+      },
       {
         find: '@podium/pty',
         replacement: fileURLToPath(new URL('./packages/pty/src/index.ts', import.meta.url)),
