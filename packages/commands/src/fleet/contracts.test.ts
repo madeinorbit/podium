@@ -1,5 +1,5 @@
 /**
- * The L1 gate over the ten fleet contracts: classifications are TOTAL, the
+ * The L1 gate over the twelve fleet contracts: classifications are TOTAL, the
  * `manage` / `use` partition is exact, the server-role split is exact, and the
  * visibility classes agree with ADR 1's matrix rather than with a literal
  * written twice.
@@ -24,8 +24,10 @@ import {
   fleetServerRoleOf,
 } from './contracts'
 
-const TEN: readonly FleetContractName[] = [
+const TWELVE: readonly FleetContractName[] = [
   'machines.rename',
+  'machines.share',
+  'machines.unshare',
   'machines.revoke',
   'machines.pairingCode',
   'repos.add',
@@ -53,9 +55,9 @@ const contracts = (): AnyCommandContract[] =>
 const isDeclaredMatrixRow = (row: string): boolean =>
   OWNERSHIP_MATRIX.some((r) => (r.id as string) === row)
 
-describe('the ten fleet contracts', () => {
-  it('declares exactly the ten POD-384 named, and no eleventh', () => {
-    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...TEN].sort())
+describe('the twelve fleet contracts', () => {
+  it('declares exactly the twelve fleet commands, and no thirteenth', () => {
+    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...TWELVE].sort())
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -118,6 +120,8 @@ describe('the ten fleet contracts', () => {
     // the ones whose class was the hard call.
     const writesInto: Record<FleetContractName, string> = {
       'machines.rename': 'machine',
+      'machines.share': 'machine',
+      'machines.unshare': 'machine',
       'machines.revoke': 'machine',
       'machines.pairingCode': 'pairing-token',
       'repos.add': 'repo-prefix',
@@ -138,7 +142,7 @@ describe('the ten fleet contracts', () => {
   })
 
   /**
-   * THE COUNTERFACTUAL for the assertion above. Nine of the ten share one class,
+   * THE COUNTERFACTUAL for the assertion above. Eleven of the twelve share one class,
    * so an assertion that only ever compared `owned-compute` to `owned-compute`
    * would pass against a table where every contract had been copied from its
    * neighbour — which is precisely the mistake the brief flagged as costliest
@@ -162,6 +166,8 @@ describe('the ten fleet contracts', () => {
     )
     expect(byVerb).toEqual({
       'machines.rename': 'manage',
+      'machines.share': 'manage',
+      'machines.unshare': 'manage',
       'machines.revoke': 'manage',
       // No machine exists yet, so there is no machine to hold a verb against.
       'machines.pairingCode': null,
@@ -214,6 +220,8 @@ describe('the ten fleet contracts', () => {
     )
     expect(byRole).toEqual({
       'machines.rename': 'hub',
+      'machines.share': 'hub',
+      'machines.unshare': 'hub',
       'machines.revoke': 'hub',
       'machines.pairingCode': 'hub',
       'repos.add': 'core',
@@ -275,7 +283,7 @@ describe('the ten fleet contracts', () => {
     // has an owner column, and a floor of `admin` there would make ADR 9 D6
     // M1's "Owner + admins" unreachable for the owner.
     expect(byFloor['machines.pairingCode']).toBe('admin')
-    for (const name of TEN.filter((n) => n !== 'machines.pairingCode')) {
+    for (const name of TWELVE.filter((n) => n !== 'machines.pairingCode')) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
     }
   })

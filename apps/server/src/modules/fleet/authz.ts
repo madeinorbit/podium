@@ -44,15 +44,11 @@ import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
 import { isAdminGrade, type UserRole } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import {
-  type CommandPrincipal,
-  onBehalfOfUser,
-  resolvePrincipal,
-} from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
 import {
   checkMachineVerb,
-  machineAccessMessage,
   type MachineOwnershipIndex,
+  machineAccessMessage,
   ownershipFromMachines,
 } from '../../machine-access'
 import { sessionSpawnerParentId } from '../../steward'
@@ -99,6 +95,8 @@ const named = (machineId: string | undefined): FleetTarget =>
  */
 export const FLEET_TARGETS = {
   'machines.rename': (input: unknown) => named((input as { id: string }).id),
+  'machines.share': (input: unknown) => named((input as { id: string }).id),
+  'machines.unshare': (input: unknown) => named((input as { id: string }).id),
   'machines.revoke': (input: unknown) => named((input as { id: string }).id),
   // No machine exists yet, so there is no owner column that could admit anyone —
   // the `admin` floor is the only gate, exactly as POD-384's rationale says.
@@ -110,8 +108,7 @@ export const FLEET_TARGETS = {
   // Input is `z.void()`: it refreshes every online machine.
   'discovery.refreshRepos': () => ({ kind: 'fleet-wide' }) as FleetTarget,
   'discovery.scanFolder': (input: unknown) => named((input as { machineId?: string }).machineId),
-  'discovery.scanMachine': (input: unknown) =>
-    named((input as { machineId: string }).machineId),
+  'discovery.scanMachine': (input: unknown) => named((input as { machineId: string }).machineId),
 } satisfies Record<FleetContractName, (input: unknown) => FleetTarget>
 
 // ---------------------------------------------------------------------------
@@ -126,10 +123,7 @@ export const FLEET_TARGETS = {
  * reason this takes `UserRole | undefined` rather than defaulting a missing row
  * to `member` somewhere upstream.
  */
-export function roleSatisfiesFloor(
-  role: UserRole | undefined,
-  floor: 'admin' | 'member',
-): boolean {
+export function roleSatisfiesFloor(role: UserRole | undefined, floor: 'admin' | 'member'): boolean {
   if (role === undefined) return false
   return floor === 'admin' ? isAdminGrade(role) : true
 }
@@ -194,18 +188,27 @@ export function fleetAuthzFailure(
   //
   // Read through `CommandPolicy` rather than off the union: `machineVerb` is the
   // one optional field in the shape (framework.ts: "only a contract that places
-  // work on owned compute has one"), so the literal union of ten policies has
+  // work on owned compute has one"), so the literal union of twelve policies has
   // members without the key. The narrowing is what the field's optionality MEANS
   // — it is not a cast around a missing declaration.
-  const verb: MachineVerb | undefined = (policy as { machineVerb?: MachineVerb }).machineVerb
+  const fleetPolicy = policy as {
+    machineVerb?: MachineVerb
+    machineSharingAuthority?: 'owner-only'
+  }
+  const verb = fleetPolicy.machineVerb
   if (verb === undefined) return undefined
 
   const target = (FLEET_TARGETS[name] as (i: unknown) => FleetTarget)(input)
   switch (target.kind) {
     case 'none':
       return undefined
-    case 'machine':
-      return machineRefusal(target.machineId, verb, deps)
+    case 'machine': {
+      const refusal = machineRefusal(target.machineId, verb, deps)
+      if (refusal) return refusal
+      return fleetPolicy.machineSharingAuthority === 'owner-only'
+        ? machineOwnerRefusal(target.machineId, deps)
+        : undefined
+    }
     case 'default':
       return machineRefusal(deps.defaultMachine(), verb, deps)
     case 'fleet-wide': {
@@ -216,13 +219,33 @@ export function fleetAuthzFailure(
       const reachable = deps.allMachineIds().filter((id) => mayUse(id, verb, deps))
       return reachable.length > 0
         ? undefined
-        : new TRPCError({ code: 'NOT_FOUND', message: machineAccessMessage('absent', '', undefined) })
+        : new TRPCError({
+            code: 'NOT_FOUND',
+            message: machineAccessMessage('absent', '', undefined),
+          })
     }
   }
 }
 
 const mayUse = (machineId: string, verb: MachineVerb, deps: FleetAuthzDeps): boolean =>
   checkMachineVerb(deps.principal, machineId, deps.ownership, verb) === undefined
+
+function machineOwnerRefusal(machineId: string, deps: FleetAuthzDeps): TRPCError | undefined {
+  const row = deps.ownership.rowFor(machineId)
+  const human = onBehalfOfUser(deps.principal)
+  if (!row || row.owner === null || human === null) {
+    return new TRPCError({
+      code: 'NOT_FOUND',
+      message: machineAccessMessage('absent', machineId, undefined),
+    })
+  }
+  return row.owner === human
+    ? undefined
+    : new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'only the machine owner may change sharing',
+      })
+}
 
 function machineRefusal(
   machineId: string,

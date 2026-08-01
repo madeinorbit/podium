@@ -434,7 +434,9 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     )
 
     await openBareApp(memberPage)
-    await expect.poll(() => memberPage.evaluate(() => globalThis.__podiumReplicaPath)).toBe('kernel')
+    await expect
+      .poll(() => memberPage.evaluate(() => globalThis.__podiumReplicaPath))
+      .toBe('kernel')
     await expect
       .poll(() => kernelEntityKeys(memberPage), { timeout: 30_000 })
       .toEqual(
