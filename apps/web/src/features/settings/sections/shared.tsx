@@ -94,19 +94,16 @@ export function providerLabel(p: ApiProvider): string {
   }
 }
 
+const HARNESS_AGENT_LABELS: Record<HarnessAgent, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  grok: 'Grok',
+  opencode: 'OpenCode',
+  cursor: 'Cursor',
+}
+
 export function harnessAgentLabel(agent: HarnessAgent): string {
-  switch (agent) {
-    case 'claude-code':
-      return 'Claude Code'
-    case 'codex':
-      return 'Codex'
-    case 'grok':
-      return 'Grok'
-    case 'opencode':
-      return 'OpenCode'
-    case 'cursor':
-      return 'Cursor'
-  }
+  return HARNESS_AGENT_LABELS[agent]
 }
 
 export function clampInt(raw: string, min: number, max: number, fallback: number): number {

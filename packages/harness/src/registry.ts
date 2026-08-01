@@ -1,5 +1,9 @@
 import type { AgentKind, HarnessAgent } from '@podium/model'
-import { type BuiltinHarnessKind, isBuiltinHarnessKind } from '@podium/protocol'
+import {
+  type BuiltinHarnessKind,
+  isBuiltinHarnessKind,
+  type ObservationProvider,
+} from '@podium/protocol'
 import type { TranscriptRecordMapper } from '@podium/transcript'
 import type { AgentStateProvider } from './agent-state/types.js'
 import { type AgentManifest, declaredValue, type HarnessCapabilities } from './manifest.js'
@@ -64,12 +68,52 @@ export function harnessShowsPromptModeHints(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.promptModeHints ?? false
 }
 
-export function harnessSupportsHandoff(kind: AgentKind | string): boolean {
+export function harnessSupportsHandoff(kind: AgentKind | string): kind is 'claude-code' | 'codex' {
   return harnessCapabilitiesFor(kind)?.handoff ?? false
 }
 
 export function harnessSupportsMcp(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.mcp === 'full'
+}
+
+export function harnessObservationProvider(
+  kind: AgentKind | string,
+): ObservationProvider | undefined {
+  const provider = harnessCapabilitiesFor(kind)?.observationProvider
+  return provider === 'none' ? undefined : provider
+}
+
+export function harnessObservationProtocol(
+  kind: AgentKind | string,
+): HarnessCapabilities['observationProtocol'] | undefined {
+  return harnessCapabilitiesFor(kind)?.observationProtocol
+}
+
+export function harnessNeedsSubmitVerification(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.submitVerification ?? false
+}
+
+export function harnessRequiresExclusiveInteractiveResume(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.exclusiveInteractiveResume ?? false
+}
+
+export function harnessUsesPromptTitleFallback(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.promptTitleFallback ?? false
+}
+
+export function harnessMcpConfigTransport(
+  kind: AgentKind | string,
+): HarnessCapabilities['mcpConfigTransport'] {
+  return harnessCapabilitiesFor(kind)?.mcpConfigTransport ?? 'none'
+}
+
+export function harnessPremintsHeadlessResumeId(kind: AgentKind | string): boolean {
+  const headless = manifestFor(kind)?.headless
+  const value = headless ? declaredValue(headless) : undefined
+  return (
+    value?.resumeIdAllocation === 'sdk-session-uuid' ||
+    value?.resumeIdAllocation === 'daemon-minted-uuid'
+  )
 }
 
 export function harnessDisplayName(kind: AgentKind | string): string {

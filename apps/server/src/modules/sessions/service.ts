@@ -45,8 +45,12 @@ import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import {
   harnessCapabilitiesFor,
+  harnessNeedsSubmitVerification,
+  harnessObservationProvider,
+  harnessRequiresExclusiveInteractiveResume,
   harnessSupportsEffort,
   harnessSupportsInitialPrompt,
+  harnessUsesPromptTitleFallback,
 } from '../../harness-manifest'
 import {
   computePriorities,
@@ -73,7 +77,6 @@ import {
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
   type ObservationInputOrigin,
-  type ObservationProvider,
   type RepoProjection,
   type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
@@ -165,10 +168,6 @@ import {
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 
-function observationProviderFor(kind: AgentKind): ObservationProvider | undefined {
-  if (kind === 'claude-code' || kind === 'codex' || kind === 'grok') return kind
-  return undefined
-}
 // Delay between a chat message's bracketed paste and its submitting CR, so the CR
 // lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
 // paste-end marker → the message types in but never submits). See sendText().
@@ -575,7 +574,7 @@ export class SessionsService {
    * sent. Shells and non-causal adapters intentionally have no lease.
    */
   private fenceObservation(session: Session): ObservationLeaseRecord | undefined {
-    const provider = observationProviderFor(session.agentKind)
+    const provider = harnessObservationProvider(session.agentKind)
     if (!provider) return undefined
     const lease = this.store.observationCheckpoints.advanceGeneration(
       session.sessionId,
@@ -1987,7 +1986,7 @@ export class SessionsService {
     // The delay is a heuristic, not a handshake — verify the submit landed and
     // retry the CR while it didn't [POD-152]. Baseline the user-turn echo count
     // now, before the CR can produce one.
-    if (session.agentKind === 'claude-code') {
+    if (harnessNeedsSubmitVerification(session.agentKind)) {
       this.scheduleSubmitVerify(sessionId, this.userTurnCount(session), 1)
     }
     return { ok: true }
@@ -4785,7 +4784,7 @@ export class SessionsService {
         const lease =
           this.observationLeases.get(msg.sessionId) ??
           this.store.observationCheckpoints.get(msg.sessionId)
-        const expectedProvider = observationProviderFor(session.agentKind)
+        const expectedProvider = harnessObservationProvider(session.agentKind)
         const sessionBindingCompatible =
           session.resume === undefined ||
           (session.resume.kind === msg.resumeKind &&
@@ -5192,12 +5191,12 @@ export class SessionsService {
         // overwrite an established binding. Exact native-hook or legacy-marker
         // evidence wins and clears stale siblings so the invariant heals in place.
         const conflicts =
-          session.agentKind === 'codex' && !session.headless
+          harnessRequiresExclusiveInteractiveResume(session.agentKind) && !session.headless
             ? [...this.sessions.values()].filter(
                 (other) =>
                   other.sessionId !== session.sessionId &&
                   !other.headless &&
-                  other.agentKind === 'codex' &&
+                  harnessRequiresExclusiveInteractiveResume(other.agentKind) &&
                   other.resume?.kind === msg.resume.kind &&
                   other.resume.value === msg.resume.value,
               )
@@ -5305,7 +5304,7 @@ export class SessionsService {
         // or this fallback), name the session from the first user prompt so it
         // doesn't sit on the cwd/"Claude Code" placeholder for the long stretch
         // before Claude generates its own title.
-        if (session && session.agentKind === 'claude-code' && !session.titleLocked) {
+        if (session && harnessUsesPromptTitleFallback(session.agentKind) && !session.titleLocked) {
           const firstUser = session.transcriptItems().find(
             (it) =>
               it.role === 'user' &&

@@ -91,25 +91,17 @@ export function hostMemoryView(host: HostMetricsWire): HostMemoryView {
   }
 }
 
+const PANEL_LABELS: Record<AgentKind, string> = {
+  'claude-code': 'Claude',
+  codex: 'Codex',
+  grok: 'Grok',
+  opencode: 'OpenCode',
+  cursor: 'Cursor',
+  shell: 'Shell',
+}
+
 export function panelLabel(agentKind: AgentKind): string {
-  switch (agentKind) {
-    case 'claude-code':
-      return 'Claude'
-    case 'codex':
-      return 'Codex'
-    case 'grok':
-      return 'Grok'
-    case 'opencode':
-      return 'OpenCode'
-    case 'cursor':
-      return 'Cursor'
-    case 'shell':
-      return 'Shell'
-    default: {
-      const exhaustive: never = agentKind
-      return exhaustive
-    }
-  }
+  return PANEL_LABELS[agentKind]
 }
 
 /**
@@ -119,13 +111,16 @@ export function panelLabel(agentKind: AgentKind): string {
  * `transcriptAvailable` flag still wins when present; this is the fallback.
  */
 export function defaultChatCapable(agentKind: AgentKind): boolean {
-  return (
-    agentKind === 'claude-code' ||
-    agentKind === 'grok' ||
-    agentKind === 'codex' ||
-    agentKind === 'opencode' ||
-    agentKind === 'cursor'
-  )
+  return DEFAULT_CHAT_CAPABLE[agentKind]
+}
+
+const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
+  'claude-code': true,
+  codex: true,
+  grok: true,
+  opencode: true,
+  cursor: true,
+  shell: false,
 }
 
 export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
@@ -2552,7 +2547,7 @@ export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
 /**
  * The native CLI command that resumes this session's conversation, for #119
  * (show + copy). Mirrors the canonical builder in
- * `@podium/agent-bridge`'s `agentLaunchCommand` (the single place the daemon
+ * `@podium/harness`'s `agentLaunchCommand` (the single place the daemon
  * actually spawns resumes) — the web app doesn't depend on agent-bridge, so the
  * per-CLI resume flag is replicated here. Keyed off the harness-supplied
  * `ResumeRef.kind` (set by each discovery provider) rather than `agentKind`, so

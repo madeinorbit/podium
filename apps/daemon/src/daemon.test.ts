@@ -711,7 +711,7 @@ describe('daemon multi-bridge', () => {
   })
 
   it('scanReposRequest returns a wire-valid repository for a seeded repo root', async () => {
-    // Hand-build a minimal git repo (mirrors packages/agent-bridge git scanner fixtures).
+    // Hand-build a minimal git repo (mirrors packages/harness git scanner fixtures).
     const root = trackTmp('podium-repos-')
     const repo = join(root, 'app')
     const gitDir = join(repo, '.git')

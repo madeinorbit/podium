@@ -58,6 +58,12 @@ export const opencodeManifest: AgentManifest = {
     handoff: false,
     mcp: 'none',
     hookInstall: 'none',
+    observationProvider: 'none',
+    observationProtocol: 'generic',
+    submitVerification: false,
+    exclusiveInteractiveResume: false,
+    promptTitleFallback: false,
+    mcpConfigTransport: 'none',
   },
   resumeKind: 'opencode-session',
 
@@ -113,6 +119,7 @@ export const opencodeManifest: AgentManifest = {
 
   headless: supported({
     driver: 'resume-exec',
+    outputFormat: 'opencode-jsonl',
     // First turn has no id (opencode mints ses_… internally; captured from the
     // --format json event stream); later turns pin with -s.
     resumeIdAllocation: 'stream-captured',
@@ -175,6 +182,8 @@ export const opencodeManifest: AgentManifest = {
       })
     },
   }),
+
+  handoffTranscript: unsupported('cross-machine handoff is not supported for opencode sessions'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued opencode login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

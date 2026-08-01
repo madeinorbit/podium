@@ -2,7 +2,7 @@ import type { TranscriptItem } from '@podium/model'
 /**
  * One row of opencode's SQLite `part` join (message + part payloads). The type
  * lives here — next to the pure part→items mapper — so the parser package needs
- * no SQLite dependency; @podium/agent-bridge's opencode DB reader produces rows
+ * no SQLite dependency; @podium/harness's opencode DB reader produces rows
  * of this shape and re-exports the type for compatibility.
  */
 export type OpencodeMessagePartRow = {

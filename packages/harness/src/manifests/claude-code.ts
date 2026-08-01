@@ -46,6 +46,12 @@ export const claudeCodeManifest: AgentManifest = {
     handoff: true,
     mcp: 'full',
     hookInstall: 'settings-args',
+    observationProvider: 'claude-code',
+    observationProtocol: 'claude-causal',
+    submitVerification: true,
+    exclusiveInteractiveResume: false,
+    promptTitleFallback: true,
+    mcpConfigTransport: 'path',
   },
   resumeKind: 'claude-session',
 
@@ -118,6 +124,7 @@ export const claudeCodeManifest: AgentManifest = {
     // via the SDK's `sessionId` (a server-minted UUID) so the thread ↔ transcript
     // binding is deterministic.
     driver: 'claude-sdk',
+    outputFormat: 'claude-stream-json',
     resumeIdAllocation: 'sdk-session-uuid',
     buildExec: unsupported('the Claude Agent SDK builds its own invocation in-process'),
   }),
@@ -179,6 +186,20 @@ export const claudeCodeManifest: AgentManifest = {
   discovery: createClaudeCodeConversationProvider(),
 
   transcript: supported(fileTranscript(chainPaths, claudeRecordToItems)),
+
+  handoffTranscript: supported({
+    transcriptPlacement: ({ cwd, homeDir, resumeValue }) =>
+      join(homeDir, '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
+    async transcriptForExport({ cwd, homeDir, resumeValue }) {
+      const path = await locateClaudeSessionFile({
+        cwd,
+        resumeValue,
+        homeDir,
+      })
+      if (!path) throw new Error('Claude transcript not found')
+      return { path }
+    },
+  }),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every
   // other claude.ai/console.anthropic.com URL the CLI opens (artifacts, docs,

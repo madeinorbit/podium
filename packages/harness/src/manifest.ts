@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises'
-import type { HarnessAgent, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type {
   AgentInstruction,
   AgentObservation,
@@ -210,6 +210,9 @@ export interface HarnessHeadless {
    *   'resume-exec' — session-pinned one-shot child (grok/opencode/cursor).
    */
   driver: 'claude-sdk' | 'codex-json' | 'resume-exec'
+  /** The stdout protocol emitted by one headless turn. The daemon parses this
+   * transport shape without branching on which harness selected it. */
+  outputFormat: 'claude-stream-json' | 'codex-jsonl' | 'opencode-jsonl' | 'text'
   /**
    * How the persistent session id is allocated on the FIRST turn:
    *   'sdk-session-uuid' — server-minted UUID passed via the SDK's sessionId;
@@ -402,6 +405,21 @@ export interface BrowserOpenClassification {
   intent: 'login' | 'link'
 }
 
+export interface HarnessHandoffTranscript {
+  transcriptPlacement(input: {
+    cwd: string
+    homeDir: string
+    resumeValue: string
+    filename: string
+    relativeDir?: string
+  }): string
+  transcriptForExport(input: {
+    cwd: string
+    homeDir: string
+    resumeValue: string
+  }): Promise<{ path: string; relativeDir?: string }>
+}
+
 // ---------------------------------------------------------------------------
 // The adapter — ONE object per harness; the registry is the only dispatch.
 // ---------------------------------------------------------------------------
@@ -423,6 +441,7 @@ export interface BrowserOpenClassification {
  * (`launch`, `discovery`, `inventory`) are the irreducible minimum for a harness
  * Podium can spawn and find conversations for; anything less is not a harness.
  *
+
  * PRINCIPAL-FREE. A manifest describes SOFTWARE, never a person. It carries no
  * owner, no user id, no visibility class and no grant check — see `HarnessId` in
  * @podium/protocol for why that separation is load-bearing, and
@@ -458,6 +477,10 @@ export interface AgentManifest {
   /** Per-session native-store observation (state observer + live tail setup).
    *  Unsupported ⇒ no native-store observation; transcript and status stay blind. */
   observer: Declared<HarnessObserver>
+  /** Transcript relocation for cross-machine handoff. Unsupported means this
+   * harness cannot be packaged even if it otherwise has readable history. */
+  handoffTranscript: Declared<HarnessHandoffTranscript>
+
   /** Transcript reads. Unsupported ⇒ this harness's conversations cannot be read
    *  back (no chat switcher, no BTW); the session still runs. POD-398 folds the
    *  per-CLI record→items mappers in behind this field. */
@@ -497,6 +520,18 @@ export interface HarnessCapabilities {
   mcp: 'full' | 'none'
   /** How Podium state hooks reach the harness. */
   hookInstall: 'settings-args' | 'global-env' | 'none'
+  /** Durable observation provider persisted on the server, when one exists. */
+  observationProvider: ObservationProvider | 'none'
+  /** Binding/ack protocol used by the daemon observer host. */
+  observationProtocol: 'claude-causal' | 'codex-exact' | 'generic'
+  /** A submitted CR needs transcript/state verification and bounded retry. */
+  submitVerification: boolean
+  /** Interactive native resume ids must be exclusive to one Podium pane. */
+  exclusiveInteractiveResume: boolean
+  /** First user transcript item may replace the generic launch title. */
+  promptTitleFallback: boolean
+  /** How a one-shot invocation receives Podium's MCP configuration. */
+  mcpConfigTransport: 'path' | 'inline' | 'none'
 }
 
 /** @deprecated Renamed to `AgentManifest` (POD-303/POD-325 vocabulary: the object

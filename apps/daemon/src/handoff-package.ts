@@ -13,11 +13,10 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
-import {
-  claudeProjectSlug,
-  locateClaudeSessionFile,
-  resolvePinnedCodexRollout,
-} from '@podium/harness'
+import { declaredValue, manifestFor } from '@podium/harness'
+
+export { codexTranscriptPlacement } from '@podium/harness'
+
 import type { Attribution, SessionId } from '@podium/model'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
@@ -297,13 +296,17 @@ async function currentWorktreeTree(cwd: string): Promise<string> {
   }
 }
 
-export function codexTranscriptPlacement(
-  home: string,
-  relativeDir: string | undefined,
-  filename: string,
-): string {
-  const safeDir = (relativeDir ?? '').split(/[\\/]+/u).filter((part) => part && part !== '..')
-  return join(home, '.codex', 'sessions', ...safeDir, basename(filename))
+function handoffTranscriptFor(agentKind: string) {
+  const manifest = manifestFor(agentKind)
+  const handoff = manifest ? declaredValue(manifest.handoffTranscript) : undefined
+  if (!manifest) throw new Error(`agent kind ${agentKind} has no harness manifest`)
+  if (!handoff)
+    throw new Error(
+      `harness ${manifest.kind} declares handoff unsupported: ${
+        manifest.handoffTranscript.supported ? '' : manifest.handoffTranscript.reason
+      }`,
+    )
+  return handoff
 }
 
 export function transcriptPlacement(
@@ -311,9 +314,13 @@ export function transcriptPlacement(
   newCwd: string,
   home: string,
 ): string {
-  return manifest.agentKind === 'claude-code'
-    ? join(home, '.claude', 'projects', claudeProjectSlug(newCwd), `${manifest.resume.value}.jsonl`)
-    : codexTranscriptPlacement(home, manifest.transcriptRelativeDir, manifest.transcriptFilename)
+  return handoffTranscriptFor(manifest.agentKind).transcriptPlacement({
+    cwd: newCwd,
+    homeDir: home,
+    resumeValue: manifest.resume.value,
+    filename: manifest.transcriptFilename,
+    ...(manifest.transcriptRelativeDir ? { relativeDir: manifest.transcriptRelativeDir } : {}),
+  })
 }
 
 async function transcriptForExport(input: {
@@ -322,20 +329,11 @@ async function transcriptForExport(input: {
   resumeValue: string
   home: string
 }): Promise<{ path: string; relativeDir?: string }> {
-  if (input.agentKind === 'claude-code') {
-    const path = await locateClaudeSessionFile({
-      cwd: input.cwd,
-      resumeValue: input.resumeValue,
-      homeDir: input.home,
-    })
-    if (!path) throw new Error('Claude transcript not found')
-    return { path }
-  }
-  const found = await resolvePinnedCodexRollout(input.resumeValue, input.home)
-  if (!found) throw new Error('Codex transcript not found')
-  const rel = relative(join(input.home, '.codex', 'sessions'), dirname(found.path))
-  if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
-  return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
+  return handoffTranscriptFor(input.agentKind).transcriptForExport({
+    cwd: input.cwd,
+    homeDir: input.home,
+    resumeValue: input.resumeValue,
+  })
 }
 
 /** Bundle bases are verified on the TARGET (bundle verify needs its prerequisites

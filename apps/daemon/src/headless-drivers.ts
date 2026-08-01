@@ -245,7 +245,7 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
  *  dispatch into the harness adapter registry (#158): each adapter's
  *  `headless.buildExec` owns its CLI's invocation shape.  */
 export function buildHeadlessExec(
-  agent: Exclude<HarnessAgent, 'claude-code'>,
+  agent: HarnessAgent,
   opts: HeadlessExecOptions,
   bins: HarnessBins,
 ): { cmd: string; args: string[]; env?: Record<string, string> } {
@@ -399,16 +399,30 @@ async function readAllStdout(child: ChildProcess): Promise<string> {
   return out.trim()
 }
 
+function headlessFor(agent: HarnessAgent): HarnessHeadless {
+  const manifest = harnessAdapterFor(agent)
+  if (!manifest) throw new Error(`agent kind ${String(agent)} has no harness manifest`)
+  const headless = declaredValue(manifest.headless)
+  if (!headless)
+    throw new Error(
+      `harness ${manifest.kind} declares headless unsupported: ${
+        manifest.headless.supported ? '' : manifest.headless.reason
+      }`,
+    )
+  return headless
+}
+
 /**
  * Session-pinned one-shot turns for grok / opencode / cursor. Message-level
  * only: no partial events, one status, whole output on completion. The harness
  * still owns context via its session store; each turn pins the same id.
  */
 function runResumeExecTurn(
-  spec: HeadlessTurnSpec & { agent: 'grok' | 'opencode' | 'cursor' },
+  spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   bins: HarnessBins,
 ): HeadlessTurnHandle {
+  const headless = headlessFor(spec.agent)
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
   const common = {
     prompt: spec.prompt,
@@ -421,9 +435,9 @@ function runResumeExecTurn(
   }
   emit({ kind: 'status', status: 'starting' })
 
-  if (spec.agent === 'opencode') {
-    // opencode mints its own ses_… id; captured from the --format json stream.
-    const { cmd, args } = buildHeadlessExec('opencode', common, bins)
+  if (headless.outputFormat === 'opencode-jsonl') {
+    // This protocol mints its own session id in the JSON event stream.
+    const { cmd, args } = buildHeadlessExec(spec.agent, common, bins)
     const { child, done } = runChild(cmd, args, spec.cwd, timeoutMs, spec.env, async (child) => {
       const stderrTail = collectStderr(child)
       let sessionId = spec.resumeValue ?? ''
@@ -455,9 +469,9 @@ function runResumeExecTurn(
     // cursor: chat id pre-allocated via `create-chat`, then always --resume.
     let sessionId = spec.resumeValue
     if (!sessionId) {
-      if (spec.agent === 'grok') {
+      if (headless.resumeIdAllocation === 'daemon-minted-uuid') {
         sessionId = randomUUID()
-      } else {
+      } else if (headless.resumeIdAllocation === 'create-chat') {
         const alloc = runChild(
           bins.cursor(),
           ['create-chat'],
@@ -472,6 +486,10 @@ function runResumeExecTurn(
         if (!/^[0-9a-f-]{36}$/i.test(sessionId)) {
           throw new Error(`cursor create-chat did not print a chat id: ${printed}`)
         }
+      } else {
+        throw new Error(
+          `headless driver cannot allocate a session id via ${headless.resumeIdAllocation}`,
+        )
       }
     }
     const { cmd, args } = buildHeadlessExec(spec.agent, { ...common, sessionId }, bins)
@@ -490,12 +508,7 @@ type HeadlessDriver = (
   bins: HarnessBins,
 ) => HeadlessTurnHandle
 
-const resumeExecDriver: HeadlessDriver = (spec, emit, bins) =>
-  runResumeExecTurn(
-    spec as HeadlessTurnSpec & { agent: 'grok' | 'opencode' | 'cursor' },
-    emit,
-    bins,
-  )
+const resumeExecDriver: HeadlessDriver = runResumeExecTurn
 
 /** Driver body per adapter-declared driver KIND (`adapter.headless.driver`) —
  *  the closed set of runtime strategies this daemon can host. Which agent uses
@@ -514,16 +527,6 @@ export function runHeadlessTurn(
   emit: HeadlessEmit,
   bins: HarnessBins,
 ): HeadlessTurnHandle {
-  const manifest = harnessAdapterFor(spec.agent)
-  if (!manifest) throw new Error(`agent kind ${String(spec.agent)} has no harness manifest`)
-  const headless = declaredValue(manifest.headless)
-  // No silent default driver: a harness that declares headless unsupported must
-  // fail loudly here rather than being run through, say, the claude-sdk driver.
-  if (!headless)
-    throw new Error(
-      `harness ${manifest.kind} declares headless unsupported: ${
-        manifest.headless.supported ? '' : manifest.headless.reason
-      }`,
-    )
+  const headless = headlessFor(spec.agent)
   return DRIVER_IMPLS[headless.driver](spec, emit, bins)
 }

@@ -616,7 +616,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const bound = observations.get(msg.sessionId)
     // Claude accepted one-release acks before bindingVersion existed. New
     // generic adapters require the exact binding fence.
-    if (msg.bindingVersion === undefined && bound?.adapter.kind !== 'claude-code') return
+    if (msg.bindingVersion === undefined && bound?.adapter.capabilities.observationProtocol !== 'claude-causal') return
     if (msg.bindingVersion !== undefined && msg.bindingVersion !== lease.bindingVersion) return
     cancelObservationAckDelivery(msg, msg.bindingVersion ?? lease.bindingVersion)
     bound?.observation.onObservationAck?.(msg)
@@ -868,7 +868,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const pendingClaudeSessionId = (pendingClaude?.[0] as Record<string, unknown> | undefined)
       ?.session_id
     if (
-      observations.get(msg.sessionId)?.adapter.kind === 'claude-code' &&
+      observations.get(msg.sessionId)?.adapter.capabilities.observationProtocol === 'claude-causal' &&
       typeof pendingClaudeSessionId === 'string'
     ) {
       claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
@@ -1023,7 +1023,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
     onResumeValue: (value, confidence) => {
-      if (adapter.kind === 'codex' && confidence === 'exact' && deps.onExactCodexBinding) {
+      if (adapter.capabilities.observationProtocol === 'codex-exact' && confidence === 'exact' && deps.onExactCodexBinding) {
         void deps
           .onExactCodexBinding(sessionId, value)
           .catch((err) =>
@@ -1339,7 +1339,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       bindingHooks.set(harnessSessionId!, payload)
       pendingBindingHooks.set(sessionId, bindingHooks)
       bound.observation.bindHookThread?.(harnessSessionId!)
-      if (bound.adapter.kind === 'claude-code') {
+      if (bound.adapter.capabilities.observationProtocol === 'claude-causal') {
         const starting = claudeStarting.get(sessionId)
         if (starting) starting.push(payload)
         else claudeStarting.set(sessionId, [payload])
@@ -1372,7 +1372,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         sessionId,
         resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
         confidence: 'exact',
-        ...(bound.adapter.kind === 'codex' ? { ackRequested: true } : {}),
+        ...(bound.adapter.capabilities.observationProtocol === 'codex-exact' ? { ackRequested: true } : {}),
       })
       bound.observation.bindHookThread?.(harnessSessionId)
     }
@@ -1386,7 +1386,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
     // Commit/touched-file attribution [POD-98] happens before causal routing.
     gitCapture.onHookPayload(sessionId, fields)
-    if (bound.adapter.kind === 'claude-code' && causalLeases.has(sessionId)) {
+    if (bound.adapter.capabilities.observationProtocol === 'claude-causal' && causalLeases.has(sessionId)) {
       const causal = claudeCausal.get(sessionId)
       if (!causal) {
         const starting = claudeStarting.get(sessionId)

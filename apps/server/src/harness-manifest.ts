@@ -10,12 +10,17 @@
 export {
   harnessCapabilitiesFor,
   harnessDisplayName,
+  harnessNeedsSubmitVerification,
+  harnessObservationProvider,
+  harnessPremintsHeadlessResumeId,
+  harnessRequiresExclusiveInteractiveResume,
   harnessResumeKind,
   harnessSupportsCloud,
   harnessSupportsEffort,
   harnessSupportsHandoff,
   harnessSupportsInitialPrompt,
   harnessSupportsMcp,
+  harnessUsesPromptTitleFallback,
   transcriptRecordMapperFor,
 } from '@podium/harness'
 

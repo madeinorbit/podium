@@ -6,7 +6,7 @@
 // a provider API key or a `claude setup-token`. Multi-account oauth ROTATION is
 // still modelled only.
 //
-// Login/profile detection lives on each @podium/agent-bridge harness adapter so
+// Login/profile detection lives on each @podium/harness harness adapter so
 // the daemon inventory and this server-side AccountView use the same facts.
 import { homedir } from 'node:os'
 import { HARNESS_ADAPTERS } from '@podium/harness'

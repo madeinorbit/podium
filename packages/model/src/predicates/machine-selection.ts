@@ -301,13 +301,17 @@ export interface HandoffAvailability<M> {
  * indistinguishable from a broken eligibility gate, which is exactly how a stale
  * repo list went unnoticed after a successful handoff.
  */
+/** Data-driven picker exception: browser-safe model code cannot import the
+ * node-only harness manifest, so the handoff menu carries its closed choices as data. */
+const HANDOFF_CAPABLE_HARNESSES: ReadonlySet<string> = new Set(['claude-code', 'codex'])
+
 export function handoffAvailability<M extends HandoffMachine>(
   session: HandoffSession,
   repos: HandoffRepo[],
   machines: M[],
   issue?: HandoffIssue,
 ): HandoffAvailability<M> {
-  if (session.agentKind !== 'claude-code' && session.agentKind !== 'codex')
+  if (!HANDOFF_CAPABLE_HARNESSES.has(session.agentKind))
     return { blocker: 'harness', candidates: [] }
   const source = handoffSource(session, repos, issue)
   if (!source) return { blocker: 'no-worktree', candidates: [] }
