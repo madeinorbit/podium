@@ -37,7 +37,13 @@ describe('WorkflowService', () => {
     ],
     [
       's2',
-      { sessionId: asSessionId('s2'), cwd: '/repo/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
+      {
+        sessionId: asSessionId('s2'),
+        cwd: '/repo/wt',
+        issueId: 'issue-1',
+        agentKind: 'codex',
+        machineId: 'm1',
+      },
     ],
   ])
 
@@ -101,7 +107,8 @@ describe('WorkflowService', () => {
     )
 
     expect(
-      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })?.id,
+      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })
+        ?.id,
     ).toBe(task.revision.id)
 
     const revised = service.revise(
@@ -112,7 +119,8 @@ describe('WorkflowService', () => {
     expect(store.workflows.getRevision(task.revision.id)?.instructions).toBe('task rules')
     // The binding points at an exact revision; editing never changes unstarted tasks silently.
     expect(
-      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })?.id,
+      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })
+        ?.id,
     ).toBe(task.revision.id)
   })
 
@@ -280,6 +288,7 @@ describe('WorkflowService', () => {
     })
     expect(
       service.executionProfileForLaunch({
+        caller: operator,
         profileId: profile.id,
         runId: run.id,
         stepId: 'review',
@@ -298,12 +307,15 @@ describe('WorkflowService', () => {
     )
     expect(
       service.executionProfileForLaunch({
+        caller: operator,
         profileId: profile.id,
         runId: run.id,
         stepId: 'review',
       }),
     ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
-    expect(service.executionProfileForLaunch({ profileId: profile.id })).toMatchObject({
+    expect(
+      service.executionProfileForLaunch({ caller: operator, profileId: profile.id }),
+    ).toMatchObject({
       harness: 'claude-code',
       model: 'claude-fable-5',
     })
@@ -338,7 +350,10 @@ describe('WorkflowService', () => {
       `podium workflow assign-step review <child-session-id> --run ${run.id}`,
     )
 
-    service.assignStep({ runId: run.id, stepId: 'review', sessionId: asSessionId('s2') }, agent('s1'))
+    service.assignStep(
+      { runId: run.id, stepId: 'review', sessionId: asSessionId('s2') },
+      agent('s1'),
+    )
     const completed = service.checkpoint(
       {
         runId: run.id,
@@ -392,7 +407,10 @@ describe('WorkflowService', () => {
     })
     expect(prepared?.revision.id).toBe(created.revision.id)
     expect(prepared?.prompt).toContain('version one')
-    const rehydrated = service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' })
+    const rehydrated = service.prepareExistingSession({
+      sessionId: asSessionId('s1'),
+      issueId: 'issue-1',
+    })
     expect(rehydrated?.revision.id).toBe(created.revision.id)
     expect(rehydrated?.prompt).toContain('version one')
     expect(rehydrated?.prompt).not.toContain('version two')

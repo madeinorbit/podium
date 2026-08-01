@@ -33,7 +33,12 @@
  * mean "the walk broke" is the audit's own worst failure mode.
  */
 
-import { commandVisibility, PRESENCE_COMMAND_TABLES, presenceCommand, sessionCommandPlane } from '@podium/commands'
+import {
+  commandVisibility,
+  PRESENCE_COMMAND_TABLES,
+  presenceCommand,
+  sessionCommandPlane,
+} from '@podium/commands'
 import { sessionHandoffContract } from '@podium/commands'
 import { asSessionId, asUserId, SOLE_USER_ID, type UserId } from '@podium/model'
 import type { MachineGrant, MachineId } from '@podium/protocol'
@@ -158,8 +163,10 @@ function ctxFor(
         'immediate',
       )!,
     rpc: () => modules.rpc,
-    createDraftIssue: (repoPath, agentKind, issueId) =>
-      modules.issues.createDraftFor(repoPath, agentKind, issueId),
+
+    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
+      modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    issueOwner: () => undefined,
     access: {
       listSessions: () => modules.sessions.listSessions(),
       issues: modules.issues,
@@ -861,11 +868,15 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       new Map([['box', { owner: COLLEAGUE, grants: [], name: 'The Box' }]]),
     )
     const invisibleMessage = await messageOf(() =>
-      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership: invisible }), 'create', {
-        agentKind: 'shell',
-        cwd: '/p',
-        machineId: 'box',
-      }),
+      dispatchSessionCommand(
+        ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership: invisible }),
+        'create',
+        {
+          agentKind: 'shell',
+          cwd: '/p',
+          machineId: 'box',
+        },
+      ),
     )
     // Never paired: no row for this id anywhere.
     const neverPaired = await messageOf(() =>
@@ -896,10 +907,14 @@ describe('AC7 · the command surface is not an existence oracle', () => {
         lifecycle: 'wait',
       },
     )
-    const viaCommand = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'sendText', {
-      sessionId: GHOST,
-      text: 'anyone there',
-    })
+    const viaCommand = await dispatchSessionCommand(
+      ctxFor(o, human(FIRST_ADMIN_USER_ID)),
+      'sendText',
+      {
+        sessionId: GHOST,
+        text: 'anyone there',
+      },
+    )
 
     expect(viaCommand).toEqual({
       ok: direct.ok,

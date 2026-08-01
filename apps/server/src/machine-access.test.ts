@@ -36,7 +36,12 @@ const COLLEAGUE: UserId = asUserId('colleague')
 const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
   user: id,
-  capability: { role: 'admin', scope: { kind: 'all' } },
+  capability: {
+    role: 'admin',
+    scope: { kind: 'all' },
+    actorUser: FIRST_ADMIN_USER_ID,
+    onBehalfOf: FIRST_ADMIN_USER_ID,
+  },
 })
 
 const agent = (
@@ -108,7 +113,7 @@ void _ownerIsBranded
 const _grantsAreRequired: MachineOwnershipRow = { machine: 'box' as MachineId, owner: null }
 void _grantsAreRequired
 
-describe('the owner column decides: the machine\'s owner holds all three verbs, nobody else does', () => {
+describe("the owner column decides: the machine's owner holds all three verbs, nobody else does", () => {
   it('the owner holds all three verbs, and a second human holds none', () => {
     const ownership = ownershipFromMachines({
       ownershipRows: () => [{ id: 'local', name: 'This Mac', ownerUserId: OWNER }],
@@ -146,12 +151,12 @@ describe('the local sentinels are a synthesized host row, not an exemption', () 
   // single-machine install nothing ever does.
   const noRows = ownershipTable(new Map())
 
-  it.each(['local', '__local__'])(
-    'the instance owner may use %s even with no row in the table',
-    (sentinel) => {
-      expect(checkMachineUse(user(OWNER), sentinel, noRows)).toBeUndefined()
-    },
-  )
+  it.each([
+    'local',
+    '__local__',
+  ])('the instance owner may use %s even with no row in the table', (sentinel) => {
+    expect(checkMachineUse(user(OWNER), sentinel, noRows)).toBeUndefined()
+  })
 
   it('M4 still holds on the sentinel: a second human is refused, exactly like anywhere else', () => {
     // This is the property the arm would destroy if it granted by id rather
@@ -254,7 +259,9 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
     // The colleague owns it; an agent acting for the OWNER may not use it, even
     // though its capability is otherwise unconstrained.
     expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBeUndefined()
-    expect(checkMachineUse(agent(asSessionId('agent-1'), OWNER), 'laptop', ownership)).toBe('absent')
+    expect(checkMachineUse(agent(asSessionId('agent-1'), OWNER), 'laptop', ownership)).toBe(
+      'absent',
+    )
   })
 
   it('a sub-agent cannot reach past a machine its PARENT could not use', () => {
@@ -307,7 +314,12 @@ describe('the principal itself', () => {
     ])
 
     const principal = resolvePrincipal(
-      { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId('a') },
+      {
+        role: 'worker',
+        scope: { kind: 'none' },
+        actorSessionId: asSessionId('a'),
+        onBehalfOf: OWNER,
+      },
       { parentSessionOf: (id) => cycle.get(id) },
     )
 
@@ -316,16 +328,29 @@ describe('the principal itself', () => {
 
   it('a capability with no actor session is a human; attribution is a pair either way', () => {
     const human = resolvePrincipal(
-      { role: 'admin', scope: { kind: 'all' } },
+      {
+        role: 'admin',
+        scope: { kind: 'all' },
+        actorUser: FIRST_ADMIN_USER_ID,
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
       { parentSessionOf: () => undefined },
     )
 
     expect(human).toEqual({
       kind: 'user',
       user: FIRST_ADMIN_USER_ID,
-      capability: { role: 'admin', scope: { kind: 'all' } },
+      capability: {
+        role: 'admin',
+        scope: { kind: 'all' },
+        actorUser: FIRST_ADMIN_USER_ID,
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
     })
-    expect(attributionOf(human)).toEqual({ actor: FIRST_ADMIN_USER_ID, onBehalfOf: FIRST_ADMIN_USER_ID })
+    expect(attributionOf(human)).toEqual({
+      actor: FIRST_ADMIN_USER_ID,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    })
     expect(attributionOf(agent(asSessionId('agent-1'), OWNER))).toEqual({
       actor: 'session:agent-1',
       onBehalfOf: OWNER,

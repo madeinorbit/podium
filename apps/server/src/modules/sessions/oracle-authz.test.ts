@@ -25,6 +25,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { FIRST_ADMIN_USER_ID } from '../../command-principal'
 import { OPERATOR } from '../../issue-authz'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, willChange } from './oracle-support'
 
@@ -48,11 +49,16 @@ async function twoIssueOracle() {
   return { o, a, b, agentSessionId: agent.sessionId }
 }
 
-describe('oracle: the operator seam has no authorization to characterize', () => {
-  it(`${NO_USER_PRINCIPAL}: every tRPC session write runs as OPERATOR (admin/all) — the capability is not derived from any caller identity`, async () => {
+describe('oracle: the authenticated admin seam', () => {
+  it('an authenticated admin capability carries explicit user attribution', async () => {
     const o = makeOracle()
     // The context capability the router is constructed with IS the constant.
-    expect(OPERATOR).toEqual({ role: 'admin', scope: { kind: 'all' } })
+    expect(OPERATOR).toEqual({
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorUser: FIRST_ADMIN_USER_ID,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    })
     // And it writes sessions it has no relationship to whatsoever.
     const foreign = o.reg.modules.sessions.createSession({
       agentKind: 'shell',

@@ -186,6 +186,7 @@ describe('SessionsService publication worker integration', () => {
     )
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
@@ -242,6 +243,7 @@ describe('SessionsService publication worker integration', () => {
       })
       registry.clientGateway.routeClientFrame(id, {
         type: 'hello',
+        wireVersion: 2,
         clientId: '',
         viewport: { cols: 80, rows: 24, dpr: 1 },
         caps: ['metadataDelta'],
@@ -312,6 +314,7 @@ describe('SessionsService publication worker integration', () => {
     })
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
@@ -401,6 +404,7 @@ describe('SessionsService publication worker integration', () => {
     })
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
@@ -473,6 +477,7 @@ describe('SessionsService publication worker integration', () => {
     })
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
@@ -549,6 +554,7 @@ describe('SessionsService publication worker integration', () => {
     await until(() => encoded.length === 1)
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
@@ -612,6 +618,7 @@ describe('SessionsService publication worker integration', () => {
       })
       registry.clientGateway.routeClientFrame(id, {
         type: 'hello',
+        wireVersion: 2,
         clientId: '',
         viewport: { cols: 80, rows: 24, dpr: 1 },
         caps: ['metadataDelta'],

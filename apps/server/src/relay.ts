@@ -398,8 +398,18 @@ export class SessionRegistry {
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
     const feedMayReadIssue = (userId: string, issueId: string): boolean => {
-      const target = issues?.ownedTarget(issueId, 'read')
-      return target !== undefined && (target.owner === userId || target.grants.includes(userId))
+      // Authority publishes after the transaction commits but before IssueService
+      // installs a newly-created row in its live map. Read the durable row here so
+      // the creation frame is scoped from the same committed truth catch-up sees.
+      const row = this.store.issues.getIssue(issueId)
+      if (row?.ownerUserId === userId) return true
+      return this.store.grants
+        .listForResource('issue', issueId)
+        .some(
+          (edge) =>
+            edge.grantee === userId &&
+            (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
+        )
     }
     const visibility = new GrantEdgeVisibilityPolicy({
       classOf: (entity) => {
@@ -1385,9 +1395,16 @@ export class SessionRegistry {
         const userId = onBehalfOfUser(principal)
         return {
           ceiling: {
-            canSee: (ref) =>
-              principal.kind === 'system' ||
-              (ref.kind === 'issue' && userId !== null && feedMayReadIssue(userId, ref.id)),
+            canSee: (ref) => {
+              if (principal.kind === 'system') return true
+              if (userId === null) return false
+              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
+              if (ref.kind === 'session') {
+                const owner = sessionsSvc.sessionOwner(asSessionId(ref.id))
+                return owner?.owner === userId || owner?.grants.includes(userId) === true
+              }
+              return false
+            },
           },
           machines: {
             mayUse: (machineId) =>
@@ -1460,6 +1477,7 @@ export class SessionRegistry {
         // deliberate issue-create path (never automatic).
         spawnSession: (o) =>
           sessionsSvc.createSession({
+            ownerUserId: o.ownerUserId,
             cwd: o.cwd,
             agentKind: o.agentKind as AgentKind,
             ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),

@@ -41,9 +41,18 @@ describe('IssueToolProvider', () => {
         tree: {
           query: vi.fn(async () => ({
             root: {
-              seq: 5, title: 'Epic', stage: 'backlog', priority: 2, needsHuman: false,
-              blocksDeps: [], description: '', closed: false, blocked: false, ready: true,
-              children: [], omittedChildren: 0,
+              seq: 5,
+              title: 'Epic',
+              stage: 'backlog',
+              priority: 2,
+              needsHuman: false,
+              blocksDeps: [],
+              description: '',
+              closed: false,
+              blocked: false,
+              ready: true,
+              children: [],
+              omittedChildren: 0,
             },
             totalNodes: 1,
             omitted: 0,
@@ -57,7 +66,9 @@ describe('IssueToolProvider', () => {
 
   it('throws a clear error when no client is set', async () => {
     const p = new IssueToolProvider()
-    await expect(p.callMcpTool('issue_ready', {})).rejects.toThrow(/not ready|no client/i)
+    await expect(p.callMcpTool('issue_ready', {})).rejects.toThrow(
+      /owned superagent thread|not ready|no client/i,
+    )
   })
 })
 

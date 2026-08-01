@@ -21,9 +21,9 @@
  */
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
-import type { IssueId, SessionId, SessionMeta } from '@podium/model'
+import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
-import type { CommandPrincipal } from '../../command-principal'
+import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import {
@@ -45,6 +45,7 @@ export interface MessageGateDeps {
    *  SessionsService.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
   spawnSession?(input: {
+    ownerUserId: UserId
     cwd: string
     agentKind?: string
     initialPrompt?: string
@@ -87,6 +88,9 @@ export interface MessageGateDeps {
   }
   /** The DELIBERATE `--new` issue-create path (never automatic). */
   createIssue?(input: {
+    ownerUserId: UserId
+    createdByActor: string
+    createdByOnBehalfOf: UserId
     repoPath: string
     title: string
     description?: string
@@ -220,7 +224,11 @@ export class MessageGate {
     deliveryMode?: MailDeliveryMode,
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
-    const principal = this.principalForCapability?.(capability)
+    const principal =
+      this.principalForCapability?.(capability) ??
+      (capability.onBehalfOf !== undefined
+        ? resolvePrincipal(capability, { parentSessionOf: () => undefined })
+        : undefined)
     const policy = principal && this.policyFor ? this.policyFor(principal) : undefined
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
     const caller = {

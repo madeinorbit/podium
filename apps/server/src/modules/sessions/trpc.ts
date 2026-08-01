@@ -267,6 +267,7 @@ function renameProcedure(): PresenceProcedure<'sessions.rename'> {
       if (dispatch.outcome === 'invalid-input') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid command input' })
       }
+      if (dispatch.result == null) return
       if (!dispatch.result.ok) {
         throw new TRPCError({ code: 'CONFLICT', message: dispatch.result.reason })
       }

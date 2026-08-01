@@ -218,7 +218,12 @@ export class ClientMux {
     // client is treated as legacy"). `hello` moves it (see `routeClientFrame`).
     // AFTER the port call, so the bootstrap lands after the non-feed world in the
     // same order a client saw before the cutover.
-    this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal))
+    // A scoped prepared-publication connection has its own filtered entity
+    // authority. Enrolling it in the kernel feed as well would create two worlds
+    // and, at wire v2, attempt to hand it an unprepared bootstrap.
+    if (conn.publication?.global !== false) {
+      this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal))
+    }
     return id
   }
 
@@ -269,7 +274,9 @@ export class ClientMux {
     // renegotiate against the previous state. This is the ONLY frame the gateway
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
-    if (msg.type === 'hello') this.renegotiate(conn, msg.wireVersion)
+    if (msg.type === 'hello' && conn.publication?.global !== false) {
+      this.renegotiate(conn, msg.wireVersion)
+    }
   }
 
   /**

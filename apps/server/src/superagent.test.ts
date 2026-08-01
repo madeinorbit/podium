@@ -1,4 +1,4 @@
-import { asSessionId, asThreadId, SOLE_USER_ID, type TranscriptItem } from '@podium/model'
+import { asSessionId, asThreadId, FIRST_ADMIN_USER_ID, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildBtwDelta,
@@ -152,25 +152,30 @@ describe('start_agent tool wiring (issue #60)', () => {
     })
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    sa.history(FIRST_ADMIN_USER_ID)
+    sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('s1') })
+    sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('parent') })
     return { registry, sa }
   }
 
-  it("passes title through and tags spawnedBy 'superagent' when no thread is known (MCP path)", async () => {
+  it('passes title through and attributes spawn to the authenticated global thread', async () => {
     const { registry, sa } = harness()
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', {
-        agentKind: 'claude-code',
-        cwd: '/w',
-        title: 'Investigate flake',
-        // Identity-less calls fail closed on start-capable tools (issue #67), so
-        // the thread-blind MCP path must confirm explicitly.
-        confirmed: true,
-      }),
+      await sa.callMcpTool(
+        'start_agent',
+        {
+          agentKind: 'claude-code',
+          cwd: '/w',
+          title: 'Investigate flake',
+          confirmed: true,
+        },
+        asThreadId('global'),
+      ),
     ) as { sessionId: string; cwd: string; agentKind: string }
     expect(out).toMatchObject({ cwd: '/w', agentKind: 'claude-code' })
     const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
     expect(meta?.title).toBe('Investigate flake')
-    expect(meta?.spawnedBy).toBe('superagent')
+    expect(meta?.spawnedBy).toBe('superagent:global')
   })
 
   it('tags spawnedBy with the executing thread when known', async () => {
@@ -189,17 +194,21 @@ describe('start_agent tool wiring (issue #60)', () => {
     const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     registry.issues.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', {
-        agentKind: 'claude-code',
-        cwd: '/ignored',
-        issueId: issue.id,
-        confirmed: true,
-      }),
+      await sa.callMcpTool(
+        'start_agent',
+        {
+          agentKind: 'claude-code',
+          cwd: '/ignored',
+          issueId: issue.id,
+          confirmed: true,
+        },
+        asThreadId('global'),
+      ),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
     const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
     expect(meta?.cwd).toBe('/r/.worktrees/issue-1-x')
-    expect(meta?.spawnedBy).toBe('superagent')
+    expect(meta?.spawnedBy).toBe('superagent:global')
   })
 
   it('unstarted issue spawn preserves the exact initiating superagent thread', async () => {
@@ -230,11 +239,15 @@ describe('start_agent tool wiring (issue #60)', () => {
     const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     registry.issues.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', {
-        agentKind: 'claude-code',
-        issueId: issue.id,
-        confirmed: true,
-      }),
+      await sa.callMcpTool(
+        'start_agent',
+        {
+          agentKind: 'claude-code',
+          issueId: issue.id,
+          confirmed: true,
+        },
+        asThreadId('global'),
+      ),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
     expect(
@@ -360,6 +373,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, {
       waitPollMs: opts?.waitPollMs ?? 5,
     })
+    sa.history(FIRST_ADMIN_USER_ID)
     const spawn = (live = false): string => {
       const { sessionId } = registry.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -569,9 +583,13 @@ describe('session-steering tool belt (issue #62)', () => {
   it("snooze_session supports 'next-message' (null) and ISO timestamps; clear_snooze undoes", async () => {
     const h = harness()
     const sessionId = h.spawn()
-    expect(await h.sa.callMcpTool('snooze_session', { sessionId, until: 'next-message' })).toBe(
-      JSON.stringify({ snoozedUntil: null }),
-    )
+    expect(
+      await h.sa.callMcpTool(
+        'snooze_session',
+        { sessionId, until: 'next-message' },
+        asThreadId('global'),
+      ),
+    ).toBe(JSON.stringify({ snoozedUntil: null }))
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeNull()
     // A FUTURE deadline. It used to be a fixed past date and still round-tripped,
     // because the projection read a `snoozedUntil` MIRROR on the live session that
@@ -580,9 +598,11 @@ describe('session-steering tool belt (issue #62)', () => {
     // documented. The behaviour is strictly more correct (a client already ignores
     // lapsed snoozes at render time) and the assertion now needs a real deadline.
     const iso = '2999-07-03T05:00:00.000Z'
-    await h.sa.callMcpTool('snooze_session', { sessionId, until: iso })
+    await h.sa.callMcpTool('snooze_session', { sessionId, until: iso }, asThreadId('global'))
     expect(h.metaOf(sessionId)?.snoozedUntil).toBe(iso)
-    expect(await h.sa.callMcpTool('clear_snooze', { sessionId })).toBe('snooze cleared')
+    expect(await h.sa.callMcpTool('clear_snooze', { sessionId }, asThreadId('global'))).toBe(
+      'snooze cleared',
+    )
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
   })
 
@@ -597,7 +617,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // always had. Driving the real entry point is also what makes this a test of
     // the shipped path rather than of the repository.
     h.registry.modules.sessions.setSnooze({
-      userId: SOLE_USER_ID,
+      userId: FIRST_ADMIN_USER_ID,
       sessionId,
       until: '2020-01-01T00:00:00.000Z',
     })
@@ -605,7 +625,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // …while an open-ended snooze (null) never lapses by time. The counterfactual
     // that keeps the assertion above from passing for the wrong reason: if the
     // projection had simply stopped carrying snoozes, this would fail too.
-    h.registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    h.registry.modules.sessions.setSnooze({ userId: FIRST_ADMIN_USER_ID, sessionId, until: null })
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeNull()
   })
 
@@ -718,7 +738,7 @@ describe('session-steering tool belt (issue #62)', () => {
       cwd: '/w',
       spawnedBy: 'user',
     })
-    h.registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    h.registry.modules.sessions.setSnooze({ userId: FIRST_ADMIN_USER_ID, sessionId, until: null })
     const rows = JSON.parse(
       await h.sa.callMcpTool('list_sessions', {}, asThreadId('btw_x')),
     ) as Array<Record<string, unknown>>

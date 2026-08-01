@@ -38,6 +38,11 @@ export class SessionsRepository {
     return this.readSessions('deleted_at IS NULL')
   }
 
+  /** One durable row, including a tombstone, for scoped delete visibility. */
+  getSession(sessionId: SessionId): SessionRow | undefined {
+    return this.readSessions('id = ?', sessionId)[0]
+  }
+
   /** All session tombstones, for repository-level inspection and maintenance. */
   loadDeletedSessions(): SessionRow[] {
     return this.readSessions('deleted_at IS NOT NULL')

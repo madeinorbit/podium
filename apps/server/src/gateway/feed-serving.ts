@@ -134,6 +134,11 @@ export class FeedServing {
     string,
     { refs: number; unsubscribe: () => void }
   >()
+  private readonly pendingByPrincipal = new Map<
+    string,
+    { principal: FeedPrincipal; deliveries: ScopedDelivery[] }
+  >()
+  private flushScheduled = false
 
   constructor(private readonly deps: FeedServingDeps) {
     this.publisher = new FeedPublisher({
@@ -227,7 +232,7 @@ export class FeedServing {
       this.principalSubscriptions.set(key, {
         refs: 1,
         unsubscribe: this.deps.authority.subscribe(principal, (delivery) =>
-          this.publish(principal, delivery),
+          this.queue(principal, delivery),
         ),
       })
     }
@@ -291,6 +296,26 @@ export class FeedServing {
     this.connections.delete(peerId)
   }
 
+  private queue(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+    const key = principalIdOf(principal)
+    const pending = this.pendingByPrincipal.get(key) ?? { principal, deliveries: [] }
+    pending.deliveries.push(delivery)
+    this.pendingByPrincipal.set(key, pending)
+    if (this.flushScheduled) return
+    this.flushScheduled = true
+    queueMicrotask(() => this.flushPending())
+  }
+
+  /** Flush every principal independently, preserving certified range order. */
+  flushPending(): void {
+    this.flushScheduled = false
+    const pending = [...this.pendingByPrincipal.values()]
+    this.pendingByPrincipal.clear()
+    for (const { principal, deliveries } of pending) {
+      for (const delivery of coalesceScopedDeliveries(deliveries)) this.publish(principal, delivery)
+    }
+  }
+
   /**
    * ONE evaluated slice → every connection of that principal.
    *
@@ -299,6 +324,12 @@ export class FeedServing {
    * about, and there is no other tick in this server that would come back for it.
    */
   publish(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+    const totalStartedAt = performance.now()
+    const perfKey = perfPrincipal(principal)
+    // Scoping has already been evaluated by Authority for this principal. Record
+    // the handoff under that same principal so bootstrap and publication remain
+    // comparable after per-user transport authentication.
+    perf.record('phase', 'feedPublish.scope', 0, perfKey)
     // THE RE-POINTED SWITCH PHASES [POD-736]. `sessionsBroadcast.stringify` and
     // `.fanout` named the two halves of the deleted snapshot pipeline —
     // serialize the payload, then walk the connections. The same two halves are
@@ -307,13 +338,13 @@ export class FeedServing {
     // connection's certified frames through its version adapter). The names
     // changed because the pipeline they named is gone; `PHASE_MIGRATION` in
     // `@podium/protocol` is the map a recorded baseline resolves through.
-    const perfKey = perfPrincipal(principal)
     const t0 = performance.now()
     this.publisher.publish(principal, delivery)
     const tFramed = performance.now()
     perf.record('phase', 'feedPublish.frame', tFramed - t0, perfKey)
     this.flush(delivery.throughSeq)
     perf.record('phase', 'feedPublish.fanout', performance.now() - tFramed, perfKey)
+    perf.record('phase', 'feedPublish.total', performance.now() - totalStartedAt, perfKey)
   }
 
   /** Roll the epoch and demote every connection to a re-bootstrap (D1 → D7 r4). */
@@ -388,6 +419,25 @@ export class FeedServing {
       }
     }
   }
+}
+
+function coalesceScopedDeliveries(
+  deliveries: readonly ScopedDelivery[],
+): ScopedDelivery[] {
+  const coalesced: ScopedDelivery[] = []
+  for (const delivery of deliveries) {
+    const previous = coalesced.at(-1)
+    if (delivery.kind === 'batch' && previous?.kind === 'batch') {
+      coalesced[coalesced.length - 1] = {
+        kind: 'batch',
+        throughSeq: delivery.throughSeq,
+        changes: [...previous.changes, ...delivery.changes],
+      }
+    } else {
+      coalesced.push(delivery)
+    }
+  }
+  return coalesced
 }
 
 /**

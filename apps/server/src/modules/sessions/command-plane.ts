@@ -127,8 +127,14 @@ export interface SessionCommandDeps {
   createDraftIssue(
     repoPath: string,
     agentKind: AgentKind | undefined,
-    issueId?: IssueId,
+    issueId: IssueId | undefined,
+    ownership: {
+      ownerUserId: import('@podium/model').UserId
+      createdByActor: string
+      createdByOnBehalfOf: import('@podium/model').UserId
+    },
   ): { id: IssueId }
+  issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
   /** The daemon control leg for `uploadImage`. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
@@ -424,16 +430,23 @@ export const SESSION_COMMAND_HANDLERS = {
     // a denied principal must never cause.
     if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
     const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
+    const ownership = createdOwnership(
+      ctx.principal,
+      rest.issueId ? { id: rest.issueId, owner: ctx.deps.issueOwner(rest.issueId) } : undefined,
+    )
+    if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     const issueId =
       rest.issueId ??
       (draftIssue
-        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId).id
+        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
+            ownerUserId: ownership.owner as import('@podium/model').UserId,
+            createdByActor: attributionOf(ctx.principal).actor,
+            createdByOnBehalfOf: ownership.owner as import('@podium/model').UserId,
+          }).id
         : undefined)
     // The draft-issue vessel path produces an OWNED draft, not an ownerless
     // one: the session and its vessel resolve the same owner because they
     // resolve it from the same principal.
-    const ownership = createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
-    if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     return ctx.sessions.createSession({
       ...rest,
       ...target,

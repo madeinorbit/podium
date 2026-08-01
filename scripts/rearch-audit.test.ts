@@ -621,8 +621,8 @@ describe('CLI exit codes', () => {
   it('an output flag cannot disable the gate', () => {
     // `--phase X --json` exited 0 with 119 live sites before this was fixed:
     // the format must never decide whether the gate holds.
-    expect(run(['--phase', 'POD-314', '--json'])).toBe(1)
-    expect(run(['--phase', 'POD-314', '--sites'])).toBe(1)
+    expect(run(['--phase', 'POD-1251', '--json'])).toBe(1)
+    expect(run(['--phase', 'POD-1251', '--sites'])).toBe(1)
   }, fullLaneAuditTimeout)
 
   it('an output flag cannot swallow the baseline write', () => {
@@ -819,6 +819,9 @@ describe('against the live repo', () => {
       'session-shapes',
       'issue-shapes',
       'representation-registry-rot',
+      // This issue deleted the last router -> context -> registry reach-through.
+      // The synthetic detector test above remains its positive anchor.
+      'router-triple-access',
       'capability-snapshots',
       'instance-partitions',
       // POD-383 deleted `superagent.send`, so ONE procedure now forwards to

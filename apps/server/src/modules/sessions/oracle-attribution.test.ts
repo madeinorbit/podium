@@ -13,7 +13,7 @@
  * there are no people in the model (docs/multi-user-readiness.md §3.2).
  */
 
-import type { SessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, willChange } from './oracle-support'
@@ -26,13 +26,16 @@ const NO_PERSON = willChange(
 )
 
 describe('oracle: who created this session', () => {
-  it(`${NO_PERSON}: the tRPC seam stamps spawnedBy 'user' — a role, not an identity`, async () => {
+  it('tRPC creation stamps user provenance and durable human ownership', async () => {
     const o = makeOracle()
 
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     expect(o.meta(sessionId).spawnedBy).toBe('user')
-    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)?.spawnedBy).toBe('user')
+    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)).toMatchObject({
+      spawnedBy: 'user',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
   })
 
   it(`${NO_PERSON}: a resume through the tRPC seam stamps 'user' on its fresh-spawn fallback`, async () => {
@@ -204,18 +207,17 @@ describe('oracle: who asked the human a question', () => {
 })
 
 describe('oracle: who moved this session between machines', () => {
-  it(`${NO_PERSON}: handoff records NO initiator at all — there is no field for the actor to grow a second half from`, async () => {
+  it('handoff preserves the durable per-user session owner', async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
 
     const row = o.store.sessions.loadSessions().find((r) => r.id === sessionId)
-    // The durable session row's attribution surface, in full. A handoff mutates
-    // machineId/cwd/status and nothing else attribution-shaped: POD-312 has to
-    // ADD the actor/on-behalf-of pair here, not extend an existing field.
+    // Handoff changes placement without changing the durable human owner.
+    expect(row?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
     expect(
       Object.keys(row ?? {})
         .filter((k) => /source|by|actor|owner|user/i.test(k))
         .sort(),
-    ).toEqual(['deletedByIssueId', 'deletionSource', 'nameSource', 'spawnedBy'])
+    ).toEqual(['deletedByIssueId', 'deletionSource', 'nameSource', 'ownerUserId', 'spawnedBy'])
   })
 })

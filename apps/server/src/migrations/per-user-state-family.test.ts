@@ -198,9 +198,9 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 
     const pinnedAt = (
-      db
-        .prepare('SELECT pinned_at FROM issue_user_state WHERE issue_id = ?')
-        .get('i-pin') as { pinned_at: string | null } | undefined
+      db.prepare('SELECT pinned_at FROM issue_user_state WHERE issue_id = ?').get('i-pin') as
+        | { pinned_at: string | null }
+        | undefined
     )?.pinned_at
     // `CASE WHEN pinned = 1 THEN '1'` would satisfy "is not null" while writing a
     // value no `Date.parse` accepts, so the shape is asserted rather than truthiness.
@@ -222,9 +222,7 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     const rows = db
       .prepare('SELECT user_id, issue_message_id, read_at FROM issue_message_user_state')
       .all() as { user_id: string; issue_message_id: string; read_at: string | null }[]
-    expect(rows).toEqual([
-      { user_id: FIRST_ADMIN, issue_message_id: 'm-read', read_at: MSG_READ },
-    ])
+    expect(rows).toEqual([{ user_id: FIRST_ADMIN, issue_message_id: 'm-read', read_at: MSG_READ }])
   })
 
   it('the seeded markers are really there BEFORE the migration — the fixture is not empty', () => {
@@ -237,18 +235,22 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     seedIssueMessage(db, 'm-read', 'i-all', MSG_READ)
 
     expect(
-      (db.prepare('SELECT read_at FROM sessions WHERE id = ?').get('s-read-a') as {
-        read_at: string | null
-      }).read_at,
+      (
+        db.prepare('SELECT read_at FROM sessions WHERE id = ?').get('s-read-a') as {
+          read_at: string | null
+        }
+      ).read_at,
     ).toBe(READ_A)
     const issue = db
       .prepare('SELECT read_at, tucked_at, pinned FROM issues WHERE id = ?')
       .get('i-all') as { read_at: string; tucked_at: string; pinned: number }
     expect(issue).toEqual({ read_at: READ_A, tucked_at: TUCKED, pinned: 1 })
     expect(
-      (db.prepare('SELECT read_at FROM issue_messages WHERE id = ?').get('m-read') as {
-        read_at: string
-      }).read_at,
+      (
+        db.prepare('SELECT read_at FROM issue_messages WHERE id = ?').get('m-read') as {
+          read_at: string
+        }
+      ).read_at,
     ).toBe(MSG_READ)
   })
 
@@ -269,9 +271,17 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     // Exactly the five columns are gone and NOTHING else is: a column-drop
     // migration that rebuilt a table and lost an unrelated column would still
     // satisfy every marker assertion above.
-    expect(columns(db, 'sessions')).toEqual(before.session)
-    expect(columns(db, 'issues')).toEqual(before.issue)
-    expect(columns(db, 'issue_messages')).toEqual(before.message)
+    expect(columns(db, 'sessions')).toEqual([...before.session, 'owner_user_id'])
+    expect(columns(db, 'issues')).toEqual([
+      ...before.issue,
+      'owner_user_id',
+      'visibility',
+      'created_by_actor',
+      'created_by_on_behalf_of',
+      'actor',
+      'on_behalf_of',
+    ])
+    expect(columns(db, 'issue_messages')).toEqual([...before.message, 'actor', 'on_behalf_of'])
 
     // And the shared rows themselves survive with their own values.
     const s = db.prepare('SELECT title, last_active_at FROM sessions WHERE id = ?').get('s-1')
@@ -289,8 +299,6 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     expect(columns(db, 'sessions')).not.toContain('read_at')
     expect(columns(db, 'issues')).not.toContain('pinned')
     expect(tableExists(db, 'session_user_state')).toBe(true)
-    expect(
-      db.prepare('SELECT count(*) AS n FROM issue_user_state').get(),
-    ).toEqual({ n: 0 })
+    expect(db.prepare('SELECT count(*) AS n FROM issue_user_state').get()).toEqual({ n: 0 })
   })
 })

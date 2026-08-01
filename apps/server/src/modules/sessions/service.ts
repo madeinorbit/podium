@@ -1450,13 +1450,15 @@ export class SessionsService {
    * revocation takes effect on the next decision without cache invalidation.
    */
   sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined {
-    const session = this.sessions.get(sessionId)
-    if (!session) return undefined
-    const resourceKind = session.issueId ? 'issue' : 'session'
-    const resourceId = session.issueId ?? sessionId
-    const parentOwner = session.issueId
-      ? this.store.issues.getIssue(session.issueId)?.ownerUserId
-      : session.ownerUserId
+    const live = this.sessions.get(sessionId)
+    const durable = live ?? this.store.sessions.getSession(sessionId)
+    if (!durable) return undefined
+    const issueId = durable.issueId ?? undefined
+    const resourceKind = issueId ? 'issue' : 'session'
+    const resourceId = issueId ?? sessionId
+    const parentOwner = issueId
+      ? (this.store.issues.getIssue(issueId)?.ownerUserId ?? durable.ownerUserId)
+      : durable.ownerUserId
     if (!parentOwner) return undefined
     const grants = [
       ...new Set(

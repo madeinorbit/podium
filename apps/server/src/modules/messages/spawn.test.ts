@@ -3,7 +3,7 @@
 // choice, provenance stamping — plus the end-to-end wake→spawn→first-prompt
 // path through MessageDeliveryService and the parent clamp it unlocks.
 
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
@@ -19,6 +19,7 @@ const ISSUE = {
   defaultAgent: 'claude-code',
   defaultModel: 'auto',
   defaultEffort: 'auto',
+  ownerUserId: FIRST_ADMIN_USER_ID,
 }
 
 function fakeIssues(over?: Partial<typeof ISSUE>) {

@@ -117,7 +117,13 @@ const SESSIONS = new Map([
   // Worker on the same issue, different harness, same machine.
   [
     's2',
-    { sessionId: asSessionId('s2'), cwd: '/repo-a/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
+    {
+      sessionId: asSessionId('s2'),
+      cwd: '/repo-a/wt',
+      issueId: 'issue-1',
+      agentKind: 'codex',
+      machineId: 'm1',
+    },
   ],
   // Foreign session: different issue, different repo, different machine.
   [
@@ -270,7 +276,12 @@ function twoStepRun(
     },
     operator,
   )
-  const run = h.service.startRun({ sessionId: asSessionId(sessionId), cwd, issueId, revisionId: created.revision.id })
+  const run = h.service.startRun({
+    sessionId: asSessionId(sessionId),
+    cwd,
+    issueId,
+    revisionId: created.revision.id,
+  })
   return { created, run }
 }
 
@@ -311,7 +322,11 @@ function threeStepRun(h: Harness, name = 'Double advance', subjectSession = 's1'
 }
 
 /** A second, independent two-step run: issue-2 in repo-b, coordinated by s3. */
-const secondSubject = { issueId: 'issue-2', sessionId: asSessionId('s3'), cwd: '/repo-b/wt' } as const
+const secondSubject = {
+  issueId: 'issue-2',
+  sessionId: asSessionId('s3'),
+  cwd: '/repo-b/wt',
+} as const
 const s3 = agent('s3', 'issue-2')
 
 /** Capture a throw as `name: message | code=<code>` so both are pinned at once. */
@@ -1323,45 +1338,75 @@ describe('POD-730 workflow mutation characterization', () => {
       const s = publishedRevision('S', 'task', 'issue-1')
       h.service.assign({ targetKind: 'global', targetId: '', revisionId: g.revision.id }, operator)
       expect(
-        h.service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo-a/wt', issueId: 'issue-1' })?.id,
+        h.service.resolveRevision({
+          sessionId: asSessionId('s1'),
+          cwd: '/repo-a/wt',
+          issueId: 'issue-1',
+        })?.id,
       ).toBe(g.revision.id)
       h.service.assign(
         { targetKind: 'repository', targetId: 'repo-a', revisionId: r.revision.id },
         operator,
       )
       expect(
-        h.service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo-a/wt', issueId: 'issue-1' })?.id,
+        h.service.resolveRevision({
+          sessionId: asSessionId('s1'),
+          cwd: '/repo-a/wt',
+          issueId: 'issue-1',
+        })?.id,
       ).toBe(r.revision.id)
       h.service.assign(
         { targetKind: 'issue', targetId: 'issue-1', revisionId: i.revision.id },
         operator,
       )
       expect(
-        h.service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo-a/wt', issueId: 'issue-1' })?.id,
+        h.service.resolveRevision({
+          sessionId: asSessionId('s1'),
+          cwd: '/repo-a/wt',
+          issueId: 'issue-1',
+        })?.id,
       ).toBe(i.revision.id)
       h.service.assign(
         { targetKind: 'session', targetId: 's1', revisionId: s.revision.id },
         operator,
       )
       expect(
-        h.service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo-a/wt', issueId: 'issue-1' })?.id,
+        h.service.resolveRevision({
+          sessionId: asSessionId('s1'),
+          cwd: '/repo-a/wt',
+          issueId: 'issue-1',
+        })?.id,
       ).toBe(s.revision.id)
       // PIN: an unrelated session in another repo on another issue still
       // resolves the GLOBAL binding — the global default is the floor, so
       // resolution never returns null once a global binding exists.
       expect(
-        h.service.resolveRevision({ sessionId: asSessionId('s3'), cwd: '/repo-b/wt', issueId: 'issue-2' })?.id,
+        h.service.resolveRevision({
+          sessionId: asSessionId('s3'),
+          cwd: '/repo-b/wt',
+          issueId: 'issue-2',
+        })?.id,
       ).toBe(g.revision.id)
     })
 
     it('PIN with no binding at all resolveRevision returns null rather than throwing', () => {
       expect(
-        h.service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo-a/wt', issueId: 'issue-1' }),
+        h.service.resolveRevision({
+          sessionId: asSessionId('s1'),
+          cwd: '/repo-a/wt',
+          issueId: 'issue-1',
+        }),
       ).toBeNull()
       expect(
-        h.service.prepareStart({ sessionId: asSessionId('s1'), cwd: '/repo-a/wt', issueId: 'issue-1' }),
+        h.service.prepareStart({
+          sessionId: asSessionId('s1'),
+          cwd: '/repo-a/wt',
+          issueId: 'issue-1',
+        }),
       ).toBeNull()
-      expect(h.service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' })).toBeNull()
+      expect(
+        h.service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' }),
+      ).toBeNull()
     })
 
     it('PIN resolveRevision with an explicit revision enforces the start scope', () => {
@@ -1552,7 +1597,9 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.profiles(agent('s3', 'issue-2'))).toMatchObject([
         { name: 'Secret', accountId: 'native:codex' },
       ])
-      expect(h.service.profiles({ actor: { kind: 'session', id: asSessionId('gone') } })).toHaveLength(1)
+      expect(
+        h.service.profiles({ actor: { kind: 'session', id: asSessionId('gone') } }),
+      ).toHaveLength(1)
     })
 
     it('PIN a run pins an IMMUTABLE profile snapshot; the live profile may drift away from it', () => {
@@ -1581,13 +1628,16 @@ describe('POD-730 workflow mutation characterization', () => {
       // Resolved WITH run+step → the snapshot taken at startRun.
       expect(
         h.service.executionProfileForLaunch({
+          caller: operator,
           profileId: profile.id,
           runId: run.id,
           stepId: 'review',
         }),
       ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
       // Resolved WITHOUT run+step → the current shared profile.
-      expect(h.service.executionProfileForLaunch({ profileId: profile.id })).toMatchObject({
+      expect(
+        h.service.executionProfileForLaunch({ caller: operator, profileId: profile.id }),
+      ).toMatchObject({
         harness: 'claude-code',
         model: 'claude-fable-5',
         effort: 'high',
@@ -1596,6 +1646,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(
         thrown(() =>
           h.service.executionProfileForLaunch({
+            caller: operator,
             profileId: 'wfp_other',
             runId: run.id,
             stepId: 'review',
@@ -1606,6 +1657,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(
         thrown(() =>
           h.service.executionProfileForLaunch({
+            caller: operator,
             profileId: profile.id,
             runId: run.id,
             stepId: 'implement',
@@ -1617,6 +1669,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(
         thrown(() =>
           h.service.executionProfileForLaunch({
+            caller: operator,
             profileId: profile.id,
             runId: 'wrun_nope',
             stepId: 'x',
@@ -1626,15 +1679,18 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(
         thrown(() =>
           h.service.executionProfileForLaunch({
+            caller: operator,
             profileId: profile.id,
             runId: run.id,
             stepId: 'nope',
           }),
         ),
       ).toBe(`Error: workflow run ${run.id} has no step nope | code=undefined`)
-      expect(thrown(() => h.service.executionProfileForLaunch({ profileId: 'wfp_nope' }))).toBe(
-        'Error: unknown execution profile: wfp_nope | code=undefined',
-      )
+      expect(
+        thrown(() =>
+          h.service.executionProfileForLaunch({ caller: operator, profileId: 'wfp_nope' }),
+        ),
+      ).toBe('Error: unknown execution profile: wfp_nope | code=undefined')
     })
 
     it('PIN an UNREACHABLE / mismatched machine is a non-blocking WARNING, never a refusal', () => {
@@ -1683,7 +1739,10 @@ describe('POD-730 workflow mutation characterization', () => {
       // A session with NO machineId at all reports "unknown" — indistinguishable
       // from a machine that exists but is unreachable.
       const other = twoStepRun(h, { profileId: profile.id })
-      h.service.assignStep({ runId: other.run.id, stepId: 'implement', sessionId: asSessionId('s4') }, operator)
+      h.service.assignStep(
+        { runId: other.run.id, stepId: 'implement', sessionId: asSessionId('s4') },
+        operator,
+      )
       const noMachine = h.service.checkpoint(
         {
           runId: other.run.id,
@@ -1731,6 +1790,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(
         thrown(() =>
           h.service.executionProfileForLaunch({
+            caller: operator,
             profileId: 'wfp_missing',
             runId: run.id,
             stepId: 'a',
@@ -2007,7 +2067,10 @@ describe('POD-730 workflow mutation characterization', () => {
       // `?? caller.actor.id` fallback yields the same value either way. Only a
       // DIFFERENT caller can tell "kept" apart from "overwritten".
       const { run } = twoStepRun(h)
-      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, agent('s1'))
+      h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        agent('s1'),
+      )
       h.service.checkpoint(
         {
           runId: run.id,
@@ -2035,8 +2098,14 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('PIN assignStep with sessionId null unassigns, and duplicate delivery is fully idempotent', () => {
       const { run } = twoStepRun(h)
-      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, agent('s1'))
-      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, agent('s1'))
+      h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        agent('s1'),
+      )
+      h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        agent('s1'),
+      )
       expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
       const packet = h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: null },
@@ -2079,7 +2148,10 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('PIN retry resets the step, bumps attempt, KEEPS the assignee, and reactivates a complete run', () => {
       const { run } = twoStepRun(h)
-      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, agent('s1'))
+      h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        agent('s1'),
+      )
       h.service.checkpoint(
         {
           runId: run.id,
@@ -2553,7 +2625,10 @@ describe('POD-730 workflow mutation characterization', () => {
       const { run } = twoStepRun(h)
       expect(
         thrown(() =>
-          h.service.assignStep({ runId: run.id, stepId: 'review', sessionId: asSessionId('s2') }, agent('s1')),
+          h.service.assignStep(
+            { runId: run.id, stepId: 'review', sessionId: asSessionId('s2') },
+            agent('s1'),
+          ),
         ),
       ).toBe('Error: only the current step may be assigned | code=undefined')
       expect(
@@ -2561,7 +2636,10 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: only the current step may be skipped | code=undefined')
       expect(
         thrown(() =>
-          h.service.assignStep({ runId: run.id, stepId: 'nope', sessionId: asSessionId('s2') }, agent('s1')),
+          h.service.assignStep(
+            { runId: run.id, stepId: 'nope', sessionId: asSessionId('s2') },
+            agent('s1'),
+          ),
         ),
       ).toBe('Error: only the current step may be assigned | code=undefined')
     })
@@ -3050,7 +3128,10 @@ describe('POD-730 workflow mutation characterization', () => {
       const own = twoStepRun(h)
       expect(h.service.status({ runId: own.run.id }, agent('s1')).id).toBe(own.run.id)
       expect(h.service.status({ runId: own.run.id }, agent('s2')).id).toBe(own.run.id)
-      h.service.assignStep({ runId: own.run.id, stepId: 'implement', sessionId: asSessionId('s4') }, agent('s1'))
+      h.service.assignStep(
+        { runId: own.run.id, stepId: 'implement', sessionId: asSessionId('s4') },
+        agent('s1'),
+      )
       expect(h.service.status({ runId: own.run.id }, agent('s4')).id).toBe(own.run.id)
       // ARTEFACT: overrideScope does NOT widen runFor either.
       expect(thrown(() => h.service.status({ runId: foreignRun.id }, overriding('s1')))).toBe(
@@ -3072,8 +3153,10 @@ describe('POD-730 workflow mutation characterization', () => {
     it('POD-731 a bare operator can no longer transition any run; an admin still can', () => {
       const { run } = twoStepRun(h)
       expect(
-        h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, operator)
-          .message,
+        h.service.assignStep(
+          { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+          operator,
+        ).message,
       ).toBe('Step assigned to s2.')
       expect(
         h.service.skip({ runId: run.id, stepId: 'implement', reason: 'admin says so' }, operator)
@@ -3094,7 +3177,10 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it("ARTEFACT checkpoint's allowed check accepts the operator for ANY step, assigned or not", () => {
       const { run } = twoStepRun(h)
-      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, operator)
+      h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        operator,
+      )
       // s1 (coordinator) is allowed; s4 (neither coordinator nor assignee) is not;
       // the operator is allowed regardless.
       expect(
@@ -3147,7 +3233,10 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: session is not assigned to this workflow step | code=undefined')
       // Assigning it flips the outcome.
-      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, agent('s1'))
+      h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        agent('s1'),
+      )
       expect(
         h.service.checkpoint(
           {
@@ -3511,7 +3600,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * the human, or this test would pass against a `startRun` that recorded
      * `null` unconditionally.
      */
-    it('POD-732 an explicit null onBehalfOf is REVOCATION and is never re-resolved', () => {
+    it('POD-732 an explicit null onBehalfOf is rejected rather than re-resolved', () => {
       const revoked = h.service.create(
         {
           name: `Revoked ${Math.random()}`,
@@ -3523,13 +3612,17 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       )
-      h.service.startRun({
-        sessionId: asSessionId('s1'),
-        cwd: '/repo-a/wt',
-        issueId: 'issue-1',
-        revisionId: revoked.revision.id,
-        onBehalfOf: null,
-      })
+      expect(
+        thrown(() =>
+          h.service.startRun({
+            sessionId: asSessionId('s1'),
+            cwd: '/repo-a/wt',
+            issueId: 'issue-1',
+            revisionId: revoked.revision.id,
+            onBehalfOf: null,
+          }),
+        ),
+      ).toBe('Error: workflow run has no live owner | code=undefined')
       // The second subject, same call with the field ABSENT — the actor differs
       // from the assertion, so a `startRun` that always recorded null fails here.
       h.service.startRun({
@@ -3552,12 +3645,15 @@ describe('POD-730 workflow mutation characterization', () => {
         readEvents(h.store)
           .filter((e) => e.kind === 'workflow.run_started')
           .map((e) => String(e.on_behalf_of)),
-      ).toEqual(['null', 'user:single'])
+      ).toEqual(['user:single'])
     })
 
     it('POD-731 every advance records the PAIR — the actor AND the human it acted for', () => {
       const { run } = twoStepRun(h)
-      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, agent('s1'))
+      h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        agent('s1'),
+      )
       h.service.checkpoint(
         {
           runId: run.id,
@@ -3681,7 +3777,10 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       )
       const { run } = twoStepRun(before, { profileId: profile.id })
-      before.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, operator)
+      before.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        operator,
+      )
       before.service.checkpoint(
         {
           runId: run.id,
@@ -3717,12 +3816,15 @@ describe('POD-730 workflow mutation characterization', () => {
         })
         // The recovery paths a resumed session actually uses.
         expect(
-          after.service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' })?.revision
-            .id,
+          after.service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' })
+            ?.revision.id,
         ).toBe(recovered.revision.id)
         expect(
-          after.service.prepareStart({ sessionId: asSessionId('s2'), cwd: '/repo-a/wt', issueId: 'issue-1' })
-            ?.revision.id,
+          after.service.prepareStart({
+            sessionId: asSessionId('s2'),
+            cwd: '/repo-a/wt',
+            issueId: 'issue-1',
+          })?.revision.id,
         ).toBe(recovered.revision.id)
         expect(after.service.runs({}, agent('s1')).map((r) => r.id)).toEqual([run.id])
         // The run continues exactly where it stopped.
@@ -3755,7 +3857,10 @@ describe('POD-730 workflow mutation characterization', () => {
       const path = join(dir, 'volatile.sqlite')
       const before = makeHarness(path)
       const { run } = twoStepRun(before)
-      before.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') }, operator)
+      before.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        operator,
+      )
       before.service.checkpoint(
         {
           runId: run.id,

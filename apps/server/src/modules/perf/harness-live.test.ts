@@ -34,7 +34,8 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { PHASE_MIGRATION } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { feedPrincipalOf, userClientPrincipal } from '../../gateway/client-principal'
 import { SessionRegistry } from '../../relay'
 import { perfPrincipal } from './principal'
 import { perf } from './registry'
@@ -42,7 +43,9 @@ import { perf } from './registry'
 /** The digest the live serving path attributes to today. DERIVED, not typed out:
  *  a literal here would keep passing after `feedPrincipalOf` stopped returning
  *  this principal, which is the drift the dimension exists to catch. */
-const LIVE = perfPrincipal(DEVICE_GRADE_PRINCIPAL)
+const LIVE = perfPrincipal(
+  feedPrincipalOf(userClientPrincipal('perf-fixture', FIRST_ADMIN_USER_ID, 'admin')),
+)
 
 function drive(): { registry: SessionRegistry; inbox: unknown[] } {
   const registry = new SessionRegistry()
@@ -50,6 +53,7 @@ function drive(): { registry: SessionRegistry; inbox: unknown[] } {
   const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
+    wireVersion: 2,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
     caps: ['metadataDelta'],
@@ -107,7 +111,10 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
       // FAILS IF: the map names a phase nobody records — a baseline-migration
       // story that points at nothing, which is worse than no map because a
       // reader trusts it.
-      expect(phases[name], `${name} is promised by PHASE_MIGRATION but never recorded`).toBeDefined()
+      expect(
+        phases[name],
+        `${name} is promised by PHASE_MIGRATION but never recorded`,
+      ).toBeDefined()
     }
   })
 

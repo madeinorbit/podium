@@ -8,21 +8,34 @@ import { resolvePrincipal } from './command-principal'
  * SP-6144: agent-created top-level issues are human-facing proposals, inert until
  * an operator promotes them. needsHuman remains reserved for actual questions.
  */
-import { asSessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asSessionId } from '@podium/model'
 import type { IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 
-const ctx = (registry: SessionRegistry, capability: Capability) =>
-  appRouter.createCaller({
+const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
+  const capability: Capability =
+    rawCapability.scope.kind === 'subtree'
+      ? {
+          ...rawCapability,
+          actorSessionId: rawCapability.actorSessionId ?? asSessionId('audience-agent'),
+          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+        }
+      : {
+          ...rawCapability,
+          actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+        }
+  return appRouter.createCaller({
     registry,
     repos: {} as never,
     superagent: {} as never,
     capability,
     principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   })
+}
 
 /** Issue mutations are typed loosely at this seam; these cases assert on the wire. */
 const asWire = (v: unknown): IssueWire => v as IssueWire
@@ -328,7 +341,10 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
       await expect(proposalWorker.issues.start({ id: sub.id })).rejects.toThrow(/operator/i)
       await expect(proposalWorker.issues.start({ id: proposal.id })).rejects.toThrow(/operator/i)
       await expect(
-        proposalWorker.issues.attachSession({ sessionId: asSessionId('sess-x'), targetId: proposal.id }),
+        proposalWorker.issues.attachSession({
+          sessionId: asSessionId('sess-x'),
+          targetId: proposal.id,
+        }),
       ).rejects.toThrow(/operator/i)
     } finally {
       reg.dispose()

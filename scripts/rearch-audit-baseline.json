@@ -24,7 +24,7 @@
     "raw-string-entity-ids": 0,
     "reexport-shims": 20,
     "representation-registry-rot": 0,
-    "router-triple-access": 18,
+    "router-triple-access": 0,
     "send-turn-duplicate": 0,
     "session-shapes": 1,
     "state-dir-defs": 0,

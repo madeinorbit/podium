@@ -1,11 +1,16 @@
-import { asIssueId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { authorize, type Capability, OPERATOR } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
 
 describe('OPERATOR', () => {
   it('is an unconstrained admin over all issues', () => {
-    expect(OPERATOR).toEqual({ role: 'admin', scope: { kind: 'all' } })
+    expect(OPERATOR).toEqual({
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorUser: FIRST_ADMIN_USER_ID,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    })
     expect(authorize(OPERATOR, 'manage', { id: 'iss_any' })).toBe('allow')
   })
 })

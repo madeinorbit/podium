@@ -142,7 +142,14 @@ export const SYNC_QUERIES = {
    * receive its key here either — which is exactly the property that makes it
    * usable as the comparison's basis.
    */
-  feedSlice: q(z.object({}).optional(), (s) => s.modules.funnel.feedSlice()),
+  feedSlice: q(z.object({}).optional(), (s) =>
+    s.modules.funnel.feedSlice(
+      s.feedPrincipal ??
+        (() => {
+          throw new Error('authenticated feed principal required')
+        })(),
+    ),
+  ),
 } as const
 
 const noInput = z.object({}).passthrough().optional()

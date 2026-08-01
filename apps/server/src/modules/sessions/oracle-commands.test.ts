@@ -12,7 +12,7 @@
 
 import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import { WIRE_VERSION, type ControlMessage } from '@podium/protocol'
+import { WIRE_VERSION, type ControlMessage, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -31,6 +31,16 @@ const RESUME = { kind: 'claude-session', value: 'native-1' } as const
 
 const inputs = (daemon: ControlMessage[]) =>
   daemon.filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
+
+const hasSessionDelete = (client: ServerMessage[], sessionId: SessionId) =>
+  client.some(
+    (message) =>
+      (message.type === 'feedDelta' || message.type === 'feedBootstrap') &&
+      message.changes.some(
+        (change) =>
+          change.entity === 'session' && change.entityId === sessionId && change.op === 'remove',
+      ),
+  )
 
 /** Bind a created session as a live agent with a known resume ref and phase. */
 function goLive(
@@ -81,7 +91,11 @@ describe('oracle: create', () => {
     const o = makeOracle()
 
     await expect(
-      o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: asSessionId('../../evil') }),
+      o.call.sessions.create({
+        agentKind: 'claude-code',
+        cwd: '/p',
+        sessionId: asSessionId('../../evil'),
+      }),
     ).rejects.toThrow()
     expect(o.store.sessions.loadSessions()).toEqual([])
   })
@@ -89,7 +103,13 @@ describe('oracle: create', () => {
   it(`${willChange('POD-1079', "machines become owned compute; 'use' defaults to the owner only")}: placement is ambient — any authenticated caller may spawn on any paired machine`, async () => {
     const o = makeOracle()
     // A second paired machine nobody "owns": there is no owner column today.
-    o.store.machines.upsertMachine({ id: 'other', name: 'other', hostname: 'o', tokenHash: 'x', ownerUserId: 'user:sole' })
+    o.store.machines.upsertMachine({
+      id: 'other',
+      name: 'other',
+      hostname: 'o',
+      tokenHash: 'x',
+      ownerUserId: 'user:sole',
+    })
     const other: ControlMessage[] = []
     o.reg.gateway.attachDaemon('other', (m) => other.push(m))
 
@@ -287,10 +307,7 @@ describe('oracle: kill', () => {
     expect(otherSeen).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
     expect(o.daemon.filter((m) => m.type === 'kill')).toEqual([])
     await waitFor(
-      () =>
-        o.client.some(
-          (m) => m.type === 'sessionsChanged' && !m.sessions.some((s) => s.sessionId === sessionId),
-        ),
+      () => hasSessionDelete(o.client, sessionId),
       'the removal to reach the attached client',
     )
   })
@@ -328,7 +345,12 @@ describe('oracle: sendText / resumeAndSend', () => {
     // that is not this caller — otherwise the test passes on a session nobody
     // controls and proves nothing about gating.
     const controllerId = o.reg.clientGateway.attachClient(() => {})
-    o.reg.clientGateway.routeClientFrame(controllerId, { type: 'hello', wireVersion: WIRE_VERSION, clientId: '', viewport: { cols: 80, rows: 24, dpr: 1 } })
+    o.reg.clientGateway.routeClientFrame(controllerId, {
+      type: 'hello',
+      wireVersion: WIRE_VERSION,
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
     o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
     expect(o.meta(sessionId).controllerId).toBe(controllerId)
     o.daemon.length = 0

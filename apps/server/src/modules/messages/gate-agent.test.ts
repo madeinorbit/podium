@@ -2,7 +2,7 @@
 // cross-harness]: gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, type SessionId } from '@podium/model'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -19,6 +19,7 @@ const ISSUE = {
   defaultAgent: 'claude-code',
   defaultModel: 'auto',
   defaultEffort: 'auto',
+  ownerUserId: FIRST_ADMIN_USER_ID,
 }
 const SENDER_ISSUE = { ...ISSUE, id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 
@@ -37,6 +38,10 @@ function fakeIssues(created: Record<string, unknown>[] = []) {
     getMeta: (id: string) => byId.get(id),
     niceRef: (row: { seq: number }) => `#${row.seq}`,
     has: (id: string) => byId.has(id),
+    ownedTarget: (id: string) => {
+      const row = byId.get(id)
+      return row ? { kind: 'issue', id, owner: row.ownerUserId ?? FIRST_ADMIN_USER_ID } : undefined
+    },
     ancestorIds: () => [],
     create: (input: Record<string, unknown>) => {
       created.push(input)
@@ -47,11 +52,17 @@ function fakeIssues(created: Record<string, unknown>[] = []) {
   } as unknown as IssueService
 }
 
-const OPERATOR: Capability = { role: 'admin', scope: { kind: 'all' } }
+const OPERATOR: Capability = {
+  role: 'admin',
+  scope: { kind: 'all' },
+  actorUser: FIRST_ADMIN_USER_ID,
+  onBehalfOf: FIRST_ADMIN_USER_ID,
+}
 const PARENT: Capability = {
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
   actorSessionId: asSessionId('sParent'),
+  onBehalfOf: FIRST_ADMIN_USER_ID,
 }
 
 function harness(opts?: {
@@ -163,13 +174,16 @@ describe('agent spawn (gate)', () => {
     // Ledgered.
     const evs = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
     expect(evs).toHaveLength(1)
-    expect(evs[0]!.payload).toMatchObject({ sessionId: asSessionId('child1'), workflowRunId: 'run_1' })
+    expect(evs[0]!.payload).toMatchObject({
+      sessionId: asSessionId('child1'),
+      workflowRunId: 'run_1',
+    })
   })
 
   it('uses a resolved execution profile as the authoritative launch preset and audits it', async () => {
     const { gate, spawns, store } = harness({
       resolveExecutionProfile: (input) => {
-        expect(input).toEqual({
+        expect(input).toMatchObject({
           profileId: 'prof_review',
           runId: 'run_1',
           stepId: 'review',
@@ -380,7 +394,11 @@ describe('agent await (bounded, never hangs)', () => {
     })) as { done: boolean; result: string; snapshot: { phase?: string } }
     expect(r.done).toBe(false)
     expect(r.result).toBe('working')
-    expect(r.snapshot).toMatchObject({ sessionId: asSessionId('child1'), status: 'live', phase: 'working' })
+    expect(r.snapshot).toMatchObject({
+      sessionId: asSessionId('child1'),
+      status: 'live',
+      phase: 'working',
+    })
   })
 
   // Actionable result split (docs/agent-comms-target.html §09-D/§09-E): parent
@@ -507,7 +525,9 @@ describe('agent await (bounded, never hangs)', () => {
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'session', id: 'child1' }, body: 'report in' },
     )
-    sessions.push(child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }))
+    sessions.push(
+      child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }),
+    )
     t = 2_000
     const p = gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
@@ -534,7 +554,9 @@ describe('agent await (bounded, never hangs)', () => {
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'session', id: 'child1' }, body: 'report in' },
     )
-    sessions.push(child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }))
+    sessions.push(
+      child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }),
+    )
     // Ack after waitStart but child already exited — ack wins over gone.
     t = 2_000
     svc.sendReply(
@@ -560,7 +582,9 @@ describe('agent await (bounded, never hangs)', () => {
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'session', id: 'child1' }, body: 'first instruction' },
     )
-    sessions.push(child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }))
+    sessions.push(
+      child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }),
+    )
     svc.sendReply(
       { kind: 'agent', sessionId: asSessionId('child1'), issueId: asIssueId(ISSUE.id) },
       { inReplyTo: sent.message.id, body: 'round 1 done' },
@@ -583,7 +607,10 @@ describe('agent await (bounded, never hangs)', () => {
       actorSessionId: asSessionId('sStranger'),
     }
     await expect(
-      gate.dispatch(stranger, undefined, 'awaitAgent', { sessionId: asSessionId('child1'), timeoutSeconds: 0 }),
+      gate.dispatch(stranger, undefined, 'awaitAgent', {
+        sessionId: asSessionId('child1'),
+        timeoutSeconds: 0,
+      }),
     ).rejects.toThrow(/outside your subtree/)
     // Same scope, but the PARENT session: allowed without --outside-scope.
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {

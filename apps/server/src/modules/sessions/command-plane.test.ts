@@ -107,8 +107,10 @@ function ctxFor(
         'relay',
         'immediate',
       )!,
-    createDraftIssue: (repoPath, agentKind, issueId) =>
-      modules.issues.createDraftFor(repoPath, agentKind, issueId),
+
+    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
+      modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    issueOwner: () => undefined,
     access: {
       listSessions: () => modules.sessions.listSessions(),
       issues: modules.issues,
@@ -211,7 +213,11 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
 
     expect(
       await messageOf(() =>
-        dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), command, input),
+        dispatchSessionCommand(
+          ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }),
+          command,
+          input,
+        ),
       ),
     ).toBe("unknown machine 'box'")
   })

@@ -1,4 +1,5 @@
-import { resolvePrincipal } from './command-principal'
+import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
@@ -9,7 +10,19 @@ import { appRouter } from './router'
 // mirrors router-issues.test.ts and keeps the test off the heavy services.
 const registries: SessionRegistry[] = []
 
-function caller(capability: Capability, shared?: SessionRegistry) {
+function caller(rawCapability: Capability, shared?: SessionRegistry) {
+  const capability: Capability =
+    rawCapability.scope.kind === 'subtree'
+      ? {
+          ...rawCapability,
+          actorSessionId: rawCapability.actorSessionId ?? asSessionId('test-agent'),
+          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+        }
+      : {
+          ...rawCapability,
+          actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+        }
   const registry = shared ?? new SessionRegistry() // in-memory :memory: store
   if (!shared) registries.push(registry)
   return appRouter.createCaller({
@@ -65,10 +78,7 @@ describe('issues.* capability gate', () => {
     })
     const outsider = await op.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
 
-    const scoped = caller(
-      { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } },
-      registry,
-    )
+    const scoped = caller({ role: 'worker', scope: { kind: 'subtree', rootId: epic.id } }, registry)
     // In-subtree child: clears BOTH gates (role + scope) with no --outside-scope override.
     // Past the gate, start hits real git plumbing ('/r' is not a repo) — any failure there
     // must NOT be an authz denial. (Mirrors the "passes the gate, then errors on other
@@ -80,9 +90,7 @@ describe('issues.* capability gate', () => {
     if (err) expect(String(err)).not.toMatch(/FORBIDDEN|not allowed|outside your subtree/i)
 
     // Outside the subtree: the scope gate demands the explicit override.
-    await expect(scoped.issues.start({ id: outsider.id })).rejects.toThrow(
-      /outside your subtree/i,
-    )
+    await expect(scoped.issues.start({ id: outsider.id })).rejects.toThrow(/outside your subtree/i)
   })
 
   it('operator (admin) may create AND delete', async () => {

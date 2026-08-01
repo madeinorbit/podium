@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { IssueId, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
 import { sessionsForIssue } from '../../../issue-util'
 import { attributionOf, type SystemCommandPrincipal } from '../../../command-principal'
 import type { IssueRow, Subscription } from '../../../store'
@@ -149,13 +149,19 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
   /** The auto-created vessel for a low-friction agent start: a draft, human-origin
    *  backlog issue with a placeholder title. The spawn flow stamps its id onto the
    *  new session. */
-  createDraftFor(repoPath: string, agentKind?: string, id?: IssueId): IssueWire {
+  createDraftFor(
+    repoPath: string,
+    agentKind?: string,
+    id?: IssueId,
+    ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
+  ): IssueWire {
     return this.create({
       repoPath,
       title: 'Draft',
       startNow: false,
       draft: true,
       origin: 'human',
+      ...ownership,
       ...(agentKind ? { defaultAgent: agentKind } : {}),
       ...(id ? { id } : {}),
     })

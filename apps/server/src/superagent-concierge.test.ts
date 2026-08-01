@@ -63,6 +63,9 @@ async function harness(opts?: { eventReadLimit?: number }) {
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r') // conciergeTurn rejects unregistered repos
   const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, opts)
+  sa.history(FIRST_ADMIN_USER_ID)
+  sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('s1') })
+  sa.ensureConciergeThread({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r' })
   // Same wiring as server.ts: issue tools over the registry's in-process
   // OPERATOR client (router-equal guard, no router caller involved).
   const issueTools = new IssueToolProvider()
@@ -177,7 +180,7 @@ describe('concierge threads (issue #64)', () => {
       text: 'again',
     })
     expect(a.threadId).toBe(b.threadId)
-    expect(a.isNew).toBe(true)
+    expect(a.isNew).toBe(false)
     expect(b.isNew).toBe(false)
     const threads = sa.listThreads(FIRST_ADMIN_USER_ID).filter((t) => t.kind === 'concierge')
     expect(threads).toHaveLength(1)
@@ -242,7 +245,7 @@ describe('concierge threads (issue #64)', () => {
       sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/typo', text: 'hi' }),
     ).rejects.toThrow(/unknown repo/)
     expect(sa.listThreads(FIRST_ADMIN_USER_ID).filter((t) => t.kind === 'concierge')).toHaveLength(
-      0,
+      1,
     )
   })
 

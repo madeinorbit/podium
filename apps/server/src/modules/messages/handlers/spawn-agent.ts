@@ -13,6 +13,7 @@
 
 import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@podium/commands'
 import { checkIssueAccess } from '../../../issue-authz'
+import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import { SPAWN_BUDGET_PER_DAY } from '../service'
 import type { MailHandlerContext } from './context'
 
@@ -21,6 +22,10 @@ export function spawnAgentHandler(
   input: ContractInput<typeof spawnAgentContract>,
 ): unknown {
   const { caller, deps, access } = ctx
+  if (!caller.principal) throw new Error('agent spawn requires an authenticated principal')
+  const attribution = attributionOf(caller.principal)
+  const callerOwner = onBehalfOfUser(caller.principal)
+  if (callerOwner === null) throw new Error('agent spawn requires a human owner')
   if (!deps.spawnSession) throw new Error('agent spawn is not wired on this server')
   const issues = deps.issues()
   if (input.issue && input.newTitle) throw new Error('pass --issue OR --new, not both')
@@ -49,7 +54,13 @@ export function spawnAgentHandler(
         : null
     const repoPath = input.repo ?? scopeIssue?.repoPath
     if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
+    const inheritedOwner = scopeIssue
+      ? (issues.ownedTarget(scopeIssue.id, 'read')?.owner ?? callerOwner)
+      : callerOwner
     issueId = deps.createIssue({
+      ownerUserId: inheritedOwner,
+      createdByActor: attribution.actor,
+      createdByOnBehalfOf: callerOwner,
       repoPath,
       title: input.newTitle,
       description: input.prompt,
@@ -130,7 +141,9 @@ export function spawnAgentHandler(
       throw new Error(`machine ${machineId} is not reachable right now`)
     }
   }
+  const sessionOwner = issues.ownedTarget(issue.id, 'read')?.owner ?? callerOwner
   const spawned = deps.spawnSession({
+    ownerUserId: sessionOwner,
     cwd,
     agentKind: harness,
     initialPrompt: input.prompt,

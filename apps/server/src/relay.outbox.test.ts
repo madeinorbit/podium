@@ -8,7 +8,7 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
@@ -320,6 +320,7 @@ describe('queueText (durable outbox sends)', () => {
     const clientId = reg.clientGateway.attachClient((m) => inbox.push(m))
     reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
@@ -332,9 +333,13 @@ describe('queueText (durable outbox sends)', () => {
     })
     reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
-    const changes = inbox
-      .slice(before)
-      .flatMap((m) => (m.type === 'metadataDelta' ? m.changes : []))
+    const changes = inbox.slice(before).flatMap((message) => {
+      if (message.type === 'metadataDelta') return message.changes
+      if (message.type !== 'feedDelta') return []
+      return message.changes
+        .filter((change) => change.op !== 'evict')
+        .map((change) => ({ ...change, id: change.entityId }) as MetadataChange)
+    })
     const upserts = changes.filter(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     )

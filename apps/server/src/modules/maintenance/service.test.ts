@@ -285,7 +285,11 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       observed,
     }
     expect(await service.apply(command)).toMatchObject({ status: 'applied' })
-    expect(tryAutoArchiveObserved).toHaveBeenCalledWith(observed, nowMs)
+    expect(tryAutoArchiveObserved).toHaveBeenCalledWith(
+      observed,
+      nowMs,
+      expect.objectContaining({ kind: 'system', job: 'expiry' }),
+    )
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
     tryAutoArchiveObserved.mockReturnValueOnce('not-due')
     const second = {
@@ -451,7 +455,9 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         id: 'remote',
         name: 'remote',
         hostname: 'remote',
-        tokenHash: 'x', ownerUserId: 'user:sole' })
+        tokenHash: 'x',
+        ownerUserId: 'user:sole',
+      })
     } finally {
       vi.useRealTimers()
     }
