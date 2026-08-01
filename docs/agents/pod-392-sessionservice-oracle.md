@@ -80,10 +80,10 @@ through explicit ports; it should not absorb the choreography.
 
 ## Verification
 
-- Named SessionService oracle: 10 files, 183 tests passed.
+- Named SessionService oracle: 11 files, 188 tests passed.
 - Server package typecheck: passed.
-- Repository-wide test lane: passed. Node 9,221; web 1,456; mobile 34;
-  Bun SQLite 14 (10,725 passing assertions total, plus the lane's documented
+- Repository-wide test lane: passed. Node 9,222; web 1,456; mobile 34;
+  Bun SQLite 14 (10,726 passing assertions total, plus the lane's documented
   skips).
 
 A green from before the provisional retag or before

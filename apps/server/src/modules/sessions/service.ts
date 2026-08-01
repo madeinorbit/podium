@@ -1383,10 +1383,10 @@ export class SessionsService {
    * `undefined` means the session does not exist — which the session-state envelope
    * treats identically to a denial (§3.1.5's consistent-error rule).
    *
-   * Until POD-1075 adds real accounts there is no `owner` column, so every
-   * existing session belongs to the one identity the product has had. This is the
-   * ONE place that transitional answer is given, so POD-1075 changes it here
-   * rather than in eleven handlers.
+   * Session rows still have no `owner` column, so existing sessions use the
+   * instance first-admin identity as a transitional owner. This is the ONE place
+   * that answer is given; POD-1070 ownership work replaces it here rather than
+   * in eleven handlers.
    */
   sessionOwner(sessionId: SessionId): { owner: UserId | null; grants: string[] } | undefined {
     if (!this.sessions.has(sessionId)) return undefined
