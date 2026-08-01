@@ -16,6 +16,7 @@ import { ComposerSyncEngine } from './composer-sync'
 // the doubling logic itself is covered deterministically by the scripted-PTY unit
 // test in composer-sync.test.ts.
 const nodeRequire = createRequire(import.meta.url)
+const PTY_EVENT_DEADLINE_MS = 60_000
 let pty: typeof import('node-pty') | null = null
 try {
   const m = nodeRequire('node-pty') as typeof import('node-pty')
@@ -75,7 +76,13 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
     )
     let deadline: ReturnType<typeof setTimeout> | undefined
     const failedDeadline = new Promise<never>((_resolve, reject) => {
-      deadline = setTimeout(() => reject(new Error('real PTY did not publish composer')), 5_000)
+      // The deadline only rejects a wedged PTY. Successful completion is driven
+      // exclusively by the output and publication events above; keep enough headroom
+      // for this process-backed test to run alongside the rest of the integration lane.
+      deadline = setTimeout(
+        () => reject(new Error('real PTY did not publish composer')),
+        PTY_EVENT_DEADLINE_MS,
+      )
     })
     try {
       // FIFO rendezvous closes forkpty's unobservable spawn-to-listener gap without
@@ -100,5 +107,5 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
       engine.disposeAll()
       rmSync(fixtureDir, { recursive: true, force: true })
     }
-  }, 15_000)
+  }, 75_000)
 })

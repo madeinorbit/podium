@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
+import { ptySmokeTests } from './vitest.smoke-requirements'
 
 const integrationTests = [
   'tests/e2e/**/*.test.{ts,tsx}',
@@ -12,6 +13,7 @@ const integrationTests = [
   'packages/pty/src/abduco.test.ts',
   'packages/pty/src/abduco-bin.test.ts',
   'packages/pty/src/tmux.test.ts',
+  ...ptySmokeTests,
   'apps/daemon/src/daemon.test.ts',
   'apps/daemon/src/memory-breakdown.test.ts',
   'scripts/redeploy-wait.test.ts',
@@ -35,11 +37,7 @@ export default defineConfig({
     ...sharedVitestConfig.test,
     passWithNoTests: true,
     include: integrationTests,
-    exclude: [
-      ...nodeTestExclude,
-      '**/*.smoke.test.{ts,tsx}',
-      'scripts/loop-split-load.integration.test.ts',
-    ],
+    exclude: [...nodeTestExclude, 'scripts/loop-split-load.integration.test.ts'],
     retry: 1,
     testTimeout: 20_000,
   },

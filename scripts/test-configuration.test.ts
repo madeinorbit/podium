@@ -5,6 +5,7 @@ import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
+import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements'
 import unitConfig from '../vitest.unit.config'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
@@ -23,6 +24,15 @@ type Config = {
 }
 
 const config = (value: unknown): Config => value as Config
+const smokeTestFiles = (dir: URL, prefix = ''): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) {
+      if (['.git', '.worktrees', 'node_modules'].includes(entry.name)) return []
+      return smokeTestFiles(new URL(`${entry.name}/`, dir), relative)
+    }
+    return /\.smoke\.test\.(?:ts|tsx)$/.test(entry.name) ? [relative] : []
+  })
 const nodeProject = (value: unknown) => {
   const project = config(value).test?.projects?.find(
     (candidate): candidate is Exclude<Project, string> =>
@@ -45,7 +55,19 @@ describe('test lane configuration', () => {
 
   it('keeps deterministic integration and real-agent smoke scopes explicit', () => {
     expect(config(integrationConfig).test?.include).toContain('apps/daemon/src/daemon.test.ts')
-    expect(config(integrationConfig).test?.exclude).toContain('**/*.smoke.test.{ts,tsx}')
+    for (const test of ptySmokeTests) {
+      expect(config(unitConfig).test?.exclude).toContain(test)
+      expect(config(integrationConfig).test?.include).toContain(test)
+      expect(config(agentSmokeConfig).test?.include).not.toContain(test)
+    }
+    for (const test of realAgentSmokeTests) {
+      expect(config(unitConfig).test?.exclude).toContain(test)
+      expect(config(integrationConfig).test?.include).not.toContain(test)
+      expect(config(agentSmokeConfig).test?.include).toContain(test)
+    }
+    expect(smokeTestFiles(new URL('../', import.meta.url)).sort()).toEqual(
+      [...ptySmokeTests, ...realAgentSmokeTests].sort(),
+    )
     expect(config(integrationConfig).test?.projects).toBeUndefined()
     expect(config(acceptanceConfig).test?.include).toEqual([
       'scripts/loop-split-load.integration.test.ts',
