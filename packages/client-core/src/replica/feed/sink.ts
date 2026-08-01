@@ -17,7 +17,7 @@
  */
 
 import type { Replica as KernelReplica } from '@podium/sync/replica'
-import type { FeedServerFrame, FeedSinkPort } from '../../transport'
+import type { FeedServerFrame, FeedSinkPort } from '../../socket-transport'
 import type { PushedBootstrapSource } from './bootstrap-source'
 import { toBootstrapChunk, toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
 

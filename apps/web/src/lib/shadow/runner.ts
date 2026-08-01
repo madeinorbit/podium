@@ -55,7 +55,7 @@ import {
   memoryStorage,
   type Replica,
 } from '@podium/client-core/replica'
-import { SocketHub } from '@podium/client-core/transport'
+import { SocketHub } from '@podium/client-core/socket-transport'
 import type { Replica as KernelReplica, ReplicaEvent } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 import {

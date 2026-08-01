@@ -37,7 +37,7 @@ import {
 } from '../engine/types'
 import type { Replica } from '../replica/replica'
 import type { RouterWindow } from '../router'
-import type { FeedSinkPort } from '../transport'
+import type { FeedSinkPort } from '../socket-transport'
 
 // Shared engine seams (#262): types live with the engine; re-exported here so
 // the react entrypoint's public surface is unchanged.

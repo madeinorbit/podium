@@ -8,7 +8,7 @@
 // session-mount pushes the report on a real background change — as PTY input,
 // so it obeys the controller-only input rule.
 
-import type { SessionCallbacks, SocketHub } from '@podium/client-core/transport'
+import type { SessionCallbacks, SocketHub } from '@podium/client-core/socket-transport'
 import { asSessionId } from '@podium/model'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mountSession } from './session-mount'

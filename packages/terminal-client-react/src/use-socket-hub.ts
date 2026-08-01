@@ -1,7 +1,7 @@
 // Import from the barrel (which re-exports ./connection) rather than the /connection
 // subpath: the web vite build aliases '@podium/terminal-client' to src/index.ts, so a
 // subpath specifier resolves to `src/index.ts/connection` and fails the production build.
-import { SocketHub, type SocketHubOptions } from '@podium/client-core/transport'
+import { SocketHub, type SocketHubOptions } from '@podium/client-core/socket-transport'
 import { useEffect, useMemo, useState } from 'react'
 
 export interface UseSocketHubResult {

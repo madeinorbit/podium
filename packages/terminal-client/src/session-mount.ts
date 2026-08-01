@@ -1,4 +1,4 @@
-import type { ConnectionState, SessionConnection, SocketHub } from '@podium/client-core/transport'
+import type { ConnectionState, SessionConnection, SocketHub } from '@podium/client-core/socket-transport'
 import { extractCodexPromptDraft } from '@podium/composer'
 import type { SessionId } from '@podium/model'
 import { DomViewportSource } from './dom-viewport'
