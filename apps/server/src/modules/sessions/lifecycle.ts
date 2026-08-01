@@ -144,20 +144,18 @@ import {
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
+import { SessionClientControl } from './client-control'
+import { SessionDaemonProjection } from './daemon-projection'
 import { SessionBindingReceipts } from './session-binding'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
+import type { SessionProjectionEvent } from './publish-worker-actor'
+import { PublishWorkerClient } from './publish-worker-client'
 import {
-  createViewKey,
-  type PreparedPublication,
-  type PublicationView,
-  type ViewKey,
-} from './publish-worker-actor'
-import {
-  PublicationSupersededError,
-  PublishWorkerClient,
-  type PublishWorkerMetrics,
-} from './publish-worker-client'
+  SessionPublicationCoordinator,
+  type SessionPublicationMetrics,
+} from './publication/coordinator'
+import { SessionBroadcastCoordinator } from './publication/broadcast'
 import {
   type PublicationAuthority,
   Session,
@@ -212,17 +210,6 @@ export interface SessionLedger {
   }
   capture(specs: EntityChangeSpec[]): MetadataChange[]
   reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
-}
-
-export interface SessionProjectionEvent {
-  generation: number
-  changes: MetadataChange[]
-  ledgerCursor: number
-}
-
-export interface SessionPublicationMetrics extends PublishWorkerMetrics {
-  shadowComparisons: number
-  shadowMismatches: number
 }
 
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
@@ -395,16 +382,10 @@ export class SessionLifecycle {
   private handoffCoordinator?: HandoffCoordinator
   /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
   private readonly funnel: WriteFunnel
-  private globalPublicationIdsCache?: {
-    generation: number
-    ids: readonly string[]
-  }
-  private readonly publicationWorker: PublishWorkerClient
-  private readonly titleDebouncers = new Map<string, ReturnType<typeof makeTitleDebouncer>>()
+  readonly publication: SessionPublicationCoordinator
+  readonly clientControl: SessionClientControl
+  readonly daemonProjection: SessionDaemonProjection
 
-  private readonly publicationShadowCompare: boolean
-  private publicationShadowComparisons = 0
-  private publicationShadowMismatches = 0
   // Server-only dirty generation [spec:SP-c29e]. It schedules projection work and
   // invalidates the legacy snapshot cache; ledger seq remains the sole durable and
   // client-visible ordering/catch-up primitive. Every successful persisted or
@@ -419,22 +400,8 @@ export class SessionLifecycle {
   private readonly capturedSessionStates = new Map<SessionId, SessionDurableState>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
-  // The generation whose legacy sessionsChanged snapshot completed successfully.
-  // Generation equality replaces byte-string equality so A→B→A inside one
-  // coalescing window still invalidates work even though the final bytes match.
-  private lastSessionsBroadcastGeneration = -1
-  // Generation currently being run. It is stamped before fan-out to preserve the
-  // old re-entrant same-state guard and restored if any broadcast body step throws.
-  private runningSessionsBroadcastGeneration = -1
-  // Last issue-relevant session projection published to issue clients [POD-722].
-  // runSessionsBroadcast compares this against the current projection to decide
-  // whether the O(issues×sessions) publishIssues() rebuild is actually needed —
-  // a bare attach/detach/control-transfer moves only clientCount/controllerId/
-  // epoch, none of which feed issue wire data, so it can be skipped. Stamped only
-  // after a successful publishIssues(), so a throw retries on the next broadcast.
-  // Interim until POD-308 deletes the snapshot fan-out.
   private issueProjectionGeneration = 0
-  private lastIssueProjectionGeneration = -1
+  readonly broadcasts: SessionBroadcastCoordinator
   private readonly browserOpen: BrowserOpenGateway
   private readonly bindingReceipts: SessionBindingReceipts
   // Single timer that persists only sessions whose activity counters advanced
@@ -453,8 +420,39 @@ export class SessionLifecycle {
     this.headless = deps.headless
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
-    this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
-    this.publicationShadowCompare = deps.publicationShadowCompare ?? false
+    const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
+    this.publication = new SessionPublicationCoordinator({
+      clients: this.clients,
+      worker: publicationWorker,
+      funnel: this.funnel,
+      shadowCompare: deps.publicationShadowCompare ?? false,
+      generation: () => this.sessionsGeneration_,
+      sessions: () => this.sessions,
+      listSessions: () => this.listSessions(),
+      snapshotTail: () => ({
+        issues: this.deps.issuesWire(),
+        issueProjections: this.deps.issueProjectionsWire(),
+        issueDeps: this.deps.issueDepsWire(),
+        repos: this.deps.issueReposWire(),
+        conversations: this.conversations().allConversations(),
+        automations: this.deps.automationsWire(),
+        automationRuns: this.deps.automationRunsWire(),
+        diagnostics: this.conversations().diagnostics(),
+      }),
+    })
+    this.broadcasts = new SessionBroadcastCoordinator({
+      hasPendingVolatile: () => this.pendingVolatileSessions.size > 0,
+      scheduleVolatileCapture: () => this.scheduleVolatileSessionCapture(),
+      flushVolatileCaptures: () => {
+        this.flushVolatileSessionCaptures()
+      },
+      generation: () => this.sessionsGeneration_,
+      issueGeneration: () => this.issueProjectionGeneration,
+      listSessions: () => this.listSessions(),
+      schedulePublication: (options) => this.publication.schedule(options),
+      publishIssues: (sessions) => this.deps.publishIssues(sessions),
+      flushDeltas: () => this.funnel.flushDeltas(),
+    })
     this.browserOpen = new BrowserOpenGateway({
       now: () => this.now(),
       clients: this.clients,
@@ -471,6 +469,16 @@ export class SessionLifecycle {
       broadcastSessions: () => this.broadcastSessions(),
       toMachine: (machineId, message) => this.toMachine(machineId, message),
     })
+    this.daemonProjection = new SessionDaemonProjection({
+      sessions: this.sessions,
+      issues: () => this.issues(),
+      binding: this.bindingReceipts,
+      persist: (session) => this.persist(session),
+      broadcastSessions: () => this.broadcastSessions(),
+      broadcastToClients: (message) => this.broadcastToClients(message),
+      adoptWorktree: (issueId, message) => this.adoptWorktree(issueId, message),
+    })
+
     this.state = new SessionStateService({
       store: this.store,
       now: () => this.now(),
@@ -573,6 +581,37 @@ export class SessionLifecycle {
       ownerOf: (sessionId) => this.sessionOwner(sessionId)?.owner,
       resurrect: (sessionId) => this.resurrectSession({ sessionId }),
     })
+    this.clientControl = new SessionClientControl({
+      clients: this.clients,
+      sessions: this.sessions,
+      publication: this.publication,
+      state: this.state,
+      inbox: this.inbox,
+      machines: this.machines,
+      hosts: this.hosts,
+      browserOpen: this.browserOpen,
+      approvalsPending: () => this.deps.approvalsPending(),
+      mutate: (sessionId, change, issueRelevant) =>
+        this.mutateSessionView(sessionId, change, issueRelevant),
+      broadcastSessions: () => this.broadcastSessions(),
+      pushPriorities: () => this.pushPriorities(),
+      ...(this.deps.disconnectClient
+        ? { disconnectClient: (id) => this.deps.disconnectClient?.(id) }
+        : {}),
+      setDraft: (principal, clientId, sessionId, text) => {
+        this.sessionStateEnvelope().execute(
+          'sessions.setDraft',
+          { sessionId, edit: { kind: 'replace', text } },
+          sessionStatePrincipalFor(
+            userCommandPrincipal(asUserId(principal.user), principal.role),
+            clientId,
+          ),
+          'ws',
+        )
+      },
+      editDraft: (message, clientId) => this.handleDraftEdit(message, clientId),
+    })
+
     this.autoContinue = new AutoContinueController({
       // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
       // so it is resolved for a user. See `settingsViewer` below for why that
@@ -763,7 +802,7 @@ export class SessionLifecycle {
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
     this.flushBroadcasts()
-    this.publicationWorker.stop()
+    this.publication.stop()
   }
 
   /** Current server-local session projection generation. Never sent to clients. */
@@ -789,7 +828,7 @@ export class SessionLifecycle {
       changes: sessionChanges,
       ledgerCursor,
     }
-    this.publicationWorker.applyProjection(event)
+    this.publication.applyProjection(event)
     for (const listener of this.sessionProjectionListeners) {
       try {
         listener(event)
@@ -863,7 +902,7 @@ export class SessionLifecycle {
       // projection event: patch consumers need only the captured final truth.
       if (!changes.some((change) => change.entity === 'session')) {
         this.sessionsGeneration_++
-        this.publicationWorker.replaceProjection({
+        this.publication.replaceProjection({
           generation: this.sessionsGeneration_,
           ledgerCursor: this.funnel.cursor(),
           sessions: this.listSessions(),
@@ -1317,7 +1356,7 @@ export class SessionLifecycle {
     this.publishSessionProjection(recovered)
     // A fully deduped boot reconcile emits no patch. Reset explicitly so a new
     // worker (or one recovering from a crash) still begins from restored truth.
-    this.publicationWorker.replaceProjection({
+    this.publication.replaceProjection({
       generation: this.sessionsGeneration_,
       ledgerCursor: this.funnel.cursor(),
       sessions: this.listSessions(),
@@ -3272,8 +3311,7 @@ export class SessionLifecycle {
     session?.terminal.detachAll()
     this.sessions.delete(sessionId)
     this.state.removeSession(sessionId)
-    this.titleDebouncers.get(sessionId)?.dispose()
-    this.titleDebouncers.delete(sessionId)
+    this.daemonProjection.disposeTitle(sessionId)
     for (const c of this.clients.values()) c.attached.delete(sessionId)
     this.pendingVolatileSessions.delete(sessionId)
     this.capturedSessionStates.delete(sessionId)
@@ -3587,94 +3625,17 @@ export class SessionLifecycle {
    * today (the publication AUTHORITY is what narrows a scoped socket, exactly as
    * before). POD-1077 is where a principal starts deciding content.
    */
-  onClientAttached(_principal: ClientPrincipal, client: ClientConn): void {
-    const send = client.send
-    const publication = client.publication
-    // THE FIVE ENTITY LISTS ARE NOT SENT HERE ANY MORE (POD-1203). Sessions,
-    // issues, conversations, automations and runs are the feed's, and the
-    // connection receives them as a `feedBootstrap` — translated back into
-    // exactly these messages, in exactly this order, for a peer on the v1 wire.
-    // What stays is everything that is NOT feed content: the prepared-publication
-    // schedule, drafts, machines, approvals, the host snapshot and parked
-    // open-url requests. `LEGACY_KINDS` in the v1 adapter carries the send order
-    // this method used, because a v1 client that applies lists in arrival order
-    // would render differently if it changed.
-    if (publication) this.schedulePreparedSessionPublications()
-    // Until an authority supplies per-kind worlds, a scoped socket is explicitly
-    // session-only. Sending the global issue/conversation feeds would re-embed
-    // hidden SessionMeta values and defeat the worker boundary.
-    if (!publication || publication.global) {
-      this.state.replayDrafts(
-        sessionStatePrincipalFor(
-          userCommandPrincipal(asUserId(client.principal.user), client.principal.role),
-          client.id,
-        ),
-        send,
-      )
-      send({ type: 'machinesChanged', machines: this.machines.listMachines() })
-      send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
-      this.hosts.snapshotFor(send)
-    }
-    // A request captured while no browser was connected remains an explicit
-    // needs-attention affordance for the next client that may SEE the session.
-    // This sits outside the global-only bootstrap block deliberately: scoped
-    // clients are the audience this affordance must serve. [spec:SP-a43e]
-    this.browserOpen.replayPending(client)
+  onClientAttached(principal: ClientPrincipal, client: ClientConn): void {
+    this.clientControl.onAttached(principal, client)
   }
 
   /** Authorization/view invalidation seam: the main authority changed one client world. */
   refreshClientPublication(id: string): void {
-    if (!this.clients.get(id)?.publication) return
-    this.schedulePreparedSessionPublications()
+    this.publication.refreshClient(id)
   }
 
   publicationMetrics(): SessionPublicationMetrics {
-    return {
-      ...this.publicationWorker.metrics(),
-      shadowComparisons: this.publicationShadowComparisons,
-      shadowMismatches: this.publicationShadowMismatches,
-    }
-  }
-
-  /**
-   * Rollout guard [spec:SP-c29e]: rebuild the publication through the legacy
-   * main-loop semantics and compare it without changing which bytes are sent.
-   */
-  private shadowComparePublication(publication: PreparedPublication, view: PublicationView): void {
-    if (!this.publicationShadowCompare) return
-    this.publicationShadowComparisons += 1
-    const allowed = new Set(view.allowedSessionIds)
-    let legacy: ServerMessage | undefined
-    if (publication.kind === 'snapshot') {
-      legacy = {
-        type: 'sessionsChanged',
-        sessions: this.listSessions().filter((session) => allowed.has(session.sessionId)),
-      }
-    } else {
-      const fromExclusive = publication.sourceRange.fromExclusive
-      const source = fromExclusive === null ? null : this.funnel.changesSince(fromExclusive)
-      if (fromExclusive !== null && source) {
-        legacy = {
-          type: 'metadataDelta',
-          fromExclusive,
-          seq: publication.sourceRange.toInclusive,
-          changes: source.filter(
-            (change) =>
-              change.seq <= publication.sourceRange.toInclusive &&
-              change.entity === 'session' &&
-              allowed.has(change.id),
-          ),
-        }
-      }
-    }
-    if (legacy && JSON.stringify(legacy) === publication.bytes) return
-    this.publicationShadowMismatches += 1
-    console.error('[sessions] publication shadow mismatch', {
-      viewKey: publication.viewKey,
-      kind: publication.kind,
-      generation: publication.generation,
-      ledgerCursor: publication.ledgerCursor,
-    })
+    return this.publication.metrics()
   }
 
   /**
@@ -3685,21 +3646,8 @@ export class SessionLifecycle {
    * read below is off the connection object or the per-session client maps, and
    * the two recomputes at the end always ran after the removal anyway).
    */
-  onClientDetached(_principal: ClientPrincipal, client: ClientConn): void {
-    const id = client.id
-    for (const sessionId of client.attached) {
-      this.mutateSessionView(sessionId, (session) => session.terminal.detachClient(id), false)
-    }
-    // Transcript subscriptions are independent of PTY attachment — sweep just the ones
-    // THIS client made (audit P2-18), not every session on the host (the old full scan
-    // was O(sessions) on every disconnect, and O(clients×sessions) in a reconnect storm).
-    for (const sessionId of client.transcriptSubs)
-      this.sessions.get(sessionId)?.terminal.unsubscribeTranscript(id)
-    // A gone client no longer attaches/views/focuses anything — recompute so the
-    // sessions it was watching can drop priority (and the daemon stops relaying
-    // them live).
-    this.pushPriorities()
-    this.broadcastSessions()
+  onClientDetached(principal: ClientPrincipal, client: ClientConn): void {
+    this.clientControl.onDetached(principal, client)
   }
   /** Gateway/control-plane entrypoint for the typed session.openUrl event. */
   onOpenUrl(request: SessionOpenUrlMessage): void {
@@ -3715,20 +3663,6 @@ export class SessionLifecycle {
    * The client's own `attach` messages (which follow `hello`) then re-establish
    * PTY membership and resume the output stream.
    */
-  private reclaimClient(priorId: string, next: ClientConn): void {
-    const prior = this.clients.get(priorId)
-    if (!prior || prior.id === next.id) return
-    for (const sessionId of prior.attached) {
-      this.sessions.get(sessionId)?.terminal.reassignController(priorId, next.id)
-    }
-    // Disconnect through the GATEWAY: the connection set is its, so the removal
-    // and the sweep must stay one operation. The fallback is the in-process form
-    // (a service built without a gateway, i.e. a test fixture) and does exactly
-    // what the mux does.
-    if (this.deps.disconnectClient) this.deps.disconnectClient(priorId)
-    else if (this.clients.delete(priorId)) this.onClientDetached(prior.principal, prior)
-  }
-
   /**
    * One SESSION-OWNED client frame, attributed to the connection it arrived on.
    *
@@ -3748,148 +3682,9 @@ export class SessionLifecycle {
   onSessionClientFrame(
     principal: ClientPrincipal,
     client: ClientConn,
-    msg: SessionsClientFrame,
+    message: SessionsClientFrame,
   ): void {
-    const id = client.id
-    switch (msg.type) {
-      case 'hello':
-        // `hello.viewport` is a connection bootstrap hint, not a measured grid
-        // for every attached terminal. Session-specific grids arrive through
-        // `resize`; using the 80x24 hint for reconciliation can shrink a pane.
-        // Feature negotiation (spec §2.3): from here on this client gets metadata
-        // deltas instead of full-list snapshot rebroadcasts.
-        if (msg.caps) client.caps = new Set(msg.caps)
-        // The worker bootstrap may have been prepared against the pre-hello
-        // capability ViewKey. Rebuild under the negotiated key; the stale result
-        // is rejected at the main-loop send boundary.
-        if (client.publication && !client.publicationBootstrapped) {
-          this.schedulePreparedSessionPublications()
-        }
-        // Reconnect identity. A client re-presents the id it was given on its
-        // previous socket. Hand that now-stale client's controller roles to this
-        // one and evict it, so a dropped or half-open socket doesn't strand the
-        // user as a muted spectator of their own sessions (controller-gated input)
-        // until the old connection's TCP finally times out. Single-user trust
-        // model: a clientId is an identity hint, not a capability to guard.
-        if (msg.clientId && msg.clientId !== id) this.reclaimClient(msg.clientId, client)
-        break
-      case 'attach': {
-        const t0 = performance.now()
-        const session = this.sessions.get(msg.sessionId)
-        if (!session) return
-        client.attached.add(msg.sessionId)
-        this.mutateSessionView(
-          msg.sessionId,
-          (current) => current.terminal.attachClient(client, msg.sinceSeq),
-          false,
-        )
-        this.broadcastSessions()
-        this.pushPriorities()
-        perf.record(
-          'phase',
-          'ws.attach',
-          performance.now() - t0,
-          perfPrincipal(feedPrincipalOf(client.principal)),
-        )
-        break
-      }
-      case 'detach': {
-        const t0 = performance.now()
-        client.attached.delete(msg.sessionId)
-        this.mutateSessionView(msg.sessionId, (session) => session.terminal.detachClient(id), false)
-        this.broadcastSessions()
-        this.pushPriorities()
-        perf.record(
-          'phase',
-          'ws.detach',
-          performance.now() - t0,
-          perfPrincipal(feedPrincipalOf(client.principal)),
-        )
-        break
-      }
-      case 'input':
-        this.inbox.handleControllerInput(principal, client, msg.sessionId, msg.data)
-        break
-      case 'resize':
-        this.mutateSessionView(msg.sessionId, () =>
-          this.inbox.handleResize(principal, client, msg.sessionId, msg.cols, msg.rows),
-        )
-        break
-      case 'requestControl':
-        this.mutateSessionView(
-          msg.sessionId,
-          () => this.inbox.requestControl(principal, client, msg.sessionId),
-          false,
-        )
-        this.broadcastSessions()
-        break
-      case 'redrawRequest':
-        this.sessions.get(msg.sessionId)?.terminal.redraw()
-        break
-      case 'transcriptSubscribe':
-        client.transcriptSubs.add(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.terminal.subscribeTranscript(client, msg.since)
-        break
-      case 'transcriptUnsubscribe':
-        client.transcriptSubs.delete(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.terminal.unsubscribeTranscript(id)
-        break
-      case 'presence':
-        client.visible = msg.visible
-        break
-      case 'viewState':
-        client.viewVisible = new Set(msg.visible)
-        client.focused = msg.focused
-        // Store the rendered-mode signal (native/chat). Intentionally NOT fed into
-        // pushPriorities/computePriorities — it's available server-side but does not
-        // alter output relay/coalescing.
-        client.viewModes = msg.modes ?? {}
-        // Heal the resize/viewState race: a foreground panel sends its fitted resize
-        // before this viewState message (panel effect before store effect), so the
-        // viewVisible gate in handleResize dropped it. Now that the client declares
-        // it renders these sessions, re-apply its last viewport where it's controller
-        // — otherwise the PTY stays stuck at the 80x24 default (quarter-size window).
-        for (const sid of client.viewVisible) {
-          this.mutateSessionView(sid, () => this.inbox.reconcileGeometry(principal, client, sid))
-        }
-        this.pushPriorities()
-        this.reprioritizePreparedSessionPublications()
-        break
-      case 'setSessionDraft':
-        // MIGRATED (POD-380): the legacy unconditional whole-body draft write is the
-        // WebSocket surface this issue's brief names, so it now runs through the
-        // `sessions.setDraft` contract's envelope (exposure 'ws', policy
-        // owner-or-grant, redaction on `edit`) instead of calling the service
-        // directly. The WIRE message is untouched — the envelope adapts it to the
-        // contract's `edit` union, which is what lets a splice op join later without
-        // a wire change.
-        this.sessionStateEnvelope().execute(
-          'sessions.setDraft',
-          { sessionId: msg.sessionId, edit: { kind: 'replace', text: msg.text } },
-          sessionStatePrincipalFor(
-            userCommandPrincipal(asUserId(principal.user), principal.role),
-            id,
-          ),
-          'ws',
-        )
-        break
-      case 'draftEdit':
-        // DELIBERATELY NOT migrated. `draftEdit` is Draft Sync v2 (POD-859), which
-        // already arbitrates by server-assigned `rev` plus a soft edit lease — it is
-        // the op-stream precursor, not the unconditional write. Routing it through a
-        // contract that models the unconditional write would DOWNGRADE it. The
-        // convergence point is named on both sides: the contract's `baseRevision` IS
-        // this message's `baseRev`, so whoever builds the op-stream class unifies
-        // them rather than reconciling two numbering schemes.
-        this.handleDraftEdit(msg, id)
-        break
-      case 'sessionOpenUrlCallback':
-        this.browserOpen.submitCallback(client, msg)
-        break
-      case 'sessionOpenUrlDismiss':
-        this.browserOpen.dismiss(client, msg)
-        break
-    }
+    this.clientControl.onFrame(principal, client, message)
   }
 
   /** Hand an issue the worktree its session is actually working in [spec:SP-4ef9].
@@ -4021,8 +3816,7 @@ export class SessionLifecycle {
         // session leaked its debouncer closure. The row stays (resurrectable); a new
         // debouncer is created lazily if it ever emits a title again. Drafts are kept
         // (resurrect/chat needs them).
-        this.titleDebouncers.get(msg.sessionId)?.dispose()
-        this.titleDebouncers.delete(msg.sessionId)
+        this.daemonProjection.disposeTitle(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
@@ -4383,156 +4177,9 @@ export class SessionLifecycle {
         }
         break
       }
-      case 'agentColor': {
-        const session = this.sessions.get(msg.sessionId)
-        if (!session) break
-        // Identity colour changes rarely (only on /color), so a full session
-        // rebroadcast is fine — no need for a dedicated per-session message.
-        // Persist so the wire-visible colour reaches the change log too [#256].
-        if (session.setAgentColor(msg.color)) {
-          this.persist(session)
-          this.broadcastSessions()
-        }
+      default:
+        this.daemonProjection.handle(machineId, msg)
         break
-      }
-      case 'agentModel': {
-        const session = this.sessions.get(msg.sessionId)
-        if (!session) break
-        // Observed model changes rarely (first sighting, `/model` switch), so a
-        // full session rebroadcast is fine, mirroring agentColor above.
-        if (session.setObservedModel(msg.model, msg.effort)) {
-          this.persist(session)
-          this.broadcastSessions()
-        }
-        break
-      }
-      case 'title': {
-        const session = this.sessions.get(msg.sessionId)
-        if (!session) break
-        // A `<command-name>/model</command-name>` wrapper is never a title, whichever
-        // way it arrives. Refuse it outright rather than letting it be applied and
-        // locked in — the real title is still coming.
-        if (isCommandWrapperText(msg.title)) break
-        // Claude Code's OSC title sits at the generic "Claude Code" placeholder for
-        // a while after start. Don't let it overwrite a real title we already have
-        // (its own later summary, or the first-prompt fallback below) — that's the
-        // "stuck on Claude Code" regression.
-        if (
-          isGenericClaudeTitle(msg.title) &&
-          session.title &&
-          !isGenericClaudeTitle(session.title)
-        ) {
-          break
-        }
-        // Apply the title to the in-memory session + persist immediately so that
-        // write-through tests and late-joining clients always see the current title,
-        // even during a rapid burst of transient spinner frames.
-        if (!isTransientTitle(msg.title)) {
-          session.setTitle(msg.title)
-          // A non-generic agent title (Claude's own summary) is the real thing —
-          // lock it so the first-prompt fallback won't fire/override.
-          if (!isGenericClaudeTitle(msg.title)) session.titleLocked = true
-          this.persist(session)
-        }
-        // The client broadcast is debounced: spinner/braille frames arrive at
-        // frame-rate; coalescing them prevents UI flapping and excessive network
-        // traffic. The debouncer only broadcasts stable (non-transient) titles.
-        // Leading-edge: the debouncer emits on first non-transient title so a single
-        // title push still broadcasts synchronously (test-friendly), then coalesces
-        // subsequent rapid changes on the trailing edge.
-        if (!this.titleDebouncers.has(msg.sessionId)) {
-          const sid = msg.sessionId
-          this.titleDebouncers.set(
-            sid,
-            makeTitleDebouncer((stableTitle) => {
-              // A dedicated per-session message — not broadcastSessions(). Agents emit
-              // titles at spinner frame-rate; rebroadcasting the whole list each time
-              // would be wasteful, and late-joining clients still get the title via
-              // listSessions() on attach.
-              this.broadcastToClients({
-                type: 'sessionTitleChanged',
-                sessionId: sid,
-                title: stableTitle,
-              })
-            }),
-          )
-        }
-        this.titleDebouncers.get(msg.sessionId)!.push(msg.title)
-        break
-      }
-      case 'sessionResumeRef':
-        this.bindingReceipts.observeResumeRef(machineId, msg)
-        break
-      case 'sessionCwd': {
-        const session = this.sessions.get(msg.sessionId)
-        // A handoff kills the source and reuses this same session id on the target.
-        // Frames already queued by the old daemon can arrive after that commit; never
-        // let one restamp the target row (or its issue) with the source machine's path.
-        if (!session || session.machineId !== machineId) break
-        // The agent moved into a new directory (EnterWorktree / cd). Restamp the
-        // session cwd so the sidebar re-groups it under the worktree it's now in,
-        // and persist + broadcast so the move survives a reload and reaches every
-        // connected client immediately. Ignore empty paths defensively.
-        if (msg.cwd && session.cwd !== msg.cwd) {
-          session.cwd = msg.cwd
-          this.persist(session)
-          this.broadcastSessions()
-        }
-        if (msg.cwd && session.issueId) this.adoptWorktree(session.issueId, msg)
-        break
-      }
-      case 'sessionGitActivity': {
-        // Daemon-captured commit/touched attribution [POD-98] — feed the issue
-        // service's per-session ledger; it unions per issue at probe time.
-        this.issues().recordSessionGitActivity(msg.sessionId, {
-          ...(msg.commits ? { commits: msg.commits } : {}),
-          ...(msg.touched ? { touched: msg.touched } : {}),
-        })
-        break
-      }
-      case 'transcriptDelta': {
-        const session = this.sessions.get(msg.sessionId)
-        if (
-          session?.terminal.applyDelta(msg.items, {
-            ...(msg.reset !== undefined ? { reset: msg.reset } : {}),
-            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
-          })
-        ) {
-          // First transcript for this session → its chat capability flipped on;
-          // persist (the flip is wire-visible, one-shot — commit it to the
-          // change log, #256) and push the updated meta so clients can offer
-          // the chat toggle.
-          this.persist(session)
-          this.broadcastSessions()
-        }
-        // Fast title for Claude: until a real title is locked in (its own summary,
-        // or this fallback), name the session from the first user prompt so it
-        // doesn't sit on the cwd/"Claude Code" placeholder for the long stretch
-        // before Claude generates its own title.
-        if (session && harnessUsesPromptTitleFallback(session.agentKind) && !session.titleLocked) {
-          const firstUser = session.terminal.transcriptItems().find(
-            (it) =>
-              it.role === 'user' &&
-              it.text.trim().length > 0 &&
-              // A slash command the user typed first (`/model`) reaches the
-              // transcript as a `<command-name>…` wrapper, not as a prompt.
-              // Skipping it lets the first REAL prompt title the session.
-              !isCommandWrapperText(it.text),
-          )
-          const derived = firstUser ? titleFromPrompt(firstUser.text) : undefined
-          if (derived) {
-            session.setTitle(derived)
-            session.titleLocked = true
-            this.persist(session)
-            this.broadcastToClients({
-              type: 'sessionTitleChanged',
-              sessionId: msg.sessionId,
-              title: derived,
-            })
-          }
-        }
-        break
-      }
     }
   }
 
@@ -4553,554 +4200,26 @@ export class SessionLifecycle {
     this.clients.broadcast(msg, opts)
   }
 
-  // Coalescing state for broadcastSessions() (bind-storm fix). Design: the FIRST
-  // call in a burst runs the pipeline synchronously (single-event callers — and
-  // the many tests that assert right after one trigger — keep exact ordering);
-  // while its setTimeout(0) cooldown is armed, follow-up calls only set a pending
-  // flag and fold into ONE trailing run when the timer fires. A 66-bind daemon
-  // reattach storm thus runs the full pipeline (dedup + oplog record + issue
-  // rebuild + fan-out) ~2× per event-loop turn instead of 66×, which is what
-  // burned the systemd watchdog budget on redeploy. flushBroadcasts() is the
-  // deterministic seam for tests (and any caller that must observe the trailing
-  // run without waiting a tick).
-  private broadcastCooldown: ReturnType<typeof setTimeout> | null = null
-  private broadcastPending = false
-
   broadcastSessions(): void {
-    // Volatile view changes always cross an event-loop boundary before SQLite.
-    // The keyed buffer folds resize/disconnect bursts into one capture batch.
-    if (this.pendingVolatileSessions.size > 0) {
-      this.broadcastPending = true
-      this.scheduleVolatileSessionCapture()
-      return
-    }
-    if (this.broadcastCooldown) {
-      this.broadcastPending = true
-      return
-    }
-    this.runSessionsBroadcast()
-    this.broadcastCooldown = setTimeout(() => {
-      this.broadcastCooldown = null
-      if (this.broadcastPending) {
-        this.broadcastPending = false
-        // The trailing run has no caller to propagate to (timer context): a
-        // pipeline throw here would be an uncaught exception and take the whole
-        // process down, where the same throw on the synchronous leading run
-        // surfaces to the triggering handler exactly as before.
-        try {
-          this.broadcastSessions() // leading run again + re-arm the cooldown
-        } catch (err) {
-          console.warn('[podium] coalesced session broadcast failed', err)
-        }
-      }
-    }, 0)
-    this.broadcastCooldown.unref?.()
+    this.broadcasts.broadcast()
   }
 
-  /** Run any coalesced (pending) session broadcast NOW — and flush the funnel's
-   *  pending metadataDelta batch with it, so this stays the one deterministic
-   *  "run the whole pending pipeline" seam for tests + dispose. */
   flushBroadcasts(): void {
-    if (this.broadcastCooldown) {
-      clearTimeout(this.broadcastCooldown)
-      this.broadcastCooldown = null
-    }
-    if (this.broadcastPending || this.pendingVolatileSessions.size > 0) {
-      this.broadcastPending = false
-      this.runSessionsBroadcast()
-    }
-    this.funnel.flushDeltas()
+    this.broadcasts.flush()
   }
 
-  private runSessionsBroadcast(): void {
-    const t0 = performance.now()
-    if (this.runningSessionsBroadcastGeneration !== -1) {
-      this.broadcastPending = true
-      perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
-      return
-    }
-    // Reserve the runner before capture: projection listeners are synchronous and
-    // may request another broadcast while the successful batch is being published.
-    this.runningSessionsBroadcastGeneration = -2
-    try {
-      this.flushVolatileSessionCaptures()
-      const generation = this.sessionsGeneration_
-      if (generation === this.lastSessionsBroadcastGeneration) {
-        perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
-        return
-      }
-      this.runningSessionsBroadcastGeneration = generation
-      const issueProjectionChanged =
-        this.issueProjectionGeneration !== this.lastIssueProjectionGeneration
-      // THE SNAPSHOT HALF IS GONE (POD-1203). Session rows were already captured
-      // at their owning seams (`flushVolatileSessionCaptures` above, plus the
-      // commits) and are served from the feed, so the only reason left to build
-      // the list here is the issue projection, which embeds SessionMeta[].
-      const sessions = issueProjectionChanged ? this.listSessions() : []
-      const tList = performance.now()
-      perf.record('phase', 'sessionsBroadcast.list', tList - t0, DEPLOYMENT)
-      perf.record('phase', 'sessionsBroadcast.stringify', 0, DEPLOYMENT, 0)
-      // Delta-capable publications schedule at the funnel's ordered flush, after
-      // every same-tick entity append fixed the source cursor. Starting one here
-      // would be superseded by that flush and discard the actor's prior view.
-      this.schedulePreparedSessionPublications({ includeDeltaCapable: false })
-      // Session changes also change issues' DERIVED member data (sessions/summary),
-      // so keep issue clients live. The publisher builds the payload ONCE (allWire()
-      // is O(issues × sessions)); sessionsChanged was already sent above, so even if
-      // the issues build fails it can't take the session list down with it.
-      // IssueWire embeds SessionMeta[]: publishIssues() runs its own issue
-      // reconcile (publisher.publishIssueList), so the embedded copies heal at
-      // the same cadence as before — no extra mechanism needed (#247).
-      //
-      // POD-722: skip that O(issues×sessions) rebuild when this broadcast touched
-      // no field that feeds issue wire data. The session-switch hot path POD-701
-      // measured (attach + detach, ~2 broadcasts) moves only clientCount/
-      // controllerId/epoch — classified at the mutation boundary — so the issue
-      // payloads are byte-identical to the last publish and republishing them is
-      // pure waste. When a real issue-relevant field DID change (status, workState,
-      // activity, membership, …) the projection differs and publishIssues() runs
-      // as before. Issue-ROW changes take their own publish path (persist/
-      // broadcastList in modules/issues), unaffected by this skip. Interim until
-      // POD-308 deletes the snapshot fan-out.
-      const tSkip0 = performance.now()
-      if (!issueProjectionChanged) {
-        perf.record(
-          'phase',
-          'sessionsBroadcast.publishIssuesSkipped',
-          performance.now() - tSkip0,
-          DEPLOYMENT,
-        )
-      } else {
-        const tIssues0 = performance.now()
-        this.deps.publishIssues(sessions)
-        // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
-        // so the next broadcast re-publishes instead of silently skipping.
-        this.lastIssueProjectionGeneration = this.issueProjectionGeneration
-        perf.record(
-          'phase',
-          'sessionsBroadcast.publishIssues',
-          performance.now() - tIssues0,
-          DEPLOYMENT,
-        )
-      }
-      this.lastSessionsBroadcastGeneration = generation
-    } finally {
-      this.runningSessionsBroadcastGeneration = -1
-    }
-    perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0, DEPLOYMENT)
-  }
-
-  private globalPublicationIds(): readonly string[] {
-    const cached = this.globalPublicationIdsCache
-    if (cached?.generation === this.sessionsGeneration_) return cached.ids
-    const ids = [...this.sessions.keys()].sort()
-    this.globalPublicationIdsCache = { generation: this.sessionsGeneration_, ids }
-    return ids
-  }
-
-  private publicationView(
-    client: ClientConn,
-  ): { view: PublicationView; allowedSignature: string; global: boolean } | undefined {
-    const authority = client.publication
-    if (!authority) return undefined
-    let snapshot: ReturnType<PublicationAuthority['snapshot']>
-    try {
-      snapshot = authority.snapshot()
-    } catch (error) {
-      console.error('[sessions] publication authority snapshot failed', error)
-      return undefined
-    }
-    const allowedSessionIds = authority.global
-      ? this.globalPublicationIds()
-      : snapshot.allowedSessionIds
-    return {
-      view: {
-        key: createViewKey({
-          principal: authority.principal,
-          scope: authority.scope,
-          serverRole: authority.serverRole,
-          protocolVersion: authority.protocolVersion,
-          capabilities: [...client.caps],
-        }),
-        revision: snapshot.revision,
-        // The worker filters only an already-authorized immutable id set.
-        allowedSessionIds,
-      },
-      allowedSignature: authority.global ? 'global' : snapshot.allowedSignature,
-      global: authority.global,
-    }
-  }
-
-  private publicationMatches(
-    client: ClientConn,
-    descriptor: { view: PublicationView; allowedSignature: string },
-  ): boolean {
-    const accepted = client.publicationAccepted
-    return (
-      !client.publicationReplacementRequired &&
-      accepted !== undefined &&
-      accepted.viewKey === descriptor.view.key &&
-      accepted.viewRevision === descriptor.view.revision &&
-      accepted.allowedSignature === descriptor.allowedSignature
-    )
-  }
-
-  private sendPublicationRevocations(
-    client: ClientConn,
-    descriptor: { view: PublicationView; allowedSignature: string; global: boolean },
-  ): void {
-    const accepted = client.publicationAccepted
-    if (!client.publication || descriptor.global || !accepted) return
-    if (
-      accepted.viewKey === descriptor.view.key &&
-      accepted.viewRevision === descriptor.view.revision &&
-      accepted.allowedSignature === descriptor.allowedSignature
-    ) {
-      return
-    }
-    const allowed = new Set(descriptor.view.allowedSessionIds)
-    const alreadyRemoved = client.publicationRevokedSessionIds ?? new Set<string>()
-    const removedSessionIds = accepted.allowedSessionIds.filter(
-      (sessionId) => !allowed.has(sessionId) && !alreadyRemoved.has(sessionId),
-    )
-    if (removedSessionIds.length === 0) return
-    this.clients.deliverPrepared(
-      client,
-      JSON.stringify({ type: 'sessionViewDelta', removedSessionIds } satisfies ServerMessage),
-    )
-    for (const sessionId of removedSessionIds) alreadyRemoved.add(sessionId)
-    client.publicationRevokedSessionIds = alreadyRemoved
-    client.publicationReplacementRequired = true
-  }
-
-  private schedulePreparedSessionPublications(
-    options: { includeDeltaCapable?: boolean } = {},
-  ): void {
-    const includeDeltaCapable = options.includeDeltaCapable ?? true
-    type Group = {
-      view: PublicationView
-      clients: ClientConn[]
-      focused: boolean
-      allowedSignature: string
-      global: boolean
-      sinceCursor: number | null
-      conflicted: boolean
-    }
-    const groups = new Map<ViewKey, Group>()
-    const sourceCursor = this.publicationWorker.sourceCursor()
-    for (const client of this.clients.values()) {
-      if (!client.publication) continue
-      // A peer outside the wire window is served NO entity state, and this path
-      // is the other half of that: the edge refuses to translate for it, and the
-      // publication worker — which does not go through the edge — must not hand
-      // it a v1 session world either.
-      if (client.entityServingRefused) continue
-      const descriptor = this.publicationView(client)
-      if (!descriptor) continue
-      const deltaCapable = client.caps.has(CAP_METADATA_DELTA)
-      if (deltaCapable && !includeDeltaCapable) continue
-      const matches = this.publicationMatches(client, descriptor)
-      if (deltaCapable && !matches) this.sendPublicationRevocations(client, descriptor)
-      // Proven-global delta clients ride the raw funnel after their sequenced
-      // bootstrap. Scoped clients always return through the filtering actor.
-      if (descriptor.global && deltaCapable && matches) continue
-      const sinceCursor =
-        deltaCapable && matches ? (client.publicationAccepted?.cursor ?? null) : null
-      if (sinceCursor !== null && sinceCursor >= sourceCursor) continue
-      const group = groups.get(descriptor.view.key)
-      if (group) {
-        if (
-          group.view.revision !== descriptor.view.revision ||
-          group.allowedSignature !== descriptor.allowedSignature ||
-          group.global !== descriptor.global
-        ) {
-          group.conflicted = true
-        }
-        group.clients.push(client)
-        group.focused ||= client.focused !== null
-        group.sinceCursor =
-          group.sinceCursor === null || sinceCursor === null
-            ? null
-            : Math.min(group.sinceCursor, sinceCursor)
-      } else {
-        groups.set(descriptor.view.key, {
-          view: descriptor.view,
-          clients: [client],
-          focused: client.focused !== null,
-          allowedSignature: descriptor.allowedSignature,
-          global: descriptor.global,
-          sinceCursor,
-          conflicted: false,
-        })
-      }
-    }
-
-    const ordered = [...groups.values()].sort(
-      (left, right) => Number(right.focused) - Number(left.focused),
-    )
-    for (const group of ordered) {
-      if (group.conflicted) {
-        console.error('[sessions] conflicting authorization result for equal publication ViewKey')
-        continue
-      }
-      const recipients = group.clients.map((client) => {
-        const version = (client.publicationRequestVersion ?? 0) + 1
-        client.publicationRequestVersion = version
-        client.publicationPending = true
-        return { id: client.id, version }
-      })
-      void this.publicationWorker
-        .request({ view: group.view, sinceCursor: group.sinceCursor }, { focused: group.focused })
-        .then((publication) => {
-          this.shadowComparePublication(publication, group.view)
-          perf.record(
-            'phase',
-            'sessionsBroadcast.workerBytes',
-            0,
-            DEPLOYMENT,
-            publication.bytes.length * recipients.length,
-          )
-          for (const recipient of recipients) {
-            const client = this.clients.get(recipient.id)
-            if (!client?.publication || client.publicationRequestVersion !== recipient.version) {
-              continue
-            }
-            // RE-CHECKED AT SEND TIME, not only at scheduling time. A publication
-            // is prepared asynchronously, so a connection can announce an
-            // unsupported wire version in the window between being selected and
-            // being sent to — measured, as a wire-window test that passed or
-            // failed on scheduling order alone.
-            if (client.entityServingRefused) continue
-            const current = this.publicationView(client)
-            if (
-              !current ||
-              current.view.key !== publication.viewKey ||
-              current.view.revision !== publication.viewRevision ||
-              current.allowedSignature !== group.allowedSignature
-            ) {
-              continue
-            }
-            this.clients.deliverPrepared(client, publication.bytes)
-            client.publicationBootstrapped = true
-            client.publicationPending = false
-            client.publicationAccepted = {
-              viewKey: publication.viewKey,
-              viewRevision: publication.viewRevision,
-              allowedSignature: group.allowedSignature,
-              cursor: publication.ledgerCursor,
-              allowedSessionIds: current.global ? [] : [...current.view.allowedSessionIds],
-            }
-            client.publicationReplacementRequired = false
-            client.publicationRevokedSessionIds = undefined
-            if (current.global && client.caps.has(CAP_METADATA_DELTA)) {
-              const buffered = client.publicationBufferedChanges?.splice(0) ?? []
-              for (const changes of buffered) {
-                const last = changes.at(-1)
-                if (!last) continue
-                this.clients.deliverPrepared(
-                  client,
-                  JSON.stringify({
-                    type: 'metadataDelta',
-                    seq: last.seq,
-                    changes,
-                  } satisfies ServerMessage),
-                )
-              }
-            }
-          }
-        })
-        .catch((error) => {
-          if (error instanceof PublicationSupersededError) return
-          for (const recipient of recipients) {
-            const client = this.clients.get(recipient.id)
-            if (client?.publicationRequestVersion === recipient.version) {
-              client.publicationPending = false
-            }
-          }
-          console.warn('[sessions] prepared publication failed', error)
-        })
-    }
-  }
-
-  private reprioritizePreparedSessionPublications(): void {
-    const focused = new Set<ViewKey>()
-    for (const client of this.clients.values()) {
-      if (client.focused === null) continue
-      const view = this.publicationView(client)
-      if (view) focused.add(view.view.key)
-    }
-    this.publicationWorker.prioritize(focused)
-  }
-
-  /**
-   * THE FEED HAS ADVANCED to `seq` (POD-1203) — one call per coalesced batch,
-   * from the funnel, BEFORE any of it is delivered.
-   *
-   * The prepared-publication worker keeps its own cursor over the same log and
-   * must advance it ONCE per batch, not once per recipient: this is a fact about
-   * the feed's position, which is why it cannot live in the per-connection sink
-   * below. Verbatim the head of the deleted `sendMetadataDelta`, including the
-   * "is anyone actually on that path" guard, so a server with no publication
-   * client still does no worker work.
-   */
   onFeedPublished(seq: number): void {
-    const hasPublicationClient = [...this.clients.values()].some(
-      (client) => client.publication && client.caps.has(CAP_METADATA_DELTA),
-    )
-    if (!hasPublicationClient) return
-    this.publicationWorker.advanceCursor(seq)
-    this.schedulePreparedSessionPublications()
+    this.publication.onFeedPublished(seq)
   }
 
-  /**
-   * ONE entity message → ONE connection, obeying the publication rules.
-   *
-   * THIS IS THE ENTANGLEMENT THE CUTOVER HAD TO PRESERVE, and it is preserved by
-   * transcription rather than by re-derivation. Before POD-1203 the same three
-   * rules were split across two methods — `fanOutSnapshot` (which snapshots a
-   * connection may receive) and `sendMetadataDelta` (how a delta reaches one) —
-   * and they were entangled because a connection's publication AUTHORITY, not
-   * its wire capability, decides both. Every branch below is one of theirs:
-   *
-   *  - a publication client NEVER receives `sessionsChanged`: the prepared
-   *    worker owns that connection's session world, filtered;
-   *  - a NON-GLOBAL (scoped) publication client receives nothing else either —
-   *    the worker emits its filtered range, possibly empty, through the same
-   *    sequencer, and a raw global message would defeat the boundary;
-   *  - a GLOBAL publication client receives deltas as PREPARED BYTES, or has
-   *    them buffered while its view is being rebuilt.
-   *
-   * What is NOT here any more is the capability check. `caps.has(CAP_METADATA_
-   * DELTA)` decided which SHAPE a client got, and shape is now the edge's:
-   * a peer that did not announce the delta capability is handed full lists by
-   * its version's adapter, and one that did is handed a delta. This method never
-   * sees the choice, which is why it can no longer disagree with the wire.
-   */
-  deliverEntityMessage(client: ClientConn, msg: ServerMessage): void {
-    // Refused peers are served no entity state, by any route. The edge already
-    // stops translating for one; this is the backstop for every other caller.
-    if (client.entityServingRefused) return
-    const publication = client.publication
-    if (msg.type === 'metadataDelta') {
-      if (!publication) {
-        this.clients.deliver(client, msg)
-        return
-      }
-      if (!publication.global) return
-      const current = this.publicationView(client)
-      if (!current || client.publicationPending || !this.publicationMatches(client, current)) {
-        const buffered = client.publicationBufferedChanges ?? []
-        if (buffered.length >= 512) buffered.shift()
-        buffered.push(structuredClone(msg.changes))
-        client.publicationBufferedChanges = buffered
-        return
-      }
-      this.clients.deliverPrepared(client, this.encodeForPublication(msg))
-      return
-    }
-    if (publication !== undefined && !publication.global && isFeedFrameMessage(msg)) {
-      // A SCOPED connection being handed a v2 frame is an unbuilt combination,
-      // and it fails loudly rather than leaking: the frame carries the GLOBAL
-      // feed, the prepared worker (which is what narrows this connection) speaks
-      // only the v1 shapes, and nothing between them filters. POD-1077's rule
-      // applies unchanged — a scoped principal must be served a wire that can
-      // express its slice, or not served.
-      throw new Error(
-        `sessions: a wire-v2 '${msg.type}' frame reached a SCOPED publication connection, whose ` +
-          'filtering lives in the prepared-publication worker and does not cover it. Serving it ' +
-          'would hand that connection the global feed (ADR 2 Am1 D12.7).',
-      )
-    }
-    if (publication && (msg.type === 'sessionsChanged' || !publication.global)) return
-    this.clients.deliver(client, msg)
+  deliverEntityMessage(client: ClientConn, message: ServerMessage): void {
+    this.publication.deliver(client, message)
   }
 
-  /** One encode per message object, however many connections share it. The
-   *  deleted `sendMetadataDelta` encoded once per BATCH; the edge now hands each
-   *  peer a message, and the v1 adapter hands every peer of one frame the SAME
-   *  object, so identity is the right key and the encode count is unchanged. */
-  private encodeForPublication(msg: ServerMessage): string {
-    const cached = this.preparedEncodeCache.get(msg)
-    if (cached !== undefined) return cached
-    const encoded = JSON.stringify(msg)
-    this.preparedEncodeCache.set(msg, encoded)
-    return encoded
-  }
-
-  private readonly preparedEncodeCache = new WeakMap<ServerMessage & object, string>()
-
-  /**
-   * Cursor catch-up for `sync.changesSince` (spec §2.3). Bootstrap (null cursor),
-   * a compacted-away cursor, or a future cursor (server DB reset) falls back to a
-   * full snapshot; the cursor is read in the same synchronous pass as the entity
-   * lists, so nothing falls between the snapshot and the subsequent delta stream.
-   *
-   * BOTH arms carry the feed's `(feedId, epoch)` and `minAvailableSeq` (ADR 2
-   * D1/D5), unconditionally: this is a tRPC query, so unlike the WS frame there
-   * is no hello and therefore no caps to gate on. Stamping regardless is safe
-   * for the same reason the additive rule is — zod objects STRIP unknown keys,
-   * so a client that predates this drops them on parse.
-   *
-   * The snapshot arm needs the identity MOST, and that is the point rather than
-   * a bonus: a re-bootstrap is exactly where a replica learns which generation
-   * it is now on, and every rung of the D7 healing ladder terminates here.
-   * Reading the identity in this same synchronous pass keeps it consistent with
-   * the cursor beside it.
-   */
   syncChangesSince(
     cursor: number | null,
     authority?: PublicationAuthority,
   ): SyncChangesSinceResult {
-    const sourceCursor = this.funnel.cursor()
-    const { feedId, epoch } = this.funnel.feedIdentity()
-    const identity = { feedId, epoch, minAvailableSeq: this.funnel.minAvailableSeq() }
-    if (authority && !authority.global) {
-      const allowed = new Set(authority.snapshot().allowedSessionIds)
-      // A scoped heal always replaces the complete authorized session world.
-      // Other entity kinds are fail-closed until their authority contract exists.
-      return {
-        kind: 'snapshot',
-        sessions: this.listSessions().filter((session) => allowed.has(session.sessionId)),
-        issues: [],
-        issueProjections: [],
-        issueDeps: [],
-        repos: [],
-        conversations: [],
-        automations: [],
-        automationRuns: [],
-        diagnostics: [],
-        cursor: sourceCursor,
-        ...identity,
-      }
-    }
-    const changes = this.funnel.changesSince(cursor)
-    if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
-    return {
-      kind: 'snapshot',
-      sessions: this.listSessions(),
-      issues: this.deps.issuesWire(),
-      issueProjections: this.deps.issueProjectionsWire(),
-      issueDeps: this.deps.issueDepsWire(),
-      repos: this.deps.issueReposWire(),
-      conversations: this.conversations().allConversations(),
-      automations: this.deps.automationsWire(),
-      automationRuns: this.deps.automationRunsWire(),
-      diagnostics: this.conversations().diagnostics(),
-      cursor: sourceCursor,
-      ...identity,
-    }
+    return this.publication.syncChangesSince(cursor, authority)
   }
-}
-
-/**
- * Is this one of wire v2's entity frames?
- *
- * Derived from `FEED_MESSAGE_TYPES` rather than listing the four here: a fifth
- * frame added to the family would otherwise be classified as a v1 message by
- * omission, and the branch this guards is a REFUSAL — a message that fails to be
- * recognised as a feed frame is served to a scoped connection instead of being
- * refused, which is the fail-open direction.
- */
-function isFeedFrameMessage(msg: ServerMessage): boolean {
-  return (FEED_MESSAGE_TYPES as readonly string[]).includes(msg.type)
 }
