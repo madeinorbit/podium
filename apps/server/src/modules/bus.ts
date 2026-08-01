@@ -56,6 +56,10 @@ export interface EventMap {
   'machine.connected': { machineId: string }
   /** A machine's daemon socket detached. */
   'machine.disconnected': { machineId: string }
+  /** Durable machine metadata changed; session machine-name projections recapture. */
+  'machine.metadataChanged': { machineId: string }
+  /** Placeholder rows were durably adopted by a real local machine. */
+  'machine.rowsAdopted': { machineId: string }
   /** A host reported a fresh metrics sample. */
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */
@@ -66,6 +70,8 @@ export interface EventMap {
     next: import('@podium/runtime').PodiumSettings
   }
   /** Durable metadata oplog rows were appended (post-record, pre/post-fanout). */
+  /** The ordered metadata feed published through `seq`; projections may advance. */
+  'feed.published': { seq: number }
   'oplog.appended': { changes: MetadataChange[] }
   /** The conversation index changed and was broadcast. */
   'conversations.changed': { conversations: ConversationSummaryWire[] }

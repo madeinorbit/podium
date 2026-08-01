@@ -17,6 +17,7 @@ import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machi
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { Send } from '../sessions/session'
+import type { EventBus } from '../bus'
 
 /**
  * One principal's `use` decision, per machine. Supplied by the command layer
@@ -84,10 +85,13 @@ export interface MachinesDeps {
   store: SessionStore
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   pairing?: PairingCodes
+  /** Production reaction transport for derived session fields. */
+  bus?: EventBus
   /** Retarget in-memory sessions still on the `'__local__'` placeholder onto the
-   *  adopting machine (the registry owns the sessions map). */
-  retargetPlaceholderSessions(machineId: string): void
-  sessionsChangedForMachine(machineId: string): void
+   *  adopting machine. Compatibility-only for isolated fixtures without a bus. */
+  retargetPlaceholderSessions?(machineId: string): void
+  /** Compatibility-only for isolated fixtures without a bus. */
+  sessionsChangedForMachine?(machineId: string): void
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ send(msg: ServerMessage): void }>
 }
@@ -472,7 +476,8 @@ export class MachinesService {
   renameMachine(id: string, name: string): void {
     this.deps.store.machines.renameMachine(id, name)
     this.invalidateMachineCache()
-    this.deps.sessionsChangedForMachine(id) // sessions show machineName — recapture + refresh
+    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
+    else this.deps.sessionsChangedForMachine?.(id)
     this.broadcastMachines()
   }
 
@@ -526,7 +531,8 @@ export class MachinesService {
     this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
-    this.deps.sessionsChangedForMachine(id)
+    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
+    else this.deps.sessionsChangedForMachine?.(id)
     this.broadcastMachines()
   }
 
@@ -537,7 +543,7 @@ export class MachinesService {
    */
   adoptPlaceholderRows(machineId: string): void {
     this.deps.store.adoptLocalRows(machineId)
-    this.deps.retargetPlaceholderSessions(machineId)
+    if (!this.deps.bus) this.deps.retargetPlaceholderSessions?.(machineId)
     // Carry over any control messages queued under the placeholder (e.g. a boot
     // session's spawn produced before adoption) so they reach the adopting machine.
     const queued = this.pendingByMachine.get(LOCAL_PLACEHOLDER)
@@ -550,7 +556,8 @@ export class MachinesService {
     // Parked (hibernated/exited) sessions aren't touched by the reattach loop, so
     // push the updated list now — this is what makes pre-existing sessions
     // reappear on upgrade.
-    this.deps.sessionsChangedForMachine(machineId)
+    if (this.deps.bus) this.deps.bus.emit('machine.rowsAdopted', { machineId })
+    else this.deps.sessionsChangedForMachine?.(machineId)
   }
 
   /**

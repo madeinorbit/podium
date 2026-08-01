@@ -249,17 +249,14 @@ export class SessionRegistry {
     })
     const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
       isFeatureEnabled(id, currentSettings)
-    // Live entity maps are owned by modules/sessions; the pre-sessions modules
-    // reach them through these lazy closures (sessionsSvc is assigned below, and
-    // none of the closures can run before the constructor finishes wiring).
+    // Delegation is resolved from durable session ownership on every apply. This
+    // lookup is available before feature construction and never snapshots rights.
     const principalForCapability = (capability: import('@podium/model').Capability) =>
       resolvePrincipal(capability, {
         parentSessionOf: (candidate) =>
-          sessionSpawnerParentId(
-            sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
-              ?.spawnedBy,
-          ),
-        onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
+          sessionSpawnerParentId(this.store.sessions.getSession(asSessionId(candidate))?.spawnedBy),
+        onBehalfOfFor: (candidate) =>
+          this.store.sessions.getSession(asSessionId(candidate))?.ownerUserId,
       })
     const workflowCallerForCapability = (
       capability: import('@podium/model').Capability,
@@ -302,13 +299,8 @@ export class SessionRegistry {
 
     const machines = new MachinesService({
       store: this.store,
+      bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
-      retargetPlaceholderSessions: (machineId) => {
-        for (const s of liveSessions().values()) {
-          if (s.machineId === LOCAL_PLACEHOLDER) s.machineId = machineId
-        }
-      },
-      sessionsChangedForMachine: (machineId) => sessionsSvc.sessionsChangedForMachine(machineId),
       clients: () => clients().values(),
     })
     const rpc = new DaemonRpcService({
@@ -347,42 +339,6 @@ export class SessionRegistry {
       ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
       now: this.now,
     })
-    const notify = new NotifyService(
-      {
-        // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
-        // preferences, which no longer live on the instance blob — an unresolved
-        // read would see the model's defaults instead of the operator's choices.
-        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
-        // `IssueService.broadcastViewer` uses: this build's transport cannot name
-        // a person (one shared password), so the sole account is the only true
-        // answer, and POD-315/POD-1077 replace the argument rather than finding a
-        // hidden read.
-        getSettings: (ownerUserId = FIRST_ADMIN_USER_ID) =>
-          this.store.settings.getSettingsFor(ownerUserId),
-        // POD-419: out of the server-only keyed store, read at the moment of use.
-        telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
-        appendEvent: (e) => this.store.events.appendEvent(e),
-        now: () => this.now(),
-        clients: (ownerUserId) =>
-          [...clients().values()].filter(
-            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
-          ),
-        sessionInfo: (sessionId) => {
-          const s = liveSessions().get(sessionId)
-          return s ? noticeInfo(s) : undefined
-        },
-        sessionStates: () =>
-          [...liveSessions().values()].map((s) => ({
-            info: noticeInfo(s),
-            state: s.agentState,
-            ownerUserId: FIRST_ADMIN_USER_ID,
-          })),
-        notificationsEnabled: () => featureEnabled('notifications'),
-        ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
-      },
-      notificationPushers,
-      this.bus,
-    )
     const hosts = new HostsService(
       {
         getSettings: () => this.store.settings.getSettings(),
@@ -454,15 +410,21 @@ export class SessionRegistry {
           return dep !== null && feedMayReadIssue(userId, dep.fromId)
         }
         if (ref.entity === 'session') {
-          const owner = sessionsSvc.sessionOwner(asSessionId(ref.entityId))
-          return owner?.owner === userId || owner?.grants.includes(userId) === true
+          const row = this.store.sessions.getSession(asSessionId(ref.entityId))
+          if (row?.ownerUserId === userId) return true
+          return this.store.grants
+            .listForResource('session', ref.entityId)
+            .some((edge) => edge.grantee === userId && edge.verb === 'read')
         }
         if (ref.entity === 'conversation') {
-          const session = sessionsSvc
-            .listSessions()
-            .find((candidate) => candidate.resume?.value === ref.entityId)
-          const owner = session ? sessionsSvc.sessionOwner(session.sessionId) : undefined
-          return owner?.owner === userId || owner?.grants.includes(userId) === true
+          const row = this.store.sessions
+            .loadSessions()
+            .find((candidate) => candidate.resumeValue === ref.entityId)
+          if (!row) return false
+          if (row.ownerUserId === userId) return true
+          return this.store.grants
+            .listForResource('session', row.id)
+            .some((edge) => edge.grantee === userId && edge.verb === 'read')
         }
         if (ref.entity === 'automation') {
           return this.store.automations.get(ref.entityId)?.ownerUserId === userId
@@ -480,19 +442,19 @@ export class SessionRegistry {
         if (ref.entity !== 'issue') return null
         const audience = this.store.grants.visibilityAudienceFor('issue', ref.entityId)
         if (audience.length === 0) return null
-        const issueSessions = sessionsSvc
-          .listSessions()
+        const issueSessions = this.store.sessions
+          .loadSessions()
           .filter((session) => session.issueId === ref.entityId)
         const subjects = [
           { entity: 'issue' as const, entityId: ref.entityId },
           { entity: 'issueProjection' as const, entityId: ref.entityId },
           ...issueSessions.map((session) => ({
             entity: 'session' as const,
-            entityId: session.sessionId,
+            entityId: session.id,
           })),
           ...issueSessions.flatMap((session) =>
-            session.resume
-              ? [{ entity: 'conversation' as const, entityId: session.resume.value }]
+            session.resumeValue
+              ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
               : [],
           ),
           ...(issues?.allDepProjections() ?? [])
@@ -540,6 +502,9 @@ export class SessionRegistry {
     // identity is PERSISTED (`readFeedIdentity`/`writeFeedIdentity`), because ADR
     // 2 D1 makes a re-minted epoch across a restart indistinguishable from a
     // restored backup to every replica holding a cursor.
+    const conversationDiagnostics: {
+      current: readonly import('@podium/model').ConversationDiagnosticWire[]
+    } = { current: [] }
     const subscriptions = new SubscriptionRegistry()
     const feedServing = new FeedServing({
       authority: ledger.authority,
@@ -556,7 +521,7 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
       subscriptions,
-      diagnostics: () => conversations?.diagnostics() ?? [],
+      diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({
       bus: this.bus,
@@ -565,7 +530,7 @@ export class SessionRegistry {
       // own ordered broadcast queue.
       authority: ledger.authority,
       serving: feedServing,
-      onPublished: (seq) => sessionsSvc.onFeedPublished(seq),
+      onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
     const publisher = new IssuePublisher({
       allWire: () => issues?.allWire(),
@@ -1301,7 +1266,6 @@ export class SessionRegistry {
       headless,
       conversations: () => conversations,
       issues: () => issues,
-      publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
       issuesWire: () => publisher.currentIssuesList(),
       issueProjectionsWire: () => (issues.allProjections() ?? []).map((row) => row.value),
       issueDepsWire: () => (issues.allDepProjections() ?? []).map((row) => row.value),
@@ -1312,8 +1276,56 @@ export class SessionRegistry {
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
+    this.bus.on('feed.published', ({ seq }) => {
+      sessionsSvc.onFeedPublished(seq)
+    })
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
+    this.bus.on('machine.metadataChanged', ({ machineId }) => {
+      sessionsSvc.sessionsChangedForMachine(machineId)
+    })
+    this.bus.on('machine.rowsAdopted', ({ machineId }) => {
+      for (const session of sessionsSvc.sessions.values()) {
+        if (session.machineId === LOCAL_PLACEHOLDER) session.machineId = machineId
+      }
+      sessionsSvc.sessionsChangedForMachine(machineId)
+    })
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
+    const notify = new NotifyService(
+      {
+        // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
+        // preferences, which no longer live on the instance blob — an unresolved
+        // read would see the model's defaults instead of the operator's choices.
+        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
+        // `IssueService.broadcastViewer` uses: this build's transport cannot name
+        // a person (one shared password), so the sole account is the only true
+        // answer, and POD-315/POD-1077 replace the argument rather than finding a
+        // hidden read.
+        getSettings: (ownerUserId = FIRST_ADMIN_USER_ID) =>
+          this.store.settings.getSettingsFor(ownerUserId),
+        // POD-419: out of the server-only keyed store, read at the moment of use.
+        telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
+        appendEvent: (e) => this.store.events.appendEvent(e),
+        now: () => this.now(),
+        clients: (ownerUserId) =>
+          [...clients().values()].filter(
+            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
+          ),
+        sessionInfo: (sessionId) => {
+          const s = sessionsSvc.sessions.get(sessionId)
+          return s ? noticeInfo(s) : undefined
+        },
+        sessionStates: () =>
+          [...sessionsSvc.sessions.values()].map((s) => ({
+            info: noticeInfo(s),
+            state: s.agentState,
+            ownerUserId: FIRST_ADMIN_USER_ID,
+          })),
+        notificationsEnabled: () => featureEnabled('notifications'),
+        ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
+      },
+      notificationPushers,
+      this.bus,
+    )
     // releases its held locks and leaves every wait queue (the queue advances
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
@@ -1333,7 +1345,10 @@ export class SessionRegistry {
         // Scan diagnostics are not feed content and the v1 wire carried them
         // inside `conversationsChanged`; the edge re-serves them to the wire
         // versions that still need them (POD-1203).
-        onDiagnosticsChanged: () => feedServing.publishAdvisory('conversation-diagnostics'),
+        onDiagnosticsChanged: (diagnostics) => {
+          conversationDiagnostics.current = diagnostics
+          feedServing.publishAdvisory('conversation-diagnostics')
+        },
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
           rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
@@ -1346,7 +1361,7 @@ export class SessionRegistry {
       readAsset: (i) => rpc.readAsset(i),
       listDir: (i) => rpc.listDir(i),
     })
-    issues = new IssueService({
+    const issues = new IssueService({
       store: this.store,
       artifacts: issueArtifacts,
       listSessions: () => sessionsSvc.listSessions(),
@@ -1392,6 +1407,9 @@ export class SessionRegistry {
           seq: row.seq,
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
+    })
+    this.bus.on('session.listChanged', () => {
+      publisher.publishIssues(issues.allWire())
     })
     // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
     // stamped by each surface from its authenticated caller; issue-addressed

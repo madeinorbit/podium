@@ -254,11 +254,6 @@ interface SessionLifecycleDeps {
   conversations(): ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
   issues(): IssueService
-  /** Full issue-list reconcile through the publisher — the derived-ripple path
-   *  (closing an issue flips its dependents' wire rows with no write on them).
-   *  Its rows are appended at the write seam and served from the feed; there is
-   *  no snapshot tail behind it any more (POD-1203). */
-  publishIssues(sessions: SessionMeta[]): void
   /** The issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
   /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
@@ -423,7 +418,7 @@ export class SessionLifecycle {
       issueGeneration: () => this.issueProjectionGeneration,
       listSessions: () => this.listSessions(),
       schedulePublication: (options) => this.publication.schedule(options),
-      publishIssues: (sessions) => this.deps.publishIssues(sessions),
+      publishIssues: (sessions) => this.bus.emit('session.listChanged', { sessions }),
       flushDeltas: () => this.funnel.flushDeltas(),
     })
     this.browserOpen = new BrowserOpenGateway({

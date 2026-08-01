@@ -45,7 +45,7 @@ export interface ConversationsDeps {
    * instead of the message, and the connection boundary decides which wire
    * versions still need to hear it (only v1 does; v2 does not carry them).
    */
-  onDiagnosticsChanged(): void
+  onDiagnosticsChanged(diagnostics: readonly ConversationDiagnosticWire[]): void
   /** The registry's shared daemon request/response plumbing. */
   daemonRequest<T>(
     pending: Map<string, (r: T) => void>,
@@ -289,7 +289,7 @@ export class ConversationsService {
     const diagKey = JSON.stringify(this.latestConversationDiagnostics)
     if (diagKey === this.lastDiagnosticsBroadcast) return
     this.lastDiagnosticsBroadcast = diagKey
-    this.deps.onDiagnosticsChanged()
+    this.deps.onDiagnosticsChanged(this.latestConversationDiagnostics)
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
