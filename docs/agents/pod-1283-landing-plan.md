@@ -121,3 +121,59 @@ first, because their changes are structural and mostly additive, and POD-1283's
 are semantic edits that are easier to re-apply onto a settled structure than the
 reverse. But do not delay POD-1283 for them — it is the phase blocker, and a
 hand-carried rename is a known, bounded cost.
+
+---
+
+## UPDATE 2026-08-01 08:05 — the remaining delta is small, but the rename is NOT blanket
+
+Measured at integration `2d2bcaed`, POD-1283 working tree (uncommitted).
+
+**Good news: POD-1283 has already reconciled forward through POD-393 and POD-394.**
+Its working tree already contains `sessions/inbox.ts` (508 lines) and
+`sessions/session-state/service.ts`. Those two extractions are NOT part of the
+remaining delta.
+
+**What it still lacks is only the two client-core landings:**
+
+    POD-1313          packages/client-core/src/transport/ -> socket-transport/,
+                      plus the ./socket-transport export and the CLEAN BREAK
+                      (socket symbols removed from the ./transport barrel).
+    POD-400 follow-up legacy feed cursor/epoch/gap/healing moved under replica/
+                      (legacy-wire-v1-feed, new legacy-wire-v1-binding), boundary
+                      hardened to forbid transport importing replica.
+
+POD-400's replica files are NEW, so they add rather than conflict. The real work is
+the import paths.
+
+### THE TRAP: do NOT sed a blanket rename
+
+**30 files on POD-1283's tree import the old `transport` path**, including
+`engine/engine.ts`, `engine/wiring.ts`, `engine/types.ts`, `client-core/index.ts`,
+`apps/web/src/lib/kernelReplica.ts`, `ConnectionIndicator.tsx`,
+`MobileClientProvider.tsx` and several terminal-client tests.
+
+They do NOT all move. The split is by SYMBOL, not by file:
+
+| importing… | belongs at |
+|---|---|
+| `ServerOrigin`, `ServerConfig`, `LocationLike`, `parseServer`, `parseServerOrigin`, `resolveServerConfig` | `./transport` — UNCHANGED |
+| `SocketHub`, `FeedSinkPort`, subscriptions, echo-latency, anything from the socket module | `./socket-transport` |
+
+A blanket `s/transport/socket-transport/` will wrongly move the origin-parser
+imports and break three known consumers (`MobileClientProvider.tsx`,
+`apps/web/src/app/trpc.ts`, `apps/mobile/src/client/trpc.ts`) which legitimately
+import `ServerConfig` from `./transport`.
+
+Because POD-1313 chose a CLEAN BREAK (no deprecated alias), a wrong resolution
+FAILS LOUDLY at typecheck rather than silently resolving. That is the design
+working as intended — trust typecheck here, and run it with `--force` so a cached
+pass cannot hide the mistake.
+
+### Reminders that still stand
+
+- `drizzle-manifest.generated.ts` and `scripts/rearch-audit-baseline.json` are
+  MEASUREMENTS. Regenerate; never hand-merge.
+- Typecheck target is **22/22 with 0 cached**.
+- Check EVERY sibling file for a defect found in one — a duplicate import in
+  `wiring.ts` slipped through this run precisely because it was only checked in
+  `engine.test.ts`.
