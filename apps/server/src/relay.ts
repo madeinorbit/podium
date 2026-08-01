@@ -325,7 +325,18 @@ export class SessionRegistry {
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       machineName: (id) => machines.machineName(id),
       onlineMachineIds: () => machines.onlineMachineIds(),
-      getSession: (sessionId) => liveSessions().get(sessionId),
+      getSession: (sessionId) => {
+        const session = liveSessions().get(sessionId)
+        return session
+          ? {
+              cwd: session.cwd,
+              machineId: session.machineId,
+              agentKind: session.agentKind,
+              resume: session.resume,
+              transcriptItems: () => session.terminal.transcriptItems(),
+            }
+          : undefined
+      },
       // Lazy: the conversations service is constructed after loadFromStore below.
       readTranscriptFromLake: (session, input) =>
         conversations.readTranscriptFromLake(session, input),
@@ -383,7 +394,18 @@ export class SessionRegistry {
         getSettings: () => this.store.settings.getSettings(),
         clients: () => clients().values(),
         machineName: (id) => machines.machineName(id),
-        sessions: () => liveSessions().values(),
+        sessions: () =>
+          [...liveSessions().values()].map((session) => ({
+            sessionId: session.sessionId,
+            machineId: session.machineId,
+            status: session.status,
+            resume: session.resume,
+            agentState: session.agentState,
+            lastActiveAt: session.lastActiveAt,
+            lastResumedAtMs: session.terminal.lastResumedAtMs,
+            lastInputAtMs: session.terminal.lastInputAtMs,
+            lastOutputAtMs: session.terminal.lastOutputAtMs,
+          })),
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),

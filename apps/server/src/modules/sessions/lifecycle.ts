@@ -1122,9 +1122,9 @@ export class SessionLifecycle {
    *  this on a coarse interval, so a busy session writes at most once per tick. */
   flushActivity(): void {
     for (const s of this.sessions.values()) {
-      if (s.activityDirty) {
+      if (s.terminal.activityDirty) {
         this.persist(s)
-        s.clearActivityDirty()
+        s.terminal.clearActivityDirty()
       }
     }
   }
@@ -1228,7 +1228,7 @@ export class SessionLifecycle {
     // the server wasn't watching.)
     if (session.sessionId in offers) {
       const offer = offers[session.sessionId]
-      if (offer && session.lastInputAtMs > Date.parse(offer.createdAt)) {
+      if (offer && session.terminal.lastInputAtMs > Date.parse(offer.createdAt)) {
         this.store.sessions.clearOffer(session.sessionId)
       } else {
         session.offer = offer
@@ -1411,7 +1411,7 @@ export class SessionLifecycle {
         durableLabel: s.durableLabel,
         agentKind: s.agentKind,
         cwd: s.cwd,
-        geometry: s.geometry,
+        geometry: s.terminal.geometry,
         binding: {
           transitionId: `reattach:${s.sessionId}:${requestedGeneration}`,
           machineAccess: recoveryMachineAccess,
@@ -1981,7 +1981,7 @@ export class SessionLifecycle {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
-    session.recordInputActivity(this.now())
+    session.terminal.recordInputActivity(this.now())
     this.toMachine(session.machineId, {
       type: 'input',
       sessionId,
@@ -2542,7 +2542,7 @@ export class SessionLifecycle {
       .map((child) => ({
         sessionId: child.sessionId,
         status: child.status,
-        activityCount: child.activityCount,
+        activityCount: child.terminal.activityCount,
       }))
       .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
     const activeWork = {
@@ -2570,12 +2570,12 @@ export class SessionLifecycle {
       lastLiveReceiptAt: checkpoint.lastLiveReceiptAt,
       lastTransitionId: checkpoint.lastTransitionId,
       lastActiveAt: session.lastActiveAt,
-      lastInputAtMs: session.lastInputAtMs,
-      lastOutputAtMs: session.lastOutputAtMs,
-      lastResumedAtMs: session.lastResumedAtMs,
-      inputCount: session.inputCount,
-      outputCount: session.outputCount,
-      activityCount: session.activityCount,
+      lastInputAtMs: session.terminal.lastInputAtMs,
+      lastOutputAtMs: session.terminal.lastOutputAtMs,
+      lastResumedAtMs: session.terminal.lastResumedAtMs,
+      inputCount: session.terminal.inputCount,
+      outputCount: session.terminal.outputCount,
+      activityCount: session.terminal.activityCount,
       queuedInputCount: session.queuedMessageCount,
       pendingMessages: addressedMessages,
       autoContinueActive: this.autoContinue.isActive(session.sessionId),
@@ -3120,7 +3120,7 @@ export class SessionLifecycle {
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
         : {}),
-      geometry: session.geometry,
+      geometry: session.terminal.geometry,
       ...this.modelDefaults(session.agentKind),
       ...this.accountEnv(session.agentKind, session.accountId),
       ...(this.draftSyncEnabled() ? { draftSync: true } : {}),
@@ -3269,7 +3269,7 @@ export class SessionLifecycle {
       ...(session ? { durableLabel: session.durableLabel } : {}),
     })
     this.autoContinue.onSessionGone(sessionId)
-    session?.detachAll()
+    session?.terminal.detachAll()
     this.sessions.delete(sessionId)
     this.state.removeSession(sessionId)
     this.titleDebouncers.get(sessionId)?.dispose()
@@ -3341,7 +3341,7 @@ export class SessionLifecycle {
         !fence.closing &&
         candidate &&
         candidate.facts.terminalTransitionId === fence.transitionId &&
-        candidate.facts.inputCount === session.inputCount,
+        candidate.facts.inputCount === session.terminal.inputCount,
     )
     this.bus.emit('session.exited', { sessionId, code })
     try {
@@ -3688,13 +3688,13 @@ export class SessionLifecycle {
   onClientDetached(_principal: ClientPrincipal, client: ClientConn): void {
     const id = client.id
     for (const sessionId of client.attached) {
-      this.mutateSessionView(sessionId, (session) => session.detachClient(id), false)
+      this.mutateSessionView(sessionId, (session) => session.terminal.detachClient(id), false)
     }
     // Transcript subscriptions are independent of PTY attachment — sweep just the ones
     // THIS client made (audit P2-18), not every session on the host (the old full scan
     // was O(sessions) on every disconnect, and O(clients×sessions) in a reconnect storm).
     for (const sessionId of client.transcriptSubs)
-      this.sessions.get(sessionId)?.unsubscribeTranscript(id)
+      this.sessions.get(sessionId)?.terminal.unsubscribeTranscript(id)
     // A gone client no longer attaches/views/focuses anything — recompute so the
     // sessions it was watching can drop priority (and the daemon stops relaying
     // them live).
@@ -3719,7 +3719,7 @@ export class SessionLifecycle {
     const prior = this.clients.get(priorId)
     if (!prior || prior.id === next.id) return
     for (const sessionId of prior.attached) {
-      this.sessions.get(sessionId)?.reassignController(priorId, next.id)
+      this.sessions.get(sessionId)?.terminal.reassignController(priorId, next.id)
     }
     // Disconnect through the GATEWAY: the connection set is its, so the removal
     // and the sweep must stay one operation. The fallback is the in-process form
@@ -3780,7 +3780,7 @@ export class SessionLifecycle {
         client.attached.add(msg.sessionId)
         this.mutateSessionView(
           msg.sessionId,
-          (current) => current.attachClient(client, msg.sinceSeq),
+          (current) => current.terminal.attachClient(client, msg.sinceSeq),
           false,
         )
         this.broadcastSessions()
@@ -3796,7 +3796,7 @@ export class SessionLifecycle {
       case 'detach': {
         const t0 = performance.now()
         client.attached.delete(msg.sessionId)
-        this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id), false)
+        this.mutateSessionView(msg.sessionId, (session) => session.terminal.detachClient(id), false)
         this.broadcastSessions()
         this.pushPriorities()
         perf.record(
@@ -3824,15 +3824,15 @@ export class SessionLifecycle {
         this.broadcastSessions()
         break
       case 'redrawRequest':
-        this.sessions.get(msg.sessionId)?.redraw()
+        this.sessions.get(msg.sessionId)?.terminal.redraw()
         break
       case 'transcriptSubscribe':
         client.transcriptSubs.add(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.subscribeTranscript(client, msg.since)
+        this.sessions.get(msg.sessionId)?.terminal.subscribeTranscript(client, msg.since)
         break
       case 'transcriptUnsubscribe':
         client.transcriptSubs.delete(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.unsubscribeTranscript(id)
+        this.sessions.get(msg.sessionId)?.terminal.unsubscribeTranscript(id)
         break
       case 'presence':
         client.visible = msg.visible
@@ -4003,14 +4003,14 @@ export class SessionLifecycle {
       case 'agentFrame':
         // The bridge's msg.seq is ignored — the Session assigns its own monotonic
         // seq so the client cursor stays stable across daemon reattaches.
-        this.sessions.get(msg.sessionId)?.onFrame(msg.data)
+        this.sessions.get(msg.sessionId)?.terminal.onFrame(msg.data)
         break
       case 'agentFrameBatch': {
         // The daemon coalesced several PTY frames for a lower-priority session into
         // one batch. Unpack back into per-frame onFrame so each still gets its own
         // server seq + outputFrame broadcast (clients are unchanged by coalescing).
         const session = this.sessions.get(msg.sessionId)
-        if (session) for (const data of msg.frames) session.onFrame(data)
+        if (session) for (const data of msg.frames) session.terminal.onFrame(data)
         break
       }
       case 'agentExit': {
@@ -4226,7 +4226,7 @@ export class SessionLifecycle {
         session.applyObservationCheckpoint(outcome.checkpoint)
         const acceptedLive =
           outcome.kind === 'live_transition_accepted' || outcome.kind === 'live_refresh_accepted'
-        if (acceptedLive) session.recordObservationActivity()
+        if (acceptedLive) session.terminal.recordObservationActivity()
         const acceptedLease: ObservationLeaseRecord = {
           ...(lease as ObservationLeaseRecord),
           providerSessionId: outcome.checkpoint.providerSessionId,
@@ -4377,7 +4377,7 @@ export class SessionLifecycle {
           prev?.phase !== 'working' &&
           next.phase === 'working' &&
           next.since > session.offer.createdAt &&
-          session.lastInputAtMs > Date.parse(session.offer.createdAt)
+          session.terminal.lastInputAtMs > Date.parse(session.offer.createdAt)
         ) {
           this.clearOffer(msg.sessionId)
         }
@@ -4493,7 +4493,7 @@ export class SessionLifecycle {
       case 'transcriptDelta': {
         const session = this.sessions.get(msg.sessionId)
         if (
-          session?.applyDelta(msg.items, {
+          session?.terminal.applyDelta(msg.items, {
             ...(msg.reset !== undefined ? { reset: msg.reset } : {}),
             ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
           })
@@ -4510,7 +4510,7 @@ export class SessionLifecycle {
         // doesn't sit on the cwd/"Claude Code" placeholder for the long stretch
         // before Claude generates its own title.
         if (session && harnessUsesPromptTitleFallback(session.agentKind) && !session.titleLocked) {
-          const firstUser = session.transcriptItems().find(
+          const firstUser = session.terminal.transcriptItems().find(
             (it) =>
               it.role === 'user' &&
               it.text.trim().length > 0 &&
@@ -4537,7 +4537,7 @@ export class SessionLifecycle {
   }
 
   transcriptFor(sessionId: SessionId): TranscriptItem[] {
-    return this.sessions.get(sessionId)?.transcriptItems() ?? []
+    return this.sessions.get(sessionId)?.terminal.transcriptItems() ?? []
   }
 
   /** Raw fan-out to every connected client. Typed LIVE-ONLY (modules/
