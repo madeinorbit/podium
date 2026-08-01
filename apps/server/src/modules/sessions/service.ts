@@ -1383,8 +1383,8 @@ export class SessionsService {
    * `undefined` means the session does not exist — which the session-state envelope
    * treats identically to a denial (§3.1.5's consistent-error rule).
    *
-   * Session rows still have no `owner` column, so existing sessions use the
-   * instance first-admin identity as a transitional owner. This is the ONE place
+   * Session rows still have no `owner` column, so existing sessions use
+   * the instance's first-admin identity as a transitional owner. This is the ONE place
    * that answer is given; POD-1070 ownership work replaces it here rather than
    * in eleven handlers.
    */
