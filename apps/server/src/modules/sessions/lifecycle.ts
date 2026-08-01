@@ -431,6 +431,7 @@ export class SessionLifecycle {
     })
     this.bindingReceipts = new SessionBindingReceipts({
       store: this.store,
+      now: () => this.now(),
       sessions: () => this.sessions.values(),
       session: (sessionId) => this.sessions.get(sessionId),
       sessionOwner: (sessionId) => this.sessionOwner(sessionId),
@@ -2460,19 +2461,34 @@ export class SessionLifecycle {
     }
   }
 
-  /** Runtime half of a durable session removal. Kept separate so issue deletion
-   *  can batch many rows in one transaction and one sessions broadcast. */
-  private removeSessionRuntime(sessionId: SessionId): void {
+  /** Runtime half of a durable session removal. Issue-owned tombstones can be
+   * restored and therefore use generic process kill; standalone deletion is
+   * terminal and emits the distinct binding-retirement instruction. */
+  private removeSessionRuntime(
+    sessionId: SessionId,
+    terminalRetirement?: { retiredAt: string },
+  ): void {
     const session = this.sessions.get(sessionId)
     // The issues service owns the per-session Git attribution ledger. Notify it
-    // while membership/cwd are still resolvable, before this permanent removal.
+    // while membership/cwd are still resolvable, before this removal.
     this.issues().onSessionRemovedOrArchived(sessionId)
 
-    this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
-      type: 'kill',
-      sessionId,
-      ...(session ? { durableLabel: session.durableLabel } : {}),
-    })
+    this.toMachine(
+      session?.machineId ?? LOCAL_PLACEHOLDER,
+      terminalRetirement
+        ? {
+            type: 'sessionBindingRetire',
+            sessionId,
+            transitionId: `retire:${sessionId}`,
+            retiredAt: terminalRetirement.retiredAt,
+            ...(session ? { durableLabel: session.durableLabel } : {}),
+          }
+        : {
+            type: 'kill',
+            sessionId,
+            ...(session ? { durableLabel: session.durableLabel } : {}),
+          },
+    )
     this.autoContinue.onSessionGone(sessionId)
     session?.terminal.detachAll()
     this.sessions.delete(sessionId)
@@ -2502,7 +2518,7 @@ export class SessionLifecycle {
       },
       changes: () => this.sessionRemovalSpecs(input.sessionId),
     })
-    this.removeSessionRuntime(input.sessionId)
+    this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
     this.repository.publishSessionProjection(changes)
     this.broadcastSessions()
     // The killed session may have been the last living occupant of an empty

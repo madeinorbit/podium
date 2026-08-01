@@ -137,6 +137,19 @@ export interface BindingTransitionReceipt {
   }
 }
 
+/** A server-arbitrated collision between exact observations on live bindings.
+ * The marker is append-only evidence: it never clears either observation and
+ * the pending receipt remains queued until a later explicit resolution. */
+export interface BindingConflictMarker {
+  conflictId: string
+  channel: BindingObservationChannel
+  value: string
+  conflictingSessionIds: SessionId[]
+  observedAt: string
+  recordedAt: string
+  resolvedAt: string | null
+}
+
 export interface SessionBindingRecord {
   schemaVersion: 1
   sessionId: SessionId
@@ -148,6 +161,7 @@ export interface SessionBindingRecord {
   observations: BindingObservation[]
   delegationHistory: BindingDelegationObservation[]
   transitionHistory: BindingTransitionReceipt[]
+  conflictHistory: BindingConflictMarker[]
   transfer: BindingTransfer | null
   state: BindingState
   createdAt: string
@@ -305,6 +319,7 @@ export const SESSION_BINDING_EVENTS = [
   'hook-repin',
   'headless-allocation',
   'adopt',
+  'retire',
 ] as const
 export type SessionBindingEvent = (typeof SESSION_BINDING_EVENTS)[number]
 
@@ -387,6 +402,10 @@ export type SessionBindingTransition =
       adoption?: BindingAdoption
       /** A launch creates a new host-local attempt, never a new delegation. */
       attemptId?: string
+    })
+  | (BindingTransitionBase & {
+      event: 'retire'
+      retiredAt: string
     })
 
 export type BindingTransitionRejection =
@@ -610,6 +629,9 @@ function parseBinding(value: unknown): SessionBindingRecord {
   if (value.transitionHistory !== undefined && !Array.isArray(value.transitionHistory)) {
     throw new Error('binding transitionHistory must be an array')
   }
+  if (value.conflictHistory !== undefined && !Array.isArray(value.conflictHistory)) {
+    throw new Error('binding conflictHistory must be an array')
+  }
   const observationGeneration = value.observationGeneration
   if (!Number.isSafeInteger(observationGeneration) || Number(observationGeneration) < 0) {
     throw new Error('binding observationGeneration must be a non-negative integer')
@@ -672,6 +694,44 @@ function parseBinding(value: unknown): SessionBindingRecord {
               },
             }
           : {}),
+      }
+    }),
+    conflictHistory: ((value.conflictHistory ?? []) as unknown[]).map((entry, index) => {
+      if (!isRecord(entry)) throw new Error(`conflictHistory[${index}] must be an object`)
+      const channel = requiredString(entry.channel, `conflictHistory[${index}].channel`)
+      if (
+        !(
+          [
+            'resume-ref',
+            'provider-session',
+            'transcript-path',
+            'rollout-path',
+            'process-ownership',
+            'cwd',
+            'worktree-pin',
+          ] as readonly string[]
+        ).includes(channel)
+      ) {
+        throw new Error(`conflictHistory[${index}].channel is invalid`)
+      }
+      const ids = entry.conflictingSessionIds
+      if (!Array.isArray(ids))
+        throw new Error(`conflictHistory[${index}].conflictingSessionIds must be an array`)
+      return {
+        conflictId: requiredString(entry.conflictId, `conflictHistory[${index}].conflictId`),
+        channel: channel as BindingObservationChannel,
+        value: requiredString(entry.value, `conflictHistory[${index}].value`),
+        conflictingSessionIds: ids.map((id, idIndex) =>
+          asSessionId(
+            requiredString(id, `conflictHistory[${index}].conflictingSessionIds[${idIndex}]`),
+          ),
+        ),
+        observedAt: requiredString(entry.observedAt, `conflictHistory[${index}].observedAt`),
+        recordedAt: requiredString(entry.recordedAt, `conflictHistory[${index}].recordedAt`),
+        resolvedAt: optionalNullableString(
+          entry.resolvedAt,
+          `conflictHistory[${index}].resolvedAt`,
+        ),
       }
     }),
     transfer: (value.transfer ?? null) as BindingTransfer | null,
@@ -1148,6 +1208,43 @@ export class BindingStore {
     return acknowledged
   }
 
+  /** Persist a server arbitration verdict without acknowledging or deleting
+   * either exact observation. This is receipt feedback, not a lifecycle event. */
+  async recordReceiptConflict(input: {
+    sessionId: SessionId
+    conflictId: string
+    value: string
+    conflictingSessionIds: readonly SessionId[]
+    observedAt: string
+  }): Promise<SessionBindingRecord | null> {
+    const existing = await this.read(input.sessionId)
+    if (!existing) return null
+    const conflictingSessionIds = [...new Set(input.conflictingSessionIds)].sort()
+    return this.update(input.sessionId, (current) => {
+      if (!current) return existing
+      if (current.conflictHistory.some((entry) => entry.conflictId === input.conflictId)) {
+        return current
+      }
+      const marker: BindingConflictMarker = {
+        conflictId: input.conflictId,
+        channel: 'resume-ref',
+        value: input.value,
+        conflictingSessionIds,
+        observedAt: input.observedAt,
+        recordedAt: this.now(),
+        resolvedAt: null,
+      }
+      return {
+        ...current,
+        conflictHistory: [...current.conflictHistory, marker],
+        state:
+          current.state === 'retired' || current.state === 'exported'
+            ? current.state
+            : 'conflicted',
+      }
+    })
+  }
+
   currentDelegation(binding: SessionBindingRecord): BindingDelegationObservation | null {
     const latest = binding.delegationHistory.at(-1)
     return latest && !latest.retired ? latest : null
@@ -1267,6 +1364,7 @@ export class BindingStore {
                 ]
               : [],
             transitionHistory: [],
+            conflictHistory: [],
             transfer: null,
             state: 'unbound',
             createdAt,
@@ -1544,6 +1642,7 @@ export class BindingStore {
               observations,
               delegationHistory,
               transitionHistory: current?.transitionHistory ?? [],
+              conflictHistory: current?.conflictHistory ?? [],
               transfer: {
                 transferId: input.transferId,
                 side: 'target',
@@ -1607,6 +1706,37 @@ export class BindingStore {
           changed = withTransitionReceipt(changed, input, this.now())
           break
         }
+        case 'retire': {
+          if (!current) return transitionRejected(input.event, 'binding-missing')
+          if (current.state === 'retired') {
+            return { status: 'unchanged', event: input.event, binding: current }
+          }
+          const head = this.currentDelegation(current)
+          changed = withTransitionReceipt(
+            {
+              ...current,
+              state: 'retired',
+              attemptId: null,
+              retiredAt: input.retiredAt,
+              delegationHistory: head
+                ? [
+                    ...current.delegationHistory,
+                    {
+                      ...head,
+                      observationId: randomUUID(),
+                      observedAt: input.retiredAt,
+                      recordedAt: this.now(),
+                      supersedes: head.observationId,
+                      retired: true,
+                    },
+                  ]
+                : current.delegationHistory,
+            },
+            input,
+            this.now(),
+          )
+          break
+        }
       }
 
       if (!changed) throw new Error(`binding transition ${input.event} produced no outcome`)
@@ -1649,6 +1779,7 @@ export class BindingStore {
             observations: [],
             delegationHistory: [],
             transitionHistory: [],
+            conflictHistory: [],
             transfer: null,
             state: 'unbound',
             createdAt,
@@ -1738,32 +1869,6 @@ export class BindingStore {
           bindsNativeArtifact(input.channel) && input.confidence === 'exact' && input.value !== null
             ? 'bound'
             : current.state,
-      }
-    })
-  }
-
-  async retire(sessionId: SessionId, retiredAt = this.now()): Promise<SessionBindingRecord> {
-    return this.update(sessionId, (current) => {
-      if (!current) throw new Error(`binding ${sessionId} does not exist`)
-      if (current.state === 'retired') return current
-      const head = this.currentDelegation(current)
-      return {
-        ...current,
-        state: 'retired',
-        retiredAt,
-        delegationHistory: head
-          ? [
-              ...current.delegationHistory,
-              {
-                ...head,
-                observationId: randomUUID(),
-                observedAt: retiredAt,
-                recordedAt: this.now(),
-                supersedes: head.observationId,
-                retired: true,
-              },
-            ]
-          : current.delegationHistory,
       }
     })
   }

@@ -28,6 +28,30 @@ export class SessionBinding {
     return this.store.bindingsForOwner(owner)
   }
 
+  acknowledgeReceipt(
+    owner: UserId | undefined,
+    sessionId: SessionId,
+    resume: ResumeRef,
+  ): Promise<boolean> {
+    return this.store.acknowledgePendingReceipt(owner, sessionId, resume)
+  }
+
+  recordReceiptConflict(input: {
+    sessionId: SessionId
+    conflictId: string
+    resume: ResumeRef
+    conflictingSessionIds: readonly SessionId[]
+    observedAt: string
+  }): Promise<SessionBindingRecord | null> {
+    return this.store.recordReceiptConflict({
+      sessionId: input.sessionId,
+      conflictId: input.conflictId,
+      value: input.resume.value,
+      conflictingSessionIds: input.conflictingSessionIds,
+      observedAt: input.observedAt,
+    })
+  }
+
   /** Serialize the immutable delegation inside the binding boundary. */
   adoptTransfer(
     binding: SessionBindingRecord,
