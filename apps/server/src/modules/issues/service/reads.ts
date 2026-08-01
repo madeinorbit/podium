@@ -164,12 +164,18 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       const sessions: IssueTreeSession[] = members.map((s) => {
         const label = s.name ?? (s.title && s.title !== s.agentKind ? s.title : undefined)
         const phase = s.agentState?.phase
+        const model = s.observedModel ?? s.model
+        const effort = s.observedEffort ?? s.effort
         return {
           sessionId: s.sessionId,
           ...(s.displayRef ? { displayRef: s.displayRef } : {}),
           ...(label ? { label } : {}),
           agentKind: s.agentKind,
-          ...(s.model ? { model: s.model } : {}),
+          ...(model ? { model } : {}),
+          ...(effort ? { effort } : {}),
+          ...(s.contextUsagePercent !== undefined
+            ? { contextUsagePercent: s.contextUsagePercent }
+            : {}),
           status: s.status,
           ...(phase ? { phase } : {}),
           ...(row.coordinatorSessionId && row.coordinatorSessionId === s.sessionId

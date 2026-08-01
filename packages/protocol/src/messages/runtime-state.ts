@@ -396,6 +396,9 @@ export const SessionMeta = z.object({
   /** The reasoning-effort tier OBSERVED on assistant turns (transcript top-level
    *  `effort`) — the observed counterpart of the spawn-time `effort` request. */
   observedEffort: z.string().optional(),
+  /** Latest exact harness-reported context-window usage. Absent when the
+   * harness transcript does not expose both used tokens and window capacity. */
+  contextUsagePercent: z.number().finite().min(0).max(100).optional(),
   // The machine (daemon) this session runs on. machineId is the stable join key;
   // machineName is the display label (server-resolved from the machines table).
   // OPTIONAL during build-out so every task stays typecheck-green: Task 5 always

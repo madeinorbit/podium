@@ -504,3 +504,10 @@ export const AgentModelMessage = z.object({
    *  when the transcript reports one. Optional for wire-compat with older daemons. */
   effort: z.string().optional(),
 })
+// Daemon → server: exact context-window usage observed in the harness's native
+// transcript. Harnesses without a reliable numerator + window do not emit it.
+export const AgentContextMessage = z.object({
+  type: z.literal('agentContext'),
+  sessionId: z.string(),
+  percent: z.number().finite().min(0).max(100),
+})

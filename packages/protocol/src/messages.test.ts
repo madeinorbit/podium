@@ -44,8 +44,18 @@ describe('shared schemas', () => {
       archived: false,
       readAt: null,
       unread: false,
+      contextUsagePercent: 42.5,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
+  })
+
+  it('round-trips exact context usage observations from the daemon', () => {
+    const msg = {
+      type: 'agentContext' as const,
+      sessionId: 's1',
+      percent: 42.5,
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 
   // Provenance (issue #60): spawnedBy is optional/additive — the payload above

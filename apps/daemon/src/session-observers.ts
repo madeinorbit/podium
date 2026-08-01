@@ -30,6 +30,7 @@ import type {
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import {
   createSharedStatTick,
+  recordRuntimeForKind,
   recordToItemsForKind,
   type StatTick,
   type TranscriptTailer,
@@ -852,7 +853,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       const transcriptPath = pendingBindingHook.transcript_path
       const adapter = observations.get(msg.sessionId)?.adapter
       if (adapter && typeof transcriptPath === 'string' && transcriptPath) {
-        ensureTranscriptTail(msg.sessionId, transcriptPath, recordToItemsForKind(adapter.kind))
+        ensureTranscriptTail(
+          msg.sessionId,
+          transcriptPath,
+          adapter.kind,
+          recordToItemsForKind(adapter.kind),
+        )
       }
       bindingHooks?.delete(msg.providerSessionId!)
       if (bindingHooks?.size === 0) pendingBindingHooks.delete(msg.sessionId)
@@ -902,6 +908,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const ensureTranscriptTail = (
     sessionId: string,
     path: string,
+    agentKind: string,
     recordToItems: (record: unknown) => TranscriptItem[],
   ): void => {
     const existing = tails.get(sessionId)
@@ -939,6 +946,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           // As do the observed model + effort (assistant `message.model` / `effort`).
           onModel: (model, effort) =>
             send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
+          recordRuntime: (record) => recordRuntimeForKind(agentKind, record),
+          onContextUsage: (percent) => send({ type: 'agentContext', sessionId, percent }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,
@@ -1010,7 +1019,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // The daemon services an adapter's observation drives, closed over one
   // session. Every per-agent difference is behind these five callbacks.
   const hostFor = (sessionId: string, adapter: HarnessAdapter): HarnessObserverHost => ({
-    tailFile: (path) => ensureTranscriptTail(sessionId, path, recordToItemsForKind(adapter.kind)),
+    tailFile: (path) =>
+      ensureTranscriptTail(sessionId, path, adapter.kind, recordToItemsForKind(adapter.kind)),
     // Recording a resume ref marks the session resumable (→ hibernate button);
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
@@ -1331,7 +1341,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // Same-binding hooks may update the authoritative transcript and resume ref.
     const transcriptPath = hookString(payload, 'transcript_path', 'transcriptPath')
     if (transcriptPath) {
-      ensureTranscriptTail(sessionId, transcriptPath, recordToItemsForKind(bound.adapter.kind))
+      ensureTranscriptTail(
+        sessionId,
+        transcriptPath,
+        bound.adapter.kind,
+        recordToItemsForKind(bound.adapter.kind),
+      )
     }
     if (harnessSessionId) {
       send({

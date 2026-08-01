@@ -10,12 +10,28 @@ const STATUS = {
   status: 'live',
   phase: 'working',
   machine: 'buildbox',
+  harness: 'claude-code',
   model: 'claude-opus-4-8',
   effort: 'high',
+  contextUsagePercent: 22.3,
   account: 'native:claude-code',
   error: null,
   draft: true,
   nativeSubagentCount: 2,
+  nativeSubagents: [{ id: 'native-1', type: 'Explore' }],
+  subagents: [
+    {
+      sessionId: 'child1',
+      displayRef: 'POD-7-B',
+      parentSessionId: 's1',
+      harness: 'codex',
+      model: 'gpt-5.7',
+      effort: 'medium',
+      contextUsagePercent: 10,
+      status: 'live',
+      phase: 'working',
+    },
+  ],
   issue: { seq: 7, stage: 'in_progress', title: 'T', todos: ['[ ] a'] },
   commits: ['abc123 feat: x'],
   files: ['## branch', ' M a.ts'],
@@ -146,13 +162,10 @@ describe('podium session stop [spec:SP-9904]', () => {
   })
 
   it('surfaces a refused stop (unsaved work)', async () => {
-    const c = client(
-      { ok: true },
-      ASK,
-      { ok: true, name: 'x' },
-      STATUS,
-      { ok: false, reason: 'refusing stop: unsaved changes' },
-    )
+    const c = client({ ok: true }, ASK, { ok: true, name: 'x' }, STATUS, {
+      ok: false,
+      reason: 'refusing stop: unsaved changes',
+    })
     await expect(runSessionCli(['stop', 's1'], c)).rejects.toThrow(/unsaved changes/)
   })
 
@@ -210,9 +223,14 @@ describe('podium session status/read (#237 read toolkit)', () => {
     const out = await runSessionCli(['status', 's1'], c)
     expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 's1' })
     expect(out).toContain('live/working')
-    expect(out).toContain('machine=buildbox model=claude-opus-4-8 effort=high')
-    expect(out).toContain('account=native:claude-code')
+    expect(out).toContain(
+      'runtime: harness=claude-code model=claude-opus-4-8 effort=high context=22.3%',
+    )
+    expect(out).toContain('placement: machine=buildbox account=native:claude-code')
     expect(out).toContain('nativeSubagentCount=2 draft=yes')
+    expect(out).toContain('native native-1 type=Explore')
+    expect(out).toContain('native 1 active (identity unavailable)')
+    expect(out).toContain('session POD-7-B parent=s1 harness=codex')
     expect(out).toContain('issue #7 [in_progress] T')
     expect(out).toContain('abc123 feat: x')
     expect(out).toContain('unacked messages: 2')
@@ -314,19 +332,22 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium session real-binary smoke', () => {
-  it('renders help (status/read verbs included) without a server', () => {
-    const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
-    expect(out).toContain('podium session <command>')
-    expect(out).toContain('status <session-id|#issue>')
-    expect(out).toContain('read <session-id>')
-    expect(out).toContain('recap <session-id>')
-    expect(out).toContain('ask <session-id> --question')
-  })
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
+  'podium session real-binary smoke',
+  () => {
+    it('renders help (status/read verbs included) without a server', () => {
+      const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
+      expect(out).toContain('podium session <command>')
+      expect(out).toContain('status <session-id|#issue>')
+      expect(out).toContain('read <session-id>')
+      expect(out).toContain('recap <session-id>')
+      expect(out).toContain('ask <session-id> --question')
+    })
 
-  it('fails fast on an unknown session command', () => {
-    expect(() =>
-      execFileSync('bun', [cliEntry, 'session', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
-    ).toThrow()
-  })
-})
+    it('fails fast on an unknown session command', () => {
+      expect(() =>
+        execFileSync('bun', [cliEntry, 'session', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
+      ).toThrow()
+    })
+  },
+)

@@ -215,6 +215,7 @@ export interface SessionDurableState {
   agentColor: string | undefined
   observedModel: string | undefined
   observedEffort: string | undefined
+  contextUsagePercent: number | undefined
   snoozedUntil: string | null | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
@@ -312,6 +313,8 @@ export class Session {
   /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
    *  learned alongside observedModel. */
   observedEffort: string | undefined
+  /** Latest exact harness-reported context-window usage, if this harness exposes it. */
+  contextUsagePercent: number | undefined
   /** Snooze deadline — orthogonal to agentState. undefined = not snoozed; null =
    *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
    *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
@@ -938,6 +941,14 @@ export class Session {
     return true
   }
 
+  setContextUsagePercent(percent: number): boolean {
+    if (!Number.isFinite(percent)) return false
+    const next = Math.min(100, Math.max(0, percent))
+    if (next === this.contextUsagePercent) return false
+    this.contextUsagePercent = next
+    return true
+  }
+
   private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
 
   setTitle(title: string): void {
@@ -1010,6 +1021,7 @@ export class Session {
       agentColor: this.agentColor,
       observedModel: this.observedModel,
       observedEffort: this.observedEffort,
+      contextUsagePercent: this.contextUsagePercent,
       snoozedUntil: this.snoozedUntil,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
@@ -1061,6 +1073,7 @@ export class Session {
     this.agentColor = state.agentColor
     this.observedModel = state.observedModel
     this.observedEffort = state.observedEffort
+    this.contextUsagePercent = state.contextUsagePercent
     this.snoozedUntil = state.snoozedUntil
     this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
@@ -1185,6 +1198,9 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.observedModel ? { observedModel: this.observedModel } : {}),
       ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
+      ...(this.contextUsagePercent !== undefined
+        ? { contextUsagePercent: this.contextUsagePercent }
+        : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),

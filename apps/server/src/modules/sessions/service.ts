@@ -27,9 +27,9 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type RepoProjection,
   type ObservationInputOrigin,
   type ObservationProvider,
+  type RepoProjection,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -4821,6 +4821,15 @@ export class SessionsService {
         // Observed model changes rarely (first sighting, `/model` switch), so a
         // full session rebroadcast is fine, mirroring agentColor above.
         if (session.setObservedModel(msg.model, msg.effort)) {
+          this.persist(session)
+          this.broadcastSessions()
+        }
+        break
+      }
+      case 'agentContext': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        if (session.setContextUsagePercent(msg.percent)) {
           this.persist(session)
           this.broadcastSessions()
         }

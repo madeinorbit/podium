@@ -301,6 +301,44 @@ describe('guardIssueCommand authorization matrix', () => {
   })
 })
 
+describe('issues.get session membership', () => {
+  it('returns every attached agent and excludes shell sessions', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+      registry.modules.sessions.attachDaemon('local', () => {})
+      const first = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/r',
+        issueId: issue.id,
+        model: 'gpt-5.7',
+      })
+      const second = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/r',
+        issueId: issue.id,
+      })
+      registry.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/r',
+        issueId: issue.id,
+      })
+      const shown = (await registry.issueCommands.dispatch(
+        { capability: OPERATOR },
+        'issues',
+        'get',
+        { id: issue.id },
+      )) as { sessions: { sessionId: string; agentKind: string }[] }
+      expect(shown.sessions.map((session) => session.sessionId).sort()).toEqual(
+        [first.sessionId, second.sessionId].sort(),
+      )
+      expect(shown.sessions.map((session) => session.agentKind)).not.toContain('shell')
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
 describe('issue spawn provenance', () => {
   it('passes the exact initiating session through start and add-session commands', async () => {
     const registry = new SessionRegistry()

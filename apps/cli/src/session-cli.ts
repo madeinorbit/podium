@@ -35,18 +35,32 @@ export interface SessionControlClient {
 }
 
 /** Tier-1 status wire shape (modules/sessions/read-toolkit). */
-interface StatusWire {
+export interface StatusWire {
   sessionId: string
   agentKind: string
+  harness?: string
   status: string
   phase: string
   machine: string | null
   model: string | null
   effort: string | null
+  contextUsagePercent?: number | null
   account: string | null
   error: { class: string; retryable: boolean } | null
   draft: boolean
   nativeSubagentCount: number
+  nativeSubagents?: { id: string; type?: string }[]
+  subagents?: {
+    sessionId: string
+    displayRef?: string
+    parentSessionId: string
+    harness: string
+    model: string | null
+    effort: string | null
+    contextUsagePercent: number | null
+    status: string
+    phase: string
+  }[]
   issue: { seq: number; stage: string; title: string; todos: string[] } | null
   commits: string[]
   files: string[]
@@ -80,11 +94,36 @@ interface ReadWire {
   truncated: boolean
 }
 
-function renderStatus(s: StatusWire): string {
+function contextLabel(percent: number | null | undefined): string {
+  return percent == null ? 'unknown' : `${percent}%`
+}
+
+function renderSubagents(s: StatusWire): string | null {
+  const lines: string[] = []
+  const native = s.nativeSubagents ?? []
+  for (const child of native) {
+    lines.push(`  native ${child.id}${child.type ? ` type=${child.type}` : ''}`)
+  }
+  const unseenNative = s.nativeSubagentCount - native.length
+  if (unseenNative > 0) lines.push(`  native ${unseenNative} active (identity unavailable)`)
+  for (const child of s.subagents ?? []) {
+    lines.push(
+      `  session ${child.displayRef ?? child.sessionId} parent=${child.parentSessionId} ` +
+        `harness=${child.harness} model=${child.model ?? 'default'} ` +
+        `effort=${child.effort ?? 'default'} context=${contextLabel(child.contextUsagePercent)} ` +
+        `${child.status}/${child.phase}`,
+    )
+  }
+  return lines.length ? `subagents:\n${lines.join('\n')}` : null
+}
+
+export function renderStatus(s: StatusWire): string {
   return [
-    `${s.sessionId} (${s.agentKind}) ${s.status}/${s.phase}`,
-    `placement: machine=${s.machine ?? 'unknown'} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} account=${s.account ?? 'default'}`,
+    `${s.sessionId} ${s.status}/${s.phase}`,
+    `runtime: harness=${s.harness ?? s.agentKind} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} context=${contextLabel(s.contextUsagePercent)}`,
+    `placement: machine=${s.machine ?? 'unknown'} account=${s.account ?? 'default'}`,
     `state: nativeSubagentCount=${s.nativeSubagentCount} draft=${s.draft ? 'yes' : 'no'}`,
+    renderSubagents(s),
     s.error
       ? `error: ${s.error.class} (${s.error.retryable ? 'retryable' : 'not retryable'})`
       : null,
@@ -183,8 +222,8 @@ function helpText(): string {
     '  continue <session-id> [--outside-scope]',
     '      Type continue only when the running session is in an errored phase.',
     '  status <session-id|#issue> [--outside-scope]',
-    '      Structured peek: phase, issue stage/todos, last commits, files touched,',
-    '      unacked message count. No transcript text (~200 tokens).',
+    '      Structured peek: actual runtime/context, visible subagents, phase, issue',
+    '      state, commits, files, and unacked messages. No transcript text.',
     '  read <session-id> [--turns N] [--cursor C] [--outside-scope]',
     '      Bounded raw-transcript window (newest first page; --cursor pages back).',
     '      Hard-capped per call; every read is event-logged.',
@@ -203,7 +242,7 @@ function helpText(): string {
     '  stop [<session-id>] [--force] [--outside-scope]',
     '      Cleanly end a session: stop its process, FREE the worktree, KEEP the branch',
     '      + transcript (reversible — resume recreates the worktree from the branch).',
-    '      No id = stop THIS session (an agent\'s last act when done). Refuses when the',
+    "      No id = stop THIS session (an agent's last act when done). Refuses when the",
     '      working tree has unsaved changes unless --force. Stopping a session outside',
     '      your issue subtree requires --outside-scope (human permission asserted).',
   ].join('\n')

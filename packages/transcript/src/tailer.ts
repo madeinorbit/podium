@@ -8,6 +8,7 @@ import {
 } from './claude'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
+import type { HarnessRuntimeObservation } from './runtime'
 import { type StatTick, scheduleStatPoll } from './stat-tick'
 
 const POLL_MS = 700
@@ -59,6 +60,10 @@ export interface TranscriptTailOptions {
   recordModel?: (record: unknown) => string | undefined
   recordEffort?: (record: unknown) => string | undefined
   onModel?: (model: string, effort: string | undefined) => void
+  /** Cross-harness runtime extraction. When supplied it supersedes the legacy
+   * recordModel/recordEffort pair and may additionally report exact context use. */
+  recordRuntime?: (record: unknown) => HarnessRuntimeObservation
+  onContextUsage?: (percent: number) => void
   /** Runs the tail's FIRST read (the multi-MB backfill seed — the expensive one)
    *  through a pacing gate; poll ticks hold off until the gated seed completes.
    *  Lets a caller standing up many tails at once (daemon reattach burst,
@@ -134,6 +139,7 @@ export function tailTranscript(
   let lastColor: string | undefined
   let lastModel: string | undefined
   let lastEffort: string | undefined
+  let lastContextUsagePercent: number | undefined
   // Absolute byte position where `leftover` begins (= the start of the next
   // unparsed line). Bytes before this have been parsed into emitted items.
   let offset = 0
@@ -170,14 +176,20 @@ export function tailTranscript(
     }
     // The observed model + effort ride the same tail — one emit when either
     // changes (assistant records carry both), always with the latest pair.
-    const model = recordModel(record)
-    const effort = recordEffort(record)
+    const runtime = opts.recordRuntime?.(record)
+    const model = opts.recordRuntime ? runtime?.model : recordModel(record)
+    const effort = opts.recordRuntime ? runtime?.effort : recordEffort(record)
     const modelChanged = model !== undefined && model !== lastModel
     const effortChanged = effort !== undefined && effort !== lastEffort
     if (modelChanged) lastModel = model
     if (effortChanged) lastEffort = effort
     if ((modelChanged || effortChanged) && lastModel !== undefined) {
       opts.onModel?.(lastModel, lastEffort)
+    }
+    const contextUsagePercent = runtime?.contextUsagePercent
+    if (contextUsagePercent !== undefined && contextUsagePercent !== lastContextUsagePercent) {
+      lastContextUsagePercent = contextUsagePercent
+      opts.onContextUsage?.(contextUsagePercent)
     }
     return stampCursors(recordToItems(record), fileId, lineOffset, recordUuid(record))
   }

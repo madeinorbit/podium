@@ -69,7 +69,31 @@ describe('ISSUE_COMMANDS registry', () => {
 
   it('includes the full verb set (P4b parity + lifecycle verbs)', () => {
     const names = ISSUE_COMMANDS.map((c) => c.name)
-    for (const v of ['delete', 'label', 'defer', 'undefer', 'supersede', 'duplicate', 'dep-remove', 'reparent', 'find-duplicates', 'graph', 'doctor', 'stale', 'orphans', 'lint', 'preflight', 'count', 'epic-status', 'start', 'archive', 'action', 'cleanup', 'add-session', 'add-shell']) {
+    for (const v of [
+      'delete',
+      'label',
+      'defer',
+      'undefer',
+      'supersede',
+      'duplicate',
+      'dep-remove',
+      'reparent',
+      'find-duplicates',
+      'graph',
+      'doctor',
+      'stale',
+      'orphans',
+      'lint',
+      'preflight',
+      'count',
+      'epic-status',
+      'start',
+      'archive',
+      'action',
+      'cleanup',
+      'add-session',
+      'add-shell',
+    ]) {
       expect(names, `missing verb ${v}`).toContain(v)
     }
   })
@@ -83,7 +107,9 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(out.text).toContain('cleanup: OK')
     expect(out.text).toContain('deleted branch issue/1-x')
 
-    const refused = mockClient({ cleanup: { ok: false, output: 'refusing cleanup: issue #1 is still open (close it first)' } })
+    const refused = mockClient({
+      cleanup: { ok: false, output: 'refusing cleanup: issue #1 is still open (close it first)' },
+    })
     const out2 = await cmd('cleanup').run(refused.client, { id: 'iss_1' })
     expect(out2.text).toContain('cleanup: REFUSED')
     expect(out2.text).toContain('still open')
@@ -212,7 +238,12 @@ describe('ISSUE_COMMANDS registry', () => {
 
   it('update maps --agent/--model/--effort into the patch', async () => {
     const { client, calls } = mockClient()
-    await cmd('update').run(client, { id: '3', agent: 'claude-code', model: 'opus-4-5', effort: 'low' })
+    await cmd('update').run(client, {
+      id: '3',
+      agent: 'claude-code',
+      model: 'opus-4-5',
+      effort: 'low',
+    })
     expect(calls).toContainEqual({
       path: 'update',
       kind: 'mutate',
@@ -318,8 +349,26 @@ describe('ISSUE_COMMANDS registry', () => {
 
   it('bulk show (issue #82): several ids render single-show sections, data is an array', async () => {
     const wires: Record<string, unknown> = {
-      '1': { id: 'iss_a', seq: 1, title: 'A', description: 'da', stage: 'backlog', priority: 2, ready: true, blocked: false },
-      'iss_b': { id: 'iss_b', seq: 2, title: 'B', description: 'db', stage: 'in_progress', priority: 1, ready: false, blocked: true },
+      '1': {
+        id: 'iss_a',
+        seq: 1,
+        title: 'A',
+        description: 'da',
+        stage: 'backlog',
+        priority: 2,
+        ready: true,
+        blocked: false,
+      },
+      iss_b: {
+        id: 'iss_b',
+        seq: 2,
+        title: 'B',
+        description: 'db',
+        stage: 'in_progress',
+        priority: 1,
+        ready: false,
+        blocked: true,
+      },
     }
     const fake = {
       issues: { get: { query: async (i: { id: string }) => wires[i.id] ?? null } },
@@ -338,7 +387,16 @@ describe('ISSUE_COMMANDS registry', () => {
         get: {
           query: async (i: { id: string }) =>
             i.id === '1'
-              ? { id: 'iss_a', seq: 1, title: 'A', description: 'd', stage: 'backlog', priority: 2, ready: true, blocked: false }
+              ? {
+                  id: 'iss_a',
+                  seq: 1,
+                  title: 'A',
+                  description: 'd',
+                  stage: 'backlog',
+                  priority: 2,
+                  ready: true,
+                  blocked: false,
+                }
               : null,
         },
       },
@@ -346,7 +404,7 @@ describe('ISSUE_COMMANDS registry', () => {
     const out = await cmd('show').run(fake, { ids: '1,99' })
     expect(out.text).toContain('#1 A')
     expect(out.text).toContain('99: ERROR unknown issue 99')
-    const data = out.data as ({ seq?: number; ref?: string; error?: string })[]
+    const data = out.data as { seq?: number; ref?: string; error?: string }[]
     expect(data[0]!.seq).toBe(1)
     expect(data[1]).toEqual({ ref: '99', error: 'unknown issue 99' })
   })
@@ -363,8 +421,16 @@ describe('ISSUE_COMMANDS registry', () => {
   it('tree renders an indented subtree with status, waits-on, needs-human and (+N more)', async () => {
     const treeData = {
       root: {
-        seq: 10, title: 'Epic', stage: 'in_progress', priority: 1, needsHuman: false,
-        blocksDeps: [], description: 'the epic', closed: false, blocked: false, ready: true,
+        seq: 10,
+        title: 'Epic',
+        stage: 'in_progress',
+        priority: 1,
+        needsHuman: false,
+        blocksDeps: [],
+        description: 'the epic',
+        closed: false,
+        blocked: false,
+        ready: true,
         omittedChildren: 0,
         // Sibling sessions on the root issue [spec:SP-99d3]
         sessions: [
@@ -376,6 +442,8 @@ describe('ISSUE_COMMANDS registry', () => {
             model: 'grok-4.5',
             status: 'live',
             phase: 'working',
+            effort: 'high',
+            contextUsagePercent: 18.2,
             coordinator: true,
           },
           {
@@ -386,14 +454,27 @@ describe('ISSUE_COMMANDS registry', () => {
             model: 'gpt-5.6-sol',
             status: 'live',
             phase: 'idle',
+            effort: 'medium',
+            contextUsagePercent: 44,
           },
         ],
         children: [
           {
-            seq: 11, title: 'Child', stage: 'backlog', priority: 2, assignee: 'bob',
-            branch: 'issue/11-c', needsHuman: true, humanQuestion: 'which db?',
-            blocksDeps: [12], description: 'first child', closed: false, blocked: true, ready: false,
-            omittedChildren: 3, children: [],
+            seq: 11,
+            title: 'Child',
+            stage: 'backlog',
+            priority: 2,
+            assignee: 'bob',
+            branch: 'issue/11-c',
+            needsHuman: true,
+            humanQuestion: 'which db?',
+            blocksDeps: [12],
+            description: 'first child',
+            closed: false,
+            blocked: true,
+            ready: false,
+            omittedChildren: 3,
+            children: [],
             sessions: [
               {
                 sessionId: 'sess-c',
@@ -406,9 +487,18 @@ describe('ISSUE_COMMANDS registry', () => {
             ],
           },
           {
-            seq: 12, title: 'Done one', stage: 'done', priority: 2, needsHuman: false,
-            blocksDeps: [], description: '', closed: true, blocked: false, ready: false,
-            omittedChildren: 0, children: [],
+            seq: 12,
+            title: 'Done one',
+            stage: 'done',
+            priority: 2,
+            needsHuman: false,
+            blocksDeps: [],
+            description: '',
+            closed: true,
+            blocked: false,
+            ready: false,
+            omittedChildren: 0,
+            children: [],
             sessions: [],
           },
         ],
@@ -438,11 +528,11 @@ describe('ISSUE_COMMANDS registry', () => {
     const revLine = lines.find((l) => l.includes('POD-10-B'))!
     const childSess = lines.find((l) => l.includes('POD-11-A'))!
     expect(implLine).toMatch(/session POD-10-A/)
-    expect(implLine).toContain('grok/grok-4.5')
+    expect(implLine).toContain('harness=grok model=grok-4.5 effort=high context=18.2%')
     expect(implLine).toContain('working')
     expect(implLine).toContain('coordinator')
     expect(implLine).toContain('Implementer')
-    expect(revLine).toContain('codex/gpt-5.6-sol')
+    expect(revLine).toContain('harness=codex model=gpt-5.6-sol effort=medium context=44%')
     expect(revLine).toContain('idle')
     expect(revLine).not.toContain('coordinator')
     expect(childSess).toContain('exited')
@@ -468,6 +558,9 @@ describe('ISSUE_COMMANDS registry', () => {
           name: 'Lead',
           agentKind: 'grok',
           model: 'grok-4.5',
+          observedModel: 'grok-4.6-actual',
+          observedEffort: 'high',
+          contextUsagePercent: 12.5,
           status: 'live',
           agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
         },
@@ -478,6 +571,9 @@ describe('ISSUE_COMMANDS registry', () => {
           agentKind: 'codex',
           model: 'gpt-5.6-sol',
           status: 'live',
+          observedModel: 'gpt-5.7-actual',
+          observedEffort: 'medium',
+          contextUsagePercent: 33.3,
           agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
         },
       ],
@@ -485,8 +581,12 @@ describe('ISSUE_COMMANDS registry', () => {
     const { client } = mockClient({ get: issue, comments: [] })
     const out = await cmd('show').run(client, { id: '7' })
     expect(out.text).toContain('sessions (2):')
-    expect(out.text).toMatch(/session POD-7-A grok\/grok-4\.5 working coordinator/)
-    expect(out.text).toMatch(/session POD-7-B codex\/gpt-5\.6-sol blocked/)
+    expect(out.text).toContain(
+      'session POD-7-A harness=grok model=grok-4.6-actual effort=high context=12.5% working coordinator',
+    )
+    expect(out.text).toContain(
+      'session POD-7-B harness=codex model=gpt-5.7-actual effort=medium context=33.3% blocked',
+    )
     expect(out.text).toContain('Lead')
     expect(out.text).toContain('Reviewer')
   })
@@ -494,7 +594,14 @@ describe('ISSUE_COMMANDS registry', () => {
   it('create passes --parentId through to the mutation', async () => {
     const calls: unknown[] = []
     const fake = {
-      issues: { create: { mutate: async (i: unknown) => { calls.push(i); return { seq: 2, title: 'child' } } } },
+      issues: {
+        create: {
+          mutate: async (i: unknown) => {
+            calls.push(i)
+            return { seq: 2, title: 'child' }
+          },
+        },
+      },
       repos: { inferFromPath: { query: async () => ({ repoPath: '/r' }) } },
     } as unknown as import('./issue-client').IssueTrpc
     const cmd = ISSUE_COMMANDS.find((c) => c.name === 'create')!
@@ -504,11 +611,27 @@ describe('ISSUE_COMMANDS registry', () => {
 
   it('events queries issues.events with the cursor, comma-split kinds, and renders one line per event', async () => {
     const rows = [
-      { id: 3, ts: 't1', kind: 'issue.closed', subject: 'iss_a', payload: { seq: 1, reason: 'done' } },
-      { id: 4, ts: 't2', kind: 'issue.ready', subject: 'iss_b', payload: { seq: 2, unblockedBy: 1 } },
+      {
+        id: 3,
+        ts: 't1',
+        kind: 'issue.closed',
+        subject: 'iss_a',
+        payload: { seq: 1, reason: 'done' },
+      },
+      {
+        id: 4,
+        ts: 't2',
+        kind: 'issue.ready',
+        subject: 'iss_b',
+        payload: { seq: 2, unblockedBy: 1 },
+      },
     ]
     const { client, calls } = mockClient({ events: rows })
-    const out = await cmd('events').run(client, { since: 2, kind: 'issue.closed,issue.ready', limit: 10 })
+    const out = await cmd('events').run(client, {
+      since: 2,
+      kind: 'issue.closed,issue.ready',
+      limit: 10,
+    })
     expect(calls).toContainEqual({
       path: 'events',
       kind: 'query',
@@ -547,8 +670,22 @@ describe('mail command (agent mail #103)', () => {
 
   it('mail inbox renders unread markers and passes the optional id', async () => {
     const msgs = [
-      { id: 'msg_1', fromAuthor: 'issue:#2', body: 'do X', createdAt: 't1', status: 'read', wasUnread: true },
-      { id: 'msg_2', fromAuthor: 'operator', body: 'old', createdAt: 't0', status: 'claimed', wasUnread: false },
+      {
+        id: 'msg_1',
+        fromAuthor: 'issue:#2',
+        body: 'do X',
+        createdAt: 't1',
+        status: 'read',
+        wasUnread: true,
+      },
+      {
+        id: 'msg_2',
+        fromAuthor: 'operator',
+        body: 'old',
+        createdAt: 't0',
+        status: 'claimed',
+        wasUnread: false,
+      },
     ]
     const { client, calls } = mockClient({ mailInbox: msgs })
     const r = await cmd('mail').run(client, { sub: 'inbox', ref: '#7' })
@@ -599,7 +736,11 @@ describe('children + deps commands (epic ergonomics)', () => {
       ],
     })
     const out = await cmd('children').run(client, { id: '#1', recursive: true })
-    expect(calls).toContainEqual({ path: 'children', kind: 'query', input: { id: '#1', recursive: true } })
+    expect(calls).toContainEqual({
+      path: 'children',
+      kind: 'query',
+      input: { id: '#1', recursive: true },
+    })
     const lines = out.text.split('\n')
     expect(lines[0]).toContain('#2')
     expect(lines[0]).toContain('READY')
@@ -617,11 +758,24 @@ describe('children + deps commands (epic ergonomics)', () => {
     const { client, calls } = mockClient({
       depReport: [
         {
-          seq: 1, title: 'E', stage: 'backlog', priority: 2, closed: false, blocked: false, ready: true,
-          deps: [], dependents: [],
+          seq: 1,
+          title: 'E',
+          stage: 'backlog',
+          priority: 2,
+          closed: false,
+          blocked: false,
+          ready: true,
+          deps: [],
+          dependents: [],
         },
         {
-          seq: 2, title: 'b', stage: 'backlog', priority: 2, closed: false, blocked: true, ready: false,
+          seq: 2,
+          title: 'b',
+          stage: 'backlog',
+          priority: 2,
+          closed: false,
+          blocked: true,
+          ready: false,
           deps: [
             { seq: 3, title: 'a', type: 'blocks', closed: false },
             { seq: 4, title: 'd', type: 'related', closed: true },
@@ -649,22 +803,32 @@ describe('children + deps commands (epic ergonomics)', () => {
 describe('panel commands (todo / artifact / deferred)', () => {
   it('todo --add mutates via panelApply and prints the checklist', async () => {
     const { client, calls } = mockClient({
-      panelApply: { seq: 1, panel: { todos: [{ text: 'ship it', done: false }], artifacts: [], deferred: [] } },
+      panelApply: {
+        seq: 1,
+        panel: { todos: [{ text: 'ship it', done: false }], artifacts: [], deferred: [] },
+      },
     })
     const out = await cmd('todo').run(client, { id: '1', add: 'ship it' })
     expect(calls).toContainEqual({
-      path: 'panelApply', kind: 'mutate', input: { id: '1', op: 'todo-add', text: 'ship it' },
+      path: 'panelApply',
+      kind: 'mutate',
+      input: { id: '1', op: 'todo-add', text: 'ship it' },
     })
     expect(out.text).toBe('1. [ ] ship it')
   })
 
   it('todo --done n and no-flag print', async () => {
     const done = mockClient({
-      panelApply: { seq: 1, panel: { todos: [{ text: 'a', done: true }], artifacts: [], deferred: [] } },
+      panelApply: {
+        seq: 1,
+        panel: { todos: [{ text: 'a', done: true }], artifacts: [], deferred: [] },
+      },
     })
     const out = await cmd('todo').run(done.client, { id: '1', done: 1 })
     expect(done.calls).toContainEqual({
-      path: 'panelApply', kind: 'mutate', input: { id: '1', op: 'todo-done', index: 1 },
+      path: 'panelApply',
+      kind: 'mutate',
+      input: { id: '1', op: 'todo-done', index: 1 },
     })
     expect(out.text).toBe('1. [x] a')
     const show = mockClient({ get: { seq: 1, panel: undefined } })
@@ -674,20 +838,33 @@ describe('panel commands (todo / artifact / deferred)', () => {
 
   it('artifact --add passes path+title; deferred --add passes text', async () => {
     const art = mockClient({
-      panelApply: { seq: 1, panel: { todos: [], artifacts: [{ path: 's.png', title: 'shot', addedAt: 't' }], deferred: [] } },
+      panelApply: {
+        seq: 1,
+        panel: {
+          todos: [],
+          artifacts: [{ path: 's.png', title: 'shot', addedAt: 't' }],
+          deferred: [],
+        },
+      },
     })
     const out = await cmd('artifact').run(art.client, { id: '1', add: 's.png', title: 'shot' })
     expect(art.calls).toContainEqual({
-      path: 'panelApply', kind: 'mutate',
+      path: 'panelApply',
+      kind: 'mutate',
       input: { id: '1', op: 'artifact-add', path: 's.png', title: 'shot' },
     })
     expect(out.text).toBe('1. shot — s.png')
     const def = mockClient({
-      panelApply: { seq: 1, panel: { todos: [], artifacts: [], deferred: [{ text: 'later', addedAt: 't' }] } },
+      panelApply: {
+        seq: 1,
+        panel: { todos: [], artifacts: [], deferred: [{ text: 'later', addedAt: 't' }] },
+      },
     })
     await cmd('deferred').run(def.client, { id: '1', add: 'later' })
     expect(def.calls).toContainEqual({
-      path: 'panelApply', kind: 'mutate', input: { id: '1', op: 'deferred-add', text: 'later' },
+      path: 'panelApply',
+      kind: 'mutate',
+      input: { id: '1', op: 'deferred-add', text: 'later' },
     })
   })
 })

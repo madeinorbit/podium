@@ -134,6 +134,8 @@ export interface IssueTreeSession {
   label?: string
   agentKind: string
   model?: string
+  effort?: string
+  contextUsagePercent?: number
   /** PTY/process status: starting | live | reconnecting | hibernated | exited. */
   status: string
   /** Agent phase when known (working | idle | needs_user | …). */

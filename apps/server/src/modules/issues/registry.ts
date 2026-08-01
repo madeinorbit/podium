@@ -16,6 +16,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { authorize, type Capability, checkIssueAccess } from '../../issue-authz'
 import type { IssueProc, IssueTrpc } from '../../issue-client'
+import { sessionsForIssue } from '../../issue-util'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
 import { enforceExpectedRevision } from './conflict'
 import type { IssueService } from './service'
@@ -563,7 +564,16 @@ const defs = {
     kind: 'query',
     input: byId,
     action: 'read',
-    handler: (ctx, input) => ctx.issues.get(input.id),
+    handler: (ctx, input) => {
+      const issue = ctx.issues.get(input.id)
+      if (!issue) return null
+      const sessions = sessionsForIssue(
+        issue.worktreePath,
+        ctx.deps.listSessions(),
+        issue.id,
+      ).filter((session) => session.agentKind !== 'shell')
+      return { ...issue, sessions }
+    },
   }),
   /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
@@ -879,7 +889,7 @@ const defs = {
           closedReason: z.string().optional(),
           pinned: z.boolean().optional(),
           // Manual order (POD-168): fractional key, validated before persistence.
-          sortKey: z.string().max(128).refine(isSortKey, "malformed sort key").optional(),
+          sortKey: z.string().max(128).refine(isSortKey, 'malformed sort key').optional(),
           // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
           color: IssueColor.nullable().optional(),
           estimateMin: z.number().int().optional(),

@@ -99,6 +99,10 @@ interface ShowSession {
   label?: string
   agentKind: string
   model?: string
+  observedModel?: string
+  effort?: string
+  observedEffort?: string
+  contextUsagePercent?: number
   status: string
   phase?: string
   agentState?: { phase?: string }
@@ -149,13 +153,17 @@ function formatSessionLine(
 ): string {
   const id = s.displayRef ?? s.sessionId
   const label = s.label ?? s.name ?? (s.title && s.title !== s.agentKind ? s.title : undefined)
-  const kindModel = s.model ? `${s.agentKind}/${s.model}` : s.agentKind
+  const model = s.observedModel ?? s.model
+  const effort = s.observedEffort ?? s.effort
   const isCoord =
     s.coordinator === true ||
     (opts?.coordinatorSessionId != null && opts.coordinatorSessionId === s.sessionId)
   const parts = [
     `session ${id}`,
-    kindModel,
+    `harness=${s.agentKind}`,
+    `model=${model ?? 'default'}`,
+    `effort=${effort ?? 'default'}`,
+    `context=${s.contextUsagePercent !== undefined ? `${s.contextUsagePercent}%` : 'unknown'}`,
     sessionStateLabel(s),
     isCoord ? 'coordinator' : null,
     label && label !== id ? `— ${label}` : null,
@@ -248,7 +256,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'show',
     summary:
-      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show), including sessions currently on the issue (id/kind/model/state/coordinator) [spec:SP-99d3].',
+      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show), including every agent currently on the issue with actual harness/model/effort/context/state/coordinator [spec:SP-99d3].',
     args: z.strictObject({ id: idArg.optional(), ids: z.string().optional() }),
     positionals: ['id'],
     restKey: 'ids',
@@ -304,7 +312,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'tree',
     summary:
-      'Whole epic in ONE call: tree <id> — the issue + all descendants (depth ≤3, ≤100 nodes) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and each issue’s sessions (id/kind/model/state/coordinator). Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
+      'Whole epic in ONE call: tree <id> — the issue + all descendants (depth ≤3, ≤100 nodes) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and every agent’s actual harness/model/effort/context/state/coordinator. Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
     args: z.strictObject({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {

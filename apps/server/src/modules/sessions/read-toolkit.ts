@@ -27,18 +27,34 @@ export const READ_TURN_CAP = 50
 export const RECAP_ITEM_CAP = 400
 export const RECAP_CHAR_CAP = 12_000
 
+export interface SessionStatusSubagent {
+  sessionId: string
+  displayRef?: string
+  parentSessionId: string
+  harness: string
+  model: string | null
+  effort: string | null
+  contextUsagePercent: number | null
+  status: string
+  phase: string
+}
+
 export interface SessionStatusResult {
   sessionId: string
   agentKind: string
+  harness: string
   status: string
   phase: string
   machine: string | null
   model: string | null
   effort: string | null
+  contextUsagePercent: number | null
   account: string | null
   error: { class: string; retryable: boolean } | null
   draft: boolean
   nativeSubagentCount: number
+  nativeSubagents: { id: string; type?: string }[]
+  subagents: SessionStatusSubagent[]
   issue: { seq: number; stage: string; title: string; todos: string[] } | null
   /** Last ≤5 one-line commits on the session's branch (git -C <cwd> log). */
   commits: string[]
@@ -102,6 +118,41 @@ export interface SessionReadToolkitDeps {
 export class SessionReadToolkit {
   constructor(private readonly deps: SessionReadToolkitDeps) {}
 
+  private phaseOf(session: SessionMeta): string {
+    const phase = session.agentState?.phase
+    if (phase === 'needs_user') return 'blocked'
+    return phase ?? (session.busy ? 'working' : 'idle')
+  }
+
+  private subagentsOf(target: SessionMeta): SessionStatusSubagent[] {
+    const all = this.deps.listSessions()
+    const result: SessionStatusSubagent[] = []
+    const seen = new Set([target.sessionId])
+    const queue = [target.sessionId]
+    while (queue.length > 0) {
+      const parentSessionId = queue.shift()
+      if (!parentSessionId) break
+      for (const child of all) {
+        if (seen.has(child.sessionId)) continue
+        if (child.spawnedBy !== `session:${parentSessionId}`) continue
+        seen.add(child.sessionId)
+        queue.push(child.sessionId)
+        result.push({
+          sessionId: child.sessionId,
+          ...(child.displayRef ? { displayRef: child.displayRef } : {}),
+          parentSessionId,
+          harness: child.agentKind,
+          model: child.observedModel ?? child.model ?? null,
+          effort: child.observedEffort ?? child.effort ?? null,
+          contextUsagePercent: child.contextUsagePercent ?? null,
+          status: child.status,
+          phase: this.phaseOf(child),
+        })
+      }
+    }
+    return result
+  }
+
   /** Resolve a status ref — a session id/birth ref, or an issue ref
    *  (#N/seq/id) whose best member session (live preferred, else most recent
    *  agent) is picked. */
@@ -150,21 +201,24 @@ export class SessionReadToolkit {
       (t: { text: string; done: boolean }) => `[${t.done ? 'x' : ' '}] ${t.text}`,
     )
     const agentPhase = target.agentState?.phase
-    const phase =
-      agentPhase === 'needs_user' ? 'blocked' : (agentPhase ?? (target.busy ? 'working' : 'idle'))
+    const phase = this.phaseOf(target)
     const error = agentPhase === 'errored' ? (target.agentState?.error ?? null) : null
     return {
       sessionId: target.sessionId,
       agentKind: target.agentKind,
+      harness: target.agentKind,
       status: target.status,
       phase,
       machine: target.machineName || target.machineId || null,
-      model: target.model ?? null,
-      effort: target.effort ?? null,
+      model: target.observedModel ?? target.model ?? null,
+      effort: target.observedEffort ?? target.effort ?? null,
+      contextUsagePercent: target.contextUsagePercent ?? null,
       account: target.accountId ?? null,
       error,
       draft: target.draftUpdatedAt !== undefined,
       nativeSubagentCount: target.agentState?.nativeSubagentCount ?? 0,
+      nativeSubagents: target.agentState?.nativeSubagents ?? [],
+      subagents: this.subagentsOf(target),
       issue: issue ? { seq: issue.seq, stage: issue.stage, title: issue.title, todos } : null,
       commits: lines(log).slice(0, 5),
       // First porcelain -b line is the branch header — keep it (names the branch),
