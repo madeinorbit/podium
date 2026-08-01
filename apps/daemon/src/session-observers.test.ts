@@ -1235,11 +1235,16 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     await writeFile(transcript, '')
     const sent: DaemonMessage[] = []
     const statTick = new ManualStatTick()
+    let captureCalls = 0
     const observers = createSessionObservers({
       statTick,
       send: (message) => sent.push(message),
       onTranscriptDirty: vi.fn(),
       cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      captureClaudeTranscript: async (path, options) => {
+        captureCalls += 1
+        return captureClaudeTranscript(path, options)
+      },
     })
     observers.initSessionObservers(
       {
@@ -1354,6 +1359,14 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     await vi.waitFor(() =>
       expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(2),
     )
+
+    // Once two proofs for the same accepted cursor have been emitted, the
+    // one-minute rate limit must suppress the expensive transcript capture too,
+    // not merely suppress the outbound confirmation after rereading the file.
+    const capturesAfterTwoProofs = captureCalls
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(captureCalls).toBe(capturesAfterTwoProofs)
 
     // A torn suffix and then a completed prompt-bearing suffix both emit zero proof.
     const confirmations = sent.filter((m) => m.type === 'agentObserverLiveConfirmation').length

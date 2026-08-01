@@ -182,19 +182,43 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     { signature: string; sequence: number; emitted: number; lastEmittedAt: number }
   >()
 
-  const emitLiveConfirmation = (
+  const liveConfirmationSignature = (
     sessionId: string,
     providerCursor: AgentObservation['providerCursor'],
-  ): void => {
+  ): string | undefined => {
     const lease = causalLeases.get(sessionId)
-    if (!lease) return
-    const signature = JSON.stringify({
+    if (!lease) return undefined
+    return JSON.stringify({
       provider: lease.provider,
       providerSessionId: lease.providerSessionId,
       bindingVersion: lease.bindingVersion,
       observerGeneration: lease.observerGeneration,
       providerCursor,
     })
+  }
+
+  const isLiveConfirmationDue = (
+    sessionId: string,
+    providerCursor: AgentObservation['providerCursor'],
+  ): boolean => {
+    const signature = liveConfirmationSignature(sessionId, providerCursor)
+    if (!signature) return false
+    const prior = liveConfirmationStates.get(sessionId)
+    return !(
+      prior?.signature === signature &&
+      prior.emitted >= 2 &&
+      Date.now() - prior.lastEmittedAt < 60_000
+    )
+  }
+
+  const emitLiveConfirmation = (
+    sessionId: string,
+    providerCursor: AgentObservation['providerCursor'],
+  ): void => {
+    const lease = causalLeases.get(sessionId)
+    if (!lease) return
+    const signature = liveConfirmationSignature(sessionId, providerCursor)
+    if (!signature) return
     const prior = liveConfirmationStates.get(sessionId)
     const state =
       prior?.signature === signature
@@ -694,6 +718,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             )
               return
             const cursor = causal.acceptedCursor
+            // Stable Claude sessions used to capture and parse their transcript on
+            // every shared 700 ms stat tick, only to discard the confirmation here
+            // after the expensive work. Gate the capture itself so the proof rate
+            // limit also bounds filesystem/syscall load across the session fleet.
+            if (!isLiveConfirmationDue(msg.sessionId, cursor)) return
             const identity = parseClaudeTranscriptSegmentId(cursor.segmentId)
             if (!identity) return
             const capture = await captureTranscript(causal.transcriptPath, {
