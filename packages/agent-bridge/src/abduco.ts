@@ -105,18 +105,24 @@ export function scopeReclaimArgvs(unit: string): string[][] {
 /**
  * Free a stale scope squatting this label's unit name so the master can be (re)created
  * in its OWN scope. Guarded on there being NO live master for the label — we only ever
- * clear a zombie scope held open by orphaned grandchildren, never a live agent. Sync to
- * match {@link spawnAbducoAgent}; runs only on the (re)spawn path, not per frame.
+ * clear a zombie scope held open by orphaned grandchildren, never a live agent. The
+ * liveness guard MUST use the direct socket index: the global `abduco` listing connects
+ * to every master and one wedged historical session can block this synchronous spawn
+ * path forever. Sync to match {@link spawnAbducoAgent}; runs only on the (re)spawn path.
  * Best-effort: a missing unit or absent systemd just makes the commands no-ops.
  */
-function reclaimStaleScope(label: string): void {
-  if (abducoHasSession(label)) return
+export function reclaimStaleScope(
+  label: string,
+  env: NodeJS.ProcessEnv = liveEnv(),
+  run: typeof spawnSync = spawnSync,
+): void {
+  if (abducoSocketHasSession(label, env)) return
   for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
     try {
-      spawnSync('systemctl', args, {
+      run('systemctl', args, {
         stdio: 'ignore',
         timeout: 8000,
-        env: scopeEnv(liveEnv()),
+        env: scopeEnv(env),
       })
     } catch {
       // best-effort: no such unit / no systemd
@@ -556,7 +562,7 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
     // fails ("unit already exists") and the master falls into the daemon's cgroup —
     // where the next redeploy kills it (see scopeReclaimArgvs). Guarded on no live
     // master, so we only ever clear a zombie scope held open by orphaned grandchildren.
-    reclaimStaleScope(opts.label)
+    reclaimStaleScope(opts.label, liveEnv())
     try {
       execCreateSync(
         'systemd-run',
