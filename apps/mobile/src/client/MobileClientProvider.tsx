@@ -29,7 +29,8 @@ import {
   type UiState,
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import type { ServerConfig, SocketHub } from '@podium/client-core/transport'
+import type { SocketHub } from '@podium/client-core/socket-transport'
+import type { ServerConfig } from '@podium/client-core/transport'
 import type { PinState } from '@podium/client-core/viewmodels'
 import type {
   AgentKind,

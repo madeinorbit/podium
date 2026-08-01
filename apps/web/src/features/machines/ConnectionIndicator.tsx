@@ -1,4 +1,4 @@
-import type { ConnectionHealth } from '@podium/client-core/transport'
+import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import { Wifi, WifiOff } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'

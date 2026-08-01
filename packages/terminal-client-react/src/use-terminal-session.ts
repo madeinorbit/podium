@@ -1,4 +1,4 @@
-import type { ConnectionState, SocketHub } from '@podium/client-core/transport'
+import type { ConnectionState, SocketHub } from '@podium/client-core/socket-transport'
 import type { SessionId } from '@podium/model'
 import { type MountedSession, mountSession, type TerminalAppearance } from '@podium/terminal-client'
 import type { RefObject } from 'react'

@@ -1,4 +1,4 @@
-import type { SocketHub } from '@podium/client-core/transport'
+import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { ReplicaEvent } from '@podium/sync/replica'
 import { describe, expect, it } from 'vitest'
 import type { Trpc } from '@/app/trpc'

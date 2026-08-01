@@ -20,6 +20,7 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
+import type { IssueProjectionRow } from '../replica/contract'
 import type {
   AgentKind,
   ArtifactId,
@@ -40,11 +41,11 @@ import { asIssueId, asSessionId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
+import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { Outbox, OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
-import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica, UiState } from '../replica/replica'
 import {
   createRouter,
@@ -57,7 +58,6 @@ import {
 import { NotificationSounder } from '../sound/notification-sounds'
 import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
-import type { FeedSinkPort, SocketHub } from '../transport'
 import {
   type DockTab,
   dedupeSessionsByResume,

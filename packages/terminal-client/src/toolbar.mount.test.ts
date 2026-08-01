@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { SessionConnection } from '@podium/client-core/transport'
+import type { SessionConnection } from '@podium/client-core/socket-transport'
 import { describe, expect, it, vi } from 'vitest'
 import { mountKeyToolbar } from './toolbar'
 

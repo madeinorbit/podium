@@ -23,7 +23,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { RouterWindow } from '../router'
-import type { SocketHub } from '../transport'
+import type { SocketHub } from '../socket-transport'
 import { createEngine } from './engine'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))

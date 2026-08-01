@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { SessionCallbacks, SocketHub } from '@podium/client-core/transport'
+import type { SessionCallbacks, SocketHub } from '@podium/client-core/socket-transport'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { mountSession } from './session-mount'

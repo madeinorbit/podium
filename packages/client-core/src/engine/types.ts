@@ -25,13 +25,13 @@ import type {
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
+import type { SocketHub } from '../socket-transport'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica, UiState } from '../replica/replica'
 import type { MainView } from '../router'
 import type { SpawnTarget } from '../spawn-agent'
-import type { SocketHub } from '../transport'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 
 /** The two endpoints the shared store needs to reach a Podium server. */

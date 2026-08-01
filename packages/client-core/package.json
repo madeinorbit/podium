@@ -25,6 +25,11 @@
       "types": "./src/transport.ts",
       "import": "./src/transport.ts"
     },
+    "./socket-transport": {
+      "@podium/source": "./src/socket-transport/index.ts",
+      "types": "./src/socket-transport/index.ts",
+      "import": "./src/socket-transport/index.ts"
+    },
     "./outbox": {
       "@podium/source": "./src/outbox.ts",
       "types": "./src/outbox.ts",

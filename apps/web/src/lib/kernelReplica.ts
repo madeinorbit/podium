@@ -38,7 +38,7 @@ import {
   type ReplicaMode,
   resolveReplicaMode,
 } from '@podium/client-core/replica'
-import type { FeedSinkPort, SocketHub } from '@podium/client-core/transport'
+import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   decideLegacyAdoption,
