@@ -33,7 +33,29 @@ export class IssueGitWorkflowModule {
     private readonly crud: () => Pick<IssueCrudModule, 'update' | 'create' | 'close' | 'defer'>,
     private readonly commentsMail: () => Pick<IssueCommentsMailModule, 'addComment'>,
     private readonly attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
-  ) {}
+  ) {
+    // Capability methods are also handed to lifecycle ports as callbacks. Keep
+    // the module as the receiver so its per-instance timers and git-attribution
+    // maps can never fall through to undefined or leak into module-global state.
+    this.rehome = this.rehome.bind(this)
+    this.start = this.start.bind(this)
+    this.createAndMaybeStart = this.createAndMaybeStart.bind(this)
+    this.action = this.action.bind(this)
+    this.freeWorktreeKeepBranch = this.freeWorktreeKeepBranch.bind(this)
+    this.ensureWorktree = this.ensureWorktree.bind(this)
+    this.cleanup = this.cleanup.bind(this)
+    this.integrate = this.integrate.bind(this)
+    this.addSession = this.addSession.bind(this)
+    this.addShell = this.addShell.bind(this)
+    this.linearSearch = this.linearSearch.bind(this)
+    this.onSessionAttention = this.onSessionAttention.bind(this)
+    this.onSessionActivity = this.onSessionActivity.bind(this)
+    this.recordSessionGitActivity = this.recordSessionGitActivity.bind(this)
+    this.onSessionTurnEnd = this.onSessionTurnEnd.bind(this)
+    this.onSessionRemovedOrArchived = this.onSessionRemovedOrArchived.bind(this)
+    this.refreshGitState = this.refreshGitState.bind(this)
+    this.refreshAssistant = this.refreshAssistant.bind(this)
+  }
   /**
    * Move an issue's home to another machine after its session was handed off
    * ([spec:SP-3f7a], POD-824). The target worktree is where the work now lives,
