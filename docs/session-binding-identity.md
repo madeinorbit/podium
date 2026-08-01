@@ -135,7 +135,7 @@ They share a record and a lifecycle. No field of one is ever derived from the ot
 
 **W1 — `SessionId` is the only pane identity.** Every generic surface (tabs, sidebar, home
 board, work items, issue counts, notifications, attribution) keys on `SessionId` and
-nothing else. Already shipped doctrine: `packages/domain/src/session-identity.ts`
+nothing else. Already shipped doctrine: `packages/model/src/identity/session-identity.ts`
 (`51b136fe`, [spec:SP-fccf]) keeps any resume-ref group touching a live row visible *in
 full*, precisely so native metadata cannot make a live row participate in native-id
 identity.
@@ -187,7 +187,7 @@ durability, including retain-until-server-ack delivery state on each observation
 | Minted | By | Rule |
 |---|---|---|
 | `SessionId` | **Server** | Sole Authority (ADR 1 D1). A daemon receiving an unknown `SessionId` does not create it; the server refuses a client-supplied id that already exists (`relay.ts`: "never clobbers a live session"). |
-| `ConversationId` | **Server** | At the registry seam where lineage is observed (`sessions/service.ts`, `sessionResumeRef`). |
+| `ConversationId` | **Server** | At the receipt/registry seam where lineage is observed (`modules/sessions/session-binding.ts`, `sessionResumeRef`). |
 | Observation generation | **Server** | Incremented and durably stored **before** `spawn`/`reattach` is sent; carried on the control message. |
 | Attempt id | **Daemon** | The daemon owns the process and must be able to mint one while disconnected. |
 | Native ids | **Harness** | Podium never allocates or derives one. |
@@ -279,8 +279,8 @@ Rows are POD-364 §2's numbering. "Identity carried" is what each holds of Axis 
 | 11 | `HostSessionView` | `modules/hosts/service.ts` | `sessionId` | **elsewhere** (R5 hibernate scan) |
 | 12 | `SessionNoticeInfo` | `modules/notify/service.ts` | `sessionId` | **elsewhere** (R5) |
 | 13 | `RpcSessionView` | `modules/machines/rpc.ts` | `sessionId` | **elsewhere** (structural port) |
-| 14 | `ResumableSession` + `HeadlessFields` | `packages/domain/src/session-identity.ts` | `sessionId`, `resume`, `headless` | **elsewhere** — the dedupe predicate; **W1's shipped guarantee lives here and does not move** |
-| 15 | `HandoffSession` | `packages/domain/src/machine-selection.ts` | `machineId` | **elsewhere** (target pick); gates on `use` (P10) |
+| 14 | `ResumableSession` + `HeadlessFields` | `packages/model/src/identity/session-identity.ts` | `sessionId`, `resume`, `headless` | **elsewhere** — the dedupe predicate; **W1's shipped guarantee lives here and does not move** |
+| 15 | `HandoffSession` | `packages/model/src/predicates/machine-selection.ts` | `machineId` | **elsewhere** (target pick); gates on `use` (P10) |
 | 16 | `ConciergeSessionInfo` | `modules/superagent/concierge.ts` | `sessionId` | **elsewhere** |
 | 17 | `BtwSessionInfo` | `modules/superagent/btw.ts` | strict subset of #16 | **drop** |
 | 18 | `FocusSessionInfo` | `modules/superagent/global.ts` | extends #16 | **elsewhere** (the one good composition example) |
@@ -884,9 +884,12 @@ runner to repair the loss.
 Required by POD-323 Step 1 ("daemon restart re-derives bindings from durable hosts plus
 observations") and omitted from revision 1.
 
-**R1 — The server is the durable authority; the host is a replay buffer.** After any crash
-the server's binding is the truth. The host holds only unacked evidence, which it replays
-(W9). No recovery path re-derives a binding from the filesystem alone.
+**R1 — Split durability, one reconciliation.** After a crash the server remains authority
+for Podium identity, policy and the accepted public projection; the host binding store is
+the durable machine-local lifecycle record and pending-evidence replay buffer (§0.2). The
+daemon reopens that record, enumerates durable process hosts, replays unacked observations
+and reconciles against the server's new control instruction. No recovery path derives a
+binding from a native filesystem artifact alone, and the server never invents an alias.
 
 **R2 — Daemon restart, process alive.** The daemon enumerates its **durable hosts** (abduco
 sessions), matches each to a session, and reports what it finds. Rules: the surviving
@@ -966,8 +969,11 @@ old columns stop being authoritative — **the point of no return, and it is one
 Restart at any stage is idempotent because the backfill is keyed by `sessionId` and seeded
 observations are idempotent under O4.
 
-**Ownership split.** The **server** owns the durable binding. The **host** owns only
-unacked evidence and its own attempt state. No third copy is authoritative.
+**Ownership split.** The server owns Podium identity, policy, accepted generation and the
+public Session projection. The host owns the versioned machine-local binding record,
+including attempt/transfer state, observation and delegation history, transition receipts
+and unacked evidence. Runtime bridges and observers are reconstructible; no third durable
+copy is authoritative (§0.2).
 
 ---
 
@@ -978,8 +984,8 @@ references.
 
 **C1 — Codex `exec`/headless stdin is closed immediately, and that is a correctness
 requirement.** `codex exec` appends stdin to the prompt, so the daemon closes stdin at
-spawn (`packages/agent-bridge/src/harness/adapters/codex.ts`; `child.stdin?.end()` in
-`headless-drivers.ts`). The binding consequence: **a headless attempt's exit status is
+spawn (`child.stdin?.end()` in `apps/daemon/src/headless-drivers.ts`). The binding
+consequence: **a headless attempt's exit status is
 trustworthy evidence** and §6.4 depends on it. POD-415 must not introduce a binding
 handshake that requires writing to a headless child's stdin — there is nothing to write
 to, and re-opening it would break EOF-based status detection.
@@ -997,7 +1003,7 @@ promoted to a key.
 **C3 — Native subagent identity exists only on the hook channel; child identity is
 parent-mediated and fails closed.** Claude's `SubagentStart`/`Stop` payloads carry
 `agent_id`, `agent_type`, the **parent's** `session_id`, `transcript_path`, `cwd` and
-`prompt_id` (`packages/agent-bridge/src/agent-state/claude-code.ts`), and some versions
+`prompt_id` (`packages/harness/src/agent-state/claude-code.ts`), and some versions
 supply no `agent_id` at all — the reducer then keeps an **anonymous count**. Rules:
 (a) a child `agent_id` is **not** a `SessionId` and never becomes one; (b) a child's
 delegation is **derived from its parent's binding** (P3), never minted from a hook payload
@@ -1153,15 +1159,16 @@ That release unblocked POD-415, POD-416, POD-417, POD-644 and POD-737.
   session representations and the field→meaning map behind §3.4 and §10
 - [spec:SP-fccf] Codex session identity · [spec:SP-15aa] instance runtime namespace
   (`c28463a6`) · [spec:SP-3f7a] portable session package · [spec:SP-eb60] naming doctrine
-- Code: `packages/domain/src/session-identity.ts` (`51b136fe`) ·
-  `apps/daemon/src/binding-store.ts` · `apps/daemon/src/identity.ts` ·
-  `apps/server/src/modules/sessions/service.ts` (`sessionResumeRef`) ·
+- Code: `packages/model/src/identity/session-identity.ts` (`51b136fe`) ·
+  `apps/daemon/src/binding-store.ts` · `apps/daemon/src/session-binding.ts` ·
+  `apps/daemon/src/identity.ts` · `apps/server/src/modules/sessions/session-binding.ts`
+  (`SessionBindingReceipts`) · `apps/server/src/modules/sessions/daemon-projection.ts` ·
   `apps/server/src/store/conversations.ts` (`repairSubagentSegmentPaths`) ·
-  `packages/agent-bridge/src/agent-state/codex.ts` (`resolvePinnedCodexRollout`, candidate
-  selection) · `packages/agent-bridge/src/agent-state/claude-code.ts` (subagent hook
-  payload) · `packages/agent-bridge/src/harness/adapters/codex.ts` (stdin close) ·
+  `packages/harness/src/agent-state/codex.ts` (`resolvePinnedCodexRollout`, candidate
+  selection) · `packages/harness/src/agent-state/claude-code.ts` (subagent hook payload) ·
+  `apps/daemon/src/headless-drivers.ts` (stdin close) ·
   `packages/protocol/src/messages/handoff.ts` · `packages/protocol/src/messages/terminal.ts`
   (`AgentKind`, `ResumeRef`) · `apps/daemon/src/handoff-package.ts` (`claudeProjectSlug`,
-  `sourceKnownShas`) · `packages/domain/src/issue-authz.ts` (`OPERATOR`, being replaced)
+  `sourceKnownShas`) · `packages/model/src/authz/issue-authz.ts`
 - Issues: POD-323 (epic), POD-415, POD-416, POD-417, POD-644, POD-737, POD-498 (`2b0bc5d4`,
   `d73e9121`), POD-364, POD-365, POD-1070, POD-1071, POD-1073, POD-1075, POD-1079, POD-359
