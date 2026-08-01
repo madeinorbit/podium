@@ -1,8 +1,9 @@
 # SessionBinding: identity taxonomy on two axes
 
-Status: **approved** (autonomous review complete; downstream gate released 2026-07-30)
-Gate: **passed** — approval is recorded in §14. Human sign-off gates were suspended for
-this fan-out; the autonomous review and steward acceptance are the durable gate record.
+Status: **in review — revision 3 current-tree addendum**
+Gate: revision 2 was approved on 2026-07-30 (§14). This addendum records the post-POD-395
+module split and gates the retirement and conflict-visibility corrections; implementation
+must not precede its review.
 Issue: POD-414 (5.1a) · Epic: POD-323 (5.1 SessionBinding) · Programme: POD-279 Phase 5
 Date: 2026-07-30
 
@@ -19,6 +20,71 @@ win**. Already-approved contracts that are **ratified here, not reopened**:
 (2026-07-02). The current-state inventory in §3.4 and §10 is sourced from POD-364's
 `docs/rearch-field-schema-inventory.md` (commit `1475c062`, **merged into
 `issue/279-integration`** 2026-07-30).
+
+---
+
+## 0. Current-tree alignment after the POD-395 extraction (revision 3)
+
+POD-395 deleted the former sessions god object and split it into `lifecycle.ts` plus
+focused sibling capabilities. That extraction does **not** move the SessionBinding
+lifecycle to the server's newly named `session-binding.ts`; the similar names describe
+two deliberately different responsibilities:
+
+| Module | Owns | Must never own |
+|---|---|---|
+| `apps/daemon/src/session-binding.ts` + `binding-store.ts` | The host-local lifecycle transition surface and versioned durable binding record: attempts, observation history, delegation history, transfer state and pending native-id delivery | Human rights snapshots; server SessionId minting; harness native-id allocation |
+| `apps/server/src/modules/sessions/session-binding.ts` (`SessionBindingReceipts`) | Admission of daemon `sessionResumeRef` evidence, the durable Session projection and conversation-segment link, broadcast, and owner-scoped acknowledgement **after persistence** | Spawn, reattach, adopt or retire transitions; delegation minting or mutation; native identity allocation |
+| `daemon-projection.ts` | Routes the receipt frame to `SessionBindingReceipts` | Alias arbitration or lifecycle logic of its own |
+
+**D0 — Receipts are not lifecycle.** `SessionBindingReceipts` is intentionally a narrow
+receipt/projection seam. A frame reaching it does not make a session live, move a binding,
+mint an attempt, change a delegation or prove activity. Its acknowledgement means only:
+"this exact native reference is durably reflected in the server projection for this
+owner." The host keeps the pending receipt until that acknowledgement. Moving these
+methods into `lifecycle.ts` because lifecycle happens to route the frame would recreate
+the god-object ownership POD-395 removed.
+
+### 0.1 End-to-end lifecycle
+
+| Moment | Normative effect | Durable facts | Runtime-only facts |
+|---|---|---|---|
+| **Birth / spawn** | Server mints `SessionId` and the authenticated delegation instruction; daemon admits the `spawn` transition and mints the attempt id; state begins `unbound` | Server Session row/ownership; host binding, delegation-history head, attempt id, generation | PTY bridge, observer and harness process |
+| **Reattach / restart** | The binding and delegation survive; a process restart mints a new attempt, while a daemon restart over a surviving process keeps the attempt and receives a new server generation | Host transition history and observations; server accepted projection/checkpoint | Sockets, tails, controllers and clients are rebuilt |
+| **Native observation / receipt** | Harness allocates the native id; daemon appends evidence and pending-delivery state; server validates the claimant machine, persists its projection/lineage, then acks the exact owner-scoped value | Host append-only observation history and ack state; server Session projection and conversation registry | The in-flight frame and delivery attempt |
+| **Handoff adopt** | `SessionId`, `ConversationId` and the complete delegation operand cross machines **byte-for-byte unchanged**; target resets the attempt and re-observes native artifacts | Source/target transfer phases and target observation history | Import staging and the target process before launch |
+| **Death / retire** | Only terminal Session deletion retires the binding and delegation. Process exit, hibernation, daemon/server restart, a resumable kill, and source shutdown after export do **not** retire it | `state:'retired'`, `retiredAt`, retained observations, appended retired delegation head | Live attempt and observers are absent |
+
+### 0.2 Durability and authority split
+
+- The **server** is authoritative for Podium identity and policy: `SessionId`,
+  `ConversationId`, owner/grants, accepted generation, claimant instruction and the
+  current public Session projection. It never invents a native alias.
+- The **host** durably owns the machine-local binding record under the instance runtime
+  namespace: attempt and transfer state, append-only native observations, delegation
+  history, transition receipts and pending server acknowledgements. It may not invent
+  server identity or cached rights.
+- **Runtime state** is reconstructible: PTY bridges, observer sockets, transcript tails,
+  client controllers and import staging. A crash may lose these without losing identity.
+- Recovery reconciles all three sources: the server's control instruction, the host's
+  binding record and durable process hosts, plus retained observations. Neither a native
+  file nor a receipt alone is allowed to synthesize a binding.
+
+### 0.3 Status ledger: intended, provisional and violated
+
+| Status | Property | Current-tree reading |
+|---|---|---|
+| **must-not-change** | Work identity and actor delegation are separate axes in one lifecycle; no rights snapshot is persisted | Represented by `SessionBindingRecord` plus `delegationHistory`; live authorization remains server-side |
+| **must-not-change** | Handoff carries delegation unchanged | `SessionBinding.adoptTransfer` serializes the current delegation; target `adopt` rejects `adoption-identity-mismatch` and preserves existing history |
+| **must-not-change** | Receipt persistence/acknowledgement stays outside lifecycle transitions | `SessionBindingReceipts` and daemon pending-receipt APIs are separate from `SessionBinding.transition` |
+| **must-not-change** | Ack only after durable server projection, exact-value and owner scoped | Enforced by `observeResumeRef` and `acknowledgePendingReceipt`; crash replay remains at-least-once |
+| **provisional compatibility** | Server exposes a scalar `Session.resume` head while the host retains observation history | The scalar is a projection, never the binding record and never licence to discard host history |
+| **violated — POD-1325** | Retirement is an explicit lifecycle transition with a production terminal caller | `BindingStore.retire()` sits outside `SESSION_BINDING_EVENTS` and has no production caller. The correction needs a server-authored terminal instruction distinct from generic `kill`, because hibernate and handoff also kill processes without ending the binding |
+| **violated — POD-1326** | Exact cross-session alias conflict is visible and retained, never silently won | `SessionBindingReceipts.observeResumeRef` currently clears a sibling's scalar resume projection and accepts the newcomer. It must preserve both live SessionIds, withhold ack and surface conflict without absorbing lifecycle ownership into the receipt seam |
+
+This ledger is normative. Current behavior marked **violated** is not ratified merely
+because it exists; current behavior marked **provisional** may remain only behind the
+named projection boundary. Tests for the corrections must assert the property (surviving
+sessions, retained history and unchanged delegation), not merely count a matching frame.
 
 ---
 
