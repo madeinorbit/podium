@@ -534,7 +534,7 @@ export class SocketHub {
     this.legacyFeed?.disconnected()
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth()
-    if (!this.intentionalClose && this.everConnected) this.scheduleReconnect()
+    if (!this.intentionalClose) this.scheduleReconnect()
   }
 
   private scheduleReconnect(): void {

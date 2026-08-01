@@ -140,6 +140,14 @@ export const outboxCommandFor = (
 /** SocketHub construction seam — injectable so engine unit tests run a fake hub. */
 export type CreateHub = (opts: ConstructorParameters<typeof SocketHub>[0]) => SocketHub
 
+/** Expected cold-offline failures leave the persisted kernel slice mounted. */
+export function isInitialConnectivityError(message: string): boolean {
+  return (
+    message === 'WebSocket connection failed' ||
+    message === 'WebSocket connection closed before connecting'
+  )
+}
+
 export function createEngineHub(args: {
   wsClientUrl: string
   api: PodiumClientApi
@@ -161,7 +169,9 @@ export function createEngineHub(args: {
     return make({
       url: args.wsClientUrl,
       viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
-      onError: (message) => args.onFatalError(message),
+      onError: (message) => {
+        if (!isInitialConnectivityError(message)) args.onFatalError(message)
+      },
       feed: args.feed,
     })
   }

@@ -43,6 +43,53 @@ export type KernelReplicaGate =
       readonly authorityScoped: boolean
     }
 
+export interface ResolveReplicaPrincipalOptions {
+  readonly fetchStatus?: () => Promise<Response>
+  readonly inspectNamespaces?: () => readonly string[]
+}
+
+/**
+ * Resolve the slice owner without creating a raw "last user" key.
+ *
+ * An authenticated HTTP answer is authoritative, including a refusal: a 401 or
+ * a body without userId must never fall back to old device data. Only a network
+ * failure may use durable namespace markers, and then exactly one marker must
+ * exist. Multiple retained principals fail closed because choosing one would be
+ * local visibility arbitration.
+ */
+export async function resolveReplicaPrincipal(
+  options: ResolveReplicaPrincipalOptions = {},
+): Promise<string> {
+  const fetchStatus = options.fetchStatus ?? (() => fetch('/auth/status'))
+  let response: Response
+  try {
+    response = await fetchStatus()
+  } catch {
+    const inspect =
+      options.inspectNamespaces ??
+      (() =>
+        inspectPrincipalNamespaces({
+          storage: globalThis.localStorage,
+          enumerateKeys: () => Object.keys(globalThis.localStorage),
+          basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+        }))
+    const identities = [...new Set(inspect())]
+    if (identities.length === 1 && identities[0] !== undefined) return identities[0]
+    throw new Error(
+      identities.length === 0
+        ? 'offline replica has no authenticated principal namespace'
+        : 'offline replica principal is ambiguous on this shared device',
+    )
+  }
+
+  if (!response.ok) throw new Error('authenticated account is unavailable')
+  const status = (await response.json()) as { userId?: unknown }
+  if (typeof status.userId !== 'string' || status.userId.length === 0) {
+    throw new Error('authenticated account is unavailable')
+  }
+  return status.userId
+}
+
 export function recordIdentityEvidence(principal: string): LegacyIdentityEvidence {
   try {
     const identities = [
@@ -95,14 +142,11 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
         return
       }
       try {
-        const status = (await fetch(`/auth/status`).then((response) => response.json())) as {
-          userId?: string
-        }
-        if (!status.userId) throw new Error('authenticated account is unavailable')
+        const principal = await resolveReplicaPrincipal()
         const assembly = await openKernelAssembly({
           trpc,
-          principal: status.userId,
-          evidence: recordIdentityEvidence(status.userId),
+          principal,
+          evidence: recordIdentityEvidence(principal),
         })
         if (!alive) {
           void assembly.dispose()

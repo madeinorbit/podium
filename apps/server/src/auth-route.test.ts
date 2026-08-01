@@ -35,7 +35,11 @@ describe('auth-route', () => {
   test('status reports needsAuth=false when no password is set (open)', async () => {
     const res = await makeApp().request('/auth/status')
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ needsAuth: false, authed: false })
+    expect(await res.json()).toEqual({
+      needsAuth: false,
+      authed: true,
+      userId: FIRST_ADMIN_USER_ID,
+    })
   })
 
   test('status reports needsAuth=true once a password is set', async () => {

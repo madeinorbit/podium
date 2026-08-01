@@ -651,11 +651,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         .query()
         .then((s) => this.apply({ sidebarSettings: s.sidebar }))
         .catch(() => {})
-      void Promise.all([this.refreshRepos(), this.refreshPins(), this.refreshTabOrders()]).catch(
-        (e) => {
-          this.onFatalError(this.formatError(e, 'Could not load Podium data'))
-        },
-      )
+      // These enrichments are network-derived, not the source of truth for the
+      // principal slice. A cold offline boot must keep serving the persisted
+      // replica instead of replacing it with a fatal connection screen.
+      void this.refreshRepos().catch(() => {})
+      void this.refreshPins().catch(() => {})
+      void this.refreshTabOrders().catch(() => {})
     }
 
     // Initial persist + URL normalization (the old per-field effects and the

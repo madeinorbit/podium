@@ -171,9 +171,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
 
   app.get('/auth/status', (c) => {
     const needsAuth = hasPassword(authDir) || Boolean(users?.hasPerUserCredentials())
-    const authed =
-      needsAuth && store ? isRequestAuthed(store, c.req.header('cookie'), now()) : false
-    const userId = store ? requestUserId(store, c.req.header('cookie'), now()) : undefined
+    const sessionUser = store ? requestUserId(store, c.req.header('cookie'), now()) : undefined
+    // Open/dev mode is still one explicit principal. The command and feed gates
+    // already use FIRST_ADMIN_USER_ID in this arm; returning the same identity
+    // lets the client bind a private namespace instead of inventing "default".
+    const userId = sessionUser ?? (needsAuth ? undefined : FIRST_ADMIN_USER_ID)
+    const authed = !needsAuth || sessionUser !== undefined
     return c.json({ needsAuth, authed, ...(userId ? { userId } : {}) })
   })
 

@@ -41,7 +41,7 @@
 
 import { join } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
-import { openApp, RELAY } from './_harness'
+import { newSession, openApp, RELAY } from './_harness'
 
 /** Evidence lands in the REPO so it can be attached to the issue and survive the run. */
 const EVIDENCE = join(import.meta.dirname, '../../../docs/evidence/pod-1223')
@@ -193,6 +193,46 @@ async function expectConverged(page: Page, expected: string): Promise<void> {
     .toContain(expected)
 }
 
+async function persistedSessionState(
+  page: Page,
+  sessionId: string,
+): Promise<{ principal: string; hasSnooze: boolean; snoozedUntil: string | null } | null> {
+  return page.evaluate(
+    (wanted) =>
+      new Promise((resolve, reject) => {
+        const opened = indexedDB.open('podium-kernel-replica')
+        opened.onerror = () => reject(opened.error ?? new Error('failed to open kernel replica'))
+        opened.onsuccess = () => {
+          const db = opened.result
+          const tx = db.transaction('entities', 'readonly')
+          const rows = tx.objectStore('entities').getAll()
+          rows.onerror = () => reject(rows.error ?? new Error('failed to read kernel entities'))
+          rows.onsuccess = () => {
+            const row = (
+              rows.result as Array<{
+                principal: string
+                entity: string
+                entityId: string
+                value: { snoozedUntil?: string | null }
+              }>
+            ).find((candidate) => candidate.entity === 'session' && candidate.entityId === wanted)
+            db.close()
+            resolve(
+              row === undefined
+                ? null
+                : {
+                    principal: row.principal,
+                    hasSnooze: Object.hasOwn(row.value, 'snoozedUntil'),
+                    snoozedUntil: row.value.snoozedUntil ?? null,
+                  },
+            )
+          }
+        }
+      }),
+    sessionId,
+  )
+}
+
 test.describe('the web engine on the kernel replica', () => {
   test('the flag moves the rendered app onto the kernel path, and the marker can say legacy', async ({
     page,
@@ -230,29 +270,59 @@ test.describe('the web engine on the kernel replica', () => {
     await shot(page, '01-kernel-path-rendered')
   })
 
-  test('cold start paints from the persisted kernel store, before the feed answers', async ({
+  test('cold offline start paints the persisted principal slice and per-user state', async ({
     page,
+    context,
   }) => {
     await enableKernelReplica(page)
     await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
+    await newSession(page, 'Shell')
+    const sessionId = await openSessionId(page)
     const seeded = await sidebarText(page)
     expect(seeded.length).toBeGreaterThan(0)
 
-    // RELOAD. The IndexedDB store is already populated, so the first render must
-    // read it rather than wait for a bootstrap. The budget is what makes this an
-    // assertion about PAINT rather than about eventual arrival: a client that
-    // waited for the network would not have rows this early.
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    // A reload keeps the workspace view, so the sidebar is the right thing to
-    // wait on here — unlike the post-Settings navigation above.
-    await sidebar(page).waitFor({ state: 'visible', timeout: 120_000 })
+    // Persist a user-owned row through the real control, then verify it reached
+    // this principal's transactional entity region before disconnecting.
+    const snooze = page.getByRole('button', { name: 'Snooze', exact: true }).first()
+    await expect(snooze).toBeVisible({ timeout: 30_000 })
+    await snooze.click()
+    await expect(page.getByRole('button', { name: /^Snoozed/ }).first()).toBeVisible({
+      timeout: 15_000,
+    })
+    await expect
+      .poll(() => persistedSessionState(page, sessionId), {
+        timeout: 60_000,
+        intervals: [250],
+      })
+      .toMatchObject({ hasSnooze: true, snoozedUntil: null })
+
+    // Reload with the DATA PLANE offline while the already-installed app shell
+    // remains available: auth identity, settings/boot RPCs and the v2 socket all
+    // fail. The sole principal namespace identifies the slice without a raw
+    // last-user key, and the first paint must come from IndexedDB.
+    await context.route('**/auth/status', (route) => route.abort('internetdisconnected'))
+    await context.route('**/version', (route) => route.abort('internetdisconnected'))
+    await context.route('**/trpc/**', (route) => route.abort('internetdisconnected'))
+    await context.routeWebSocket('**', (socket) => socket.close())
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })
+    await sidebar(page).waitFor({ state: 'visible', timeout: 8_000 })
     await expect
       .poll(async () => (await sidebarText(page)).length, { timeout: 8_000, intervals: [100] })
       .toBeGreaterThan(0)
     await expectKernelPath(page)
-    await shot(page, '02-cold-start-paint')
+    await expect(page.getByRole('button', { name: /^Snoozed/ }).first()).toBeVisible({
+      timeout: 8_000,
+    })
+    await page.screenshot({
+      path: join(import.meta.dirname, '../../../docs/evidence/pod-401/cold-start-offline.png'),
+      fullPage: false,
+    })
+
+    await context.unroute('**/auth/status')
+    await context.unroute('**/version')
+    await context.unroute('**/trpc/**')
   })
 
   test('offline write → reconnect → drain → convergence on a second client', async ({
