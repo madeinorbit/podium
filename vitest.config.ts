@@ -31,12 +31,6 @@ export const sharedVitestConfig = {
     alias: [
       { find: '@', replacement: fileURLToPath(new URL('./apps/web/src', import.meta.url)) },
       {
-        find: '@podium/agent-bridge',
-        replacement: fileURLToPath(
-          new URL('./packages/agent-bridge/src/index.ts', import.meta.url),
-        ),
-      },
-      {
         find: '@podium/harness',
         replacement: fileURLToPath(new URL('./packages/harness/src/index.ts', import.meta.url)),
       },

@@ -38,6 +38,12 @@ const CAPABILITY_FIELDS = [
   'promptModeHints',
   'handoff',
   'mcp',
+  'observationProvider',
+  'observationProtocol',
+  'submitVerification',
+  'exclusiveInteractiveResume',
+  'promptTitleFallback',
+  'mcpConfigTransport',
   'hookInstall',
 ] as const
 
@@ -46,6 +52,7 @@ const CAPABILITY_FIELDS = [
 const DECLARED_FIELDS = [
   'exec',
   'headless',
+  'handoffTranscript',
   'state',
   'observer',
   'transcript',
@@ -122,6 +129,7 @@ describe('agent manifest registry', () => {
       if (!headless) continue
       expect(headless.driver, kind).toBeDefined()
       expect(headless.resumeIdAllocation, kind).toBeDefined()
+      expect(headless.outputFormat, kind).toBeDefined()
       expect(headless.buildExec.supported, `${kind} buildExec vs driver`).toBe(
         headless.driver !== 'claude-sdk',
       )
@@ -242,6 +250,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       observer: unsupported('no native store to observe yet'),
       transcript: unsupported('no transcript reader yet'),
       classifyBrowserOpen: unsupported('no known domains'),
+      handoffTranscript: unsupported('no cross-machine handoff yet'),
     }
 
     // Every degraded axis reads as explicitly-unsupported WITH a reason — never as

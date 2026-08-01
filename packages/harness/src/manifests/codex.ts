@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { codexRecordToItems } from '@podium/transcript'
 import {
   codexStateProvider,
   findCodexRolloutPath,
   observeCodexState,
+  resolvePinnedCodexRollout,
 } from '../agent-state/codex.js'
 import { createCodexConversationProvider } from '../discovery/providers/codex.js'
 import { composeAgentInstructions } from '../instructions.js'
@@ -16,7 +17,6 @@ import {
   isSet,
   supported,
   type TranscriptSourceInput,
-  unsupported,
 } from '../manifest.js'
 
 interface CodexAuthFile {
@@ -133,6 +133,14 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   })
   return path ? [path] : []
 }
+export function codexTranscriptPlacement(
+  home: string,
+  relativeDir: string | undefined,
+  filename: string,
+): string {
+  const safeDir = (relativeDir ?? '').split(/[\\/]+/u).filter((part) => part && part !== '..')
+  return join(home, '.codex', 'sessions', ...safeDir, basename(filename))
+}
 
 export const codexManifest: AgentManifest = {
   kind: 'codex',
@@ -150,6 +158,12 @@ export const codexManifest: AgentManifest = {
     handoff: true,
     mcp: 'full',
     hookInstall: 'global-env',
+    observationProvider: 'codex',
+    observationProtocol: 'codex-exact',
+    submitVerification: false,
+    exclusiveInteractiveResume: true,
+    promptTitleFallback: false,
+    mcpConfigTransport: 'inline',
   },
   resumeKind: 'codex-thread',
 
@@ -236,6 +250,7 @@ export const codexManifest: AgentManifest = {
 
   headless: supported({
     driver: 'codex-json',
+    outputFormat: 'codex-jsonl',
     // First turn: codex mints the thread id, captured from the `--json` event
     // stream (`thread.started`); turns ≥2 thread on via `exec resume <id>`.
     resumeIdAllocation: 'stream-captured',
@@ -456,6 +471,18 @@ export const codexManifest: AgentManifest = {
   }),
 
   discovery: createCodexConversationProvider(),
+
+  handoffTranscript: supported({
+    transcriptPlacement: ({ homeDir, filename, relativeDir }) =>
+      codexTranscriptPlacement(homeDir, relativeDir, filename),
+    async transcriptForExport({ homeDir, resumeValue }) {
+      const found = await resolvePinnedCodexRollout(resumeValue, homeDir)
+      if (!found) throw new Error('Codex transcript not found')
+      const rel = relative(join(homeDir, '.codex', 'sessions'), dirname(found.path))
+      if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
+      return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
+    },
+  }),
 
   transcript: supported(fileTranscript(chainPaths, codexRecordToItems)),
 

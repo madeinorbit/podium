@@ -1009,7 +1009,7 @@ export const CHECKS: AuditCheck[] = [
         // zero this audit exists to prevent. POD-397 adds packages/harness here
         // if any durable-host twin ever lands there.
         const inDurableHostHome =
-          f.file.startsWith('packages/pty/src/') || f.file.startsWith('packages/agent-bridge/src/')
+          f.file.startsWith('packages/pty/src/')
         if (!inDurableHostHome || f.isTest) continue
         durableHostFiles++
         for (const twin of twinLines(f.stripped.split('\n'))) {
@@ -1103,7 +1103,6 @@ export const CHECKS: AuditCheck[] = [
         roots: [
           'packages/protocol',
           'packages/runtime',
-          'packages/agent-bridge',
           'packages/harness',
           'apps/server',
           'apps/daemon',

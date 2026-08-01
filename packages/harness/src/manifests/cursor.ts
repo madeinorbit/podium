@@ -41,6 +41,12 @@ export const cursorManifest: AgentManifest = {
     handoff: false,
     mcp: 'none',
     hookInstall: 'none',
+    observationProvider: 'none',
+    observationProtocol: 'generic',
+    submitVerification: false,
+    exclusiveInteractiveResume: false,
+    promptTitleFallback: false,
+    mcpConfigTransport: 'none',
   },
   resumeKind: 'cursor-chat',
 
@@ -100,6 +106,7 @@ export const cursorManifest: AgentManifest = {
 
   headless: supported({
     driver: 'resume-exec',
+    outputFormat: 'text',
     // The chat id is pre-allocated with `cursor-agent create-chat` (bare UUID
     // on stdout) so even the first turn runs pinned via --resume.
     resumeIdAllocation: 'create-chat',
@@ -154,6 +161,8 @@ export const cursorManifest: AgentManifest = {
   discovery: createCursorConversationProvider(),
 
   transcript: supported(fileTranscript(chainPaths, cursorRecordToItems)),
+
+  handoffTranscript: unsupported('cross-machine handoff is not supported for cursor sessions'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

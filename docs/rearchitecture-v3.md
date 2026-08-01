@@ -496,10 +496,10 @@ code moves. Four children:
   see the oracle-status paragraph below for the measured green.*
 - POD-296 — architecture manifest lint: layer/platform/role/feature constraints, WARN
   mode, phase-mapped allowlist. *Done — integrated at ca361327: the tag-derived matrix lives in
-  `scripts/architecture-manifest.ts`, today's 50 known violations (48 under the manifest
-  rules + 2 legacy `agent-bridge-consumers` → POD-740; re-derive with
-  `bun run lint:boundaries` → "50 allowlisted, 0 new", `bun run lint:architecture` →
-  "48 allowlisted, 0 new") are frozen with
+  `scripts/architecture-manifest.ts`, today’s 6 known violations (2 under the manifest
+  rules + 4 legacy `agent-host-consumers` → POD-740; re-derive with
+  `bun run lint:boundaries` → "6 allowlisted, 0 new", `bun run lint:architecture` →
+  "2 allowlisted, 0 new") are frozen with
   per-(rule, file) counts in `scripts/boundary-allowlist.ts` and mapped to the phase that
   removes each, and the ratchet runs as its OWN blocking CI step. Its layer/tag
   table + the rule → legacy-rule retirement map POD-335 needs live as a subsection here,
@@ -588,7 +588,7 @@ bundles biome + `lint:boundaries` into one step marked `continue-on-error: true`
 biome backlog burns down, POD-30). That flag makes the BOUNDARY guardrail non-blocking too,
 so an architectural violation reports green — diagnosed in POD-744. This is not
 hypothetical: `bun run lint:boundaries` **exits 1 on current main** (two
-`agent-bridge-consumers` violations, `apps/server/src/accounts.ts` and `relay.ts`;
+`agent-host-consumers` violations, `apps/server/src/accounts.ts` and `relay.ts`;
 verified 2026-07-16 at c577009d), tracked open as POD-740.
 
 The lesson for Phase 0: **shipping a lint is not the same as the lint being able to fail a
@@ -619,11 +619,10 @@ same commit.**
 | `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |
 | `packages/sync` | L2 kernel | neutral | oplog, upstream-sync | → one sync kernel (Phase 2 POD-305/306); retagged `neutral` at POD-307 — Authority/Ledger/mirror are node-only, the Replica/Outbox roles and the ADR 6 client storage adapters are browser-safe, and one bit cannot say both. Browser-safe consumers are held to the declared entrypoints by check-boundaries rule 12 |
 | `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
-| `packages/agent-bridge` | L2 kernel | node-only | (none) | **EMPTY SHELL.** POD-396 extracted the PTY half to `packages/pty`, POD-397 the harness half to `packages/harness`; feature ownership is exclusive so both tags MOVED. Awaiting deletion by POD-399 |
 | `packages/pty` | L2 kernel | node-only | pty-port, durable-host | **landed POD-396** (5.3a) from agent-bridge (ADR 8 D4). Harness-AGNOSTIC: `HARNESS_ADAPTER_HOME` is now `packages/harness`, so the axiom APPLIES here and a harness comparison inside pty is a violation |
 | `packages/harness` | L2 kernel | node-only | harness-adapters | **landed POD-397** (5.3b): one `AgentManifest` per CLI (launch/exec/headless/state/discovery/transcript) over `Record<BuiltinHarnessKind, AgentManifest>`; the home for harness variance and `HARNESS_ADAPTER_HOME` for the axiom. Principal-free (`harness-principal-free` lint) |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
-| `packages/composer` | L2 kernel | browser-safe | composer-driver, prompt-draft | appeared on main after POD-296; the harness composer port (pure, protocol-only) — folds into `packages/harness` with agent-bridge (Phase 5 POD-325) |
+| `packages/composer` | L2 kernel | browser-safe | composer-driver, prompt-draft | appeared on main after POD-296; the harness composer port (pure, protocol-only) — folds into `packages/harness` (Phase 5 POD-325) |
 | `packages/client-core` | L3 feature | browser-safe | viewmodels | → client engine split (Phase 6 POD-331) |
 | `packages/terminal-client-react` | L3 feature | browser-safe | terminal-react | — |
 | `apps/cli` | L4 app | node-only | cli-surface | — |
@@ -636,7 +635,7 @@ same commit.**
 | `scripts` | L5 compose | node-only | build, lint, compose | composes apps; nothing may import it |
 
 **Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
-`sync → runtime`; `telemetry → runtime`; `agent-bridge → runtime`; `agent-bridge → transcript`;
+`sync → runtime`; `telemetry → runtime`;
 `pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache); `harness → runtime`; `harness → transcript`; `terminal-client → composer`; `commands → protocol` (POD-728: contracts name the frames they are exposed on).
 
 **Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
@@ -645,17 +644,17 @@ browser-safe nor node-only. The workspace-granular tag cannot see subpaths: lega
 8a covers `@podium/runtime` only, which is why the identical hole in `@podium/telemetry`
 is filed as POD-745 rather than papered over.
 
-**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 50 known
-violations with per-(rule, file) COUNTS, each mapped to the issue that removes it: 46
+**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 6 known
+violations with per-(rule, file) COUNTS, each mapped to the issue that removes it: zero
 harness-branching → Phase 5 (POD-292/POD-325), 2 `apps/desktop → scripts` → Phase 7
-(POD-294), 2 legacy `agent-bridge-consumers` → POD-740. Allowlisted-and-within-count
+(POD-294), 4 legacy `agent-host-consumers` → POD-740. Allowlisted-and-within-count
 warns; anything new — or one more in an already-listed file — fails. Slack fails too: a
 count left above reality leaves slots that can be refilled silently, so "the list can
 only shrink" is only true if not shrinking it stops the build. Phases shrink their own
-entries (§5); POD-335 flips to error level with the list empty.
+entries (§5). The harness axiom is already error-level with no entries; POD-335 finishes the remaining rules.
 
 **One allowlist, both rule families.** The legacy eight run through the same ratchet, so
-POD-740's two `apps/server → @podium/agent-bridge` imports are grandfathered rather than
+POD-740’s four `apps/server → @podium/harness` imports are grandfathered rather than
 failing `lint:boundaries` on every branch — while a NEW legacy violation still fails.
 The two families are applied to their own violations separately (`partitionAllowlist`):
 one shared pass would have each declaring the other's entries stale.

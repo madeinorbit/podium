@@ -3,8 +3,7 @@ import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { SessionId } from '@podium/model'
 import {
-  extractClaudePromptDraft,
-  extractCodexPromptDraft,
+  composerDriverFor,
   keySequence,
   type MountedSession,
   type SpecialKey,
@@ -538,13 +537,11 @@ export function AgentPanel({
       // share. Returns the typed text, '' for an empty composer, or null when no
       // clean composer box is on screen yet (splash/overlay/menu) — callers must
       // not act on null. Claude draws a box; Codex a single dim-stripped `›` line.
-      const scrapeComposer = (m: MountedSession): string | null => {
-        if (agentKind === 'claude-code')
-          return extractClaudePromptDraft(m.view.screenText().split('\n'))
-        if (agentKind === 'codex')
-          return extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
-        return null
-      }
+      const composerDriver = agentKind ? composerDriverFor(agentKind) : null
+      const scrapeComposer = (m: MountedSession): string | null =>
+        composerDriver?.extract(
+          m.view.screenText({ dropDim: composerDriver.dimStripped }).split('\n'),
+        ) ?? null
       const sample = () => {
         // Daemon engine active → it scrapes native server-side; don't double-publish.
         if (draftEngineRef.current) return

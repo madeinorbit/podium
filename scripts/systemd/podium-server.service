@@ -25,7 +25,7 @@ Environment=PODIUM_PORT=18787
 # via a local drop-in.
 Environment=PODIUM_LOOP_PROFILE=1
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite —
-# no build, no dist, no stale-dist trap. Bun runtime (runs TS natively); @podium/agent-bridge
+# no build, no dist, no stale-dist trap. Bun runtime (runs TS natively); @podium/harness
 # is a shared dep. This process does NO PTY work (that's the daemon) — keeping per-agent
 # work out of here is what stops a misbehaving agent from starving the relay loop.
 # Persistence resolves to bun:sqlite (@podium/core/sqlite). Running from SOURCE (not the

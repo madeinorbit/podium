@@ -112,7 +112,7 @@ describe('stripComments', () => {
   })
 
   it('does not desync on a nested template inside an interpolation', () => {
-    // Verbatim shape of packages/agent-bridge/src/tmux.ts:11 (shellQuote).
+    // Verbatim shape of packages/pty/src/tmux.ts:11 (shellQuote).
     const src = ["const q = `'${s.replace(/'/g, `'\\''`)}'`", '// gone', 'const after = 1'].join(
       '\n',
     )
@@ -260,7 +260,7 @@ describe('inventory checks', () => {
       // A true redeclaration (the drift risk).
       'packages/runtime/src/settings.ts': `export const HarnessAgent = z.enum(['codex'])`,
       // An alias re-using the canonical enum is the GOOD pattern, not debt.
-      'packages/agent-bridge/src/discovery/types.ts': `export type AgentKind = HarnessAgent`,
+      'packages/harness/src/discovery/types.ts': `export type AgentKind = HarnessAgent`,
     })
     const sites = CHECKS.find((c) => c.id === 'agent-kind-enums')?.collect(ctx) ?? []
     expect(sites.map((s) => s.file)).toEqual(['packages/runtime/src/settings.ts'])
@@ -384,7 +384,7 @@ describe('inventory checks', () => {
 
   it('sync/async twins match only a blocking fn that HAS an async twin', () => {
     const ctx = ctxOf({
-      'packages/agent-bridge/src/tmux.ts': [
+      'packages/pty/src/tmux.ts': [
         'export function tmuxHasSession(l) {}',
         'export async function tmuxHasSessionAsync(l) {}',
         // No twin — a lone sync function is not this item.

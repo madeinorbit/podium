@@ -9,7 +9,7 @@
  *   node_modules/.bin/tsx --conditions=@podium/source scripts/daemon.ts
  * It also boots under Bun:
  *   bun --conditions=@podium/source scripts/daemon.ts
- * The PTY backend is selected at runtime (@podium/agent-bridge): node-pty under Node,
+ * The PTY backend is selected at runtime (@podium/harness): node-pty under Node,
  * Bun.Terminal under Bun — so the native addon is never loaded on Bun, and persistence
  * uses node:sqlite/bun:sqlite accordingly. (Default deployment is still Node.)
  *

@@ -14,7 +14,7 @@
  * Cross-platform on purpose: cmd.exe on Windows, sh -i on POSIX — CI runs it on
  * windows-latest as the ConPTY proof; POSIX runs keep the script itself honest.
  */
-import { agentLaunchCommand } from '../packages/agent-bridge/src/launch.js'
+import { agentLaunchCommand } from '../packages/harness/src/launch.js'
 import { spawnAgent } from '../packages/pty/src/session.js'
 
 const isWin = process.platform === 'win32'

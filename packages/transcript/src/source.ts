@@ -12,7 +12,7 @@ import { readTranscriptSlice, readTranscriptSliceCached, type SliceResult } from
  * and callers never branch on the harness. A NEW harness is added as a new
  * `TranscriptSource` implementation — no change to callers. The per-kind
  * resolution (file locators, the opencode SQLite source) lives in
- * @podium/agent-bridge's `transcriptSourceFor`; this package holds only the
+ * @podium/harness's `transcriptSourceFor`; this package holds only the
  * storage-neutral parts.
  */
 export interface TranscriptSource {
@@ -115,7 +115,7 @@ export function stampOpencodeItems(
  * `readTranscriptSlice` has no full-list in-memory path to share — it reads
  * bounded, doubling windows per file and never materializes the whole chain.
  * opencode's parts ARE a bounded list, so an honest in-memory slice is the
- * right shape here. Exported for @podium/agent-bridge's `opencodeDbSource`.
+ * right shape here. Exported for @podium/harness's `opencodeDbSource`.
  *
  * Anchor matching is exact (cursor string) first, then drift-tolerant on the FULL
  * `{fileId, offset, uuid, sub}` — opencode `time_updated` ties are common, so the

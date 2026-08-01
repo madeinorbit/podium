@@ -12,10 +12,9 @@ Podium is a Bun-workspace monorepo. Design rationale lives in
 
 ## Packages
 
-`@podium/agent-bridge` (server-side) and `@podium/terminal-client` (browser) are the two
-standalone libraries. They never depend on each other — they meet only through
-`@podium/protocol`. This keeps the PTY layer and browser DOM code out of the same
-package and lets each release independently.
+`@podium/harness` and `@podium/pty` are the node-side agent host libraries;
+`@podium/terminal-client` is browser-side. They meet through `@podium/protocol`,
+keeping CLI variance, PTY mechanics, and browser DOM code in separate packages.
 
 ## Dependency direction
 
@@ -24,9 +23,10 @@ package and lets each release independently.
 @podium/web              ~>  @podium/server   (type-only AppRouter; planned, no runtime dep)
 @podium/server           ->  @podium/runtime, @podium/model, @podium/protocol
 @podium/server           ->  @podium/commands, @podium/sync
-@podium/daemon           ->  @podium/agent-bridge, @podium/protocol, @podium/runtime
+@podium/daemon           ->  @podium/harness, @podium/pty, @podium/protocol, @podium/runtime
 @podium/client-core      ->  @podium/protocol, @podium/model, @podium/runtime, @podium/terminal-client
-@podium/agent-bridge     ->  @podium/protocol
+@podium/harness          ->  @podium/protocol, @podium/runtime, @podium/transcript
+@podium/pty              ->  @podium/protocol, @podium/runtime
 @podium/terminal-client  ->  @podium/protocol
 @podium/protocol         ->  (leaf — no internal deps)
 @podium/model           ->  (leaf — no internal deps, no @podium/protocol dep either)
@@ -66,9 +66,9 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 
 | Working on… | Lives in… |
 |-------------|-----------|
-| PTY/tmux spawn, attach, resize, kill | `@podium/agent-bridge` |
-| Harness / recent-conversation / project / worktree discovery | `@podium/agent-bridge` (used by `apps/daemon`) |
-| Agent state detection (provider interface, reducer, per-agent providers) | `@podium/agent-bridge` `src/agent-state/`; HTTP hook ingest + spawn injection in `apps/daemon` |
+| PTY/tmux spawn, attach, resize, kill | `@podium/pty` |
+| Harness / recent-conversation / project / worktree discovery | `@podium/harness` (used by `apps/daemon`) |
+| Agent state detection (provider interface, reducer, per-agent providers) | `@podium/harness` `src/agent-state/`; HTTP hook ingest + spawn injection in `apps/daemon` |
 | Browser↔server message types (input, output frame, resize, takeover, transcript) | `@podium/protocol` |
 | xterm.js, mobile key toolbar, touch/scroll policy, reconnect | `@podium/terminal-client` |
 | Pure domain logic (issue stage machine, authz, snooze/defer, worktree/machine identity, session dedup + priority) | `@podium/model` |

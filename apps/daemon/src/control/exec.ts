@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
+import { harnessMcpConfigTransport, resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
 import type { ControlMessage } from '@podium/protocol'
 import type { UsageBucketWire } from '@podium/model'
 import { buildHarnessExec } from '../harness-exec.js'
@@ -63,7 +63,7 @@ async function runHarnessExec(
   // file for the run and clean it up afterwards. Codex takes the raw JSON
   // instead (translated to `-c` overrides in buildHarnessExec) — no file.
   let mcpConfigPath: string | undefined
-  if (msg.mcpConfig && msg.agent === 'claude-code') {
+  if (msg.mcpConfig && harnessMcpConfigTransport(msg.agent) === 'path') {
     mcpConfigPath = join(tmpdir(), `podium-mcp-${randomUUID()}.json`)
     try {
       writeFileSync(mcpConfigPath, msg.mcpConfig)

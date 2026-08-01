@@ -111,7 +111,7 @@ export const codexComposerDriver: ComposerDriver = {
  * used to be an `if` chain was only adapter *selection*, so expressing it as the
  * registry it always was resolves the violation rather than hiding it.
  *
- * WHY NOT move this into packages/agent-bridge (the axiom's named home): this
+ * WHY NOT move this into packages/harness (the axiom's named home): this
  * package is BROWSER-SAFE by construction and by consumer — apps/web aliases it
  * in vite.config.ts and packages/terminal-client re-exports the extractors into
  * the browser bundle — while agent-bridge is node-only. The move would trade a

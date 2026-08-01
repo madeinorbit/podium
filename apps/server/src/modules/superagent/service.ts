@@ -19,7 +19,11 @@ import {
   type SessionId,
   type ThreadId,
 } from '@podium/model'
-import { harnessResumeKind, harnessSupportsMcp } from '../../harness-manifest'
+import {
+  harnessPremintsHeadlessResumeId,
+  harnessResumeKind,
+  harnessSupportsMcp,
+} from '../../harness-manifest'
 import { resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
@@ -477,10 +481,8 @@ export class SuperagentService {
       backend.execution === 'harness' && backend.harness === agent
         ? backend
         : resolveRole(settings, 'coding')
-    // Claude and Grok can accept a server-minted first-turn id. This makes
-    // transcript binding deterministic before a durable turn finishes.
-    const sessionUuid =
-      firstTurn && (agent === 'claude-code' || agent === 'grok') ? randomUUID() : undefined
+    // The manifest declares whether the harness accepts a pre-minted first-turn id.
+    const sessionUuid = firstTurn && harnessPremintsHeadlessResumeId(agent) ? randomUUID() : undefined
     const pending = this.store.superagent.promoteQueuedInput(inputId, {
       turnId: randomUUID(),
       threadId,

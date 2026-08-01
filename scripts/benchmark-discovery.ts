@@ -7,7 +7,7 @@ import {
   loadAgentConversation,
   scanAgentConversations,
   scanAgentConversationsCached,
-} from '../packages/agent-bridge/src/discovery/index.js'
+} from '../packages/harness/src/discovery/index.js'
 
 type Timed<T> = { label: string; ms: number; value: T }
 

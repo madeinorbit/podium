@@ -79,6 +79,12 @@ export const grokManifest: AgentManifest = {
     handoff: false,
     mcp: 'none',
     hookInstall: 'global-env',
+    observationProvider: 'grok',
+    observationProtocol: 'generic',
+    submitVerification: false,
+    exclusiveInteractiveResume: false,
+    promptTitleFallback: false,
+    mcpConfigTransport: 'none',
   },
   resumeKind: 'grok-session',
 
@@ -136,6 +142,7 @@ export const grokManifest: AgentManifest = {
 
   headless: supported({
     driver: 'resume-exec',
+    outputFormat: 'text',
     // -s/--session-id is create-or-resume — the daemon mints the UUID on the
     // first turn, so every turn uses the same pinned invocation.
     resumeIdAllocation: 'daemon-minted-uuid',
@@ -326,6 +333,8 @@ export const grokManifest: AgentManifest = {
   discovery: createGrokConversationProvider(),
 
   transcript: supported(fileTranscript(chainPaths, grokRecordToItems)),
+
+  handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',
