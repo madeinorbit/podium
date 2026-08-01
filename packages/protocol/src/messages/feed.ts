@@ -57,7 +57,10 @@ import {
   ChangeEntityIdField,
   ChangeSeqField,
   ConversationSummaryWire,
+  IssueDepProjection,
+  IssueProjection,
   IssueWire,
+  RepoProjection,
   SessionMeta,
 } from '@podium/model'
 import { z } from 'zod'
@@ -86,6 +89,9 @@ const feedChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E
 export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),
   feedChangeArm(z.literal('issue'), IssueWire),
+  feedChangeArm(z.literal('issueProjection'), IssueProjection),
+  feedChangeArm(z.literal('issueDep'), IssueDepProjection),
+  feedChangeArm(z.literal('repo'), RepoProjection),
   feedChangeArm(z.literal('conversation'), ConversationSummaryWire),
   feedChangeArm(z.literal('automation'), AutomationWire),
   feedChangeArm(z.literal('automationRun'), AutomationRunWire),

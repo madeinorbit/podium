@@ -204,6 +204,29 @@ async function expectGone(page: Page, absent: string): Promise<void> {
 /** The label `openApp`'s empty-state spawn gives a fresh session. */
 const FRESH_SESSION = 'New Claude session'
 
+async function kernelEntityKeys(page: Page): Promise<string[]> {
+  return page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const opened = indexedDB.open('podium-kernel-replica')
+        opened.onerror = () => reject(opened.error ?? new Error('failed to open kernel replica'))
+        opened.onsuccess = () => {
+          const db = opened.result
+          const tx = db.transaction('entities', 'readonly')
+          const rows = tx.objectStore('entities').getAll()
+          rows.onerror = () => reject(rows.error ?? new Error('failed to read kernel entities'))
+          rows.onsuccess = () => {
+            const keys = (
+              rows.result as Array<{ principal: string; entity: string; entityId: string }>
+            ).map((row) => `${row.principal}:${row.entity}:${row.entityId}`)
+            db.close()
+            resolve(keys)
+          }
+        }
+      }),
+  )
+}
+
 async function kernelOutboxStates(page: Page): Promise<string[]> {
   return page.evaluate(
     () =>
@@ -373,7 +396,7 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     })
     const grant = { id: issue.id, grantee: owner, verb: 'write' }
     await rpc(memberContext.request, 'issues.share', grant)
-    await rpc(ownerContext.request, 'issues.start', { id: issue.id, agentKind: 'shell' })
+    await rpc(ownerContext.request, 'issues.start', { id: issue.id, agentKind: 'claude' })
 
     let sessionId: string | undefined
     await expect
@@ -388,10 +411,25 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
         return sessionId
       })
       .not.toBeUndefined()
-    if (!sessionId) throw new Error('shared issue shell did not appear for grantee')
+    if (!sessionId) throw new Error('shared issue agent did not appear for grantee')
+
+    const ownerSlice = await rpc<{
+      rows: Array<{ entity: string; entityId: string }>
+    }>(ownerContext.request, 'sync.feedSlice', undefined, 'get')
+    expect(ownerSlice.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ entity: 'issue', entityId: issue.id }),
+        expect.objectContaining({ entity: 'session', entityId: sessionId }),
+      ]),
+    )
 
     await openBareApp(ownerPage)
     await expect.poll(() => ownerPage.evaluate(() => globalThis.__podiumReplicaPath)).toBe('kernel')
+    await expect
+      .poll(() => kernelEntityKeys(ownerPage), { timeout: 30_000 })
+      .toEqual(
+        expect.arrayContaining([`${owner}:issue:${issue.id}`, `${owner}:session:${sessionId}`]),
+      )
     await expectConverged(ownerPage, 'Phase 3 outbox')
     const chip = ownerPage.getByTestId('outbox-recovery-chip')
 
@@ -408,14 +446,15 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
       return sessions.find((session) => session.sessionId === sessionId)?.name
     }
     const parkRevokedGrant = async (name: string): Promise<void> => {
-      await ownerContext.setOffline(true)
+      const renameTransport = '**/trpc/sessions.rename*'
+      await ownerPage.route(renameTransport, (route) => route.abort('internetdisconnected'))
       await renameViaSidebar(ownerPage, sessionId, name)
-      await expect(sidebar(ownerPage).locator(`[data-session="${sessionId}"]`)).toContainText(name)
+      await expect(sidebar(ownerPage).locator('[data-session="' + sessionId + '"]')).toContainText(
+        name,
+      )
       await expect.poll(() => kernelOutboxStates(ownerPage)).toContain('queued')
       await rpc(memberContext.request, 'issues.unshare', grant)
-      await ownerContext.setOffline(false)
-      // Chromium network emulation does not reliably dispatch this production
-      // trigger, so drive the real browser event after restoring I/O.
+      await ownerPage.unroute(renameTransport)
       await ownerPage.evaluate(() => window.dispatchEvent(new Event('online')))
       await expect
         .poll(() => kernelOutboxStates(ownerPage), { timeout: 60_000 })
@@ -454,7 +493,6 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     await expect(chip).toBeHidden({ timeout: 30_000 })
     expect(await serverName()).not.toBe(discarded)
   } finally {
-    await ownerContext.setOffline(false).catch(() => undefined)
     await memberContext.close()
   }
 })
