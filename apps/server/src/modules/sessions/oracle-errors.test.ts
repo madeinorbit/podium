@@ -26,15 +26,16 @@ import {
   MUST_NOT_CHANGE,
   makeOracle,
   messageOf,
+  provisional,
   willChange,
 } from './oracle-support'
 
 afterEach(() => disposeOracles())
 
 const GHOST = '00000000-0000-4000-8000-000000000000'
-const EXISTENCE_ORACLE = willChange(
-  'POD-1073',
-  'invisible must later fail identically to nonexistent — §3.1.5',
+const EXISTENCE_ORACLE = provisional(
+  'readiness-3.1.2',
+  'existence-leak policy is deliberately open; these are current comparison shapes',
 )
 
 describe('oracle: not-found shape, per write', () => {
