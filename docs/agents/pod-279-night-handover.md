@@ -72,3 +72,64 @@ entry; `issue start` reported success while spawning nothing; and a clean auto-m
 would have silently reinstated a `case 'presence':` that another branch had
 deliberately removed. The worktree, `/proc`, a planted violation, and the test COUNT
 told the truth each time.
+
+---
+
+## POD-1317 ROOT CAUSE AND THE ONE ACTION THAT NEEDS YOU (added 2026-08-01 21:00)
+
+**The daemon crash-loops on startup recovery over 172 abduco session masters, 163 of
+them stale.** It never finishes, so new agent sessions never spawn.
+
+Evidence, all measured:
+
+    a daemon 38 SECONDS old sits at 98% CPU        -> cost is at STARTUP, not a leak
+    the wedged bare abduco is gone, it STILL saturates -> that was never the cause
+    stime > utime, ~2,400 voluntary ctx switches/s -> syscall storm, not a JS loop
+    frames/control/tails/worker = 0 while own-cpu climbs 121 -> 583 -> 1673ms
+                                                  -> work is in an UNINSTRUMENTED
+                                                     startup path
+    172 masters is the only quantity here large enough to match
+
+`podium issue start` still returns SUCCESS with zero processes — that fail-open is
+POD-1319 and should be fixed independently, because it is what made this silent.
+
+### The action
+
+I attempted it and was blocked, correctly: `podium help` says *"Agent sessions:
+lifecycle changes and automation schedules need operator approval"*, and no
+reap/prune/gc command exists. Terminating masters IS a lifecycle change.
+
+**Regenerate the candidate list** (the original was in /tmp, which gets reaped):
+
+```sh
+# session ids that currently have someone ATTACHED — never touch these
+pgrep -a abduco | grep ' -a ' | grep -oE 'podium-[a-f0-9-]+' | sort -u > /tmp/attached.txt
+
+# masters that are UNATTACHED and older than 7 days
+for p in $(pgrep -a abduco | grep ' -n ' | awk '{print $1}'); do
+  sid=$(tr '\0' ' ' </proc/$p/cmdline | grep -oE 'podium-[a-f0-9-]+' | head -1)
+  e=$(ps -o etimes= -p $p | tr -d ' ')
+  [ -z "$sid" ] || [ -z "$e" ] && continue
+  grep -qx "$sid" /tmp/attached.txt && continue
+  [ "$e" -gt 604800 ] && echo "$p $e $sid"
+done > /tmp/reap.txt
+wc -l /tmp/reap.txt        # was 100 of 172 masters
+```
+
+**Start with twenty, then verify before doing the rest:**
+
+```sh
+head -20 /tmp/reap.txt | awk '{print $1}' | xargs -r kill -TERM
+
+ps -o pcpu= -p $(systemctl --user show podium-daemon --value -p MainPID)   # expect << 100%
+podium issue start --id 318 --agent codex                                  # expect a real process
+```
+
+**Do NOT touch** the 44 `-a` attachment clients (live PTY bridges) or the 28 masters
+newer than 7 days.
+
+### Why the selection is safe
+
+A master qualifies ONLY if no attachment client references its session id AND it is
+older than 7 days. Several are 17 days old. That cannot select a session anyone is
+using.
