@@ -588,6 +588,7 @@ describe('MessagingService', () => {
       const { sessionId, threadRef } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -601,6 +602,7 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: agentState('idle'),
         next: agentState('compacting'),
       })
@@ -615,6 +617,7 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -639,12 +642,14 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
       const countWhileWorking = h.typingCalls.length
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: agentState('working'),
         next: agentState(phase),
       })
@@ -660,6 +665,7 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -676,6 +682,7 @@ describe('MessagingService', () => {
       })
       h.bus.emit('session.stateChanged', {
         sessionId: asSessionId('s_unbound'),
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -703,6 +710,7 @@ describe('MessagingService', () => {
       // Ambient working signal for the same topic — must share the lease.
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -730,6 +738,7 @@ describe('MessagingService', () => {
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })

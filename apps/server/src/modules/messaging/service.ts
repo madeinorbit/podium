@@ -132,6 +132,7 @@ interface QueuedInbound {
 
 interface AwaitedReply {
   source: ConversationRef
+  ownerUserId: UserId
 }
 
 /** One shared typing interval per conversation target, refcounted by owner so
@@ -146,6 +147,13 @@ interface TypingLease {
 const QUEUE_CAP = 20
 /** Telegram's typing action lasts ~5s; refresh a beat earlier so it never lapses. */
 export const TYPING_REFRESH_MS = 4000
+function topicKey(chatId: string, id: string): string {
+  return `${chatId}\0${id}`
+}
+
+function turnKey(ownerUserId: UserId, threadId: string): string {
+  return `${ownerUserId}\0${threadId}`
+}
 
 function conversationKey(ref: ConversationRef): string {
   return `${ref.chatId}\0${ref.threadRef ?? ''}`
@@ -177,10 +185,8 @@ function conversationKey(ref: ConversationRef): string {
 export class MessagingService implements TelegramNoticePort {
   private adapter: ChannelAdapter | undefined
   private adapterKey = ''
-  /** Last inbound conversation ref from the configured chat — used when a notice
-   *  has no sessionId (e.g. subscription notifyExternal). Session-scoped notices
-   *  route via issue-topic bindings instead. */
-  private lastInboundRef: ConversationRef | undefined
+  /** Last inbound conversation ref per bound chat; no route can overwrite another user's. */
+  private readonly lastInboundRefByChat = new Map<string, ConversationRef>()
   /** FIFO of inbound messages not yet dispatched, per superagent thread. */
   private readonly queues = new Map<string, QueuedInbound[]>()
   /** Turns this bridge dispatched and is awaiting, per superagent thread. */
@@ -218,14 +224,14 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   private touchTopicActivity(source: ConversationRef): void {
-    if (source.threadRef) this.lastActivityByThreadRef.set(source.threadRef, this.now())
+    if (source.threadRef) this.lastActivityByThreadRef.set(conversationKey(source), this.now())
   }
 
   /** Bound issue topics only (main chat / unrecognized topics skip recap). */
   private isBoundIssueTopic(source: ConversationRef): boolean {
     const ref = source.threadRef
     if (!ref) return false
-    if (this.topicThreadByRef.has(ref)) return true
+    if (this.topicThreadByRef.has(conversationKey(source))) return true
     return !!this.deps.topics?.getByThreadRef(source.chatId, ref)
   }
 
@@ -234,7 +240,7 @@ export class MessagingService implements TelegramNoticePort {
     if (!this.isBoundIssueTopic(source)) return false
     const ref = source.threadRef
     if (!ref) return false
-    const last = this.lastActivityByThreadRef.get(ref)
+    const last = this.lastActivityByThreadRef.get(conversationKey(source))
     if (last === undefined) return true
     return this.now() - last >= TOPIC_INACTIVITY_MS
   }
@@ -276,7 +282,7 @@ export class MessagingService implements TelegramNoticePort {
     this.adapter?.stop()
     this.adapter = undefined
     this.adapterKey = ''
-    this.lastInboundRef = undefined
+    this.lastInboundRefByChat.clear()
   }
 
   /**
@@ -315,22 +321,14 @@ export class MessagingService implements TelegramNoticePort {
       if (!issueId) return undefined
       return (
         this.deps.topics?.getByIssue(chatId, issueId)?.threadRef ??
-        this.topicRefByIssue.get(issueId)
+        this.topicRefByIssue.get(topicKey(chatId, issueId))
       )
     }
-    if (this.lastInboundRef?.chatId === chatId && this.lastInboundRef.threadRef) {
-      return this.lastInboundRef.threadRef
+    const lastInbound = this.lastInboundRefByChat.get(chatId)
+    if (lastInbound?.threadRef) {
+      return lastInbound.threadRef
     }
     return undefined
-  }
-
-  private loadTopicMappings(chatId: string): void {
-    this.topicThreadByRef.clear()
-    this.topicRefByIssue.clear()
-    for (const row of this.deps.topics?.listForChat(chatId) ?? []) {
-      this.topicThreadByRef.set(row.threadRef, row.superagentThreadId)
-      this.topicRefByIssue.set(row.issueId, row.threadRef)
-    }
   }
 
   /** Map a chat location to a superagent thread. Main chat → global; a forum
@@ -338,12 +336,12 @@ export class MessagingService implements TelegramNoticePort {
   private resolveThreadId(msg: InboundChatMessage): string {
     const ref = msg.source.threadRef
     if (!ref) return 'global'
-    const cached = this.topicThreadByRef.get(ref)
+    const cached = this.topicThreadByRef.get(topicKey(msg.source.chatId, ref))
     if (cached) return cached
     const row = this.deps.topics?.getByThreadRef(msg.source.chatId, ref)
     if (row) {
-      this.topicThreadByRef.set(ref, row.superagentThreadId)
-      this.topicRefByIssue.set(row.issueId, ref)
+      this.topicThreadByRef.set(topicKey(msg.source.chatId, ref), row.superagentThreadId)
+      this.topicRefByIssue.set(topicKey(msg.source.chatId, row.issueId), ref)
       return row.superagentThreadId
     }
     return 'global'
@@ -397,7 +395,7 @@ export class MessagingService implements TelegramNoticePort {
     const boundUser = this.resolveInboundUser(msg.source)
     if (!boundUser) return
 
-    this.lastInboundRef = msg.source
+    this.lastInboundRefByChat.set(msg.source.chatId, msg.source)
     if (msg.callback) {
       void this.handleCallback(msg, boundUser)
       return
@@ -420,7 +418,8 @@ export class MessagingService implements TelegramNoticePort {
       await this.postTopicRecap(msg.source, threadId, ownerUserId)
     }
     this.touchTopicActivity(msg.source)
-    const queue = this.queues.get(threadId) ?? []
+    const key = turnKey(ownerUserId, threadId)
+    const queue = this.queues.get(key) ?? []
     if (queue.length >= QUEUE_CAP) {
       await this.reply(msg.source, '⚠️ Message queue is full — wait for the current replies.')
       return
@@ -432,8 +431,8 @@ export class MessagingService implements TelegramNoticePort {
       text: msg.text,
       ...(msg.senderLabel ? { senderLabel: msg.senderLabel } : {}),
     })
-    this.queues.set(threadId, queue)
-    this.pump(threadId)
+    this.queues.set(key, queue)
+    this.pump(ownerUserId, threadId)
   }
 
   /**
@@ -544,13 +543,14 @@ export class MessagingService implements TelegramNoticePort {
     this.releaseTyping(ambientTypingOwner(sessionId), lease.source)
   }
 
-  private pump(threadId: string): void {
-    if (this.awaiting.has(threadId) || this.dispatching.has(threadId)) return
-    const queue = this.queues.get(threadId)
+  private pump(ownerUserId: UserId, threadId: string): void {
+    const key = turnKey(ownerUserId, threadId)
+    if (this.awaiting.has(key) || this.dispatching.has(key)) return
+    const queue = this.queues.get(key)
     const next = queue?.[0]
     if (!next) return
-    this.dispatching.add(threadId)
-    const turnOwner = turnTypingOwner(threadId)
+    this.dispatching.add(key)
+    const turnOwner = turnTypingOwner(key)
     this.acquireTyping(turnOwner, next.source)
     void this.deps.superagent
       .sendTurn({
@@ -559,18 +559,18 @@ export class MessagingService implements TelegramNoticePort {
         text: this.turnText(next),
       })
       .then(() => {
-        this.dispatching.delete(threadId)
+        this.dispatching.delete(key)
         queue?.shift()
-        this.awaiting.set(threadId, { source: next.source })
+        this.awaiting.set(key, { ownerUserId, source: next.source })
       })
       .catch((err: unknown) => {
-        this.dispatching.delete(threadId)
+        this.dispatching.delete(key)
         this.releaseTyping(turnOwner, next.source)
         const message = err instanceof Error ? err.message : String(err)
         if (message.includes('already running')) return
         queue?.shift()
         void this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`)
-        this.pump(threadId)
+        this.pump(ownerUserId, threadId)
       })
   }
 
@@ -611,7 +611,7 @@ export class MessagingService implements TelegramNoticePort {
         case 'new':
           try {
             this.deps.superagent.restartThread({ ownerUserId, threadId: asThreadId(threadId) })
-            this.queues.delete(threadId)
+            this.queues.delete(turnKey(ownerUserId, threadId))
             await this.reply(
               source,
               'Superagent thread restarted — next message uses a fresh harness session.',
@@ -634,21 +634,32 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   private onTurnEnded(ev: {
+    ownerUserId?: UserId
     threadId: string
     ok: boolean
     output?: string
     error?: string
   }): void {
-    const awaited = this.awaiting.get(ev.threadId)
+    const suffix = `\0${ev.threadId}`
+    const candidates = ev.ownerUserId
+      ? [turnKey(ev.ownerUserId, ev.threadId)]
+      : [...new Set([...this.awaiting.keys(), ...this.queues.keys()])].filter((key) =>
+          key.endsWith(suffix),
+        )
+    if (candidates.length !== 1) return
+    const key = candidates[0]
+    if (!key) return
+    const awaited = this.awaiting.get(key)
     if (awaited) {
-      this.releaseTyping(turnTypingOwner(ev.threadId), awaited.source)
-      this.awaiting.delete(ev.threadId)
+      this.releaseTyping(turnTypingOwner(key), awaited.source)
+      this.awaiting.delete(key)
       const text = ev.ok
         ? ev.output?.trim() || '(the superagent finished without a text reply)'
         : `⚠️ Turn failed: ${ev.error ?? 'unknown error'}`
       void this.reply(awaited.source, text)
     }
-    this.pump(ev.threadId)
+    const ownerUserId = awaited?.ownerUserId ?? this.queues.get(key)?.[0]?.ownerUserId
+    if (ownerUserId) this.pump(ownerUserId, ev.threadId)
   }
 
   private async handleCallback(msg: InboundChatMessage, ownerUserId: UserId): Promise<void> {
@@ -704,8 +715,8 @@ export class MessagingService implements TelegramNoticePort {
     threadRef: string,
     superagentThreadId: string,
   ): void {
-    this.topicRefByIssue.set(issueId, threadRef)
-    this.topicThreadByRef.set(threadRef, superagentThreadId)
+    this.topicRefByIssue.set(topicKey(chatId, issueId), threadRef)
+    this.topicThreadByRef.set(topicKey(chatId, threadRef), superagentThreadId)
     this.deps.topics?.upsert({
       issueId,
       chatId,
@@ -725,7 +736,7 @@ export class MessagingService implements TelegramNoticePort {
     const sessionNote = this.issueThreadNote(issue)
     const existing =
       this.deps.topics?.getByIssue(chatId, issue.id)?.threadRef ??
-      this.topicRefByIssue.get(issue.id)
+      this.topicRefByIssue.get(topicKey(chatId, issue.id))
     if (existing) {
       this.persistTopicBinding(issue.id, chatId, existing, threadId)
       return {

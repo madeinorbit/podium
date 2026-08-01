@@ -35,12 +35,7 @@ describe('reaction registry totality', () => {
   })
 
   it('pins post-freeze reactions and their multi-user invariants', () => {
-    const ids = new Set(REACTIONS.map((reaction) => reaction.id))
-    expect(ids).toEqual(
-      expect.objectContaining({
-        has: expect.any(Function),
-      }),
-    )
+    const ids = new Set<string>(REACTIONS.map((reaction) => reaction.id))
     for (const id of [
       'messaging.telegram-outbound',
       'messaging.ambient-typing',

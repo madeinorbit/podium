@@ -291,7 +291,8 @@ export async function startServer(
         const routes = store.telegramBindings.listForUser(userId)
         return routes.length === 1 ? routes[0]?.chatId : undefined
       },
-    // POD-419: the bot token is server-only material; the chat id stays routing.
+      // POD-419: the bot token is server-only material; the chat id stays routing.
+    },
     telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
     issues: registry.modules.issues,
