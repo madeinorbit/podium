@@ -4,7 +4,16 @@
  * message, with the delivery ledger as columns on the row.
  */
 
-import type { IssueId, SessionId } from '@podium/model'
+import {
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
+  asUserId,
+  type ActorRef,
+  type IssueId,
+  type SessionId,
+} from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
@@ -26,7 +35,17 @@ export interface PendingMessageSender {
   fromSession: string | null
 }
 
+function storedActor(r: Record<string, unknown>): ActorRef | null {
+  const kind = r.actor_kind as string | null
+  const id = r.actor_id as string | null
+  if (!kind || !id) return null
+  if (kind === 'user') return actorUser(asUserId(id))
+  if (kind === 'agent') return actorAgent(asAgentIdentityId(id))
+  return actorSystem(id)
+}
+
 function mapMessage(r: Record<string, unknown>): MessageRow {
+  const actor = storedActor(r)
   return {
     id: r.id as string,
     threadId: r.thread_id as string,
@@ -37,6 +56,18 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
       ? { fromName: r.from_name as string }
       : {}),
     fromIssue: (r.from_issue as IssueId | null) ?? null,
+    ...(actor
+      ? {
+          attribution: {
+            actor,
+            onBehalfOf:
+              r.on_behalf_of === null || r.on_behalf_of === undefined
+                ? null
+                : asUserId(r.on_behalf_of as string),
+          },
+        }
+      : {}),
+    delegationRef: (r.delegation_ref as string | null) ?? null,
     toKind: r.to_kind as MessageRow['toKind'],
     toId: (r.to_id as string | null) ?? null,
     kind: r.kind as MessageRow['kind'],
@@ -70,10 +101,11 @@ export class MessagesRepository {
       .prepare(
         `INSERT INTO messages
            (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
+            actor_kind, actor_id, on_behalf_of, delegation_ref,
             to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
             created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from,
             expects_response, fact_key, fact_target)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -83,6 +115,16 @@ export class MessagesRepository {
         m.fromSession,
         m.fromName ?? null,
         m.fromIssue,
+        m.attribution?.actor.kind ?? null,
+        m.attribution?.actor.kind === 'user'
+          ? m.attribution.actor.id
+          : m.attribution?.actor.kind === 'agent'
+            ? m.attribution.actor.id
+            : m.attribution?.actor.kind === 'system'
+              ? m.attribution.actor.job
+              : null,
+        m.attribution?.onBehalfOf ?? null,
+        m.delegationRef ?? null,
         m.toKind,
         m.toId,
         m.kind,

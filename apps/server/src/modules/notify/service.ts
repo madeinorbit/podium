@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, SessionId } from '@podium/model'
+import type { AgentRuntimeState, SessionId, UserId } from '@podium/model'
 import type { AgentObservation, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import {
@@ -63,7 +63,7 @@ export interface SessionNoticeInfo {
 }
 
 export interface NotifyDeps {
-  getSettings(): PodiumSettings
+  getSettings(ownerUserId?: UserId): PodiumSettings
   /**
    * The Telegram bot token out of the server-only secret store (POD-419) —
    * `''` when none is configured.
@@ -86,12 +86,16 @@ export interface NotifyDeps {
     payload?: unknown
   }): void
   now(): number
-  clients(): Iterable<{ send(msg: ServerMessage): void; visible: boolean }>
+  clients(ownerUserId?: UserId): Iterable<{ send(msg: ServerMessage): void; visible: boolean }>
   /** Resolve the notice projection for a session (undefined = unknown session). */
   sessionInfo(sessionId: SessionId): SessionNoticeInfo | undefined
   /** Runtime state per session — notifyAttentionForNewExternalTargets replays the
    *  current blocked states to a freshly configured external target. */
-  sessionStates(): Iterable<{ info: SessionNoticeInfo; state: AgentRuntimeState | undefined }>
+  sessionStates(): Iterable<{
+    info: SessionNoticeInfo
+    state: AgentRuntimeState | undefined
+    ownerUserId?: UserId
+  }>
   /** Lazy — production wires MessagingService after registry construction. */
   telegramNotice?: () => TelegramNoticePort | undefined
 }
@@ -114,9 +118,11 @@ export class NotifyService {
     private readonly pushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
     bus: EventBus,
   ) {
-    bus.on('session.stateChanged', ({ sessionId, prev, next, observation }) => {
+    bus.on('session.stateChanged', ({ sessionId, ownerUserId, prev, next, observation }) => {
+      // No ambient operator fallback: unresolved ownership means no recipient.
+      if (!ownerUserId) return
       const info = this.deps.sessionInfo(sessionId)
-      if (info) this.notifyAttention(info, prev, next, observation)
+      if (info) this.notifyAttention(ownerUserId, info, prev, next, observation)
     })
     bus.on('settings.changed', ({ previous, next }) => {
       this.notifyAttentionForNewExternalTargets(previous.notifications, next.notifications)
@@ -162,7 +168,8 @@ export class NotifyService {
     if (!sendNtfy && !sendTelegram) return
 
     const telegram = telegramConfig(next, botToken)
-    for (const { info, state } of this.deps.sessionStates()) {
+    for (const { info, state, ownerUserId } of this.deps.sessionStates()) {
+      if (!ownerUserId) continue
       if (!state) continue
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
       if (!notice) continue
@@ -201,6 +208,7 @@ export class NotifyService {
    * phone stays quiet.
    */
   private notifyAttention(
+    ownerUserId: UserId,
     info: SessionNoticeInfo,
     prev: AgentRuntimeState | undefined,
     next: AgentRuntimeState,
@@ -245,7 +253,7 @@ export class NotifyService {
         })
       } catch {}
     }
-    const settings = this.deps.getSettings().notifications
+    const settings = this.deps.getSettings(ownerUserId).notifications
     if (this.deps.notificationsEnabled?.() === false) return
     const name = this.attentionNoticeName(info)
     const notice = attentionNotice(name, prev, next)
@@ -257,13 +265,13 @@ export class NotifyService {
         title: notice.title,
         body: notice.body,
       }
-      for (const c of this.deps.clients()) c.send(event)
+      for (const c of this.deps.clients(ownerUserId)) c.send(event)
     }
     const botToken = this.deps.telegramBotToken()
     const telegram = telegramConfig(settings, botToken)
     const telegramEnabled = isTelegramEnabled(settings, botToken)
     if (settings.ntfyTopic || telegramEnabled) {
-      const someoneWatching = [...this.deps.clients()].some((c) => c.visible)
+      const someoneWatching = [...this.deps.clients(ownerUserId)].some((c) => c.visible)
       if (!someoneWatching) {
         if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
         if (telegramEnabled) this.sendTelegram(telegram, notice, info.sessionId)

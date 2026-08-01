@@ -33,13 +33,21 @@ import {
   senderBrakeKey,
 } from '@podium/commands'
 import {
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
   asIssueId,
+  FIRST_ADMIN_USER_ID,
   type AgentPhase,
+  type Attribution,
   type IssueId,
   type IssueScope,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
+import { asDelegationRef } from '@podium/protocol'
+import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,
@@ -53,6 +61,7 @@ import type { MessagePageCursor, MessagesRepository } from '../../store/messages
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
+import type { InboxPrincipalReference } from '../sessions/inbox'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
@@ -157,11 +166,17 @@ const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
 
 /** The authenticated sender principal — derived by the SURFACE from its caller
  *  identity (capability / in-process authority), never from client input. */
-export type MessageSender =
+type MessageSenderIdentity =
   | { kind: 'operator' }
   | { kind: 'superagent' }
   | { kind: 'system'; name?: string }
   | { kind: 'agent'; issueId?: IssueId; sessionId?: SessionId }
+
+export type MessageSender = MessageSenderIdentity & {
+  readonly attribution?: Attribution
+  readonly delegationRef?: string | null
+}
+
 
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
@@ -215,6 +230,14 @@ export interface SpawnOnWake {
   }
 }
 
+interface InboxDeliveryInput {
+  sessionId: SessionId
+  text: string
+  inputOrigin?: 'mail'
+  principal: InboxPrincipalReference
+  sourceMessageId: string
+}
+
 export interface MessageDeliveryDeps {
   messages: MessagesRepository
   notificationFacts: NotificationFactsRepository
@@ -222,18 +245,18 @@ export interface MessageDeliveryDeps {
   issues(): IssueService
   sessions(): {
     listSessions(): SessionMeta[]
-    sendText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
+    sendText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
-    queueText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
+    queueText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
-    interruptText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
+    interruptText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
       reason?: string
@@ -362,6 +385,32 @@ export function senderFromCapability(capability: {
   return {
     kind: 'agent',
     ...(capability.actorSessionId ? { sessionId: capability.actorSessionId } : {}),
+  }
+}
+/** Stamp both attribution halves from the resolved transport principal. */
+export function senderFromPrincipal(principal: CommandPrincipal): MessageSender {
+  if (principal.kind === 'user') {
+    return {
+      kind: 'operator',
+      attribution: { actor: actorUser(principal.user), onBehalfOf: principal.user },
+      delegationRef: null,
+    }
+  }
+  if (principal.kind === 'system') {
+    return {
+      kind: 'system',
+      name: principal.job,
+      attribution: { actor: actorSystem(principal.job), onBehalfOf: null },
+      delegationRef: null,
+    }
+  }
+  return {
+    ...senderFromCapability(principal.capability),
+    attribution: {
+      actor: actorAgent(asAgentIdentityId(principal.agentSessionId)),
+      onBehalfOf: principal.onBehalfOf,
+    },
+    delegationRef: principal.agentSessionId,
   }
 }
 
@@ -880,6 +929,7 @@ export class MessageDeliveryService {
     const stampsAck = (kind === 'ack' || respondsToRequest) && !!input.inReplyTo
 
     const id = `msg_${randomUUID()}`
+    const authority = this.authorityOf(from)
     const message: MessageRow = {
       id,
       threadId: input.threadId ?? original?.threadId ?? id,
@@ -888,6 +938,8 @@ export class MessageDeliveryService {
       fromSession: from.kind === 'agent' ? (from.sessionId ?? null) : null,
       fromName: from.kind === 'system' ? (from.name ?? null) : null,
       fromIssue: from.kind === 'agent' ? (from.issueId ?? null) : null,
+      attribution: authority.attribution,
+      delegationRef: authority.delegationRef,
       toKind: input.to.kind,
       toId,
       kind,
@@ -1155,13 +1207,21 @@ export class MessageDeliveryService {
     okDisposition: SendDisposition,
   ): DeliveryOutcome {
     const sessions = this.deps.sessions()
+    const principal = this.inboxPrincipal(message)
     const text = this.renderFor(message, sessionId)
+    const input = {
+      sessionId,
+      text,
+      inputOrigin: 'mail' as const,
+      principal,
+      sourceMessageId: message.id,
+    }
     const r =
       via === 'now'
-        ? sessions.sendText({ sessionId, text, inputOrigin: 'mail' })
+        ? sessions.sendText(input)
         : via === 'interrupt'
-          ? sessions.interruptText({ sessionId, text, inputOrigin: 'mail' })
-          : sessions.queueText({ sessionId, text, inputOrigin: 'mail' })
+          ? sessions.interruptText(input)
+          : sessions.queueText(input)
     // Transport rejected the push (e.g. the daemon dropped offline mid-send). The
     // row was still captured + durably queued, so the SWEEP will re-attempt it —
     // `disposition: 'queued'` describes that row position, while `ok: false`
@@ -1458,6 +1518,8 @@ export class MessageDeliveryService {
         sessionId: session.sessionId,
         text: this.renderFor(m, session.sessionId),
         inputOrigin: 'mail',
+        principal: this.inboxPrincipal(m),
+        sourceMessageId: m.id,
       })
       if (r.ok) this.recordPush(m, session.sessionId)
     }
@@ -1469,6 +1531,8 @@ export class MessageDeliveryService {
         sessionId: session.sessionId,
         text: this.renderFor(m, session.sessionId),
         inputOrigin: 'mail',
+        principal: this.inboxPrincipal(m),
+        sourceMessageId: m.id,
       })
       if (r.ok) this.recordPush(m, session.sessionId)
     } else if (pointerRows.length > 0) {
@@ -1479,6 +1543,13 @@ export class MessageDeliveryService {
         sessionId: session.sessionId,
         text: this.pointerText(pointerRows),
         inputOrigin: 'mail',
+        principal: {
+          kind: 'system',
+          attribution: { actor: actorSystem('message-pointer'), onBehalfOf: null },
+          principalRef: 'message-pointer',
+          delegation: null,
+        },
+        sourceMessageId: pointerRows[0]!.id,
       })
       if (r.ok) for (const m of pointerRows) this.markInjected(m, session.sessionId)
     }
@@ -2359,6 +2430,93 @@ export class MessageDeliveryService {
     const port = this.deps.authorizeAtApply
     if (!port) return { ok: true }
     return port(message)
+  }
+
+  /**
+   * Re-authorize a durable inbox row immediately before its daemon apply.
+   * Neither this method nor the inbox/gateway caches a capability or decision.
+   */
+  authorizeQueuedInput(messageId: string): { ok: true } | { ok: false; reason: string } {
+    const message = this.deps.messages.getMessage(messageId)
+    if (!message) return { ok: false, reason: 'session no longer exists' }
+    return this.applyAuth(message)
+  }
+
+  rejectQueuedInput(messageId: string, reason: string): void {
+    const message = this.deps.messages.getMessage(messageId)
+    if (message && message.status === 'queued') {
+      this.deadLetter(message, reason, { notifySender: true })
+    }
+  }
+
+  private authorityOf(from: MessageSender): {
+    attribution: Attribution
+    delegationRef: string | null
+  } {
+    if (from.attribution) {
+      return { attribution: from.attribution, delegationRef: from.delegationRef ?? null }
+    }
+    switch (from.kind) {
+      case 'operator':
+        return {
+          attribution: {
+            actor: actorUser(FIRST_ADMIN_USER_ID),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+          delegationRef: null,
+        }
+      case 'superagent':
+        return {
+          attribution: {
+            actor: actorAgent(asAgentIdentityId('superagent')),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+          delegationRef: 'superagent',
+        }
+      case 'agent': {
+        const actorId = from.sessionId ?? ('unbound-agent' as SessionId)
+        return {
+          attribution: {
+            actor: actorAgent(asAgentIdentityId(actorId)),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+          delegationRef: from.sessionId ?? null,
+        }
+      }
+      case 'system': {
+        const job = from.name ?? 'system'
+        return {
+          attribution: { actor: actorSystem(job), onBehalfOf: null },
+          delegationRef: null,
+        }
+      }
+    }
+  }
+
+  private inboxPrincipal(message: MessageRow): InboxPrincipalReference {
+    const legacySender: MessageSender =
+      message.fromKind === 'operator'
+        ? { kind: 'operator' }
+        : message.fromKind === 'superagent'
+          ? { kind: 'superagent' }
+          : message.fromKind === 'system'
+            ? { kind: 'system', ...(message.fromName ? { name: message.fromName } : {}) }
+            : {
+                kind: 'agent',
+                ...(message.fromIssue ? { issueId: message.fromIssue } : {}),
+                ...(message.fromSession ? { sessionId: message.fromSession } : {}),
+              }
+    const attribution = message.attribution ?? this.authorityOf(legacySender).attribution
+    const actor = attribution.actor
+    return {
+      kind: actor.kind === 'user' ? 'user' : actor.kind === 'agent' ? 'agent' : 'system',
+      attribution,
+      principalRef: actor.kind === 'system' ? actor.job : actor.id,
+      delegation:
+        message.delegationRef && actor.kind === 'agent'
+          ? asDelegationRef(message.delegationRef)
+          : null,
+    }
   }
 
   private legacyAuthor(from: MessageSender): string {

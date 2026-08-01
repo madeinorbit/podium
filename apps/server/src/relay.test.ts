@@ -857,6 +857,10 @@ describe('SessionRegistry', () => {
       sessionId: s1,
       data: 'eA==',
       inputOrigin: 'human',
+      attribution: {
+        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
     })
   })
 
@@ -3038,6 +3042,10 @@ describe('reconnect identity (hello reclaim)', () => {
       sessionId: s1,
       data: 'eA==',
       inputOrigin: 'human',
+      attribution: {
+        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
     })
 
     // The socket goes half-open; a new socket connects and re-presents idA in hello,

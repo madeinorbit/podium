@@ -552,8 +552,22 @@ export const queuedMessages = sqliteTable("queued_messages", {
 	queuedAt: integer("queued_at").notNull(),
 	inputOrigin: text("input_origin").default("unknown").notNull(),
 	attempts: integer().default(0).notNull(),
+	// Authorization identity is a REFERENCE, never a capability snapshot. Agent
+	// rows carry the SessionBinding/delegation seam; every drain resolves it live.
+	principalKind: text("principal_kind").default("system").notNull(),
+	principalRef: text("principal_ref").default("legacy-session-inbox").notNull(),
+	delegationRef: text("delegation_ref"),
+	// ADR 9 D5 A3: actor and on-behalf-of are separate and transport-stamped.
+	actorKind: text("actor_kind").default("system").notNull(),
+	actorId: text("actor_id").default("legacy-session-inbox").notNull(),
+	onBehalfOf: text("on_behalf_of"),
+	// When the queued input is the daemon leg of a durable message, retain the
+	// source row reference so a drain-time refusal dead-letters the same intent.
+	sourceMessageId: text("source_message_id"),
 },
 (table) => [index("queued_messages_session").on(table.sessionId, table.queuedAt),
+check("queued_messages_principal_kind", sql`principal_kind IN ('user','agent','system')`),
+check("queued_messages_actor_kind", sql`actor_kind IN ('user','agent','system')`),
 ]);
 
 export const conversationIdentities = sqliteTable("conversation_identities", {
@@ -840,6 +854,12 @@ export const messages = sqliteTable("messages", {
 	fromKind: text("from_kind").notNull(),
 	fromSession: text("from_session"),
 	fromIssue: text("from_issue"),
+	// Transport-stamped attribution pair plus the opaque reference needed to
+	// re-resolve an agent's delegation live on every apply.
+	actorKind: text("actor_kind"),
+	actorId: text("actor_id"),
+	onBehalfOf: text("on_behalf_of"),
+	delegationRef: text("delegation_ref"),
 	toKind: text("to_kind").notNull(),
 	toId: text("to_id"),
 	kind: text().default("message").notNull(),

@@ -1,5 +1,6 @@
 import {
   AgentKind,
+  Attribution,
   DelegationScope,
   Geometry,
   IssueIdField,
@@ -305,6 +306,9 @@ export const InputMessage = z.object({
       'unknown',
     ])
     .optional(),
+  /** Actor + on-behalf-of stamped by the authenticated transport. Payload
+   * identity is inert; the server replaces it before forwarding client input. */
+  attribution: Attribution.optional(),
 })
 // Client's requested terminal grid; controller-authoritative. Geometry shape + sessionId.
 export const ResizeMessage = z.object({

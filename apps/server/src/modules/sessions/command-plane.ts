@@ -62,6 +62,7 @@ import {
   type SessionTargetRow,
 } from './session-access'
 
+import { inboxPrincipalFromCommand } from './inbox'
 // ---------------------------------------------------------------------------
 // Execution context
 // ---------------------------------------------------------------------------
@@ -494,7 +495,10 @@ export const SESSION_COMMAND_HANDLERS = {
     // carries no identity field, so there is nothing to ignore and nothing to
     // spoof. The pair comes from `ctx.principal`.
     if (!ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')) return { ok: false }
-    return ctx.sessions.answerAskUserQuestion(input)
+    return ctx.sessions.answerAskUserQuestion({
+      ...input,
+      principal: inboxPrincipalFromCommand(ctx.principal),
+    })
   },
 
   continue: (ctx: SessionCommandCtx, input: TargetInput) => {

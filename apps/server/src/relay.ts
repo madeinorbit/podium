@@ -323,12 +323,16 @@ export class SessionRegistry {
       // a person (one shared password), so the sole account is the only true
       // answer, and POD-315/POD-1077 replace the argument rather than finding a
       // hidden read.
-        getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
+        getSettings: (ownerUserId = FIRST_ADMIN_USER_ID) =>
+          this.store.settings.getSettingsFor(ownerUserId),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
-        clients: () => clients().values(),
+        clients: (ownerUserId) =>
+          [...clients().values()].filter(
+            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
+          ),
         sessionInfo: (sessionId) => {
           const s = liveSessions().get(sessionId)
           return s ? noticeInfo(s) : undefined
@@ -337,6 +341,7 @@ export class SessionRegistry {
           [...liveSessions().values()].map((s) => ({
             info: noticeInfo(s),
             state: s.agentState,
+            ownerUserId: FIRST_ADMIN_USER_ID,
           })),
         notificationsEnabled: () => featureEnabled("notifications"),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
@@ -1084,6 +1089,9 @@ export class SessionRegistry {
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
+      authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
+      rejectQueuedMessage: (messageId, reason) =>
+        messagesSvc.rejectQueuedInput(messageId, reason),
       funnel,
       clients: clientRegistry,
       disconnectClient: (id) => this.clientGateway.detachClient(id),

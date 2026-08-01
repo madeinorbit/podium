@@ -191,22 +191,61 @@ export class SyncRepository {
     text: string
     queuedAt: number
     inputOrigin?: ObservationInputOrigin
+    principalKind?: 'user' | 'agent' | 'system'
+    principalRef?: string
+    delegationRef?: string | null
+    actorKind?: 'user' | 'agent' | 'system'
+    actorId?: string
+    onBehalfOf?: string | null
+    sourceMessageId?: string | null
   }): boolean {
     const r = this.db
       .prepare(
-        'INSERT OR IGNORE INTO queued_messages (id, session_id, text, queued_at, input_origin) VALUES (?, ?, ?, ?, ?)',
+        `INSERT OR IGNORE INTO queued_messages
+          (id, session_id, text, queued_at, input_origin, principal_kind,
+           principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of,
+           source_message_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(row.id, row.sessionId, row.text, row.queuedAt, row.inputOrigin ?? 'unknown')
+      .run(
+        row.id,
+        row.sessionId,
+        row.text,
+        row.queuedAt,
+        row.inputOrigin ?? 'unknown',
+        row.principalKind ?? 'system',
+        row.principalRef ?? 'legacy-session-inbox',
+        row.delegationRef ?? null,
+        row.actorKind ?? 'system',
+        row.actorId ?? 'legacy-session-inbox',
+        row.onBehalfOf ?? null,
+        row.sourceMessageId ?? null,
+      )
     return Number(r.changes) > 0
   }
 
   /** FIFO head-first queue for one session. */
   listQueuedMessages(
     sessionId: string,
-  ): { id: string; text: string; attempts: number; inputOrigin: ObservationInputOrigin }[] {
+  ): {
+    id: string
+    text: string
+    attempts: number
+    inputOrigin: ObservationInputOrigin
+    principalKind: 'user' | 'agent' | 'system'
+    principalRef: string
+    delegationRef: string | null
+    actorKind: 'user' | 'agent' | 'system'
+    actorId: string
+    onBehalfOf: string | null
+    sourceMessageId: string | null
+  }[] {
     const rows = this.db
       .prepare(
-        'SELECT id, text, attempts, input_origin FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC, rowid ASC',
+        `SELECT id, text, attempts, input_origin, principal_kind, principal_ref,
+                delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id
+           FROM queued_messages WHERE session_id = ?
+          ORDER BY queued_at ASC, rowid ASC`,
       )
       .all(sessionId) as Record<string, unknown>[]
     return rows.map((r) => ({
@@ -214,6 +253,13 @@ export class SyncRepository {
       text: r.text as string,
       attempts: r.attempts as number,
       inputOrigin: (r.input_origin as ObservationInputOrigin | null) ?? 'unknown',
+      principalKind: r.principal_kind as 'user' | 'agent' | 'system',
+      principalRef: r.principal_ref as string,
+      delegationRef: (r.delegation_ref as string | null) ?? null,
+      actorKind: r.actor_kind as 'user' | 'agent' | 'system',
+      actorId: r.actor_id as string,
+      onBehalfOf: (r.on_behalf_of as string | null) ?? null,
+      sourceMessageId: (r.source_message_id as string | null) ?? null,
     }))
   }
 
