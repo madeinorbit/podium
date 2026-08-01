@@ -17,9 +17,9 @@ import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { issueRefsPattern, probeGitState } from '../git-state'
 import type { IssueAttentionModule } from './attention'
+import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueCommentsMailModule } from './mail'
-import type { IssueStore } from './core'
 import type { CreateIssueInput } from './types'
 
 /**

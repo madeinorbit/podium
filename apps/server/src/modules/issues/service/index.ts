@@ -1,7 +1,10 @@
 import {
   attributionOf,
+  type CommandPrincipal,
+  FIRST_ADMIN_USER_ID,
   type SystemCommandPrincipal,
   systemPrincipal,
+  userCommandPrincipal,
 } from '../../../command-principal'
 import { IssueAttentionModule } from './attention'
 import { IssueStore } from './core'
@@ -254,6 +257,20 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
           : Reflect.defineProperty(target, property, descriptor)
       },
     })
+  }
+
+  /**
+   * The flat legacy service is an authenticated in-process operator seam. Keep
+   * its comment attribution aligned with CLI/tRPC while the capability module
+   * itself continues to require transport callers to pass their principal.
+   */
+  addComment(
+    id: string,
+    author: string,
+    body: string,
+    principal: CommandPrincipal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+  ): ReturnType<IssueCommentsMailModule['addComment']> {
+    return this.commentsMail.addComment(id, author, body, principal)
   }
 
   /** Boot hydration, membership totalization, draft reap and ledger reconcile. */
