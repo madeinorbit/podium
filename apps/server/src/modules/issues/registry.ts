@@ -1269,6 +1269,7 @@ const defs = {
           message: `unknown mail message ${input.messageId}`,
         })
       }
+      ctx.requireReadableIssue(msg.issueId)
       checkIssueAccess(ctx.caller, ctx.issues, 'mailClaim', 'write', msg.issueId)
       return ctx.issues.mailClaim(input.messageId, ctx.mailIdentity())
     },

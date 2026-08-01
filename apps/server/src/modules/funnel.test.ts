@@ -13,14 +13,14 @@ function recordingServing() {
     published,
     port: {
       publish: (_principal: unknown, delivery: ScopedDelivery) => published.push(delivery),
+      flushPending: () => {},
       // Fixed identity: these cases exercise the publication pipe, not D1. The
       // v2 catch-up read has its own coverage where the identity actually varies.
       identity: () => ({ feedId: 'feed-test', epoch: 'epoch-test' }),
       retentionFloor: () => 0,
     },
     /** Every row across every published delivery, in publication order. */
-    rows: () =>
-      published.flatMap((d) => (d.kind === 'batch' ? d.changes : [])),
+    rows: () => published.flatMap((d) => (d.kind === 'batch' ? d.changes : [])),
   }
 }
 
@@ -69,7 +69,13 @@ function fakeAuthority() {
     cursor: () => 0,
   } as unknown as AuthorityPort
   const toKernel = (c: MetadataChange): ScopedChange =>
-    ({ seq: c.seq, entity: c.entity, entityId: c.id, op: c.op, value: (c as { value?: unknown }).value }) as ScopedChange
+    ({
+      seq: c.seq,
+      entity: c.entity,
+      entityId: c.id,
+      op: c.op,
+      value: (c as { value?: unknown }).value,
+    }) as ScopedChange
   const deliver = (delivery: ScopedDelivery) => {
     for (const fn of listeners) fn(delivery)
   }
@@ -225,9 +231,13 @@ describe('the funnel has ONE output, and it is the feed', () => {
       onPublished: vi.fn(),
       authority: fake.authority,
     })
-    fake.emitKernel([{ seq: 1, entity: 'session', entityId: 's1', op: 'upsert', value: {} }] as ScopedChange[])
+    fake.emitKernel([
+      { seq: 1, entity: 'session', entityId: 's1', op: 'upsert', value: {} },
+    ] as ScopedChange[])
     fake.emitRescope(2, 'rights-changed')
-    fake.emitKernel([{ seq: 3, entity: 'session', entityId: 's2', op: 'upsert', value: {} }] as ScopedChange[])
+    fake.emitKernel([
+      { seq: 3, entity: 'session', entityId: 's2', op: 'upsert', value: {} },
+    ] as ScopedChange[])
     funnel.flushDeltas()
     // THREE deliveries, not two: a rescope may not be merged into a batch, so it
     // breaks the coalescing run rather than being swallowed by it.

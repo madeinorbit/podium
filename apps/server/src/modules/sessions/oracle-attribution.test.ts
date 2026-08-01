@@ -26,7 +26,7 @@ const NO_PERSON = willChange(
 )
 
 describe('oracle: who created this session', () => {
-  it('tRPC creation stamps user provenance and durable human ownership', async () => {
+  it(`${MUST_NOT_CHANGE}: tRPC creation stamps user provenance and durable human ownership`, async () => {
     const o = makeOracle()
 
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
@@ -207,7 +207,7 @@ describe('oracle: who asked the human a question', () => {
 })
 
 describe('oracle: who moved this session between machines', () => {
-  it('handoff preserves the durable per-user session owner', async () => {
+  it(`${MUST_NOT_CHANGE}: handoff preserves the durable per-user session owner`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
 

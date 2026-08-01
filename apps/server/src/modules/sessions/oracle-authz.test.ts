@@ -50,7 +50,7 @@ async function twoIssueOracle() {
 }
 
 describe('oracle: the authenticated admin seam', () => {
-  it('an authenticated admin capability carries explicit user attribution', async () => {
+  it(`${MUST_NOT_CHANGE}: an authenticated admin capability carries explicit user attribution`, async () => {
     const o = makeOracle()
     // The context capability the router is constructed with IS the constant.
     expect(OPERATOR).toEqual({
