@@ -280,7 +280,7 @@ describe('oracle: priority pushes', () => {
         message.type === 'sessionPriority',
     )
 
-  it(`${provisional('readiness-3.3', 'the priority-push flag is not yet classified as session-owned or per-user')}: focused is tier 0, visible is tier 1, unchanged view state sends no duplicate, and reconnect replays the map`, () => {
+  it(`${MUST_NOT_CHANGE}: focused is tier 0, visible is tier 1, unchanged view state sends no duplicate, and reconnect replays the map`, () => {
     const o = makeOracle()
     const first = o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',

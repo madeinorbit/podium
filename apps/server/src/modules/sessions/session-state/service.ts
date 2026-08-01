@@ -35,16 +35,13 @@ import {
   type SessionId,
   type SessionUserOverlay,
   type UserId,
-  type WorkState,
 } from '@podium/model'
-import type {
-  ControlMessage,
-  DraftEditMessage,
-  LiveServerMessage,
-} from '@podium/protocol'
+import type { ControlMessage, DraftEditMessage, LiveServerMessage } from '@podium/protocol'
+import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import type { ClientConn } from '../../../gateway/client-registry'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from '../draft-doc'
+import type { Session } from '../session'
 
 export interface SessionStatePrincipal {
   /** The human row owner. For an agent this is its on-behalf-of human. */
@@ -59,15 +56,11 @@ export interface SessionStatePrincipal {
   readonly clientId?: string
 }
 
-/** The only live-session fields this module may touch. */
-export interface SessionStateRecord {
-  readonly sessionId: SessionId
-  readonly machineId: string
-  readonly lastActiveAt: string
-  draftUpdatedAt?: string
-  archived: boolean
-  workState?: WorkState
-}
+/** The only live-session fields this module may touch; derived from the canonical Session. */
+export type SessionStateRecord = Pick<
+  Session,
+  'sessionId' | 'machineId' | 'lastActiveAt' | 'draftUpdatedAt' | 'archived' | 'workState'
+>
 
 export interface SessionStatePorts {
   readonly store: Pick<SessionStore, 'sessions'>
@@ -224,8 +217,7 @@ export class SessionStateService {
     const cached = this.cachedOverlay(userId)
     return {
       readAt: cached.readAt[sessionId] ?? null,
-      snoozedUntil:
-        sessionId in cached.snoozes ? cached.snoozes[sessionId] : undefined,
+      snoozedUntil: sessionId in cached.snoozes ? cached.snoozes[sessionId] : undefined,
     }
   }
 
@@ -288,11 +280,7 @@ export class SessionStateService {
     this.invalidateAllOverlays()
   }
 
-  setSnooze(
-    principal: SessionStatePrincipal,
-    sessionId: SessionId,
-    until: string | null,
-  ): boolean {
+  setSnooze(principal: SessionStatePrincipal, sessionId: SessionId, until: string | null): boolean {
     if (!this.canReadSession(principal, sessionId)) return false
     return this.persistPerUser(principal.userId, sessionId, () =>
       this.ports.store.sessions.setSnooze(principal.userId, sessionId, until),
@@ -310,9 +298,7 @@ export class SessionStateService {
   clearAllSnoozes(sessionId: SessionId): void {
     if (!this.ports.getSession(sessionId)) return
     if (!this.ports.store.sessions.hasAnySnooze(sessionId)) return
-    this.ports.persistSession(sessionId, () =>
-      this.ports.store.sessions.clearAllSnoozes(sessionId),
-    )
+    this.ports.persistSession(sessionId, () => this.ports.store.sessions.clearAllSnoozes(sessionId))
     this.invalidateAllOverlays()
     this.ports.broadcastSessions()
   }
@@ -404,7 +390,7 @@ export class SessionStateService {
     for (const [sessionId, priority] of priorities) {
       if (this.lastPriority.get(sessionId) === priority) continue
       this.lastPriority.set(sessionId, priority)
-      const machineId = this.ports.getSession(sessionId)?.machineId ?? '__local__'
+      const machineId = this.ports.getSession(sessionId)?.machineId ?? LOCAL_PLACEHOLDER
       this.ports.toMachine(machineId, { type: 'sessionPriority', sessionId, priority })
     }
   }
@@ -466,11 +452,7 @@ export class SessionStateService {
     if (!this.draftSyncEnabled_) return
     if (Date.now() < (this.draftSendSuppressUntil.get(sessionId) ?? 0)) return
     const current = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
-    this.applyVersionedEdit(
-      sessionId,
-      { baseRev: current.rev, text, origin: 'native' },
-      undefined,
-    )
+    this.applyVersionedEdit(sessionId, { baseRev: current.rev, text, origin: 'native' }, undefined)
   }
 
   suppressNativeDraft(sessionId: SessionId): void {
@@ -488,10 +470,7 @@ export class SessionStateService {
     this.ports.toMachine(machineId, { type: 'draftTarget', sessionId, text: doc.text })
   }
 
-  replayDrafts(
-    principal: SessionStatePrincipal,
-    send: (message: LiveServerMessage) => void,
-  ): void {
+  replayDrafts(principal: SessionStatePrincipal, send: (message: LiveServerMessage) => void): void {
     if (this.draftSyncEnabled_) {
       for (const doc of this.draftDocs.values()) {
         if (doc.text && this.canReadSession(principal, doc.sessionId)) send(this.draftWire(doc))
