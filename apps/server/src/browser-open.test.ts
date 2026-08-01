@@ -1,6 +1,13 @@
-import type { SessionId } from '@podium/model'
+import {
+  type Attribution,
+  actorUser,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+  type SessionId,
+} from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { ClientPublicationAuthority } from './modules/sessions/session'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -11,8 +18,20 @@ afterEach(() => {
 
 function setup() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
-  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'one',
+    hostname: 'one',
+    tokenHash: 'x',
+    ownerUserId: 'user:sole',
+  })
+  store.machines.upsertMachine({
+    id: 'm2',
+    name: 'two',
+    hostname: 'two',
+    tokenHash: 'y',
+    ownerUserId: 'user:sole',
+  })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',
@@ -47,6 +66,34 @@ function request(sessionId: SessionId, requestId: string) {
     expiresAt: Date.now() + 60_000,
   }
 }
+
+function scopedAuthority(
+  principal: string,
+  allowedSessionIds: SessionId[],
+): ClientPublicationAuthority {
+  return {
+    principal,
+    scope: 'personal',
+    serverRole: 'standalone',
+    protocolVersion: 1,
+    global: false,
+    snapshot: () => ({
+      revision: 1,
+      allowedSignature: JSON.stringify(allowedSessionIds),
+      allowedSessionIds,
+    }),
+    sendPrepared: () => {},
+  }
+}
+
+const RESOLVER = {
+  actor: actorUser(FIRST_ADMIN_USER_ID),
+  onBehalfOf: FIRST_ADMIN_USER_ID,
+} satisfies Attribution
+const SPOOFED_RESOLVER = {
+  actor: actorUser(asUserId('user:attacker')),
+  onBehalfOf: asUserId('user:attacker'),
+} satisfies Attribution
 
 describe('remote browser-open routing', () => {
   it('prefers focused clients, then visible clients, then all clients', () => {
@@ -107,6 +154,40 @@ describe('remote browser-open routing', () => {
     )
   })
 
+  it('delivers only to clients whose scoped world may see the session', () => {
+    const { registry, sessionId } = setup()
+    const owner: ServerMessage[] = []
+    const grantee: ServerMessage[] = []
+    const unrelated: ServerMessage[] = []
+    registry.clientGateway.attachClient(
+      (message) => owner.push(message),
+      scopedAuthority('owner', [sessionId]),
+    )
+    registry.clientGateway.attachClient(
+      (message) => grantee.push(message),
+      scopedAuthority('grantee', [sessionId]),
+    )
+    registry.clientGateway.attachClient(
+      (message) => unrelated.push(message),
+      scopedAuthority('unrelated', []),
+    )
+    owner.length = 0
+    grantee.length = 0
+    unrelated.length = 0
+
+    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-scoped'))
+
+    expect(owner).toContainEqual(
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-scoped' }),
+    )
+    expect(grantee).toContainEqual(
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-scoped' }),
+    )
+    expect(unrelated).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-scoped' }),
+    )
+  })
+
   it('parks an intent with no client and replays it on the next attach', () => {
     const { registry, sessionId } = setup()
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-parked'))
@@ -118,7 +199,7 @@ describe('remote browser-open routing', () => {
     )
   })
 
-  it('routes callback and dismissal only to the daemon that owns the pending session', () => {
+  it('routes to the owning daemon and stamps resolver identity from the transport', () => {
     const { registry, sessionId, m1, m2 } = setup()
     const messages: ServerMessage[] = []
     const clientId = registry.clientGateway.attachClient((message) => messages.push(message))
@@ -130,30 +211,51 @@ describe('remote browser-open routing', () => {
       sessionId,
       requestId: 'open-callback',
       url: 'http://localhost:1455/callback?code=x',
+      resolvedBy: SPOOFED_RESOLVER,
     })
     expect(m1).toContainEqual({
       type: 'sessionOpenUrlCallback',
       sessionId,
       requestId: 'open-callback',
       url: 'http://localhost:1455/callback?code=x',
+      resolvedBy: RESOLVER,
     })
     expect(m2).toHaveLength(0)
 
-    registry.clientGateway.routeClientFrame(clientId, {
-      type: 'sessionOpenUrlDismiss',
+    registry.gateway.routeDaemonFrame('m1', {
+      type: 'sessionOpenUrlResult',
       sessionId,
       requestId: 'open-callback',
-    })
-    expect(m1).toContainEqual({
-      type: 'sessionOpenUrlDismiss',
-      sessionId,
-      requestId: 'open-callback',
+      status: 'completed',
+      resolvedBy: SPOOFED_RESOLVER,
     })
     expect(messages).toContainEqual({
       type: 'sessionOpenUrlResult',
       sessionId,
       requestId: 'open-callback',
+      status: 'completed',
+      resolvedBy: RESOLVER,
+    })
+
+    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-dismiss'))
+    registry.clientGateway.routeClientFrame(clientId, {
+      type: 'sessionOpenUrlDismiss',
+      sessionId,
+      requestId: 'open-dismiss',
+      resolvedBy: SPOOFED_RESOLVER,
+    })
+    expect(m1).toContainEqual({
+      type: 'sessionOpenUrlDismiss',
+      sessionId,
+      requestId: 'open-dismiss',
+      resolvedBy: RESOLVER,
+    })
+    expect(messages).toContainEqual({
+      type: 'sessionOpenUrlResult',
+      sessionId,
+      requestId: 'open-dismiss',
       status: 'dismissed',
+      resolvedBy: RESOLVER,
     })
   })
 

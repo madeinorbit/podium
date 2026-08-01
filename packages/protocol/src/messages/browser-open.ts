@@ -1,4 +1,4 @@
-import { SessionIdField } from '@podium/model'
+import { Attribution, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /** The loopback listener inferred from an authorization URL's redirect_uri. */
@@ -35,6 +35,9 @@ export const SessionOpenUrlCallbackMessage = z.object({
   sessionId: SessionIdField,
   requestId: z.string(),
   url: z.string().min(1).max(16_384),
+  /** Server-stamped from the authenticated browser transport before this frame
+   *  is forwarded to the owning daemon. An inbound value is never trusted. */
+  resolvedBy: Attribution.optional(),
 })
 export type SessionOpenUrlCallbackMessage = z.infer<typeof SessionOpenUrlCallbackMessage>
 
@@ -43,6 +46,9 @@ export const SessionOpenUrlDismissMessage = z.object({
   type: z.literal('sessionOpenUrlDismiss'),
   sessionId: SessionIdField,
   requestId: z.string(),
+  /** Server-stamped from the authenticated browser transport before this frame
+   *  is forwarded to the owning daemon. An inbound value is never trusted. */
+  resolvedBy: Attribution.optional(),
 })
 export type SessionOpenUrlDismissMessage = z.infer<typeof SessionOpenUrlDismissMessage>
 
@@ -54,5 +60,8 @@ export const SessionOpenUrlResultMessage = z.object({
   status: z.enum(['completed', 'failed', 'dismissed', 'expired']),
   error: z.string().optional(),
   httpStatus: z.number().int().min(100).max(599).optional(),
+  /** The authenticated principal that completed, dismissed, or expired this
+   *  request. The server owns this value; daemon/client payload identity loses. */
+  resolvedBy: Attribution.optional(),
 })
 export type SessionOpenUrlResultMessage = z.infer<typeof SessionOpenUrlResultMessage>

@@ -330,6 +330,14 @@ Host traffic (**D2**); intent (login vs link) does not change plane.
 
 Matches current `message-class.ts`: open/result `live`; callback/dismiss `command`.
 
+**Multi-user placement.** The client-facing legs of all four messages are scoped to the
+session room introduced by the ADR 7 amendment, never the global stream set. Until POD-1078
+wires room messages into the post-auth unions, the interim implementation must select
+recipients through the session's principal-scoped visibility view, must not fall back to a
+global broadcast, and must refuse callback/dismiss commands from a principal outside that
+view. Resolution attribution is stamped from the authenticated client transport; a payload
+identity is inert.
+
 ---
 
 ## Drift-refresh clauses (each addressed)
