@@ -23,6 +23,7 @@ import {
   userCommandPrincipal,
 } from './command-principal'
 import { deviceGradeSoleOwner } from './device-grade-owner'
+import { REACTIONS, type ReactionDefinition } from './composition/reactions'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -146,6 +147,8 @@ export interface RegistryModules {
   readToolkit: SessionReadToolkit
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441). */
   issueArtifacts: IssueArtifactStore
+  /** Total operational contract for every semantically asynchronous reaction. */
+  reactions: readonly ReactionDefinition[]
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
    *  exposed here so router procs reach it through the module seam. */
   perf: PerfRegistry
@@ -1720,6 +1723,7 @@ export class SessionRegistry {
       hosts,
       settings,
       headless,
+      reactions: REACTIONS,
       notify,
       issues,
       issueSessionLifecycle,

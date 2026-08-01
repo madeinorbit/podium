@@ -10,7 +10,6 @@ import type {
 } from '@podium/model'
 import { asThreadId, resolveTelegramPrincipal } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import type { EventBus } from '../bus'
@@ -60,10 +59,17 @@ export interface MessagingTopicsPort {
   upsert(row: MessagingIssueTopicRow): void
 }
 
+/** Per-user outbound routing. The bridge never reads a global chat id. */
+export interface MessagingRoutingPort {
+  /** Exactly one current route for this user, or undefined to fail closed. */
+  chatIdForUser(userId: UserId): string | undefined
+}
+
 /** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
 export interface TopicRecapPort {
   getSuperagentThread(threadId: string):
     | {
+        ownerUserId: UserId
         podiumSessionId?: SessionId | null
         originSessionId?: SessionId | null
       }
@@ -77,7 +83,7 @@ export interface TopicRecapPort {
 
 export interface MessagingDeps {
   bus: EventBus
-  getSettings(): PodiumSettings
+  routing: MessagingRoutingPort
   /** The Telegram bot token out of the server-only secret store (POD-419) —
    *  `''` when none is configured. The chat id stays in the blob (per-user
    *  routing); only the material moved. Required, not optional: an omitted
@@ -199,8 +205,8 @@ export class MessagingService implements TelegramNoticePort {
   constructor(private readonly deps: MessagingDeps) {
     deps.bus.on('superagent.turnEnded', (ev) => this.onTurnEnded(ev))
     deps.bus.on('settings.changed', () => this.configure())
-    deps.bus.on('session.stateChanged', ({ sessionId, next }) => {
-      this.onSessionStateChanged(sessionId, next)
+    deps.bus.on('session.stateChanged', ({ sessionId, ownerUserId, next }) => {
+      this.onSessionStateChanged(sessionId, ownerUserId, next)
     })
     deps.bus.on('session.exited', ({ sessionId }) => {
       this.stopAmbientTyping(sessionId)
@@ -235,10 +241,10 @@ export class MessagingService implements TelegramNoticePort {
 
   /** (Re)build the adapter from current settings. Safe to call repeatedly. */
   configure(): void {
-    const n = this.deps.getSettings().notifications
     const botToken = this.deps.telegramBotToken().trim()
-    const chatId = n.telegramChatId.trim()
-    const key = botToken && chatId ? `${botToken}\n${chatId}` : ''
+    const chatIds = [...new Set(this.deps.telegramBindings.list().map((row) => row.chatId))].sort()
+    const chatId = chatIds[0] ?? ''
+    const key = botToken && chatIds.length > 0 ? `${botToken}\n${chatIds.join('\n')}` : ''
     if (key === this.adapterKey) return
     this.clearAllTyping()
     this.adapter?.stop()
@@ -248,7 +254,11 @@ export class MessagingService implements TelegramNoticePort {
     const create =
       this.deps.createTelegram ??
       ((config: { botToken: string; chatId: string }) =>
-        new TelegramChannel(config, this.deps.telegramSetupPending ?? (() => false)))
+        new TelegramChannel(
+          config,
+          this.deps.telegramSetupPending ?? (() => false),
+          (candidate) => resolveTelegramPrincipal(this.deps.telegramBindings.list(), candidate).ok,
+        ))
     this.adapter = create({ botToken, chatId })
     this.adapter.start((msg) => this.onInbound(msg))
     const register = this.deps.registerTelegramCommands ?? registerTelegramCommands
@@ -258,8 +268,7 @@ export class MessagingService implements TelegramNoticePort {
         err instanceof Error ? err.message : err,
       )
     })
-    this.loadTopicMappings(chatId)
-    console.log('[podium:messaging] telegram bridge polling as configured chat', chatId)
+    console.log('[podium:messaging] telegram bridge polling for bound user routes', chatIds)
   }
 
   stop(): void {
@@ -408,7 +417,7 @@ export class MessagingService implements TelegramNoticePort {
     const threadId = resolvedThreadId
     // [spec:SP-62c3] First message after >30min idle → recap BEFORE dispatch.
     if (this.shouldPostInactivityRecap(msg.source)) {
-      await this.postTopicRecap(msg.source, threadId)
+      await this.postTopicRecap(msg.source, threadId, ownerUserId)
     }
     this.touchTopicActivity(msg.source)
     const queue = this.queues.get(threadId) ?? []
@@ -431,10 +440,14 @@ export class MessagingService implements TelegramNoticePort {
    * Last ~3 conversational messages from the bound agent transcript
    * [spec:SP-62c3]. Best-effort: missing deps/session/transcript → silent skip.
    */
-  private async buildTopicRecap(superagentThreadId: string): Promise<string | undefined> {
+  private async buildTopicRecap(
+    superagentThreadId: string,
+    ownerUserId: UserId,
+  ): Promise<string | undefined> {
     const port = this.deps.topicRecap
     if (!port) return undefined
     const thread = port.getSuperagentThread(superagentThreadId)
+    if (!thread || thread.ownerUserId !== ownerUserId) return undefined
     const sessionId = transcriptSessionIdForThread(thread, superagentThreadId)
     if (!sessionId) return undefined
     try {
@@ -453,8 +466,12 @@ export class MessagingService implements TelegramNoticePort {
     }
   }
 
-  private async postTopicRecap(source: ConversationRef, superagentThreadId: string): Promise<void> {
-    const text = await this.buildTopicRecap(superagentThreadId)
+  private async postTopicRecap(
+    source: ConversationRef,
+    superagentThreadId: string,
+    ownerUserId: UserId,
+  ): Promise<void> {
+    const text = await this.buildTopicRecap(superagentThreadId, ownerUserId)
     if (!text) return
     await this.reply(source, text)
     this.touchTopicActivity(source)
@@ -491,15 +508,19 @@ export class MessagingService implements TelegramNoticePort {
 
   /** Ambient typing into the issue's bound forum topic while the agent works
    *  [spec:SP-62c3]. No-op when the session has no bound topic. */
-  private onSessionStateChanged(sessionId: SessionId, next: AgentRuntimeState): void {
-    if (next.phase === 'working') this.startAmbientTyping(sessionId)
+  private onSessionStateChanged(
+    sessionId: SessionId,
+    ownerUserId: UserId | undefined,
+    next: AgentRuntimeState,
+  ): void {
+    if (next.phase === 'working' && ownerUserId) this.startAmbientTyping(sessionId, ownerUserId)
     else this.stopAmbientTyping(sessionId)
   }
 
-  private startAmbientTyping(sessionId: SessionId): void {
+  private startAmbientTyping(sessionId: SessionId, ownerUserId: UserId): void {
     if (this.ambientTypingBySession.has(sessionId)) return
     if (!this.adapter) return
-    const chatId = this.deps.getSettings().notifications.telegramChatId.trim()
+    const chatId = this.deps.routing.chatIdForUser(ownerUserId)?.trim() ?? ''
     if (!chatId) return
     const threadRef = this.noticeThreadRef(chatId, sessionId)
     // Only indicate for sessions with a bound issue topic — never main chat.
@@ -654,7 +675,7 @@ export class MessagingService implements TelegramNoticePort {
       }
       await this.reply(topicRef, opened.text)
       // [spec:SP-62c3] Topic create + issue-button re-tap both post a recap.
-      await this.postTopicRecap(topicRef, opened.superagentThreadId)
+      await this.postTopicRecap(topicRef, opened.superagentThreadId, ownerUserId)
     } catch (err) {
       console.warn('[podium:messaging] callback failed:', err)
       try {

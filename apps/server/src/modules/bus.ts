@@ -79,6 +79,8 @@ export interface EventMap {
    *  [spec:SP-5d81] relays `output` to external chat channels. Fired for EVERY
    *  turn on the thread regardless of who dispatched it (web UI or a bridge). */
   'superagent.turnEnded': {
+    /** Owner of the personal superagent thread; outbound reactions route by it. */
+    ownerUserId?: UserId
     threadId: string
     podiumSessionId: string
     ok: boolean
