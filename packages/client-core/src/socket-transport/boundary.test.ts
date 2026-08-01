@@ -4,23 +4,41 @@ import { describe, expect, it } from 'vitest'
 
 const sourcePath = fileURLToPath(new URL('./socket-hub.ts', import.meta.url))
 const source = readFileSync(sourcePath, 'utf8')
-const executable = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+const portSource = readFileSync(
+  fileURLToPath(new URL('./legacy-feed-port.ts', import.meta.url)),
+  'utf8',
+)
+const moduleSource = `${source}\n${portSource}`
+const executable = moduleSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 
 describe('transport ownership boundary', () => {
-  it('contains no feed cursor, epoch-healing, WATERMARK, or EVICT semantics', () => {
+  it('contains no feed position, healing, WATERMARK, RESCOPE, or EVICT semantics', () => {
     for (const forbidden of [
+      'fetchChangesSince',
+      'initialCursor',
+      'onMetadataApplied',
+      'MetadataAppliedState',
       'metadataCursor',
+      'feedCursor',
+      'feedEpoch',
       'feedStamp',
       'fromExclusive',
       'parseChangesSinceResult',
       'noteFeedStamp',
       'healMetadata',
       'pendingDeltas',
+      'advanceWatermark',
+      'watermarkCursor',
+      'applyRescope',
+      'rescopeCursor',
+      'applyEvict',
+      'deleteEvicted',
     ]) {
       expect(executable, forbidden).not.toContain(forbidden)
     }
     expect(executable).not.toMatch(/\bwatermark\b/i)
     expect(executable).not.toMatch(/\bevict\b/i)
+    expect(moduleSource).not.toMatch(/from ['"]\.\.\/replica(?:\/|['"])/)
   })
 
   it.each([

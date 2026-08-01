@@ -12,7 +12,8 @@ import {
 import type { SyncChangesSinceResult, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { SocketHub, type WebSocketLike } from './socket-hub'
+import { SocketHub, type WebSocketLike } from '../socket-transport/socket-hub'
+import { type LegacyMetadataAppliedState, LegacyWireV1Feed } from './legacy-wire-v1-feed'
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = []
@@ -124,7 +125,11 @@ const snapshot = (
 
 function setup(
   results: Array<SyncChangesSinceResultLenient | Error>,
-  extra: Partial<ConstructorParameters<typeof SocketHub>[0]> = {},
+  extra: {
+    initialCursor?: number | null
+    issuesNormalized?: boolean
+    onMetadataApplied?: (state: LegacyMetadataAppliedState) => void
+  } = {},
 ) {
   const sock = new FakeSocket()
   const calls: Array<number | null> = []
@@ -138,8 +143,12 @@ function setup(
     url: 'ws://x',
     viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => sock,
-    fetchChangesSince,
-    ...extra,
+    issuesNormalized: extra.issuesNormalized,
+    legacyFeed: new LegacyWireV1Feed({
+      fetchChangesSince,
+      initialCursor: extra.initialCursor,
+      applied: extra.onMetadataApplied ?? (() => {}),
+    }),
   })
   return { sock, hub, calls }
 }
@@ -189,7 +198,10 @@ describe('SocketHub metadata delta mode', () => {
       url: 'ws://x',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => opted,
-      fetchChangesSince: async () => snapshot(0),
+      legacyFeed: new LegacyWireV1Feed({
+        fetchChangesSince: async () => snapshot(0),
+        applied: () => {},
+      }),
       issuesNormalized: true,
     })
     hub.connect()
@@ -339,10 +351,13 @@ describe('SocketHub metadata delta mode', () => {
       url: 'ws://x',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
-      fetchChangesSince: () =>
-        new Promise<SyncChangesSinceResult>((r) => {
-          resolveBoot = r
-        }),
+      legacyFeed: new LegacyWireV1Feed({
+        fetchChangesSince: () =>
+          new Promise<SyncChangesSinceResult>((r) => {
+            resolveBoot = r
+          }),
+        applied: () => {},
+      }),
     })
     hub.connect()
     sock.open()

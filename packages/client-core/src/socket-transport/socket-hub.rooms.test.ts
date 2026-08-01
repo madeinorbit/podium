@@ -38,6 +38,24 @@ afterEach(() => {
 })
 
 describe('SocketHub rooms and principal lifecycle', () => {
+  it('registers legacy and canonical feed sinks through the same durable route', () => {
+    const legacyFeed = {
+      bind: vi.fn(),
+      connected: vi.fn(),
+      disconnected: vi.fn(),
+      dispose: vi.fn(),
+      frame: vi.fn(),
+      seed: vi.fn(),
+    }
+    const hub = new SocketHub({
+      url: 'ws://transport.test',
+      viewport,
+      makeSocket: () => new FakeSocket(),
+      legacyFeed,
+    })
+    expect(hub.subscriptionSnapshot()).toEqual([expect.objectContaining({ durability: 'durable' })])
+    hub.dispose()
+  })
   it('shares one durable/lossy registry, maps visibility forward, and never sends identity', () => {
     const socket = new FakeSocket()
     const hub = new SocketHub({

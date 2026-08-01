@@ -9,7 +9,6 @@
 import type { ConfirmationRule } from '@podium/commands'
 import type { SessionId, WorkState } from '@podium/model'
 import { ENQUEUEABLE_DELIVERY, type OutboxCommand } from '@podium/sync/outbox'
-import { type FeedSinkPort, SocketHub } from '../socket-transport'
 import type { PodiumClientApi } from '../api'
 import {
   Outbox,
@@ -19,8 +18,10 @@ import {
   platformOnlineEvents,
 } from '../outbox'
 import { reasonSummary } from '../outbox-recovery-copy'
-import { advanceCursor, identityVerdict } from '../replica/feed'
+import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
+import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import type { Replica } from '../replica/replica'
+import { type FeedSinkPort, SocketHub } from '../socket-transport'
 import type { StoreNotices } from './types'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
@@ -111,13 +112,8 @@ export function createEngineHub(args: {
    * WIRE v2 (POD-1223): when supplied, this hub advertises wire 2 and hands
    * every frame to the kernel Replica's consumer.
    *
-   * THE BRANCH IS TOTAL, and the `else` half is why. The v1 options below are
-   * not merely unnecessary on the feed path — `fetchChangesSince` is REFUSED
-   * alongside `feed` at SocketHub construction, and `onMetadataApplied` would
-   * drive `applySnapshot` into a replica whose kernel facade throws on it. So
-   * this is not "add a field": the two option sets are mutually exclusive, and
-   * they are written as one ternary so no future edit can hand a hub both
-   * halves and discover the refusal at runtime.
+   * The two feed ports are mutually exclusive. Canonical v2 envelopes go to
+   * the supplied Replica sink; wire-v1 gets a Replica-owned compatibility sink.
    */
   feed?: FeedSinkPort
 }): SocketHub {
@@ -135,85 +131,12 @@ export function createEngineHub(args: {
     url: args.wsClientUrl,
     viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
     onError: (message) => args.onFatalError(message),
-    // [POD-856] Offer CAP_ISSUES_NORMALIZED: this client reads issues from the
-    // replica's normalized projections (issueProjection/issueDep/repo joined into
-    // IssueView, D7.3) rather than the embedded IssueWire, so a session change
-    // costs it zero issue-wire work. The server emits the projections
-    // unconditionally as of the POD-856 activation; offering the cap is what makes
-    // the hub POPULATE this client's issueProjections/issueDeps/repos collections
-    // (without it they stay empty and the views have nothing to read).
     issuesNormalized: true,
-    // Opts the hub into metadata delta mode (docs/spec/oplog-read-path.md):
-    // session/issue/conversation updates arrive as per-entity oplog changes,
-    // with (re)connect catch-up healed through this query.
-    fetchChangesSince: (cursor) => api.sync.changesSince.query({ cursor }),
-    // Resume across reloads: the replica's persisted cursor makes the first
-    // catch-up a delta instead of a full snapshot (null on a cold client).
-    initialCursor: replica.getCursor(),
-    // Persist-after-apply: mirror every applied metadata batch into the
-    // replica, entities first, cursor after (replica upholds the ordering).
-    // The batch (#262 review) makes the whole application — bootstrap snapshot,
-    // heal snapshot, or live delta, across all three kinds — atomic from the
-    // engine reactions' viewpoint: row subscribers fire once per kind against
-    // the FINAL state, never against the transient list between applySnapshot's
-    // delete and upsert transactions (which used to trip the worktree fallback
-    // + a spurious URL rewrite).
-    onMetadataApplied: (state) => {
-      // ADR 2 D7 rung 4 — the feed identity is not the one we hold. Judged
-      // BEFORE the install, because the batch about to be installed belongs to a
-      // timeline our rows do not: `seq === cursor + 1` across an epoch bump is a
-      // coincidence, and welding the two together is the exact silent corruption
-      // D1 exists to catch (restore the authority from a backup, and
-      // changesSince answers "up to date" over phantom rows forever).
-      //
-      // The hub still heals on a bare seq (rungs 0/1); this is the identity half,
-      // enforced at the replica seam where the held triple actually lives. POD-796
-      // moves the whole ladder onto the sync path when it cuts the wire over.
-      const held = replica.getFeedCursor()
-      const mismatch = identityVerdict(held, state) === 'mismatch'
-      if (mismatch) {
-        console.warn(
-          `[podium] feed identity changed (${held.feedId}/${held.epoch} → ${state.feedId}/${state.epoch}) — ` +
-            'discarding the replica cache and re-bootstrapping; queued writes are kept',
-        )
-      }
-      // The discard and the install are ONE batch, and that is D7's
-      // "never blank the UI before the replacement state is installed" — not a
-      // micro-optimisation. `resetCache` batches internally, so on its own it
-      // flushes a notification at ZERO rows and every subscriber paints an empty
-      // board for a frame before the real state arrives. Nesting both under one
-      // batch coalesces them into a single wake against the FINAL state, which
-      // is the atomic swap D6 asks for, at this seam.
-      replica.batch(() => {
-        // Discard the CACHE, keep the OUTBOX (D7). The state being installed is
-        // the authority's, taken at the new identity, so it replaces what we
-        // drop in the same turn.
-        if (mismatch) replica.resetCache()
-        replica.applySnapshot('sessions', state.sessions)
-        replica.applySnapshot('issues', state.issues)
-        // The three POD-796/POD-822 kinds ride the same atomic batch [POD-822].
-        // Empty arrays until the authority's flag is on and this client offered
-        // the cap — an empty applySnapshot is the correct rollback (it removes
-        // any rows a previously-enabled flag left behind), and the views read
-        // from these collections regardless of whether they are populated.
-        replica.applySnapshot('issueProjections', state.issueProjections)
-        replica.applySnapshot('issueDeps', state.issueDeps)
-        replica.applySnapshot('repos', state.repos)
-        replica.applySnapshot('conversations', state.conversations)
-        replica.applySnapshot('automations', state.automations)
-        replica.applySnapshot('automationRuns', state.automationRuns)
-      })
-      // The cursor is the TRIPLE (D1). An authority that stamps nothing leaves
-      // the identity we already hold intact rather than blanking it — see
-      // advanceCursor on why blanking loops against a mixed-version authority.
-      replica.setFeedCursor(
-        advanceCursor(replica.getFeedCursor(), {
-          kind: 'snapshot',
-          cursor: state.cursor,
-          stamp: state,
-        }),
-      )
-    },
+    legacyFeed: new LegacyWireV1Feed({
+      fetchChangesSince: (cursor) => api.sync.changesSince.query({ cursor }),
+      initialCursor: replica.getCursor(),
+      applied: (state) => applyLegacyMetadataState(replica, state),
+    }),
   })
 }
 

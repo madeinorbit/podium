@@ -5,7 +5,7 @@
  * WHY TWO CONNECTIONS, AND WHY THAT IS NOT AN IMPLEMENTATION DETAIL
  * ---------------------------------------------------------------------------
  *
- * `SocketHub` refuses `feed` together with `fetchChangesSince` at construction:
+ * `SocketHub` accepts exactly one opaque feed sink per connection:
  * the two are the same read served by two wire versions, and one hub holding
  * both would apply v1 lists and v2 frames onto one client. That refusal is what
  * forces this shape — and the shape is the point. If one hub could hold both,
@@ -52,6 +52,7 @@
 import {
   createReplica,
   entityForKind,
+  LegacyWireV1Feed,
   memoryStorage,
   type Replica,
 } from '@podium/client-core/replica'
@@ -132,17 +133,19 @@ export function startShadowComparison(options: ShadowRunnerOptions): ShadowRunne
       // is an observer. It surfaces as could-not-sample instead, which fails
       // the gate without breaking the session.
     },
-    fetchChangesSince: (cursor) => options.trpc.sync.changesSince.query({ cursor }),
-    onMetadataApplied: (state) => {
-      legacy.batch(() => {
-        legacy.applySnapshot('sessions', state.sessions)
-        legacy.applySnapshot('issues', state.issues)
-        legacy.applySnapshot('conversations', state.conversations)
-        legacy.applySnapshot('automations', state.automations)
-        legacy.applySnapshot('automationRuns', state.automationRuns)
-      })
-      legacy.setCursor(state.cursor)
-    },
+    legacyFeed: new LegacyWireV1Feed({
+      fetchChangesSince: (cursor) => options.trpc.sync.changesSince.query({ cursor }),
+      applied: (state) => {
+        legacy.batch(() => {
+          legacy.applySnapshot('sessions', state.sessions)
+          legacy.applySnapshot('issues', state.issues)
+          legacy.applySnapshot('conversations', state.conversations)
+          legacy.applySnapshot('automations', state.automations)
+          legacy.applySnapshot('automationRuns', state.automationRuns)
+        })
+        legacy.setCursor(state.cursor)
+      },
+    }),
   })
 
   let posture: string = 'cold'

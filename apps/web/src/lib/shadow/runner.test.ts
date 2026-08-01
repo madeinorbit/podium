@@ -5,8 +5,7 @@ import type { Trpc } from '@/app/trpc'
 import { type ShadowReport, startShadowComparison } from './runner'
 
 /** The second connection, faked at the SocketHub seam. The test drives
- *  `onMetadataApplied` directly, which is exactly what the real v1 hub does
- *  after it applies a batch. */
+ *  the Replica adapter's applied hook directly, matching the real wire-v1 path. */
 interface FakeHub {
   hub: SocketHub
   applyMetadata(state: {
@@ -25,20 +24,19 @@ interface FakeHub {
 function fakeHubFactory(): { create: (opts: never) => SocketHub; get(): FakeHub } {
   let made: FakeHub | undefined
   const create = (opts: {
-    onMetadataApplied?: (state: never) => void
-    fetchChangesSince?: unknown
+    legacyFeed?: { hooks?: { applied?: (state: never) => void } }
     feed?: unknown
   }): SocketHub => {
     // The harness must never build a hub that holds both wire versions — the
     // real SocketHub refuses it at construction, and a fake that quietly
     // accepted both would hide a regression the real one would catch.
     expect(opts.feed).toBeUndefined()
-    expect(opts.fetchChangesSince).toBeDefined()
+    expect(opts.legacyFeed).toBeDefined()
     const state: FakeHub = {
       connected: false,
       disposed: false,
       health: 'ok',
-      applyMetadata: (s) => opts.onMetadataApplied?.(s as never),
+      applyMetadata: (s) => opts.legacyFeed?.hooks?.applied?.(s as never),
       hub: {
         connect: () => {
           state.connected = true
