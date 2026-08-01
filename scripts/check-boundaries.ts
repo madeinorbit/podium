@@ -1250,8 +1250,10 @@ function main(): void {
   const start = performance.now()
   const { violations, manifest } = runCheck(repoRoot)
   if (process.argv.includes('--probe')) {
-    const equality = ['=', '=', '='].join('')
-    const probeSource = `const agentKind = input.agentKind\nif (agentKind ${equality} 'codex') return`
+    const probeSource = readFileSync(
+      join(repoRoot, 'scripts/fixtures/harness-axiom-probe.ts.txt'),
+      'utf8',
+    )
     manifest.push(
       ...checkManifestFile(
         'packages/pty/src/__harness-axiom-probe.ts',
