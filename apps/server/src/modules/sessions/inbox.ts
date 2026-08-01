@@ -10,25 +10,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type {
-  ActorRef,
-  AgentRuntimeState,
-  Attribution,
-  SessionId,
-  UserId,
-} from '@podium/model'
-import {
-  actorAgent,
-  actorSystem,
-  actorUser,
-  asAgentIdentityId,
-  asUserId,
-} from '@podium/model'
+import type { ActorRef, AgentRuntimeState, Attribution, SessionId, UserId } from '@podium/model'
+import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asUserId } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
-import {
-  asDelegationRef,
-  type DelegationRef,
-} from '@podium/protocol'
+import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -59,9 +44,7 @@ export interface InboxPrincipalReference {
   readonly delegation: DelegationRef | null
 }
 
-export const inboxPrincipalFromCommand = (
-  principal: CommandPrincipal,
-): InboxPrincipalReference => {
+export const inboxPrincipalFromCommand = (principal: CommandPrincipal): InboxPrincipalReference => {
   switch (principal.kind) {
     case 'user':
       return {
@@ -154,11 +137,7 @@ export interface InboxAttentionPort {
     next: AgentRuntimeState
     observation?: AgentObservation
   }): void
-  answered(input: {
-    ownerUserId: UserId
-    sessionId: SessionId
-    attribution: Attribution
-  }): void
+  answered(input: { ownerUserId: UserId; sessionId: SessionId; attribution: Attribution }): void
 }
 
 export interface SessionInboxDeps {
@@ -200,9 +179,11 @@ export class SessionInbox {
     return this.typeText(input)
   }
 
-  resumeAndSend(
-    input: InboxSendInput & { mutationId?: string },
-  ): { ok: boolean; queued?: boolean; reason?: string } {
+  resumeAndSend(input: InboxSendInput & { mutationId?: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status === 'live' && session.queuedMessageCount === 0) return this.sendText(input)
@@ -220,9 +201,11 @@ export class SessionInbox {
     return { ok: true }
   }
 
-  queueText(
-    input: InboxSendInput & { mutationId?: string },
-  ): { ok: boolean; queued?: boolean; reason?: string } {
+  queueText(input: InboxSendInput & { mutationId?: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     const parked = session.status === 'hibernated' || session.status === 'exited'
@@ -425,14 +408,18 @@ export class SessionInbox {
     this.deps.getSession(sessionId)?.reconcileGeometry(client.id)
   }
 
-  private typeText(input: InboxSendInput & { recordSend?: boolean }, afterEsc = false): { ok: boolean } {
+  private typeText(
+    input: InboxSendInput & { recordSend?: boolean },
+    afterEsc = false,
+  ): { ok: boolean } {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
     if (!afterEsc && session.agentState?.phase === 'needs_user') return { ok: false }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    if (input.recordSend !== false) this.deps.prepareSend(input.sessionId, principal.attribution, 'text')
+    if (input.recordSend !== false)
+      this.deps.prepareSend(input.sessionId, principal.attribution, 'text')
     const baseline = session.transcriptItems().filter((item) => item.role === 'user').length
     this.sendInput(
       session,
@@ -461,7 +448,9 @@ export class SessionInbox {
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return
       const phase = session.agentState?.phase
       if (phase !== undefined && phase !== 'idle') return
-      if (session.transcriptItems().filter((item) => item.role === 'user').length > baselineUserTurns)
+      if (
+        session.transcriptItems().filter((item) => item.role === 'user').length > baselineUserTurns
+      )
         return
       this.sendInput(session, '\r', 'controller', attribution)
       if (attempt < SUBMIT_MAX_RETRIES) {
@@ -499,10 +488,7 @@ export const inboxActorColumns = (
   }
 }
 
-export const inboxActorFromColumns = (
-  kind: 'user' | 'agent' | 'system',
-  id: string,
-): ActorRef => {
+export const inboxActorFromColumns = (kind: 'user' | 'agent' | 'system', id: string): ActorRef => {
   switch (kind) {
     case 'user':
       return actorUser(asUserId(id))
@@ -512,4 +498,3 @@ export const inboxActorFromColumns = (
       return actorSystem(id)
   }
 }
-

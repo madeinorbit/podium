@@ -1,4 +1,14 @@
-import type { AgentKind, AgentRuntimeState, ConversationSummaryWire, HostMetricsWire, IssueWire, SessionId, SessionMeta, TranscriptItem, UserId } from '@podium/model'
+import type {
+  AgentKind,
+  AgentRuntimeState,
+  ConversationSummaryWire,
+  HostMetricsWire,
+  IssueWire,
+  SessionId,
+  SessionMeta,
+  TranscriptItem,
+  UserId,
+} from '@podium/model'
 import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
 
 /**

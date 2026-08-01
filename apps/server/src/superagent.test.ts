@@ -376,9 +376,25 @@ describe('session-steering tool belt (issue #62)', () => {
         })
       return sessionId
     }
+    const answer = (input: { sessionId: string; answer: string }) => {
+      const threadId = asThreadId('answer_test')
+      if (!registry.sessionStore.superagent.getSuperagentThread(threadId)) {
+        const { sessionId } = registry.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/w',
+          spawnedBy: `superagent:${threadId}`,
+        })
+        registry.sessionStore.superagent.upsertSuperagentThread({ id: threadId, kind: 'global' })
+        registry.sessionStore.superagent.updateSuperagentThreadBinding(threadId, {
+          podiumSessionId: sessionId,
+        })
+      }
+      return sa.callMcpTool('answer_question', input, threadId)
+    }
+
     const metaOf = (id: string) =>
       registry.modules.sessions.listSessions().find((s) => s.sessionId === id)
-    return { registry, sa, inputs, spawn, metaOf }
+    return { registry, sa, inputs, spawn, answer, metaOf }
   }
 
   const askItem = (multiSelect = false): TranscriptItem =>
@@ -408,7 +424,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
     markPending(h, sessionId)
-    const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'No' })
+    const out = await h.answer({ sessionId, answer: 'No' })
     expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [2] }] })
     expect(h.inputs).toContain('2')
   })
@@ -417,7 +433,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ transcriptItems: [askItem(true)] })
     const sessionId = h.spawn(true)
     markPending(h, sessionId)
-    const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: '1,3,3' })
+    const out = await h.answer({ sessionId, answer: '1,3,3' })
     expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [1, 3] }] })
     expect(h.inputs).toContain('1,3\r')
   })
@@ -433,13 +449,13 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId: asSessionId(sessionId),
       state: st('working'),
     })
-    const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' })
+    const out = await h.answer({ sessionId, answer: 'Yes' })
     expect(out).toBe('no pending question (phase=working)')
     expect(h.inputs).toEqual([]) // zero PTY input
     // No agentState at all (phase unknown) is refused the same way.
     const h2 = harness({ transcriptItems: [askItem()] })
     const s2 = h2.spawn(true)
-    expect(await h2.sa.callMcpTool('answer_question', { sessionId: s2, answer: 'Yes' })).toBe(
+    expect(await h2.answer({ sessionId: s2, answer: 'Yes' })).toBe(
       'no pending question (phase=unknown)',
     )
   })
@@ -448,7 +464,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ transcriptItems: [askItem(false)] })
     const sessionId = h.spawn(true)
     markPending(h, sessionId)
-    const out = JSON.parse(await h.sa.callMcpTool('answer_question', { sessionId, answer: '1,3' }))
+    const out = JSON.parse(await h.answer({ sessionId, answer: '1,3' }))
     expect(out).toEqual({
       answered: true,
       choices: [{ optionIndices: [1] }],
@@ -474,7 +490,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ transcriptItems: [tenOptions] })
     const sessionId = h.spawn(true)
     markPending(h, sessionId)
-    const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: '10' })
+    const out = await h.answer({ sessionId, answer: '10' })
     expect(out).toMatch(/option 10 is beyond the native menu's 1-9 range/)
     expect(h.inputs).toEqual([]) // nothing typed — no false success
   })
@@ -483,23 +499,31 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
     markPending(h, sessionId)
-    expect(await h.sa.callMcpTool('answer_question', { sessionId, answer: 'maybe' })).toMatch(
+    expect(await h.answer({ sessionId, answer: 'maybe' })).toMatch(
       /could not match "maybe".*1\) Yes, 2\) No, 3\) Later/,
     )
     // Phase says pending but the tail has no structured prompt to answer from.
     const empty = harness()
     const s2 = empty.spawn(true)
     markPending(empty, s2)
-    expect(await empty.sa.callMcpTool('answer_question', { sessionId: s2, answer: 'Yes' })).toMatch(
+    expect(await empty.answer({ sessionId: s2, answer: 'Yes' })).toMatch(
       /no pending AskUserQuestion/,
     )
   })
 
   it('answer_question rejects an unknown session', async () => {
     const h = harness()
+    expect(await h.answer({ sessionId: asSessionId('nope'), answer: '1' })).toBe('unknown session')
+  })
+
+  it('answer_question fails closed without a bound transport identity', async () => {
+    const h = harness({ transcriptItems: [askItem()] })
+    const sessionId = h.spawn(true)
+    markPending(h, sessionId)
     expect(
-      await h.sa.callMcpTool('answer_question', { sessionId: asSessionId('nope'), answer: '1' }),
-    ).toBe('unknown session')
+      await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' }),
+    ).toBe('failed: answer caller identity unavailable')
+    expect(h.inputs).toEqual([])
   })
 
   it('resume_and_send accepts a message for a not-yet-live session (durable queue)', async () => {

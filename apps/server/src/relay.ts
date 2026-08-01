@@ -315,14 +315,14 @@ export class SessionRegistry {
     })
     const notify = new NotifyService(
       {
-      // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
-      // preferences, which no longer live on the instance blob — an unresolved
-      // read would see the model's defaults instead of the operator's choices.
-      // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
-      // `IssueService.broadcastViewer` uses: this build's transport cannot name
-      // a person (one shared password), so the sole account is the only true
-      // answer, and POD-315/POD-1077 replace the argument rather than finding a
-      // hidden read.
+        // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
+        // preferences, which no longer live on the instance blob — an unresolved
+        // read would see the model's defaults instead of the operator's choices.
+        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
+        // `IssueService.broadcastViewer` uses: this build's transport cannot name
+        // a person (one shared password), so the sole account is the only true
+        // answer, and POD-315/POD-1077 replace the argument rather than finding a
+        // hidden read.
         getSettings: (ownerUserId = FIRST_ADMIN_USER_ID) =>
           this.store.settings.getSettingsFor(ownerUserId),
         // POD-419: out of the server-only keyed store, read at the moment of use.
@@ -343,7 +343,7 @@ export class SessionRegistry {
             state: s.agentState,
             ownerUserId: FIRST_ADMIN_USER_ID,
           })),
-        notificationsEnabled: () => featureEnabled("notifications"),
+        notificationsEnabled: () => featureEnabled('notifications'),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
@@ -456,14 +456,19 @@ export class SessionRegistry {
       // Tray answer delivery (issue #53): the shared answer_question matching
       // path, with text fallback — no live menu means the answer arrives as a
       // normal chat message (resumeAndSend wakes a parked session).
-      answerSessionQuestion: async (sessionId, answer) => {
+      answerSessionQuestion: async (sessionId, answer, caller) => {
         const r = await deliverAnswerToSession(
           {
             getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
             sessions: sessionsSvc,
             rpc,
           },
-          { sessionId, answer, textFallback: true },
+          {
+            sessionId,
+            answer,
+            principal: sessionsSvc.inboxPrincipalForCapability(caller.capability),
+            textFallback: true,
+          },
         )
         return r.ok ? { ok: true, via: r.via } : r
       },
@@ -1090,8 +1095,7 @@ export class SessionRegistry {
       now: () => this.now(),
       bus: this.bus,
       authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
-      rejectQueuedMessage: (messageId, reason) =>
-        messagesSvc.rejectQueuedInput(messageId, reason),
+      rejectQueuedMessage: (messageId, reason) => messagesSvc.rejectQueuedInput(messageId, reason),
       funnel,
       clients: clientRegistry,
       disconnectClient: (id) => this.clientGateway.detachClient(id),

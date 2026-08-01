@@ -10,11 +10,7 @@ import { asDelegationRef } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { deviceClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
-import {
-  type InboxPrincipalReference,
-  type QueuedInboxMessage,
-  SessionInbox,
-} from './inbox'
+import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
 import type { Session } from './session'
 
 const SID = asSessionId('session-target')
@@ -63,9 +59,7 @@ function harness(options: { owner?: typeof ALICE | null; status?: string } = {})
         return true
       },
       list: (id) =>
-        rows
-          .filter((row) => row.sessionId === id)
-          .sort((a, b) => a.queuedAt - b.queuedAt),
+        rows.filter((row) => row.sessionId === id).sort((a, b) => a.queuedAt - b.queuedAt),
       bumpAttempts: (id) => {
         const row = rows.find((candidate) => candidate.id === id)
         if (row) row.attempts += 1

@@ -225,9 +225,7 @@ export class SyncRepository {
   }
 
   /** FIFO head-first queue for one session. */
-  listQueuedMessages(
-    sessionId: string,
-  ): {
+  listQueuedMessages(sessionId: string): {
     id: string
     text: string
     attempts: number

@@ -64,6 +64,13 @@ function settle(reg: SessionRegistry, sessionId: string): void {
       sessionId: asSessionId(sessionId),
       seq: seq++,
       data: 'eA==',
+    })
+    vi.advanceTimersByTime(200)
+  }
+  vi.advanceTimersByTime(1400)
+}
+
+describe('queueText (durable outbox sends)', () => {
   it('rejects an offline queued agent write when its human is revoked before drain', async () => {
     vi.useFakeTimers()
     try {
@@ -131,14 +138,6 @@ function settle(reg: SessionRegistry, sessionId: string): void {
       vi.useRealTimers()
     }
   })
-    })
-    vi.advanceTimersByTime(200)
-  }
-  vi.advanceTimersByTime(1400)
-}
-
-
-describe('queueText (durable outbox sends)', () => {
   it('wakes a hibernated resumable session, shows the count, and delivers exactly once after bind + settle', async () => {
     vi.useFakeTimers()
     try {
@@ -148,7 +147,9 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
-      expect(reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' })).toEqual({
+      expect(
+        reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -272,14 +273,17 @@ describe('queueText (durable outbox sends)', () => {
       const daemonA: ControlMessage[] = []
       regA.gateway.attachDaemon('local', (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
-      expect(regA.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'survive-restart' })).toEqual({
+      expect(
+        regA.modules.sessions.queueText({
+          sessionId: asSessionId(sessionId),
+          text: 'survive-restart',
+        }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
 
-      await vi.waitFor(() =>
-        expect(daemonA.some((message) => message.type === 'spawn')).toBe(true),
-      )
+      await vi.waitFor(() => expect(daemonA.some((message) => message.type === 'spawn')).toBe(true))
       expect(pastesContaining(daemonA, 'survive-restart')).toHaveLength(0)
       regA.dispose()
       storeA.close()
@@ -387,7 +391,10 @@ describe('queueText (durable outbox sends)', () => {
     })
     const before = inbox.length
 
-    reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'queued-while-parked' })
+    reg.modules.sessions.queueText({
+      sessionId: asSessionId(sessionId),
+      text: 'queued-while-parked',
+    })
     reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
     const changes = inbox
@@ -404,7 +411,11 @@ describe('queueText (durable outbox sends)', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
-    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId: asSessionId(sessionId), until: null })
+    reg.modules.sessions.setSnooze({
+      userId: SOLE_USER_ID,
+      sessionId: asSessionId(sessionId),
+      until: null,
+    })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
     reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })

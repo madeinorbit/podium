@@ -697,11 +697,8 @@ export class SessionsService {
     }
 
     if (
-      ownership.owner !==
-        (principal.kind === 'user' ? principal.user : principal.onBehalfOf) &&
-      !ownership.grants.includes(
-        principal.kind === 'user' ? principal.user : principal.onBehalfOf,
-      )
+      ownership.owner !== (principal.kind === 'user' ? principal.user : principal.onBehalfOf) &&
+      !ownership.grants.includes(principal.kind === 'user' ? principal.user : principal.onBehalfOf)
     ) {
       return refused
     }
@@ -712,25 +709,22 @@ export class SessionsService {
       return refused
     }
 
-    // Message rows already passed their command gate and retain that intent by
-    // source reference. Direct queued commands re-run the ordinary scope gate.
-    if (!input.sourceMessageId) {
-      const access = {
-        listSessions: () => this.listSessions(),
-        issues: this.issues(),
-        visibility: () => true,
-      }
-      const resolved = resolveSessionTarget(principal, input.sessionId, access)
-      if (resolved.kind === 'absent') return refused
-      try {
-        assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access)
-      } catch {
-        return refused
-      }
+    // Every apply — including outbox replay — re-runs the ordinary session
+    // scope gate. The source message proves intent and ordering, never rights.
+    const access = {
+      listSessions: () => this.listSessions(),
+      issues: this.issues(),
+      visibility: () => true,
+    }
+    const resolved = resolveSessionTarget(principal, input.sessionId, access)
+    if (resolved.kind === 'absent') return refused
+    try {
+      assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access)
+    } catch {
+      return refused
     }
     return { ok: true }
   }
-
 
   private issues(): IssueService {
     return this.deps.issues()
@@ -1896,6 +1890,28 @@ export class SessionsService {
       : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId }
   }
 
+  /**
+   * Server-stamped inbox identity for an authenticated capability. The
+   * delegation chain and owning human are read from live session rows each time;
+   * callers receive only the opaque reference that the inbox persists.
+   */
+  inboxPrincipalForCapability(capability: Capability): InboxPrincipalReference {
+    return inboxPrincipalFromCommand(
+      resolvePrincipal(capability, {
+        parentSessionOf: (sessionId) =>
+          sessionSpawnerParentId(this.sessions.get(sessionId)?.spawnedBy),
+        onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
+      }),
+    )
+  }
+
+  /** In-process agent identity; absence fails closed instead of inventing one. */
+  inboxPrincipalForSession(sessionId: SessionId): InboxPrincipalReference | undefined {
+    return this.sessions.has(sessionId)
+      ? this.inboxPrincipalForCapability(this.capabilityForSession(sessionId))
+      : undefined
+  }
+
   async resumeSession(input: {
     agentKind: AgentKind
     cwd: string
@@ -2299,9 +2315,11 @@ export class SessionsService {
     this.toMachine(machineId, { type: 'draftTarget', sessionId, text: doc.text })
   }
 
-  queueText(
-    input: InboxSendInput & { mutationId?: string },
-  ): { ok: boolean; queued?: boolean; reason?: string } {
+  queueText(input: InboxSendInput & { mutationId?: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
     return this.inbox.queueText(input)
   }
 
@@ -3324,9 +3342,11 @@ export class SessionsService {
    * composer accept a message on a sleeping agent instead of refusing input —
    * the message itself becomes the reason to wake.
    */
-  resumeAndSend(
-    input: InboxSendInput & { mutationId?: string },
-  ): { ok: boolean; queued?: boolean; reason?: string } {
+  resumeAndSend(input: InboxSendInput & { mutationId?: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
     return this.inbox.resumeAndSend(input)
   }
 
@@ -4305,8 +4325,11 @@ export class SessionsService {
         )
         break
       case 'requestControl':
-        this.mutateSessionView(msg.sessionId, () =>
-          this.inbox.requestControl(principal, client, msg.sessionId), false)
+        this.mutateSessionView(
+          msg.sessionId,
+          () => this.inbox.requestControl(principal, client, msg.sessionId),
+          false,
+        )
         this.broadcastSessions()
         break
       case 'redrawRequest':
@@ -4336,8 +4359,7 @@ export class SessionsService {
         // it renders these sessions, re-apply its last viewport where it's controller
         // — otherwise the PTY stays stuck at the 80x24 default (quarter-size window).
         for (const sid of client.viewVisible) {
-          this.mutateSessionView(sid, () =>
-            this.inbox.reconcileGeometry(principal, client, sid))
+          this.mutateSessionView(sid, () => this.inbox.reconcileGeometry(principal, client, sid))
         }
         this.pushPriorities()
         this.reprioritizePreparedSessionPublications()

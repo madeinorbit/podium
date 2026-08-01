@@ -292,9 +292,20 @@ export function buildSuperagentTools(
         // The menu gate + option matching live in answer-delivery.ts (issue #53),
         // shared with the web-callable issues.answerQuestion. Menu-only here: no
         // textFallback — this tool's contract is the native menu or a refusal.
+        const actorSessionId = threadId
+          ? store.superagent.getSuperagentThread(threadId)?.podiumSessionId
+          : undefined
+        const principal = actorSessionId
+          ? sessions.inboxPrincipalForSession(actorSessionId)
+          : undefined
+        if (!principal) return 'failed: answer caller identity unavailable'
         const r = await deliverAnswerToSession(
           { getSession, sessions, rpc },
-          { sessionId: sessionIdArg(args.sessionId), answer: str(args.answer) ?? '' },
+          {
+            sessionId: sessionIdArg(args.sessionId),
+            answer: str(args.answer) ?? '',
+            principal,
+          },
         )
         if (!r.ok) return r.message
         if (r.via !== 'menu') return 'failed: unexpected delivery path' // unreachable without textFallback

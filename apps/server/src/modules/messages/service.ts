@@ -177,7 +177,6 @@ export type MessageSender = MessageSenderIdentity & {
   readonly delegationRef?: string | null
 }
 
-
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
   body: string
