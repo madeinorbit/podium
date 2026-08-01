@@ -1008,8 +1008,7 @@ export const CHECKS: AuditCheck[] = [
         // into "0 sites = twins deleted, POD-324 clear to close" — the phantom
         // zero this audit exists to prevent. POD-397 adds packages/harness here
         // if any durable-host twin ever lands there.
-        const inDurableHostHome =
-          f.file.startsWith('packages/pty/src/')
+        const inDurableHostHome = f.file.startsWith('packages/pty/src/')
         if (!inDurableHostHome || f.isTest) continue
         durableHostFiles++
         for (const twin of twinLines(f.stripped.split('\n'))) {
@@ -1177,7 +1176,7 @@ export const CHECKS: AuditCheck[] = [
     unit: 'piece of dirty-set state kept solely to skip the session-driven issue rebuild',
     collect: (ctx) => [
       ...grep(ctx, {
-        roots: ['apps/server/src/modules/sessions/service.ts'],
+        roots: ['apps/server/src/modules/sessions/lifecycle.ts'],
         pattern: /private (?:last)?[iI]ssueProjectionGeneration\b/,
       }),
       ...grep(ctx, {

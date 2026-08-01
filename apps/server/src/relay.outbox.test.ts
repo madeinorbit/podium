@@ -11,7 +11,12 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef, type ControlMessage, type MetadataChange, type ServerMessage } from '@podium/protocol'
+import {
+  asDelegationRef,
+  type ControlMessage,
+  type MetadataChange,
+  type ServerMessage,
+} from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
@@ -437,7 +442,7 @@ describe('queueText (durable outbox sends)', () => {
 /**
  * FRAMEWORK IDEMPOTENCY as the REGISTRY exposes it (POD-382).
  *
- * These cases were written against `SessionsService.withMutation` and now run
+ * These cases were written against `SessionLifecycle.withMutation` and now run
  * against `modules.mutations` — `@podium/sync`'s `MutationLedger`, the one
  * implementation — over the SAME durable table. Renamed rather than duplicated:
  * a case left wearing the old name would claim a wrapper that no longer exists.

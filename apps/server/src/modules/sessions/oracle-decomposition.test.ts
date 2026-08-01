@@ -122,14 +122,14 @@ describe('oracle: two-user SessionService fixture', () => {
     ])
   })
 
-  it(`${provisional('readiness-3.1.1', 'session ownership has not reached the session row')}: legacy-owned sessions fail closed for an unrelated narrow viewer`, () => {
+  it(`${MUST_NOT_CHANGE}: binding-owned sessions persist each human owner and remain private to the other viewer`, () => {
     const f = twoUserOracle()
     expect(f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
-      owner: FIRST_ADMIN_USER_ID,
+      owner: ALICE,
       grants: [],
     })
     expect(f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({
-      owner: FIRST_ADMIN_USER_ID,
+      owner: BOB,
       grants: [],
     })
     const narrowBob: SessionStatePrincipal = {
@@ -141,7 +141,7 @@ describe('oracle: two-user SessionService fixture', () => {
         .listSessions(narrowBob)
         .map((session) => session.sessionId)
         .sort(),
-    ).toEqual([])
+    ).toEqual([f.bob.sessionId])
   })
 })
 
@@ -352,7 +352,7 @@ describe('oracle: queued sends re-authorize at drain', () => {
 })
 
 describe('oracle: native identity receipts', () => {
-  it(`${provisional('readiness-3.1.3-A4', 'receipt owner still comes from the user:sole session ownership answer')}: an exact Codex identity is persisted before the owner-scoped ack, and a Bob binding still receives user:sole`, () => {
+  it(`${MUST_NOT_CHANGE}: an exact Codex identity is persisted before the owner-scoped ack, and a Bob binding receives Bob`, () => {
     const f = twoUserOracle()
     f.o.daemon.length = 0
 
@@ -372,7 +372,7 @@ describe('oracle: native identity receipts', () => {
       type: 'sessionResumeRefAck',
       sessionId: f.bob.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-bob' },
-      ownerId: FIRST_ADMIN_USER_ID,
+      ownerId: BOB,
     })
   })
 })

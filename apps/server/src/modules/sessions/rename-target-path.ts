@@ -67,7 +67,7 @@ import { authorize, type AuthTarget, type SessionId, type UserId } from '@podium
 import type { CommandPrincipal } from '../../command-principal'
 import { onBehalfOfUser } from '../../command-principal'
 import type { MutationLedgerPort } from '@podium/sync'
-import type { SessionsService } from './service'
+import type { SessionLifecycle } from './lifecycle'
 
 /** The transports this command may arrive on. Checked against the CONTRACT's
  *  declared exposure, never against a local allowlist that could drift from it. */
@@ -79,7 +79,7 @@ export type RenameTransport = 'trpc' | 'outbox' | 'cli' | 'mcp' | 'relay' | 'pee
  * drifting.
  */
 export type RenameServices = Pick<
-  SessionsService,
+  SessionLifecycle,
   'renameSession' | 'setAgentName' | 'sessionOwner'
 >
 
@@ -178,7 +178,7 @@ function mayWrite(principal: CommandPrincipal, target: AuthTarget): boolean {
  * (POD-1172, closed by POD-1075).
  *
  * This is where a `samePrincipal` bridge used to live. `SOLE_USER_ID`
- * (`'user:sole'`, what `SessionsService.sessionOwner` stamps as every session's
+ * (`'user:sole'`, what `SessionLifecycle.sessionOwner` stamps as every session's
  * owner) and `INSTANCE_OWNER` (`'instance-owner'`, what `resolvePrincipal`
  * minted as every human's `UserId`) both named the instance's one pre-accounts
  * human and DISAGREED. Each was internally consistent, so nothing ever put one

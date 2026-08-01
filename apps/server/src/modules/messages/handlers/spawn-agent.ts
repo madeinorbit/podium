@@ -2,7 +2,7 @@
  * Handler for the `mail.spawnAgent` contract (L3).
  *
  * `podium agent spawn`: a full Podium session on the target issue, via the ONE
- * spawn path (SessionsService.createSession). The caller becomes the child's
+ * spawn path (SessionLifecycle.createSession). The caller becomes the child's
  * parent (`spawnedBy 'session:<id>'`) — which is what unlocks the parent-grade
  * clamps (interrupt + wake) the clamp matrix already implements. No issue is
  * EVER auto-created: `newTitle` is the explicit --new path.

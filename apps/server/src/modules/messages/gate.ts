@@ -43,7 +43,7 @@ export interface MessageGateDeps {
   issues(): IssueService
   listSessions(): SessionMeta[]
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
-   *  SessionsService.createSession, the one spawn path. Absent = spawn proc
+   *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
   spawnSession?(input: {
     ownerUserId: UserId

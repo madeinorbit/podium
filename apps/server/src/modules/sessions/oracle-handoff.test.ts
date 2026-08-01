@@ -14,7 +14,7 @@ import { asSessionId, FIRST_ADMIN_USER_ID, type RepoId, type SessionId } from '@
  * SECOND REAL MACHINE reachable over the tailnet and is a hand-driven script,
  * not a lane — it cannot run in the hermetic unit lane and there is no human in
  * this run to drive it. These tests instead run two paired machines with
- * SCRIPTED daemons against the real SessionsService, which is where the
+ * SCRIPTED daemons against the real SessionLifecycle, which is where the
  * orchestration being characterized actually lives (the daemons only answer
  * export/import/repoOp RPCs). The real-hardware transfer path — bundle apply,
  * git worktree add, credential install — stays the iso harness's job.
@@ -596,7 +596,10 @@ describe('oracle: mid-transfer crash', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }, TEST_CALLER),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          TEST_CALLER,
+        ),
       ),
     ).toBe('source binding finalize crashed')
 
@@ -685,7 +688,10 @@ describe('oracle: mid-transfer crash', () => {
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }, TEST_CALLER),
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          TEST_CALLER,
+        ),
       ),
     ).toBe("you do not have access to run agents on machine 'target'")
 

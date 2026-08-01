@@ -138,7 +138,7 @@ export class IssuePublisher implements IssuePublishSpecs {
    *  write of their own (session churn re-derives member data, staleness flips).
    *
    *  Under POD-796 the session-churn caller is gone on the new path: a session
-   *  change cannot dirty an `IssueProjection`, so SessionsService skips this
+   *  change cannot dirty an `IssueProjection`, so SessionLifecycle skips this
    *  entirely once every connected client reads the normalized shape (see
    *  `runSessionsBroadcast`). What still arrives here is the genuinely
    *  issue-shaped write-less churn — staleness flips and hub-mirror sets. */

@@ -2,7 +2,7 @@
  * THE CLIENT CONNECTION REGISTRY — the subscription set, and the one place a
  * byte reaches a browser socket (POD-390, under POD-317's gateway).
  *
- * `ClientConn` and the map holding them used to be `SessionsService.clients`:
+ * `ClientConn` and the map holding them used to be `SessionLifecycle.clients`:
  * one feature owned the socket set that machines, hosts, issues, conversations
  * and drafts all fan out through (`relay.ts` even hands `sessionsSvc.clients`
  * to the machines service). The record holds the SOCKET — `send` closes over a
@@ -187,7 +187,7 @@ export class ClientRegistry {
 
   /**
    * Raw fan-out to EVERY connected client, in insertion order — the mechanism
-   * behind `SessionsService.broadcastToClients`, moved unchanged. No filtering
+   * behind `SessionLifecycle.broadcastToClients`, moved unchanged. No filtering
    * beyond `exceptClientId`, which is the pre-existing draft-echo suppression.
    */
   broadcast(msg: ServerMessage, opts: ClientBroadcastOptions = {}): void {

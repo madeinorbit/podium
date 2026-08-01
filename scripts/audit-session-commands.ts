@@ -297,7 +297,7 @@ const CONTRACT_TABLES = [
   'packages/commands/src/sessions/session-state-commands.ts',
   'packages/commands/src/sessions/command-plane.ts',
 ]
-const SERVICE = 'apps/server/src/modules/sessions/service.ts'
+const SERVICE = 'apps/server/src/modules/sessions/lifecycle.ts'
 const STORE = 'apps/server/src/store/sessions.ts'
 
 const read = (rel: string): string => readFileSync(join(REPO_ROOT, rel), 'utf8')
