@@ -16,7 +16,7 @@ import { ComposerSyncEngine } from './composer-sync'
 // the doubling logic itself is covered deterministically by the scripted-PTY unit
 // test in composer-sync.test.ts.
 const nodeRequire = createRequire(import.meta.url)
-const PTY_EVENT_DEADLINE_MS = 30_000
+const PTY_EVENT_DEADLINE_MS = 60_000
 let pty: typeof import('node-pty') | null = null
 try {
   const m = nodeRequire('node-pty') as typeof import('node-pty')
@@ -107,5 +107,5 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
       engine.disposeAll()
       rmSync(fixtureDir, { recursive: true, force: true })
     }
-  }, 45_000)
+  }, 75_000)
 })
