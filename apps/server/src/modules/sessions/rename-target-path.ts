@@ -15,9 +15,9 @@
  * pairing for this issue's shadow comparison is not "new versus the original
  * procedure" but:
  *
- *   LEGACY  `PresenceRegistry.execute('sessions.rename', …)` — POD-380's
+ *   LEGACY  `SessionStateRegistry.execute('sessions.rename', …)` — POD-380's
  *           envelope, driven by `@podium/protocol`'s presence `CommandDef`, with
- *           a `PresencePrincipal`, returning `undefined` on success.
+ *           a `SessionStatePrincipal`, returning `undefined` on success.
  *   TARGET  this module — driven by `@podium/commands`' full ADR 3 contract, with
  *           the real `CommandPrincipal` (delegation chain resolved live),
  *           returning the contract's `SessionRenameOutcome` union.
@@ -43,7 +43,7 @@
  *
  * 1. THE DELEGATION CHAIN, resolved LIVE (readiness §3.1.3 A1, ADR 3 D16). An
  *    agent's effective rights are its own scope INTERSECTED with its delegating
- *    human's CURRENT rights. The legacy `PresencePrincipal` carries a `userId`
+ *    human's CURRENT rights. The legacy `SessionStatePrincipal` carries a `userId`
  *    and cannot express the intersection at all, so "revoke the human and the
  *    agent loses it" is not a question it can be asked.
  * 2. THE OUTCOME. Legacy rename returns `undefined` for both "renamed" and

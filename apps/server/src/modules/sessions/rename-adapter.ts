@@ -42,7 +42,7 @@
 
 import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
-import type { PresencePrincipal, PresenceRegistry } from './presence-registry'
+import type { SessionStatePrincipal, SessionStateRegistry } from './session-state/registry'
 import { renameOnTargetPath, type RenameServices } from './rename-target-path'
 
 /** Which path a rename should take. */
@@ -95,16 +95,16 @@ export interface RenameDispatchDeps {
   /** The target path's principal — the real one, chain already resolved. */
   principal: CommandPrincipal
   /** The legacy path's principal. Different type, deliberately: see rename-target-path.ts. */
-  legacyPrincipal: PresencePrincipal
+  legacyPrincipal: SessionStatePrincipal
   /**
    * The legacy envelope, as a THUNK.
    *
-   * Built by the caller rather than here because `PresenceRegistry` needs the
+   * Built by the caller rather than here because `SessionStateRegistry` needs the
    * session store and this module has no business reaching for it — and lazily
    * because the target path is the default, so the rollback envelope must not be
    * constructed on every rename just to be discarded.
    */
-  legacyRegistry: () => PresenceRegistry
+  legacyRegistry: () => SessionStateRegistry
 }
 
 /**

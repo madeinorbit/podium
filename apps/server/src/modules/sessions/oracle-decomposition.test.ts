@@ -13,6 +13,7 @@ import {
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
+  OPERATOR,
   type SessionId,
   type UserId,
 } from '@podium/model'
@@ -27,7 +28,7 @@ import {
   messageOf,
   provisional,
 } from './oracle-support'
-import { type PresencePrincipal, PresenceRegistry } from './presence-registry'
+import { type SessionStatePrincipal, SessionStateRegistry } from './session-state/registry'
 
 afterEach(() => disposeOracles())
 
@@ -55,17 +56,12 @@ function delegatedAgent(sessionId: SessionId, onBehalfOf: UserId): AgentCommandP
     kind: 'agent',
     agentSessionId: sessionId,
     onBehalfOf,
-    capability: {
-      role: 'worker',
-      scope: { kind: 'self', userId: onBehalfOf },
-      actorSessionId: sessionId,
-      onBehalfOf,
-    },
+    capability: { ...OPERATOR, actorSessionId: sessionId, onBehalfOf },
     chain: [],
   }
 }
 
-function presencePrincipal(agent: AgentCommandPrincipal): PresencePrincipal {
+function sessionStatePrincipal(agent: AgentCommandPrincipal): SessionStatePrincipal {
   return {
     userId: agent.onBehalfOf,
     capability: agent.capability,
@@ -95,13 +91,13 @@ function twoUserOracle() {
     alice: delegatedAgent(alice.sessionId, ALICE),
     bob: delegatedAgent(bob.sessionId, BOB),
   }
-  const presence = new PresenceRegistry({
+  const sessionState = new SessionStateRegistry({
     sessions: o.reg.modules.sessions,
-    store: o.store,
-    now: () => Date.now(),
+    state: o.reg.modules.sessions.state,
+
     mutations: o.reg.modules.mutations,
   })
-  return { o, alice, bob, agents, presence }
+  return { o, alice, bob, agents, sessionState }
 }
 
 describe('oracle: two-user SessionService fixture', () => {
@@ -126,7 +122,7 @@ describe('oracle: two-user SessionService fixture', () => {
     ])
   })
 
-  it(`${provisional('readiness-3.1.1', 'session ownership and private visibility have not reached this service')}: both sessions resolve to user:sole and an unrelated viewer receives both`, () => {
+  it(`${provisional('readiness-3.1.1', 'session ownership has not reached the session row')}: legacy-owned sessions fail closed for an unrelated narrow viewer`, () => {
     const f = twoUserOracle()
     expect(f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
       owner: FIRST_ADMIN_USER_ID,
@@ -136,23 +132,27 @@ describe('oracle: two-user SessionService fixture', () => {
       owner: FIRST_ADMIN_USER_ID,
       grants: [],
     })
+    const narrowBob: SessionStatePrincipal = {
+      ...sessionStatePrincipal(f.agents.bob),
+      capability: { role: 'worker', scope: { kind: 'self', userId: BOB } },
+    }
     expect(
       f.o.reg.modules.sessions
-        .listSessions(actorUser(BOB))
+        .listSessions(narrowBob)
         .map((session) => session.sessionId)
         .sort(),
-    ).toEqual([ALICE_SESSION, BOB_SESSION].sort())
+    ).toEqual([])
   })
 })
 
 describe('oracle: durable per-user session state (not live co-presence)', () => {
   it(`${MUST_NOT_CHANGE}: snooze, pins, and tab order are isolated for both users, and payload identity is inert`, () => {
     const f = twoUserOracle()
-    const alice = presencePrincipal(f.agents.alice)
-    const bob = presencePrincipal(f.agents.bob)
+    const alice = sessionStatePrincipal(f.agents.alice)
+    const bob = sessionStatePrincipal(f.agents.bob)
     const aliceUntil = '2099-08-01T01:00:00.000Z'
     const bobUntil = '2099-08-01T02:00:00.000Z'
-    f.presence.execute(
+    f.sessionState.execute(
       'snoozes.set',
       {
         sessionId: f.alice.sessionId,
@@ -163,15 +163,19 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       },
       alice,
     )
-    f.presence.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
-    f.presence.execute('pins.set', { kind: 'panel', id: f.alice.sessionId, pinned: true }, alice)
-    f.presence.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
-    f.presence.execute(
+    f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
+    f.sessionState.execute(
+      'pins.set',
+      { kind: 'panel', id: f.alice.sessionId, pinned: true },
+      alice,
+    )
+    f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
+    f.sessionState.execute(
       'tabs.setOrder',
       { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
       alice,
     )
-    f.presence.execute(
+    f.sessionState.execute(
       'tabs.setOrder',
       { worktree: '/work', sessionIds: [f.bob.sessionId, f.alice.sessionId] },
       bob,
@@ -192,23 +196,23 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     })
   })
 
-  it(`${provisional('POD-393', 'markRead currently routes through the single broadcast viewer instead of the calling user')}: two principals both mutate user:sole readAt while their own rows stay absent`, () => {
+  it(`${MUST_NOT_CHANGE}: readAt is keyed by the on-behalf-of human and one viewer cannot clear another viewer's marker`, () => {
     const f = twoUserOracle()
-    f.presence.execute(
+    f.sessionState.execute(
       'sessions.markRead',
       { sessionId: f.alice.sessionId },
-      presencePrincipal(f.agents.alice),
+      sessionStatePrincipal(f.agents.alice),
     )
-    expect(f.o.store.sessions.listReadAt(ALICE)).toEqual({})
+    expect(f.o.store.sessions.listReadAt(ALICE)[f.alice.sessionId]).toEqual(expect.any(String))
     expect(f.o.store.sessions.listReadAt(BOB)).toEqual({})
-    expect(f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)[f.alice.sessionId]).toEqual(
-      expect.any(String),
-    )
-    f.presence.execute(
+    expect(f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
+    f.sessionState.execute(
       'sessions.markUnread',
       { sessionId: f.alice.sessionId },
-      presencePrincipal(f.agents.bob),
+      sessionStatePrincipal(f.agents.bob),
     )
+    expect(f.o.store.sessions.listReadAt(ALICE)[f.alice.sessionId]).toEqual(expect.any(String))
+    expect(f.o.store.sessions.listReadAt(BOB)).toEqual({})
     expect(f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
   })
 })

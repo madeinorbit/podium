@@ -133,7 +133,7 @@ export type { MachineVerb }
  * - `online-only` — additionally requires a live counterparty (a daemon, a
  *   re-auth) and so cannot even be retried blindly.
  *
- * The `eligible` / `direct-only` split for the presence class is NOT a new
+ * The `eligible` / `direct-only` split for the session-state class is NOT a new
  * decision: POD-379's outbox oracle pins the covered set (rename, setArchived,
  * setWorkState, markRead, markUnread, snoozes.set, snoozes.clear) and the
  * deliberate exclusions (pins, tab order — "low offline value"), tagged

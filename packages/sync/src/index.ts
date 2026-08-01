@@ -88,7 +88,7 @@ export * from './mirror'
 /**
  * Framework idempotency (POD-382): the ONE implementation of mutationId dedup,
  * relocated out of `SessionsService.withMutation`. Exported because it is a
- * framework property every command envelope shares — the session presence class,
+ * framework property every command envelope shares — the session session-state class,
  * the session command plane and the issue registry all call it — and a property
  * reachable only through one app's service graph is a property the next transport
  * can forget.

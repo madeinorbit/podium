@@ -250,7 +250,7 @@ export class SessionRegistry {
     let automations!: AutomationsService
     /**
      * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
-     * honours a `mutationId` — the session presence class, the session command
+     * honours a `mutationId` — the session session-state class, the session command
      * plane and the issue registry — dedupes through THIS object. It replaces
      * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
      * chance to forget (POD-379's idempotency oracle exists because of it) and
@@ -315,14 +315,14 @@ export class SessionRegistry {
     })
     const notify = new NotifyService(
       {
-      // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
-      // preferences, which no longer live on the instance blob — an unresolved
-      // read would see the model's defaults instead of the operator's choices.
-      // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
-      // `IssueService.broadcastViewer` uses: this build's transport cannot name
-      // a person (one shared password), so the sole account is the only true
-      // answer, and POD-315/POD-1077 replace the argument rather than finding a
-      // hidden read.
+        // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
+        // preferences, which no longer live on the instance blob — an unresolved
+        // read would see the model's defaults instead of the operator's choices.
+        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
+        // `IssueService.broadcastViewer` uses: this build's transport cannot name
+        // a person (one shared password), so the sole account is the only true
+        // answer, and POD-315/POD-1077 replace the argument rather than finding a
+        // hidden read.
         getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
@@ -338,7 +338,7 @@ export class SessionRegistry {
             info: noticeInfo(s),
             state: s.agentState,
           })),
-        notificationsEnabled: () => featureEnabled("notifications"),
+        notificationsEnabled: () => featureEnabled('notifications'),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,

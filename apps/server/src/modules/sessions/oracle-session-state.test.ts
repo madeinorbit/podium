@@ -1,5 +1,5 @@
 /**
- * ORACLE — presence-class session writes (POD-379 for POD-312 / POD-380).
+ * ORACLE — session-state session writes (POD-379 for POD-312 / POD-380).
  *
  * rename · setArchived · markRead / markUnread · setWorkState · setIssueId ·
  * snoozes · pins · tab order · composer drafts.
@@ -397,7 +397,7 @@ describe('oracle: composer drafts', () => {
     expect(o.store.sessions.loadDrafts()[sessionId]).toBeUndefined()
   })
 
-  it(`${provisional('readiness-4', 'draft presence is retained while the document conflict class remains reserved')}: the DRAFT presence flip is broadcast once per start/clear, never per keystroke`, async () => {
+  it(`${provisional('readiness-4', 'draft nonempty state is retained while the document conflict class remains reserved')}: the DRAFT marker flip is broadcast once per start/clear, never per keystroke`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const svc = o.reg.modules.sessions
@@ -407,7 +407,7 @@ describe('oracle: composer drafts', () => {
       () =>
         lastSessions(o.client)?.sessions.find((s) => s.sessionId === sessionId)?.draftUpdatedAt !==
         undefined,
-      'the DRAFT presence flip to reach the client',
+      'the DRAFT marker flip to reach the client',
     )
     const broadcastsAfterFirstKeystroke = o.client.filter(
       (m) => m.type === 'sessionsChanged',

@@ -12,7 +12,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { type AppliedMutationStore, MutationLedger } from './mutation-ledger'
 
-function fakeStore(): AppliedMutationStore & { rows: Map<string, { proc: string; result: string }> } {
+function fakeStore(): AppliedMutationStore & {
+  rows: Map<string, { proc: string; result: string }>
+} {
   const rows = new Map<string, { proc: string; result: string }>()
   return {
     rows,
@@ -166,7 +168,7 @@ describe('MutationLedger', () => {
 
   it('a body returning undefined records null, and its replay does not re-run', () => {
     // Every presence write returns void. If `undefined` recorded nothing, the
-    // whole presence class would silently lose its dedup — the exact regression
+    // whole session-state class would silently lose its dedup — the exact regression
     // POD-379's per-route oracle was written to catch.
     const { led, store } = ledger()
     let runs = 0

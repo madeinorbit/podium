@@ -1570,8 +1570,16 @@ describe('host metrics relay', () => {
       id: 'm-alpha',
       name: 'alpha',
       hostname: 'alpha',
-      tokenHash: 'x', ownerUserId: 'user:sole' })
-    store.machines.upsertMachine({ id: 'm-beta', name: 'beta', hostname: 'beta', tokenHash: 'y', ownerUserId: 'user:sole' })
+      tokenHash: 'x',
+      ownerUserId: 'user:sole',
+    })
+    store.machines.upsertMachine({
+      id: 'm-beta',
+      name: 'beta',
+      hostname: 'beta',
+      tokenHash: 'y',
+      ownerUserId: 'user:sole',
+    })
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon('m-alpha', () => {})
     reg.gateway.attachDaemon('m-beta', () => {})
@@ -1754,7 +1762,9 @@ describe('agent state', () => {
         'utf8',
       ),
     ).toBe('continue\r')
-    expect(reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({ ok: false })
+    expect(reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({
+      ok: false,
+    })
   })
 
   it('sends every configured external push target only when no client is visible', () => {
@@ -2349,7 +2359,11 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     await expect(
-      reg.modules.rpc.readTranscript({ sessionId: asSessionId('nope'), direction: 'before', limit: 10 }),
+      reg.modules.rpc.readTranscript({
+        sessionId: asSessionId('nope'),
+        direction: 'before',
+        limit: 10,
+      }),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
   })
@@ -3449,7 +3463,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     const after = reg.modules.sessions.listSessions()[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
@@ -3473,7 +3487,7 @@ describe('SessionRegistry read state (#124)', () => {
     reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
 
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     const pushed = c.sent.filter(
@@ -3493,13 +3507,13 @@ describe('SessionRegistry read state (#124)', () => {
       cwd: '/p',
     })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
     const c = sink()
     reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
-    reg.modules.sessions.markSessionUnread(sessionId)
+    reg.modules.sessions.markSessionUnread(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     const after = reg.modules.sessions.listSessions()[0]
