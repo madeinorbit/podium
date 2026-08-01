@@ -20,10 +20,10 @@
  * WHAT IS REAL HERE AND WHAT IS SUBSTITUTED, AND WHY
  * ---------------------------------------------------------------------------
  *
- * REAL: the store, the SessionRegistry, the SessionsService, the contract, the
+ * REAL: the store, the SessionRegistry, the SessionLifecycle, the contract, the
  * envelope, the principal, and the applied-mutation table that backs idempotency.
  *
- * SUBSTITUTED: the OWNERSHIP SOURCE only. `SessionsService.sessionOwner` returns
+ * SUBSTITUTED: the OWNERSHIP SOURCE only. `SessionLifecycle.sessionOwner` returns
  * a constant today — every session is owned by the sole user and the grant list
  * is always empty — because the owner column is POD-1075's and does not exist
  * yet. So "revoke this principal's access" is not expressible against the real
@@ -84,8 +84,7 @@ function revocableStack() {
     mutations: reg.modules.mutations,
   }
 
-  const nameNow = () =>
-    sessions.listSessions().find((s) => s.sessionId === created.sessionId)?.name
+  const nameNow = () => sessions.listSessions().find((s) => s.sessionId === created.sessionId)?.name
 
   return { deps, sessions, store, sessionId: created.sessionId, ownership, nameNow }
 }
@@ -342,12 +341,8 @@ describe('no capability snapshot exists anywhere in the rename path', () => {
     // could not change the outcome. It does.
     const s = revocableStack()
     const call = (mutationId: string) =>
-      renameOnTargetPath(
-        s.deps,
-        { sessionId: s.sessionId, name: 'n', mutationId },
-        human,
-        'outbox',
-      ).outcome
+      renameOnTargetPath(s.deps, { sessionId: s.sessionId, name: 'n', mutationId }, human, 'outbox')
+        .outcome
 
     expect(call('s1')).toBe('applied')
     s.ownership.owner = 'user:someone-else'

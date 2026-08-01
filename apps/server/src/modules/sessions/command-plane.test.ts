@@ -493,6 +493,28 @@ describe('attribution and ownership come from the principal', () => {
     expect(spawnedByFor(human(COLLEAGUE))).toBe('user')
   })
 
+  it('persists an agent-created session under its delegating human with the agent recorded as actor', async () => {
+    const { o, rows } = oracleWithPairedMachine()
+    rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
+    const principal = agentFor('agent-1', COLLEAGUE)
+    const created = (await dispatchSessionCommand(
+      ctxFor(o, principal, { ownership: ownershipTable(rows) }),
+      'create',
+      { agentKind: 'shell', cwd: '/p', machineId: 'box' },
+    )) as { sessionId: SessionId }
+
+    expect(
+      o.store.sessions.loadSessions().find((row) => row.id === created.sessionId),
+    ).toMatchObject({
+      ownerUserId: COLLEAGUE,
+      spawnedBy: 'session:agent-1',
+    })
+    expect(o.reg.modules.sessions.sessionOwner(created.sessionId)).toEqual({
+      owner: COLLEAGUE,
+      grants: [],
+    })
+  })
+
   it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {
     const underIssue = createdOwnership(agentFor('agent-1', COLLEAGUE), {
       id: 'podium-7',

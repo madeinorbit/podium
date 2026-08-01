@@ -28,7 +28,7 @@ import {
   SKEW_MARGIN_MS,
 } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
-import { APPLIED_MUTATIONS_MAX_AGE_MS as RECEIPT_RETENTION_MS } from './service'
+import { APPLIED_MUTATIONS_MAX_AGE_MS as RECEIPT_RETENTION_MS } from './lifecycle'
 
 const DAY = 24 * 60 * 60 * 1000
 

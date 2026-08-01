@@ -143,7 +143,7 @@ export interface IssueCommandDeps {
     caller: IssueCaller,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
   /** Stop every session on an issue and free its worktree (keep branch)
-   *  [spec:SP-9904]. Injected from SessionsService; optional in bare tests. */
+   *  [spec:SP-9904]. Injected from SessionLifecycle; optional in bare tests. */
   stopIssueSessions?(input: {
     issueId: string
     force?: boolean

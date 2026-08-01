@@ -278,7 +278,8 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     entity: 'session',
     site: 'apps/server/src/modules/notify/service.ts',
     role: 'R5',
-    purpose: 'The fields an attention notice renders, so the notify service never holds a live Session.',
+    purpose:
+      'The fields an attention notice renders, so the notify service never holds a live Session.',
     distinctSemantics:
       'A structural port by design: it is what keeps a delivery module from taking a dependency ' +
       'on the session registry, and its narrowness IS the boundary.',
@@ -318,7 +319,8 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     entity: 'session',
     site: 'packages/model/src/identity/session-identity.ts',
     role: 'R5',
-    purpose: 'The input of the dedupe predicate that collapses rows pointing at one agent conversation.',
+    purpose:
+      'The input of the dedupe predicate that collapses rows pointing at one agent conversation.',
     distinctSemantics:
       'It is deliberately WIDER than a Pick: `status: string` and a structural `resume: {kind, ' +
       'value}` let it accept rows from an older server over a remote relay. A predicate that ' +
@@ -381,7 +383,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     purpose: 'The concierge line plus the one extra member the focus block renders.',
     distinctSemantics:
       'Its distinct semantics are exactly one member (`status`) — and that is the point: it is ' +
-      'the codebase\'s existing good composition example, `extends ConciergeSessionInfo`, so ' +
+      "the codebase's existing good composition example, `extends ConciergeSessionInfo`, so " +
       'the shared members have one home already.',
     composition: {
       state: 'composed',
@@ -397,7 +399,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     role: 'R5',
     purpose: 'The session as an EXTERNAL cloud-agent API names it.',
     distinctSemantics:
-      "It carries a foreign vocabulary on purpose: `agent` for `agentKind`, `resumeRef: string` " +
+      'It carries a foreign vocabulary on purpose: `agent` for `agentKind`, `resumeRef: string` ' +
       'for `resume: ResumeRef`. Those are not our spellings and must not become our spellings — ' +
       'the same treatment as `LinearIssue`. POD-366 offered two placements for it and this is the ' +
       'one it permits explicitly: COUNTED, with the verdict "renames retained, by decision" rather ' +
@@ -443,10 +445,11 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     entity: 'session',
     site: 'apps/web/src/lib/ref-miniview.ts',
     role: 'R5',
-    purpose: 'The minimal session shape the client-side `@ref` resolver needs to render a miniview.',
+    purpose:
+      'The minimal session shape the client-side `@ref` resolver needs to render a miniview.',
     distinctSemantics:
       'Identity is required and every at-a-glance field is optional, so a lean fixture or a ' +
-      'legacy row still resolves. That optionality is the projection\'s own decision and not a ' +
+      "legacy row still resolves. That optionality is the projection's own decision and not a " +
       'property of the entity.',
     composition: {
       state: 'pending',
@@ -524,7 +527,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     role: 'R4',
     purpose: "The steward's observation payload proposing that a session be auto-archived.",
     distinctSemantics:
-      'Its members look like the aggregate\'s and are NOT the same schemas: the bounds are ' +
+      "Its members look like the aggregate's and are NOT the same schemas: the bounds are " +
       'input limits on an untrusted payload, and the literal preconditions assert the state the ' +
       'steward SAW. Composing them from the entity would turn a gate that refuses a ' +
       'wrong-state payload into one that accepts it.',
@@ -555,7 +558,8 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     entity: 'session',
     site: 'apps/server/src/modules/sessions/instructions.ts',
     role: 'R5',
-    purpose: 'What an instruction provider needs to know to compose a session\'s agent instructions.',
+    purpose:
+      "What an instruction provider needs to know to compose a session's agent instructions.",
     distinctSemantics:
       'One member is not a session fact at all: `existingOnly` is a RESURRECTION rule — rehydrate ' +
       'only instructions already attached, never adopt a default that appeared after the ' +
@@ -571,7 +575,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'SessionSpawnResult',
     entity: 'session',
-    site: 'apps/server/src/modules/sessions/service.ts',
+    site: 'apps/server/src/modules/sessions/lifecycle.ts',
     role: 'R5',
     purpose: 'What the caller of a spawn is told about the session it just created.',
     distinctSemantics:
@@ -623,7 +627,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       state: 'composed',
       from:
         'declared at source with the shared brands (POD-363): `sessionId: SessionId` and ' +
-        '`issueId: IssueId`, both minted by the engine\'s labelled MINT SITE and passed ' +
+        "`issueId: IssueId`, both minted by the engine's labelled MINT SITE and passed " +
         'through unchanged. Not a Pick — the members are the spawn ARGUMENTS, a genuinely ' +
         'different key set from any session aggregate',
     },
@@ -654,12 +658,16 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     entity: 'session',
     site: 'apps/daemon/src/binding-store.ts',
     role: 'command-input',
-    purpose: 'The one-shot input adapter that collects the daemon’s former in-memory control, observer, and adapter-pin state while upgrading a real legacy state directory.',
-    distinctSemantics: 'It describes several retired source shapes at the migration boundary, including optional facts that never coexisted in one durable aggregate. The binding store normalizes these values into immutable observations and delegation history; retaining this adapter after migration would be incorrect.',
+    purpose:
+      'The one-shot input adapter that collects the daemon’s former in-memory control, observer, and adapter-pin state while upgrading a real legacy state directory.',
+    distinctSemantics:
+      'It describes several retired source shapes at the migration boundary, including optional facts that never coexisted in one durable aggregate. The binding store normalizes these values into immutable observations and delegation history; retaining this adapter after migration would be incorrect.',
     composition: {
       state: 'declared-legitimate-restatement',
-      reason: 'The source state was scattered across independent in-memory maps and adapter-specific pins, so no canonical legacy record exists to compose. Its intentionally nested groups identify the source inventory rather than defining another current Session shape.',
-      enforcedBy: 'apps/daemon/src/binding-store.test.ts builds a real daemon state directory, supplies every legacy group, asserts the normalized observation history, and proves the migration marker makes the adapter one-shot.',
+      reason:
+        'The source state was scattered across independent in-memory maps and adapter-specific pins, so no canonical legacy record exists to compose. Its intentionally nested groups identify the source inventory rather than defining another current Session shape.',
+      enforcedBy:
+        'apps/daemon/src/binding-store.test.ts builds a real daemon state directory, supplies every legacy group, asserts the normalized observation history, and proves the migration marker makes the adapter one-shot.',
     },
     matrixRow: ROW.sessionBinding,
     visibility: 'owned-compute',
@@ -704,11 +712,11 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       state: 'declared-legitimate-restatement',
       reason:
         'R3 is the ENCODING, not the vocabulary — the same ADR 4 D6 verdict the `issues` DDL ' +
-        'above carries, and this is that DDL\'s typed mirror. The R1 side IS composed: ' +
+        "above carries, and this is that DDL's typed mirror. The R1 side IS composed: " +
         '`StoredIssue` (apps/server/src/store/issue-storage.ts) is `IssueAggregate` minus the ' +
         'five members no column exists for, and the ONE documented toStorage/fromStorage pair ' +
         'ADR 4 §4.1 asks for maps between them per key. A per-key mapper is what a derivation ' +
-        'cannot buy: `origin` and `audience` are both \'human\' | \'agent\', so a structural ' +
+        "cannot buy: `origin` and `audience` are both 'human' | 'agent', so a structural " +
         'check cannot see them swapped (POD-1151).',
       enforcedBy:
         'apps/server/src/store/issue-storage.test.ts — schema-INSTANCE identity (`toBe`) per ' +
@@ -741,7 +749,8 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       'declared once, on `IssueRow`.',
     composition: {
       state: 'composed',
-      from: '`IssueAggregate.omit(…)` — every retained key is the shared field-group INSTANCE, ' +
+      from:
+        '`IssueAggregate.omit(…)` — every retained key is the shared field-group INSTANCE, ' +
         'asserted with `toBe` in apps/server/src/store/issue-storage.test.ts (POD-1151)',
     },
     matrixRow: ROW.issueCore,
@@ -872,7 +881,10 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     distinctSemantics:
       'Four members, and the narrowness is the feature: an orphan listing must be answerable ' +
       'without loading issue content.',
-    composition: { state: 'composed', from: '`IssueRefHead.extend(…)` — identity from the shared head (POD-367)' },
+    composition: {
+      state: 'composed',
+      from: '`IssueRefHead.extend(…)` — identity from the shared head (POD-367)',
+    },
     matrixRow: ROW.issueCore,
     visibility: 'personal',
     schema: OrphanIssue,
@@ -904,7 +916,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     role: 'R5',
     purpose: 'The two issue facts the handoff-target predicate reads.',
     distinctSemantics:
-      'Both members are `| null` on top of the group\'s types, because the predicate must ' +
+      "Both members are `| null` on top of the group's types, because the predicate must " +
       'accept an issue with no worktree yet — the tolerance is the port working, not drift.',
     composition: {
       state: 'composed',
@@ -960,7 +972,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     purpose: 'The one fact a workflow needs to decide worktree placement.',
     distinctSemantics:
       'It is NOT a duplicate of `FocusIssueInfo`, and the inventory verdict that said so was ' +
-      'corrected: the two share `repoPath` and nothing else, and this port\'s only read member ' +
+      "corrected: the two share `repoPath` and nothing else, and this port's only read member " +
       'is `worktreePath`. Collapsing them would force a port to carry members it never reads ' +
       'and lose the one it does.',
     composition: {
@@ -979,7 +991,10 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     distinctSemantics:
       'It accepts `| null` on every member so a partially-loaded row can still be judged; the ' +
       'union is the predicate tolerating client-side reality, not drift.',
-    composition: { state: 'composed', from: 'a `StartabilityFields<…>` mapped type over the wire members (POD-367)' },
+    composition: {
+      state: 'composed',
+      from: 'a `StartabilityFields<…>` mapped type over the wire members (POD-367)',
+    },
     matrixRow: ROW.issueCore,
     visibility: 'personal',
   },
@@ -1012,13 +1027,13 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     entity: 'issue',
     site: 'apps/server/src/modules/issues/git-state.ts',
     role: 'R5',
-    purpose: 'Where and how to probe git for an issue\'s merge/commit state.',
+    purpose: "Where and how to probe git for an issue's merge/commit state.",
     distinctSemantics:
       'Every member is a MACHINE fact or a probe-local input, so its exposure is inherited from ' +
       'the machine (ADR 9 D3 rule 3) rather than classified as issue content. Two of its ' +
       'members are the trap type-identity cannot see: `IssueGitState.updatedAt` is a ' +
       'LAST-PROBE timestamp and `branch` is the branch the checkout is ACTUALLY on — ' +
-      'type-identical to the issue\'s entity mtime and owned branch, and different facts.',
+      "type-identical to the issue's entity mtime and owned branch, and different facts.",
     composition: {
       state: 'composed',
       from:

@@ -218,7 +218,7 @@ interface DeliveryOutcome {
 }
 
 /** Spawn-on-unresumable-wake seam [spec:SP-34d7 decision 4]. Actual agent
- *  spawning is wired in a later stage (TODO: wire to SessionsService.spawn with
+ *  spawning is wired in a later stage (TODO: wire to SessionLifecycle.spawn with
  *  the message as the first prompt after prime); the default (absent) marks the
  *  ledger and surfaces needs-attention instead. */
 export interface SpawnOnWake {
@@ -1270,7 +1270,7 @@ export class MessageDeliveryService {
       return { ok: true, queued: true, reason: 'spawn budget exhausted', disposition: 'held' }
     }
     if (!this.deps.spawnOnWake) {
-      // TODO(#237 stage 4/5): wire spawnOnWake to SessionsService.spawn — the
+      // TODO(#237 stage 4/5): wire spawnOnWake to SessionLifecycle.spawn — the
       // message becomes the first prompt after prime.
       this.needsAttention(message, 'wake target is unresumable and spawn-on-wake is not wired')
       return { ok: true, queued: true, reason: 'unresumable', disposition: 'held' }
@@ -2003,7 +2003,11 @@ export class MessageDeliveryService {
   private senderKey(from: MessageSender): string {
     const authority = this.authorityOf(from)
     return senderBrakeKey(
-      principalOf({ ...from, attribution: authority.attribution, delegationRef: authority.delegationRef }),
+      principalOf({
+        ...from,
+        attribution: authority.attribution,
+        delegationRef: authority.delegationRef,
+      }),
     )
   }
 

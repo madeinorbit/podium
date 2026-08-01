@@ -91,7 +91,7 @@ function registryWithControlledWorkers(workers: ControlledWorker[]): SessionRegi
   return new SessionRegistry(undefined, undefined, { publicationWorker })
 }
 
-describe('SessionsService publication worker integration', () => {
+describe('SessionLifecycle publication worker integration', () => {
   const registries: SessionRegistry[] = []
   afterEach(() => {
     for (const registry of registries.splice(0)) registry.dispose()

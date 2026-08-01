@@ -30,7 +30,7 @@
  * A matrix over invented capabilities proves nothing about the product. Each
  * entry below cites the exact production site that mints that shape, and the
  * `capability shapes match their minting sites` test pins them against the real
- * code (`OPERATOR`, `SessionsService#capabilityForSession`) so drift at the
+ * code (`OPERATOR`, `SessionLifecycle#capabilityForSession`) so drift at the
  * source reddens the matrix rather than quietly making it fictional.
  *
  * ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ interface Transport {
   readonly capabilityFor: (actorSessionId?: SessionId) => Capability
 }
 
-/** The relay/CLI-agent shape, copied from `SessionsService#capabilityForSession`
+/** The relay/CLI-agent shape, copied from `SessionLifecycle#capabilityForSession`
  *  and pinned against it below. A session inside an issue worktree is
  *  worker/subtree; one outside is worker/none. */
 const agentCapability = (actorSessionId: SessionId): Capability => ({

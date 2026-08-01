@@ -3,7 +3,7 @@ import type {
   PreparePublicationInput,
   SessionProjectionState,
 } from './publish-worker-actor.js'
-import type { SessionProjectionEvent } from './service.js'
+import type { SessionProjectionEvent } from './lifecycle.js'
 
 export type PublishWorkerCommand =
   | { type: 'reset'; state: SessionProjectionState }

@@ -90,7 +90,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   // moving a module plus its three test suites out of a guardrail issue's scope.
   {
     rule: 'agent-host-consumers',
-    file: 'apps/server/src/modules/sessions/service.ts',
+    file: 'apps/server/src/modules/sessions/lifecycle.ts',
     count: 1,
     phase: 'POD-740',
     note: 'Imports acceptAgentObservation (agent-state/causal.ts) for the observation ledger. That function is harness-agnostic — it depends only on @podium/protocol types — so this is a misfiled protocol symbol, not harness coupling. POD-740 relocates it to a package apps/server may legally reach, at which point this entry goes to zero.',

@@ -13,14 +13,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import {
-  AgentKind,
-  actorSystem,
-  actorUser,
-  asSessionId,
-  asUserId,
-  type UserId,
-} from '@podium/model'
+import { AgentKind, asSessionId, asUserId, type UserId } from '@podium/model'
 import { sessionSpawnerParentId } from '../../steward'
 
 /**
@@ -46,7 +39,6 @@ import {
   harnessCapabilitiesFor,
   harnessNeedsSubmitVerification,
   harnessObservationProvider,
-  harnessRequiresExclusiveInteractiveResume,
   harnessSupportsEffort,
   harnessSupportsInitialPrompt,
   harnessUsesPromptTitleFallback,
@@ -81,15 +73,20 @@ import {
   type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
   type SessionOpenUrlMessage,
-  type SessionOpenUrlResultMessage,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
-import { resolvePrincipal, systemPrincipal, userCommandPrincipal, type CommandPrincipal } from '../../command-principal'
+import {
+  resolvePrincipal,
+  systemPrincipal,
+  userCommandPrincipal,
+  type CommandPrincipal,
+} from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
+import { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { feedPrincipalOf } from '../../gateway/client-principal'
@@ -147,6 +144,7 @@ import {
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
+import { SessionBindingReceipts } from './session-binding'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import {
@@ -244,7 +242,7 @@ export interface SessionRestorePlan {
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
-interface SessionsServiceDeps {
+interface SessionLifecycleDeps {
   store: SessionStore
   now(): number
   bus: EventBus
@@ -334,6 +332,14 @@ interface SessionsServiceDeps {
 }
 
 /**
+ * Session lifecycle runtime and its composition boundary.
+ *
+ * Handoff remains a fourth module under the handoff/ directory: its transaction, rollback,
+ * and apply-time authorization checkpoints are cohesive independently of the
+ * lifecycle transitions hosted here. Native identity receipts remain a visible
+ * SessionBinding seam for POD-737; browser-open frames remain gateway/control
+ * forwarding and are not lifecycle policy.
+ *
  * Core session lifecycle + PTY frame relay + scheduling (issue #13 Phase 2):
  * the sessions/clients maps, spawn/resume/park/kill command paths, the client
  * and daemon ws data planes, the durable queued-send drain, and the coalesced
@@ -352,7 +358,7 @@ export interface SessionSpawnResult {
   accountId: AccountId | null
 }
 
-export class SessionsService {
+export class SessionLifecycle {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
   readonly sessions = new Map<SessionId, Session>()
@@ -429,16 +435,12 @@ export class SessionsService {
   // Interim until POD-308 deletes the snapshot fan-out.
   private issueProjectionGeneration = 0
   private lastIssueProjectionGeneration = -1
-  /** Pending remote browser-open requests, parked here when no client is connected. */
-  private readonly pendingOpenUrls = new Map<string, SessionOpenUrlMessage>()
-  /** Resolution actors derived from the authenticated browser transport. */
-  private readonly pendingOpenUrlResolvers = new Map<string, Attribution>()
-  private readonly openUrlExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  // Single timer that persists only sessions whose activity counters advanced
+  private readonly browserOpen: BrowserOpenGateway
+  private readonly bindingReceipts: SessionBindingReceipts
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.flushActivity(), 12_000)
 
-  constructor(private readonly deps: SessionsServiceDeps) {
+  constructor(private readonly deps: SessionLifecycleDeps) {
     this.store = deps.store
     this.now = deps.now
     this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
@@ -452,6 +454,22 @@ export class SessionsService {
     this.funnel = deps.funnel
     this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.publicationShadowCompare = deps.publicationShadowCompare ?? false
+    this.browserOpen = new BrowserOpenGateway({
+      now: () => this.now(),
+      clients: this.clients,
+      session: (sessionId) => this.sessions.get(sessionId),
+      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+    })
+    this.bindingReceipts = new SessionBindingReceipts({
+      store: this.store,
+      sessions: () => this.sessions.values(),
+      session: (sessionId) => this.sessions.get(sessionId),
+      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
+      persist: (session) => this.persist(session),
+      broadcastSessions: () => this.broadcastSessions(),
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+    })
     this.state = new SessionStateService({
       store: this.store,
       now: () => this.now(),
@@ -736,9 +754,7 @@ export class SessionsService {
   dispose(): void {
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
-    for (const timer of this.openUrlExpiryTimers.values()) clearTimeout(timer)
-    this.openUrlExpiryTimers.clear()
-    this.pendingOpenUrls.clear()
+    this.browserOpen.dispose()
     // Graceful server restarts must not lose a resize that landed inside the
     // coalescing window; persist dirty geometry/activity before closing [spec:SP-1a0b].
     this.flushActivity()
@@ -861,7 +877,7 @@ export class SessionsService {
       }
       return changes
     } catch (err) {
-      this.scheduleVolatileSessionCapture(SessionsService.VOLATILE_CAPTURE_RETRY_MS)
+      this.scheduleVolatileSessionCapture(SessionLifecycle.VOLATILE_CAPTURE_RETRY_MS)
       throw err
     }
   }
@@ -975,7 +991,9 @@ export class SessionsService {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultStatePrincipal()
     return this.stampRef(session, {
-      ...session.toMeta(viewer ? this.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE),
+      ...session.toMeta(
+        viewer ? this.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
+      ),
       machineName: this.machines.machineName(session.machineId),
       ...(harnessCapabilities
         ? {
@@ -1735,10 +1753,19 @@ export class SessionsService {
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
     const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
-    // The binding follows the session's resolved owner. Production command, mail,
-    // workflow, automation and superagent callers all supply that owner; legacy
-    // in-process fixtures retain the migration owner without a second identity mint.
-    const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
+    // Session ownership is declared per class: an issue-owned child inherits the
+    // issue owner; otherwise a binding resolves to its on-behalf-of human. The
+    // explicit owner is the transport composition root's already-resolved answer,
+    // never a wire field. The final fallback exists only for legacy in-process
+    // callers with no binding.
+    const parentOwner = issueId ? this.store.issues.getIssue(issueId)?.ownerUserId : undefined
+    const bindingOwner =
+      input.binding?.principal.kind === 'user'
+        ? input.binding.principal.userId
+        : input.binding?.principal.kind === 'agent'
+          ? this.sessionOwner(input.binding.principal.parentBindingId)?.owner
+          : undefined
+    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
     const machineId = this.machines.resolveMachineForAgent(
       input.machineId,
       input.cwd,
@@ -2034,7 +2061,7 @@ export class SessionsService {
    *
    * Deliberately not re-exposed as a delegating method: a method here is a seam a
    * new write can wrap itself in, which is exactly the per-proc shape POD-312 set
-   * out to delete. The service holds {@link SessionsService.mutations} privately
+   * out to delete. The service holds {@link SessionLifecycle.mutations} privately
    * for the session-state envelope it builds and offers no public wrapper.
    */
 
@@ -3591,9 +3618,7 @@ export class SessionsService {
     // needs-attention affordance for the next client that may SEE the session.
     // This sits outside the global-only bootstrap block deliberately: scoped
     // clients are the audience this affordance must serve. [spec:SP-a43e]
-    for (const request of this.pendingOpenUrls.values()) {
-      if (this.clientMaySeeSession(client, request.sessionId)) send(request)
-    }
+    this.browserOpen.replayPending(client)
   }
 
   /** Authorization/view invalidation seam: the main authority changed one client world. */
@@ -3675,186 +3700,9 @@ export class SessionsService {
     this.pushPriorities()
     this.broadcastSessions()
   }
-  private openUrlKey(sessionId: SessionId, requestId: string): string {
-    return `${sessionId}:${requestId}`
-  }
-
-  private clearPendingOpenUrl(sessionId: SessionId, requestId: string): void {
-    const requestKey = this.openUrlKey(sessionId, requestId)
-    this.pendingOpenUrls.delete(requestKey)
-    this.pendingOpenUrlResolvers.delete(requestKey)
-    const timer = this.openUrlExpiryTimers.get(requestKey)
-    if (timer) clearTimeout(timer)
-    this.openUrlExpiryTimers.delete(requestKey)
-  }
-
-  private expireOpenUrl(sessionId: SessionId, requestId: string): void {
-    const requestKey = this.openUrlKey(sessionId, requestId)
-    if (!this.pendingOpenUrls.has(requestKey)) return
-    this.clearPendingOpenUrl(sessionId, requestId)
-    const session = this.sessions.get(sessionId)
-    const resolvedBy: Attribution = {
-      actor: actorSystem('browser-open-expiry'),
-      onBehalfOf: null,
-    }
-    if (session) {
-      this.toMachine(session.machineId, {
-        type: 'sessionOpenUrlDismiss',
-        sessionId,
-        requestId,
-        resolvedBy,
-      })
-    }
-    this.deliverOpenUrlResult({
-      type: 'sessionOpenUrlResult',
-      sessionId,
-      requestId,
-      status: 'expired',
-      resolvedBy,
-    })
-  }
-
-  /**
-   * The scoped-publication authority is the visibility oracle when present.
-   * Legacy connections fall back to the session owner/grants policy, which is
-   * total before real per-user login is enabled.
-   */
-  private clientMaySeeSession(client: ClientConn, sessionId: SessionId): boolean {
-    const authority = client.publication
-    if (authority) {
-      return authority.global || authority.snapshot().allowedSessionIds.includes(sessionId)
-    }
-    const ownership = this.sessionOwner(sessionId)
-    if (!ownership) return false
-    return (
-      ownership.owner === client.principal.user || ownership.grants.includes(client.principal.user)
-    )
-  }
-
-  /**
-   * Interim session-scoped stream delivery until POD-1078 puts browser-open on
-   * the session room. Crucially, there is no global fallback.
-   */
-  private openUrlRecipients(sessionId: SessionId): ClientConn[] {
-    return [...this.clients.values()].filter((client) =>
-      this.clientMaySeeSession(client, sessionId),
-    )
-  }
-
-  private deliverOpenUrlResult(message: SessionOpenUrlResultMessage): void {
-    for (const client of this.openUrlRecipients(message.sessionId)) {
-      this.clients.deliver(client, message)
-    }
-  }
-
-  private openUrlResolutionActor(principal: ClientPrincipal): Attribution {
-    return { actor: actorUser(principal.user), onBehalfOf: principal.user }
-  }
-
-  /**
-   * Focus-aware, visibility-gated fan-out for the typed session.openUrl bus
-   * event. The request
-   * remains parked until completion/dismissal/expiry, so a later client can
-   * still surface it when no browser was connected at capture time. [spec:SP-a43e]
-   */
+  /** Gateway/control-plane entrypoint for the typed session.openUrl event. */
   onOpenUrl(request: SessionOpenUrlMessage): void {
-    if (!this.sessions.has(request.sessionId) || request.expiresAt <= this.now()) return
-    const requestKey = this.openUrlKey(request.sessionId, request.requestId)
-    if (this.pendingOpenUrls.has(requestKey)) return
-    this.pendingOpenUrls.set(requestKey, request)
-    const timer = setTimeout(
-      () => this.expireOpenUrl(request.sessionId, request.requestId),
-      Math.max(1, request.expiresAt - this.now()),
-    )
-    timer.unref?.()
-    this.openUrlExpiryTimers.set(requestKey, timer)
-
-    const clients = this.openUrlRecipients(request.sessionId)
-    const focused = clients.filter((client) => client.focused === request.sessionId)
-    const visible = clients.filter((client) => client.viewVisible.has(request.sessionId))
-    const recipients = focused.length > 0 ? focused : visible.length > 0 ? visible : clients
-    for (const client of recipients) this.clients.deliver(client, request)
-  }
-
-  private onOpenUrlResult(machineId: string, message: SessionOpenUrlResultMessage): void {
-    const session = this.sessions.get(message.sessionId)
-    if (!session || session.machineId !== machineId) return
-    const requestKey = this.openUrlKey(message.sessionId, message.requestId)
-    if (!this.pendingOpenUrls.has(requestKey)) return
-    // The daemon is authenticated as a MACHINE, not as the human who resolved
-    // this login. Preserve the actor stamped when the browser command arrived
-    // and ignore any identity supplied in the daemon payload.
-    const resolvedBy = this.pendingOpenUrlResolvers.get(requestKey)
-    const { resolvedBy: _ignoredPayloadIdentity, ...result } = message
-    if (message.status !== 'failed') {
-      this.clearPendingOpenUrl(message.sessionId, message.requestId)
-    }
-    this.deliverOpenUrlResult({
-      ...result,
-      ...(resolvedBy ? { resolvedBy } : {}),
-    })
-  }
-
-  private submitOpenUrlCallback(
-    client: ClientConn,
-    message: Extract<ClientMessage, { type: 'sessionOpenUrlCallback' }>,
-  ): void {
-    const requestKey = this.openUrlKey(message.sessionId, message.requestId)
-    const request = this.pendingOpenUrls.get(requestKey)
-    const session = this.sessions.get(message.sessionId)
-    const resolvedBy = this.openUrlResolutionActor(client.principal)
-    if (
-      !request ||
-      !session ||
-      request.expiresAt <= this.now() ||
-      !this.clientMaySeeSession(client, message.sessionId)
-    ) {
-      this.clients.deliver(client, {
-        type: 'sessionOpenUrlResult',
-        sessionId: message.sessionId,
-        requestId: message.requestId,
-        status: 'expired',
-        resolvedBy,
-      })
-      return
-    }
-    this.pendingOpenUrlResolvers.set(requestKey, resolvedBy)
-    this.toMachine(session.machineId, {
-      type: 'sessionOpenUrlCallback',
-      sessionId: message.sessionId,
-      requestId: message.requestId,
-      url: message.url,
-      resolvedBy,
-    })
-  }
-
-  private dismissOpenUrl(
-    client: ClientConn,
-    message: Extract<ClientMessage, { type: 'sessionOpenUrlDismiss' }>,
-  ): void {
-    const requestKey = this.openUrlKey(message.sessionId, message.requestId)
-    if (
-      !this.pendingOpenUrls.has(requestKey) ||
-      !this.clientMaySeeSession(client, message.sessionId)
-    )
-      return
-    const session = this.sessions.get(message.sessionId)
-    const resolvedBy = this.openUrlResolutionActor(client.principal)
-    this.clearPendingOpenUrl(message.sessionId, message.requestId)
-    if (session)
-      this.toMachine(session.machineId, {
-        type: 'sessionOpenUrlDismiss',
-        sessionId: message.sessionId,
-        requestId: message.requestId,
-        resolvedBy,
-      })
-    this.deliverOpenUrlResult({
-      type: 'sessionOpenUrlResult',
-      sessionId: message.sessionId,
-      requestId: message.requestId,
-      status: 'dismissed',
-      resolvedBy,
-    })
+    this.browserOpen.onOpenUrl(request)
   }
 
   /**
@@ -4035,10 +3883,10 @@ export class SessionsService {
         this.handleDraftEdit(msg, id)
         break
       case 'sessionOpenUrlCallback':
-        this.submitOpenUrlCallback(client, msg)
+        this.browserOpen.submitCallback(client, msg)
         break
       case 'sessionOpenUrlDismiss':
-        this.dismissOpenUrl(client, msg)
+        this.browserOpen.dismiss(client, msg)
         break
     }
   }
@@ -4120,7 +3968,7 @@ export class SessionsService {
         break
       }
       case 'sessionOpenUrlResult': {
-        this.onOpenUrlResult(machineId, msg)
+        this.browserOpen.onOpenUrlResult(machineId, msg)
         break
       }
       case 'bind': {
@@ -4435,10 +4283,10 @@ export class SessionsService {
           next,
           observation,
         })
-        if (SessionsService.isAttentionPhase(prev) && !SessionsService.isAttentionPhase(next)) {
+        if (SessionLifecycle.isAttentionPhase(prev) && !SessionLifecycle.isAttentionPhase(next)) {
           this.state.clearAllSnoozes(session.sessionId)
         }
-        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
+        if (!SessionLifecycle.isAttentionPhase(prev) && SessionLifecycle.isAttentionPhase(next)) {
           this.issues().onSessionAttention(session.sessionId)
         }
         break
@@ -4505,12 +4353,12 @@ export class SessionsService {
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
         this.inbox.stateChanged({ sessionId: msg.sessionId, prev, next })
-        if (SessionsService.isAttentionPhase(prev) && !SessionsService.isAttentionPhase(next)) {
+        if (SessionLifecycle.isAttentionPhase(prev) && !SessionLifecycle.isAttentionPhase(next)) {
           this.state.clearAllSnoozes(msg.sessionId)
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
-        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
+        if (!SessionLifecycle.isAttentionPhase(prev) && SessionLifecycle.isAttentionPhase(next)) {
           this.issues().onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
@@ -4611,90 +4459,9 @@ export class SessionsService {
         this.titleDebouncers.get(msg.sessionId)!.push(msg.title)
         break
       }
-      case 'sessionResumeRef': {
-        const session = this.sessions.get(msg.sessionId)
-        if (!session) break
-        // A daemon may bind only sessions owned by its authenticated machine.
-        // This check is especially important for acknowledgements: never tell a
-        // foreign instance that its claimed mapping was persisted.
-        if (session.machineId !== machineId) {
-          console.warn(
-            `[podium] ignored resume binding for ${msg.sessionId} from non-owner machine ${machineId}`,
-          )
-          break
-        }
-        // [spec:SP-fccf] A native Codex thread belongs to one interactive Podium
-        // pane. Timing-only observers from older daemons are never allowed to
-        // overwrite an established binding. Exact native-hook or legacy-marker
-        // evidence wins and clears stale siblings so the invariant heals in place.
-        const conflicts =
-          harnessRequiresExclusiveInteractiveResume(session.agentKind) && !session.headless
-            ? [...this.sessions.values()].filter(
-                (other) =>
-                  other.sessionId !== session.sessionId &&
-                  !other.headless &&
-                  harnessRequiresExclusiveInteractiveResume(other.agentKind) &&
-                  other.resume?.kind === msg.resume.kind &&
-                  other.resume.value === msg.resume.value,
-              )
-            : []
-        if (conflicts.length > 0) {
-          if (msg.confidence !== 'exact') {
-            console.warn(
-              `[podium] ignored heuristic Codex resume collision ${msg.resume.value} for ${session.sessionId}`,
-            )
-            break
-          }
-          for (const conflict of conflicts) {
-            conflict.resume = undefined
-            conflict.conversationPodiumId = undefined
-            this.persist(conflict)
-          }
-          this.broadcastSessions()
-        }
-        if (
-          session.resume?.kind !== msg.resume.kind ||
-          session.resume?.value !== msg.resume.value
-        ) {
-          const prior = session.resume?.value
-          session.resume = msg.resume
-          // Conversation registry: this seam is where lineage is OBSERVED. A prior
-          // ref rolling to a new one on the same session = same conversation, new
-          // native file → link as a segment ('live-roll'). First-ever ref = the
-          // session's conversation becomes known → ensure an identity exists.
-          // (docs/spec/conversation-registry.md §3.1)
-          session.conversationPodiumId = prior
-            ? this.store.conversations.linkConversationSegment({
-                machineId: session.machineId,
-                newNativeId: msg.resume.value,
-                priorNativeId: prior,
-                providerId: session.agentKind,
-              })
-            : this.store.conversations.ensureConversationIdentity({
-                machineId: session.machineId,
-                nativeId: msg.resume.value,
-                providerId: session.agentKind,
-              })
-          this.persist(session)
-          // A resume ref makes the session resumable (→ hibernate button). Push the
-          // updated meta so already-connected clients see it live, rather than only
-          // when a coincident transcriptAppend happens to broadcast or on reconnect.
-          this.broadcastSessions()
-        }
-        // Ack only after the exact mapping is already in durable server state.
-        // Delivery is at-least-once, so an unchanged mapping is also acknowledged.
-        if (msg.ackRequested && msg.confidence === 'exact') {
-          const owner = this.sessionOwner(msg.sessionId)?.owner
-          if (!owner) break
-          this.toMachine(machineId, {
-            type: 'sessionResumeRefAck',
-            sessionId: msg.sessionId,
-            resume: msg.resume,
-            ownerId: owner,
-          })
-        }
+      case 'sessionResumeRef':
+        this.bindingReceipts.observeResumeRef(machineId, msg)
         break
-      }
       case 'sessionCwd': {
         const session = this.sessions.get(msg.sessionId)
         // A handoff kills the source and reuses this same session id on the target.

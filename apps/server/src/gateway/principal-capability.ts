@@ -52,7 +52,7 @@ export const capabilityFromPrincipal = (
       //
       // ID-SPACE CONVERSION, NOT AN ADAPTER CAST — POD-1164. `Capability.
       // actorSessionId` is a `SessionId` (POD-362 branded it to match its one live
-      // producer, `sessions/service.ts#capabilityForSession`, and every consumer:
+      // producer, `sessions/lifecycle.ts#capabilityForSession`, and every consumer:
       // the delegation walk, the `started_by_session` column, the `session:` keys).
       // `Principal.agentIdentity` is an `AgentIdentityId` — a DIFFERENT brand.
       // This function has no caller outside its own test, so nothing in production

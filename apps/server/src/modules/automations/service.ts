@@ -38,7 +38,7 @@ export interface AutomationsDeps {
   store: AutomationsRepository
   /** Durable metadata transaction + ordered delta path [spec:SP-3fe2]. */
   ledger: Pick<Ledger, 'commit' | 'reconcile'>
-  /** SessionsService.createSession, narrowed to what a scheduled spawn needs.
+  /** SessionLifecycle.createSession, narrowed to what a scheduled spawn needs.
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
   createSession(input: {
     cwd: string
@@ -50,7 +50,7 @@ export interface AutomationsDeps {
     issueId?: IssueId
     ownerUserId: UserId
   }): { sessionId: SessionId }
-  /** SessionsService.queueText — the durable outbox (see `spawn` below for why
+  /** SessionLifecycle.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
   queueText(input: {
     sessionId: SessionId

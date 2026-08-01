@@ -3,7 +3,7 @@
  *
  * `sessions.handoff` is the one session command that touches TWO machines and
  * moves a live agent between them. Its orchestration used to live inline in the
- * 250k-line `SessionsService`, reachable only through that class; this module is
+ * 250k-line `SessionLifecycle`, reachable only through that class; this module is
  * the port surface it now runs against, so the choreography can be driven — and
  * refused — without constructing a service.
  *
