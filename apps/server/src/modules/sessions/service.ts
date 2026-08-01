@@ -2,6 +2,7 @@ import type {
   AccountId,
   ActorRef,
   AgentRuntimeState,
+  Attribution,
   AutomationRunWire,
   AutomationWire,
   Geometry,
@@ -13,7 +14,14 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import { AgentKind, asIssueId, asSessionId, type UserId } from '@podium/model'
+import {
+  AgentKind,
+  actorSystem,
+  actorUser,
+  asIssueId,
+  asSessionId,
+  type UserId,
+} from '@podium/model'
 import { sessionSpawnerParentId } from '../../steward'
 
 /**
@@ -76,7 +84,7 @@ import { resolveRole } from '@podium/runtime'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
-import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -94,7 +102,6 @@ import {
   sessionsForIssue,
 } from '../../issue-util'
 import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
-import { systemPrincipal } from '../../command-principal'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
   ObservationLeaseRecord,
@@ -478,6 +485,8 @@ export class SessionsService {
   private readonly lastPriority = new Map<SessionId, number>()
   /** Pending remote browser-open requests, parked here when no client is connected. */
   private readonly pendingOpenUrls = new Map<string, SessionOpenUrlMessage>()
+  /** Resolution actors derived from the authenticated browser transport. */
+  private readonly pendingOpenUrlResolvers = new Map<string, Attribution>()
   private readonly openUrlExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
@@ -4121,9 +4130,13 @@ export class SessionsService {
       send({ type: 'machinesChanged', machines: this.machines.listMachines() })
       send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
       this.hosts.snapshotFor(send)
-      // A request captured while no browser was connected remains an explicit
-      // needs-attention affordance for the next client. [spec:SP-a43e]
-      for (const request of this.pendingOpenUrls.values()) send(request)
+    }
+    // A request captured while no browser was connected remains an explicit
+    // needs-attention affordance for the next client that may SEE the session.
+    // This sits outside the global-only bootstrap block deliberately: scoped
+    // clients are the audience this affordance must serve. [spec:SP-a43e]
+    for (const request of this.pendingOpenUrls.values()) {
+      if (this.clientMaySeeSession(client, request.sessionId)) send(request)
     }
   }
 
@@ -4213,6 +4226,7 @@ export class SessionsService {
   private clearPendingOpenUrl(sessionId: SessionId, requestId: string): void {
     const requestKey = this.openUrlKey(sessionId, requestId)
     this.pendingOpenUrls.delete(requestKey)
+    this.pendingOpenUrlResolvers.delete(requestKey)
     const timer = this.openUrlExpiryTimers.get(requestKey)
     if (timer) clearTimeout(timer)
     this.openUrlExpiryTimers.delete(requestKey)
@@ -4223,19 +4237,67 @@ export class SessionsService {
     if (!this.pendingOpenUrls.has(requestKey)) return
     this.clearPendingOpenUrl(sessionId, requestId)
     const session = this.sessions.get(sessionId)
-    if (session) {
-      this.toMachine(session.machineId, { type: 'sessionOpenUrlDismiss', sessionId, requestId })
+    const resolvedBy: Attribution = {
+      actor: actorSystem('browser-open-expiry'),
+      onBehalfOf: null,
     }
-    this.broadcastToClients({
+    if (session) {
+      this.toMachine(session.machineId, {
+        type: 'sessionOpenUrlDismiss',
+        sessionId,
+        requestId,
+        resolvedBy,
+      })
+    }
+    this.deliverOpenUrlResult({
       type: 'sessionOpenUrlResult',
       sessionId,
       requestId,
       status: 'expired',
+      resolvedBy,
     })
   }
 
   /**
-   * Focus-aware fan-out for the typed session.openUrl bus event. The request
+   * The scoped-publication authority is the visibility oracle when present.
+   * Legacy connections fall back to the session owner/grants policy, which is
+   * total before real per-user login is enabled.
+   */
+  private clientMaySeeSession(client: ClientConn, sessionId: SessionId): boolean {
+    const authority = client.publication
+    if (authority) {
+      return authority.global || authority.snapshot().allowedSessionIds.includes(sessionId)
+    }
+    const ownership = this.sessionOwner(sessionId)
+    if (!ownership) return false
+    return (
+      ownership.owner === client.principal.user || ownership.grants.includes(client.principal.user)
+    )
+  }
+
+  /**
+   * Interim session-scoped stream delivery until POD-1078 puts browser-open on
+   * the session room. Crucially, there is no global fallback.
+   */
+  private openUrlRecipients(sessionId: SessionId): ClientConn[] {
+    return [...this.clients.values()].filter((client) =>
+      this.clientMaySeeSession(client, sessionId),
+    )
+  }
+
+  private deliverOpenUrlResult(message: SessionOpenUrlResultMessage): void {
+    for (const client of this.openUrlRecipients(message.sessionId)) {
+      this.clients.deliver(client, message)
+    }
+  }
+
+  private openUrlResolutionActor(principal: ClientPrincipal): Attribution {
+    return { actor: actorUser(principal.user), onBehalfOf: principal.user }
+  }
+
+  /**
+   * Focus-aware, visibility-gated fan-out for the typed session.openUrl bus
+   * event. The request
    * remains parked until completion/dismissal/expiry, so a later client can
    * still surface it when no browser was connected at capture time. [spec:SP-a43e]
    */
@@ -4251,7 +4313,7 @@ export class SessionsService {
     timer.unref?.()
     this.openUrlExpiryTimers.set(requestKey, timer)
 
-    const clients = [...this.clients.values()]
+    const clients = this.openUrlRecipients(request.sessionId)
     const focused = clients.filter((client) => client.focused === request.sessionId)
     const visible = clients.filter((client) => client.viewVisible.has(request.sessionId))
     const recipients = focused.length > 0 ? focused : visible.length > 0 ? visible : clients
@@ -4263,10 +4325,18 @@ export class SessionsService {
     if (!session || session.machineId !== machineId) return
     const requestKey = this.openUrlKey(message.sessionId, message.requestId)
     if (!this.pendingOpenUrls.has(requestKey)) return
+    // The daemon is authenticated as a MACHINE, not as the human who resolved
+    // this login. Preserve the actor stamped when the browser command arrived
+    // and ignore any identity supplied in the daemon payload.
+    const resolvedBy = this.pendingOpenUrlResolvers.get(requestKey)
+    const { resolvedBy: _ignoredPayloadIdentity, ...result } = message
     if (message.status !== 'failed') {
       this.clearPendingOpenUrl(message.sessionId, message.requestId)
     }
-    this.broadcastToClients(message)
+    this.deliverOpenUrlResult({
+      ...result,
+      ...(resolvedBy ? { resolvedBy } : {}),
+    })
   }
 
   private submitOpenUrlCallback(
@@ -4276,29 +4346,58 @@ export class SessionsService {
     const requestKey = this.openUrlKey(message.sessionId, message.requestId)
     const request = this.pendingOpenUrls.get(requestKey)
     const session = this.sessions.get(message.sessionId)
-    if (!request || !session || request.expiresAt <= this.now()) {
+    const resolvedBy = this.openUrlResolutionActor(client.principal)
+    if (
+      !request ||
+      !session ||
+      request.expiresAt <= this.now() ||
+      !this.clientMaySeeSession(client, message.sessionId)
+    ) {
       this.clients.deliver(client, {
         type: 'sessionOpenUrlResult',
         sessionId: message.sessionId,
         requestId: message.requestId,
         status: 'expired',
+        resolvedBy,
       })
       return
     }
-    this.toMachine(session.machineId, message)
+    this.pendingOpenUrlResolvers.set(requestKey, resolvedBy)
+    this.toMachine(session.machineId, {
+      type: 'sessionOpenUrlCallback',
+      sessionId: message.sessionId,
+      requestId: message.requestId,
+      url: message.url,
+      resolvedBy,
+    })
   }
 
-  private dismissOpenUrl(message: Extract<ClientMessage, { type: 'sessionOpenUrlDismiss' }>): void {
+  private dismissOpenUrl(
+    client: ClientConn,
+    message: Extract<ClientMessage, { type: 'sessionOpenUrlDismiss' }>,
+  ): void {
     const requestKey = this.openUrlKey(message.sessionId, message.requestId)
-    if (!this.pendingOpenUrls.has(requestKey)) return
+    if (
+      !this.pendingOpenUrls.has(requestKey) ||
+      !this.clientMaySeeSession(client, message.sessionId)
+    )
+      return
     const session = this.sessions.get(message.sessionId)
+    const resolvedBy = this.openUrlResolutionActor(client.principal)
     this.clearPendingOpenUrl(message.sessionId, message.requestId)
-    if (session) this.toMachine(session.machineId, message)
-    this.broadcastToClients({
+    if (session)
+      this.toMachine(session.machineId, {
+        type: 'sessionOpenUrlDismiss',
+        sessionId: message.sessionId,
+        requestId: message.requestId,
+        resolvedBy,
+      })
+    this.deliverOpenUrlResult({
       type: 'sessionOpenUrlResult',
       sessionId: message.sessionId,
       requestId: message.requestId,
       status: 'dismissed',
+      resolvedBy,
     })
   }
 
@@ -4476,7 +4575,7 @@ export class SessionsService {
         this.submitOpenUrlCallback(client, msg)
         break
       case 'sessionOpenUrlDismiss':
-        this.dismissOpenUrl(msg)
+        this.dismissOpenUrl(client, msg)
         break
     }
   }
