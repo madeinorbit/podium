@@ -16,6 +16,7 @@
  */
 
 import type { SessionId, TranscriptItem } from '@podium/model'
+import type { InboxPrincipalReference } from '../sessions/inbox'
 
 /** The session shape the delivery gate reads (SessionMeta subset). */
 export interface AnswerTargetSession {
@@ -25,10 +26,18 @@ export interface AnswerTargetSession {
 export interface AnswerDeliveryDeps {
   getSession(sessionId: SessionId): AnswerTargetSession | undefined
   sessions: {
-    answerAskUserQuestion(input: { sessionId: SessionId; choices: { optionIndices: number[] }[] }): {
+    answerAskUserQuestion(input: {
+      sessionId: SessionId
+      choices: { optionIndices: number[] }[]
+      principal: InboxPrincipalReference
+    }): {
       ok: boolean
     }
-    resumeAndSend(input: { sessionId: SessionId; text: string }): { ok: boolean; reason?: string }
+    resumeAndSend(input: {
+      sessionId: SessionId
+      text: string
+      principal: InboxPrincipalReference
+    }): { ok: boolean; reason?: string }
   }
   rpc: {
     readTranscript(input: {
@@ -49,7 +58,12 @@ export type AnswerDeliveryResult =
 
 export async function deliverAnswerToSession(
   deps: AnswerDeliveryDeps,
-  input: { sessionId: SessionId; answer: string; textFallback?: boolean },
+  input: {
+    sessionId: SessionId
+    answer: string
+    principal: InboxPrincipalReference
+    textFallback?: boolean
+  },
 ): Promise<AnswerDeliveryResult> {
   const { sessionId, answer } = input
   const session = deps.getSession(sessionId)
@@ -68,7 +82,7 @@ export async function deliverAnswerToSession(
     }
     // No live menu → the answer is an ordinary message; resumeAndSend is the
     // durable path (live sends now, parked/starting queues + wakes).
-    const r = deps.sessions.resumeAndSend({ sessionId, text: answer })
+    const r = deps.sessions.resumeAndSend({ sessionId, text: answer, principal: input.principal })
     return r.ok ? { ok: true, via: 'text' } : { ok: false, message: r.reason ?? 'send failed' }
   }
   // The live prompt's options live in the transcript: the LAST
@@ -121,7 +135,7 @@ export async function deliverAnswerToSession(
     }
     choices.push({ optionIndices: qq.multiSelect ? idx : idx.slice(0, 1) })
   }
-  const r = deps.sessions.answerAskUserQuestion({ sessionId, choices })
+  const r = deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
   if (!r.ok) return { ok: false, message: 'failed: session not running' }
   return { ok: true, via: 'menu', choices, ...(notes.length > 0 ? { note: notes.join('; ') } : {}) }
 }

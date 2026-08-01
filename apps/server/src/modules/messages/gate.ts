@@ -22,6 +22,8 @@
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type { IssueId, SessionId, SessionMeta } from '@podium/model'
+import { resolvePrincipal } from '../../command-principal'
+import { sessionSpawnerParentId } from '../../steward'
 import type { Capability } from '../../issue-authz'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
@@ -192,7 +194,18 @@ export class MessageGate {
     deliveryMode?: MailDeliveryMode,
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
-    const caller = { capability, ...(overrideScope ? { overrideScope: true } : {}) }
+    const sessions = this.deps.listSessions()
+    const principal = resolvePrincipal(capability, {
+      parentSessionOf: (sessionId) =>
+        sessionSpawnerParentId(
+          sessions.find((session) => session.sessionId === sessionId)?.spawnedBy,
+        ),
+    })
+    const caller = {
+      capability,
+      principal,
+      ...(overrideScope ? { overrideScope: true } : {}),
+    }
     const ctx: MailHandlerContext = {
       caller,
       deps: this.deps,

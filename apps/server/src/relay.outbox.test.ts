@@ -1,8 +1,16 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SOLE_USER_ID, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import {
+  actorAgent,
+  asAgentIdentityId,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  SOLE_USER_ID,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
+import { asDelegationRef, type ControlMessage, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -62,8 +70,74 @@ function settle(reg: SessionRegistry, sessionId: string): void {
   vi.advanceTimersByTime(1400)
 }
 
-
 describe('queueText (durable outbox sends)', () => {
+  it('rejects an offline queued agent write when its human is revoked before drain', async () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon('local', (message) => daemon.push(message))
+
+      const source = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/source',
+      }).sessionId
+      const target = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/target',
+        spawnedBy: `session:${source}`,
+      }).sessionId
+      reg.gateway.routeDaemonFrame('local', bind(target))
+      reg.gateway.routeDaemonFrame('local', {
+        type: 'sessionResumeRef',
+        sessionId: target,
+        resume: { kind: 'claude-session', value: 'revocation-proof' },
+      })
+      expect(reg.modules.sessions.hibernateSession({ sessionId: target })).toEqual({ ok: true })
+      daemon.length = 0
+
+      const principal = {
+        kind: 'agent' as const,
+        principalRef: source,
+        delegation: asDelegationRef(source),
+        attribution: {
+          actor: actorAgent(asAgentIdentityId(source)),
+          onBehalfOf: FIRST_ADMIN_USER_ID,
+        },
+      }
+      expect(
+        reg.modules.sessions.queueText({
+          sessionId: target,
+          text: 'must not cross revocation',
+          mutationId: 'revoke-before-drain',
+          principal,
+        }),
+      ).toEqual({ ok: true, queued: true })
+
+      // User lifecycle writes intentionally have no repository API yet.
+      // @ts-expect-error test-only revocation through SessionStore's private connection
+      reg.sessionStore.db
+        .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
+        .run('2026-08-01T00:00:00.000Z', FIRST_ADMIN_USER_ID)
+
+      await vi.waitFor(() =>
+        expect(daemon).toContainEqual(
+          expect.objectContaining({ type: 'spawn', sessionId: target }),
+        ),
+      )
+      reg.gateway.routeDaemonFrame('local', bind(target))
+      settle(reg, target)
+
+      expect(pastesContaining(daemon, 'must not cross revocation')).toEqual([])
+      expect(reg.sessionStore.sync.listQueuedMessages(target)).toEqual([])
+      expect(
+        reg.modules.sessions.listSessions().find((session) => session.sessionId === target)
+          ?.queuedMessageCount,
+      ).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('wakes a hibernated resumable session, shows the count, and delivers exactly once after bind + settle', async () => {
     vi.useFakeTimers()
     try {
@@ -73,7 +147,9 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
-      expect(reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' })).toEqual({
+      expect(
+        reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -197,14 +273,17 @@ describe('queueText (durable outbox sends)', () => {
       const daemonA: ControlMessage[] = []
       regA.gateway.attachDaemon('local', (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
-      expect(regA.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'survive-restart' })).toEqual({
+      expect(
+        regA.modules.sessions.queueText({
+          sessionId: asSessionId(sessionId),
+          text: 'survive-restart',
+        }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
 
-      await vi.waitFor(() =>
-        expect(daemonA.some((message) => message.type === 'spawn')).toBe(true),
-      )
+      await vi.waitFor(() => expect(daemonA.some((message) => message.type === 'spawn')).toBe(true))
       expect(pastesContaining(daemonA, 'survive-restart')).toHaveLength(0)
       regA.dispose()
       storeA.close()
@@ -312,7 +391,10 @@ describe('queueText (durable outbox sends)', () => {
     })
     const before = inbox.length
 
-    reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'queued-while-parked' })
+    reg.modules.sessions.queueText({
+      sessionId: asSessionId(sessionId),
+      text: 'queued-while-parked',
+    })
     reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
     const changes = inbox
@@ -329,7 +411,11 @@ describe('queueText (durable outbox sends)', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
-    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId: asSessionId(sessionId), until: null })
+    reg.modules.sessions.setSnooze({
+      userId: SOLE_USER_ID,
+      sessionId: asSessionId(sessionId),
+      until: null,
+    })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
     reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })

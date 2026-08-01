@@ -1,6 +1,7 @@
-import { asSessionId } from '@podium/model'
+import { actorUser, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import type { InboxPrincipalReference } from './modules/sessions/inbox'
 import {
   type AnswerDeliveryDeps,
   deliverAnswerToSession,
@@ -12,6 +13,21 @@ import {
  * mode. The tool-belt (menu-only) behavior stays pinned by superagent.test.ts;
  * these tests cover the fallback semantics the tool never exercises.
  */
+
+const principal: InboxPrincipalReference = {
+  kind: 'user',
+  attribution: {
+    actor: actorUser(FIRST_ADMIN_USER_ID),
+    onBehalfOf: FIRST_ADMIN_USER_ID,
+  },
+  principalRef: FIRST_ADMIN_USER_ID,
+  delegation: null,
+}
+
+const deliver = (
+  deps: AnswerDeliveryDeps,
+  input: Omit<Parameters<typeof deliverAnswerToSession>[1], 'principal'>,
+) => deliverAnswerToSession(deps, { ...input, principal })
 
 const menuItem = (multiSelect = false): TranscriptItem =>
   ({
@@ -50,7 +66,7 @@ function harness(opts: { phase?: string; needKind?: string; items?: TranscriptIt
 describe('deliverAnswerToSession (issue #53)', () => {
   it('types the matched option digit into a live menu', async () => {
     const h = harness({ phase: 'needs_user', needKind: 'question', items: [menuItem()] })
-    const r = await deliverAnswerToSession(h.deps, {
+    const r = await deliver(h.deps, {
       sessionId: asSessionId('sess_1'),
       answer: 'No',
       textFallback: true,
@@ -59,19 +75,24 @@ describe('deliverAnswerToSession (issue #53)', () => {
     expect(h.answerAskUserQuestion).toHaveBeenCalledWith({
       sessionId: asSessionId('sess_1'),
       choices: [{ optionIndices: [2] }],
+      principal,
     })
     expect(h.resumeAndSend).not.toHaveBeenCalled()
   })
 
   it('textFallback delivers as a chat message when no menu is live', async () => {
     const h = harness({ phase: 'idle' })
-    const r = await deliverAnswerToSession(h.deps, {
+    const r = await deliver(h.deps, {
       sessionId: asSessionId('sess_1'),
       answer: 'ship it',
       textFallback: true,
     })
     expect(r).toEqual({ ok: true, via: 'text' })
-    expect(h.resumeAndSend).toHaveBeenCalledWith({ sessionId: asSessionId('sess_1'), text: 'ship it' })
+    expect(h.resumeAndSend).toHaveBeenCalledWith({
+      sessionId: asSessionId('sess_1'),
+      text: 'ship it',
+      principal,
+    })
     expect(h.answerAskUserQuestion).not.toHaveBeenCalled()
   })
 
@@ -79,7 +100,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     // Free text must never land on top of an open native menu: no resumeAndSend,
     // no digits, an explicit refusal instead.
     const h = harness({ phase: 'needs_user', needKind: 'question', items: [menuItem()] })
-    const r = await deliverAnswerToSession(h.deps, {
+    const r = await deliver(h.deps, {
       sessionId: asSessionId('sess_1'),
       answer: 'maybe tomorrow',
       textFallback: true,
@@ -92,7 +113,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
 
   it('menu-only mode (the MCP tool contract) refuses without a live menu', async () => {
     const h = harness({ phase: 'idle' })
-    const r = await deliverAnswerToSession(h.deps, { sessionId: asSessionId('sess_1'), answer: 'Yes' })
+    const r = await deliver(h.deps, { sessionId: asSessionId('sess_1'), answer: 'Yes' })
     expect(r).toEqual({ ok: false, message: 'no pending question (phase=idle)' })
     expect(h.resumeAndSend).not.toHaveBeenCalled()
   })
@@ -100,7 +121,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
   it('unknown session is a refusal in both modes', async () => {
     const h = harness()
     expect(
-      await deliverAnswerToSession(h.deps, {
+      await deliver(h.deps, {
         sessionId: asSessionId('nope'),
         answer: 'Yes',
         textFallback: true,
@@ -111,7 +132,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
   it('propagates a failed text send instead of claiming delivery', async () => {
     const h = harness({ phase: 'idle' })
     h.resumeAndSend.mockReturnValueOnce({ ok: false, reason: 'unknown session' } as never)
-    const r = await deliverAnswerToSession(h.deps, {
+    const r = await deliver(h.deps, {
       sessionId: asSessionId('sess_1'),
       answer: 'x',
       textFallback: true,

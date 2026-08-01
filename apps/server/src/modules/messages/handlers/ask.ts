@@ -20,7 +20,7 @@
  */
 
 import type { ContractInput, mailAskContract } from '@podium/commands'
-import { senderFromCapability } from '../service'
+import { senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
 
 export async function askHandler(
@@ -30,7 +30,7 @@ export async function askHandler(
   const { caller, deps, access } = ctx
   access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
   const svc = deps.messages()
-  const r = svc.send(senderFromCapability(caller.capability), {
+  const r = svc.send(senderFromPrincipal(caller.principal), {
     to: { kind: 'session', id: input.sessionId },
     body: input.question,
     kind: 'question',

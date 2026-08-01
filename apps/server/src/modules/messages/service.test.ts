@@ -288,6 +288,7 @@ describe('MessagesRepository (store CRUD)', () => {
       factKey: null,
       factTarget: null,
       expectsResponse: false,
+      delegationRef: null,
     }
     store.messages.addMessage(m)
     expect(store.messages.getMessage('msg_1')).toEqual(m)

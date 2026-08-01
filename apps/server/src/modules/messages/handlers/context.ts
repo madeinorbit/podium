@@ -31,12 +31,14 @@ import {
   SINGLE_USER_CEILING,
 } from '@podium/commands'
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
+import type { CommandPrincipal } from '../../../command-principal'
 import type { MessageRow } from '../../../store'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
 
 export interface MailCaller {
   capability: Capability
+  principal: CommandPrincipal
   overrideScope?: boolean
 }
 

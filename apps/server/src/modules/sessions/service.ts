@@ -1,6 +1,5 @@
 import type {
   AccountId,
-  ActorRef,
   AgentRuntimeState,
   Attribution,
   AutomationRunWire,
@@ -18,7 +17,6 @@ import {
   AgentKind,
   actorSystem,
   actorUser,
-  asIssueId,
   asSessionId,
   asUserId,
   type UserId,
@@ -62,6 +60,7 @@ import {
 } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import {
+  asDelegationRef,
   type AgentInstruction,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -77,7 +76,6 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type ObservationInputOrigin,
   type RepoProjection,
   type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
@@ -87,7 +85,7 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
+import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../command-principal'
@@ -115,7 +113,6 @@ import type {
   SessionStore,
   TerminalCandidateFacts,
 } from '../../store'
-import type { StoredDraftDoc } from '../../store/sessions'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -134,7 +131,6 @@ import { perfPrincipal } from '../perf/principal'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
-import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
 import { machineUseGateForCapability } from './handoff/access'
 import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
@@ -146,6 +142,16 @@ import {
   verifiedCommonBundleBases,
 } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
+import {
+  inboxActorColumns,
+  inboxActorFromColumns,
+  inboxPrincipalFromCommand,
+  type InboxSendInput,
+  type InboxPrincipalReference,
+  SessionInbox,
+  SYSTEM_INBOX_PRINCIPAL,
+} from './inbox'
+import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionStateRegistry, soleHumanSessionStateWsPrincipal } from './session-state/registry'
 import {
   createViewKey,
@@ -159,9 +165,7 @@ import {
   type PublishWorkerMetrics,
 } from './publish-worker-client'
 import {
-  type ClientPublicationAuthority,
   type PublicationAuthority,
-  type Send,
   Session,
   type SessionDurableState,
   type SessionVolatileField,
@@ -170,37 +174,6 @@ import { type SessionStatePrincipal, SessionStateService } from './session-state
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 
-// Delay between a chat message's bracketed paste and its submitting CR, so the CR
-// lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
-// paste-end marker → the message types in but never submits). See sendText().
-const SUBMIT_CR_DELAY_MS = 90
-// Submit verification [POD-152]: the delayed CR can STILL be swallowed when the
-// renderer is busy processing the paste past the delay — an image path pasted into
-// the composer is converted to an attachment (file read + encode), which reliably
-// outlasts SUBMIT_CR_DELAY_MS. The paste then sits in the composer unsent and
-// nobody notices (an operator body is confirmed on injection, with no echo to
-// await). So after the CR, verify the turn actually started — the user-turn echo
-// in the transcript tail or the agent phase leaving idle — and resend the CR while
-// it hasn't, a bounded number of times. See typeText().
-const SUBMIT_VERIFY_DELAY_MS = 1600
-const SUBMIT_MAX_RETRIES = 2
-// Resume/spawn readiness (sendTextWhenReady): the PTY binds ('live') BEFORE the
-// agent's TUI has finished drawing / loading the resumed conversation. Typing then
-// lands in a half-built UI and the message is dropped (codex especially). Deliver
-// only once the spawn has SETTLED — live for at least FLOOR, has produced output,
-// and that output burst has gone quiet for QUIET. MAX caps the wait for a spawn
-// that never produces output, so a message is never held indefinitely.
-const READY_FLOOR_MS = 800
-const READY_QUIET_MS = 600
-const READY_MAX_MS = 6_000
-const READY_POLL_MS = 200
-// Durable queued sends (docs/spec/outbox-write-path.md §2.2): one drain ATTEMPT
-// gives the session this long to come live before parking the loop (the rows
-// remain; the next liveness signal re-arms — unlike the old sendTextWhenReady
-// deadline, this drops nothing). Successive queued messages are spaced so each
-// lands as its own submitted input (CR delay + separate-read margin).
-const QUEUE_DRAIN_DEADLINE_MS = 25_000
-const QUEUE_MESSAGE_SPACING_MS = 400
 /**
  * Idempotency records outlive any sane replay horizon, then get pruned. ADR 2 D11
  * owns this number and this is its prune site.
@@ -279,6 +252,10 @@ interface SessionsServiceDeps {
   store: SessionStore
   now(): number
   bus: EventBus
+  /** Lazy source-message re-authorization; resolved on every inbox drain. */
+  authorizeQueuedMessage?(messageId: string): { ok: true } | { ok: false; reason: string }
+  /** Dead-letter the durable source intent after a drain-time refusal. */
+  rejectQueuedMessage?(messageId: string, reason: string): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
    * `MutationLedger`. Threaded through rather than constructed here — the service
@@ -408,6 +385,8 @@ export class SessionsService {
   readonly state: SessionStateService
   /** Backend auto-continue loop — re-arms retryable errored agents. */
   private readonly autoContinue: AutoContinueController
+  /** Attributed inbound text, answers, FIFO queueing and controller gating. */
+  private readonly inbox: SessionInbox
   /** The `sessions.handoff` handler (POD-642), built on first use. It holds the
    *  single-flight registry that stops a duplicate dispatch from forking a
    *  session, so it must outlive one call — see `handoffs()`. */
@@ -504,6 +483,81 @@ export class SessionsService {
         this.parkArchivedSession(sessionId)
       },
     })
+    this.inbox = new SessionInbox({
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      queue: {
+        enqueue: (row) => {
+          const actor = inboxActorColumns(row.principal.attribution.actor)
+          return this.store.sync.enqueueMessage({
+            id: row.id,
+            sessionId: row.sessionId,
+            text: row.text,
+            queuedAt: row.queuedAt,
+            inputOrigin: row.inputOrigin,
+            principalKind: row.principal.kind,
+            principalRef: row.principal.principalRef,
+            delegationRef: row.principal.delegation,
+            actorKind: actor.actorKind,
+            actorId: actor.actorId,
+            onBehalfOf: row.principal.attribution.onBehalfOf,
+            sourceMessageId: row.sourceMessageId,
+          })
+        },
+        list: (sessionId) =>
+          this.store.sync.listQueuedMessages(sessionId).map((row) => ({
+            id: row.id,
+            text: row.text,
+            attempts: row.attempts,
+            inputOrigin: row.inputOrigin,
+            principal: {
+              kind: row.principalKind,
+              principalRef: row.principalRef,
+              delegation: row.delegationRef ? asDelegationRef(row.delegationRef) : null,
+              attribution: {
+                actor: inboxActorFromColumns(row.actorKind, row.actorId),
+                onBehalfOf: row.onBehalfOf ? asUserId(row.onBehalfOf) : null,
+              },
+            },
+            sourceMessageId: row.sourceMessageId,
+          })),
+        bumpAttempts: (id) => this.store.sync.bumpQueuedAttempts(id),
+        delete: (id) => this.store.sync.deleteQueuedMessage(id),
+      },
+      daemon: {
+        sendInput: (machineId, message) => this.toMachine(machineId, message),
+      },
+      authorization: {
+        authorizeAtDrain: (input) => this.authorizeInboxAtDrain(input),
+        rejected: ({ sourceMessageId, reason }) => {
+          if (sourceMessageId) this.deps.rejectQueuedMessage?.(sourceMessageId, reason)
+        },
+      },
+      attention: {
+        stateChanged: (input) => this.bus.emit('session.stateChanged', input),
+        answered: ({ ownerUserId, sessionId, attribution }) => {
+          this.store.events.appendEvent({
+            ts: new Date(this.now()).toISOString(),
+            kind: 'session.inbox.answered',
+            subject: sessionId,
+            payload: { sessionId, ownerUserId, attribution },
+          })
+        },
+      },
+      now: () => this.now(),
+      persist: (session, options) =>
+        this.persist(
+          session,
+          options?.cancelTerminalCandidate
+            ? () => this.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
+            : undefined,
+        ),
+      broadcast: () => this.broadcastSessions(),
+      needsSubmitVerification: harnessNeedsSubmitVerification,
+      prepareSend: (sessionId, attribution, kind) =>
+        this.prepareInboxSend(sessionId, attribution, kind),
+      ownerOf: (sessionId) => this.sessionOwner(sessionId)?.owner,
+      resurrect: (sessionId) => this.resurrectSession({ sessionId }),
+    })
     this.autoContinue = new AutoContinueController({
       // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
       // so it is resolved for a user. See `settingsViewer` below for why that
@@ -557,6 +611,105 @@ export class SessionsService {
       if (target.mode === 'send') this.sendText({ sessionId: target.sessionId, text })
       else void this.queueText({ sessionId: target.sessionId, text })
     })
+  }
+  private prepareInboxSend(
+    sessionId: SessionId,
+    attribution: Attribution,
+    kind: 'text' | 'answer',
+  ): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    this.state.clearAllSnoozes(sessionId)
+    this.state.suppressNativeDraft(sessionId)
+    if (session.offer !== undefined) this.clearOffer(sessionId)
+    this.store.events.appendEvent({
+      ts: new Date(this.now()).toISOString(),
+      kind: kind === 'answer' ? 'session.inbox.answer' : 'session.inbox.send',
+      subject: sessionId,
+      payload: { sessionId, attribution },
+    })
+  }
+
+  private authorizeInboxAtDrain(input: {
+    sessionId: SessionId
+    principal: InboxPrincipalReference
+    sourceMessageId: string | null
+  }): { ok: true } | { ok: false; reason: string } {
+    const refused = { ok: false, reason: 'session no longer exists' } as const
+    const target = this.sessions.get(input.sessionId)
+    const ownership = this.sessionOwner(input.sessionId)
+    if (!target || !ownership) return refused
+
+    if (input.sourceMessageId) {
+      const source = this.deps.authorizeQueuedMessage?.(input.sourceMessageId)
+      if (source && !source.ok) return source
+    }
+
+    if (input.principal.kind === 'system') return { ok: true }
+
+    let principal: CommandPrincipal
+    if (input.principal.kind === 'user') {
+      const user = asUserId(input.principal.principalRef)
+      if (
+        !this.store.users.get(user) ||
+        input.principal.attribution.actor.kind !== 'user' ||
+        input.principal.attribution.actor.id !== user ||
+        input.principal.attribution.onBehalfOf !== user
+      ) {
+        return refused
+      }
+      principal = { kind: 'user', user, capability: OPERATOR }
+    } else {
+      const actorSessionId = asSessionId(input.principal.principalRef)
+      if (
+        String(input.principal.delegation) !== actorSessionId ||
+        input.principal.attribution.actor.kind !== 'agent' ||
+        String(input.principal.attribution.actor.id) !== actorSessionId
+      ) {
+        return refused
+      }
+      principal = resolvePrincipal(this.capabilityForSession(actorSessionId), {
+        parentSessionOf: (sessionId) =>
+          sessionSpawnerParentId(this.sessions.get(sessionId)?.spawnedBy),
+        onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
+      })
+      if (
+        principal.kind !== 'agent' ||
+        !this.store.users.get(principal.onBehalfOf) ||
+        principal.onBehalfOf !== input.principal.attribution.onBehalfOf
+      ) {
+        return refused
+      }
+    }
+
+    if (
+      ownership.owner !== (principal.kind === 'user' ? principal.user : principal.onBehalfOf) &&
+      !ownership.grants.includes(principal.kind === 'user' ? principal.user : principal.onBehalfOf)
+    ) {
+      return refused
+    }
+    if (
+      machineUseDecision(principal, target.machineId, ownershipFromMachines(this.machines)) !==
+      'granted'
+    ) {
+      return refused
+    }
+
+    // Every apply — including outbox replay — re-runs the ordinary session
+    // scope gate. The source message proves intent and ordering, never rights.
+    const access = {
+      listSessions: () => this.listSessions(),
+      issues: this.issues(),
+      visibility: () => true,
+    }
+    const resolved = resolveSessionTarget(principal, input.sessionId, access)
+    if (resolved.kind === 'absent') return refused
+    try {
+      assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access)
+    } catch {
+      return refused
+    }
+    return { ok: true }
   }
 
   private issues(): IssueService {
@@ -867,10 +1020,6 @@ export class SessionsService {
     return this.state.overlay(this.broadcastViewer(), sessionId)
   }
 
-  private viewerIsSnoozed(sessionId: SessionId): boolean {
-    return this.state.isSnoozed(this.broadcastViewer(), sessionId)
-  }
-
   private invalidateViewerOverlay(): void {
     this.state.invalidateAllOverlays()
   }
@@ -1171,7 +1320,7 @@ export class SessionsService {
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
     for (const s of this.sessions.values()) {
       if (s.machineId === machineId && s.queuedMessageCount > 0) {
-        this.drainQueuedMessages(s.sessionId)
+        this.inbox.drain(s.sessionId)
       }
     }
     // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
@@ -1640,6 +1789,28 @@ export class SessionsService {
       : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId }
   }
 
+  /**
+   * Server-stamped inbox identity for an authenticated capability. The
+   * delegation chain and owning human are read from live session rows each time;
+   * callers receive only the opaque reference that the inbox persists.
+   */
+  inboxPrincipalForCapability(capability: Capability): InboxPrincipalReference {
+    return inboxPrincipalFromCommand(
+      resolvePrincipal(capability, {
+        parentSessionOf: (sessionId) =>
+          sessionSpawnerParentId(this.sessions.get(sessionId)?.spawnedBy),
+        onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
+      }),
+    )
+  }
+
+  /** In-process agent identity; absence fails closed instead of inventing one. */
+  inboxPrincipalForSession(sessionId: SessionId): InboxPrincipalReference | undefined {
+    return this.sessions.has(sessionId)
+      ? this.inboxPrincipalForCapability(this.capabilityForSession(sessionId))
+      : undefined
+  }
+
   async resumeSession(input: {
     agentKind: AgentKind
     cwd: string
@@ -1756,237 +1927,28 @@ export class SessionsService {
     return { ok: true }
   }
 
-  /**
-   * Chat-view send: type a message into the agent's input as if pasted. When the
-   * session already has queued messages waiting, the new one goes BEHIND them
-   * (FIFO) instead of jumping the queue — otherwise a live-chat send would land
-   * before messages the user typed earlier while the agent was parked.
-   */
-  sendText({
-    sessionId,
-    text,
-    inputOrigin = 'controller',
-  }: {
-    sessionId: SessionId
-    text: string
-    inputOrigin?: ObservationInputOrigin
-  }): {
+  sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
+    return this.inbox.sendText(input)
+  }
+
+  interruptText(input: InboxSendInput): {
     ok: boolean
     queued?: boolean
     reason?: string
   } {
-    const session = this.sessions.get(sessionId)
-    if (session && (session.queuedMessageCount > 0 || this.activeDrains.has(sessionId))) {
-      return this.queueText({ sessionId, text, inputOrigin })
-    }
-    return this.typeText({ sessionId, text, inputOrigin })
+    return this.inbox.interruptText(input)
   }
 
-  /**
-   * Hard-interrupt delivery (#237) [spec:SP-34d7]: ESC cancels the target's
-   * in-flight turn, then the message rides the durable queue so the drain's
-   * settle heuristics land it as the immediate next turn (never mid-cancel).
-   * Callers are already authority-gated (superagent/parent/operator only —
-   * the clamp matrix downgrades everyone else before reaching here).
-   */
-  interruptText({
-    sessionId,
-    text,
-    inputOrigin = 'controller',
-  }: {
-    sessionId: SessionId
-    text: string
-    inputOrigin?: ObservationInputOrigin
-  }): {
-    ok: boolean
-    queued?: boolean
-    reason?: string
-  } {
-    const session = this.sessions.get(sessionId)
-    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
-      return { ok: false, reason: 'session not running' }
-    }
-    this.toMachine(session.machineId, {
-      type: 'input',
-      sessionId,
-      inputOrigin,
-      data: Buffer.from('\x1b').toString('base64'),
-    })
-    session.recordInputActivity(this.now())
-    // The ESC has cancelled any on-screen menu; type the text after a short beat
-    // so it lands in a separate PTY read. afterEsc bypasses the needs_user guard
-    // (this is the one legitimate write into a menu-waiting session) and jumps
-    // the queue — an interrupt is meant to.
-    setTimeout(
-      () => this.typeText({ sessionId, text, inputOrigin, afterEsc: true }),
-      SUBMIT_CR_DELAY_MS,
-    )
-    return { ok: true }
-  }
-
-  /** The raw typing primitive (bracketed paste + separated CR). Only sendText and
-   *  the queue drain call this — everything else must go through them so queued
-   *  messages keep their FIFO order. */
-  private typeText({
-    sessionId,
-    text,
-    inputOrigin = 'controller',
-    afterEsc,
-  }: {
-    sessionId: SessionId
-    inputOrigin?: ObservationInputOrigin
-    text: string
-    /** Set ONLY by interruptText, which just sent an ESC that cancels an
-     *  on-screen menu — its follow-up text is the one legitimate write into a
-     *  needs_user session. */
-    afterEsc?: boolean
-  }): { ok: boolean } {
-    const session = this.sessions.get(sessionId)
-    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
-      return { ok: false }
-    }
-    // #473: NEVER paste+CR into a session waiting on an AskUserQuestion menu —
-    // the submitting CR answers the highlighted default (making the user's
-    // decision for them). This is the airtight backstop: the delivery-layer
-    // guard (attemptDelivery/stateOf) reads a phase SNAPSHOT and races the
-    // boundary path (onSessionIdle -> deliverBatch -> sendText) and the sweep;
-    // the primitive is the only place that can't be raced. A human answering
-    // their OWN menu presses keys via handleInput -> toDaemon (raw 'input'),
-    // never through here, so this does not block them. interruptText's ESC
-    // cancels the menu first, so its follow-up is allowed (afterEsc).
-    if (!afterEsc && session.agentState?.phase === 'needs_user') {
-      return { ok: false }
-    }
-    // A submitted message re-engages the session — drop any snooze so it returns
-    // to the normal attention flow (covers chat send + resumeAndSend paths).
-    this.state.clearAllSnoozes(sessionId)
-    // The outgoing message transits the composer; suppress republishing it as a
-    // native draft while it's in flight (POD-859 reviewer fix 5).
-    this.state.suppressNativeDraft(sessionId)
-    // A user turn consumes any pending agent action offer [spec:SP-c7f1] — a
-    // button click sends its prompt through this same path, so it self-clears.
-    if (session.offer !== undefined) this.clearOffer(sessionId)
-    const send = (data: string) => (
-      session.recordInputActivity(this.now()),
-      this.toMachine(session.machineId, {
-        type: 'input',
-        sessionId,
-        inputOrigin,
-        data: Buffer.from(data).toString('base64'),
-      })
-    )
-    // Bracketed paste so the harness takes the message as one input block (newlines
-    // in a multi-line message don't submit early), then a submitting CR.
-    send(`\x1b[200~${text}\x1b[201~`)
-    // The CR must land in a SEPARATE PTY read from the paste-end marker. Sending it
-    // on the same tick — even as its own write — lets the new Claude renderer (2.1.x)
-    // swallow it behind the bracketed paste: the message lands in the composer but
-    // the turn never starts ("types in but doesn't submit", esp. on longer input).
-    // A short delay separates the reads so the CR submits; it's imperceptible next to
-    // agent latency. Verified against real claude in the e2e harness.
-    setTimeout(() => send('\r'), SUBMIT_CR_DELAY_MS)
-    // The delay is a heuristic, not a handshake — verify the submit landed and
-    // retry the CR while it didn't [POD-152]. Baseline the user-turn echo count
-    // now, before the CR can produce one.
-    if (harnessNeedsSubmitVerification(session.agentKind)) {
-      this.scheduleSubmitVerify(sessionId, this.userTurnCount(session), 1)
-    }
-    return { ok: true }
-  }
-
-  /** User-role items in the bounded transcript cache — the submit-echo signal.
-   *  (Bounded/resettable, so compare counts captured moments apart, nothing more.) */
-  private userTurnCount(session: Session): number {
-    return session.transcriptItems().filter((it) => it.role === 'user').length
-  }
-
-  /**
-   * Post-submit verification [POD-152]: fires after typeText's CR and resends a
-   * lone CR while there's no evidence the turn started. Evidence = the agent phase
-   * left idle (working/compacting — the stop-hook pipeline reports fast) OR a new
-   * user-role item reached the transcript cache (covers turns so quick the phase
-   * is already back to idle). The retry CR is safe by construction: the pasted
-   * text is still in the composer (that's the failure being fixed) or the
-   * composer is empty, where a CR is a no-op. It explicitly does NOT fire when
-   * the phase is needs_user (a CR would answer the on-screen menu's highlighted
-   * default, #473) or errored (nothing to submit into), or once the session is
-   * no longer running.
-   */
-  private scheduleSubmitVerify(
-    sessionId: SessionId,
-    baselineUserTurns: number,
-    attempt: number,
-  ): void {
-    const timer = setTimeout(() => {
-      const session = this.sessions.get(sessionId)
-      if (!session || (session.status !== 'live' && session.status !== 'starting')) return
-      const phase = session.agentState?.phase
-      if (phase !== undefined && phase !== 'idle') return
-      if (this.userTurnCount(session) > baselineUserTurns) return
-      this.toMachine(session.machineId, {
-        type: 'input',
-        sessionId,
-        data: Buffer.from('\r').toString('base64'),
-      })
-      if (attempt < SUBMIT_MAX_RETRIES) {
-        this.scheduleSubmitVerify(sessionId, baselineUserTurns, attempt + 1)
-      }
-    }, SUBMIT_VERIFY_DELAY_MS)
-    timer.unref?.()
-  }
-
-  /**
-   * Chat-view answer to a live AskUserQuestion prompt. The chat card sends the
-   * 1-based option index (per question) and we type the matching digit(s) into
-   * the agent's PTY to drive its native multiple-choice selector — the native
-   * terminal is unmounted in chat mode, so this is the only path to the prompt.
-   *
-   * Claude Code's AskUserQuestion menu commits a single-select choice the instant
-   * the option's number key is pressed (no Enter), and accepts comma-separated
-   * numbers + Enter for multi-select. We send raw digits here (NOT bracketed
-   * paste like `sendText`, which would land them as message text rather than
-   * menu keystrokes). See the chat card for the option→digit mapping.
-   *
-   * `choices` is one entry per question being answered, each carrying the
-   * question's 1-based option indices (one for single-select, ≥1 for multi).
-   * NEEDS IN-BROWSER VERIFICATION against a real Claude prompt — the exact
-   * key sequence the TUI expects is documented-but-unconfirmed here.
-   */
-  answerAskUserQuestion({
-    sessionId,
-    choices,
-  }: {
+  answerAskUserQuestion(input: {
     sessionId: SessionId
     choices: { optionIndices: number[] }[]
+    principal?: InboxPrincipalReference
   }): { ok: boolean } {
-    const session = this.sessions.get(sessionId)
-    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
-      return { ok: false }
-    }
-    const send = (data: string) => (
-      session.recordInputActivity(this.now()),
-      this.toMachine(session.machineId, {
-        type: 'input',
-        sessionId,
-        inputOrigin: 'human',
-        data: Buffer.from(data).toString('base64'),
-      })
-    )
-    for (const choice of choices) {
-      const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
-      if (digits.length === 0) continue
-      if (digits.length === 1) {
-        // Single-select: the number key alone commits the choice and advances to
-        // the next question (no Enter). A multi-question payload chains naturally.
-        send(String(digits[0]))
-      } else {
-        // Multi-select: comma-separated indices, then Enter to confirm the set.
-        send(`${digits.join(',')}\r`)
-      }
-    }
-    return { ok: true }
+    return this.inbox.answerAskUserQuestion({
+      ...input,
+      principal: input.principal ?? SYSTEM_INBOX_PRINCIPAL,
+    })
   }
-
   setSessionDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void {
     this.state.setDraft(input, fromClientId)
   }
@@ -2017,154 +1979,12 @@ export class SessionsService {
     this.state.maybeCatchupInject(sessionId, machineId)
   }
 
-  // ---- durable queued sends (docs/spec/outbox-write-path.md §2.2) ----
-  // Replaces the old in-memory sendTextWhenReady, which silently dropped its
-  // message on a 25s timeout, a failed wake, or a server restart. Messages now
-  // live in the queued_messages table until the moment their bytes go toward the
-  // daemon; a failed drain attempt keeps the rows and re-arms on the next
-  // liveness signal (bind / attachDaemon / resurrect / enqueue).
-
-  /** Sessions with a drain loop in flight — single-flight per session so two
-   *  triggers can't interleave deliveries (spec invariant 2). */
-  private readonly activeDrains = new Set<string>()
-
-  /**
-   * Queue a message for a session, waking it if parked. ALWAYS defers to the
-   * drain loop — even for a live session — because the drain's settle heuristics
-   * are what keep a message out of a still-booting TUI (the #5b fix); callers
-   * that want the instant live-chat path (resumeAndSend, ChatView) use sendText
-   * directly. `mutationId` doubles as the durable row id, so a replayed enqueue
-   * is a no-op at the storage layer too.
-   */
-  queueText({
-    sessionId,
-    text,
-    inputOrigin = 'controller',
-    mutationId,
-  }: {
-    sessionId: SessionId
-    text: string
-    inputOrigin?: ObservationInputOrigin
-    mutationId?: string
-  }): { ok: boolean; queued?: boolean; reason?: string } {
-    const session = this.sessions.get(sessionId)
-    if (!session) return { ok: false, reason: 'unknown session' }
-    // A parked session we can never wake would hold the message forever with no
-    // path to delivery — surface that instead of queueing into a void. (Shells
-    // resurrect by fresh respawn, agents need a resume ref.)
-    const parked = session.status === 'hibernated' || session.status === 'exited'
-    if (parked && session.agentKind !== 'shell' && !session.resume) {
-      return { ok: false, reason: 'no resume ref' }
-    }
-    const inserted = this.store.sync.enqueueMessage({
-      id: mutationId ?? randomUUID(),
-      sessionId,
-      text,
-      inputOrigin,
-      queuedAt: this.now(),
-    })
-    if (inserted) {
-      session.queuedMessageCount += 1
-      // queuedMessageCount is wire-visible meta derived from the queue table —
-      // commit the new count so delta clients see the badge [#256].
-      this.persist(session, () =>
-        this.store.observationCheckpoints.cancelTerminalCandidate(sessionId),
-      )
-      // A queued message is fresh user intent on the session — clear any snooze,
-      // mirroring sendText, so it returns to the normal attention flow.
-      this.state.clearAllSnoozes(sessionId)
-      // ...and consume any pending agent action offer [spec:SP-c7f1].
-      if (session.offer !== undefined) this.clearOffer(sessionId)
-      this.broadcastSessions()
-    }
-    if (parked) {
-      // Fire-and-forget wake; drain re-arms on liveness. Async so a freed
-      // worktree can be recreated before spawn [spec:SP-9904].
-      void this.resurrectSession({ sessionId }).then((r) => {
-        if (!r.ok) console.warn(`[podium] wake-on-queue failed for ${sessionId}: ${r.reason}`)
-      })
-    }
-    this.drainQueuedMessages(sessionId)
-    return { ok: true, queued: true }
-  }
-
-  /**
-   * Deliver a session's queued messages FIFO once it is actually ready, reusing
-   * the spawn-readiness heuristics (live + produced output + floor/quiet settle,
-   * with a MAX fallback for silent spawns). One attempt per trigger: if the
-   * session never comes live before the deadline the loop stops and the ROWS
-   * REMAIN — the next liveness signal re-arms. Successive messages are spaced so
-   * each lands as its own submitted input.
-   */
-  private drainQueuedMessages(sessionId: SessionId): void {
-    if (this.activeDrains.has(sessionId)) return
-    const session = this.sessions.get(sessionId)
-    if (!session || session.queuedMessageCount === 0) return
-    this.activeDrains.add(sessionId)
-    const deadline = this.now() + QUEUE_DRAIN_DEADLINE_MS
-    let liveAtMs = 0
-    let baseOutputMs = 0
-    const stop = (): void => {
-      this.activeDrains.delete(sessionId)
-    }
-    const deliverNext = (): void => {
-      const s = this.sessions.get(sessionId)
-      if (!s || (s.status !== 'live' && s.status !== 'starting')) {
-        stop()
-        return
-      }
-      const head = this.store.sync.listQueuedMessages(sessionId)[0]
-      if (!head) {
-        stop()
-        return
-      }
-      this.store.sync.bumpQueuedAttempts(head.id)
-      const sent = this.typeText({ sessionId, text: head.text, inputOrigin: head.inputOrigin })
-      if (!sent.ok) {
-        stop() // status raced to parked — rows remain
-        return
-      }
-      // Delete only AFTER the bytes went toward the daemon (spec invariant 3).
-      this.store.sync.deleteQueuedMessage(head.id)
-      s.queuedMessageCount = Math.max(0, s.queuedMessageCount - 1)
-      this.persist(s) // commit the drained count (see queueText) [#256]
-      this.broadcastSessions()
-      if (s.queuedMessageCount > 0) {
-        const t = setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS)
-        t.unref?.()
-      } else stop()
-    }
-    const tick = (): void => {
-      const s = this.sessions.get(sessionId)
-      // Parked/gone: stop WITHOUT touching rows — re-armed on the next wake.
-      if (!s || s.status === 'exited' || s.status === 'hibernated') {
-        stop()
-        return
-      }
-      const now = this.now()
-      if (s.status === 'live') {
-        if (!liveAtMs) {
-          liveAtMs = now
-          baseOutputMs = s.lastOutputAtMs
-        }
-        const producedOutput = s.lastOutputAtMs > baseOutputMs
-        const settled =
-          producedOutput &&
-          now - liveAtMs >= READY_FLOOR_MS &&
-          now - s.lastOutputAtMs >= READY_QUIET_MS
-        if (settled || now - liveAtMs >= READY_MAX_MS || now >= deadline) {
-          deliverNext()
-          return
-        }
-      } else if (now >= deadline) {
-        stop() // never came live this attempt; rows remain for the next one
-        return
-      }
-      const t = setTimeout(tick, READY_POLL_MS)
-      t.unref?.()
-    }
-    const t = setTimeout(tick, READY_POLL_MS)
-    t.unref?.()
+  queueText(input: InboxSendInput & { mutationId?: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
+    return this.inbox.queueText(input)
   }
 
   /**
@@ -2668,7 +2488,7 @@ export class SessionsService {
         .sort(),
       awaitingSubagents: checkpoint.turnState.awaitingSubagents === true,
       childSessions: activeChildren,
-      queueDrainActive: this.activeDrains.has(session.sessionId),
+      queueDrainActive: this.inbox.isDraining(session.sessionId),
       draftPending: session.draftUpdatedAt !== undefined,
       draftVersion: session.draftUpdatedAt ?? null,
       offerPending: session.offer !== undefined,
@@ -3163,29 +2983,12 @@ export class SessionsService {
    * composer accept a message on a sleeping agent instead of refusing input —
    * the message itself becomes the reason to wake.
    */
-  resumeAndSend({
-    sessionId,
-    text,
-    mutationId,
-    inputOrigin = 'controller',
-  }: {
-    sessionId: SessionId
-    text: string
-    mutationId?: string
-    inputOrigin?: ObservationInputOrigin
-  }): {
+  resumeAndSend(input: InboxSendInput & { mutationId?: string }): {
     ok: boolean
+    queued?: boolean
     reason?: string
   } {
-    const session = this.sessions.get(sessionId)
-    if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status === 'live' && session.queuedMessageCount === 0) {
-      return this.sendText({ sessionId, text, inputOrigin })
-    }
-    // Everything else — parked (wakes), starting (waits for settle), reconnecting
-    // (waits for the daemon), or live-behind-a-queue (FIFO) — goes through the
-    // durable queue instead of the old drop-after-25s in-memory timer.
-    return this.queueText({ sessionId, text, mutationId, inputOrigin })
+    return this.inbox.resumeAndSend(input)
   }
 
   /** Wake a hibernated session: respawn under the same id with its resume ref.
@@ -4138,15 +3941,19 @@ export class SessionsService {
         break
       }
       case 'input':
-        this.sessions.get(msg.sessionId)?.handleInput(id, msg.data)
+        this.inbox.handleControllerInput(principal, client, msg.sessionId, msg.data)
         break
       case 'resize':
-        this.mutateSessionView(msg.sessionId, (session) =>
-          session.handleResize(id, msg.cols, msg.rows),
+        this.mutateSessionView(msg.sessionId, () =>
+          this.inbox.handleResize(principal, client, msg.sessionId, msg.cols, msg.rows),
         )
         break
       case 'requestControl':
-        this.mutateSessionView(msg.sessionId, (session) => session.requestControl(id), false)
+        this.mutateSessionView(
+          msg.sessionId,
+          () => this.inbox.requestControl(principal, client, msg.sessionId),
+          false,
+        )
         this.broadcastSessions()
         break
       case 'redrawRequest':
@@ -4176,7 +3983,7 @@ export class SessionsService {
         // it renders these sessions, re-apply its last viewport where it's controller
         // — otherwise the PTY stays stuck at the 80x24 default (quarter-size window).
         for (const sid of client.viewVisible) {
-          this.mutateSessionView(sid, (session) => session.reconcileGeometry(id))
+          this.mutateSessionView(sid, () => this.inbox.reconcileGeometry(principal, client, sid))
         }
         this.pushPriorities()
         this.reprioritizePreparedSessionPublications()
@@ -4313,7 +4120,7 @@ export class SessionsService {
         // The PTY is bound: if messages queued up while this session was parked
         // (or across a server restart), start a delivery attempt — the drain loop
         // itself waits out the boot-settle before typing.
-        this.drainQueuedMessages(msg.sessionId)
+        this.inbox.drain(msg.sessionId)
         // Catchup (POD-859 §6): seed native with a chat draft edited while the
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).
@@ -4605,7 +4412,7 @@ export class SessionsService {
         if (outcome.kind !== 'live_transition_accepted') break
         this.autoContinue.onStateChange(session.sessionId, next)
         this.issues().onSessionActivity(session.sessionId)
-        this.bus.emit('session.stateChanged', {
+        this.inbox.stateChanged({
           sessionId: session.sessionId,
           prev,
           next,
@@ -4680,7 +4487,7 @@ export class SessionsService {
         }
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
-        this.bus.emit('session.stateChanged', { sessionId: msg.sessionId, prev, next })
+        this.inbox.stateChanged({ sessionId: msg.sessionId, prev, next })
         if (SessionsService.isAttentionPhase(prev) && !SessionsService.isAttentionPhase(next)) {
           this.state.clearAllSnoozes(msg.sessionId)
         }

@@ -2,6 +2,7 @@ import {
   type AccountId,
   type AgentKind,
   type AgentRuntimeState,
+  type Attribution,
   type ConversationId,
   type Geometry,
   type IssueId,
@@ -615,7 +616,7 @@ export class Session {
     this.controllerId = null
   }
 
-  handleInput(clientId: string, data: string): void {
+  handleInput(clientId: string, data: string, attribution?: Attribution): void {
     if (clientId === this.controllerId) {
       // Submitting a line at a shell prompt is what starts a command running —
       // mark busy now (before any output) and let onFrame keep it lit while the
@@ -626,7 +627,13 @@ export class Session {
         this.markShellBusy()
       }
       this.recordInputActivity()
-      this.toDaemon({ type: 'input', sessionId: this.sessionId, data, inputOrigin: 'human' })
+      this.toDaemon({
+        type: 'input',
+        sessionId: this.sessionId,
+        data,
+        inputOrigin: 'human',
+        ...(attribution ? { attribution } : {}),
+      })
     }
   }
 

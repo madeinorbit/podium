@@ -83,7 +83,11 @@ describe('issues.answerQuestion (issue #53)', () => {
       issue: { needsHuman: boolean; humanQuestion?: string; humanQuestionOptions?: string[] }
       deliveredVia: string
     }
-    expect(deliver).toHaveBeenCalledWith('sess_asker', 'Yes')
+    expect(deliver).toHaveBeenCalledWith(
+      'sess_asker',
+      'Yes',
+      expect.objectContaining({ capability: OPERATOR }),
+    )
     expect(r.deliveredVia).toBe('text')
     expect(r.issue.needsHuman).toBe(false)
     expect(r.issue.humanQuestion).toBeUndefined()

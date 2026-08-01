@@ -40,7 +40,6 @@ import { mailPolicy } from './modules/messages/handlers/context'
 import {
   DELIVERY_RETRY_BACKSTOP_MS,
   MessageDeliveryService,
-  senderFromCapability,
 } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { TelegramNoticePort } from './modules/messaging/types'
@@ -323,12 +322,16 @@ export class SessionRegistry {
         // a person (one shared password), so the sole account is the only true
         // answer, and POD-315/POD-1077 replace the argument rather than finding a
         // hidden read.
-        getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
+        getSettings: (ownerUserId = FIRST_ADMIN_USER_ID) =>
+          this.store.settings.getSettingsFor(ownerUserId),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
-        clients: () => clients().values(),
+        clients: (ownerUserId) =>
+          [...clients().values()].filter(
+            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
+          ),
         sessionInfo: (sessionId) => {
           const s = liveSessions().get(sessionId)
           return s ? noticeInfo(s) : undefined
@@ -337,6 +340,7 @@ export class SessionRegistry {
           [...liveSessions().values()].map((s) => ({
             info: noticeInfo(s),
             state: s.agentState,
+            ownerUserId: FIRST_ADMIN_USER_ID,
           })),
         notificationsEnabled: () => featureEnabled('notifications'),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
@@ -451,7 +455,7 @@ export class SessionRegistry {
       // Tray answer delivery (issue #53): the shared answer_question matching
       // path, with text fallback — no live menu means the answer arrives as a
       // normal chat message (resumeAndSend wakes a parked session).
-      answerSessionQuestion: async (sessionId, answer) => {
+      answerSessionQuestion: async (sessionId, answer, caller) => {
         const r = await deliverAnswerToSession(
           {
             getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
@@ -461,7 +465,12 @@ export class SessionRegistry {
                 rpc.readTranscript(input, { kind: 'system', id: 'issue-answer-delivery' }),
             },
           },
-          { sessionId, answer, textFallback: true },
+          {
+            sessionId,
+            answer,
+            principal: sessionsSvc.inboxPrincipalForCapability(caller.capability),
+            textFallback: true,
+          },
         )
         return r.ok ? { ok: true, via: r.via } : r
       },
@@ -1087,6 +1096,8 @@ export class SessionRegistry {
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
+      authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
+      rejectQueuedMessage: (messageId, reason) => messagesSvc.rejectQueuedInput(messageId, reason),
       funnel,
       clients: clientRegistry,
       disconnectClient: (id) => this.clientGateway.detachClient(id),
