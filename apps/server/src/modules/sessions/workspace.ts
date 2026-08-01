@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
-import { AgentKind, type SessionId, type UserId } from '@podium/model'
+import { AgentKind, repoNameFromOrigin, type SessionId, type UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
-import type { MachineUseResolver, MachinesService } from '../machines/service'
-import type { DaemonRpcService } from '../machines/rpc'
-import type { IssueService } from '../issues/service'
 import type { SessionStore } from '../../store'
-import { repoNameFromOrigin } from '@podium/model'
+import type { IssueService } from '../issues/service'
+import type { DaemonRpcService } from '../machines/rpc'
+import type { MachinesService, MachineUseResolver } from '../machines/service'
 import {
   transferHandoffPackage,
   verifiedBundleBases,
@@ -40,16 +39,9 @@ export class SessionWorkspace {
     const parsed = AgentKind.safeParse(input.agentKind)
     const agentKind = parsed.success
       ? parsed.data
-      : resolveRole(
-          this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
-          'coding',
-        ).harness
-    this.ports.machines.resolveMachineForAgent(
-      input.machineId,
-      input.cwd,
-      agentKind,
-      input.use,
-    )
+      : resolveRole(this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
+          .harness
+    this.ports.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
     const sourceRepo = this.ports.store.repos
       .listRepos()
       .filter((repo) => input.cwd === repo.path || input.cwd.startsWith(`${repo.path}/`))

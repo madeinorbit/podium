@@ -53,6 +53,7 @@ import {
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
+import { inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
 import {
   assertMayCommandSession,
@@ -61,8 +62,6 @@ import {
   type SessionAccessDeps,
   type SessionTargetRow,
 } from './session-access'
-
-import { inboxPrincipalFromCommand } from './inbox'
 // ---------------------------------------------------------------------------
 // Execution context
 // ---------------------------------------------------------------------------
