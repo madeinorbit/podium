@@ -39,7 +39,7 @@ function harness(
   }
   const svc = new IssueService(deps)
   const dispatcher = new IssueCommandDispatcher({
-    issues: () => svc,
+    issues: svc,
     deleteIssue: () => undefined,
     attachSession: (_caller, input) => svc.attachSession(input),
     restoreIssue: () => undefined,

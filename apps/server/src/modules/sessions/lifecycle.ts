@@ -98,7 +98,7 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import type { HeadlessService } from '../superagent/headless'
+import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
@@ -252,7 +252,6 @@ interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
-  headless: HeadlessService
   /** Lazy: the conversations service is constructed after this one (post-load slot). */
   conversations(): ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
@@ -336,7 +335,7 @@ export class SessionLifecycle {
   private readonly machines: MachinesService
   private readonly rpc: DaemonRpcService
   private readonly hosts: HostsService
-  private readonly headless: HeadlessService
+  readonly headless: HeadlessService
   /** Durable viewer/shared-surface state, isolated behind explicit ports. */
   readonly state: SessionStateService
   /** Backend auto-continue loop — re-arms retryable errored agents. */
@@ -389,7 +388,6 @@ export class SessionLifecycle {
     this.machines = deps.machines
     this.rpc = deps.rpc
     this.hosts = deps.hosts
-    this.headless = deps.headless
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
     const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
@@ -511,6 +509,19 @@ export class SessionLifecycle {
       listSessions: () => this.view.list(),
       now: () => this.now(),
       appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+    })
+    this.headless = new HeadlessService({
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      registerSession: (session) => this.sessions.set(session.sessionId, session),
+      resolveMachine: (requested, cwd, agentKind) =>
+        this.machines.resolveMachineForAgent(requested, cwd, agentKind),
+      defaultMachine: () => this.machines.defaultMachine(),
+      toMachine: (machineId, message) => this.machines.toMachine(machineId, message),
+      nextRequestId: (prefix) => this.rpc.nextRequestId(prefix),
+      defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
+      persist: (session) => this.persist(session),
+      broadcastSessions: () => this.broadcastSessions(),
+      clients: () => this.clients.values(),
     })
     this.inbox = new SessionInbox({
       getSession: (sessionId) => this.sessions.get(sessionId),
