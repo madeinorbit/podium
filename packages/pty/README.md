@@ -38,10 +38,11 @@ On Linux each master is additionally wrapped in a transient `systemd-run --user
 --scope` so an agent's CPU/IO weight sits below the daemon's; `PODIUM_NO_SCOPE=1`
 turns that off for tests and non-systemd hosts.
 
-`abducoHasSession`/`abducoHasSessionAsync`, `killAbducoSession`/`…Async`,
-`tmuxHasSession`/`…Async` and `killTmuxServer`/`…Async` are **sync/async twins**
-that POD-324 collapses. They are counted by the `durable-host-sync-async-twins`
-deletion-audit item (baseline 4). Do not add a fifth.
+Durable-host process operations expose one async API: `abducoHasSession`,
+`killAbducoSession`, `tmuxHasSession`, `killTmuxServer`, `spawnAbducoAgent`, and
+`spawnTmuxAgent`. Callers await them so process creation and listing never block the
+interactive loop. The `durable-host-sync-async-twins` deletion-audit item guards this
+boundary at zero.
 
 ### Framing, redraw, OSC scan — `src/session.ts`, `src/osc-title.ts`
 

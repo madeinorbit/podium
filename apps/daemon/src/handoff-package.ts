@@ -13,9 +13,12 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
-import { claudeProjectSlug, locateClaudeSessionFile, resolvePinnedCodexRollout } from '@podium/harness'
+import { declaredValue, manifestFor } from '@podium/harness'
+
+export { codexTranscriptPlacement } from '@podium/harness'
+
 import type { Attribution, SessionId } from '@podium/model'
-import { HandoffManifest, HandoffManifest as HandoffManifestType } from '@podium/model'
+import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
 
 const runFile = promisify(execFile)
@@ -293,13 +296,17 @@ async function currentWorktreeTree(cwd: string): Promise<string> {
   }
 }
 
-export function codexTranscriptPlacement(
-  home: string,
-  relativeDir: string | undefined,
-  filename: string,
-): string {
-  const safeDir = (relativeDir ?? '').split(/[\\/]+/u).filter((part) => part && part !== '..')
-  return join(home, '.codex', 'sessions', ...safeDir, basename(filename))
+function handoffTranscriptFor(agentKind: string) {
+  const manifest = manifestFor(agentKind)
+  const handoff = manifest ? declaredValue(manifest.handoffTranscript) : undefined
+  if (!manifest) throw new Error(`agent kind ${agentKind} has no harness manifest`)
+  if (!handoff)
+    throw new Error(
+      `harness ${manifest.kind} declares handoff unsupported: ${
+        manifest.handoffTranscript.supported ? '' : manifest.handoffTranscript.reason
+      }`,
+    )
+  return handoff
 }
 
 export function transcriptPlacement(
@@ -307,9 +314,13 @@ export function transcriptPlacement(
   newCwd: string,
   home: string,
 ): string {
-  return manifest.agentKind === 'claude-code'
-    ? join(home, '.claude', 'projects', claudeProjectSlug(newCwd), `${manifest.resume.value}.jsonl`)
-    : codexTranscriptPlacement(home, manifest.transcriptRelativeDir, manifest.transcriptFilename)
+  return handoffTranscriptFor(manifest.agentKind).transcriptPlacement({
+    cwd: newCwd,
+    homeDir: home,
+    resumeValue: manifest.resume.value,
+    filename: manifest.transcriptFilename,
+    ...(manifest.transcriptRelativeDir ? { relativeDir: manifest.transcriptRelativeDir } : {}),
+  })
 }
 
 async function transcriptForExport(input: {
@@ -318,20 +329,11 @@ async function transcriptForExport(input: {
   resumeValue: string
   home: string
 }): Promise<{ path: string; relativeDir?: string }> {
-  if (input.agentKind === 'claude-code') {
-    const path = await locateClaudeSessionFile({
-      cwd: input.cwd,
-      resumeValue: input.resumeValue,
-      homeDir: input.home,
-    })
-    if (!path) throw new Error('Claude transcript not found')
-    return { path }
-  }
-  const found = await resolvePinnedCodexRollout(input.resumeValue, input.home)
-  if (!found) throw new Error('Codex transcript not found')
-  const rel = relative(join(input.home, '.codex', 'sessions'), dirname(found.path))
-  if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
-  return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
+  return handoffTranscriptFor(input.agentKind).transcriptForExport({
+    cwd: input.cwd,
+    homeDir: input.home,
+    resumeValue: input.resumeValue,
+  })
 }
 
 /** Bundle bases are verified on the TARGET (bundle verify needs its prerequisites
@@ -412,6 +414,10 @@ export async function exportHandoffPackage(input: {
   title?: string
   issueId?: string
   sourceMachineId: string
+  /** Stamped by the authenticated server transport, never read from a manifest. */
+  exportedBy: Attribution
+  owner: Extract<HandoffManifestType, { format: 2 }>['owner']
+  visibility: Extract<HandoffManifestType, { format: 2 }>['visibility']
   homeDir?: string
 }): Promise<{ manifest: HandoffManifestType; stagePath: string; sizeBytes: number }> {
   const home = input.homeDir ?? homedir()
@@ -447,15 +453,10 @@ export async function exportHandoffPackage(input: {
       ? repositoryRelativeWorktreePath(sourceInfo.repoRoot, cwd)
       : undefined
     const manifest = HandoffManifest.parse({
-      // STILL FORMAT 1, deliberately (POD-1153). A `format: 2` manifest must
-      // carry the attribution pair and the owner, and those may only be stamped
-      // from an AUTHENTICATED TRANSPORT PRINCIPAL (ADR 3 D7) — which the handoff
-      // export request frame does not carry, so there is nothing here to stamp
-      // from. Writing a guess would put fabricated provenance in a durable file,
-      // which is worse than recording none. Threading the principal into the
-      // export request belongs to POD-644 (transfer path) / POD-1075 (principal
-      // module); the READ path above already opens v2.
-      format: 1,
+      // Format 2 is possible only because the export request now carries the
+      // pair stamped by the authenticated server transport. The bundle records
+      // provenance; it is still inert as an authorization input on import.
+      format: 2,
       sessionId: input.sessionId,
       agentKind: input.agentKind,
       resume: input.resume,
@@ -473,7 +474,9 @@ export async function exportHandoffPackage(input: {
       ...(input.title ? { title: input.title } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
       sourceMachineId: input.sourceMachineId,
-      exportedAt: new Date().toISOString(),
+      exported: { at: new Date().toISOString(), by: input.exportedBy },
+      owner: input.owner,
+      visibility: input.visibility,
     })
     await writeFile(join(packageDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
     await copyFile(transcript.path, join(packageDir, 'transcript.jsonl'))
@@ -556,7 +559,12 @@ export async function importHandoffPackage(input: {
   repoPath: string
   worktreeName: string
   occupiedWorktreePaths?: string[]
-}): Promise<{ manifest: HandoffManifestType; newCwd: string; worktreeRoot: string }> {
+}): Promise<{
+  manifest: HandoffManifestType
+  newCwd: string
+  worktreeRoot: string
+  nativeArtifactPath: string
+}> {
   const home = input.homeDir ?? homedir()
   const archive = stagePathFor(home, input.sessionId)
   const unpacked = await mkdtemp(join(tmpdir(), 'podium-handoff-import-'))
@@ -700,7 +708,7 @@ export async function importHandoffPackage(input: {
       `${HANDOFF_REF_ROOT}/${manifest.sessionId}`,
     ]).catch(() => '')
     await rm(residuePathFor(home, input.sessionId), { force: true })
-    return { manifest, newCwd, worktreeRoot }
+    return { manifest, newCwd, worktreeRoot, nativeArtifactPath: transcriptTarget }
   } catch (error) {
     // Only unwind a worktree WE created — a reused round-trip worktree predates
     // this import and must survive a failed attempt.

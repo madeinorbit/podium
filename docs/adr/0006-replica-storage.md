@@ -29,7 +29,7 @@ reload, backgrounding, and power loss.
 | Server SQLite is drizzle-kit schema-as-code; runtime repos keep raw SQL | `apps/server/src/migrations/schema.ts` (`[spec:SP-4428]`); applier `runDrizzleMigrations` in `apps/server/src/migrations/index.ts`; migrations under `apps/server/src/migrations/drizzle/` |
 | Daemon has **no** drizzle dependency | `rg drizzle apps/daemon` → empty |
 | Daemon general state is JSON + in-memory; only SQLite is worker `discovery.db` | `apps/daemon/src/identity.ts` → `daemon.json`; `apps/daemon/src/discovery-worker.ts` owns `discovery.db` |
-| Codex identity receipt spool (retain-until-ack) under instance runtime namespace | `apps/daemon/src/daemon.ts` — `codexReceiptDir = …/runtime/codex-identity-receipts`; class `CodexIdentityReceipts` in `apps/daemon/src/codex-identity-receipts.ts` |
+| Codex retain-until-ack state under instance runtime namespace | `apps/daemon/src/binding-store.ts` — `SessionBinding.observations[].pendingServerAck`; the historical `runtime/codex-identity-receipts` directory is migration input only |
 | Ledger pre-decision for engines | `docs/rearchitecture-v3.md` §1 adopted decisions: “Transactional replica storage — IndexedDB on web (OPFS only if the pre-ADR spike proves a threshold need), SQLite on mobile…” |
 
 The 2026-07-10 first-principles proposal is **referenced** by `docs/rearchitecture-v3.md` as plan source but is **not** present as a standalone file under `docs/` on this tree; binding text for this leaf is POD-359 item 6 + drift comments + the ledger line above + POD-307/374/375/415.
@@ -190,12 +190,12 @@ Three version lines stay **strictly separate** (ADR 2 must also enforce the wire
 
 **Decision:** The on-host SessionBinding / alias-history store is a **bespoke versioned store**, **not** drizzle-kit-authored.
 
-**Scope note:** Binding store **inventory** includes today’s scattered state (session-observers, control/session pins) **and** the Codex identity receipt spool (`CodexIdentityReceipts`, retain-until-ack) that POD-737 folds in — migration constraint, not only a data move.
+**Scope note:** Binding store **inventory** includes the scattered state (session-observers, control/session pins) **and** retain-until-ack Codex receipt state. POD-737 folded the latter into binding observations and removes the historical directory after durable import.
 
 **Rationale:**
 
 - Small, lifecycle-shaped surface (bindings, alias HISTORY, retain-until-ack receipts), not a growing multi-domain relational schema.
-- Daemon already owns non-drizzle SQLite (`discovery.db`) and JSON (`daemon.json`, receipt files under instance `runtime/codex-identity-receipts`). A second drizzle project + CI journal for a handful of tables costs more than it saves.
+- Daemon already owns non-drizzle SQLite (`discovery.db`) and JSON (`daemon.json`, per-session binding files under instance `runtime/session-bindings`). A second drizzle project + CI journal for a handful of tables costs more than it saves.
 - Schema version is **explicitly independent** of server `__drizzle_migrations` — a separate drizzle app would still be a separate journal; “consistency with server” would be tooling familiarity only.
 - One-shot migration from scattered state is imperative (read JSON dirs → write rows); bespoke versioning makes that migration first-class.
 

@@ -1,5 +1,5 @@
 /**
- * @podium/daemon — per-machine agent host. Spawns an agent via @podium/agent-bridge
+ * @podium/daemon — per-machine agent host. Spawns an agent via @podium/harness
  * and relays it to @podium/server over a WebSocket.
  */
 

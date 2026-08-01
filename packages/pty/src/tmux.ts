@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend } from './backends/types.js'
@@ -62,16 +62,10 @@ export function isTmuxAvailable(): boolean {
   }
 }
 
-export function tmuxHasSession(label: string): boolean {
-  return (
-    spawnSync('tmux', ['-L', label, 'has-session', '-t', SESSION], { stdio: 'ignore' }).status === 0
-  )
-}
-
 const execFileAsync = promisify(execFile)
 
-/** Non-blocking {@link tmuxHasSession} — `await`-able so it never blocks the event loop. */
-export async function tmuxHasSessionAsync(label: string): Promise<boolean> {
+/** Whether this socket label owns a live tmux session. */
+export async function tmuxHasSession(label: string): Promise<boolean> {
   try {
     await execFileAsync('tmux', ['-L', label, 'has-session', '-t', SESSION])
     return true
@@ -80,16 +74,8 @@ export async function tmuxHasSessionAsync(label: string): Promise<boolean> {
   }
 }
 
-export function killTmuxServer(label: string): void {
-  try {
-    execFileSync('tmux', ['-L', label, 'kill-server'], { stdio: 'ignore' })
-  } catch {
-    // already gone
-  }
-}
-
-/** Non-blocking {@link killTmuxServer} — prefer on the daemon's per-session `kill` path. */
-export async function killTmuxServerAsync(label: string): Promise<void> {
+/** Stop this label's tmux server; an already-gone server is a successful no-op. */
+export async function killTmuxServer(label: string): Promise<void> {
   try {
     await execFileAsync('tmux', ['-L', label, 'kill-server'])
   } catch {
@@ -124,15 +110,14 @@ function tmuxClientEnv(extra?: Record<string, string>): Record<string, string> {
 }
 
 /** Create a detached per-session tmux server running the agent, apply config, attach a client. */
-export function spawnTmuxAgent(opts: TmuxSpawnOptions): AgentSession {
+export async function spawnTmuxAgent(opts: TmuxSpawnOptions): Promise<AgentSession> {
   const inner = [opts.cmd, ...(opts.args ?? [])].map(shellQuote).join(' ')
   const env = tmuxClientEnv(opts.env)
-  execFileSync('tmux', newSessionArgs(opts.label, opts.cols, opts.rows, opts.cwd, inner), {
-    stdio: 'ignore',
+  await execFileAsync('tmux', newSessionArgs(opts.label, opts.cols, opts.rows, opts.cwd, inner), {
     env,
   })
   for (const args of tmuxConfigCommands(opts.label)) {
-    execFileSync('tmux', args, { stdio: 'ignore', env })
+    await execFileAsync('tmux', args, { env })
   }
   return attachTmuxAgent({
     label: opts.label,

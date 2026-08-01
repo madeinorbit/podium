@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { AGENT_CAPABILITIES } from '@podium/protocol'
-import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
+import { grokRecordToItems } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  fileTranscript,
   isSet,
   supported,
   type TranscriptSourceInput,
@@ -65,7 +65,27 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
 
 export const grokManifest: AgentManifest = {
   kind: 'grok',
-  capabilities: AGENT_CAPABILITIES.grok,
+  displayName: 'Grok',
+  capabilities: {
+    argvPrompt: true,
+    effortFlag: 'effort',
+    systemPromptFlag: false,
+    quota: false,
+    cloud: false,
+    composerScrape: false,
+    oscTitle: true,
+    subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: false,
+    mcp: 'none',
+    hookInstall: 'global-env',
+    observationProvider: 'grok',
+    observationProtocol: 'generic',
+    submitVerification: false,
+    exclusiveInteractiveResume: false,
+    promptTitleFallback: false,
+    mcpConfigTransport: 'none',
+  },
   resumeKind: 'grok-session',
 
   inventory: {
@@ -122,6 +142,7 @@ export const grokManifest: AgentManifest = {
 
   headless: supported({
     driver: 'resume-exec',
+    outputFormat: 'text',
     // -s/--session-id is create-or-resume — the daemon mints the UUID on the
     // first turn, so every turn uses the same pinned invocation.
     resumeIdAllocation: 'daemon-minted-uuid',
@@ -311,14 +332,9 @@ export const grokManifest: AgentManifest = {
 
   discovery: createGrokConversationProvider(),
 
-  transcript: supported({
-    storage: 'file-chain',
-    chainPaths: supported(chainPaths),
-    async sourceFor(input) {
-      const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
-      return fileChainSource(chain, recordToItemsForKind('grok'))
-    },
-  }),
+  transcript: supported(fileTranscript(chainPaths, grokRecordToItems)),
+
+  handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

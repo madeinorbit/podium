@@ -62,17 +62,87 @@
     },
     {
       "schema": "SessionOpenUrlCallbackMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "sessionOpenUrlCallback",
         "sessionId": "sessionId",
         "requestId": "requestId",
-        "url": "url"
+        "url": "url",
+        "resolvedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"sessionOpenUrlCallback\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"url\":\"url\"}"
+      "encoded": "{\"type\":\"sessionOpenUrlCallback\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"url\":\"url\",\"resolvedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlCallbackMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "sessionOpenUrlCallback",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "url": "url",
+        "resolvedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlCallback\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"url\":\"url\",\"resolvedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlCallbackMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "sessionOpenUrlCallback",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "url": "url",
+        "resolvedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlCallback\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"url\":\"url\",\"resolvedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlCallbackMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "sessionOpenUrlCallback",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "url": "url",
+        "resolvedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "resolvedBy.actor.job"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlCallback\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"url\":\"url\",\"resolvedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"resolvedBy.actor.job\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionOpenUrlDismissMessage",
@@ -89,16 +159,83 @@
     },
     {
       "schema": "SessionOpenUrlDismissMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "sessionOpenUrlDismiss",
         "sessionId": "sessionId",
-        "requestId": "requestId"
+        "requestId": "requestId",
+        "resolvedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"sessionOpenUrlDismiss\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\"}"
+      "encoded": "{\"type\":\"sessionOpenUrlDismiss\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"resolvedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlDismissMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "sessionOpenUrlDismiss",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "resolvedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlDismiss\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"resolvedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlDismissMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "sessionOpenUrlDismiss",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "resolvedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlDismiss\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"resolvedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlDismissMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "sessionOpenUrlDismiss",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "resolvedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "resolvedBy.actor.job"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlDismiss\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"resolvedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"resolvedBy.actor.job\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionOpenUrlMessage",
@@ -152,19 +289,95 @@
     },
     {
       "schema": "SessionOpenUrlResultMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "sessionOpenUrlResult",
         "sessionId": "sessionId",
         "requestId": "requestId",
         "status": "completed",
         "error": "error",
-        "httpStatus": 100
+        "httpStatus": 100,
+        "resolvedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"sessionOpenUrlResult\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"status\":\"completed\",\"error\":\"error\",\"httpStatus\":100}"
+      "encoded": "{\"type\":\"sessionOpenUrlResult\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"status\":\"completed\",\"error\":\"error\",\"httpStatus\":100,\"resolvedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "sessionOpenUrlResult",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "status": "failed",
+        "error": "error",
+        "httpStatus": 101,
+        "resolvedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlResult\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"status\":\"failed\",\"error\":\"error\",\"httpStatus\":101,\"resolvedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "sessionOpenUrlResult",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "status": "dismissed",
+        "error": "error",
+        "httpStatus": 102,
+        "resolvedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "resolvedBy.actor.id"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlResult\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"status\":\"dismissed\",\"error\":\"error\",\"httpStatus\":102,\"resolvedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"resolvedBy.actor.id\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionOpenUrlResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "sessionOpenUrlResult",
+        "sessionId": "sessionId",
+        "requestId": "requestId",
+        "status": "expired",
+        "error": "error",
+        "httpStatus": 103,
+        "resolvedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "resolvedBy.actor.job"
+          },
+          "onBehalfOf": "resolvedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionOpenUrlResult\",\"sessionId\":\"sessionId\",\"requestId\":\"requestId\",\"status\":\"expired\",\"error\":\"error\",\"httpStatus\":103,\"resolvedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"resolvedBy.actor.job\"},\"onBehalfOf\":\"resolvedBy.onBehalfOf\"}}"
     }
   ]
 }

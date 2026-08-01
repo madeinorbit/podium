@@ -1,17 +1,9 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import { spawnSync } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-
-import {
-  type AgentSession,
-  isAbducoAvailable,
-  isTmuxAvailable,
-  killAbducoSession,
-  killTmuxServer,
-} from '@podium/pty'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
+import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import {
   type ControlMessage,
   type DaemonHandshake,
@@ -23,6 +15,13 @@ import {
   parseDaemonHandshakeReply,
   WIRE_VERSION,
 } from '@podium/protocol'
+import {
+  type AgentSession,
+  isAbducoAvailable,
+  isTmuxAvailable,
+  killAbducoSession,
+  killTmuxServer,
+} from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -42,9 +41,9 @@ import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
+import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { ensurePodiumCodexHooks } from './codex-hooks'
-import { CodexIdentityReceipts } from './codex-identity-receipts'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
@@ -67,6 +66,7 @@ import { OutputScheduler } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
+import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
 import { DiscoveryWorkerClient } from './worker-client'
@@ -186,6 +186,17 @@ export interface DaemonOptions {
    * cannot spawn the `.ts` worker; the live daemon (Bun) uses the default.
    */
   workerClient?: DiscoveryWorkerClient
+  /**
+   * Test seam for the reconnect backoff clock. Production passes nothing and
+   * uses real, unref'd timers; tests can fire the retry deterministically
+   * instead of spending most of Vitest's timeout budget waiting on a busy host.
+   */
+  reconnectTimers?: ReconnectTimers
+}
+
+export interface ReconnectTimers {
+  setTimeout(fn: () => void, ms: number): unknown
+  clearTimeout(handle: unknown): void
 }
 
 export interface DaemonMetricsOptions {
@@ -202,7 +213,7 @@ export interface DaemonHooksOptions {
   settingsDir?: string
   /** Stable Codex hook socket. Defaults in the instance runtime dir on POSIX. */
   socketPath?: string
-  /** Pending exact Codex bindings. Defaults in the instance runtime dir. */
+  /** Legacy receipt-directory migration override. No new receipts are written here. */
   receiptDir?: string
 }
 
@@ -232,6 +243,14 @@ export function resolveDurableBackend(
 /** Daemon→server reconnect backoff bounds (ms). */
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
+const REAL_RECONNECT_TIMERS: ReconnectTimers = {
+  setTimeout: (fn, ms) => {
+    const handle = setTimeout(fn, ms)
+    handle.unref?.()
+    return handle
+  },
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+}
 /**
  * How many durable reattaches may spawn an `abduco`/`tmux` attach client at once.
  * Reattaches arrive as a burst when the daemon (re)connects; gating the spawns
@@ -364,6 +383,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   applyInstanceRuntimeEnv(instanceId)
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
+  const reconnectTimers = opts.reconnectTimers ?? REAL_RECONNECT_TIMERS
   const backend = resolveDurableBackend(opts, {
     abduco: isAbducoAvailable(),
     tmux: isTmuxAvailable(),
@@ -381,7 +401,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     opts.hooks?.socketPath ??
     (process.platform === 'win32' ? undefined : join(runtimeDir, 'codex-hooks.sock'))
   const codexReceiptDir = opts.hooks?.receiptDir ?? join(runtimeDir, 'codex-identity-receipts')
-  const codexIdentityReceipts = new CodexIdentityReceipts(codexReceiptDir)
+  const identityStateDir = opts.identityDir ?? stateDir()
+  const identity = loadIdentity({ dir: identityStateDir })
+  // The bundled local daemon overrides this with the server's stable local id so it
+  // attaches to the machine the server already adopted; remote daemons use their identity.
+  const machineId = opts.machineId ?? identity.machineId
+  const bindingStore = await BindingStore.open({
+    dir: join(runtimeDir, 'session-bindings'),
+    legacyStateDir: identityStateDir,
+    codexReceiptDir,
+    // POD-1075's migration creates exactly this account for every pre-user binding.
+    // It is explicit: BindingStore refuses legacy facts if this value is absent.
+    singleOperatorUserId: FIRST_ADMIN_USER_ID,
+  })
+  const sessionBinding = new SessionBinding(bindingStore)
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
 
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
@@ -408,6 +441,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     } catch (err) {
       warnDroppedControlFrame(err, 'outbound')
     }
+  }
+  const replayPendingBindingReceipts = async (): Promise<number> => {
+    let replayed = 0
+    for (const owner of await bindingStore.ownersWithPendingReceipts()) {
+      replayed += await bindingStore.replayPendingReceiptsForOwner(owner, send)
+    }
+    return replayed
   }
 
   // Draft Sync v2 (POD-859): read-only/inject composer engine. Publishes scraped
@@ -472,6 +512,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // go to the server as `agentState`. The observers registry owns all of that
   // per-session state. Started before the WS so spawns can never race it.
   const observers = createSessionObservers({
+    sessionBinding,
     send,
     homeDir,
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
@@ -480,10 +521,32 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // agent is idle — fed from the agent-state tracker's phase transitions.
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onExactCodexBinding: async (sessionId, nativeId) => {
-      if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
+      await sessionBinding.transition({
+        event: 'hook-repin',
+        transitionId: `repin:process:codex-thread:${nativeId}`,
+        sessionId,
+        evidenceSource: 'process-ownership-receipt',
+        value: nativeId,
+        nativeKind: 'codex-thread',
+        observedAt: new Date().toISOString(),
+        pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
+      })
+      if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'process'))) {
+        // POD-416 supplies bindings before the process observer can fire. During
+        // a mixed-version rollout, keep the native rebind useful but do not mint
+        // a delegation or a second durable store locally.
+        send({
+          type: 'sessionResumeRef',
+          sessionId,
+          resume: { kind: 'codex-thread', value: nativeId },
+          confidence: 'exact',
+          ackRequested: true,
+        })
+        return
+      }
       // Replay sends ackRequested:true. If the socket is offline, the receipt
       // remains and the authentication path replays it after reconnect.
-      await codexIdentityReceipts.replay(send)
+      await replayPendingBindingReceipts()
     },
     tailSeedGate: gates.tailSeedGate,
   })
@@ -532,6 +595,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // Bounded, timeout-safe: prime injection first (SessionStart/UserPromptSubmit),
     // then mail delivery at Stop; first non-null wins.
     respondTo,
+    // The HTTP 200 is the hook's durability boundary: exact Codex identity is
+    // in the versioned binding record before the hook process may return.
+    beforeAck: async (sessionId, payload) => {
+      if (!(await bindingStore.acceptsNativeKind(sessionId, 'codex-thread'))) return
+      const nativeId =
+        payload && typeof payload === 'object'
+          ? (payload as Record<string, unknown>).session_id
+          : undefined
+      if (typeof nativeId !== 'string' || nativeId.length === 0) return
+      if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'native-hook'))) {
+        throw new Error(`Codex receipt ${sessionId} has no owned binding`)
+      }
+    },
     onPayload: (sessionId, payload) => observers.onHookPayload(sessionId, payload),
   })
   // Install/refresh the global codex hook instrumentation once per boot —
@@ -603,11 +679,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
-  const identity = loadIdentity(opts.identityDir ? { dir: opts.identityDir } : {})
-  // The bundled local daemon overrides this with the server's stable local id so it
-  // attaches to the machine the server already adopted; remote daemons use the identity.
-  const machineId = opts.machineId ?? identity.machineId
-
   // THE explicit handler context (#195): every control-frame handler receives
   // this object instead of closing over startDaemon's scope.
   const ctx: DaemonContext = {
@@ -630,8 +701,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     tailSeedGate: gates.tailSeedGate,
     runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
     hookSocketPath,
-    codexReceiptDir,
-    codexIdentityReceipts,
+    bindingStore,
+    sessionBinding,
     hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
     agentRelayEndpointFor: (sessionId) => agentRelay.endpointFor(sessionId),
     agentRelayHub,
@@ -686,11 +757,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // processes / `After=` ordering) and must survive a server restart without
   // dropping its abduco attaches. These vars drive the backoff reconnect that
   // re-points `currentWs`.
-  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let reconnectTimer: unknown | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
 
-  const disposeAll = (reapSessions = false): void => {
+  const disposeAll = async (reapSessions = false): Promise<void> => {
     discoveryLoop.stop()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
@@ -703,12 +774,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
     // unless the caller explicitly asked for a full reap (test harness teardown).
+    const durableReaps: Promise<unknown>[] = []
     for (const [sessionId, session] of ctx.bridges) {
       session.dispose()
       if (reapSessions && backend !== 'none') {
         const durableLabel = ctx.durableLabels.get(sessionId) ?? ctx.durableLabelFor(sessionId)
-        killAbducoSession(durableLabel)
-        killTmuxServer(durableLabel)
+        durableReaps.push(
+          Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)]),
+        )
       }
     }
     ctx.bridges.clear()
@@ -720,6 +793,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     ctx.runningHeadlessTurns.clear()
     observers.disposeObservers()
     composerEngine.disposeAll()
+    await Promise.all(durableReaps)
   }
 
   const handle: DaemonHandle = {
@@ -728,15 +802,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     agentRelayPort: agentRelay.port,
     async close(closeOpts) {
       closing = true // stop the reconnect loop from resurrecting the socket
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
+      if (reconnectTimer !== undefined) {
+        reconnectTimers.clearTimeout(reconnectTimer)
         reconnectTimer = undefined
       }
       observers.stopAllTails()
       await ingest.close()
       await agentRelay.close()
+      await disposeAll(closeOpts?.reapSessions ?? false)
       return new Promise<void>((resolve) => {
-        disposeAll(closeOpts?.reapSessions ?? false)
         detachLocalLink?.()
         const w = currentWs
         if (!w || w.readyState === WebSocket.CLOSED) {
@@ -813,9 +887,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       void reportInventory(ctx)
       // At-least-once recovery: send every exact native binding still awaiting
       // a server persistence acknowledgement after each successful reconnect.
-      void codexIdentityReceipts
-        .replay(send)
-        .catch((err) => console.warn('[podium] Codex identity receipt replay failed:', err))
+      void replayPendingBindingReceipts().catch((err) =>
+        console.warn('[podium] Codex identity receipt replay failed:', err),
+      )
       // Open requests captured during a transport outage are replayed after auth;
       // the server deduplicates them by session/request id. [spec:SP-a43e]
       browserOpen.replay()
@@ -850,12 +924,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       return true
     }
     const scheduleReconnect = (): void => {
-      if (closing || reconnectTimer) return
-      reconnectTimer = setTimeout(() => {
+      if (closing || reconnectTimer !== undefined) return
+      reconnectTimer = reconnectTimers.setTimeout(() => {
         reconnectTimer = undefined
         connect()
       }, reconnectBackoffMs)
-      reconnectTimer.unref?.()
       reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_MAX_MS)
     }
     // Stop for good: the server refused us and reconnecting would just re-hammer it with the
@@ -871,7 +944,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // daemon is down and what to do, instead of a bare "down".
       recordConnectivity({ state: 'blocked', blockedReason: `${type}: ${reason}` })
       closing = true
-      disposeAll()
+      void disposeAll()
       // A terminally-blocked daemon must not keep its loopback servers holding the
       // process (and a test's event loop) alive — handle.close() will never run.
       void ingest.close().catch(() => {})
@@ -890,7 +963,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       w.once('open', () => {
         reconnectBackoffMs = RECONNECT_MIN_MS // healthy connect resets the backoff
         if (!sendHandshake(w)) {
-          disposeAll()
+          void disposeAll()
           reject(new Error('daemon has no token and no pair code; pair it first'))
           w.close()
         }
@@ -906,7 +979,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         } catch {
           // The server's first frame wasn't a valid handshake reply — refuse rather
           // than silently proceed unauthenticated.
-          disposeAll()
+          void disposeAll()
           reject(new Error('daemon handshake failed: malformed reply'))
           w.close()
           return

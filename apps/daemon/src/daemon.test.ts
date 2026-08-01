@@ -1,15 +1,23 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { abducoHasSession, isAbducoAvailable, isTmuxAvailable, killAbducoSession, killTmuxServer, reapAbducoTestSessions, tmuxHasSession } from '@podium/pty'
 import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
-import type { DaemonHandshakeReply } from '@podium/protocol'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
-import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import type { DaemonHandshakeReply } from '@podium/protocol'
+import { type DaemonMessage, parseDaemonMessage, encode as protocolEncode } from '@podium/protocol'
+import {
+  abducoHasSession,
+  isAbducoAvailable,
+  isTmuxAvailable,
+  killAbducoSession,
+  killTmuxServer,
+  reapAbducoTestSessions,
+  tmuxHasSession,
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -36,14 +44,14 @@ function trackTmp(prefix: string): string {
   tmpDirs.push(dir)
   return dir
 }
-afterAll(() => {
+afterAll(async () => {
   // POD-107: the per-test killAbducoSession calls sit inside try/finally blocks
   // that a mid-phase assertion failure can bypass (ab-restart-seed's first phase
   // detaches WITHOUT killing by design). Sweep every label this file can create,
   // for this pid (this run, pass or fail) and for dead pids (crashed prior runs).
   // Before the tmp rm below: unlinking a socket dir orphans its master forever.
   if (isAbducoAvailable()) {
-    reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
+    await reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
   }
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
@@ -152,6 +160,44 @@ function recordingDeltaWorkerClient(delta: ConversationDelta): {
   return { client, fullFlags }
 }
 const G = { cols: 80, rows: 24 }
+const TEST_BINDING_USER = asUserId('daemon-runtime-test-user')
+
+/**
+ * Runtime tests exercise authenticated server traffic. Supply the binding
+ * instruction that production server composition writes; the dedicated
+ * session-binding control tests bypass this helper to prove absence refuses.
+ */
+function withTestBindingInstruction(message: unknown): unknown {
+  if (!message || typeof message !== 'object') return message
+  const frame = message as Record<string, unknown>
+  if (frame.binding !== undefined) return message
+  const sessionId = typeof frame.sessionId === 'string' ? frame.sessionId : 'unknown'
+  if (frame.type === 'spawn') {
+    return {
+      ...frame,
+      binding: {
+        transitionId: `test:spawn:${sessionId}`,
+        machineAccess: 'allowed',
+        principal: { kind: 'user', userId: TEST_BINDING_USER },
+      },
+    }
+  }
+  if (frame.type === 'reattach') {
+    return {
+      ...frame,
+      binding: {
+        transitionId: `test:reattach:${sessionId}:${String(frame.observationGeneration ?? 1)}`,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user', userId: TEST_BINDING_USER },
+      },
+    }
+  }
+  return message
+}
+
+const encode: typeof protocolEncode = (message) =>
+  protocolEncode(withTestBindingInstruction(message) as never)
 const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
 // The daemon now relays PTY output as coalesced `agentFrameBatch` messages
 // (one batch per session per flush) rather than one `agentFrame` per frame.
@@ -166,17 +212,22 @@ type FlatFrame = { sessionId: SessionId; data: string }
 // therefore answer the handshake. This helper replies `helloOk` to the first frame (the
 // hello), then records every subsequent DaemonMessage — exactly what the old bare
 // `on('message')` did, minus the (now non-DaemonMessage) handshake frame.
-function handshakeAndCollect(ws: WS, received: DaemonMessage[]): void {
+function handshakeAndCollect(ws: WS, received: DaemonMessage[]): Promise<void> {
   let authed = false
+  let resolveHandshake!: () => void
+  const handshake = new Promise<void>((resolve) => {
+    resolveHandshake = resolve
+  })
   ws.on('message', (raw) => {
     if (!authed) {
       authed = true
       const ok: DaemonHandshakeReply = { type: 'helloOk', name: 'test' }
-      ws.send(encode(ok))
+      ws.send(encode(ok), resolveHandshake)
       return
     }
     received.push(parseDaemonMessage(raw.toString()))
   })
+  return handshake
 }
 
 describe('daemon multi-bridge', () => {
@@ -491,18 +542,16 @@ describe('daemon multi-bridge', () => {
 
     // Model server-only restart / websocket recovery: the PTY bridge and daemon
     // observer survive while the remote socket is replaced.
-    const reconnected = new Promise<void>((resolve) => {
+    const reauthenticated = new Promise<void>((resolve) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        handshakeAndCollect(ws, received)
-        resolve()
+        void handshakeAndCollect(ws, received).then(resolve)
       })
     })
     serverSocket.close()
-    await reconnected
-    // The server sends control only after helloOk has reached the daemon. The test
-    // connection callback runs one event-loop edge earlier than that auth boundary.
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    // WebSocket preserves message order: once helloOk is handed to the socket,
+    // the following reattach cannot overtake the authentication frame.
+    await reauthenticated
     const reconnectStart = received.length
     send({
       type: 'reattach',
@@ -662,7 +711,7 @@ describe('daemon multi-bridge', () => {
   })
 
   it('scanReposRequest returns a wire-valid repository for a seeded repo root', async () => {
-    // Hand-build a minimal git repo (mirrors packages/agent-bridge git scanner fixtures).
+    // Hand-build a minimal git repo (mirrors packages/harness git scanner fixtures).
     const root = trackTmp('podium-repos-')
     const repo = join(root, 'app')
     const gitDir = join(repo, '.git')
@@ -942,7 +991,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
 
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
@@ -983,10 +1032,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // Closing the daemon only kills the attach client — the session survives.
       daemonClosed = true
       await daemon.close()
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
     } finally {
       if (!daemonClosed) await daemon.close()
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
@@ -1039,7 +1088,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
       received.length = 0
 
       // Kill ONLY the attach client, not the master (`abduco -n <label> …`). The
@@ -1070,10 +1119,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // Give a generous window for a (wrongful) agentExit to arrive over the open
       // channel, then assert the master is still alive and the daemon stayed silent.
       await new Promise((r) => setTimeout(r, 1000))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
       expect(received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId)).toBe(false)
     } finally {
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
     }
@@ -1139,13 +1188,13 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
     } finally {
       // Detach (do NOT reap) — the abduco master and its agent live on, idle.
       await daemonA.close()
       await new Promise<void>((r) => a.wss.close(() => r()))
     }
-    expect(abducoHasSession(label)).toBe(true)
+    expect(await abducoHasSession(label)).toBe(true)
 
     // Fresh daemon process: no leftover spawn handler to seed the tracker.
     const b = await startServer()
@@ -1179,7 +1228,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       expect(idleStates().at(-1)?.state.idle).toBeUndefined() // bare idle — no verdict invented
     } finally {
       await daemonB.close()
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await new Promise<void>((r) => b.wss.close(() => r()))
     }
   }, 20000)
@@ -1266,7 +1315,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       try {
         a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd, geometry: G })
         await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-        expect(abducoHasSession(label)).toBe(true)
+        expect(await abducoHasSession(label)).toBe(true)
       } finally {
         await daemonA.close()
         await new Promise<void>((r) => a.wss.close(() => r()))
@@ -1309,13 +1358,13 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         expect(items.some((i) => i.role === 'assistant')).toBe(true)
       } finally {
         await daemonB.close()
-        killAbducoSession(label)
+        await killAbducoSession(label)
         await new Promise<void>((r) => b.wss.close(() => r()))
       }
     } finally {
       if (prevHome === undefined) delete process.env.HOME
       else process.env.HOME = prevHome
-      killAbducoSession(label)
+      await killAbducoSession(label)
     }
   }, 20000)
 
@@ -1356,13 +1405,13 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         if (Date.now() - start > 5000) throw new Error('bind timed out')
         await new Promise((r) => setTimeout(r, 20))
       }
-      expect(abducoHasSession(label)).toBe(true)
+      expect(await abducoHasSession(label)).toBe(true)
 
       await daemon.close({ reapSessions: true })
       await new Promise((r) => setTimeout(r, 300))
-      expect(abducoHasSession(label)).toBe(false)
+      expect(await abducoHasSession(label)).toBe(false)
     } finally {
-      killAbducoSession(label)
+      await killAbducoSession(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
@@ -1407,13 +1456,13 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
         if (Date.now() - start > 5000) throw new Error('bind timed out')
         await new Promise((r) => setTimeout(r, 20))
       }
-      expect(tmuxHasSession(label)).toBe(true)
+      expect(await tmuxHasSession(label)).toBe(true)
 
       // closing the daemon only detaches the tmux client — the agent server survives.
       await daemon.close()
-      expect(tmuxHasSession(label)).toBe(true)
+      expect(await tmuxHasSession(label)).toBe(true)
     } finally {
-      killTmuxServer(label)
+      await killTmuxServer(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   })
@@ -1460,7 +1509,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       // Spawn a session so a real podium-<id> tmux server exists.
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(tmuxHasSession(label)).toBe(true)
+      expect(await tmuxHasSession(label)).toBe(true)
 
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
@@ -1499,7 +1548,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       )
     } finally {
       await daemon.close()
-      killTmuxServer(label)
+      await killTmuxServer(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   })
@@ -1907,16 +1956,24 @@ describe('Codex identity receipt recovery', () => {
               msg.ackRequested === true,
           ),
         )
-        expect(existsSync(receiptPath)).toBe(true)
+        expect(existsSync(receiptPath)).toBe(false)
+        const bindingPath = join(
+          settingsDir,
+          'session-bindings',
+          'bindings',
+          `${Buffer.from('pane-a').toString('base64url')}.json`,
+        )
+        expect(await readFile(bindingPath, 'utf8')).toContain('pendingServerAck')
 
         serverSocket.send(
           encode({
             type: 'sessionResumeRefAck',
             sessionId: asSessionId('pane-a'),
             resume: { kind: 'codex-thread', value: 'thread-a' },
+            ownerId: FIRST_ADMIN_USER_ID,
           }),
         )
-        await waitFor(() => !existsSync(receiptPath))
+        await waitFor(() => !readFileSync(bindingPath, 'utf8').includes('pendingServerAck'))
       } finally {
         await daemon.close()
         await new Promise<void>((resolve) => wss.close(() => resolve()))
@@ -2462,7 +2519,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
     expect(older?.hasMore).toBe(false)
   })
 
-  it('serves an opencode transcriptRead from the DB store', async () => {
+  it('serves and pages an opencode transcriptRead from the SQLite store', async () => {
     const home = trackTmp('podium-trx-oc-home-')
     const sid = 'oc-ses-read'
     seedOpencodeDb(home, asSessionId(sid), ['o0', 'o1', 'o2'])
@@ -2479,7 +2536,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       cwd: '/repo/oc',
       resume: { kind: 'opencode-session', value: sid },
       direction: 'before',
-      limit: 10,
+      limit: 2,
     })
     await waitFor(() =>
       srv.received.some((m) => m.type === 'transcriptReadResult' && m.requestId === 'r-oc'),
@@ -2488,8 +2545,30 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       (m): m is Extract<DaemonMessage, { type: 'transcriptReadResult' }> =>
         m.type === 'transcriptReadResult' && m.requestId === 'r-oc',
     )
-    expect(res?.items.map((i) => i.text)).toEqual(['o0', 'o1', 'o2'])
+    expect(res?.items.map((i) => i.text)).toEqual(['o1', 'o2'])
+    expect(res?.hasMore).toBe(true)
     expect(res?.items.every((i) => i.cursor?.startsWith('') ?? false)).toBe(true)
+
+    srv.send({
+      type: 'transcriptRead',
+      requestId: 'r-oc-older',
+      sessionId: 's-oc',
+      agentKind: 'opencode',
+      cwd: '/repo/oc',
+      resume: { kind: 'opencode-session', value: sid },
+      anchor: res?.head,
+      direction: 'before',
+      limit: 2,
+    })
+    await waitFor(() =>
+      srv.received.some((m) => m.type === 'transcriptReadResult' && m.requestId === 'r-oc-older'),
+    )
+    const older = srv.received.find(
+      (m): m is Extract<DaemonMessage, { type: 'transcriptReadResult' }> =>
+        m.type === 'transcriptReadResult' && m.requestId === 'r-oc-older',
+    )
+    expect(older?.items.map((i) => i.text)).toEqual(['o0'])
+    expect(older?.hasMore).toBe(false)
   })
 
   it('a live claude file tail emits transcriptDelta (with a tail cursor), not transcriptAppend', async () => {

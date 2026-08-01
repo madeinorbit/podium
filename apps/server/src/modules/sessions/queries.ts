@@ -22,8 +22,8 @@
 import { SessionIdField } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { defineQuery } from '../query-table'
 import type { FamilyState } from '../derived-family'
+import { defineQuery } from '../query-table'
 
 const q = defineQuery<FamilyState>()
 
@@ -57,7 +57,7 @@ export const SESSION_QUERIES = {
     }),
     (s, input) => {
       assertMayReadSession(s, input.sessionId)
-      return s.modules.rpc.readTranscript(input)
+      return s.modules.rpc.readTranscript(input, { kind: 'user', id: s.caller.userId })
     },
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
@@ -156,13 +156,13 @@ const noInput = z.object({}).passthrough().optional()
 
 /** PER-USER STATE (POD-380): each list is the CALLER's, not the instance's. */
 export const PIN_QUERIES = {
-  list: q(noInput, (s) => s.store.sessions.listPins(s.caller.userId)),
+  list: q(noInput, (s) => s.modules.sessions.state.listPins(s.caller.sessionState)),
 } as const
 
 export const SNOOZE_QUERIES = {
-  list: q(noInput, (s) => s.store.sessions.listSnoozes(s.caller.userId)),
+  list: q(noInput, (s) => s.modules.sessions.state.listSnoozes(s.caller.sessionState)),
 } as const
 
 export const TAB_QUERIES = {
-  listOrders: q(noInput, (s) => s.store.sessions.listTabOrders(s.caller.userId)),
+  listOrders: q(noInput, (s) => s.modules.sessions.state.listTabOrders(s.caller.sessionState)),
 } as const

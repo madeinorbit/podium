@@ -2,7 +2,7 @@ import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { OPERATOR } from './issue-authz'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
@@ -161,6 +161,7 @@ describe('appRouter', () => {
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
+    const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
     registry.gateway.attachDaemon('local', (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
@@ -184,6 +185,10 @@ describe('appRouter', () => {
       hasMore: false,
     })
     await expect(p).resolves.toEqual({ items: [], hasMore: false })
+    expect(readTranscript).toHaveBeenCalledWith(
+      { sessionId, direction: 'before', limit: 100 },
+      { kind: 'user', id: expect.any(String) },
+    )
   })
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {

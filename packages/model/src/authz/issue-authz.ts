@@ -29,7 +29,7 @@
  *     verbatim across this move; the on-behalf-of half is POD-1075's to add.
  *
  * ── EXTENDED (POD-380) ──────────────────────────────────────────────────────
- * `IssueScope` now carries the two §3.1.1/§3.3 members the presence-class session
+ * `IssueScope` now carries the two §3.1.1/§3.3 members the session-state session
  * writes need — `owned` (owner-or-grant) and `self` (per-user state) — and
  * {@link authorize}'s target widened to {@link AuthTarget} so one function decides
  * for issues, owned entities and per-user rows. This follows invariant 2

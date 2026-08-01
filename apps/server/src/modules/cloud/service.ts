@@ -33,8 +33,8 @@
  */
 
 import { isAgentKind } from '@podium/model'
-import { agentSupportsCloud } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
+import { harnessSupportsCloud } from '../../harness-manifest'
 import {
   type CloudAgentKind,
   type CloudRepoRequest,
@@ -118,7 +118,7 @@ export class CloudService {
    * THE ORDER IS THE BEHAVIOUR and is preserved exactly:
    *
    *  1. resolve the session, or NOT_FOUND;
-   *  2. check the agent kind can go to cloud (capability table, #158);
+   *  2. check the manifest says the agent kind can go to cloud (#158);
    *  3. require a resume ref — a session with no resume cannot be reconstituted
    *     anywhere, so moving it would silently lose it;
    *  4. if hibernating, check the LOCAL session can be parked BEFORE provisioning
@@ -196,10 +196,11 @@ export class CloudService {
     }
   }
 
-  /** Capability lookup (#158): cloud-movable kinds are declared in the protocol
-   *  capability table (claude-code, codex today), never hardcoded here. */
+  /** Capability lookup (#158): cloud-movable kinds are declared in their
+   *  per-CLI manifests (claude-code, codex today), never hardcoded here. */
   private cloudAgentKind(agentKind: string): CloudAgentKind {
-    if (isAgentKind(agentKind) && agentSupportsCloud(agentKind)) return agentKind as CloudAgentKind
+    if (isAgentKind(agentKind) && harnessSupportsCloud(agentKind))
+      return agentKind as CloudAgentKind
     throw new TRPCError({
       code: 'BAD_REQUEST',
       message: `agent kind ${agentKind} cannot be moved to cloud yet`,

@@ -1,4 +1,3 @@
-import type { SessionId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
@@ -11,7 +10,16 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { type AgentSession, abducoHasSessionAsync, attachAbducoAgent, killAbducoSession, shellQuote, spawnAbducoAgent } from '@podium/pty'
+import { declaredValue, type HarnessHeadless, harnessAdapterFor } from '@podium/harness'
+import type { HarnessAgent, SessionId } from '@podium/model'
+import {
+  type AgentSession,
+  abducoHasSession,
+  attachAbducoAgent,
+  killAbducoSession,
+  shellQuote,
+  spawnAbducoAgent,
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import type { HarnessBins } from './harness-exec.js'
 import {
@@ -79,6 +87,18 @@ function combinedInstructions(spec: HeadlessTurnSpec): string | undefined {
     .join('\n\n')
   return value || undefined
 }
+function headlessFor(agent: HarnessAgent): HarnessHeadless {
+  const manifest = harnessAdapterFor(agent)
+  if (!manifest) throw new Error(`agent kind ${String(agent)} has no harness manifest`)
+  const headless = declaredValue(manifest.headless)
+  if (!headless)
+    throw new Error(
+      `harness ${manifest.kind} declares headless unsupported: ${
+        manifest.headless.supported ? '' : manifest.headless.reason
+      }`,
+    )
+  return headless
+}
 
 export function buildClaudeDurableExec(
   spec: HeadlessTurnSpec,
@@ -139,7 +159,8 @@ function prepareInvocation(
   knownSessionId?: string
   env?: Record<string, string>
 } {
-  if (spec.agent === 'claude-code') {
+  const headless = headlessFor(spec.agent)
+  if (headless.driver === 'claude-sdk') {
     if (spec.mcpConfig) writeAtomic(paths.mcp, spec.mcpConfig)
     const exec = buildClaudeDurableExec(spec, paths)
     return {
@@ -148,7 +169,8 @@ function prepareInvocation(
     }
   }
   let sessionId = spec.resumeValue ?? spec.sessionUuid
-  if (spec.agent === 'cursor' && !sessionId) sessionId = cursorSessionId(paths, bins, spec.env)
+  if (headless.resumeIdAllocation === 'create-chat' && !sessionId)
+    sessionId = cursorSessionId(paths, bins, spec.env)
   const exec = buildHeadlessExec(
     spec.agent,
     {
@@ -214,11 +236,13 @@ function outcomeFromOutput(
 ): HeadlessTurnOutcome {
   const stdout = existsSync(paths.stdout) ? readFileSync(paths.stdout, 'utf8') : ''
   const stderr = existsSync(paths.stderr) ? readFileSync(paths.stderr, 'utf8').trim() : ''
+  const outputFormat = headlessFor(spec.agent).outputFormat
+
   const exitCode = Number.parseInt(readFileSync(paths.exit, 'utf8').trim(), 10)
   let harnessSessionId = knownSessionId ?? spec.resumeValue ?? spec.sessionUuid ?? ''
   let output = ''
 
-  if (spec.agent === 'claude-code') {
+  if (outputFormat === 'claude-stream-json') {
     for (const line of stdout.split('\n')) {
       try {
         const event = JSON.parse(line) as {
@@ -239,7 +263,7 @@ function outcomeFromOutput(
         }
       } catch {}
     }
-  } else if (spec.agent === 'codex') {
+  } else if (outputFormat === 'codex-jsonl') {
     for (const line of stdout.split('\n')) {
       try {
         const event = JSON.parse(line) as {
@@ -255,7 +279,7 @@ function outcomeFromOutput(
         }
       } catch {}
     }
-  } else if (spec.agent === 'opencode') {
+  } else if (outputFormat === 'opencode-jsonl') {
     for (const line of stdout.split('\n')) {
       try {
         const event = JSON.parse(line) as {
@@ -370,7 +394,7 @@ export function runDurableHeadlessTurn(
       // its journal before deciding that a vanished abduco socket is a failure.
       collect()
       if (settled || disposed) return
-      if (await abducoHasSessionAsync(label)) {
+      if (await abducoHasSession(label)) {
         attachment = attachAbducoAgent({ label, cols: 120, rows: 40 })
       } else if (existsSync(paths.running)) {
         // Close the race where the process writes its exit journal between the
@@ -385,7 +409,7 @@ export function runDurableHeadlessTurn(
         return
       } else {
         emit({ kind: 'status', status: 'starting' })
-        attachment = spawnAbducoAgent({
+        attachment = await spawnAbducoAgent({
           label,
           cmd: '/bin/sh',
           args: [paths.script],
@@ -416,7 +440,9 @@ export function runDurableHeadlessTurn(
   const createdAt = Number.parseInt(readFileSync(paths.createdAt, 'utf8'), 10)
   const remaining = Math.max(1, (spec.timeoutMs ?? 600_000) - (Date.now() - createdAt))
   timeout = setTimeout(() => {
-    killAbducoSession(label)
+    void (async () => {
+      await killAbducoSession(label)
+    })()
     finish({
       ok: false,
       error: 'turn timed out',
@@ -429,7 +455,9 @@ export function runDurableHeadlessTurn(
     turnId,
     done,
     interrupt() {
-      killAbducoSession(label)
+      void (async () => {
+        await killAbducoSession(label)
+      })()
       finish({
         ok: false,
         error: 'turn interrupted',

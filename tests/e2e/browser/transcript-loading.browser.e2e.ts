@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
 import { harnessEnv } from '../harness-env'
@@ -18,13 +18,9 @@ import { gotoWorkspace, newSession, openApp } from './_harness'
  * hub yields no live delta.
  *
  * Why this works against the keyecho harness: the harness launches the keyecho jig
- * (not a real `claude`), so no real transcript JSONL exists. But the daemon resolves
- * a claude-code session's transcript purely from `cwd`: it reads
- *   <home>/.claude/projects/<slug(cwd)>/<*>.jsonl
- * (slug = cwd with every non-alphanumeric char → '-'; newest .jsonl in the bucket).
- * The harness registers THIS repo, so a `New Claude` session's cwd is the worktree
- * root with a deterministic, unique slug. We pre-seed a fixture JSONL there before
- * creating the session; `transcriptRead` (and the live tail) then read OUR fixture.
+ * (not a real `claude`), so no real transcript JSONL exists. Each case pre-seeds a
+ * fixture, creates a session, then binds that exact session id to the fixture through
+ * the daemon's real hook ingest. No cwd glob or ambient operator chooses a transcript.
  * The bug is proven fixed when the chat view renders that fixture's items for a
  * RUNNING (status: live) session — i.e. NOT the "No transcript yet" empty state.
  *
@@ -70,7 +66,7 @@ async function bindTranscript(sessionId: string, transcriptPath: string): Promis
     method: 'POST',
     body: JSON.stringify({
       hook_event_name: 'SessionStart',
-      session_id: '44444444-4444-4444-8444-444444444444',
+      session_id: basename(transcriptPath, '.jsonl'),
       transcript_path: transcriptPath,
       cwd: REPO_ROOT,
     }),
@@ -143,9 +139,9 @@ async function seedTranscript(uuid: string, lines: string[]): Promise<void> {
 // one newSession() just brought to front. `visible=true` excludes the display:none
 // panels so the locator resolves to a single element.
 const chatToggle = (page: Page) =>
-  page.locator('button[aria-label="Switch to chat view"]').locator('visible=true')
+  page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true')
 const nativeToggle = (page: Page) =>
-  page.locator('button[aria-label="Switch to native terminal"]').locator('visible=true')
+  page.getByRole('tab', { name: 'Native', exact: true }).locator('visible=true')
 
 test.afterEach(async () => {
   await rm(BUCKET, { recursive: true, force: true }).catch(() => {})
@@ -159,8 +155,10 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
   // Seed a small, deterministic transcript BEFORE the session exists, so the daemon
   // discovers it the moment the claude-code session spawns (and so the on-demand
   // transcriptRead reads it immediately).
+  const transcriptId = '11111111-1111-4111-8111-111111111111'
+  const transcriptPath = join(BUCKET, `${transcriptId}.jsonl`)
   const t = '2026-06-20T10:00:00.000Z'
-  await seedTranscript('11111111-1111-4111-8111-111111111111', [
+  await seedTranscript(transcriptId, [
     userRec('u-1', 'TRANSCRIPT_PROMPT_ALPHA please refactor the parser', t),
     answerRec('a-1', 'TRANSCRIPT_ANSWER_BRAVO done — extracted the cursor codec', t),
     userRec('u-2', 'TRANSCRIPT_PROMPT_CHARLIE now add a paging test', t),
@@ -169,6 +167,12 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
 
   await openApp(page)
   await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(activeId as string, transcriptPath)
 
   // The session is RUNNING (the keyecho PTY is live) — confirm the chat toggle is
   // offered (chatCapable) and switch to the chat view.
@@ -461,7 +465,7 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
 
   // The default-on behavior can be disabled immediately in Appearance. Return
   // to the same chat and prove the real prompt now scrolls away normally.
-  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('region', { name: 'Settings' })
   await settings.getByRole('button', { name: 'Appearance', exact: true }).click()
   const stickySwitch = settings.getByRole('switch', { name: 'Sticky prompts' })
@@ -509,10 +513,18 @@ test('(c) scroll-to-top pages older history off disk with no gaps or duplicates'
     lines.push(userRec(`u-${i}`, `${mark} prompt number ${i}`, ts))
     lines.push(answerRec(`a-${i}`, `answer for ${mark}`, ts))
   }
-  await seedTranscript('22222222-2222-4222-8222-222222222222', lines)
+  const transcriptId = '22222222-2222-4222-8222-222222222222'
+  const transcriptPath = join(BUCKET, `${transcriptId}.jsonl`)
+  await seedTranscript(transcriptId, lines)
 
   await openApp(page)
   await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(activeId as string, transcriptPath)
   await expect(chatToggle(page)).toBeVisible({ timeout: 15_000 })
   await chatToggle(page).click()
 
@@ -630,13 +642,21 @@ test('(re-seed) the transcript re-loads on a fresh ChatView mount (chat→native
   await page.setViewportSize({ width: 1280, height: 900 })
 
   const t = '2026-06-21T09:00:00.000Z'
-  await seedTranscript('33333333-3333-4333-8333-333333333333', [
+  const transcriptId = '33333333-3333-4333-8333-333333333333'
+  const transcriptPath = join(BUCKET, `${transcriptId}.jsonl`)
+  await seedTranscript(transcriptId, [
     userRec('u-1', 'RESEED_PROMPT_ECHO investigate the reattach path', t),
     answerRec('a-1', 'RESEED_ANSWER_FOXTROT re-seeded the tail on reattach', t),
   ])
 
   await openApp(page)
   await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(activeId as string, transcriptPath)
   await expect(chatToggle(page)).toBeVisible({ timeout: 15_000 })
   await chatToggle(page).click()
 

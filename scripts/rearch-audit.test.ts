@@ -112,7 +112,7 @@ describe('stripComments', () => {
   })
 
   it('does not desync on a nested template inside an interpolation', () => {
-    // Verbatim shape of packages/agent-bridge/src/tmux.ts:11 (shellQuote).
+    // Verbatim shape of packages/pty/src/tmux.ts:11 (shellQuote).
     const src = ["const q = `'${s.replace(/'/g, `'\\''`)}'`", '// gone', 'const after = 1'].join(
       '\n',
     )
@@ -260,7 +260,7 @@ describe('inventory checks', () => {
       // A true redeclaration (the drift risk).
       'packages/runtime/src/settings.ts': `export const HarnessAgent = z.enum(['codex'])`,
       // An alias re-using the canonical enum is the GOOD pattern, not debt.
-      'packages/agent-bridge/src/discovery/types.ts': `export type AgentKind = HarnessAgent`,
+      'packages/harness/src/discovery/types.ts': `export type AgentKind = HarnessAgent`,
     })
     const sites = CHECKS.find((c) => c.id === 'agent-kind-enums')?.collect(ctx) ?? []
     expect(sites.map((s) => s.file)).toEqual(['packages/runtime/src/settings.ts'])
@@ -370,6 +370,8 @@ describe('inventory checks', () => {
         'export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {}',
       // No `export` — drifts identically, still debt.
       'apps/server/src/private.ts': 'const RESUME: Record<HarnessAgent, string> = {}',
+      'packages/harness/src/registry.ts':
+        'export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {}',
       // Same shape, different concern: a UI icon map is not a harness capability.
       'apps/web/src/lib/WorkerLabel.tsx': 'const KIND_ICON: Record<AgentKind, IconComponent> = {}',
     })
@@ -382,7 +384,7 @@ describe('inventory checks', () => {
 
   it('sync/async twins match only a blocking fn that HAS an async twin', () => {
     const ctx = ctxOf({
-      'packages/agent-bridge/src/tmux.ts': [
+      'packages/pty/src/tmux.ts': [
         'export function tmuxHasSession(l) {}',
         'export async function tmuxHasSessionAsync(l) {}',
         // No twin — a lone sync function is not this item.
@@ -824,6 +826,11 @@ describe('against the live repo', () => {
       'router-triple-access',
       'capability-snapshots',
       'instance-partitions',
+      // POD-398 folded every static row into the canonical per-CLI manifests.
+      // The fixture test above remains the detector anchor: it proves both a
+      // protocol export and a module-private server table are still counted,
+      // while the canonical manifest registry itself is deliberately excluded.
+      'capability-tables',
       // POD-383 deleted `superagent.send`, so ONE procedure now forwards to
       // `sendTurn` and N-1 is zero — the item's target state. It is safe to
       // exempt here, and only here, because this detector carries its OWN
@@ -869,6 +876,10 @@ describe('against the live repo', () => {
       // deletion. Asserted in 'per-user-singletons ERRORS when its control
       // stops matching' below.
       'per-user-singletons',
+      // POD-324 deleted all four exported sync/async durable-host pairs. The
+      // detector now proves its zero against both surviving source roots and a
+      // synthetic sync+async control pair, throwing if either anchor disappears.
+      'durable-host-sync-async-twins',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
@@ -909,14 +920,12 @@ describe('against the live repo', () => {
     // And the registry it is checked against is non-empty, so
     // `representation-registry-rot`'s zero means "nothing rotted", not "nothing
     // to check".
-    // 43 -> 44 when POD-1151 registered `StoredIssue`, the R1 side of the one
-    // toStorage/fromStorage pair. Moving this number is the DELIBERATE ACT the pin
-    // exists to force, so it is moved with the reason rather than loosened to a
-    // `toBeGreaterThan`: the entry is justified (IssueAggregate minus the five
-    // members no column exists for, with the storage gap named as data rather than
-    // defaulted at the seam) and its role note records why it is filed R3 rather
-    // than inventing an ADR 4 role.
-    expect(RETAINED_REPRESENTATIONS.length).toBe(44)
+    // 44 -> 45 when POD-415 registered `LegacyBindingSnapshot`, the one-shot
+    // adapter over the daemon's scattered pre-store state. Moving this number is
+    // the DELIBERATE ACT the pin exists to force: the entry declares why no
+    // canonical legacy record exists to compose and names the real-state-dir
+    // migration test that enforces its finite purpose.
+    expect(RETAINED_REPRESENTATIONS.length).toBe(45)
   })
 
   it('the physical-table parser still binds to the live schema', () => {

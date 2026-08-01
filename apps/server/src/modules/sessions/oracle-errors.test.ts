@@ -6,10 +6,9 @@
  *  1. §3.1.5's consistent-error rule — once sessions can be INVISIBLE to a
  *     principal, acting on an invisible session must fail IDENTICALLY to acting
  *     on a nonexistent one, or the command surface becomes an existence oracle.
- *     That assertion needs today's not-found shape as its comparison baseline.
- *     Today that shape is NOT uniform, and this file records the whole spread:
- *     silent no-op, `{ ok: false, reason }`, a throw, and — for snoozes / pins /
- *     tab order — a write that SUCCEEDS against an id that does not exist.
+ *     Durable session state now takes the closed default: session-scoped rows
+ *     silently refuse unknown targets. Other command families retain their
+ *     established result and throw shapes, which this file still records.
  *
  *  2. §3.1.4 M5 — unauthorized and unreachable must be DISTINGUISHABLE. Today
  *     there is no unauthorized-machine case at all (placement is ambient), so
@@ -26,19 +25,24 @@ import {
   MUST_NOT_CHANGE,
   makeOracle,
   messageOf,
+  provisional,
   willChange,
 } from './oracle-support'
 
 afterEach(() => disposeOracles())
 
 const GHOST = '00000000-0000-4000-8000-000000000000'
-const EXISTENCE_ORACLE = willChange(
-  'POD-1073',
-  'invisible must later fail identically to nonexistent — §3.1.5',
+const EXISTENCE_ORACLE = provisional(
+  'readiness-3.1.2',
+  'existence-leak policy is deliberately open; these are current comparison shapes',
+)
+const SESSION_STATE_CLOSED_DEFAULT = provisional(
+  'POD-1070',
+  'durable session state defaults closed; the ownership matrix may later revisit the product policy',
 )
 
 describe('oracle: not-found shape, per write', () => {
-  it(`${EXISTENCE_ORACLE}: rename gives the Outbox a normalized refusal while the remaining presence writes stay silent`, async () => {
+  it(`${EXISTENCE_ORACLE}: rename gives the Outbox a normalized refusal while the remaining session-state writes stay silent`, async () => {
     const o = makeOracle()
 
     await expect(o.call.sessions.rename({ sessionId: GHOST, name: 'x' })).rejects.toMatchObject({
@@ -61,18 +65,15 @@ describe('oracle: not-found shape, per write', () => {
     expect(o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
-  it(`${EXISTENCE_ORACLE}: snooze SET on an unknown session SUCCEEDS and durably creates a row (clear stays a no-op)`, async () => {
+  it(`${SESSION_STATE_CLOSED_DEFAULT}: snooze writes on an unknown session are silent no-ops with no row`, async () => {
     const o = makeOracle()
 
-    // Asymmetric with rename/archive above: the snooze table is keyed by session
-    // id with no foreign key, so this write persists against a ghost.
-    expect(await o.call.snoozes.set({ sessionId: GHOST, until: null })).toEqual({ [GHOST]: null })
-    expect(o.store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [GHOST]: null })
-
-    expect(await o.call.snoozes.clear({ sessionId: GHOST })).toEqual({})
+    await expect(o.call.snoozes.set({ sessionId: GHOST, until: null })).resolves.toBeUndefined()
+    expect(o.store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
+    await expect(o.call.snoozes.clear({ sessionId: GHOST })).resolves.toBeUndefined()
   })
 
-  it(`${EXISTENCE_ORACLE}: pins and tab order accept ids that do not exist — they are not existence-checked at all`, async () => {
+  it(`${SESSION_STATE_CLOSED_DEFAULT}: polymorphic panel pins remain valid, while tab order rejects an unknown session`, async () => {
     const o = makeOracle()
 
     expect(await o.call.pins.set({ kind: 'panel', id: GHOST, pinned: true })).toEqual({
@@ -80,9 +81,10 @@ describe('oracle: not-found shape, per write', () => {
       worktrees: [],
       repos: [],
     })
-    expect(await o.call.tabs.setOrder({ worktree: '/nowhere', sessionIds: [GHOST] })).toEqual({
-      '/nowhere': [GHOST],
-    })
+    await expect(
+      o.call.tabs.setOrder({ worktree: '/nowhere', sessionIds: [GHOST] }),
+    ).resolves.toBeUndefined()
+    expect(o.store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({})
   })
 
   it(`${EXISTENCE_ORACLE}: the lifecycle primitives REPORT not-found as a returned reason`, async () => {

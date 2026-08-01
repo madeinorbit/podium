@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@podium/agent-bridge": "workspace:*",
     "@podium/client-core": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/protocol": "workspace:*",

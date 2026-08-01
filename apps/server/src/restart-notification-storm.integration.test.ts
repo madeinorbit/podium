@@ -260,6 +260,20 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           attach()
         }
         const generation = currentGeneration()
+        const recovery = controls.find(
+          (message) => message.type === 'reattach' && message.sessionId === childId,
+        )
+        expect(recovery).toMatchObject({
+          type: 'reattach',
+          sessionId: childId,
+          observationGeneration: generation,
+          binding: {
+            transitionId: `reattach:${childId}:${generation}`,
+            machineAccess: 'allowed',
+            sessionAccess: 'allowed',
+            principal: { kind: 'system' },
+          },
+        })
         bootstrapSnapshots.push({ kind, generation })
         if (kind === 'server-only') {
           const held = store.observationCheckpoints.get(childId)?.checkpoint

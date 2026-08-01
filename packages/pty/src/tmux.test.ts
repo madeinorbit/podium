@@ -76,8 +76,8 @@ const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)
 describe.skipIf(!hasTmux)('tmux integration', () => {
   it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', async () => {
     const label = `podium-itest-${process.pid}`
-    killTmuxServer(label)
-    const session = spawnTmuxAgent({
+    await killTmuxServer(label)
+    const session = await spawnTmuxAgent({
       label,
       cmd: nodeBin,
       args: [FIXTURE],
@@ -104,7 +104,7 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     // dispose() detaches the client; the agent (tmux server) survives.
     session.dispose()
     await wait(300)
-    expect(tmuxHasSession(label)).toBe(true)
+    expect(await tmuxHasSession(label)).toBe(true)
 
     // reattach gets a repaint.
     const re = attachTmuxAgent({ label, cols: 80, rows: 24, backend: nodePty })
@@ -117,9 +117,9 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     re.dispose()
 
     // explicit kill terminates the agent.
-    killTmuxServer(label)
+    await killTmuxServer(label)
     await wait(200)
-    expect(tmuxHasSession(label)).toBe(false)
+    expect(await tmuxHasSession(label)).toBe(false)
   }, 15000)
 })
 
@@ -149,8 +149,8 @@ describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
     let label = ''
     if (via === 'tmux') {
       label = `podium-fid-${process.pid}-${hex}`
-      killTmuxServer(label)
-      session = spawnTmuxAgent({
+      await killTmuxServer(label)
+      session = await spawnTmuxAgent({
         label,
         cmd: nodeBin,
         args: [HEX_FIXTURE],
@@ -172,7 +172,7 @@ describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
     session.write(bytes.toString('base64'))
     await waitUntil(() => out.includes(hex), 5000)
     session.dispose()
-    if (via === 'tmux') killTmuxServer(label)
+    if (via === 'tmux') await killTmuxServer(label)
     const m = out.match(/<([0-9a-f]*)>/g)
     return (m ?? []).join('')
   }

@@ -8,7 +8,7 @@
  * conflict class. No handler code and no service imports: contracts are L1,
  * handlers are L3, and the join is the composition root's (POD-311 finding 1).
  *
- * The presence class is POD-380's, in `session-commands.ts`. `sessions.handoff`
+ * The session-state class is POD-380's, in `session-commands.ts`. `sessions.handoff`
  * is POD-642's and is deliberately absent from both — its multi-leg
  * choreography across two machines earns its own contract.
  *

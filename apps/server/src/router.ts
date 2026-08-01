@@ -1,5 +1,4 @@
 import { familyState } from './modules/derived-family'
-import { presenceCommand, sessionHandoffInput } from '@podium/commands'
 import {
   AgentKind,
   ArtifactIdField,
@@ -15,7 +14,6 @@ import {
   WorkState,
 } from '@podium/model'
 import {
-  agentSupportsCloud,
   clientSwitchTraceSchema,
   type FileReadResultMessage,
 } from '@podium/protocol'
@@ -107,7 +105,7 @@ import type { AnyCommandContract } from '@podium/commands'
 /**
  * THE DERIVED SESSION SURFACE (POD-382).
  *
- * Every session-family MUTATION — presence class, command plane and handoff — is
+ * Every session-family MUTATION — session-state class, command plane and handoff — is
  * produced from the contract tables by `modules/sessions/trpc.ts` and spread into
  * the four routers below. There is deliberately no `.mutation(` for a session
  * anywhere in this file, and `scripts/audit-session-commands.ts` fails the build if
@@ -126,7 +124,7 @@ import type { AnyCommandContract } from '@podium/commands'
 import { fleetProcedures } from './modules/fleet/trpc'
 import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
 import { visibleMachinesFor } from './modules/sessions/command-ctx'
-import { presencePrincipal, sessionFamilyProcedures } from './modules/sessions/trpc'
+import { sessionFamilyProcedures } from './modules/sessions/trpc'
 import { workflowFamilyProcedures } from './modules/workflows/trpc'
 import { type Context, mods, t } from './trpc'
 

@@ -35,8 +35,8 @@
 
 import {
   commandVisibility,
-  PRESENCE_COMMAND_TABLES,
-  presenceCommand,
+  SESSION_STATE_COMMAND_TABLES,
+  sessionStateCommand,
   sessionCommandPlane,
 } from '@podium/commands'
 import { sessionHandoffContract } from '@podium/commands'
@@ -65,7 +65,10 @@ import {
   messageOf,
   type Oracle,
 } from './modules/sessions/oracle-support'
-import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
+import {
+  SessionStateRegistry,
+  soleHumanSessionStatePrincipal,
+} from './modules/sessions/session-state/registry'
 import type { SessionVisibility } from './modules/sessions/session-access'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { appRouter } from './router'
@@ -236,7 +239,7 @@ describe('AC1 · the session surface is derived, in both directions', () => {
     // FOUR since the POD-729 merge: `mail` is `sessions.ask`, whose contract belongs
     // to the mail table and whose procedure is built by that family's derivation.
     // FIVE since POD-351: `walking-skeleton` is `sessions.rename`, which keeps its
-    // presence contract (that is still what declares its exposure and policy) but is
+    // session-state contract (that is still what declares its exposure and policy) but is
     // built by a different envelope. Recorded as a manifest ROW on purpose — which
     // command sits on which envelope stays readable here rather than buried in a
     // condition, so a Phase 3 migration changes a row instead of adding a branch.
@@ -244,7 +247,7 @@ describe('AC1 · the session surface is derived, in both directions', () => {
       'command-plane',
       'handoff',
       'mail',
-      'presence',
+      'session-state',
       'walking-skeleton',
     ])
   })
@@ -315,17 +318,17 @@ describe('AC2 · framework idempotency is the single implementation', () => {
   })
 
   it('authorization precedes dedup: a replay is not served out of the cache', async () => {
-    // ADR 3 D8 / §3.1.3 A1. The presence envelope authorizes first, so a REVOKED
+    // ADR 3 D8 / §3.1.3 A1. The session-state envelope authorizes first, so a REVOKED
     // principal replaying a recorded id gets nothing — not the cached result.
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const presence = new PresenceRegistry({
+    const presence = new SessionStateRegistry({
       sessions: o.reg.modules.sessions,
-      store: o.store,
-      now: () => Date.now(),
+      state: o.reg.modules.sessions.state,
+
       mutations: o.reg.modules.mutations,
     })
-    const owner = soleHumanPrincipal(OPERATOR)
+    const owner = soleHumanSessionStatePrincipal(OPERATOR)
     const applied = presence.execute(
       'sessions.rename',
       { sessionId, name: 'mine', mutationId: 'revoke-1' },
@@ -360,18 +363,20 @@ describe('AC2 · framework idempotency is the single implementation', () => {
 // ---------------------------------------------------------------------------
 
 /** Every session-family contract, from every table that declares one. */
-function familyContracts(): { name: string; def: ReturnType<typeof presenceCommand> }[] {
-  const rows: { name: string; def: ReturnType<typeof presenceCommand> }[] = []
-  for (const table of PRESENCE_COMMAND_TABLES) {
+function familyContracts(): { name: string; def: ReturnType<typeof sessionStateCommand> }[] {
+  const rows: { name: string; def: ReturnType<typeof sessionStateCommand> }[] = []
+  for (const table of SESSION_STATE_COMMAND_TABLES) {
     for (const key of Object.keys(table.defs)) {
       const name = `${table.namespace}.${key}`
-      rows.push({ name, def: presenceCommand(name) })
+      rows.push({ name, def: sessionStateCommand(name) })
     }
   }
   for (const key of Object.keys(sessionCommandPlane.defs)) {
     rows.push({
       name: `sessions.${key}`,
-      def: (sessionCommandPlane.defs as Record<string, ReturnType<typeof presenceCommand>>)[key],
+      def: (sessionCommandPlane.defs as Record<string, ReturnType<typeof sessionStateCommand>>)[
+        key
+      ],
     })
   }
   return rows
@@ -380,7 +385,7 @@ function familyContracts(): { name: string; def: ReturnType<typeof presenceComma
 /** The classification obligation, as a function so a planted bad contract can be
  *  run through the SAME check the real tables are. */
 function classificationFindings(
-  rows: { name: string; def: ReturnType<typeof presenceCommand> }[],
+  rows: { name: string; def: ReturnType<typeof sessionStateCommand> }[],
 ): string[] {
   const findings: string[] = []
   for (const { name, def } of rows) {
@@ -426,7 +431,7 @@ describe('AC3 · classification is total, and forgetting fails toward privacy AN
   })
 
   it('the check FAILS a contract with no visibility class — the instrument says yes', () => {
-    const unclassified = { ...presenceCommand('sessions.rename') } as unknown as Record<
+    const unclassified = { ...sessionStateCommand('sessions.rename') } as unknown as Record<
       string,
       unknown
     >
@@ -434,14 +439,14 @@ describe('AC3 · classification is total, and forgetting fails toward privacy AN
     const findings = classificationFindings([
       {
         name: 'probe.unclassified',
-        def: unclassified as unknown as ReturnType<typeof presenceCommand>,
+        def: unclassified as unknown as ReturnType<typeof sessionStateCommand>,
       },
     ])
     expect(findings).toContain('probe.unclassified: no declared visibility class (ADR 9 D4)')
   })
 
   it('and it FAILS a per-user command whose scope is not self, and vice versa', () => {
-    const base = presenceCommand('sessions.markRead')
+    const base = sessionStateCommand('sessions.markRead')
     if (!base) throw new Error('fixture: sessions.markRead must exist')
     const widened = {
       ...base,
@@ -460,7 +465,7 @@ describe('AC3 · classification is total, and forgetting fails toward privacy AN
   it('an UNCLASSIFIED command resolves to personal — private, never tenant-visible', () => {
     // The semantic backstop, which must hold with every test above deleted. Asserted
     // on a def with the field genuinely absent, not on one declaring `personal`.
-    const unclassified = { ...presenceCommand('sessions.rename') } as unknown as Record<
+    const unclassified = { ...sessionStateCommand('sessions.rename') } as unknown as Record<
       string,
       unknown
     >
@@ -470,7 +475,7 @@ describe('AC3 · classification is total, and forgetting fails toward privacy AN
     ).toBe('personal')
     // And it can say something else when something else is declared — otherwise
     // this would pass on a resolver that always answered `personal`.
-    const perUser = presenceCommand('sessions.markRead')
+    const perUser = sessionStateCommand('sessions.markRead')
     if (!perUser) throw new Error('fixture: sessions.markRead must exist')
     expect(commandVisibility(perUser)).toBe('per-user-state')
   })
@@ -545,8 +550,8 @@ describe('AC4 · the per-user split actually happened', () => {
     // And the part POD-382 closed, unchanged: the COMMAND was already self-scoped
     // and per-user-classified, which is why POD-1076's move needed no contract
     // change, no wire change and no replica migration.
-    expect(presenceCommand('sessions.markRead')?.policy?.scope).toBe('self')
-    expect(presenceCommand('sessions.markRead')?.visibility).toBe('per-user-state')
+    expect(sessionStateCommand('sessions.markRead')?.policy?.scope).toBe('self')
+    expect(sessionStateCommand('sessions.markRead')?.visibility).toBe('per-user-state')
   })
 })
 
@@ -558,10 +563,10 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
   it('PRESENCE: the pair decides nameSource, and a payload-supplied identity is ignored', async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const presence = new PresenceRegistry({
+    const presence = new SessionStateRegistry({
       sessions: o.reg.modules.sessions,
-      store: o.store,
-      now: () => Date.now(),
+      state: o.reg.modules.sessions.state,
+
       mutations: o.reg.modules.mutations,
     })
 
@@ -570,9 +575,9 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       'sessions.rename',
       { sessionId, name: 'human choice' },
       {
-        userId: 'user:h',
+        userId: asUserId('user:h'),
         capability: OPERATOR,
-        onBehalfOf: 'user:h',
+        onBehalfOf: asUserId('user:h'),
         humanDirect: true,
       },
     )
@@ -589,13 +594,13 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
         name: 'agent choice',
         humanDirect: true,
         actor: 'user:h',
-        onBehalfOf: 'user:h',
+        onBehalfOf: asUserId('user:h'),
       },
       {
-        userId: 'user:h',
+        userId: asUserId('user:h'),
         capability: { ...OPERATOR, actorSessionId: asSessionId('agent-1') },
-        actorSessionId: 'agent-1',
-        onBehalfOf: 'user:h',
+        actorSessionId: asSessionId('agent-1'),
+        onBehalfOf: asUserId('user:h'),
         humanDirect: false,
       },
     )
@@ -924,30 +929,30 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     expect(direct.disposition).toBe('dead_letter')
   })
 
-  it('the presence class refuses SILENTLY, which is what its not-found does too', async () => {
+  it('the session-state class refuses SILENTLY, which is what its not-found does too', async () => {
     // Same property, different pinned shape (POD-379). A denial must be
     // indistinguishable from a write to a session that does not exist — for this
     // class that means no throw, no reason, no row.
     const o = makeOracle()
-    const presence = new PresenceRegistry({
+    const presence = new SessionStateRegistry({
       sessions: o.reg.modules.sessions,
-      store: o.store,
-      now: () => Date.now(),
+      state: o.reg.modules.sessions.state,
+
       mutations: o.reg.modules.mutations,
     })
     const ghost = presence.execute(
       'sessions.rename',
       { sessionId: GHOST, name: 'x' },
-      soleHumanPrincipal(OPERATOR),
+      soleHumanSessionStatePrincipal(OPERATOR),
     )
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const denied = presence.execute(
       'sessions.rename',
       { sessionId, name: 'x' },
       {
-        userId: 'user:stranger',
+        userId: asUserId('user:stranger'),
         capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId('user:stranger') } },
-        onBehalfOf: 'user:stranger',
+        onBehalfOf: asUserId('user:stranger'),
         humanDirect: true,
       },
     )

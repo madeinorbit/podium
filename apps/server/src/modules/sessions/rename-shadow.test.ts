@@ -42,7 +42,7 @@
  * coarsest form that still distinguishes accept from reject-with-reason.
  */
 
-import { isExposedOn, presenceCommand } from '@podium/commands'
+import { isExposedOn, sessionStateCommand } from '@podium/commands'
 import { asSessionId, OPERATOR, SOLE_USER_ID } from '@podium/model'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -50,7 +50,7 @@ import { FIRST_ADMIN_USER_ID, type CommandPrincipal } from '../../command-princi
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
 import { MIGRATED_COMMANDS, renamePath, RENAME_PATH_ENV } from './rename-adapter'
-import { PresenceRegistry, soleHumanPrincipal } from './presence-registry'
+import { SessionStateRegistry, soleHumanSessionStatePrincipal } from './session-state/registry'
 import { renameOnTargetPath, type RenameServices } from './rename-target-path'
 import { sessionSurfaceManifest } from './trpc'
 
@@ -75,10 +75,7 @@ function observe(sessions: SessionRegistry['modules']['sessions'], sessionId: st
 }
 
 /** The coarsest verdict that still tells accept from reject-with-reason. */
-type Verdict =
-  | { kind: 'applied' }
-  | { kind: 'rejected'; reason: string }
-  | { kind: 'refused' }
+type Verdict = { kind: 'applied' } | { kind: 'rejected'; reason: string } | { kind: 'refused' }
 
 /**
  * The AGENT principal, on both paths.
@@ -111,13 +108,13 @@ type Actor = 'human' | 'agent'
 function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
   const { store, sessions, mutations } = stack()
   const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-  const presence = new PresenceRegistry({ sessions, store, now: () => 1, mutations })
+  const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
   const capability = actor === 'agent' ? agentCapability : OPERATOR
 
   const result = presence.execute(
     'sessions.rename',
     { ...input, sessionId: created.sessionId },
-    soleHumanPrincipal(capability),
+    soleHumanSessionStatePrincipal(capability),
     'trpc',
   )
 
@@ -198,15 +195,14 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // verbatim — a migration that quietly reworded a user-visible refusal would
     // fail here rather than ship.
     const legacy = runLegacy({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
-    const legacyAgent = new PresenceRegistry({
+    const legacyAgent = new SessionStateRegistry({
       sessions: legacy.sessions,
-      store: legacy.store,
-      now: () => 1,
+      state: legacy.sessions.state,
       mutations: legacy.mutations,
     }).execute(
       'sessions.rename',
       { sessionId: legacy.created.sessionId, name: 'agent guess' },
-      soleHumanPrincipal(agentCapability),
+      soleHumanSessionStatePrincipal(agentCapability),
       'trpc',
     )
 
@@ -239,11 +235,11 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // indistinguishable, and both paths must produce the SAME indistinguishable
     // answer or the migration itself becomes the oracle.
     const { store, sessions, mutations } = stack()
-    const presence = new PresenceRegistry({ sessions, store, now: () => 1, mutations })
+    const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
     const legacy = presence.execute(
       'sessions.rename',
       { sessionId: asSessionId('no-such-session'), name: 'x' },
-      soleHumanPrincipal(OPERATOR),
+      soleHumanSessionStatePrincipal(OPERATOR),
       'trpc',
     )
     const target = renameOnTargetPath(
@@ -337,7 +333,7 @@ describe('the compatibility adapter moves ONE command and defaults to the target
     // failing is how one low-risk command becomes a broad migration.
     expect(MIGRATED_COMMANDS).toEqual(['sessions.rename'])
 
-    const stillLegacy = PresenceRegistry.names().filter((n) => !MIGRATED_COMMANDS.includes(n))
+    const stillLegacy = SessionStateRegistry.names().filter((n) => !MIGRATED_COMMANDS.includes(n))
     expect(stillLegacy).toEqual([
       'sessions.setArchived',
       'sessions.setWorkState',
@@ -472,14 +468,14 @@ describe('rename is served by the derived surface, on the target envelope', () =
 
   it('is the ONLY command on that envelope — its ten siblings stay on presence', () => {
     // The counterfactual for the assertion above: `source` would also read
-    // 'walking-skeleton' for rename if the walk had put EVERY presence command on
+    // 'walking-skeleton' for rename if the walk had put EVERY session-state command on
     // it. This is the "legacy path unchanged for all other commands" criterion,
     // asserted against the thing that actually decides which builder runs.
     const skeleton = sessionSurfaceManifest().filter((e) => e.source === 'walking-skeleton')
     expect(skeleton.map((e) => e.name)).toEqual(['sessions.rename'])
 
     const presence = sessionSurfaceManifest()
-      .filter((e) => e.source === 'presence')
+      .filter((e) => e.source === 'session-state')
       .map((e) => e.name)
     expect(presence).toEqual([
       'sessions.setArchived',
@@ -494,12 +490,12 @@ describe('rename is served by the derived surface, on the target envelope', () =
     ])
   })
 
-  it('is still governed by its presence contract’s exposure declaration', () => {
+  it('is still governed by its session-state contract’s exposure declaration', () => {
     // Moving the ENVELOPE must not move the DECLARATION. `presenceEntries()` throws
     // at module load if a listed name's contract stops declaring `trpc`, and rename
     // is still inside that walk — so this asserts the cross-check still covers it
     // rather than that a constant was copied.
-    const contract = presenceCommand('sessions.rename')
+    const contract = sessionStateCommand('sessions.rename')
     expect(contract).toBeDefined()
     expect(isExposedOn(contract as never, 'trpc')).toBe(true)
   })

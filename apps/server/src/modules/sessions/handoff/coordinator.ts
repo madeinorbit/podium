@@ -43,26 +43,61 @@
  * ATTRIBUTION IS A PAIR (ADR 3 D17, ADR 9 D5 A3). The durable record names the
  * ACTOR (which agent or person initiated the move) and the ON-BEHALF-OF human,
  * both read off the transport capability, never off the payload. The bundle
- * manifest's own `format: 2` attribution is NOT written here: per
- * `packages/model/src/entities/handoff.ts` the exporter has no principal to stamp
- * from until POD-644 threads one into the export frame, and stamping a guess
- * would put fabricated provenance in a durable file.
+ * manifest's own `format: 2` attribution is stamped here from that authenticated
+ * principal and is never accepted from manifest payload identity.
  *
  * OWNERSHIP DOES NOT MOVE WITH THE SESSION. A session's owner is its
  * `onBehalfOf` human (ADR 9 D5 A4) and a machine change is not an ownership
- * change: nothing here writes an owner, and nothing mints a transfer-specific
- * identity or token. The agent principal's lifecycle is `SessionBinding`
- * (POD-323/POD-644), which is exactly why delegation survives the move for free.
+ * change: the manifest records provenance, while the transferred binding carries
+ * its existing delegation unchanged. Nothing mints a transfer-specific identity
+ * or token.
  */
 
+import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import { capabilityAttribution, HandoffManifestV1 } from '@podium/model'
-import type { SessionId } from '@podium/model'
-import { agentSupportsHandoff } from '@podium/protocol'
+import type { MachineId, SessionId } from '@podium/model'
+import {
+  actorAgent,
+  actorDisplayId,
+  actorUser,
+  asAgentIdentityId,
+  asMachineId,
+  HandoffManifestV1,
+} from '@podium/model'
+import { harnessSupportsHandoff } from '../../../harness-manifest'
+import {
+  transferHandoffPackage,
+  verifiedBundleBases,
+  verifiedCommonBundleBases,
+} from '../handoff-transfer'
 import type { Session } from '../session'
-import { transferHandoffPackage, verifiedBundleBases, verifiedCommonBundleBases } from '../handoff-transfer'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './ports'
 import { HandoffRefusalError } from './refusal'
+
+function exportedIdentity(caller: HandoffCaller) {
+  switch (caller.principal.kind) {
+    case 'user':
+      return {
+        exportedBy: {
+          actor: actorUser(caller.principal.user),
+          onBehalfOf: caller.principal.user,
+        },
+        owner: caller.principal.user,
+      }
+    case 'agent':
+      return {
+        exportedBy: {
+          actor: actorAgent(asAgentIdentityId(caller.principal.agentSessionId)),
+          onBehalfOf: caller.principal.onBehalfOf,
+        },
+        owner: caller.principal.onBehalfOf,
+      }
+    case 'system':
+      // A handoff bundle is personal and must have a real owning human. A
+      // system job has none; inventing one would violate ADR 3 D7/D21.
+      throw new Error('system principal cannot export a personal handoff bundle')
+  }
+}
 
 export interface HandoffInput {
   sessionId: SessionId
@@ -120,7 +155,7 @@ export class HandoffCoordinator {
       // harness list copied into the command path, which is what the
       // harness-branching boundary rule exists to stop: an unknown harness is not
       // handoff-eligible, and that stays true without this file being edited.
-      if (!agentSupportsHandoff(session.agentKind)) {
+      if (!harnessSupportsHandoff(session.agentKind)) {
         throw new Error('session harness does not support handoff')
       }
       if (!session.resume) throw new Error('session has no resume reference')
@@ -168,10 +203,14 @@ export class HandoffCoordinator {
     // bundle it produces accept only the exportable kinds, and this is the
     // MANIFEST'S OWN list (the shared schema instance from `packages/model`, whose
     // header explains that widening it would accept a bundle no importer can
-    // resume). So the two tables cannot drift silently: if the capability table
+    // resume). So the manifest and schema cannot drift silently: if the capability
     // above ever calls a kind handoff-capable that the bundle format cannot carry,
     // this parse says so loudly instead of shipping an unresumable package.
     const agentKind = HandoffManifestV1.shape.agentKind.parse(session.agentKind)
+    const exportIdentity = exportedIdentity(caller)
+    const transferId = randomUUID()
+    const sourceMachineId = asMachineId(session.machineId)
+    const targetMachineId = asMachineId(input.machineId)
 
     if (session.machineId === input.machineId) throw new Error('session is already on that machine')
 
@@ -210,7 +249,9 @@ export class HandoffCoordinator {
         : undefined
     if (session.cwd === sourceRepo.path && !issueWorktree)
       throw new Error('only worktree sessions can be handed off')
-    const targetMachine = this.ports.listMachines().find((machine) => machine.id === input.machineId)
+    const targetMachine = this.ports
+      .listMachines()
+      .find((machine) => machine.id === input.machineId)
     // REACHABILITY IS A DIFFERENT ANSWER FROM AUTHORIZATION (§3.1.4 M5). By the
     // time execution reaches here the principal may `use` this machine, so
     // saying it is offline reveals nothing it could not already see.
@@ -295,6 +336,12 @@ export class HandoffCoordinator {
       await this.ports.sleep(SOURCE_RELEASE_MS)
     }
 
+    let targetClaimed = false
+    let sourceCommitted = false
+    let winnerAuthorized = false
+    let importedLocation:
+      | { newCwd: string; worktreeRoot?: string; observationGeneration: number }
+      | undefined
     try {
       const exported = await this.ports.rpc.handoffExport(
         {
@@ -309,6 +356,14 @@ export class HandoffCoordinator {
           ...(session.name || session.title ? { title: session.name || session.title } : {}),
           ...(session.issueId ? { issueId: session.issueId } : {}),
           sourceMachineId: source.machineId,
+          binding: {
+            transitionId: `adopt:${transferId}:source-claim`,
+            transferId,
+            targetMachineId,
+            machineAccess: 'allowed',
+            ...exportIdentity,
+            visibility: 'personal',
+          },
         },
         source.machineId,
       )
@@ -316,7 +371,8 @@ export class HandoffCoordinator {
         !exported.ok ||
         !exported.stagePath ||
         exported.sizeBytes === undefined ||
-        !exported.manifest
+        !exported.manifest ||
+        !exported.binding
       ) {
         throw new Error(exported.error ?? 'source failed to export session')
       }
@@ -324,7 +380,7 @@ export class HandoffCoordinator {
         rpc: this.ports.rpc,
         sessionId: session.sessionId,
         sourceMachineId: source.machineId,
-        targetMachineId: input.machineId,
+        targetMachineId,
         sourceStagePath: exported.stagePath,
         sizeBytes: exported.sizeBytes,
       })
@@ -347,6 +403,12 @@ export class HandoffCoordinator {
       // refuses the import and falls into the rollback below, which is the
       // difference between "re-authorized at apply" and "authorized at dispatch
       // and trusted afterwards".
+      // MACHINE-OWNER BOUNDARY (§3.1.4 M2): `use` permits code execution on
+      // hardware whose local SSH keys, git/gh identity, dotfiles and cloud CLI
+      // sessions belong to that machine's owner, who may not own this session.
+      // Those credentials do not travel with the binding. Attribution of
+      // separately server-injected credentials or quota is intentionally not
+      // decided here; it remains a per-feature policy decision.
       assertMachineUse(input.machineId)
       const imported = await this.ports.rpc.handoffImport(
         session.sessionId,
@@ -354,9 +416,61 @@ export class HandoffCoordinator {
         exported.manifest.worktreeName,
         input.machineId,
         occupiedWorktreePaths,
+        {
+          transitionId: `adopt:${transferId}:target-claim`,
+          machineAccess: 'allowed',
+          transfer: exported.binding,
+        },
       )
-      if (!imported.ok || !imported.newCwd)
+      if (!imported.ok || !imported.newCwd || imported.observationGeneration === undefined)
         throw new Error(imported.error ?? 'target failed to import session')
+      targetClaimed = true
+      importedLocation = {
+        newCwd: imported.newCwd,
+        ...(imported.worktreeRoot ? { worktreeRoot: imported.worktreeRoot } : {}),
+        observationGeneration: imported.observationGeneration,
+      }
+
+      // Arbitration and authorization are deliberately separate. The target
+      // claim wins this transfer only after native artifacts landed; both
+      // machines are re-authorized LIVE before either claim becomes live or
+      // terminal. A revoked winner is refused here, not blessed by ordering.
+      assertMachineUse(source.machineId)
+      assertMachineUse(input.machineId)
+      winnerAuthorized = true
+      const finalizedSource = await this.ports.rpc.handoffBindingFinalize(
+        {
+          sessionId: session.sessionId,
+          transitionId: `adopt:${transferId}:source-commit`,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'source',
+          phase: 'commit',
+          fromMachineId: sourceMachineId,
+          toMachineId: targetMachineId,
+        },
+        source.machineId,
+      )
+      if (!finalizedSource.ok) {
+        throw new Error(finalizedSource.error ?? 'source binding finalize failed')
+      }
+      sourceCommitted = true
+      const finalizedTarget = await this.ports.rpc.handoffBindingFinalize(
+        {
+          sessionId: session.sessionId,
+          transitionId: `adopt:${transferId}:target-commit`,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'target',
+          phase: 'commit',
+          fromMachineId: sourceMachineId,
+          toMachineId: targetMachineId,
+        },
+        input.machineId,
+      )
+      if (!finalizedTarget.ok) {
+        throw new Error(finalizedTarget.error ?? 'target binding finalize failed')
+      }
 
       session.handoffTarget = undefined
       session.machineId = input.machineId
@@ -385,30 +499,86 @@ export class HandoffCoordinator {
           worktreePath: imported.worktreeRoot,
         })
       }
-      const resumed = await this.ports.resumeSession({
-        agentKind,
-        cwd: session.cwd,
-        resume: session.resume,
-        conversationId:
-          session.origin.kind === 'resume' ? session.origin.conversationId : session.resume.value,
-        ...(session.name || session.title ? { title: session.name || session.title } : {}),
-        machineId: input.machineId,
+      // The target binding already exists. Launching through ordinary SPAWN
+      // would re-mint it from the importing human — a privilege-escalation path.
+      // ADOPT launch resets only the host-local attempt.
+      assertMachineUse(input.machineId)
+      const resumed = await this.ports.resurrectSession({
+        sessionId: session.sessionId,
+        adoptedBinding: {
+          transitionId: `adopt:${transferId}:target-launch`,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'target',
+          fromMachineId: sourceMachineId,
+          toMachineId: targetMachineId,
+        },
       })
-      if (resumed.sessionId !== session.sessionId || (session.status as string) !== 'starting')
+      if (!resumed.ok || (session.status as string) !== 'starting')
         throw new Error('target session failed to resume')
-      this.recordHandoff(session, source.machineId, input.machineId, caller)
+      this.recordHandoff(session, sourceMachineId, targetMachineId, caller)
       return { ok: true, newCwd: imported.newCwd }
     } catch (error) {
+      // Once import returned and the live apply-time checks passed, the target
+      // claim deterministically outranks the source claim. An RPC crash or lost
+      // finalize acknowledgement must not resurrect the losing source and fork
+      // ownership. Leave the target hibernated for reconciliation. By contrast,
+      // a claimant whose rights were revoked never becomes an authorized winner:
+      // abort both claims and restore the source.
+      const targetWins = targetClaimed && winnerAuthorized
+      if (targetClaimed && !targetWins) {
+        await this.ports.rpc.handoffBindingFinalize(
+          {
+            sessionId: session.sessionId,
+            transitionId: `adopt:${transferId}:target-abort`,
+            machineAccess: 'allowed',
+            transferId,
+            role: 'target',
+            phase: 'abort',
+            fromMachineId: sourceMachineId,
+            toMachineId: targetMachineId,
+          },
+          input.machineId,
+        )
+      }
+      if (!sourceCommitted && !targetWins) {
+        await this.ports.rpc.handoffBindingFinalize(
+          {
+            sessionId: session.sessionId,
+            transitionId: `adopt:${transferId}:source-abort`,
+            machineAccess: 'allowed',
+            transferId,
+            role: 'source',
+            phase: 'abort',
+            fromMachineId: sourceMachineId,
+            toMachineId: targetMachineId,
+          },
+          source.machineId,
+        )
+      }
       session.handoffTarget = undefined
-      session.machineId = source.machineId
-      session.cwd = source.cwd
+      session.machineId = sourceCommitted || targetWins ? input.machineId : source.machineId
+      session.cwd =
+        sourceCommitted || targetWins ? (importedLocation?.newCwd ?? session.cwd) : source.cwd
       session.status = 'hibernated'
       this.ports.persist(session)
-      const rollback = await this.ports.resurrectSession({ sessionId: session.sessionId })
-      if (!rollback.ok)
-        console.warn(
-          `[podium] handoff rollback failed for ${session.sessionId}: ${rollback.reason}`,
-        )
+      if (!sourceCommitted && !targetWins) {
+        const rollback = await this.ports.resurrectSession({
+          sessionId: session.sessionId,
+          adoptedBinding: {
+            transitionId: `adopt:${transferId}:source-rollback-launch`,
+            machineAccess: 'allowed',
+            transferId,
+            role: 'source',
+            fromMachineId: sourceMachineId,
+            toMachineId: targetMachineId,
+          },
+        })
+        if (!rollback.ok)
+          console.warn(
+            `[podium] handoff rollback failed for ${session.sessionId}: ${rollback.reason}`,
+          )
+      }
       throw error
     }
   }
@@ -416,27 +586,17 @@ export class HandoffCoordinator {
   /**
    * THE DURABLE ATTRIBUTION RECORD (ADR 3 D17 / ADR 9 D5 A3).
    *
-   * `capabilityAttribution` is the shared reader for the pair — not re-derived
-   * here — but the pair alone cannot answer "did a person or an agent do this?":
-   * it collapses `actorSessionId` and `actorUser` into one `actor` slot, so the
-   * two are indistinguishable downstream. `actorKind` is therefore recorded
-   * beside it, read off WHICH half of the capability carried the actor. Both
-   * halves come from the transport capability; neither can be supplied by a
-   * caller's payload.
+   * The same authenticated CommandPrincipal that stamps the v2 bundle stamps
+   * this event. Keeping one source prevents capability compatibility fields and
+   * the resolved transport principal from disagreeing about the human.
    */
   private recordHandoff(
     session: Session,
-    fromMachineId: string,
-    toMachineId: string,
+    fromMachineId: MachineId,
+    toMachineId: MachineId,
     caller: HandoffCaller,
   ): void {
-    const attribution = capabilityAttribution(caller.capability)
-    const actorKind =
-      caller.capability.actorSessionId !== undefined
-        ? 'agent'
-        : caller.capability.actorUser !== undefined
-          ? 'user'
-          : 'system'
+    const attribution = exportedIdentity(caller).exportedBy
     this.ports.recordEvent({
       ts: new Date().toISOString(),
       kind: 'session.handoff',
@@ -445,8 +605,8 @@ export class HandoffCoordinator {
         sessionId: session.sessionId,
         fromMachineId,
         toMachineId,
-        actor: attribution.actor,
-        actorKind,
+        actor: actorDisplayId(attribution.actor),
+        actorKind: attribution.actor.kind,
         onBehalfOf: attribution.onBehalfOf,
         ...(session.issueId ? { issueId: session.issueId } : {}),
       },

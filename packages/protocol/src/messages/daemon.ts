@@ -18,6 +18,7 @@ import {
   ImageUploadResultMessage,
 } from './files'
 import {
+  HandoffBindingFinalizeResultMessage,
   HandoffChunkReadResultMessage,
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
@@ -148,6 +149,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HandoffChunkReadResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  HandoffBindingFinalizeResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
   WorkspaceCleanResultMessage,

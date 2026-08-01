@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **44 of 76 classes have mutable visibility.** This is the majority of
+1. **45 of 77 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -56,6 +56,7 @@ disappearance a scoped feed must be able to signal.
 |---|---|---|---|---|
 | `machine` | Machine (fleet row / `machines`) | owned-compute | `grant-see` `grant-use` `grant-manage` `revoke` `transfer-owner` `pair` `unpair` | PHASE 2 MUST HANDLE: granting `see` makes a machine and every per-machine fact appear for a principal with no revision moving. Revoking `use` must not read as "machine deleted" — and per ADR 9 D6 M5 a machine outside the `see` set is ABSENT, so an evict/rescope signal (not `remove`) is the only correct expression. |
 | `session-identity` | Session identity (`sessionId`, birth display ref / letters) | personal | `share` `unshare` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: the archetypal case. Sharing a session makes it and its whole subtree (placement, labels, draft, queued messages, observed runtime, artifacts, transcripts) appear for the grantee with NO revision moving. |
+| `session-binding` | On-host session binding (agent principal and native-identity observations) | owned-compute | `grant-see` `grant-use` `revoke` `transfer-owner` | Machine grant changes alter who can reach the store without changing or copying any binding record. |
 | `session-placement` | Session placement (`cwd`, `machineId`, `issueId`, `agentKind`, origin, headless, workflow pass-through ids) | personal | `share` `unshare` `revoke` `grant-use` | PHASE 2 MUST HANDLE: two independent axes. It appears/disappears with the session’s grants, AND a machine `use` revocation can make a placement unusable without the row changing. |
 | `session-labels` | User-authored labels (`name`/`nameSource`, user `title`, `archived`, `workState`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the session. |
 | `composer-draft` | Composer draft (`session_drafts` + `draftUpdatedAt`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the session — and it is the row where a second visible writer turns the interim defect into data loss. |

@@ -18,8 +18,9 @@ import {
   initialAgentState,
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
-
+  transcriptRecordMapperFor,
 } from '@podium/harness'
+import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
 import type {
   AgentObservation,
   ControlMessage,
@@ -27,11 +28,9 @@ import type {
   ObservationInputOrigin,
 } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentSession } from '@podium/pty'
 import {
   createSharedStatTick,
-  recordToItemsForKind,
   type StatTick,
   type TranscriptTailer,
   tailTranscript,
@@ -39,6 +38,7 @@ import {
 import { createGitCapture } from './git-capture'
 import { hookString } from './hook-payload'
 import { countTail, timeTask } from './loop-attribution'
+import type { SessionBinding } from './session-binding'
 import type { SessionCwdTracker } from './worktree-resolve'
 
 export type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
@@ -54,6 +54,8 @@ export interface SessionObserverInit {
 }
 
 export interface SessionObserversDeps {
+  /** The sole durable SessionBinding transition surface. */
+  sessionBinding?: SessionBinding
   send(msg: DaemonMessage): void
   /** Test/embedding override; production creates one ticker for this registry. */
   statTick?: StatTick
@@ -614,7 +616,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const bound = observations.get(msg.sessionId)
     // Claude accepted one-release acks before bindingVersion existed. New
     // generic adapters require the exact binding fence.
-    if (msg.bindingVersion === undefined && bound?.adapter.kind !== 'claude-code') return
+    if (msg.bindingVersion === undefined && bound?.adapter.capabilities.observationProtocol !== 'claude-causal') return
     if (msg.bindingVersion !== undefined && msg.bindingVersion !== lease.bindingVersion) return
     cancelObservationAckDelivery(msg, msg.bindingVersion ?? lease.bindingVersion)
     bound?.observation.onObservationAck?.(msg)
@@ -853,7 +855,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       const transcriptPath = pendingBindingHook.transcript_path
       const adapter = observations.get(msg.sessionId)?.adapter
       if (adapter && typeof transcriptPath === 'string' && transcriptPath) {
-        ensureTranscriptTail(msg.sessionId, transcriptPath, recordToItemsForKind(adapter.kind))
+        ensureTranscriptTail(
+          msg.sessionId,
+          transcriptPath,
+          transcriptRecordMapperFor(adapter.kind) ?? (() => []),
+        )
       }
       bindingHooks?.delete(msg.providerSessionId!)
       if (bindingHooks?.size === 0) pendingBindingHooks.delete(msg.sessionId)
@@ -862,7 +868,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const pendingClaudeSessionId = (pendingClaude?.[0] as Record<string, unknown> | undefined)
       ?.session_id
     if (
-      observations.get(msg.sessionId)?.adapter.kind === 'claude-code' &&
+      observations.get(msg.sessionId)?.adapter.capabilities.observationProtocol === 'claude-causal' &&
       typeof pendingClaudeSessionId === 'string'
     ) {
       claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
@@ -1011,12 +1017,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // The daemon services an adapter's observation drives, closed over one
   // session. Every per-agent difference is behind these five callbacks.
   const hostFor = (sessionId: SessionId, adapter: HarnessAdapter): HarnessObserverHost => ({
-    tailFile: (path) => ensureTranscriptTail(sessionId, path, recordToItemsForKind(adapter.kind)),
+    tailFile: (path) =>
+      ensureTranscriptTail(sessionId, path, transcriptRecordMapperFor(adapter.kind) ?? (() => [])),
     // Recording a resume ref marks the session resumable (→ hibernate button);
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
     onResumeValue: (value, confidence) => {
-      if (adapter.kind === 'codex' && confidence === 'exact' && deps.onExactCodexBinding) {
+      if (adapter.capabilities.observationProtocol === 'codex-exact' && confidence === 'exact' && deps.onExactCodexBinding) {
         void deps
           .onExactCodexBinding(sessionId, value)
           .catch((err) =>
@@ -1302,6 +1309,21 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const fields = payload as Record<string, unknown> | null
     const harnessSessionId = hookString(payload, 'session_id', 'sessionId')
     const causalLease = causalLeases.get(sessionId)
+    if (harnessSessionId && deps.sessionBinding) {
+      void deps.sessionBinding
+        .transition({
+          event: 'hook-repin',
+          transitionId: `repin:hook:${bound.adapter.resumeKind}:${harnessSessionId}`,
+          sessionId,
+          evidenceSource: 'hook-receipt',
+          value: harnessSessionId,
+          nativeKind: bound.adapter.resumeKind,
+          observedAt: new Date().toISOString(),
+        })
+        .catch((error) =>
+          console.warn(`[podium] hook repin transition failed for ${sessionId}:`, error),
+        )
+    }
     const changedCausalBinding = Boolean(
       harnessSessionId &&
         causalLease &&
@@ -1317,7 +1339,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       bindingHooks.set(harnessSessionId!, payload)
       pendingBindingHooks.set(sessionId, bindingHooks)
       bound.observation.bindHookThread?.(harnessSessionId!)
-      if (bound.adapter.kind === 'claude-code') {
+      if (bound.adapter.capabilities.observationProtocol === 'claude-causal') {
         const starting = claudeStarting.get(sessionId)
         if (starting) starting.push(payload)
         else claudeStarting.set(sessionId, [payload])
@@ -1338,7 +1360,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // Same-binding hooks may update the authoritative transcript and resume ref.
     const transcriptPath = hookString(payload, 'transcript_path', 'transcriptPath')
     if (transcriptPath) {
-      ensureTranscriptTail(sessionId, transcriptPath, recordToItemsForKind(bound.adapter.kind))
+      ensureTranscriptTail(
+        sessionId,
+        transcriptPath,
+        transcriptRecordMapperFor(bound.adapter.kind) ?? (() => []),
+      )
     }
     if (harnessSessionId) {
       send({
@@ -1346,7 +1372,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         sessionId,
         resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
         confidence: 'exact',
-        ...(bound.adapter.kind === 'codex' ? { ackRequested: true } : {}),
+        ...(bound.adapter.capabilities.observationProtocol === 'codex-exact' ? { ackRequested: true } : {}),
       })
       bound.observation.bindHookThread?.(harnessSessionId)
     }
@@ -1360,7 +1386,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
     // Commit/touched-file attribution [POD-98] happens before causal routing.
     gitCapture.onHookPayload(sessionId, fields)
-    if (bound.adapter.kind === 'claude-code' && causalLeases.has(sessionId)) {
+    if (bound.adapter.capabilities.observationProtocol === 'claude-causal' && causalLeases.has(sessionId)) {
       const causal = claudeCausal.get(sessionId)
       if (!causal) {
         const starting = claudeStarting.get(sessionId)

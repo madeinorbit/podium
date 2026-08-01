@@ -1,9 +1,10 @@
 import { defineConfig } from 'vitest/config'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
+import { realAgentSmokeTests } from './vitest.smoke-requirements'
 
 const agentSmokeTests = [
-  '**/*.smoke.test.{ts,tsx}',
-  'packages/agent-bridge/test/harness-smoke/claude-smoke.test.ts',
+  ...realAgentSmokeTests,
+  'packages/pty/test/harness-smoke/claude-smoke.test.ts',
   'apps/daemon/src/codex-hooks.test.ts',
   'packages/harness/src/opencode/cli.test.ts',
   'packages/harness/src/cursor/cli.test.ts',

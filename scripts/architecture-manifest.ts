@@ -36,7 +36,7 @@
  * Plus one non-dependency axiom:
  *
  *  - Harness axiom — BEHAVIORAL BRANCHING on harness identity is confined to
- *    packages/agent-bridge. Identifiers and serialized capability descriptors
+ *    packages/harness. Identifiers and serialized capability descriptors
  *    may flow ANYWHERE (protocol/UI/settings may carry a HarnessAgent value);
  *    only a COMPARISON or `case` on a harness literal is flagged. The axiom's
  *    blessed exception — icon/label maps — needs no declaration: a Record keyed
@@ -56,7 +56,7 @@
  *    second home was created: a sanctioned second home is the kind of exception
  *    that quietly becomes N homes, and the registry form needs none.
  *
- * Shipped in WARN mode: known violations are declared in
+ * Non-error manifest rules use a ratchet: known violations are declared in
  * scripts/boundary-allowlist.ts with a per-file COUNT and the phase that
  * removes them. Allowlisted-and-within-count warns; anything new or over count
  * fails. See {@link applyAllowlist}.
@@ -265,18 +265,6 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     platform: 'neutral',
     features: ['telemetry-schema', 'telemetry-consent', 'telemetry-queue'],
   },
-  // The PTY half of the old agent-bridge. POD-397 moved per-CLI variance out to
-  // packages/harness, so this workspace now owns only 'pty-port' — it is
-  // HARNESS-AGNOSTIC and must not learn that codex/claude/grok exist. POD-396
-  // renames it to packages/pty; POD-399 deletes it (ADR 8 D4).
-  'packages/agent-bridge': {
-    layer: 2,
-    platform: 'node-only',
-    // Both halves extracted (POD-396 pty, POD-397 harness); this is an empty
-    // shell awaiting deletion by POD-399. It owns no feature: ownership is
-    // exclusive, so the tags MOVED rather than being duplicated.
-    features: [],
-  },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
   // durable hosts (abduco/tmux + the vendored-C build), byte framing, OSC scan,
   // redraw. It owns `pty-port`, which agent-bridge used to claim alongside
@@ -362,14 +350,12 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // config/sqlite plumbing.
   'packages/sync -> packages/runtime',
   'packages/telemetry -> packages/runtime',
-  'packages/agent-bridge -> packages/runtime',
   // L2: pty resolves the abduco binary cache under runtime's stateDir() rather
   // than re-deriving the state directory (the `state-dir-defs` audit item is at 0
   // and must stay there).
   'packages/pty -> packages/runtime',
   // L2: agent-bridge parses transcripts through the shared parser rather than
   // carrying a second copy.
-  'packages/agent-bridge -> packages/transcript',
   // L2: harness reads config/stateDir/sqlite from runtime and parses transcripts
   // through the shared parser — the same two edges agent-bridge had, inherited by
   // the half that actually uses them (POD-397).
@@ -522,32 +508,12 @@ const HARNESS_ENUM_SOURCE = 'packages/model/src/entities/agent.ts'
 
 /**
  * The workspace that OWNS harness behavioral branching. POD-397 moved the
- * manifests out of packages/agent-bridge into packages/harness, so this is the
+ * manifests out of packages/harness into packages/harness, so this is the
  * home; agent-bridge (soon packages/pty) is now subject to the axiom like anyone
  * else, which is the point — the PTY layer must not know which CLI it is driving.
  *
- * Still WARN level: POD-399 flips the axiom to error as its deliberate final act.
+ * Error level: violations bypass the allowlist and fail immediately.
  */
-/**
- * Workspaces that legitimately own NO feature because they are empty shells
- * awaiting deletion, mapped to the issue that deletes them.
- *
- * Every other workspace must own at least one feature — a featureless package is
- * normally a package nobody has classified, which is exactly the drift the
- * manifest exists to catch. This set is the ONE declared exception, and it is
- * deliberately a map rather than a list so the exemption names its own expiry:
- * when POD-399 deletes packages/agent-bridge, the entry goes with it.
- *
- * The paired test asserts BOTH directions — that these workspaces are exempt AND
- * that each one really is in MANIFEST with an empty feature list. Without the
- * second half the exemption could be used to hide a package that owns nothing by
- * accident, which would make this the sort of allowlist that launders debt
- * instead of recording it.
- */
-export const AWAITING_DELETION: ReadonlyMap<string, string> = new Map([
-  ['packages/agent-bridge', 'POD-399'],
-])
-
 export const HARNESS_ADAPTER_HOME = 'packages/harness'
 
 /**
@@ -741,6 +707,9 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'sync-browser-reach',
 ])
 
+/** Rules enforced at error level: allowlist entries cannot downgrade them. */
+export const ERROR_LEVEL_MANIFEST_RULES: ReadonlySet<string> = new Set(['harness-branching'])
+
 /** Split one allowlist into [manifest entries, legacy entries]. */
 export function partitionAllowlist(
   allowlist: readonly AllowlistEntry[],
@@ -764,17 +733,32 @@ export interface AllowlistEntry {
 }
 
 export interface AllowlistResult {
-  /** Allowlisted and within count — reported, does not fail. */
   warnings: Violation[]
-  /** New rule/file, or over the declared count — fails the build. */
   errors: Violation[]
-  /**
-   * Entries whose declared count exceeds reality (lower it) or that are dead.
-   * These FAIL the build too — see {@link applyAllowlist}. Kept separate from
-   * `errors` because they are a different instruction to the reader: `errors`
-   * means "you added debt", `stale` means "you paid debt down, now bank it".
-   */
   stale: string[]
+}
+
+/** Apply manifest policy while keeping error-level rules outside the ratchet. */
+export function applyManifestPolicy(
+  violations: readonly Violation[],
+  allowlist: readonly AllowlistEntry[],
+): AllowlistResult {
+  const errorViolations = violations.filter((v) => ERROR_LEVEL_MANIFEST_RULES.has(v.rule))
+  const ratchetedViolations = violations.filter((v) => !ERROR_LEVEL_MANIFEST_RULES.has(v.rule))
+  const forbiddenEntries = allowlist.filter((entry) => ERROR_LEVEL_MANIFEST_RULES.has(entry.rule))
+  const ratchetedEntries = allowlist.filter((entry) => !ERROR_LEVEL_MANIFEST_RULES.has(entry.rule))
+  const result = applyAllowlist(ratchetedViolations, ratchetedEntries)
+  return {
+    warnings: result.warnings,
+    errors: [...errorViolations, ...result.errors],
+    stale: [
+      ...forbiddenEntries.map(
+        (entry) =>
+          `allowlist entry [${entry.rule}] ${entry.file} is forbidden: this rule is error-level`,
+      ),
+      ...result.stale,
+    ],
+  }
 }
 
 /**

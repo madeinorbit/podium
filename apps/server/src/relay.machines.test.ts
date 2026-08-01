@@ -1,14 +1,22 @@
-import { asRepoId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  asRepoId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+} from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
-const TEST_CAPABILITY = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability
+const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const TEST_CAPABILITY = TEST_PRINCIPAL.capability
+const TEST_CALLER = { capability: TEST_CAPABILITY, principal: TEST_PRINCIPAL }
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
@@ -88,6 +96,7 @@ describe('multi-daemon routing', () => {
       type: 'sessionResumeRefAck',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-a' },
+      ownerId: FIRST_ADMIN_USER_ID,
     })
     expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
   })
@@ -302,6 +311,20 @@ async function handoffRegistry(
               manifest,
               stagePath: '/home/source/.podium/handoff/package.tgz',
               sizeBytes: 3,
+              binding: {
+                transferId: msg.binding?.transferId ?? 'missing-transfer',
+                sessionId: msg.sessionId,
+                agentKind: 'claude-code',
+                fromMachineId: asMachineId('m1'),
+                toMachineId: asMachineId('m2'),
+                observationGeneration: 2,
+                delegation: {
+                  actor: asAgentIdentityId(msg.sessionId),
+                  onBehalfOf: asUserId('user:sole'),
+                  grantedScope: { kind: 'all' },
+                  parentBindingId: null,
+                },
+              },
             },
       )
     }
@@ -313,6 +336,13 @@ async function handoffRegistry(
         data: Buffer.from('pkg').toString('base64'),
         sizeBytes: 3,
         eof: true,
+      })
+    if (msg.type === 'handoffBindingFinalizeRequest')
+      reg.gateway.routeDaemonFrame('m1', {
+        type: 'handoffBindingFinalizeResult',
+        requestId: msg.requestId,
+        ok: true,
+        observationGeneration: 2,
       })
   })
   reg.gateway.attachDaemon('m2', (msg) => {
@@ -364,6 +394,14 @@ async function handoffRegistry(
           ? `${targetRepoPath}/.worktrees/x/apps/web`
           : `${targetRepoPath}/.worktrees/x`,
         ...(opts.oldDaemon ? {} : { worktreeRoot: `${targetRepoPath}/.worktrees/x` }),
+        observationGeneration: 2,
+      })
+    if (msg.type === 'handoffBindingFinalizeRequest')
+      reg.gateway.routeDaemonFrame('m2', {
+        type: 'handoffBindingFinalizeResult',
+        requestId: msg.requestId,
+        ok: true,
+        observationGeneration: 2,
       })
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.
@@ -396,7 +434,7 @@ describe('session handoff orchestration', () => {
       const { reg, source, target, sessionId } = await handoffRegistry()
       await reg.modules.sessions.handoffSession(
         { sessionId, machineId: 'm2' },
-        { capability: TEST_CAPABILITY },
+        TEST_CALLER,
       )
       expect(reg.modules.sessions.listSessions()).toMatchObject([
         { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
@@ -415,7 +453,7 @@ describe('session handoff orchestration', () => {
     const { reg, sessionId } = await handoffRegistry()
     await reg.modules.sessions.handoffSession(
       { sessionId, machineId: 'm2' },
-      { capability: TEST_CAPABILITY },
+      TEST_CALLER,
     )
 
     reg.gateway.routeDaemonFrame('m1', {
@@ -445,7 +483,7 @@ describe('session handoff orchestration', () => {
     const { reg, target, sessionId, store } = await handoffRegistry({ targetHasRepo: false })
     await reg.modules.sessions.handoffSession(
       { sessionId, machineId: 'm2' },
-      { capability: TEST_CAPABILITY },
+      TEST_CALLER,
     )
     const targetRepo = store.repos.listRepos('m2')[0]
     expect(targetRepo).toMatchObject({
@@ -512,7 +550,7 @@ describe('session handoff orchestration', () => {
     })
     await reg.modules.sessions.handoffSession(
       { sessionId, machineId: 'm2' },
-      { capability: TEST_CAPABILITY },
+      TEST_CALLER,
     )
     expect(source).toContainEqual(
       expect.objectContaining({
@@ -534,7 +572,7 @@ describe('session handoff orchestration', () => {
     })
     await reg.modules.sessions.handoffSession(
       { sessionId, machineId: 'm2' },
-      { capability: TEST_CAPABILITY },
+      TEST_CALLER,
     )
     expect(target).toContainEqual(
       expect.objectContaining({
@@ -558,7 +596,7 @@ describe('session handoff orchestration', () => {
       reg.clientGateway.attachClient((message) => client.push(message))
       await reg.modules.sessions.handoffSession(
         { sessionId, machineId: 'm2' },
-        { capability: TEST_CAPABILITY },
+        TEST_CALLER,
       )
       expect(client.filter((m) => m.type === 'worktreesChanged')).toEqual([
         { type: 'worktreesChanged', repoPath: '/target/repo', machineId: 'm2' },
@@ -586,7 +624,7 @@ describe('session handoff orchestration', () => {
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
       await reg.modules.sessions.handoffSession(
         { sessionId, machineId: 'm2' },
-        { capability: TEST_CAPABILITY },
+        TEST_CALLER,
       )
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         // The ROOT, even though the agent resumed in .../x/apps/web.
@@ -615,7 +653,7 @@ describe('session handoff orchestration', () => {
       })
       await reg.modules.sessions.handoffSession(
         { sessionId, machineId: 'm2' },
-        { capability: TEST_CAPABILITY },
+        TEST_CALLER,
       )
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
@@ -633,7 +671,7 @@ describe('session handoff orchestration', () => {
     await expect(
       reg.modules.sessions.handoffSession(
         { sessionId, machineId: 'm2' },
-        { capability: TEST_CAPABILITY },
+        TEST_CALLER,
       ),
     ).rejects.toThrow('export exploded')
     expect(reg.modules.sessions.listSessions()).toMatchObject([

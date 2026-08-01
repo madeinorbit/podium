@@ -209,7 +209,9 @@ describe('ADR 7 D3/D4/D5 — the ambiguous cases ship as resolved', () => {
       ...Object.keys(CONTROL_PLANE_CLASS),
       ...Object.keys(DAEMON_PLANE_CLASS),
     ].filter((t) => t.startsWith('handoff'))
-    expect(handoff).toHaveLength(8)
+    // Five request/result pairs: export, chunk read, import chunk, import, and
+    // the source/target binding finalization leg.
+    expect(handoff).toHaveLength(10)
     for (const type of handoff) {
       const planeClass =
         (CONTROL_PLANE_CLASS as Record<string, string>)[type] ??

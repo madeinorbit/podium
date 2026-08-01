@@ -222,6 +222,24 @@
       "encoded": "{\"type\":\"attach\",\"sessionId\":\"sessionId\",\"sinceSeq\":1}"
     },
     {
+      "schema": "BindingMachineAccess",
+      "variant": "minimal",
+      "wire": "allowed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"allowed\""
+    },
+    {
+      "schema": "BindingMachineAccess",
+      "variant": "full",
+      "wire": "allowed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"allowed\""
+    },
+    {
       "schema": "BindMessage",
       "variant": "minimal",
       "wire": {
@@ -638,7 +656,7 @@
     },
     {
       "schema": "ReattachMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "reattach",
         "sessionId": "sessionId",
@@ -648,6 +666,15 @@
         "geometry": {
           "cols": 1,
           "rows": 1
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "allowed",
+          "sessionAccess": "allowed",
+          "principal": {
+            "kind": "user",
+            "userId": "binding.principal.userId"
+          }
         },
         "resume": {
           "kind": "resume.kind",
@@ -666,7 +693,88 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"geometry\":{\"cols\":1,\"rows\":1},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":1,\"draftSync\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"geometry\":{\"cols\":1,\"rows\":1},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"sessionAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"binding.principal.userId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":1,\"draftSync\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "ReattachMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "reattach",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "codex",
+        "cwd": "cwd",
+        "geometry": {
+          "cols": 2,
+          "rows": 2
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "denied",
+          "sessionAccess": "not-found",
+          "principal": {
+            "kind": "agent",
+            "parentBindingId": "binding.principal.parentBindingId"
+          }
+        },
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "pathHint": "pathHint",
+        "createdAtMs": 2,
+        "draftSync": false,
+        "observationGeneration": 2,
+        "observationBindingVersion": 2,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"codex\",\"cwd\":\"cwd\",\"geometry\":{\"cols\":2,\"rows\":2},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"binding.principal.parentBindingId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":2,\"draftSync\":false,\"observationGeneration\":2,\"observationBindingVersion\":2,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "ReattachMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "reattach",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "grok",
+        "cwd": "cwd",
+        "geometry": {
+          "cols": 3,
+          "rows": 3
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "unreachable",
+          "sessionAccess": "not-found",
+          "principal": {
+            "kind": "system"
+          }
+        },
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "pathHint": "pathHint",
+        "createdAtMs": 3,
+        "draftSync": true,
+        "observationGeneration": 3,
+        "observationBindingVersion": 3,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"grok\",\"cwd\":\"cwd\",\"geometry\":{\"cols\":3,\"rows\":3},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":3,\"draftSync\":true,\"observationGeneration\":3,\"observationBindingVersion\":3,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
     },
     {
       "schema": "RedrawMessage",
@@ -769,6 +877,273 @@
       "encoded": "{\"type\":\"resize\",\"sessionId\":\"sessionId\",\"cols\":1,\"rows\":1}"
     },
     {
+      "schema": "SessionBindingAdoptLaunchInstruction",
+      "variant": "minimal",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "transferId": "transferId",
+        "role": "source",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transferId\":\"transferId\",\"role\":\"source\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\"}"
+    },
+    {
+      "schema": "SessionBindingAdoptLaunchInstruction",
+      "variant": "full",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "transferId": "transferId",
+        "role": "source",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transferId\":\"transferId\",\"role\":\"source\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\"}"
+    },
+    {
+      "schema": "SessionBindingReattachInstruction",
+      "variant": "minimal",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "sessionAccess": "allowed",
+        "principal": {
+          "kind": "user",
+          "userId": "principal.userId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"sessionAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"principal.userId\"}}"
+    },
+    {
+      "schema": "SessionBindingReattachInstruction",
+      "variant": "full/arm0",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "sessionAccess": "allowed",
+        "principal": {
+          "kind": "user",
+          "userId": "principal.userId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"sessionAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"principal.userId\"}}"
+    },
+    {
+      "schema": "SessionBindingReattachInstruction",
+      "variant": "full/arm1",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "denied",
+        "sessionAccess": "not-found",
+        "principal": {
+          "kind": "agent",
+          "parentBindingId": "principal.parentBindingId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"denied\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"principal.parentBindingId\"}}"
+    },
+    {
+      "schema": "SessionBindingReattachInstruction",
+      "variant": "full/arm2",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "unreachable",
+        "sessionAccess": "not-found",
+        "principal": {
+          "kind": "system"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\"}}"
+    },
+    {
+      "schema": "SessionBindingSpawnInstruction",
+      "variant": "minimal",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "principal": {
+          "kind": "user",
+          "userId": "principal.userId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"principal.userId\"}}"
+    },
+    {
+      "schema": "SessionBindingSpawnInstruction",
+      "variant": "full/arm0",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "principal": {
+          "kind": "user",
+          "userId": "principal.userId"
+        },
+        "issueId": "issueId",
+        "requestedScope": {
+          "kind": "all"
+        },
+        "scopeOverrideConfirmed": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"principal.userId\"},\"issueId\":\"issueId\",\"requestedScope\":{\"kind\":\"all\"},\"scopeOverrideConfirmed\":true}"
+    },
+    {
+      "schema": "SessionBindingSpawnInstruction",
+      "variant": "full/arm1",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "denied",
+        "principal": {
+          "kind": "agent",
+          "parentBindingId": "principal.parentBindingId"
+        },
+        "issueId": "issueId",
+        "requestedScope": {
+          "kind": "none"
+        },
+        "scopeOverrideConfirmed": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"denied\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"principal.parentBindingId\"},\"issueId\":\"issueId\",\"requestedScope\":{\"kind\":\"none\"},\"scopeOverrideConfirmed\":false}"
+    },
+    {
+      "schema": "SessionBindingSpawnInstruction",
+      "variant": "full/arm2",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "unreachable",
+        "principal": {
+          "kind": "system"
+        },
+        "issueId": "issueId",
+        "requestedScope": {
+          "kind": "subtree",
+          "rootId": "requestedScope.rootId"
+        },
+        "scopeOverrideConfirmed": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\"},\"issueId\":\"issueId\",\"requestedScope\":{\"kind\":\"subtree\",\"rootId\":\"requestedScope.rootId\"},\"scopeOverrideConfirmed\":true}"
+    },
+    {
+      "schema": "SessionBindingSpawnInstruction",
+      "variant": "full/arm3",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "unreachable",
+        "principal": {
+          "kind": "system"
+        },
+        "issueId": "issueId",
+        "requestedScope": {
+          "kind": "owned",
+          "userId": "requestedScope.userId"
+        },
+        "scopeOverrideConfirmed": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\"},\"issueId\":\"issueId\",\"requestedScope\":{\"kind\":\"owned\",\"userId\":\"requestedScope.userId\"},\"scopeOverrideConfirmed\":false}"
+    },
+    {
+      "schema": "SessionBindingSpawnInstruction",
+      "variant": "full/arm4",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "unreachable",
+        "principal": {
+          "kind": "system"
+        },
+        "issueId": "issueId",
+        "requestedScope": {
+          "kind": "self",
+          "userId": "requestedScope.userId"
+        },
+        "scopeOverrideConfirmed": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\"},\"issueId\":\"issueId\",\"requestedScope\":{\"kind\":\"self\",\"userId\":\"requestedScope.userId\"},\"scopeOverrideConfirmed\":true}"
+    },
+    {
+      "schema": "SessionBindingSpawnPrincipal",
+      "variant": "minimal",
+      "wire": {
+        "kind": "user",
+        "userId": "userId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"userId\":\"userId\"}"
+    },
+    {
+      "schema": "SessionBindingSpawnPrincipal",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "user",
+        "userId": "userId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"userId\":\"userId\"}"
+    },
+    {
+      "schema": "SessionBindingSpawnPrincipal",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "agent",
+        "parentBindingId": "parentBindingId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"agent\",\"parentBindingId\":\"parentBindingId\"}"
+    },
+    {
+      "schema": "SessionBindingSpawnPrincipal",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "system"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"system\"}"
+    },
+    {
       "schema": "SessionPriorityMessage",
       "variant": "minimal",
       "wire": {
@@ -819,12 +1194,13 @@
         "resume": {
           "kind": "resume.kind",
           "value": "resume.value"
-        }
+        },
+        "ownerId": "ownerId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
+      "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"ownerId\":\"ownerId\"}"
     },
     {
       "schema": "SetSessionDraftMessage",
@@ -898,7 +1274,7 @@
     },
     {
       "schema": "SpawnMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "spawn",
         "sessionId": "sessionId",
@@ -912,6 +1288,27 @@
         "geometry": {
           "cols": 1,
           "rows": 1
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "allowed",
+          "principal": {
+            "kind": "user",
+            "userId": "binding.principal.userId"
+          },
+          "issueId": "binding.issueId",
+          "requestedScope": {
+            "kind": "all"
+          },
+          "scopeOverrideConfirmed": true
+        },
+        "adoptedBinding": {
+          "transitionId": "adoptedBinding.transitionId",
+          "machineAccess": "allowed",
+          "transferId": "adoptedBinding.transferId",
+          "role": "source",
+          "fromMachineId": "adoptedBinding.fromMachineId",
+          "toMachineId": "adoptedBinding.toMachineId"
         },
         "model": "model",
         "subagentModel": "subagentModel",
@@ -938,7 +1335,267 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":1,\"rows\":1},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":1,\"rows\":1},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"binding.principal.userId\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"all\"},\"scopeOverrideConfirmed\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"allowed\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"source\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "SpawnMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "spawn",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "codex",
+        "cwd": "cwd",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "geometry": {
+          "cols": 2,
+          "rows": 2
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "denied",
+          "principal": {
+            "kind": "agent",
+            "parentBindingId": "binding.principal.parentBindingId"
+          },
+          "issueId": "binding.issueId",
+          "requestedScope": {
+            "kind": "none"
+          },
+          "scopeOverrideConfirmed": false
+        },
+        "adoptedBinding": {
+          "transitionId": "adoptedBinding.transitionId",
+          "machineAccess": "denied",
+          "transferId": "adoptedBinding.transferId",
+          "role": "target",
+          "fromMachineId": "adoptedBinding.fromMachineId",
+          "toMachineId": "adoptedBinding.toMachineId"
+        },
+        "model": "model",
+        "subagentModel": "subagentModel",
+        "effort": "effort",
+        "initialPrompt": "initialPrompt",
+        "instructions": [
+          {
+            "source": "instructions[0].source",
+            "content": "instructions[0].content"
+          }
+        ],
+        "env": {
+          "env.key": "env.env.key"
+        },
+        "seedCliTheme": false,
+        "draftSync": false,
+        "observationGeneration": 2,
+        "observationBindingVersion": 2,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"codex\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":2,\"rows\":2},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"binding.principal.parentBindingId\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"none\"},\"scopeOverrideConfirmed\":false},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"denied\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":false,\"draftSync\":false,\"observationGeneration\":2,\"observationBindingVersion\":2,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "SpawnMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "spawn",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "grok",
+        "cwd": "cwd",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "geometry": {
+          "cols": 3,
+          "rows": 3
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "unreachable",
+          "principal": {
+            "kind": "system"
+          },
+          "issueId": "binding.issueId",
+          "requestedScope": {
+            "kind": "subtree",
+            "rootId": "binding.requestedScope.rootId"
+          },
+          "scopeOverrideConfirmed": true
+        },
+        "adoptedBinding": {
+          "transitionId": "adoptedBinding.transitionId",
+          "machineAccess": "unreachable",
+          "transferId": "adoptedBinding.transferId",
+          "role": "target",
+          "fromMachineId": "adoptedBinding.fromMachineId",
+          "toMachineId": "adoptedBinding.toMachineId"
+        },
+        "model": "model",
+        "subagentModel": "subagentModel",
+        "effort": "effort",
+        "initialPrompt": "initialPrompt",
+        "instructions": [
+          {
+            "source": "instructions[0].source",
+            "content": "instructions[0].content"
+          }
+        ],
+        "env": {
+          "env.key": "env.env.key"
+        },
+        "seedCliTheme": true,
+        "draftSync": true,
+        "observationGeneration": 3,
+        "observationBindingVersion": 3,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"grok\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":3,\"rows\":3},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.requestedScope.rootId\"},\"scopeOverrideConfirmed\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":3,\"observationBindingVersion\":3,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "SpawnMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "spawn",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "opencode",
+        "cwd": "cwd",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "geometry": {
+          "cols": 4,
+          "rows": 4
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "unreachable",
+          "principal": {
+            "kind": "system"
+          },
+          "issueId": "binding.issueId",
+          "requestedScope": {
+            "kind": "owned",
+            "userId": "binding.requestedScope.userId"
+          },
+          "scopeOverrideConfirmed": false
+        },
+        "adoptedBinding": {
+          "transitionId": "adoptedBinding.transitionId",
+          "machineAccess": "unreachable",
+          "transferId": "adoptedBinding.transferId",
+          "role": "target",
+          "fromMachineId": "adoptedBinding.fromMachineId",
+          "toMachineId": "adoptedBinding.toMachineId"
+        },
+        "model": "model",
+        "subagentModel": "subagentModel",
+        "effort": "effort",
+        "initialPrompt": "initialPrompt",
+        "instructions": [
+          {
+            "source": "instructions[0].source",
+            "content": "instructions[0].content"
+          }
+        ],
+        "env": {
+          "env.key": "env.env.key"
+        },
+        "seedCliTheme": false,
+        "draftSync": false,
+        "observationGeneration": 4,
+        "observationBindingVersion": 4,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"opencode\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":4,\"rows\":4},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"owned\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":false},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":false,\"draftSync\":false,\"observationGeneration\":4,\"observationBindingVersion\":4,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "SpawnMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "spawn",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "cursor",
+        "cwd": "cwd",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "geometry": {
+          "cols": 5,
+          "rows": 5
+        },
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "unreachable",
+          "principal": {
+            "kind": "system"
+          },
+          "issueId": "binding.issueId",
+          "requestedScope": {
+            "kind": "self",
+            "userId": "binding.requestedScope.userId"
+          },
+          "scopeOverrideConfirmed": true
+        },
+        "adoptedBinding": {
+          "transitionId": "adoptedBinding.transitionId",
+          "machineAccess": "unreachable",
+          "transferId": "adoptedBinding.transferId",
+          "role": "target",
+          "fromMachineId": "adoptedBinding.fromMachineId",
+          "toMachineId": "adoptedBinding.toMachineId"
+        },
+        "model": "model",
+        "subagentModel": "subagentModel",
+        "effort": "effort",
+        "initialPrompt": "initialPrompt",
+        "instructions": [
+          {
+            "source": "instructions[0].source",
+            "content": "instructions[0].content"
+          }
+        ],
+        "env": {
+          "env.key": "env.env.key"
+        },
+        "seedCliTheme": true,
+        "draftSync": true,
+        "observationGeneration": 5,
+        "observationBindingVersion": 5,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"cursor\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":5,\"rows\":5},\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"self\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":5,\"observationBindingVersion\":5,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
     },
     {
       "schema": "TitleMessage",

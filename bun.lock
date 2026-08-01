@@ -44,7 +44,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.201",
-        "@podium/agent-bridge": "workspace:*",
         "@podium/composer": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/model": "workspace:*",
@@ -127,7 +126,6 @@
       "dependencies": {
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
-        "@podium/agent-bridge": "workspace:*",
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",
@@ -214,20 +212,6 @@
         "vite": "^8.0.16",
         "vite-plugin-pwa": "^1.3.0",
         "workbox-window": "^7.4.1",
-      },
-    },
-    "packages/agent-bridge": {
-      "name": "@podium/agent-bridge",
-      "version": "0.0.0",
-      "dependencies": {
-        "@podium/model": "workspace:*",
-        "@podium/protocol": "workspace:*",
-        "@podium/runtime": "workspace:*",
-      },
-      "devDependencies": {
-        "@podium/pty": "workspace:*",
-        "tsup": "^8.5.1",
-        "typescript": "^6.0.3",
       },
     },
     "packages/client-core": {
@@ -339,11 +323,13 @@
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
-        "node-pty": "^1.0.0",
       },
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+      },
+      "optionalDependencies": {
+        "node-pty": "^1.0.0",
       },
     },
     "packages/runtime": {
@@ -454,7 +440,6 @@
       "name": "@podium/e2e",
       "version": "0.0.0",
       "dependencies": {
-        "@podium/agent-bridge": "workspace:*",
         "@podium/client-core": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/protocol": "workspace:*",
@@ -481,10 +466,12 @@
         "@podium/pty": "workspace:*",
         "@types/node": "^25.9.1",
         "@types/react": "^19.0.0",
-        "node-pty": "^1.0.0",
         "tsx": "^4.22.4",
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
+      },
+      "optionalDependencies": {
+        "node-pty": "^1.0.0",
       },
     },
     "tooling/tsconfig": {
@@ -1111,8 +1098,6 @@
     "@oxc-project/types": ["@oxc-project/types@0.133.0", "", {}, "sha512-KzkdCd6Uxqnf6l3HOw1xfatAlUURA0g14cvBYFyJ5SaNOQbOUvBr9PKArcPcrNIeRsBdgcUzOGrhKveVpvOIGA=="],
 
     "@playwright/test": ["@playwright/test@1.60.0", "", { "dependencies": { "playwright": "1.60.0" }, "bin": { "playwright": "cli.js" } }, "sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag=="],
-
-    "@podium/agent-bridge": ["@podium/agent-bridge@workspace:packages/agent-bridge"],
 
     "@podium/cli": ["@podium/cli@workspace:apps/cli"],
 

@@ -198,9 +198,9 @@ const hasAbduco = isAbducoAvailable()
 // assertion or timeout leaks the detached master for days. Sweep every label this
 // file can create, for this pid (this run, pass or fail) and for dead pids
 // (crashed prior runs).
-afterAll(() => {
+afterAll(async () => {
   if (!hasAbduco) return
-  reapAbducoTestSessions([
+  await reapAbducoTestSessions([
     /^podium-abduco-itest-(\d+)$/,
     /^podium-abduco-repaint-(\d+)$/,
     /^podium-abfid-(\d+)-[0-9a-f]+$/,
@@ -220,10 +220,10 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     timeout: 20000,
   }, async () => {
     const label = `podium-abduco-itest-${process.pid}`
-    killAbducoSession(label)
+    await killAbducoSession(label)
     // Integration uses the runtime default backend (bun-terminal under Bun, node-pty under
     // Node). Fidelity tests below pin node-pty for parity claims.
-    const session = spawnAbducoAgent({
+    const session = await spawnAbducoAgent({
       label,
       cmd: nodeBin,
       args: [FIXTURE],
@@ -251,7 +251,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     // dispose() kills the attach client; the abduco master + agent survive.
     session.dispose()
     await wait(300)
-    expect(abducoHasSession(label)).toBe(true)
+    expect(await abducoHasSession(label)).toBe(true)
 
     // Reattach: abduco does not replay history (it SIGWINCHes the app), so prove
     // liveness via a fresh input round-trip rather than a repaint.
@@ -268,9 +268,9 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     re.dispose()
 
     // explicit kill terminates the agent.
-    killAbducoSession(label)
+    await killAbducoSession(label)
     await wait(300)
-    expect(abducoHasSession(label)).toBe(false)
+    expect(await abducoHasSession(label)).toBe(false)
   })
 
   it('reattach at UNCHANGED geometry still repaints (nudge forces a real resize)', async () => {
@@ -279,8 +279,8 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     // Reattaching at the same size would paint nothing without the shrink/restore
     // nudge. fixture-tui repaints exclusively on resize, so it proves the nudge.
     const label = `podium-abduco-repaint-${process.pid}`
-    killAbducoSession(label)
-    const session = spawnAbducoAgent({
+    await killAbducoSession(label)
+    const session = await spawnAbducoAgent({
       label,
       cmd: nodeBin,
       args: [TUI_FIXTURE],
@@ -300,7 +300,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
     expect(out).toContain('rows=24') // and settled back at the requested geometry
     re.dispose()
-    killAbducoSession(label)
+    await killAbducoSession(label)
   }, 15000)
 
   it('teardown sweep kills own-pid and dead-spawner sessions, spares a live foreign spawner', async () => {
@@ -312,22 +312,22 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const foreign = 'podium-reaptest-1' // pid 1 is alive and never ours
     const spawn = (label: string) =>
       spawnAbducoAgent({ label, cmd: nodeBin, args: [FIXTURE], cols: 80, rows: 24 })
-    const sessions = [spawn(mine), spawn(crashed), spawn(foreign)]
+    const sessions = await Promise.all([spawn(mine), spawn(crashed), spawn(foreign)])
     try {
       await wait(800)
       for (const label of [mine, crashed, foreign]) {
-        expect(abducoHasSession(label)).toBe(true)
+        expect(await abducoHasSession(label)).toBe(true)
       }
 
-      const reaped = reapAbducoTestSessions([/^podium-reaptest-(\d+)$/])
+      const reaped = await reapAbducoTestSessions([/^podium-reaptest-(\d+)$/])
       await wait(500)
       expect(reaped.sort()).toEqual([mine, crashed].sort())
-      expect(abducoHasSession(mine)).toBe(false)
-      expect(abducoHasSession(crashed)).toBe(false)
-      expect(abducoHasSession(foreign)).toBe(true)
+      expect(await abducoHasSession(mine)).toBe(false)
+      expect(await abducoHasSession(crashed)).toBe(false)
+      expect(await abducoHasSession(foreign)).toBe(true)
     } finally {
       for (const s of sessions) s.dispose()
-      for (const label of [mine, crashed, foreign]) killAbducoSession(label)
+      for (const label of [mine, crashed, foreign]) await killAbducoSession(label)
     }
   }, 15000)
 })
@@ -344,16 +344,12 @@ describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn',
     const sc = (args: string[]): void => {
       spawnSync('systemctl', args, { stdio: 'ignore', timeout: 8000 })
     }
-    const cleanup = (): void => {
-      try {
-        killAbducoSession(label)
-      } catch {
-        /* already gone */
-      }
+    const cleanup = async (): Promise<void> => {
+      await killAbducoSession(label)
       sc(['--user', 'stop', unit])
       sc(['--user', 'reset-failed', unit])
     }
-    cleanup()
+    await cleanup()
     // A scope of the SAME name, left alive by a backgrounded orphan (sh exits, the sleep
     // lingers in the cgroup) — exactly the leaked-grandchild zombie. No live master.
     execFileSync(
@@ -362,10 +358,10 @@ describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn',
       { stdio: 'ignore' },
     )
     await wait(300)
-    expect(abducoHasSession(label)).toBe(false)
+    expect(await abducoHasSession(label)).toBe(false)
 
     try {
-      const session = spawnAbducoAgent({
+      const session = await spawnAbducoAgent({
         label,
         cmd: nodeBin,
         args: [FIXTURE],
@@ -383,7 +379,7 @@ describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn',
       expect(cgroup).toContain(unit)
       session.dispose()
     } finally {
-      cleanup()
+      await cleanup()
       await wait(200)
     }
   }, 20000)
@@ -407,8 +403,8 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
     let label = ''
     if (via === 'abduco') {
       label = `podium-abfid-${process.pid}-${hex}`
-      killAbducoSession(label)
-      session = spawnAbducoAgent({
+      await killAbducoSession(label)
+      session = await spawnAbducoAgent({
         label,
         cmd: nodeBin,
         args: [HEX_FIXTURE],
@@ -431,7 +427,7 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
     const start = Date.now()
     while (!out.includes(hex) && Date.now() - start < 5000) await wait(25)
     session.dispose()
-    if (via === 'abduco') killAbducoSession(label)
+    if (via === 'abduco') await killAbducoSession(label)
     const m = out.match(/<([0-9a-f]*)>/g)
     return (m ?? []).join('')
   }

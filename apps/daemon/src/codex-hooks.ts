@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV, PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM_CODEX_HOOK_URL_ENV } from '@podium/harness'
+import { PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM_CODEX_HOOK_URL_ENV } from '@podium/harness'
 
 /**
  * Install Podium's Codex native-hook instrumentation (Orca-style).
@@ -12,21 +12,20 @@ import { PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV, PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM
  * payload on stdin carrying session_id + transcript_path + event fields. Podium
  * installs the definition but deliberately leaves review/trust to Codex's public
  * `/hooks` flow. It never writes Codex's private trust-state representation.
- * The process-owned rollout fallback preserves exact identity until approved.
+ * The process-owned rollout fallback supplies the same exact binding observation.
  *
  * The handler is env-gated fail-open: sessions spawned by Podium carry an
- * instance-scoped socket and receipt directory in their env, which child hook
+ * instance-scoped socket in their env, which child hook
  * processes inherit. Any Codex run without Podium's env consumes stdin and exits
  * 0, so the global install does not affect non-Podium sessions.
  */
 
-// Single-line POSIX handler. It first replaces this pane's owner-only receipt
-// with the latest official Codex payload, then posts over the stable Unix socket.
-// The receipt is removed only after the server acknowledges durable persistence.
+// Single-line POSIX handler. It posts over the stable Unix socket; the daemon
+// durably records exact identity in SessionBinding before acknowledging HTTP.
 // URL is a one-release fallback for processes running an older hook command.
 // Read stdin before every env gate so Codex never sees EPIPE; every I/O failure
 // remains fail-open and curl is bounded to two seconds.
-export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); sid="$PODIUM_SESSION_ID"; d="$${PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV}"; s="$${PODIUM_CODEX_HOOK_SOCKET_ENV}"; u="$${PODIUM_CODEX_HOOK_URL_ENV}"; if [ -n "$sid" ] && [ -n "$d" ]; then umask 077; mkdir -p "$d" >/dev/null 2>&1 || true; t="$d/$sid.$$.tmp"; if printf %s "$p" >"$t" 2>/dev/null; then mv -f "$t" "$d/$sid.json" 2>/dev/null || rm -f "$t"; fi; fi; if [ -n "$s" ] && [ -n "$sid" ]; then printf %s "$p" | curl -fsS -m 2 --unix-socket "$s" -X POST -H "content-type: application/json" --data-binary @- "http://localhost/hooks/$sid" >/dev/null 2>&1 || true; elif [ -n "$u" ]; then printf %s "$p" | curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true; fi'`
+export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); sid="$PODIUM_SESSION_ID"; s="$${PODIUM_CODEX_HOOK_SOCKET_ENV}"; u="$${PODIUM_CODEX_HOOK_URL_ENV}"; if [ -n "$s" ] && [ -n "$sid" ]; then printf %s "$p" | curl -fsS -m 2 --unix-socket "$s" -X POST -H "content-type: application/json" --data-binary @- "http://localhost/hooks/$sid" >/dev/null 2>&1 || true; elif [ -n "$u" ]; then printf %s "$p" | curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true; fi'`
 
 const PODIUM_CODEX_HOOK_TIMEOUT_SEC = 5
 

@@ -16,15 +16,19 @@ import { reportInventory } from './inventory'
 
 const MAX_CREDENTIAL_BYTES = 1_000_000
 
+const PORTABLE_CREDENTIAL_PATHS: Record<
+  PortableCredentialKind,
+  (home: string) => string
+> = {
+  codex: (home) => join(process.env.CODEX_HOME?.trim() || join(home, '.codex'), 'auth.json'),
+  grok: (home) => join(process.env.GROK_HOME?.trim() || join(home, '.grok'), 'auth.json'),
+  'claude-code-state': (home) => join(home, '.claude.json'),
+  'claude-code': (home) =>
+    join(process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'), '.credentials.json'),
+}
+
 function credentialPath(kind: PortableCredentialKind, home: string): string {
-  if (kind === 'codex') {
-    return join(process.env.CODEX_HOME?.trim() || join(home, '.codex'), 'auth.json')
-  }
-  if (kind === 'grok') {
-    return join(process.env.GROK_HOME?.trim() || join(home, '.grok'), 'auth.json')
-  }
-  if (kind === 'claude-code-state') return join(home, '.claude.json')
-  return join(process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'), '.credentials.json')
+  return PORTABLE_CREDENTIAL_PATHS[kind](home)
 }
 
 function sanitizedClaudeState(value: unknown): Record<string, boolean | string> {

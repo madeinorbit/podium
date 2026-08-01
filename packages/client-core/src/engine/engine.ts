@@ -359,8 +359,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // the awaiting-truth stage; a poison drop repaints without it.
       onApplied: (entry) => this.onMutationApplied(entry),
       onDropped: (entry) => this.onMutationDropped(entry),
-      // The park changes recovery state at this exact point. Publish it here so
-      // the recovery surface does not depend on a later queue-size notification.
+      // The queue-size subscription is not the dead-letter event: a definitive
+      // refusal can park before start() installs that subscription. Publish the
+      // recovery projection at the event's own boundary so a live park cannot
+      // remain durable-but-invisible.
       onDeadLetter: () => this.apply({ outboxDeadLetters: this.outbox.deadLetters() }),
     })
     // Restore the DURABLE awaiting-truth stage (#263 review finding 1): a
@@ -468,7 +470,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       fileTabs: [],
       recentFiles: readStoredRecentFiles(this.ui),
       outboxSize: 0,
-      outboxDeadLetters: [],
+      // Hydrate-first, like the entity slices above: the outbox constructor has
+      // already restored its durable recovery home, so the first Store snapshot
+      // must expose it without waiting for start() or another queue notification.
+      outboxDeadLetters: this.outbox.deadLetters(),
       recoverOutbox: {
         // Every one of these repaints through the outbox subscription, because
         // recovery changes queue membership and queue membership IS overlay

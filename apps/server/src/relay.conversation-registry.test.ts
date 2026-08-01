@@ -1,4 +1,4 @@
-import { type ConversationSummaryWireInput, type ConversationSummaryWire } from '@podium/model'
+import type { ConversationSummaryWire, ConversationSummaryWireInput } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -105,7 +105,10 @@ describe('SessionRegistry conversation registry', () => {
       ],
       diagnostics: [],
     })
-    void registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    void registry.modules.rpc.readTranscript(
+      { sessionId, direction: 'before', limit: 10 },
+      { kind: 'user', id: 'conversation-reader' },
+    )
     const read = daemon.find((m) => (m as { type: string }).type === 'transcriptRead') as {
       pathHint?: string
       cwd: string

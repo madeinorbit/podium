@@ -17,7 +17,7 @@
  * POD-1073 the human-vs-human policy; when they land, these tests describe
  * what the OLD world did, not what the new one must do.
  *
- * The one non-obvious structural fact worth pinning: the presence-class writes
+ * The one non-obvious structural fact worth pinning: the session-state writes
  * (rename / archive / read / snooze / pins / tab order / work state / issue
  * attachment) have NO agent path at all. They are operator-only by ABSENCE from
  * the relay allowlist, not by a check. A migration that routes them through a
@@ -72,7 +72,7 @@ describe('oracle: the authenticated admin seam', () => {
   })
 })
 
-describe('oracle: presence writes have no agent path (absence, not a check)', () => {
+describe('oracle: session-state writes have no agent path (absence, not a check)', () => {
   const presenceProcs = [
     'rename',
     'setArchived',

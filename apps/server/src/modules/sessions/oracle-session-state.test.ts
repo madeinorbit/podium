@@ -1,5 +1,5 @@
 /**
- * ORACLE — presence-class session writes (POD-379 for POD-312 / POD-380).
+ * ORACLE — session-state session writes (POD-379 for POD-312 / POD-380).
  *
  * rename · setArchived · markRead / markUnread · setWorkState · setIssueId ·
  * snoozes · pins · tab order · composer drafts.
@@ -12,7 +12,7 @@
 import { SOLE_USER_ID } from '@podium/model'
 import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { disposeOracles, MUST_NOT_CHANGE, makeOracle, waitFor, willChange } from './oracle-support'
+import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
 
 afterEach(() => disposeOracles())
 
@@ -352,24 +352,27 @@ describe('oracle: tab order', () => {
   // RESOLVED by POD-380 (was: will-change POD-1076 "tab order becomes per-user").
   it(`${MUST_NOT_CHANGE}: tab order is keyed (userId, worktree) — the writer sees it and another user's slice does not`, async () => {
     const o = makeOracle()
+    const a = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })).sessionId
+    const b = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/b' })).sessionId
 
-    const after = await o.call.tabs.setOrder({ worktree: '/w', sessionIds: ['b', 'a'] })
+    const after = await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [b, a] })
 
-    expect(after).toEqual({ '/w': ['b', 'a'] })
-    expect(await o.call.tabs.listOrders()).toEqual({ '/w': ['b', 'a'] })
+    expect(after).toEqual({ '/w': [b, a] })
+    expect(await o.call.tabs.listOrders()).toEqual({ '/w': [b, a] })
     expect(o.store.sessions.listTabOrders('user:somebody-else')).toEqual({})
   })
 
   it(`${MUST_NOT_CHANGE}: an empty sessionIds array DELETES the saved order rather than storing an empty one`, async () => {
     const o = makeOracle()
-    await o.call.tabs.setOrder({ worktree: '/w', sessionIds: ['a'] })
+    const a = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })).sessionId
+    await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [a] })
 
     expect(await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [] })).toEqual({})
   })
 })
 
 describe('oracle: composer drafts', () => {
-  it(`${MUST_NOT_CHANGE}: a draft edit fans out to every OTHER client and never echoes to its author`, async () => {
+  it(`${provisional('readiness-4', 'composer text is shared-surface state on the reserved, unbuilt op-stream path')}: a draft edit fans out to every OTHER client and never echoes to its author`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const author: ServerMessage[] = []
@@ -397,7 +400,7 @@ describe('oracle: composer drafts', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: persistence is DEBOUNCED for text but immediate for a cleared draft`, async () => {
+  it(`${provisional('readiness-4', 'whole-body draft persistence is current behavior, not the collaborative-text contract')}: persistence is DEBOUNCED for text but immediate for a cleared draft`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
@@ -415,7 +418,7 @@ describe('oracle: composer drafts', () => {
     expect(o.store.sessions.loadDrafts()[sessionId]).toBeUndefined()
   })
 
-  it(`${MUST_NOT_CHANGE}: the DRAFT presence flip is broadcast once per start/clear, never per keystroke`, async () => {
+  it(`${provisional('readiness-4', 'draft nonempty state is retained while the document conflict class remains reserved')}: the DRAFT marker flip is broadcast once per start/clear, never per keystroke`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const svc = o.reg.modules.sessions
@@ -423,7 +426,7 @@ describe('oracle: composer drafts', () => {
     svc.setSessionDraft({ sessionId, text: 'a' })
     await waitFor(
       () => lastSession(o.client, sessionId)?.draftUpdatedAt !== undefined,
-      'the DRAFT presence flip to reach the client',
+      'the DRAFT session-state marker to reach the client',
     )
     const broadcastsAfterFirstKeystroke = sessionChanges(o.client, sessionId).length
 

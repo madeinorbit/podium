@@ -22,7 +22,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { MUST_NOT_CHANGE, SUPERSEDING_ISSUES } from './oracle-support'
+import { MUST_NOT_CHANGE, PROVISIONAL_REFERENCES, SUPERSEDING_ISSUES } from './oracle-support'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(here, '../../../../..')
@@ -54,14 +54,20 @@ function testOpenings(source: string): { line: number; text: string }[] {
 /** Local consts a file may hoist a tag into — only if built from a tag helper. */
 function hoistedTags(source: string): Set<string> {
   return new Set(
-    [...source.matchAll(/const\s+([A-Z][A-Z0-9_]*)\s*=\s*(willChange\(|MUST_NOT_CHANGE)/g)].map(
-      (m) => m[1] as string,
-    ),
+    [
+      ...source.matchAll(
+        /const\s+([A-Z][A-Z0-9_]*)\s*=\s*(willChange\(|provisional\(|MUST_NOT_CHANGE)/g,
+      ),
+    ].map((m) => m[1] as string),
   )
 }
 
 function namedIssues(source: string): string[] {
   return [...source.matchAll(/willChange\(\s*'([^']+)'/g)].map((m) => m[1] as string)
+}
+
+function namedProvisionalReferences(source: string): string[] {
+  return [...source.matchAll(/provisional\(\s*'([^']+)'/g)].map((m) => m[1] as string)
 }
 
 describe('oracle tag ratchet', () => {
@@ -85,7 +91,12 @@ describe('oracle tag ratchet', () => {
 
       const hoisted = hoistedTags(source)
       const untagged = openings.filter(({ text }) => {
-        if (text.includes('${MUST_NOT_CHANGE}') || text.includes('${willChange(')) return false
+        if (
+          text.includes('${MUST_NOT_CHANGE}') ||
+          text.includes('${willChange(') ||
+          text.includes('${provisional(')
+        )
+          return false
         const local = /\$\{([A-Z][A-Z0-9_]*)\}/.exec(text)?.[1]
         return !(local && hoisted.has(local))
       })
@@ -129,6 +140,17 @@ describe('oracle tag ratchet', () => {
     }
   })
 
+  it('every provisional tag names an authoritative open decision or split issue', () => {
+    const named = new Set(
+      ORACLE_FILES.flatMap((file) => namedProvisionalReferences(readFileSync(file.path, 'utf8'))),
+    )
+
+    expect(named.size).toBeGreaterThan(0)
+    for (const reference of named) {
+      expect(PROVISIONAL_REFERENCES as readonly string[]).toContain(reference)
+    }
+  })
+
   it('the known will-change classes are all represented — a missing one means a characterization was dropped', () => {
     const named = new Set(
       ORACLE_FILES.flatMap((file) => namedIssues(readFileSync(file.path, 'utf8'))),
@@ -142,7 +164,7 @@ describe('oracle tag ratchet', () => {
     //   - POD-642: handoff now single-flights duplicate dispatch;
     //   - POD-1076: session `readAt` is stored per user, so the characterization
     //     that measured it as one instance-wide value is now a pinned
-    //     must-not-change about the unscoped FEED (oracle-presence.test.ts).
+    //     must-not-change about the unscoped FEED (oracle-session-state.test.ts).
     // This list is what is still PENDING; a landed issue left in it would keep
     // asserting that its characterization has not been replaced yet.
     expect([...named].sort()).toEqual(['POD-1073', 'POD-1075', 'POD-1079'])

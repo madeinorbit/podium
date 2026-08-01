@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { existsSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import { hostname } from 'node:os'
@@ -7,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type ControlMessage,
   type LocalDaemonLink,
@@ -15,6 +15,7 @@ import {
 } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
+import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret, stateDir } from '@podium/runtime/local-machine'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
@@ -24,10 +25,10 @@ import { applyEnvPassword, hasPassword } from './auth-store'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
+import { attachWebSockets } from './gateway/ws-server'
 import { PairingManager } from './hub/pairing'
 import { userCommandPrincipal } from './command-principal'
 import { IssueToolProvider } from './issue-mcp'
-import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret, stateDir } from '@podium/runtime/local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
@@ -43,12 +44,11 @@ import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
-import { reportParkedUpstreamMutations } from './upstream-retirement'
 import { closeServerFast } from './shutdown'
 import { registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
-import { attachWebSockets } from './gateway/ws-server'
+import { reportParkedUpstreamMutations } from './upstream-retirement'
 
 /**
  * Thrown (as a rejection) by {@link startServer} when the chosen port is already
@@ -301,7 +301,8 @@ export async function startServer(
     // superagent (or btw origin) session transcript.
     topicRecap: {
       getSuperagentThread: (threadId) => store.superagent.getSuperagentThread(threadId),
-      readTranscript: (input) => registry.modules.rpc.readTranscript(input),
+      readTranscript: (input) =>
+        registry.modules.rpc.readTranscript(input, { kind: 'system', id: 'answer-delivery' }),
     },
     telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
     // The binding table, read live per message: an inbound chat resolves to the

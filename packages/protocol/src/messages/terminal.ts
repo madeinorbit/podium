@@ -1,4 +1,13 @@
-import { AgentKind, Geometry, ResumeRef, SessionIdField } from '@podium/model'
+import {
+  AgentKind,
+  DelegationScope,
+  Geometry,
+  IssueIdField,
+  MachineIdField,
+  ResumeRef,
+  SessionIdField,
+  UserIdField,
+} from '@podium/model'
 import { z } from 'zod'
 import { FeedCursorField } from './feed'
 
@@ -11,197 +20,13 @@ export const Viewport = z.object({
 })
 export type Viewport = z.infer<typeof Viewport>
 
-/**
- * Per-kind capability flags (#158) — the ONE declarative table of what each
- * harness CLI supports. Pure data (protocol is a leaf), consumed by:
- *   - @podium/agent-bridge's HarnessAdapter registry (each adapter embeds its row);
- *   - apps/server gating (argv prompt vs composer seed, effort flag, cloud);
- *   - apps/daemon spawn/observer wiring (OSC titles, hook install strategy).
- * Adding a harness = adding its row here + an adapter file (the registry's
- * exhaustive Record makes a missing row/adapter a type error).
- */
-export interface AgentCapabilities {
-  /** Accepts the first prompt as a trailing positional argv token (race-free);
-   *  false ⇒ the server seeds the composer draft instead. */
-  argvPrompt: boolean
-  /** How a reasoning-effort override reaches the CLI. 'none' ⇒ silently dropped. */
-  effortFlag: 'effort' | 'codex-config' | 'variant' | 'none'
-  /** Has a native extra-system-prompt flag (claude `--append-system-prompt`);
-   *  false ⇒ orchestrator prompts are prepended to the user prompt. */
-  systemPromptFlag: boolean
-  /** The daemon can read local quota/rate-limit state for this harness. */
-  quota: boolean
-  /** Sessions of this kind can be moved to a cloud runtime. */
-  cloud: boolean
-  /** The web controller can scrape the native TUI composer for draft sync. */
-  composerScrape: boolean
-  /** The harness's OSC terminal title is meaningful and forwarded (codex sets
-   *  a churning cwd-basename title, which the daemon suppresses). */
-  oscTitle: boolean
-  /** Reads CLAUDE_CODE_SUBAGENT_MODEL-style env for subagent model selection. */
-  subagentModelEnv: boolean
-  /** The native TUI honours shift+tab mode cycling and `?` shortcut help, so the
-   *  prompt-chrome hint row is worth showing. Only hints a CLI really honours may
-   *  be advertised — a hint the harness ignores is worse than none. */
-  promptModeHints: boolean
-  /** A session of this kind can be packaged and moved to another machine
-   *  (handoff). False ⇒ the UI states 'harness' as the blocker rather than
-   *  offering a move that cannot complete. */
-  handoff: boolean
-  /** How Podium's state hooks reach the harness: per-spawn settings/args
-   *  ('settings-args'), a global hook install activated per-session via env
-   *  ('global-env'), or none (observer-only harnesses). */
-  hookInstall: 'settings-args' | 'global-env' | 'none'
-}
-
-export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
-  'claude-code': {
-    argvPrompt: true,
-    effortFlag: 'effort',
-    systemPromptFlag: true,
-    quota: true,
-    cloud: true,
-    composerScrape: true,
-    oscTitle: true,
-    subagentModelEnv: true,
-    promptModeHints: true,
-    handoff: true,
-    hookInstall: 'settings-args',
-  },
-  codex: {
-    argvPrompt: true,
-    effortFlag: 'codex-config',
-    systemPromptFlag: false,
-    quota: true,
-    cloud: true,
-    composerScrape: true,
-    oscTitle: false,
-    subagentModelEnv: false,
-    promptModeHints: false,
-    handoff: true,
-    hookInstall: 'global-env',
-  },
-  grok: {
-    argvPrompt: true,
-    effortFlag: 'effort',
-    systemPromptFlag: false,
-    quota: false,
-    cloud: false,
-    composerScrape: false,
-    oscTitle: true,
-    subagentModelEnv: false,
-    promptModeHints: false,
-    handoff: false,
-    hookInstall: 'global-env',
-  },
-  opencode: {
-    argvPrompt: false,
-    effortFlag: 'variant',
-    systemPromptFlag: false,
-    quota: false,
-    cloud: false,
-    composerScrape: false,
-    oscTitle: true,
-    subagentModelEnv: false,
-    promptModeHints: false,
-    handoff: false,
-    hookInstall: 'none',
-  },
-  cursor: {
-    argvPrompt: false,
-    effortFlag: 'none',
-    systemPromptFlag: false,
-    quota: false,
-    cloud: false,
-    composerScrape: false,
-    oscTitle: true,
-    subagentModelEnv: false,
-    promptModeHints: false,
-    handoff: false,
-    hookInstall: 'none',
-  },
-  shell: {
-    argvPrompt: false,
-    effortFlag: 'none',
-    systemPromptFlag: false,
-    quota: false,
-    cloud: false,
-    composerScrape: false,
-    oscTitle: true,
-    subagentModelEnv: false,
-    promptModeHints: false,
-    handoff: false,
-    hookInstall: 'none',
-  },
-}
-
-/** Accepts the first prompt as a trailing positional argv token
- *  (`claude "<prompt>"` / `codex "<prompt>"` / `grok "<prompt>"`) — the race-free
- *  way to hand a fresh session its first prompt. Others must seed the composer draft. */
-export function agentSupportsInitialPrompt(kind: AgentKind): boolean {
-  return AGENT_CAPABILITIES[kind].argvPrompt
-}
-
-/** Has a reasoning-effort flag at all; cursor + shell drop effort silently. */
-export function agentSupportsEffort(kind: AgentKind): boolean {
-  return AGENT_CAPABILITIES[kind].effortFlag !== 'none'
-}
-
-/** Kinds whose sessions can be moved to a cloud runtime (claude-code, codex). */
-export function agentSupportsCloud(kind: AgentKind): boolean {
-  return AGENT_CAPABILITIES[kind].cloud
-}
-
-/**
- * Capability row for a harness, or `undefined` when this build has never heard of
- * it (POD-1105 review, blocker 1).
- *
- * `AgentKind` is the closed set of harnesses THIS BUILD knows; the wire is NOT
- * closed, because a newer machine in the fleet can name a harness added after
- * this client shipped. So capability questions asked at a consumer boundary take
- * the open id and answer totally: indexing the closed table by an unknown id
- * throws, where the comparison it replaced simply returned false. This is the
- * incremental-completeness seam — an unknown harness must degrade to "no special
- * affordance", never crash the view.
- *
- * VOCABULARY, deliberately not invented here. POD-397 lands the real identity
- * model next door in ./harness — `HarnessId` (open, branded), the closed
- * `BuiltinHarnessKind`, and `manifestFor(kind): AgentManifest | undefined`, whose
- * contract is exactly this function's: unknown ⇒ undefined, caller branches. The
- * parameter is spelled inline rather than as a new exported alias ON PURPOSE:
- * this file and ./harness are both re-exported by the package barrel, so
- * exporting a second `HarnessId` from here would be a duplicate export the
- * moment POD-397 merges. When it does, POD-398 replaces this signature with
- * their `HarnessId` — a rename, not a reconciliation of two vocabularies.
- */
-export function agentCapabilitiesFor(
-  kind: AgentKind | (string & {}),
-): AgentCapabilities | undefined {
-  return AGENT_CAPABILITIES[kind as AgentKind]
-}
-
-/** Worth drawing the native prompt-chrome hint row for this harness (POD-1105 —
- *  the view asks the capability table instead of naming a harness). Total: an
- *  unknown harness advertises NO hints, since a hint it does not honour is worse
- *  than none — and that matches the `=== 'claude-code'` this replaced. */
-export function agentShowsPromptModeHints(kind: AgentKind | (string & {})): boolean {
-  return agentCapabilitiesFor(kind)?.promptModeHints ?? false
-}
-
-/** Sessions of this kind can be handed off to another machine (claude-code,
- *  codex today). The eligibility question every handoff surface asks, answered
- *  once here rather than re-listing the pair per call site (POD-1105). Total: an
- *  unknown harness is NOT handoff-eligible, which is both the safe answer and
- *  what the pair of equality checks this replaced returned. */
-export function agentSupportsHandoff(kind: AgentKind | (string & {})): boolean {
-  return agentCapabilitiesFor(kind)?.handoff ?? false
-}
-
 /** Server confirms that an exact native resume binding is durably stored. */
 export const SessionResumeRefAckMessage = z.object({
   type: z.literal('sessionResumeRefAck'),
   sessionId: SessionIdField,
   resume: ResumeRef,
+  /** Binding owner resolved by the server; absent from older rolling peers. */
+  ownerId: UserIdField.optional(),
 })
 
 // ---- Browser client -> server: terminal control frames ----
@@ -419,6 +244,51 @@ export const AgentInstruction = z.object({
   content: z.string().min(1),
 })
 export type AgentInstruction = z.infer<typeof AgentInstruction>
+/** Server-authored identity input for SPAWN. It is derived from the
+ * authenticated transport principal; no command payload has this shape. */
+export const SessionBindingSpawnPrincipal = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user'), userId: UserIdField }),
+  z.object({ kind: z.literal('agent'), parentBindingId: SessionIdField }),
+  z.object({ kind: z.literal('system') }),
+])
+export type SessionBindingSpawnPrincipal = z.infer<typeof SessionBindingSpawnPrincipal>
+
+export const BindingMachineAccess = z.enum(['allowed', 'denied', 'unreachable'])
+export type BindingMachineAccess = z.infer<typeof BindingMachineAccess>
+
+export const SessionBindingSpawnInstruction = z.object({
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+  principal: SessionBindingSpawnPrincipal,
+  issueId: IssueIdField.optional(),
+  requestedScope: DelegationScope.optional(),
+  scopeOverrideConfirmed: z.boolean().optional(),
+})
+export type SessionBindingSpawnInstruction = z.infer<typeof SessionBindingSpawnInstruction>
+
+export const SessionBindingReattachInstruction = z.object({
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+  /** Already policy-collapsed: invisible and nonexistent are both not-found. */
+  sessionAccess: z.enum(['allowed', 'not-found']),
+  /** Server-authored from the authenticated transport, never client payload. */
+  principal: SessionBindingSpawnPrincipal,
+})
+export type SessionBindingReattachInstruction = z.infer<typeof SessionBindingReattachInstruction>
+
+/** Launch proof for a binding that the handoff import already adopted. It
+ * resets only the host-local attempt; delegation is read from the binding. */
+export const SessionBindingAdoptLaunchInstruction = z.object({
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+  transferId: z.string().min(1),
+  role: z.enum(['source', 'target']),
+  fromMachineId: MachineIdField,
+  toMachineId: MachineIdField,
+})
+export type SessionBindingAdoptLaunchInstruction = z.infer<
+  typeof SessionBindingAdoptLaunchInstruction
+>
 
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
@@ -428,6 +298,11 @@ export const SpawnMessage = z.object({
   cwd: z.string(),
   resume: ResumeRef.optional(),
   geometry: Geometry,
+  /** Server-authored from the authenticated transport principal. */
+  binding: SessionBindingSpawnInstruction.optional(),
+  /** Mutually exclusive with `binding`: the binding already exists because a
+   * handoff imported it before this process launch (born-pin). */
+  adoptedBinding: SessionBindingAdoptLaunchInstruction.optional(),
   // Settings-driven model defaults. Absent = the harness decides (no flag/env).
   model: z.string().optional(),
   subagentModel: z.string().optional(),
@@ -475,6 +350,8 @@ export const ReattachMessage = z.object({
   agentKind: AgentKind,
   cwd: z.string(),
   geometry: Geometry,
+  /** Live machine-use verdict and retry identity for this reattach. */
+  binding: SessionBindingReattachInstruction.optional(),
   // Lets the daemon classify the live transcript when seeding a survivor's state
   // on reattach, so a session parked on a question keeps its 'needs answer' signal.
   resume: ResumeRef.optional(),

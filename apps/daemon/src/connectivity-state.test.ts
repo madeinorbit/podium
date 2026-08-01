@@ -2,16 +2,16 @@
 // daemon.json records connected / disconnected / terminally-blocked, a consumed pair code is
 // dropped from config.json, and a terminal rejection fires onBlocked (the CLI's distinct-exit
 // hook) instead of crash-looping.
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, watch } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DaemonHandshakeReply } from '@podium/protocol'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
-import { readConnectivity } from '@podium/runtime/connectivity'
+import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
-import { startDaemon } from './daemon'
+import { type ReconnectTimers, startDaemon } from './daemon'
 import { loadIdentity } from './identity'
 
 describe('daemon connectivity state (#19)', () => {
@@ -52,6 +52,25 @@ describe('daemon connectivity state (#19)', () => {
     ...extra,
   })
 
+  function controlledReconnectClock(): {
+    timers: ReconnectTimers
+    next: Promise<{ fire: () => void; ms: number }>
+  } {
+    let resolveNext!: (timer: { fire: () => void; ms: number }) => void
+    const next = new Promise<{ fire: () => void; ms: number }>((resolve) => {
+      resolveNext = resolve
+    })
+    const timers: ReconnectTimers = {
+      setTimeout: (fire, ms) => {
+        const timer = { fire, ms }
+        resolveNext(timer)
+        return timer
+      },
+      clearTimeout: vi.fn(),
+    }
+    return { timers, next }
+  }
+
   it('a successful pair writes connected state, persists the token, and consumes the pair code', async () => {
     // The join wrote mode/serverUrl/pairCode; the pair must clear ONLY the consumed code.
     saveConfig({
@@ -91,6 +110,11 @@ describe('daemon connectivity state (#19)', () => {
 
   it('reconnects with the freshly paired token without restarting the daemon', async () => {
     const handshakes: Array<Record<string, unknown>> = []
+    const reconnectClock = controlledReconnectClock()
+    let resolveReconnected!: (frame: Record<string, unknown>) => void
+    const reconnected = new Promise<Record<string, unknown>>((resolve) => {
+      resolveReconnected = resolve
+    })
     wss.on('connection', (ws) => {
       ws.once('message', (raw) => {
         const frame = JSON.parse(raw.toString()) as Record<string, unknown>
@@ -102,18 +126,31 @@ describe('daemon connectivity state (#19)', () => {
             machineId: 'm-1',
             name: 'box',
           }
-          ws.send(JSON.stringify(reply))
-          setTimeout(() => ws.close(), 10)
+          ws.send(JSON.stringify(reply), () => ws.close())
           return
         }
         const reply: DaemonHandshakeReply = { type: 'helloOk', name: 'box' }
         ws.send(JSON.stringify(reply))
+        resolveReconnected(frame)
       })
     })
 
-    const daemon = await startDaemon(bootOpts({ pairCode: 'CODE-1' }))
+    const daemon = await startDaemon(
+      bootOpts({ pairCode: 'CODE-1', reconnectTimers: reconnectClock.timers }),
+    )
     try {
-      await vi.waitFor(() => expect(handshakes).toHaveLength(2))
+      const retry = await reconnectClock.next
+      expect(retry.ms).toBe(500)
+      const connectedAgain = new Promise<void>((resolve) => {
+        const watcher = watch(connectivityPath(dir), () => {
+          if (readConnectivity(dir)?.state !== 'connected') return
+          watcher.close()
+          resolve()
+        })
+      })
+      retry.fire()
+      await Promise.all([reconnected, connectedAgain])
+      expect(handshakes).toHaveLength(2)
       expect(handshakes[0]).toMatchObject({ type: 'pair', code: 'CODE-1' })
       expect(handshakes[1]).toMatchObject({ type: 'hello', token: 'tok-reconnect' })
       expect(readConnectivity(dir)?.state).toBe('connected')

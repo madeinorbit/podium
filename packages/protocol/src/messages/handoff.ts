@@ -1,25 +1,68 @@
 import {
+  AgentIdentityIdField,
   AgentKind,
+  Attribution,
+  DelegationScope,
   HandoffManifest,
   HandoffRefusalReason,
   IssueIdField,
+  MachineIdField,
+  Ownership,
   RepoIdField,
   ResumeRef,
   SessionIdField,
+  UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
+import { BindingMachineAccess } from './terminal'
 
 // HandoffManifest — the entity-shaped member of this family — lives in
-// @podium/model (POD-300). The 8 request/result frames below (four pairs:
-// export, chunkRead, importChunk, import) STAY protocol frames: they are
+// @podium/model (POD-300). The 10 request/result frames below (five pairs:
+// export, chunkRead, importChunk, import, bindingFinalize) STAY protocol frames: they are
 // transport, not entity (ADR 4 D4).
 //
 // `refusal` on the two RESULT frames is vocabulary from @podium/model, not a new
 // frame concept: a fail-closed handoff must be distinguishable from a broken one
-// (ADR 9 D6 M5). It is OPTIONAL and unset today — POD-1079 / POD-323 own the
-// enforcement that populates it. Optional means the existing golden fixtures are
-// byte-identical, which is the whole reason the vocabulary can land ahead of the
-// check that uses it.
+// (ADR 9 D6 M5). It is OPTIONAL for mixed-version readability; current handoff
+// daemons populate it when the fleet authorization interface refuses a leg.
+
+/** The immutable binding operand copied from the source daemon. It deliberately
+ * contains no native artifact id and no resolved authorization result. */
+export const HandoffBindingTransfer = z.object({
+  transferId: z.string().min(1),
+  sessionId: SessionIdField,
+  agentKind: AgentKind,
+  fromMachineId: MachineIdField,
+  toMachineId: MachineIdField,
+  observationGeneration: z.number().int().nonnegative(),
+  delegation: z.object({
+    actor: AgentIdentityIdField,
+    onBehalfOf: UserIdField,
+    grantedScope: DelegationScope,
+    parentBindingId: SessionIdField.nullable(),
+  }),
+})
+export type HandoffBindingTransfer = z.infer<typeof HandoffBindingTransfer>
+
+/** Server-authored export instruction. The principal pair comes from the
+ * authenticated command transport; the manifest is never allowed to supply it. */
+export const HandoffBindingExportInstruction = z.object({
+  transitionId: z.string().min(1),
+  transferId: z.string().min(1),
+  targetMachineId: MachineIdField,
+  machineAccess: BindingMachineAccess,
+  exportedBy: Attribution,
+  owner: UserIdField,
+  visibility: Ownership.shape.visibility,
+})
+export type HandoffBindingExportInstruction = z.infer<typeof HandoffBindingExportInstruction>
+
+export const HandoffBindingImportInstruction = z.object({
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+  transfer: HandoffBindingTransfer,
+})
+export type HandoffBindingImportInstruction = z.infer<typeof HandoffBindingImportInstruction>
 
 export const HandoffExportRequestMessage = z.object({
   type: z.literal('handoffExportRequest'),
@@ -39,6 +82,9 @@ export const HandoffExportRequestMessage = z.object({
   title: z.string().optional(),
   issueId: IssueIdField.optional(),
   sourceMachineId: z.string(),
+  /** Optional on the wire for old-frame readability; a current daemon refuses
+   * an export without this authenticated server instruction. */
+  binding: HandoffBindingExportInstruction.optional(),
 })
 export const HandoffExportResultMessage = z.object({
   type: z.literal('handoffExportResult'),
@@ -47,6 +93,7 @@ export const HandoffExportResultMessage = z.object({
   manifest: HandoffManifest.optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   stagePath: z.string().optional(),
+  binding: HandoffBindingTransfer.optional(),
   error: z.string().optional(),
   /** Why the export was refused, when it was. `use` gates the SOURCE machine
    *  too, so an export can be denied for the same reason an accept can. */
@@ -95,6 +142,9 @@ export const HandoffImportRequestMessage = z.object({
   /** Other resumable sessions on the target machine. Import must not reset a
    *  checkout any of them still owns. Optional for mixed-version daemons. */
   occupiedWorktreePaths: z.array(z.string()).optional(),
+  /** Payload identity in the manifest is inert. This server-authored capsule is
+   * the only source of the imported binding's delegation. */
+  binding: HandoffBindingImportInstruction.optional(),
 })
 export const HandoffImportResultMessage = z.object({
   type: z.literal('handoffImportResult'),
@@ -109,6 +159,8 @@ export const HandoffImportResultMessage = z.object({
    *  re-derive it by stripping `cwdSubpath`. Optional: an older daemon omits it,
    *  and the server then leaves the issue's home alone rather than guessing. */
   worktreeRoot: z.string().optional(),
+  /** Generation established by the import-time ADOPT claim. */
+  observationGeneration: z.number().int().nonnegative().optional(),
   error: z.string().optional(),
   /** Why the accept was refused, when it was: `unauthorized` (no `use` on this
    *  machine) vs `unreachable` (offline) vs `unknown-target` — the arm a target
@@ -117,7 +169,30 @@ export const HandoffImportResultMessage = z.object({
    *  (ADR 9 D6 M5); `error` stays the human-readable half. */
   refusal: HandoffRefusalReason.optional(),
 })
+export const HandoffBindingFinalizeRequestMessage = z.object({
+  type: z.literal('handoffBindingFinalizeRequest'),
+  requestId: z.string(),
+  sessionId: SessionIdField,
+  transitionId: z.string().min(1),
+  machineAccess: BindingMachineAccess,
+  transferId: z.string().min(1),
+  role: z.enum(['source', 'target']),
+  phase: z.enum(['commit', 'abort']),
+  fromMachineId: MachineIdField,
+  toMachineId: MachineIdField,
+})
+export const HandoffBindingFinalizeResultMessage = z.object({
+  type: z.literal('handoffBindingFinalizeResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  observationGeneration: z.number().int().nonnegative().optional(),
+  error: z.string().optional(),
+  refusal: HandoffRefusalReason.optional(),
+})
 export type HandoffExportResultMessage = z.infer<typeof HandoffExportResultMessage>
 export type HandoffChunkReadResultMessage = z.infer<typeof HandoffChunkReadResultMessage>
 export type HandoffImportChunkResultMessage = z.infer<typeof HandoffImportChunkResultMessage>
 export type HandoffImportResultMessage = z.infer<typeof HandoffImportResultMessage>
+export type HandoffBindingFinalizeResultMessage = z.infer<
+  typeof HandoffBindingFinalizeResultMessage
+>

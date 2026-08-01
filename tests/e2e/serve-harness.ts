@@ -16,7 +16,7 @@ import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-// @podium/agent-bridge is EMPTY — POD-396 took the PTY half to @podium/pty and
+// @podium/harness is EMPTY — POD-396 took the PTY half to @podium/pty and
 // POD-397 the harness half to @podium/harness, and the barrel deliberately
 // re-exports NOTHING. This harness was still importing from it, so EVERY browser
 // e2e spec failed at webServer start with "Export named 'agentLaunchCommand' not

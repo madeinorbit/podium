@@ -1,7 +1,7 @@
-import { asSessionId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -59,7 +59,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     lakeContent: string,
   ): string {
     registry.gateway.attachDaemon('m1', () => {})
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -67,7 +70,12 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     mkdirSync(join(lakeDir, 'm1'), { recursive: true })
     writeFileSync(join(lakeDir, 'm1', `${nativeId}.jsonl`), lakeContent)
-    store.conversations.setMirrorCursor('m1', nativeId, Buffer.byteLength(lakeContent), '2026-07-01T11:00:00Z')
+    store.conversations.setMirrorCursor(
+      'm1',
+      nativeId,
+      Buffer.byteLength(lakeContent),
+      '2026-07-01T11:00:00Z',
+    )
     return sessionId
   }
 
@@ -76,7 +84,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-lake', LAKE_LINES)
     registry.gateway.detachDaemon('m1')
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId: asSessionId(sessionId), direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript(
+      { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
+      { kind: 'user', id: 'lake-reader' },
+    )
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -101,7 +112,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId: asSessionId(sessionId), direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript(
+      { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
+      { kind: 'user', id: 'lake-reader' },
+    )
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -131,7 +145,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId: asSessionId(sessionId), direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript(
+      { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
+      { kind: 'user', id: 'lake-reader' },
+    )
     expect(res.items.map((i) => i.text)).toEqual(['fresh from the daemon'])
   })
 
@@ -146,10 +163,9 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     registry.gateway.detachDaemon('m1')
     registry.gateway.attachDaemon('m1', () => {})
     await vi.waitFor(() => {
-      expect(store.conversations.transcriptIndexRows('m1', 'native-old').map((r) => r.content)).toEqual([
-        'where does the flux capacitor live?',
-        'The flux capacitor lives in engine.ts',
-      ])
+      expect(
+        store.conversations.transcriptIndexRows('m1', 'native-old').map((r) => r.content),
+      ).toEqual(['where does the flux capacitor live?', 'The flux capacitor lives in engine.ts'])
     })
     expect(store.conversations.segmentsToIndex('m1')).toEqual([])
   })
@@ -157,7 +173,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {
     const { registry } = setup()
     registry.gateway.attachDaemon('m1', () => {})
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -165,7 +184,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     registry.gateway.detachDaemon('m1')
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript(
+      { sessionId, direction: 'before', limit: 10 },
+      { kind: 'user', id: 'lake-reader' },
+    )
     expect(res).toEqual({ items: [], hasMore: false })
   })
 })

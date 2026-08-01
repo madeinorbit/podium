@@ -11,7 +11,7 @@
  */
 import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import type { LaunchOptions, LaunchSpec } from '@podium/agent-bridge'
+import type { LaunchOptions, LaunchSpec } from '@podium/harness'
 import type { AgentKind } from '@podium/model'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'

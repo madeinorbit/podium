@@ -21,6 +21,7 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
+import { deviceGradeSoleOwner } from './device-grade-owner'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -290,7 +291,7 @@ export class SessionRegistry {
     let automations!: AutomationsService
     /**
      * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
-     * honours a `mutationId` — the session presence class, the session command
+     * honours a `mutationId` — the session session-state class, the session command
      * plane and the issue registry — dedupes through THIS object. It replaces
      * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
      * chance to forget (POD-379's idempotency oracle exists because of it) and
@@ -594,7 +595,10 @@ export class SessionRegistry {
           {
             getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
             sessions: sessionsSvc,
-            rpc,
+            rpc: {
+              readTranscript: (input) =>
+                rpc.readTranscript(input, { kind: 'system', id: 'issue-answer-delivery' }),
+            },
           },
           { sessionId, answer, textFallback: true },
         )
@@ -1521,7 +1525,8 @@ export class SessionRegistry {
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,
       repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
-      readTranscript: (input) => rpc.readTranscript(input),
+      readTranscript: (input) =>
+        rpc.readTranscript(input, { kind: 'system', id: 'session-read-toolkit' }),
       now: () => new Date(this.now()).toISOString(),
     })
 

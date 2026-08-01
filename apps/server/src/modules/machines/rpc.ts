@@ -8,6 +8,7 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   IssueId,
+  MachineId,
   MachineQuotaWire,
   RepoId,
   ResumeRef,
@@ -25,6 +26,9 @@ import type {
   FileAssetResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
+  HandoffBindingExportInstruction,
+  HandoffBindingFinalizeResultMessage,
+  HandoffBindingImportInstruction,
   HandoffChunkReadResultMessage,
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
@@ -57,6 +61,14 @@ export interface ScanReposResult {
   repositories: GitRepositoryWire[]
   diagnostics: GitDiscoveryDiagnosticWire[]
 }
+
+/** Identity of the server-side reader requesting personal transcript content.
+ * Authorization belongs at this boundary; the daemon and @podium/transcript run
+ * as system-side readers and never receive or interpret this value. */
+export type TranscriptReader =
+  | { kind: 'user'; id: string }
+  | { kind: 'agent'; id: string }
+  | { kind: 'system'; id: string }
 
 /** One machine's directory listing, or why it couldn't be read (POD-814). */
 export interface BrowseDirsResult {
@@ -142,6 +154,10 @@ export class DaemonRpcService {
   private readonly pendingHandoffImports = new Map<
     string,
     (r: Omit<HandoffImportResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingHandoffBindingFinalizes = new Map<
+    string,
+    (r: Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>) => void
   >()
   private readonly pendingWorkspaceExports = new Map<
     string,
@@ -409,6 +425,7 @@ export class DaemonRpcService {
       title?: string
       issueId?: IssueId
       sourceMachineId: string
+      binding: HandoffBindingExportInstruction
     },
     machineId: string,
   ): Promise<Omit<HandoffExportResultMessage, 'type' | 'requestId'>> {
@@ -466,6 +483,7 @@ export class DaemonRpcService {
     worktreeName: string,
     machineId: string,
     occupiedWorktreePaths: string[] = [],
+    binding?: HandoffBindingImportInstruction,
   ): Promise<Omit<HandoffImportResultMessage, 'type' | 'requestId'>> {
     return this.request(
       this.pendingHandoffImports,
@@ -479,6 +497,34 @@ export class DaemonRpcService {
         repoPath,
         worktreeName,
         ...(occupiedWorktreePaths.length > 0 ? { occupiedWorktreePaths } : {}),
+        ...(binding ? { binding } : {}),
+      }),
+      machineId,
+    )
+  }
+
+  handoffBindingFinalize(
+    input: {
+      sessionId: SessionId
+      transitionId: string
+      machineAccess: 'allowed' | 'denied' | 'unreachable'
+      transferId: string
+      role: 'source' | 'target'
+      phase: 'commit' | 'abort'
+      fromMachineId: MachineId
+      toMachineId: MachineId
+    },
+    machineId: string,
+  ): Promise<Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingHandoffBindingFinalizes,
+      'hf',
+      30_000,
+      () => ({ ok: false, error: 'handoff binding finalize timed out' }),
+      (requestId) => ({
+        type: 'handoffBindingFinalizeRequest',
+        requestId,
+        ...input,
       }),
       machineId,
     )
@@ -624,12 +670,18 @@ export class DaemonRpcService {
    * buffer. Resolves an empty, hasMore:false page when the session is unknown or no
    * daemon answers.
    */
-  async readTranscript(input: {
-    sessionId: SessionId
-    anchor?: string
-    direction: 'before' | 'after'
-    limit: number
-  }): Promise<TranscriptSlice> {
+  async readTranscript(
+    input: {
+      sessionId: SessionId
+      anchor?: string
+      direction: 'before' | 'after'
+      limit: number
+    },
+    reader: TranscriptReader,
+  ): Promise<TranscriptSlice> {
+    // Required even before scoped session reads land: callers cannot accidentally
+    // bake in an ambient operator. POD-1077 installs the visibility decision here.
+    void reader
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { items: [], hasMore: false }
     // Leg timing [POD-701]: transcriptRead.daemon / transcriptRead.lake record
@@ -879,6 +931,10 @@ export class DaemonRpcService {
   onHandoffImportResult(msg: HandoffImportResultMessage): void {
     const { type: _t, requestId, ...payload } = msg
     DaemonRpcService.settle(this.pendingHandoffImports, requestId, payload)
+  }
+  onHandoffBindingFinalizeResult(msg: HandoffBindingFinalizeResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingHandoffBindingFinalizes, requestId, payload)
   }
 
   onWorkspaceExportResult(msg: WorkspaceExportResultMessage): void {

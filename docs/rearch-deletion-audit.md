@@ -173,6 +173,12 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-07-31 — POD-324 deletes durable-host sync twins
+
+| Item | Was → now | Verdict |
+| --- | --- | --- |
+| `durable-host-sync-async-twins` | 4 → 0 | **Four vanished.** `abducoHasSession`, `killAbducoSession`, `tmuxHasSession`, and `killTmuxServer` now each expose one Promise-returning operation; their `…Async` twins are deleted and every caller awaits the canonical name. The detector anchors its zero on the surviving durable-host source roots and a synthetic matcher control. |
+
 ### 2026-07-30 — main's 57 commits, reconciled onto `issue/279-integration` (POD-861)
 
 The baseline was last exact at the pre-rebase POD-297 tree (246 sites). The

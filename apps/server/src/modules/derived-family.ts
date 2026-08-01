@@ -34,7 +34,7 @@
  * The eight existing families are deliberately NOT rewritten onto this builder.
  * That would be a nineteen-file diff through eight other issues' cutovers in the
  * one commit that has to be graded as behaviour-preserving, and three of them
- * (fleet's `serverRole` gate, sessions' presence class, mail's action/verb
+ * (fleet's `serverRole` gate, sessions' session-state class, mail's action/verb
  * agreement check) have per-family rules this builder does not model. What it
  * does model is the shape the other eleven share exactly.
  *
@@ -62,6 +62,7 @@ import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
+import { sessionStatePrincipalFor } from './sessions/session-state/registry'
 import { type Context, mods, t } from '../trpc'
 
 /**
@@ -131,7 +132,7 @@ export interface FamilyState {
    * — the list is the CALLER's pins, not the instance's) and the read-toolkit
    * procs, which stamp the reader into their event log.
    *
-   * THIS IS DELIBERATELY NOT `PresencePrincipal`, which was the first draft and
+   * THIS IS DELIBERATELY NOT `SessionStatePrincipal`, which was the first draft and
    * was wrong: that type CARRIES THE CAPABILITY inside it, so putting it here
    * would have handed every handler the authority object while a comment above it
    * claimed the opposite. Two fields, both names, no scope, no role, no override
@@ -142,6 +143,8 @@ export interface FamilyState {
    */
   readonly caller: {
     readonly userId: string
+    /** Passed opaque to SessionStateService, which owns the visibility decision. */
+    readonly sessionState: ReturnType<typeof sessionStatePrincipalFor>
     /** The capability's OWN field type, not a widened `string | null`. The first
      *  draft widened it and tsgo caught the consequence immediately: the read
      *  toolkit takes a branded `ReaderRef`, so a widened id would have forced a
@@ -377,6 +380,7 @@ export const familyState = (ctx: Context): FamilyState => ({
   cloud: ctx.cloud,
   caller: {
     userId: callerUserId(ctx),
+    sessionState: sessionStatePrincipalFor(ctx.principal),
     actorSessionId: ctx.capability.actorSessionId,
   },
   publicationAuthority: ctx.publicationAuthority,

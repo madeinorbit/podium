@@ -15,7 +15,7 @@
  * literal in this file.
  */
 
-import { type DaemonMessage, DAEMON_PLANE_CLASS, type PlaneClass } from '@podium/protocol'
+import { DAEMON_PLANE_CLASS, type DaemonMessage, type PlaneClass } from '@podium/protocol'
 
 /**
  * The feature ports the daemon edge routes to. Each is owned by a module; the
@@ -91,6 +91,7 @@ export const DAEMON_FRAME_PORTS = {
   handoffChunkReadResult: ['rpc'],
   handoffImportChunkResult: ['rpc'],
   handoffImportResult: ['rpc'],
+  handoffBindingFinalizeResult: ['rpc'],
   workspaceExportResult: ['rpc'],
   workspaceImportResult: ['rpc'],
   workspaceCleanResult: ['rpc'],
@@ -111,7 +112,9 @@ export const DAEMON_FRAME_PORTS = {
 
 /** The session-owned subset, as a type — the sessions port's frame argument. */
 export type SessionsDaemonFrameType = {
-  [K in keyof typeof DAEMON_FRAME_PORTS]: (typeof DAEMON_FRAME_PORTS)[K] extends readonly ['sessions']
+  [K in keyof typeof DAEMON_FRAME_PORTS]: (typeof DAEMON_FRAME_PORTS)[K] extends readonly [
+    'sessions',
+  ]
     ? K
     : never
 }[keyof typeof DAEMON_FRAME_PORTS]
@@ -154,9 +157,7 @@ export const MACHINE_SCOPE_CARRIER = {
   browseDirsResult: 'request-correlated',
   repoOpResult: 'request-correlated',
   transcriptMirrorResult: 'request-correlated',
-} as const satisfies Partial<
-  Record<DaemonMessage['type'], 'principal' | 'request-correlated'>
->
+} as const satisfies Partial<Record<DaemonMessage['type'], 'principal' | 'request-correlated'>>
 
 export type MachineAdjacentFrameType = keyof typeof MACHINE_SCOPE_CARRIER
 

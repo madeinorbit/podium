@@ -263,6 +263,11 @@ export const SessionMetaEntity = z.object({
    *  capability that powers chat view. Set by the layer that owns the tail, so a
    *  new transcript provider lights up chat with no client-side kind checks. */
   transcriptAvailable: z.boolean().optional(),
+  /** Static harness affordances projected from the server's AgentManifest. They
+   *  are session-personal projection facts, not machine availability inventory;
+   *  absent on old peers, shell sessions, and unknown harnesses. */
+  harnessHandoff: z.boolean().optional(),
+  harnessPromptModeHints: z.boolean().optional(),
   /** True while the session is actively writing to its PTY (debounced). The
    *  activity signal for uninstrumented kinds with no agentState — a shell reads
    *  as "working" only while a process is producing output, idle at its prompt. */

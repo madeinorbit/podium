@@ -92,7 +92,7 @@ import { AgentKind, HarnessAgent } from './agent'
 // Harness + tool inventory (was messages/inventory.ts)
 // ---------------------------------------------------------------------------
 // Machine inventory (#222): what a daemon's host can actually run. Built by the
-// daemon (packages/agent-bridge buildInventory) and pushed AFTER the handshake
+// daemon (packages/harness buildInventory) and pushed AFTER the handshake
 // authenticates — never inside pair/hello, which must stay fast and pre-auth.
 
 /** `USE` — one agent CLI's install + login status on the daemon's machine.

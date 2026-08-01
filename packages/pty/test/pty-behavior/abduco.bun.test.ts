@@ -29,16 +29,16 @@ const d = isAbducoAvailable() ? describe : describe.skip
 
 // POD-107: the in-test kills sit on the happy path — a failed assertion leaks the
 // detached master. Sweep this file's labels for this pid and for dead prior runs.
-afterAll(() => {
+afterAll(async () => {
   if (!isAbducoAvailable()) return
-  reapAbducoTestSessions([/^podium-abduco-bun(?:-repaint)?-(\d+)$/])
+  await reapAbducoTestSessions([/^podium-abduco-bun(?:-repaint)?-(\d+)$/])
 })
 
 d('abduco durable path [bun-terminal]', () => {
   it('streams frames, surfaces the OSC title, strips chrome, round-trips input, reattaches, kills', async () => {
     const label = `podium-abduco-bun-${process.pid}`
-    killAbducoSession(label)
-    const session = spawnAbducoAgent({
+    await killAbducoSession(label)
+    const session = await spawnAbducoAgent({
       label,
       cmd: 'node',
       args: [FIXTURE],
@@ -66,7 +66,7 @@ d('abduco durable path [bun-terminal]', () => {
     // dispose() kills the attach client; the master + agent survive.
     session.dispose()
     await wait(400)
-    expect(abducoHasSession(label)).toBe(true)
+    expect(await abducoHasSession(label)).toBe(true)
 
     // Reattach via a fresh Bun.Terminal client; prove liveness with a new round-trip.
     const re = attachAbducoAgent({ label, cols: 80, rows: 24, backend })
@@ -81,15 +81,15 @@ d('abduco durable path [bun-terminal]', () => {
     expect(out2).not.toContain('\x1b[?1049h')
     re.dispose()
 
-    killAbducoSession(label)
+    await killAbducoSession(label)
     await wait(400)
-    expect(abducoHasSession(label)).toBe(false)
+    expect(await abducoHasSession(label)).toBe(false)
   }, 20000)
 
   it('reattach at UNCHANGED geometry still repaints (the shrink/restore nudge fires)', async () => {
     const label = `podium-abduco-bun-repaint-${process.pid}`
-    killAbducoSession(label)
-    const session = spawnAbducoAgent({
+    await killAbducoSession(label)
+    const session = await spawnAbducoAgent({
       label,
       cmd: 'node',
       args: [TUI_FIXTURE],
@@ -110,6 +110,6 @@ d('abduco durable path [bun-terminal]', () => {
     expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
     expect(out).toContain('rows=24')
     re.dispose()
-    killAbducoSession(label)
+    await killAbducoSession(label)
   }, 20000)
 })

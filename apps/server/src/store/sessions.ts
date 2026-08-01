@@ -468,6 +468,19 @@ export class SessionsRepository {
       .run(userId, sessionId.trim())
   }
 
+  hasAnySnooze(sessionId: SessionId): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 AS present FROM snoozes WHERE session_id = ? LIMIT 1')
+        .get(sessionId.trim()) !== undefined
+    )
+  }
+
+  /** Clear every viewer's independent snooze after a shared session event. */
+  clearAllSnoozes(sessionId: SessionId): void {
+    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(sessionId.trim())
+  }
+
   // ---- agent action offers [spec:SP-c7f1] ----
   /** Every live offer, keyed by session — replayed onto SessionMeta at boot. A
    *  row with corrupt JSON actions is dropped rather than failing the load. */

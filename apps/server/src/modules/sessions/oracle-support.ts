@@ -1,6 +1,7 @@
 import { resolvePrincipal } from '../../command-principal'
 /**
- * Session-write ORACLE support (POD-379, the migration oracle for POD-312).
+ * SessionService ORACLE support (POD-392, the decomposition oracle for
+ * POD-393/POD-394/POD-395; originally established by POD-379).
  *
  * The oracle suite pins TODAY's observable behaviour of every session write, so
  * the 3.2 migration onto command contracts (POD-380 presence class, POD-381
@@ -19,6 +20,9 @@ import { resolvePrincipal } from '../../command-principal'
  *  - {@link willChange} — behaviour a NAMED later issue deliberately replaces. A
  *    red test here means "read the superseding issue, then update this
  *    characterization" — never "restore the old behaviour".
+ *  - {@link provisional} — current-head behaviour touching an OPEN readiness
+ *    decision or a required multi-user property that has not reached this
+ *    service yet. It is evidence, not a preservation demand.
  *
  * The tag is part of the test NAME so it shows up in the failure line, and
  * oracle-tags.test.ts enforces that every oracle test carries one.
@@ -59,7 +63,7 @@ export const SUPERSEDING_ISSUES = [
   'POD-1079',
   // POD-1076 HAS LANDED and is deliberately NOT listed any more. It superseded one
   // characterization — session `readAt` as a single instance-wide value — by
-  // re-keying the marker onto `(userId, sessionId)`. `oracle-presence.test.ts` now
+  // re-keying the marker onto `(userId, sessionId)`. `oracle-session-state.test.ts` now
   // pins the RESIDUAL as must-not-change: the storage is per user, and the still-
   // unscoped feed serves one viewer to every DEVICE of that person (POD-1077 scopes
   // the feed; the row already has an owner, so nothing about it changes then).
@@ -80,6 +84,27 @@ export type SupersedingIssue = (typeof SUPERSEDING_ISSUES)[number]
  */
 export function willChange(issue: SupersedingIssue, why: string): string {
   return `will-change ${issue} (${why})`
+}
+
+/** Open decisions and documented current-head gaps the split must not freeze. */
+export const PROVISIONAL_REFERENCES = [
+  'readiness-3.1.1',
+  'readiness-3.1.2',
+  'readiness-3.1.3-A4',
+  'readiness-3.3',
+  'readiness-4',
+  'POD-393',
+  'POD-1070',
+] as const
+
+export type ProvisionalReference = (typeof PROVISIONAL_REFERENCES)[number]
+
+/**
+ * Mark an observation as evidence only. The named reference is the authority
+ * that may deliberately replace it during the split.
+ */
+export function provisional(reference: ProvisionalReference, why: string): string {
+  return `provisional ${reference} (${why})`
 }
 
 // ---------------------------------------------------------------------------

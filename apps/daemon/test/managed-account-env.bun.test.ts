@@ -21,9 +21,9 @@ import { afterEach, beforeEach, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hasBunTerminal } from '@podium/pty'
 import { agentLaunchCommand } from '@podium/harness'
 import { SpawnMessage } from '@podium/protocol'
+import { hasBunTerminal } from '@podium/pty'
 import { credentialEnv } from '@podium/runtime'
 import type { DaemonContext } from '../src/control/context'
 import { sessionHandlers } from '../src/control/session'
@@ -90,10 +90,25 @@ async function dumpEnvOfSpawnedProcess(
   const bridges = new Map<string, { pid: number; write(b64: string): void; dispose(): void }>()
   const ctx = {
     send: () => {},
+    instanceId: 'default',
+    homeDir: home,
     backend: 'none', // bare PTY child: no abduco/tmux master can outlive this test
     launch: agentLaunchCommand,
     settingsDir,
     bridges,
+    durableLabels: new Map(),
+    durableLabelFor: (id: string) => `podium-${id}`,
+    bindingStore: {
+      ensureBinding: async () => ({}),
+      observe: async () => ({}),
+      retire: async () => ({}),
+    },
+    composerEngine: {
+      attach: () => false,
+      onData: () => {},
+      detach: () => {},
+      has: () => false,
+    },
     outputScheduler: {
       enqueue: (_id: string, data: string) => {
         buffer += Buffer.from(data, 'base64').toString('utf8')
@@ -117,7 +132,7 @@ async function dumpEnvOfSpawnedProcess(
     geometry: { cols: 120, rows: 30 },
     ...(env ? { env } : {}),
   })
-  sessionHandlers.spawn(ctx, msg)
+  await sessionHandlers.spawn(ctx, msg)
 
   const session = bridges.get(sessionId)
   if (!session) throw new Error('daemon never bridged the session (spawn failed)')

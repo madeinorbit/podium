@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { type Relay, startRelay } from './harness'
+import type { Relay } from './harness'
 
 // WIP: each test below is skipped. These specs predate the `?e2e=1` test-API wiring
 // (AgentPanel) and were never runnable — they open the app without `&e2e=1` (so
@@ -10,6 +10,7 @@ import { type Relay, startRelay } from './harness'
 let relay: Relay
 
 test.beforeEach(async () => {
+  const { startRelay } = await import('./harness')
   relay = await startRelay()
   await relay.createSession('alpha')
   await relay.createSession('beta')

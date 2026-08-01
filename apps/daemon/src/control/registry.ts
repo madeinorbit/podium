@@ -16,7 +16,7 @@ import { workspaceHandlers } from './workspace'
  * THE control-frame registry (#195): one handler per frame type, grouped into
  * family modules, each receiving the explicit DaemonContext instead of closing
  * over startDaemon's scope. Mirrors the harness adapter registry contract
- * (packages/agent-bridge/src/harness/registry.ts): the mapped type over
+ * (packages/harness/src/harness/registry.ts): the mapped type over
  * `ControlMessage['type']` makes a new control frame a compile error here until
  * it declares a handler.
  */

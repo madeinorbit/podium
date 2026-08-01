@@ -333,14 +333,9 @@ export type HandoffManifestV1 = z.infer<typeof HandoffManifestV1>
  * rather than only in the header, because the header is what an import path
  * skims: see `owner` below and the ADR 3 D7 block above.
  *
- * NO PRODUCER YET, said plainly rather than implied (rule 12): the exporter in
- * `apps/daemon/src/handoff-package.ts` still writes `format: 1`, because a v2
- * manifest needs an authenticated principal and the handoff export request frame
- * carries none — there is nothing to stamp from, and stamping a guess would put
- * fabricated provenance in a durable file. Threading the principal into the
- * export request belongs to POD-644 (the transfer path) and POD-1075 (the
- * principal module); both have been mailed. The READ path is already here, so a
- * v2 bundle from a newer peer opens today.
+ * The handoff exporter writes this format from an authenticated export frame.
+ * Import treats every identity-shaped value here as untrusted provenance: the
+ * manifest may describe who exported it, but it cannot confer authority.
  */
 export const HandoffManifestV2 = z.object({
   format: z.literal(2),

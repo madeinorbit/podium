@@ -573,8 +573,9 @@ describe('unified optimistic overlay (#263)', () => {
     await settle()
     expect(nameOf(engine, 's1')).toBeUndefined() // poison drop → overlay gone
     expect(engine.getSnapshot().outboxSize).toBe(0)
-    expect(engine.getSnapshot().outboxDeadLetters).toHaveLength(1)
-    expect(engine.getSnapshot().outboxDeadLetters[0]?.reason.code).toBe('invalid')
+    expect(engine.getSnapshot().outboxDeadLetters).toMatchObject([
+      { entry: { kind: 'rename', input: { name: 'doomed' } }, reason: { code: 'invalid' } },
+    ])
     expect(errors.some((m) => m.includes('rename'))).toBe(true)
     engine.dispose()
   })

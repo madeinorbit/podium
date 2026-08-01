@@ -1,14 +1,22 @@
-import { asRepoId, asSessionId, type SessionId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { access, copyFile, mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { claudeProjectSlug } from '@podium/harness'
+import {
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asSessionId,
+  asUserId,
+  type SessionId,
+} from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BindingStore, type SessionBindingTransitionOutcome } from './binding-store'
 import {
   buildSnapshotCommit,
   codexTranscriptPlacement,
-  exportHandoffPackage,
+  exportHandoffPackage as exportAuthenticatedHandoffPackage,
   importHandoffPackage,
   readExportChunk,
   readHandoffManifest,
@@ -17,6 +25,21 @@ import {
   sweepHandoffStage,
   transcriptPlacement,
 } from './handoff-package'
+
+type ExportInput = Parameters<typeof exportAuthenticatedHandoffPackage>[0]
+const exportIdentity = {
+  exportedBy: {
+    actor: { kind: 'user' as const, id: 'user:alice' },
+    onBehalfOf: 'user:alice',
+  },
+  owner: 'user:alice',
+  visibility: 'personal' as const,
+}
+function exportHandoffPackage(
+  input: Omit<ExportInput, keyof typeof exportIdentity>,
+): ReturnType<typeof exportAuthenticatedHandoffPackage> {
+  return exportAuthenticatedHandoffPackage({ ...input, ...exportIdentity } as ExportInput)
+}
 
 const roots: string[] = []
 const git = (cwd: string, ...args: string[]): string =>
@@ -249,6 +272,9 @@ describe('handoff package', () => {
   })
 
   it('reclaims the original checkout on a complete A to B to A round trip', async () => {
+    const sessionId = asSessionId('handoff-roundtrip')
+    const machineAId = asMachineId('a')
+    const machineBId = asMachineId('b')
     const machineA = await repo('roundtrip-a')
     const base = git(machineA, 'rev-parse', 'HEAD')
     const machineB = await mkdtemp(join(tmpdir(), 'podium-roundtrip-b-'))
@@ -259,10 +285,53 @@ describe('handoff package', () => {
     await writeFile(join(sourceA, 'state.txt'), 'from-a\n')
     const homeA = await home('roundtrip-a')
     const homeB = await home('roundtrip-b')
+    const bindingsA = await BindingStore.open({ dir: join(homeA, '.podium', 'bindings') })
+    const bindingsB = await BindingStore.open({ dir: join(homeB, '.podium', 'bindings') })
+    const requireBinding = (outcome: SessionBindingTransitionOutcome) => {
+      if (outcome.status !== 'applied' && outcome.status !== 'unchanged') {
+        throw new Error(`binding transition failed: ${outcome.status}`)
+      }
+      return outcome.binding
+    }
+    const born = requireBinding(
+      await bindingsA.transition({
+        event: 'spawn',
+        transitionId: 'roundtrip:spawn-a',
+        sessionId,
+        agentKind: 'claude-code',
+        claimantMachineId: machineAId,
+        machineAccess: 'allowed',
+        principal: { kind: 'user', userId: asUserId('user:alice') },
+        issueId: asIssueId('issue-1013'),
+        attemptId: 'attempt-a-1',
+      }),
+    )
+    const delegation = bindingsA.currentDelegation(born)
+    if (!delegation) throw new Error('round-trip delegation missing')
+    const carriedDelegation = {
+      actor: delegation.actor,
+      onBehalfOf: delegation.onBehalfOf,
+      grantedScope: delegation.grantedScope,
+      parentBindingId: delegation.parentBindingId,
+    }
     const resumeValue = 'claude-roundtrip'
     await seedTranscript(homeA, sourceA, resumeValue, '{"machine":"a"}\n')
+    requireBinding(
+      await bindingsA.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:a-b:source-claim',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:a-b',
+        role: 'source',
+        phase: 'claim',
+        fromMachineId: machineAId,
+        toMachineId: machineBId,
+        at: '2026-07-31T15:00:00.000Z',
+      }),
+    )
     const outbound = await exportHandoffPackage({
-      sessionId: asSessionId('handoff-roundtrip'),
+      sessionId,
       cwd: sourceA,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -277,15 +346,89 @@ describe('handoff package', () => {
     await mkdir(dirname(stageB), { recursive: true })
     await copyFile(outbound.stagePath, stageB)
     const onB = await importHandoffPackage({
-      sessionId: asSessionId('handoff-roundtrip'),
+      sessionId,
       repoPath: machineB,
       worktreeName: outbound.manifest.worktreeName,
       homeDir: homeB,
     })
+    const claimedB = requireBinding(
+      await bindingsB.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:a-b:target-claim',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:a-b',
+        role: 'target',
+        phase: 'claim',
+        fromMachineId: machineAId,
+        toMachineId: machineBId,
+        at: '2026-07-31T15:00:01.000Z',
+        adoption: {
+          agentKind: 'claude-code',
+          observationGeneration: 2,
+          delegation: carriedDelegation,
+          observations: [
+            {
+              channel: 'resume-ref',
+              nativeKind: onB.manifest.resume.kind,
+              value: onB.manifest.resume.value,
+            },
+            { channel: 'transcript-path', value: onB.nativeArtifactPath },
+            { channel: 'worktree-pin', value: onB.worktreeRoot },
+          ],
+        },
+      }),
+    )
+    expect(claimedB.observations.at(-1)).toMatchObject({
+      channel: 'worktree-pin',
+      value: onB.worktreeRoot,
+    })
+    requireBinding(
+      await bindingsA.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:a-b:source-commit',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:a-b',
+        role: 'source',
+        phase: 'commit',
+        fromMachineId: machineAId,
+        toMachineId: machineBId,
+        at: '2026-07-31T15:00:02.000Z',
+      }),
+    )
+    requireBinding(
+      await bindingsB.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:a-b:target-commit',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:a-b',
+        role: 'target',
+        phase: 'commit',
+        fromMachineId: machineAId,
+        toMachineId: machineBId,
+        at: '2026-07-31T15:00:02.100Z',
+      }),
+    )
     expect(onB.worktreeRoot).toBe(join(machineB, relativePath))
     await writeFile(join(onB.worktreeRoot, 'state.txt'), 'from-b\n')
+    requireBinding(
+      await bindingsB.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:b-a:source-claim',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:b-a',
+        role: 'source',
+        phase: 'claim',
+        fromMachineId: machineBId,
+        toMachineId: machineAId,
+        at: '2026-07-31T15:00:03.000Z',
+      }),
+    )
     const inbound = await exportHandoffPackage({
-      sessionId: asSessionId('handoff-roundtrip'),
+      sessionId,
       cwd: onB.worktreeRoot,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -299,13 +442,76 @@ describe('handoff package', () => {
     const stageA = join(homeA, '.podium', 'handoff', 'handoff-roundtrip.tgz')
     await copyFile(inbound.stagePath, stageA)
     const backOnA = await importHandoffPackage({
-      sessionId: asSessionId('handoff-roundtrip'),
+      sessionId,
       repoPath: machineA,
       worktreeName: inbound.manifest.worktreeName,
       homeDir: homeA,
     })
+    requireBinding(
+      await bindingsA.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:b-a:target-claim',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:b-a',
+        role: 'target',
+        phase: 'claim',
+        fromMachineId: machineBId,
+        toMachineId: machineAId,
+        at: '2026-07-31T15:00:04.000Z',
+        adoption: {
+          agentKind: 'claude-code',
+          observationGeneration: 3,
+          delegation: carriedDelegation,
+          observations: [
+            {
+              channel: 'resume-ref',
+              nativeKind: backOnA.manifest.resume.kind,
+              value: backOnA.manifest.resume.value,
+            },
+            { channel: 'transcript-path', value: backOnA.nativeArtifactPath },
+            { channel: 'worktree-pin', value: backOnA.worktreeRoot },
+          ],
+        },
+      }),
+    )
+    const exportedB = requireBinding(
+      await bindingsB.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:b-a:source-commit',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:b-a',
+        role: 'source',
+        phase: 'commit',
+        fromMachineId: machineBId,
+        toMachineId: machineAId,
+        at: '2026-07-31T15:00:05.000Z',
+      }),
+    )
+    const reboundA = requireBinding(
+      await bindingsA.transition({
+        event: 'adopt',
+        transitionId: 'roundtrip:b-a:target-commit',
+        sessionId,
+        machineAccess: 'allowed',
+        transferId: 'roundtrip:b-a',
+        role: 'target',
+        phase: 'commit',
+        fromMachineId: machineBId,
+        toMachineId: machineAId,
+        at: '2026-07-31T15:00:05.100Z',
+      }),
+    )
     expect(backOnA.worktreeRoot).toBe(sourceA)
     expect(await readFile(join(sourceA, 'state.txt'), 'utf8')).toBe('from-b\n')
+    expect(exportedB.state).toBe('exported')
+    expect(reboundA).toMatchObject({
+      state: 'bound',
+      claimantMachineId: machineAId,
+      observationGeneration: 3,
+    })
+    expect(bindingsA.currentDelegation(reboundA)).toMatchObject(carriedDelegation)
   })
 
   it('reclaims a clean pre-fingerprint worktree by branch after an old path conversion', async () => {
@@ -600,32 +806,15 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
-    // Today's exporter writes v1 — asserted, because the rewrite below would be
-    // a no-op if it silently started writing v2, and this test would then prove
-    // nothing about reading v2.
-    expect(exported.manifest.format).toBe(1)
-
-    const repack = await mkdtemp(join(tmpdir(), 'podium-v2-repack-'))
-    roots.push(repack)
-    execFileSync('tar', ['-xzf', exported.stagePath, '-C', repack])
-    const onDisk = JSON.parse(await readFile(join(repack, 'manifest.json'), 'utf8'))
-    const { exportedAt, ...rest } = onDisk
-    await writeFile(
-      join(repack, 'manifest.json'),
-      JSON.stringify({
-        ...rest,
-        format: 2,
-        exported: {
-          at: exportedAt,
-          by: { actor: { kind: 'agent', id: 'agent-7' }, onBehalfOf: 'user-mgw' },
-        },
-        owner: 'user-mgw',
-        visibility: 'personal',
-      }),
-    )
+    expect(exported.manifest).toMatchObject({
+      format: 2,
+      exported: { by: exportIdentity.exportedBy },
+      owner: exportIdentity.owner,
+      visibility: 'personal',
+    })
     const stage = join(targetHome, '.podium', 'handoff', 'handoff-v2.tgz')
     await mkdir(dirname(stage), { recursive: true })
-    execFileSync('tar', ['-czf', stage, '-C', repack, '.'])
+    await copyFile(exported.stagePath, stage)
 
     const imported = await importHandoffPackage({
       sessionId: asSessionId('handoff-v2'),
@@ -694,11 +883,15 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     await mkdir(join(origin, 'apps', 'web'), { recursive: true })
     await seedTranscript(sourceHome, origin, 'claude-main-guard')
     const common = { homeDir: sourceHome, baseShas: [base], resumeValue: 'claude-main-guard' }
-    await expect(exportFrom({ ...common, sessionId: asSessionId('guard-root'), cwd: origin })).rejects.toThrow(
-      /only worktree sessions can be handed off/,
-    )
     await expect(
-      exportFrom({ ...common, sessionId: asSessionId('guard-subdir'), cwd: join(origin, 'apps', 'web') }),
+      exportFrom({ ...common, sessionId: asSessionId('guard-root'), cwd: origin }),
+    ).rejects.toThrow(/only worktree sessions can be handed off/)
+    await expect(
+      exportFrom({
+        ...common,
+        sessionId: asSessionId('guard-subdir'),
+        cwd: join(origin, 'apps', 'web'),
+      }),
     ).rejects.toThrow(/only worktree sessions can be handed off/)
   })
 

@@ -1,8 +1,8 @@
 # Transcript classification: agent state & chat rendering
 
 > **Audience:** a later agent (or human) working on Podium's chat view (`apps/web/src/ChatView.tsx`,
-> `apps/web/src/chat.ts`), the transcript parser (`packages/agent-bridge/src/transcript/claude.ts`),
-> or the agent-state detector (`packages/agent-bridge/src/agent-state/*`).
+> `apps/web/src/chat.ts`), the transcript parser (`packages/transcript/src/claude.ts`),
+> or the agent-state detector (`packages/harness/src/agent-state/*`).
 >
 > **What this is:** a field guide to the markers in Claude Code's JSONL transcript that let us
 > classify each record correctly — for the chat view AND the agent-state detector, which share the
@@ -155,7 +155,7 @@ are conversational; the parser ignores all but `user`/`assistant`/`system`:
 
 ## 4. The agent-state detector (shared concern)
 
-`packages/agent-bridge/src/agent-state/` is currently **hook-driven**, not transcript-driven
+`packages/harness/src/agent-state/` is currently **hook-driven**, not transcript-driven
 (`claudeHookSettings` subscribes SessionStart / UserPromptSubmit / Pre/PostToolUse / Permission /
 Stop / StopFailure / Compact / Task* / SessionEnd; `translateClaudeHookPayload` maps them to events;
 `reducer.ts` runs the phase machine: `prompt_submitted`→`working`, `turn_completed`→`idle`/`needs_user`, …).
@@ -229,5 +229,5 @@ RECORD type:"system"                             → role "system"
 RECORD any other type                            → drop (bookkeeping: attachment, mode, queue-operation, …)
 ```
 
-**Source of truth:** `packages/agent-bridge/src/transcript/claude.ts` (parser) and
-`packages/agent-bridge/src/transcript/claude.test.ts` (locks each rule above with a fixture).
+**Source of truth:** `packages/transcript/src/claude.ts` (parser) and
+`packages/transcript/src/claude.test.ts` (locks each rule above with a fixture).

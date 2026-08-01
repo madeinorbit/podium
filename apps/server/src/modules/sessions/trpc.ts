@@ -1,4 +1,3 @@
-import { familyState } from '../derived-family'
 /**
  * THE DERIVED SESSION SURFACE (POD-382, the 3.2 cutover) — every session-family
  * tRPC MUTATION, produced from the contract tables rather than written out.
@@ -7,7 +6,7 @@ import { familyState } from '../derived-family'
  * WHAT "DERIVED" MEANS HERE, AND WHAT IT DOES NOT
  * ---------------------------------------------------------------------------
  *
- * POD-380 landed `presenceProc(name)` in `router.ts` with an explicit note that it
+ * POD-380 landed `sessionStateProcedure(name)` in `router.ts` with an explicit note that it
  * was NOT the full derivation, because "procedures are still listed by hand below,
  * so the shape of the router is reviewable in this diff". That was right for one
  * class and it is what this issue finishes: there is no per-procedure line left.
@@ -18,8 +17,8 @@ import { familyState } from '../derived-family'
  * Three contract sources, because the family has three envelopes and they differ
  * in ways that are real:
  *
- *   1. PRESENCE (POD-380) — `@podium/protocol`'s presence tables through
- *      `PresenceRegistry`, whose refusals are SILENT NO-OPS (§3.1.5, as POD-379
+ *   1. DURABLE SESSION STATE (POD-380) — `@podium/protocol`'s session-state tables through
+ *      `SessionStateRegistry`, whose refusals are SILENT NO-OPS (§3.1.5, as POD-379
  *      pinned for this class).
  *   2. COMMAND PLANE (POD-381; `stop` / `uploadImage` / `ask` added by POD-382) —
  *      `dispatchSessionCommand`, whose refusals are per-command shapes and whose
@@ -41,9 +40,9 @@ import { familyState } from '../derived-family'
  * `sessions.setDraft` is absent — it declares `ws`, because the draft's live path is
  * the debounced WebSocket edit — and nobody maintains a second list saying so.
  *
- * {@link TRPC_PRESENCE_NAMES} is the type-level half of that filter, and it is
+ * {@link TRPC_SESSION_STATE_NAMES} is the type-level half of that filter, and it is
  * CHECKED AGAINST THE RUNTIME EXPOSURE IN BOTH DIRECTIONS at module load
- * ({@link presenceEntries}): a contract that gains `trpc` without being added here,
+ * ({@link sessionStateEntries}): a contract that gains `trpc` without being added here,
  * or loses it while still listed, throws before the server serves a request. A
  * type-level list that could silently disagree with the contract it mirrors would
  * be the second declaration this whole issue is about.
@@ -58,7 +57,7 @@ import { familyState } from '../derived-family'
  * `api.sessions.rename.mutate(…)` checked at all. That is not a compile error here;
  * it is a silent loss of checking at every call site.
  *
- * So {@link PRESENCE_OUTPUTS} is written down, and its key set is checked against
+ * So {@link SESSION_STATE_OUTPUTS} is written down, and its key set is checked against
  * the tables. The command plane needs no such map: its results are already derived
  * from its handler table (`SessionCommandResult`), and handoff's come from its
  * contract's output schema.
@@ -66,11 +65,11 @@ import { familyState } from '../derived-family'
 
 import {
   isExposedOn,
-  PRESENCE_COMMAND_TABLES,
-  presenceCommand,
+  SESSION_STATE_COMMAND_TABLES,
+  sessionStateCommand,
   sessionCommandPlane,
   sessionCommandPlaneInputs,
-  sessionPresenceInputs,
+  sessionStateInputs,
 } from '@podium/commands'
 import { type SessionHandoffOutput, sessionHandoffInput } from '@podium/commands'
 
@@ -78,33 +77,34 @@ import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { PinState, SnoozeMap } from '../../store/types'
 import { type Context, mods, t } from '../../trpc'
+import { familyState } from '../derived-family'
 import { sessionCommandCtx } from './command-ctx'
 import {
   dispatchSessionCommand,
   type SessionCommandKey,
   type SessionCommandResult,
 } from './command-plane'
-import { PresenceRegistry, userPresencePrincipal } from './presence-registry'
+import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import { dispatchRename } from './rename-adapter'
 
 // ---------------------------------------------------------------------------
-// Presence class
+// Durable session-state class
 // ---------------------------------------------------------------------------
 
-/** Every dotted presence-contract name, as a type. */
-type PresenceName = keyof typeof sessionPresenceInputs
+/** Every dotted session-state-contract name, as a type. */
+type SessionStateName = keyof typeof sessionStateInputs
 
 /** The one command POD-351 moved to the target path. Named once so the manifest,
  *  the builder and any future migration cannot disagree about which it is. */
 const RENAME_NAME = 'sessions.rename' as const
 
 /**
- * The presence contracts served over tRPC — the type-level half of the exposure
- * filter, kept honest by the runtime cross-check in {@link presenceEntries}.
+ * The session-state contracts served over tRPC — the type-level half of the exposure
+ * filter, kept honest by the runtime cross-check in {@link sessionStateEntries}.
  *
  * `sessions.setDraft` is deliberately absent: `ws` only.
  */
-const TRPC_PRESENCE_NAMES = [
+const TRPC_SESSION_STATE_NAMES = [
   'sessions.rename',
   'sessions.setArchived',
   'sessions.setWorkState',
@@ -115,12 +115,12 @@ const TRPC_PRESENCE_NAMES = [
   'snoozes.clear',
   'pins.set',
   'tabs.setOrder',
-] as const satisfies readonly PresenceName[]
+] as const satisfies readonly SessionStateName[]
 
-type TrpcPresenceName = (typeof TRPC_PRESENCE_NAMES)[number]
+type TrpcSessionStateName = (typeof TRPC_SESSION_STATE_NAMES)[number]
 
 /**
- * WHAT EACH PRESENCE COMMAND RETURNS ON THE WIRE.
+ * WHAT EACH DURABLE SESSION STATE COMMAND RETURNS ON THE WIRE.
  *
  * `void` for the owner-or-grant session writes: they are field writes whose result
  * the client learns from the delta, not from the call. A real value for the per-user
@@ -128,10 +128,10 @@ type TrpcPresenceName = (typeof TRPC_PRESENCE_NAMES)[number]
  * map is what lets the client apply one state update instead of re-querying.
  *
  * A type, not a value — nothing here exists at runtime. Its key set is
- * `PresenceName`, so a contract added to the tables without an output type is a
+ * `SessionStateName`, so a contract added to the tables without an output type is a
  * compile error at this line rather than an `unknown` in the client.
  */
-interface PresenceOutputs extends Record<PresenceName, unknown> {
+interface SessionStateOutputs extends Record<SessionStateName, unknown> {
   'sessions.rename': void
   'sessions.setArchived': void
   'sessions.setWorkState': void
@@ -145,19 +145,19 @@ interface PresenceOutputs extends Record<PresenceName, unknown> {
   'tabs.setOrder': Record<string, string[]>
 }
 
-type PresenceProcedure<N extends PresenceName> = TRPCMutationProcedure<{
+type SessionStateProcedure<N extends SessionStateName> = TRPCMutationProcedure<{
   meta: unknown
-  input: z.input<(typeof sessionPresenceInputs)[N]>
-  output: PresenceOutputs[N]
+  input: z.input<(typeof sessionStateInputs)[N]>
+  output: SessionStateOutputs[N]
 }>
 
 /** The procedures one namespace contributes, keyed by their bare proc names. */
-type PresenceProceduresOn<NS extends string> = {
-  [N in TrpcPresenceName as N extends `${NS}.${infer K}` ? K : never]: PresenceProcedure<N>
+type SessionStateProceduresOn<NS extends string> = {
+  [N in TrpcSessionStateName as N extends `${NS}.${infer K}` ? K : never]: SessionStateProcedure<N>
 }
 
 /**
- * One presence procedure, built out of its contract: the contract's own input
+ * One session-state procedure, built out of its contract: the contract's own input
  * schema (one validation source) and a body that is the framework envelope —
  * exposure, parse, LIVE authorization, framework idempotency, handler.
  *
@@ -168,26 +168,31 @@ type PresenceProceduresOn<NS extends string> = {
  * this transport (the procedure parsed the same schema already) and a silent
  * `undefined` would be indistinguishable from the deliberate no-op.
  */
-function presenceProcedure<N extends TrpcPresenceName>(name: N): PresenceProcedure<N> {
-  const contract = presenceCommand(name)
+function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): SessionStateProcedure<N> {
+  const contract = sessionStateCommand(name)
   // A name no contract declares would produce a procedure that refuses everything —
   // the "green gate that stopped looking" failure. Fail at module load instead.
-  if (!contract) throw new Error(`presenceProcedure: no contract named ${name}`)
+  if (!contract) throw new Error(`sessionStateProcedure: no contract named ${name}`)
   return t.procedure
-    .input(sessionPresenceInputs[name])
-    .mutation(({ ctx, input }): PresenceOutputs[N] => {
-      const result = presenceRegistryFor(ctx).execute(name, input, presencePrincipal(ctx), 'trpc')
+    .input(sessionStateInputs[name])
+    .mutation(({ ctx, input }): SessionStateOutputs[N] => {
+      const result = sessionStateRegistryFor(ctx).execute(
+        name,
+        input,
+        sessionStatePrincipal(ctx),
+        'trpc',
+      )
       if (result.outcome === 'invalid-input') throw new Error(`invalid input for ${name}`)
-      return result.value as PresenceOutputs[N]
-    }) as PresenceProcedure<N>
+      return result.value as SessionStateOutputs[N]
+    }) as SessionStateProcedure<N>
 }
 
-/** The presence envelope for one call. */
-function presenceRegistryFor(ctx: Context): PresenceRegistry {
-  return new PresenceRegistry({
+/** The session-state envelope for one call. */
+function sessionStateRegistryFor(ctx: Context): SessionStateRegistry {
+  return new SessionStateRegistry({
     sessions: familyState(ctx).modules.sessions,
-    store: familyState(ctx).store,
-    now: () => Date.now(),
+    state: familyState(ctx).modules.sessions.state,
+
     // THE composition root's ledger — framework idempotency, one instance.
     mutations: familyState(ctx).modules.mutations,
   })
@@ -195,11 +200,8 @@ function presenceRegistryFor(ctx: Context): PresenceRegistry {
 
 /** The transport principal for a tRPC call. One shared password ⇒ the sole human
  *  (§3.2); POD-1075 replaces this with a real per-user principal. */
-export function presencePrincipal(ctx: Context) {
-  if (!ctx.principal || ctx.principal.kind !== 'user') {
-    throw new Error('authenticated user principal is required')
-  }
-  return userPresencePrincipal(ctx.principal)
+export function sessionStatePrincipal(ctx: Context) {
+  return sessionStatePrincipalFor(ctx.principal)
 }
 
 // ---------------------------------------------------------------------------
@@ -210,43 +212,43 @@ export function presencePrincipal(ctx: Context) {
  * `sessions.rename` ON THE TARGET PATH — POD-351's join, re-pointed into POD-382's
  * derived surface.
  *
- * ## Why this is a fourth source and not a presence procedure
+ * ## Why this is a fourth source and not a session-state procedure
  *
- * Every OTHER presence contract is served by `presenceProcedure`, which runs the
- * `PresenceRegistry` envelope. Rename is the one command the walking skeleton moved
+ * Every OTHER session-state contract is served by `sessionStateProcedure`, which runs the
+ * `SessionStateRegistry` envelope. Rename is the one command the walking skeleton moved
  * to the TARGET path: the `@podium/commands` contract, the real `CommandPrincipal`
  * with its delegation chain resolved live, and the contract's accept/reject outcome
- * union. `dispatchRename` chooses between that and the legacy presence envelope on
+ * union. `dispatchRename` chooses between that and the legacy session-state envelope on
  * the flag, so BOTH paths stay reachable from one call site — which is what the
  * shadow comparison requires and what makes `PODIUM_SESSION_RENAME_PATH=legacy` a
  * real rollback rather than a dead branch.
  *
  * Declaring it as its own source rather than special-casing inside
- * `presenceProcedure` keeps that visible in the MANIFEST: the audit and any reader
+ * `sessionStateProcedure` keeps that visible in the MANIFEST: the audit and any reader
  * can see exactly which commands are on which envelope, and a second command
  * migrating later is a row that changes rather than a condition someone has to find.
  *
- * ## What it still shares with the presence class, and why that is not a compromise
+ * ## What it still shares with the session-state class, and why that is not a compromise
  *
- * It stays in `TRPC_PRESENCE_NAMES` and keeps its presence contract, because that
+ * It stays in `TRPC_SESSION_STATE_NAMES` and keeps its session-state contract, because that
  * contract is still what declares its exposure and its policy — and the both-
- * directions exposure cross-check in `presenceEntries()` must keep covering it.
+ * directions exposure cross-check in `sessionStateEntries()` must keep covering it.
  * `@podium/commands`' `sessionRenameContract` COMPOSES that same input schema
  * instance (asserted with `toBe` in `packages/commands/src/sessions/rename.test.ts`),
  * so there is one schema object and the two envelopes cannot diverge on the wire.
  *
  * ## The public return type stays `void`, deliberately
  *
- * The presence class's refusal shape is a silent no-op (§3.1.5, pinned by POD-379).
- * A successful call still returns no value. A missing target and an unauthorized
- * target now throw the SAME `UNAUTHORIZED` shape: that preserves the no-existence-
- * oracle rule while giving the kernel Outbox a definitive refusal to dead-letter.
- * An authorized arbitration rejection is a conflict and may be named because the
- * caller has already passed the target authorization check.
+ * The session-state class's refusal shape is a silent no-op (§3.1.5, pinned by POD-379).
+ * Surfacing the target path's richer outcome to THIS transport would make a denial
+ * distinguishable from a not-found and turn the procedure into an existence oracle.
+ * The outcome is not discarded — it is what the outbox drain reads to dead-letter a
+ * rejected offline write (POD-316), where the caller is already authorized and the
+ * reason leaks nothing.
  */
-function renameProcedure(): PresenceProcedure<'sessions.rename'> {
+function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
   return t.procedure
-    .input(sessionPresenceInputs['sessions.rename'])
+    .input(sessionStateInputs['sessions.rename'])
     .mutation(({ ctx, input }): void => {
       const modules = familyState(ctx).modules
       const dispatch = dispatchRename(
@@ -254,9 +256,9 @@ function renameProcedure(): PresenceProcedure<'sessions.rename'> {
           sessions: modules.sessions,
           mutations: modules.mutations,
           principal: sessionCommandCtx(modules, ctx.capability).principal,
-          legacyPrincipal: presencePrincipal(ctx),
+          legacyPrincipal: sessionStatePrincipal(ctx),
           // The rollback envelope, built lazily — the target path is the default.
-          legacyRegistry: () => presenceRegistryFor(ctx),
+          legacyRegistry: () => sessionStateRegistryFor(ctx),
         },
         input,
       )
@@ -271,7 +273,7 @@ function renameProcedure(): PresenceProcedure<'sessions.rename'> {
       if (!dispatch.result.ok) {
         throw new TRPCError({ code: 'CONFLICT', message: dispatch.result.reason })
       }
-    }) as PresenceProcedure<'sessions.rename'>
+    }) as SessionStateProcedure<'sessions.rename'>
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +346,7 @@ function handoffProcedure(): HandoffProcedure {
     .input(sessionHandoffInput)
     .mutation(
       ({ ctx, input }): Promise<SessionHandoffOutput> =>
-        familyState(ctx).modules.sessions.handoffSession(input, { capability: ctx.capability }),
+        familyState(ctx).modules.sessions.handoffSession(input, { capability: ctx.capability, principal: ctx.principal }),
     ) as HandoffProcedure
 }
 
@@ -354,7 +356,7 @@ function handoffProcedure(): HandoffProcedure {
 
 /** Which envelope serves a derived procedure. */
 export type SessionSurfaceSource =
-  | 'presence'
+  | 'session-state'
   | 'command-plane'
   | 'handoff'
   | 'mail'
@@ -380,10 +382,10 @@ export interface SessionSurfaceEntry {
 }
 
 /**
- * The presence half of the manifest, WITH the both-directions exposure check.
+ * The session-state half of the manifest, WITH the both-directions exposure check.
  *
  * Direction 1 (tables → list): a contract that declares `trpc` and is missing from
- * `TRPC_PRESENCE_NAMES` would be silently unserved.
+ * `TRPC_SESSION_STATE_NAMES` would be silently unserved.
  * Direction 2 (list → tables): a name here whose contract no longer declares `trpc`
  * would silently serve a command the contract says is not exposed there.
  *
@@ -391,42 +393,42 @@ export interface SessionSurfaceEntry {
  * the declaration that governs it — and a wire that disagrees with its contract is
  * exactly what the audit exists to make impossible.
  */
-function presenceEntries(): SessionSurfaceEntry[] {
+function sessionStateEntries(): SessionSurfaceEntry[] {
   const exposedByContract = new Set<string>()
-  for (const table of PRESENCE_COMMAND_TABLES) {
+  for (const table of SESSION_STATE_COMMAND_TABLES) {
     for (const key of Object.keys(table.defs)) {
       const name = `${table.namespace}.${key}`
-      const contract = presenceCommand(name)
-      if (!contract) throw new Error(`presence table declares ${name} with no contract`)
+      const contract = sessionStateCommand(name)
+      if (!contract) throw new Error(`session-state table declares ${name} with no contract`)
       if (isExposedOn(contract, 'trpc')) exposedByContract.add(name)
     }
   }
-  const listed = new Set<string>(TRPC_PRESENCE_NAMES)
+  const listed = new Set<string>(TRPC_SESSION_STATE_NAMES)
   for (const name of exposedByContract) {
     if (!listed.has(name)) {
       throw new Error(
-        `presence contract ${name} declares trpc exposure but is not in TRPC_PRESENCE_NAMES — the derived router would not serve it`,
+        `session-state contract ${name} declares trpc exposure but is not in TRPC_SESSION_STATE_NAMES — the derived router would not serve it`,
       )
     }
   }
   for (const name of listed) {
     if (!exposedByContract.has(name)) {
       throw new Error(
-        `TRPC_PRESENCE_NAMES lists ${name}, whose contract does not declare trpc exposure`,
+        `TRPC_SESSION_STATE_NAMES lists ${name}, whose contract does not declare trpc exposure`,
       )
     }
   }
-  return TRPC_PRESENCE_NAMES.map((name) => {
+  return TRPC_SESSION_STATE_NAMES.map((name) => {
     const dot = name.indexOf('.')
     return {
       name,
       router: name.slice(0, dot),
       key: name.slice(dot + 1),
-      // POD-351: rename is served by the TARGET path, not the presence envelope.
-      // Its exposure and policy are still the presence contract's — which is why it
+      // POD-351: rename is served by the TARGET path, not the session-state envelope.
+      // Its exposure and policy are still the session-state contract's — which is why it
       // stays in this walk and keeps its both-directions exposure check above — but
       // which envelope RUNS it is a different fact, and the manifest records it.
-      source: name === RENAME_NAME ? ('walking-skeleton' as const) : ('presence' as const),
+      source: name === RENAME_NAME ? ('walking-skeleton' as const) : ('session-state' as const),
     }
   })
 }
@@ -450,7 +452,7 @@ function planeEntries(): SessionSurfaceEntry[] {
 /** Every derived session-family mutation, with the envelope that serves it. */
 export function sessionSurfaceManifest(): SessionSurfaceEntry[] {
   return [
-    ...presenceEntries(),
+    ...sessionStateEntries(),
     ...planeEntries(),
     // Handoff's exposure is `['trpc']` on its own contract in `@podium/commands`;
     // it is a single entry rather than a table walk because it is a single command.
@@ -478,10 +480,10 @@ export function sessionSurfaceManifest(): SessionSurfaceEntry[] {
  * — the audit checks procedure TYPE, not naming.
  */
 export function sessionFamilyProcedures(): {
-  sessions: PlaneProcedures & PresenceProceduresOn<'sessions'> & { handoff: HandoffProcedure }
-  pins: PresenceProceduresOn<'pins'>
-  snoozes: PresenceProceduresOn<'snoozes'>
-  tabs: PresenceProceduresOn<'tabs'>
+  sessions: PlaneProcedures & SessionStateProceduresOn<'sessions'> & { handoff: HandoffProcedure }
+  pins: SessionStateProceduresOn<'pins'>
+  snoozes: SessionStateProceduresOn<'snoozes'>
+  tabs: SessionStateProceduresOn<'tabs'>
 } {
   const grouped: Record<string, Record<string, unknown>> = {
     sessions: {},
@@ -498,8 +500,8 @@ export function sessionFamilyProcedures(): {
     bucket[entry.key] =
       entry.source === 'walking-skeleton'
         ? renameProcedure()
-        : entry.source === 'presence'
-          ? presenceProcedure(entry.name as TrpcPresenceName)
+        : entry.source === 'session-state'
+          ? sessionStateProcedure(entry.name as TrpcSessionStateName)
           : entry.source === 'handoff'
             ? handoffProcedure()
             : planeProcedure(entry.key as SessionCommandKey)

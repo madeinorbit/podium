@@ -63,26 +63,6 @@ import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-cor
  * the second. `sqlite_sequence` is also where `maxChangeSeq()` reads the highest
  * seq EVER assigned, which is how the cursor survives pruning.
  */
-/**
- * THE FEED'S IDENTITY (ADR 2 D1) — the `(feedId, epoch)` half of a replica's
- * cursor triple. Ported from main at the POD-1246 catch-up, and it lands HERE
- * rather than in `apps/server`'s schema because POD-305 moved `changes` here:
- * the identity of a feed is a property of the log, so the two belong to one
- * owner. Single row — `CHECK (id = 1)` makes "two identities in one database"
- * unrepresentable. A restore rolls the epoch back with the log, which is exactly
- * what `apps/server/src/migrations/restore.ts` then notices and re-mints.
- * Read/written only through `SyncRepository`.
- */
-export const syncFeed = sqliteTable(
-  'sync_feed',
-  {
-    id: integer().primaryKey(),
-    feedId: text('feed_id').notNull(),
-    epoch: text().notNull(),
-  },
-  (table) => [check('sync_feed_check_1', sql`id = 1`)],
-)
-
 export const changes = sqliteTable(
   'changes',
   {
@@ -152,14 +132,18 @@ export const changes = sqliteTable(
  * INSPECTABLE; the bump itself is an operator action from [spec:SP-4428]'s
  * runbook, and `FeedIdentityRegistry.bump` is what that action calls.
  */
-export const feedIdentity = sqliteTable('feed_identity', {
-  /** Always 1. The schema's way of saying "there is exactly one of these". */
-  singleton: integer().primaryKey(),
-  feedId: text('feed_id').notNull(),
-  epoch: text().notNull(),
-  /** When this generation began. Diagnostics only — never compared, never ordered. */
-  mintedAt: integer('minted_at').notNull(),
-})
+export const feedIdentity = sqliteTable(
+  'feed_identity',
+  {
+    /** Always 1. The schema's way of saying "there is exactly one of these". */
+    singleton: integer().primaryKey(),
+    feedId: text('feed_id').notNull(),
+    epoch: text().notNull(),
+    /** When this generation began. Diagnostics only — never compared, never ordered. */
+    mintedAt: integer('minted_at').notNull(),
+  },
+  (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
+)
 
 export const appliedMutations = sqliteTable('applied_mutations', {
   mutationId: text('mutation_id').primaryKey(),

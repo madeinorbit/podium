@@ -1,10 +1,21 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import { type AgentSession, abducoHasSessionAsync, attachAbducoAgent, attachTmuxAgent, killAbducoSessionAsync, killTmuxServerAsync, spawnAbducoAgent, spawnAgent, spawnTmuxAgent, tmuxHasSessionAsync } from '@podium/pty'
-import { agentStateProviderFor, type LaunchFile } from '@podium/harness'
-import { AGENT_CAPABILITIES } from '@podium/protocol'
-import type { AgentKind, SessionId } from '@podium/model'
+import { agentStateProviderFor, harnessCapabilitiesFor, type LaunchFile } from '@podium/harness'
+import { type AgentKind, asMachineId, type SessionId } from '@podium/model'
+import {
+  type AgentSession,
+  abducoHasSession,
+  attachAbducoAgent,
+  attachTmuxAgent,
+  killAbducoSession,
+  killTmuxServer,
+  spawnAbducoAgent,
+  spawnAgent,
+  spawnTmuxAgent,
+  tmuxHasSession,
+} from '@podium/pty'
 import { resolveInstanceId } from '@podium/runtime/config'
+import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import type { ReattachControl, SpawnControl } from '../session-observers'
@@ -111,7 +122,7 @@ export function wireBridge(
   // frame-rate), which would clobber the real title the codex observer derives
   // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
   // title, so forward it for them.
-  if (AGENT_CAPABILITIES[agentKind].oscTitle) {
+  if (harnessCapabilitiesFor(agentKind)?.oscTitle ?? true) {
     session.onTitle((title) => ctx.send({ type: 'title', sessionId, title }))
   }
   session.onExit((code) => {
@@ -134,8 +145,8 @@ export function wireBridge(
     // reaps the socket as it lists, so a just-exited master reads as gone.)
     const label = durableLabel
     void (async () => {
-      if (ctx.backend === 'abduco' && (await abducoHasSessionAsync(label))) return
-      if (ctx.backend === 'tmux' && (await tmuxHasSessionAsync(label))) return
+      if (ctx.backend === 'abduco' && (await abducoHasSession(label))) return
+      if (ctx.backend === 'tmux' && (await tmuxHasSession(label))) return
       // The agent has truly exited (master is gone). Uploads are one-shot prompt
       // inputs that were already consumed before the agent finished processing
       // them, so it's safe to remove the per-session upload dir on any real exit
@@ -149,7 +160,7 @@ export function wireBridge(
   })
 }
 
-function spawn(ctx: DaemonContext, msg: SpawnControl): void {
+async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
@@ -184,7 +195,6 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
         // Absent = the setting default (on); older servers still get [spec:SP-a04d].
         seedTheme: msg.seedCliTheme ?? true,
         ...(ctx.hookSocketPath ? { socketPath: ctx.hookSocketPath } : {}),
-        receiptDir: ctx.codexReceiptDir,
       })
       if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
       extraArgs = instr.args
@@ -222,9 +232,9 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
     }
     const session =
       ctx.backend === 'abduco'
-        ? spawnAbducoAgent(spawnOpts)
+        ? await spawnAbducoAgent(spawnOpts)
         : ctx.backend === 'tmux'
-          ? spawnTmuxAgent(spawnOpts)
+          ? await spawnTmuxAgent(spawnOpts)
           : spawnAgent(spawnOpts)
     wireBridge(ctx, msg.sessionId, session, msg.agentKind, label)
     // Stand up the agent-state tracker, harness observer, resume transcript tail
@@ -257,6 +267,65 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
     })
   }
 }
+export const MISSING_SESSION_BINDING_MESSAGE =
+  'server-minted SessionBinding instruction is required'
+
+async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+  if ((!msg.binding && !msg.adoptedBinding) || (msg.binding && msg.adoptedBinding)) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: MISSING_SESSION_BINDING_MESSAGE,
+    })
+    return
+  }
+  const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
+  if (msg.adoptedBinding) {
+    const outcome = await ctx.sessionBinding.transition({
+      event: 'adopt',
+      transitionId: msg.adoptedBinding.transitionId,
+      sessionId: msg.sessionId,
+      machineAccess: msg.adoptedBinding.machineAccess,
+      transferId: msg.adoptedBinding.transferId,
+      role: msg.adoptedBinding.role,
+      phase: 'launch',
+      fromMachineId: asMachineId(msg.adoptedBinding.fromMachineId),
+      toMachineId: asMachineId(msg.adoptedBinding.toMachineId),
+      at: new Date().toISOString(),
+      attemptId: label,
+    })
+    const failure = bindingFailureMessage(outcome)
+    if (failure) {
+      ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: failure })
+      return
+    }
+  } else if (msg.binding) {
+    const outcome = await ctx.sessionBinding.transition({
+      event: 'spawn',
+      transitionId: msg.binding.transitionId,
+      sessionId: msg.sessionId,
+      agentKind: msg.agentKind,
+      claimantMachineId: asMachineId(ctx.machineId),
+      machineAccess: msg.binding.machineAccess,
+      principal: msg.binding.principal,
+      ...(msg.binding.issueId ? { issueId: msg.binding.issueId } : {}),
+      ...(msg.binding.requestedScope ? { requestedScope: msg.binding.requestedScope } : {}),
+      ...(msg.binding.scopeOverrideConfirmed ? { scopeOverrideConfirmed: true } : {}),
+      attemptId: label,
+      observationGeneration: msg.observationGeneration,
+    })
+    const failure = bindingFailureMessage(outcome)
+    if (failure) {
+      ctx.send({
+        type: 'spawnError',
+        sessionId: msg.sessionId,
+        message: failure,
+      })
+      return
+    }
+  }
+  await launchSpawn(ctx, msg)
+}
 
 // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is
 // independent, so handle them off the synchronous message dispatch — async existence
@@ -264,6 +333,36 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
 // reattach for sessions we already hold — re-confirm the bind instead of spawning a
 // duplicate client), and gated so the spawn fan-out can't fork everything in one tick.
 async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise<void> {
+  if (!msg.binding) {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: MISSING_SESSION_BINDING_MESSAGE,
+    })
+    return
+  }
+  if (msg.binding) {
+    const outcome = await ctx.sessionBinding.transition({
+      event: 'reattach',
+      transitionId: msg.binding.transitionId,
+      sessionId: msg.sessionId,
+      claimantMachineId: asMachineId(ctx.machineId),
+      machineAccess: msg.binding.machineAccess,
+      sessionAccess: msg.binding.sessionAccess,
+      principal: msg.binding.principal,
+      requestedGeneration: msg.observationGeneration ?? 1,
+      attemptId: msg.durableLabel,
+    })
+    const failure = bindingFailureMessage(outcome)
+    if (failure) {
+      ctx.send({
+        type: 'reattachFailed',
+        sessionId: msg.sessionId,
+        reason: failure,
+      })
+      return
+    }
+  }
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced
@@ -358,9 +457,9 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     let found: { session: AgentSession; cmd: string } | undefined
     // Backend-agnostic: try whichever durable host owns the label, so sessions
     // created under tmux before an abduco upgrade still reattach (no flag day).
-    if (ctx.backend !== 'none' && (await abducoHasSessionAsync(msg.durableLabel))) {
+    if (ctx.backend !== 'none' && (await abducoHasSession(msg.durableLabel))) {
       found = { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.durableLabel}` }
-    } else if (ctx.backend !== 'none' && (await tmuxHasSessionAsync(msg.durableLabel))) {
+    } else if (ctx.backend !== 'none' && (await tmuxHasSession(msg.durableLabel))) {
       found = { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
     }
     if (!found) {
@@ -413,7 +512,9 @@ export const sessionHandlers: Pick<
   | 'sessionOpenUrlCallback'
   | 'sessionOpenUrlDismiss'
 > = {
-  spawn,
+  spawn: (ctx, msg) => {
+    void handleSpawn(ctx, msg)
+  },
   reattach: (ctx, msg) => {
     void handleReattach(ctx, msg)
   },
@@ -430,16 +531,16 @@ export const sessionHandlers: Pick<
     // bridge (attachDaemon only re-binds 'reconnecting' sessions); if kill
     // skipped the reap there, hibernate/kill would leave the abduco/tmux
     // master (and its agent) running. Both reapers are cheap no-ops when the
-    // label isn't theirs. Async twins (audit P0-4): the sync reapers fork+exec
-    // `abduco`/`tmux` on the loop, and kills arrive in bursts (superagent,
-    // auto-hibernation) — serializing those would stall every other session.
+    // label isn't theirs. The async reapers keep burst kills (superagent,
+    // auto-hibernation) from stalling every other session.
     if (ctx.backend !== 'none') {
       const durableLabel =
         msg.durableLabel ??
         ctx.durableLabels.get(msg.sessionId) ??
         ctx.durableLabelFor(msg.sessionId)
-      void killAbducoSessionAsync(durableLabel)
-      void killTmuxServerAsync(durableLabel)
+      void (async () => {
+        await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+      })()
     }
     ctx.durableLabels.delete(msg.sessionId)
     removeSessionUploads(msg.sessionId)
@@ -473,8 +574,8 @@ export const sessionHandlers: Pick<
     ctx.observers.onProviderRebindAck(msg)
   },
   sessionResumeRefAck: (ctx, msg) => {
-    void ctx.codexIdentityReceipts
-      .acknowledge(msg.sessionId, msg.resume)
+    void ctx.bindingStore
+      .acknowledgePendingReceipt(msg.ownerId, msg.sessionId, msg.resume)
       .catch((err) => console.warn('[podium] could not acknowledge Codex identity receipt:', err))
   },
   sessionPriority: (ctx, msg) => {
@@ -544,5 +645,26 @@ export function browserOpenEnv(
   return {
     BROWSER: join(shimDir, 'podium-browser-open'),
     PATH: inheritedPath ? `${shimDir}:${inheritedPath}` : shimDir,
+  }
+}
+function bindingFailureMessage(outcome: SessionBindingTransitionOutcome): string | undefined {
+  switch (outcome.status) {
+    case 'applied':
+    case 'unchanged':
+    case 'redundant':
+      return undefined
+    case 'denied':
+      switch (outcome.reason) {
+        case 'machine-use-denied':
+          return 'you do not have access to this machine'
+        case 'not-found':
+          return 'session not found'
+        case 'not-claimant':
+          return 'session reattach claimed by another principal'
+      }
+    case 'unreachable':
+      return 'target machine is unreachable'
+    case 'rejected':
+      return `binding transition rejected: ${outcome.reason}`
   }
 }

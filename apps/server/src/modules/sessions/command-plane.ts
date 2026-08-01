@@ -37,6 +37,7 @@ import {
   type sessionCommandPlaneInputs,
 } from '@podium/commands'
 import type { AgentKind, IssueId, SessionId } from '@podium/model'
+import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
 
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -238,6 +239,18 @@ export class SessionCommandCtx {
  */
 export function spawnedByFor(principal: CommandPrincipal): string {
   return principal.kind === 'user' ? 'user' : attributionOf(principal).actor
+}
+/** Binding authority from the already-resolved transport principal. There is no
+ * payload parameter from which a caller could forge either identity half. */
+export function bindingPrincipalFor(principal: CommandPrincipal): SessionBindingSpawnPrincipal {
+  switch (principal.kind) {
+    case 'user':
+      return { kind: 'user', userId: principal.user }
+    case 'agent':
+      return { kind: 'agent', parentBindingId: principal.agentSessionId }
+    case 'system':
+      return { kind: 'system' }
+  }
 }
 
 /**
@@ -454,6 +467,15 @@ export const SESSION_COMMAND_HANDLERS = {
       use: ctx.machineUse,
       spawnedBy: spawnedByFor(ctx.principal),
       ownerUserId: ownership.owner as import('@podium/model').UserId,
+      binding: {
+        principal: bindingPrincipalFor(ctx.principal),
+        ...(ctx.overrideScope && ctx.principal.kind !== 'system'
+          ? {
+              requestedScope: ctx.principal.capability.scope,
+              scopeOverrideConfirmed: true,
+            }
+          : {}),
+      },
     })
   },
 
@@ -608,7 +630,7 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
   // `use` and owner checks, so a replay whose grant was revoked is refused by
   // those gates on the way in rather than served out of the dedup cache (ADR 3 D8
   // / readiness §3.1.3 A1). The ledger is entered before the handler and the
-  // handler is what re-authorizes, which is the same order the presence envelope
+  // handler is what re-authorizes, which is the same order the session-state envelope
   // states explicitly.
   //
   // A command whose input carries no `mutationId` passes through unchanged — the

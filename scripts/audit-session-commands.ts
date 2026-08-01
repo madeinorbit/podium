@@ -21,8 +21,9 @@
  *    checkout, in a worktree with no local install of the `@podium` scope (where
  *    importing a workspace package fails outright), and before anything is built.
  *    It catches the textual regressions a runtime check cannot see: a contract added
- *    without a `visibility:` line (the field is OPTIONAL on `CommandDef`, so the
- *    typechecker will not ask), a hand-written `.mutation(` reappearing inside a
+ *    without a `visibility:` or `exposure:` line (both fields are OPTIONAL on
+ *    `CommandDef`, so the typechecker will not ask), a hand-written `.mutation(`
+ *    reappearing inside a
  *    session router literal, `withMutation` growing back as a service method.
  *
  * ---------------------------------------------------------------------------
@@ -40,6 +41,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stripCommentsAndStrings } from './audit-router-mutations'
 
 // ---------------------------------------------------------------------------
 // Findings
@@ -129,12 +131,12 @@ export function handWrittenSessionMutations(routerSource: string, file: string):
 }
 
 // ---------------------------------------------------------------------------
-// 2 — every session-family contract declares its visibility class
+// 2 — every session-family contract declares its visibility and exposure
 // ---------------------------------------------------------------------------
 
 /**
  * Every `const <name>: CommandDef = { … }` in a contract table must declare
- * `visibility`.
+ * `visibility` and `exposure`.
  *
  * This is the check the TYPE cannot make: `CommandDef.visibility` is optional so the
  * ~70 issue and lock defs that predate the facet still compile, and ADR 9 D4's
@@ -160,12 +162,22 @@ export function undeclaredVisibility(source: string, file: string): Finding[] {
         }
       }
     }
-    const body = source.slice(open, end)
+    // Property declarations must be CODE. A comment or a decision string that
+    // happens to say `visibility:` / `exposure:` is not a declaration and must
+    // not hold this gate green (POD-310's prose-shadowing finding).
+    const body = stripCommentsAndStrings(source.slice(open, end))
     if (!/^\s*visibility:/m.test(body)) {
       findings.push({
         check: 'visibility-totality',
         where: `${file}:${source.slice(0, match.index).split('\n').length}`,
         detail: `contract \`${name}\` declares no visibility class (ADR 9 D4 — an omission resolves to personal SILENTLY)`,
+      })
+    }
+    if (!/^\s*exposure:/m.test(body)) {
+      findings.push({
+        check: 'exposure-totality',
+        where: `${file}:${source.slice(0, match.index).split('\n').length}`,
+        detail: `contract \`${name}\` declares no transport exposure (ADR 3 D3 — an omission resolves to served nowhere SILENTLY)`,
       })
     }
     if (!/^\s*policy:/m.test(body)) {
@@ -282,7 +294,7 @@ const ROUTER = 'apps/server/src/router.ts'
  * `contract-table-missing` finding, and `--probe` exercises that arm.
  */
 const CONTRACT_TABLES = [
-  'packages/commands/src/sessions/presence-commands.ts',
+  'packages/commands/src/sessions/session-state-commands.ts',
   'packages/commands/src/sessions/command-plane.ts',
 ]
 const SERVICE = 'apps/server/src/modules/sessions/service.ts'
@@ -373,6 +385,7 @@ export function probe(): Finding[] {
         '  input: z.object({}),',
         "  policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },",
         "  visibility: 'personal',",
+        "  exposure: ['trpc'],",
         '}',
         '',
         'const forgotten: CommandDef = {',
@@ -382,6 +395,21 @@ export function probe(): Finding[] {
       ].join('\n'),
       '<probe>',
     ),
+  )
+  expect(
+    'exposure-totality',
+    undeclaredVisibility(
+      [
+        'const forgotten: CommandDef = {',
+        '  input: z.object({}),',
+        "  policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },",
+        "  visibility: 'personal',",
+        "  // exposure: ['trpc'] is prose, not a declaration",
+        "  decision: 'exposure: trpc was considered',",
+        '}',
+      ].join('\n'),
+      '<probe>',
+    ).filter((finding) => finding.check === 'exposure-totality'),
   )
   expect(
     'framework-idempotency',
@@ -429,7 +457,8 @@ export function probe(): Finding[] {
   // …and it must NOT fire when the table is there.
   if (
     contractTableFindings('<probe>', () => ({
-      source: "const x: CommandDef = {\n  visibility: 'personal',\n  policy: {},\n}\n",
+      source:
+        "const x: CommandDef = {\n  visibility: 'personal',\n  exposure: ['trpc'],\n  policy: {},\n}\n",
     })).length > 0
   ) {
     failures.push({
@@ -452,7 +481,9 @@ function main(): void {
     process.exit(2)
   }
   if (wants('--probe')) {
-    console.log('session-surface audit: all 5 checks found their planted fixtures, and both non-firing probes stayed silent')
+    console.log(
+      'session-surface audit: all 6 checks found their planted fixtures, and both non-firing probes stayed silent',
+    )
     return
   }
 
@@ -466,7 +497,7 @@ function main(): void {
     console.error(
       `Session-surface audit: ${findings.length} finding(s). The 3.2 cutover's claims are:\n` +
         '  · every session mutation is DERIVED from a contract (no hand-written procedure)\n' +
-        '  · every session-family contract DECLARES its visibility class and its policy\n' +
+        '  · every session-family contract DECLARES visibility, exposure and policy\n' +
         '  · idempotency is the framework ledger, not a per-proc wrapper\n' +
         '  · per-user state is keyed (userId, entityId), never an instance-wide singleton\n',
     )

@@ -27,7 +27,7 @@
  */
 
 import type { CommandContract } from '@podium/commands'
-import { ISSUE_CONTRACTS, presenceCommand } from '@podium/commands'
+import { ISSUE_CONTRACTS, sessionStateCommand } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { OUTBOX_COMMANDS } from './wiring'
 
@@ -39,7 +39,7 @@ for (const contract of Object.values(ISSUE_CONTRACTS)) {
   byName.set((contract as CommandContract).name, contract as CommandContract)
 }
 /**
- * Only a FULL contract can be compared: `presenceCommand` returns the leaf
+ * Only a FULL contract can be compared: `sessionStateCommand` returns the leaf
  * `CommandDef` (action + scope), which has no `policy` and no `delivery`. A
  * first draft cast it to `CommandContract` anyway and every presence row failed
  * with "expected 'none' to be undefined" — the cast silenced the type system

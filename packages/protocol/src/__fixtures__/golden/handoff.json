@@ -3,6 +3,508 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
+      "schema": "HandoffBindingExportInstruction",
+      "variant": "minimal",
+      "wire": {
+        "transitionId": "transitionId",
+        "transferId": "transferId",
+        "targetMachineId": "targetMachineId",
+        "machineAccess": "allowed",
+        "exportedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "exportedBy.actor.id"
+          },
+          "onBehalfOf": null
+        },
+        "owner": "owner",
+        "visibility": "personal"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"allowed\",\"exportedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":null},\"owner\":\"owner\",\"visibility\":\"personal\"}"
+    },
+    {
+      "schema": "HandoffBindingExportInstruction",
+      "variant": "full/arm0",
+      "wire": {
+        "transitionId": "transitionId",
+        "transferId": "transferId",
+        "targetMachineId": "targetMachineId",
+        "machineAccess": "allowed",
+        "exportedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "exportedBy.actor.id"
+          },
+          "onBehalfOf": "exportedBy.onBehalfOf"
+        },
+        "owner": "owner",
+        "visibility": "personal"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"allowed\",\"exportedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"personal\"}"
+    },
+    {
+      "schema": "HandoffBindingExportInstruction",
+      "variant": "full/arm1",
+      "wire": {
+        "transitionId": "transitionId",
+        "transferId": "transferId",
+        "targetMachineId": "targetMachineId",
+        "machineAccess": "denied",
+        "exportedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "exportedBy.actor.id"
+          },
+          "onBehalfOf": "exportedBy.onBehalfOf"
+        },
+        "owner": "owner",
+        "visibility": "per-user-state"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"denied\",\"exportedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"per-user-state\"}"
+    },
+    {
+      "schema": "HandoffBindingExportInstruction",
+      "variant": "full/arm2",
+      "wire": {
+        "transitionId": "transitionId",
+        "transferId": "transferId",
+        "targetMachineId": "targetMachineId",
+        "machineAccess": "unreachable",
+        "exportedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "exportedBy.actor.id"
+          },
+          "onBehalfOf": "exportedBy.onBehalfOf"
+        },
+        "owner": "owner",
+        "visibility": "owned-compute"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"owned-compute\"}"
+    },
+    {
+      "schema": "HandoffBindingExportInstruction",
+      "variant": "full/arm3",
+      "wire": {
+        "transitionId": "transitionId",
+        "transferId": "transferId",
+        "targetMachineId": "targetMachineId",
+        "machineAccess": "unreachable",
+        "exportedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "exportedBy.actor.job"
+          },
+          "onBehalfOf": "exportedBy.onBehalfOf"
+        },
+        "owner": "owner",
+        "visibility": "deployment-substrate"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"exportedBy.actor.job\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"deployment-substrate\"}"
+    },
+    {
+      "schema": "HandoffBindingFinalizeRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "handoffBindingFinalizeRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "transferId": "transferId",
+        "role": "source",
+        "phase": "commit",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffBindingFinalizeRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transferId\":\"transferId\",\"role\":\"source\",\"phase\":\"commit\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\"}"
+    },
+    {
+      "schema": "HandoffBindingFinalizeRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "handoffBindingFinalizeRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "transferId": "transferId",
+        "role": "source",
+        "phase": "commit",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffBindingFinalizeRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transferId\":\"transferId\",\"role\":\"source\",\"phase\":\"commit\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\"}"
+    },
+    {
+      "schema": "HandoffBindingFinalizeResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "handoffBindingFinalizeResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffBindingFinalizeResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HandoffBindingFinalizeResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "handoffBindingFinalizeResult",
+        "requestId": "requestId",
+        "ok": true,
+        "observationGeneration": 1,
+        "error": "error",
+        "refusal": "unauthorized"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffBindingFinalizeResult\",\"requestId\":\"requestId\",\"ok\":true,\"observationGeneration\":1,\"error\":\"error\",\"refusal\":\"unauthorized\"}"
+    },
+    {
+      "schema": "HandoffBindingImportInstruction",
+      "variant": "minimal",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "transfer": {
+          "transferId": "transfer.transferId",
+          "sessionId": "transfer.sessionId",
+          "agentKind": "claude-code",
+          "fromMachineId": "transfer.fromMachineId",
+          "toMachineId": "transfer.toMachineId",
+          "observationGeneration": 1,
+          "delegation": {
+            "actor": "transfer.delegation.actor",
+            "onBehalfOf": "transfer.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "all"
+            },
+            "parentBindingId": null
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":null}}}"
+    },
+    {
+      "schema": "HandoffBindingImportInstruction",
+      "variant": "full/arm0",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "allowed",
+        "transfer": {
+          "transferId": "transfer.transferId",
+          "sessionId": "transfer.sessionId",
+          "agentKind": "claude-code",
+          "fromMachineId": "transfer.fromMachineId",
+          "toMachineId": "transfer.toMachineId",
+          "observationGeneration": 1,
+          "delegation": {
+            "actor": "transfer.delegation.actor",
+            "onBehalfOf": "transfer.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "all"
+            },
+            "parentBindingId": "transfer.delegation.parentBindingId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+    },
+    {
+      "schema": "HandoffBindingImportInstruction",
+      "variant": "full/arm1",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "denied",
+        "transfer": {
+          "transferId": "transfer.transferId",
+          "sessionId": "transfer.sessionId",
+          "agentKind": "codex",
+          "fromMachineId": "transfer.fromMachineId",
+          "toMachineId": "transfer.toMachineId",
+          "observationGeneration": 2,
+          "delegation": {
+            "actor": "transfer.delegation.actor",
+            "onBehalfOf": "transfer.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "none"
+            },
+            "parentBindingId": "transfer.delegation.parentBindingId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"denied\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+    },
+    {
+      "schema": "HandoffBindingImportInstruction",
+      "variant": "full/arm2",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "unreachable",
+        "transfer": {
+          "transferId": "transfer.transferId",
+          "sessionId": "transfer.sessionId",
+          "agentKind": "grok",
+          "fromMachineId": "transfer.fromMachineId",
+          "toMachineId": "transfer.toMachineId",
+          "observationGeneration": 3,
+          "delegation": {
+            "actor": "transfer.delegation.actor",
+            "onBehalfOf": "transfer.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "subtree",
+              "rootId": "transfer.delegation.grantedScope.rootId"
+            },
+            "parentBindingId": "transfer.delegation.parentBindingId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"transfer.delegation.grantedScope.rootId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+    },
+    {
+      "schema": "HandoffBindingImportInstruction",
+      "variant": "full/arm3",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "unreachable",
+        "transfer": {
+          "transferId": "transfer.transferId",
+          "sessionId": "transfer.sessionId",
+          "agentKind": "opencode",
+          "fromMachineId": "transfer.fromMachineId",
+          "toMachineId": "transfer.toMachineId",
+          "observationGeneration": 4,
+          "delegation": {
+            "actor": "transfer.delegation.actor",
+            "onBehalfOf": "transfer.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "owned",
+              "userId": "transfer.delegation.grantedScope.userId"
+            },
+            "parentBindingId": "transfer.delegation.parentBindingId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+    },
+    {
+      "schema": "HandoffBindingImportInstruction",
+      "variant": "full/arm4",
+      "wire": {
+        "transitionId": "transitionId",
+        "machineAccess": "unreachable",
+        "transfer": {
+          "transferId": "transfer.transferId",
+          "sessionId": "transfer.sessionId",
+          "agentKind": "cursor",
+          "fromMachineId": "transfer.fromMachineId",
+          "toMachineId": "transfer.toMachineId",
+          "observationGeneration": 5,
+          "delegation": {
+            "actor": "transfer.delegation.actor",
+            "onBehalfOf": "transfer.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "self",
+              "userId": "transfer.delegation.grantedScope.userId"
+            },
+            "parentBindingId": "transfer.delegation.parentBindingId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+    },
+    {
+      "schema": "HandoffBindingTransfer",
+      "variant": "minimal",
+      "wire": {
+        "transferId": "transferId",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId",
+        "observationGeneration": 1,
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "all"
+          },
+          "parentBindingId": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":null}}"
+    },
+    {
+      "schema": "HandoffBindingTransfer",
+      "variant": "full/arm0",
+      "wire": {
+        "transferId": "transferId",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId",
+        "observationGeneration": 1,
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "all"
+          },
+          "parentBindingId": "delegation.parentBindingId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+    },
+    {
+      "schema": "HandoffBindingTransfer",
+      "variant": "full/arm1",
+      "wire": {
+        "transferId": "transferId",
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId",
+        "observationGeneration": 2,
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "none"
+          },
+          "parentBindingId": "delegation.parentBindingId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+    },
+    {
+      "schema": "HandoffBindingTransfer",
+      "variant": "full/arm2",
+      "wire": {
+        "transferId": "transferId",
+        "sessionId": "sessionId",
+        "agentKind": "grok",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId",
+        "observationGeneration": 3,
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "subtree",
+            "rootId": "delegation.grantedScope.rootId"
+          },
+          "parentBindingId": "delegation.parentBindingId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+    },
+    {
+      "schema": "HandoffBindingTransfer",
+      "variant": "full/arm3",
+      "wire": {
+        "transferId": "transferId",
+        "sessionId": "sessionId",
+        "agentKind": "opencode",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId",
+        "observationGeneration": 4,
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "owned",
+            "userId": "delegation.grantedScope.userId"
+          },
+          "parentBindingId": "delegation.parentBindingId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+    },
+    {
+      "schema": "HandoffBindingTransfer",
+      "variant": "full/arm4",
+      "wire": {
+        "transferId": "transferId",
+        "sessionId": "sessionId",
+        "agentKind": "cursor",
+        "fromMachineId": "fromMachineId",
+        "toMachineId": "toMachineId",
+        "observationGeneration": 5,
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "self",
+            "userId": "delegation.grantedScope.userId"
+          },
+          "parentBindingId": "delegation.parentBindingId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+    },
+    {
       "schema": "HandoffChunkReadRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -87,7 +589,7 @@
     },
     {
       "schema": "HandoffExportRequestMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "handoffExportRequest",
         "requestId": "requestId",
@@ -104,12 +606,150 @@
         "repoId": "repoId",
         "title": "title",
         "issueId": "issueId",
-        "sourceMachineId": "sourceMachineId"
+        "sourceMachineId": "sourceMachineId",
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "transferId": "binding.transferId",
+          "targetMachineId": "binding.targetMachineId",
+          "machineAccess": "allowed",
+          "exportedBy": {
+            "actor": {
+              "kind": "user",
+              "id": "binding.exportedBy.actor.id"
+            },
+            "onBehalfOf": "binding.exportedBy.onBehalfOf"
+          },
+          "owner": "binding.owner",
+          "visibility": "personal"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\"}"
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"allowed\",\"exportedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"personal\"}}"
+    },
+    {
+      "schema": "HandoffExportRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "handoffExportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "cwd": "cwd",
+        "fallbackCwd": "fallbackCwd",
+        "agentKind": "codex",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "branch": "branch",
+        "baseShas": ["baseShas[0]"],
+        "repoId": "repoId",
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "transferId": "binding.transferId",
+          "targetMachineId": "binding.targetMachineId",
+          "machineAccess": "denied",
+          "exportedBy": {
+            "actor": {
+              "kind": "agent",
+              "id": "binding.exportedBy.actor.id"
+            },
+            "onBehalfOf": "binding.exportedBy.onBehalfOf"
+          },
+          "owner": "binding.owner",
+          "visibility": "per-user-state"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"denied\",\"exportedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"per-user-state\"}}"
+    },
+    {
+      "schema": "HandoffExportRequestMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "handoffExportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "cwd": "cwd",
+        "fallbackCwd": "fallbackCwd",
+        "agentKind": "grok",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "branch": "branch",
+        "baseShas": ["baseShas[0]"],
+        "repoId": "repoId",
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "transferId": "binding.transferId",
+          "targetMachineId": "binding.targetMachineId",
+          "machineAccess": "unreachable",
+          "exportedBy": {
+            "actor": {
+              "kind": "machine",
+              "id": "binding.exportedBy.actor.id"
+            },
+            "onBehalfOf": "binding.exportedBy.onBehalfOf"
+          },
+          "owner": "binding.owner",
+          "visibility": "owned-compute"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"grok\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"owned-compute\"}}"
+    },
+    {
+      "schema": "HandoffExportRequestMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "handoffExportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "cwd": "cwd",
+        "fallbackCwd": "fallbackCwd",
+        "agentKind": "opencode",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "branch": "branch",
+        "baseShas": ["baseShas[0]"],
+        "repoId": "repoId",
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "transferId": "binding.transferId",
+          "targetMachineId": "binding.targetMachineId",
+          "machineAccess": "unreachable",
+          "exportedBy": {
+            "actor": {
+              "kind": "system",
+              "job": "binding.exportedBy.actor.job"
+            },
+            "onBehalfOf": "binding.exportedBy.onBehalfOf"
+          },
+          "owner": "binding.owner",
+          "visibility": "deployment-substrate"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"opencode\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"binding.exportedBy.actor.job\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"deployment-substrate\"}}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -157,13 +797,29 @@
         },
         "sizeBytes": 1,
         "stagePath": "stagePath",
+        "binding": {
+          "transferId": "binding.transferId",
+          "sessionId": "binding.sessionId",
+          "agentKind": "claude-code",
+          "fromMachineId": "binding.fromMachineId",
+          "toMachineId": "binding.toMachineId",
+          "observationGeneration": 1,
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "all"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId"
+          }
+        },
         "error": "error",
         "refusal": "unauthorized"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":1,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exportedAt\":\"manifest.exportedAt\"},\"sizeBytes\":1,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unauthorized\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":1,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exportedAt\":\"manifest.exportedAt\"},\"sizeBytes\":1,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unauthorized\"}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -209,13 +865,29 @@
         },
         "sizeBytes": 2,
         "stagePath": "stagePath",
+        "binding": {
+          "transferId": "binding.transferId",
+          "sessionId": "binding.sessionId",
+          "agentKind": "codex",
+          "fromMachineId": "binding.fromMachineId",
+          "toMachineId": "binding.toMachineId",
+          "observationGeneration": 2,
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "none"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId"
+          }
+        },
         "error": "error",
         "refusal": "unreachable"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"per-user-state\"},\"sizeBytes\":2,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unreachable\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"per-user-state\"},\"sizeBytes\":2,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unreachable\"}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -261,13 +933,30 @@
         },
         "sizeBytes": 3,
         "stagePath": "stagePath",
+        "binding": {
+          "transferId": "binding.transferId",
+          "sessionId": "binding.sessionId",
+          "agentKind": "grok",
+          "fromMachineId": "binding.fromMachineId",
+          "toMachineId": "binding.toMachineId",
+          "observationGeneration": 3,
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "subtree",
+              "rootId": "binding.delegation.grantedScope.rootId"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId"
+          }
+        },
         "error": "error",
         "refusal": "unknown-target"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"owned-compute\"},\"sizeBytes\":3,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unknown-target\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"owned-compute\"},\"sizeBytes\":3,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -313,13 +1002,99 @@
         },
         "sizeBytes": 4,
         "stagePath": "stagePath",
+        "binding": {
+          "transferId": "binding.transferId",
+          "sessionId": "binding.sessionId",
+          "agentKind": "opencode",
+          "fromMachineId": "binding.fromMachineId",
+          "toMachineId": "binding.toMachineId",
+          "observationGeneration": 4,
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "owned",
+              "userId": "binding.delegation.grantedScope.userId"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId"
+          }
+        },
         "error": "error",
         "refusal": "unknown-target"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"deployment-substrate\"},\"sizeBytes\":4,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unknown-target\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"deployment-substrate\"},\"sizeBytes\":4,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
+    },
+    {
+      "schema": "HandoffExportResultMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "handoffExportResult",
+        "requestId": "requestId",
+        "ok": true,
+        "manifest": {
+          "format": 2,
+          "sessionId": "manifest.sessionId",
+          "agentKind": "codex",
+          "resume": {
+            "kind": "manifest.resume.kind",
+            "value": "manifest.resume.value"
+          },
+          "transcriptFilename": "manifest.transcriptFilename",
+          "transcriptRelativeDir": "manifest.transcriptRelativeDir",
+          "repoId": "manifest.repoId",
+          "branch": "manifest.branch",
+          "headSha": "manifest.headSha",
+          "snapshotSha": "manifest.snapshotSha",
+          "snapshotFlattened": true,
+          "worktreeName": "manifest.worktreeName",
+          "worktreeRelativePath": "manifest.worktreeRelativePath",
+          "cwdSubpath": "manifest.cwdSubpath",
+          "bundleBase": ["manifest.bundleBase[0]"],
+          "title": "manifest.title",
+          "issueId": "manifest.issueId",
+          "sourceMachineId": "manifest.sourceMachineId",
+          "exported": {
+            "at": "manifest.exported.at",
+            "by": {
+              "actor": {
+                "kind": "system",
+                "job": "manifest.exported.by.actor.job"
+              },
+              "onBehalfOf": "manifest.exported.by.onBehalfOf"
+            }
+          },
+          "owner": "manifest.owner",
+          "visibility": "secret"
+        },
+        "sizeBytes": 5,
+        "stagePath": "stagePath",
+        "binding": {
+          "transferId": "binding.transferId",
+          "sessionId": "binding.sessionId",
+          "agentKind": "cursor",
+          "fromMachineId": "binding.fromMachineId",
+          "toMachineId": "binding.toMachineId",
+          "observationGeneration": 5,
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "self",
+              "userId": "binding.delegation.grantedScope.userId"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId"
+          }
+        },
+        "error": "error",
+        "refusal": "unknown-target"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"secret\"},\"sizeBytes\":5,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
     },
     {
       "schema": "HandoffImportChunkMessage",
@@ -396,19 +1171,186 @@
     },
     {
       "schema": "HandoffImportRequestMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "handoffImportRequest",
         "requestId": "requestId",
         "sessionId": "sessionId",
         "repoPath": "repoPath",
         "worktreeName": "worktreeName",
-        "occupiedWorktreePaths": ["occupiedWorktreePaths[0]"]
+        "occupiedWorktreePaths": ["occupiedWorktreePaths[0]"],
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "allowed",
+          "transfer": {
+            "transferId": "binding.transfer.transferId",
+            "sessionId": "binding.transfer.sessionId",
+            "agentKind": "claude-code",
+            "fromMachineId": "binding.transfer.fromMachineId",
+            "toMachineId": "binding.transfer.toMachineId",
+            "observationGeneration": 1,
+            "delegation": {
+              "actor": "binding.transfer.delegation.actor",
+              "onBehalfOf": "binding.transfer.delegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "all"
+              },
+              "parentBindingId": "binding.transfer.delegation.parentBindingId"
+            }
+          }
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"]}"
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+    },
+    {
+      "schema": "HandoffImportRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "handoffImportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "repoPath": "repoPath",
+        "worktreeName": "worktreeName",
+        "occupiedWorktreePaths": ["occupiedWorktreePaths[0]"],
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "denied",
+          "transfer": {
+            "transferId": "binding.transfer.transferId",
+            "sessionId": "binding.transfer.sessionId",
+            "agentKind": "codex",
+            "fromMachineId": "binding.transfer.fromMachineId",
+            "toMachineId": "binding.transfer.toMachineId",
+            "observationGeneration": 2,
+            "delegation": {
+              "actor": "binding.transfer.delegation.actor",
+              "onBehalfOf": "binding.transfer.delegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "none"
+              },
+              "parentBindingId": "binding.transfer.delegation.parentBindingId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+    },
+    {
+      "schema": "HandoffImportRequestMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "handoffImportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "repoPath": "repoPath",
+        "worktreeName": "worktreeName",
+        "occupiedWorktreePaths": ["occupiedWorktreePaths[0]"],
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "unreachable",
+          "transfer": {
+            "transferId": "binding.transfer.transferId",
+            "sessionId": "binding.transfer.sessionId",
+            "agentKind": "grok",
+            "fromMachineId": "binding.transfer.fromMachineId",
+            "toMachineId": "binding.transfer.toMachineId",
+            "observationGeneration": 3,
+            "delegation": {
+              "actor": "binding.transfer.delegation.actor",
+              "onBehalfOf": "binding.transfer.delegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "subtree",
+                "rootId": "binding.transfer.delegation.grantedScope.rootId"
+              },
+              "parentBindingId": "binding.transfer.delegation.parentBindingId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.transfer.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+    },
+    {
+      "schema": "HandoffImportRequestMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "handoffImportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "repoPath": "repoPath",
+        "worktreeName": "worktreeName",
+        "occupiedWorktreePaths": ["occupiedWorktreePaths[0]"],
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "unreachable",
+          "transfer": {
+            "transferId": "binding.transfer.transferId",
+            "sessionId": "binding.transfer.sessionId",
+            "agentKind": "opencode",
+            "fromMachineId": "binding.transfer.fromMachineId",
+            "toMachineId": "binding.transfer.toMachineId",
+            "observationGeneration": 4,
+            "delegation": {
+              "actor": "binding.transfer.delegation.actor",
+              "onBehalfOf": "binding.transfer.delegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "owned",
+                "userId": "binding.transfer.delegation.grantedScope.userId"
+              },
+              "parentBindingId": "binding.transfer.delegation.parentBindingId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+    },
+    {
+      "schema": "HandoffImportRequestMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "handoffImportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "repoPath": "repoPath",
+        "worktreeName": "worktreeName",
+        "occupiedWorktreePaths": ["occupiedWorktreePaths[0]"],
+        "binding": {
+          "transitionId": "binding.transitionId",
+          "machineAccess": "unreachable",
+          "transfer": {
+            "transferId": "binding.transfer.transferId",
+            "sessionId": "binding.transfer.sessionId",
+            "agentKind": "cursor",
+            "fromMachineId": "binding.transfer.fromMachineId",
+            "toMachineId": "binding.transfer.toMachineId",
+            "observationGeneration": 5,
+            "delegation": {
+              "actor": "binding.transfer.delegation.actor",
+              "onBehalfOf": "binding.transfer.delegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "self",
+                "userId": "binding.transfer.delegation.grantedScope.userId"
+              },
+              "parentBindingId": "binding.transfer.delegation.parentBindingId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
     },
     {
       "schema": "HandoffImportResultMessage",
@@ -432,13 +1374,14 @@
         "ok": true,
         "newCwd": "newCwd",
         "worktreeRoot": "worktreeRoot",
+        "observationGeneration": 1,
         "error": "error",
         "refusal": "unauthorized"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffImportResult\",\"requestId\":\"requestId\",\"ok\":true,\"newCwd\":\"newCwd\",\"worktreeRoot\":\"worktreeRoot\",\"error\":\"error\",\"refusal\":\"unauthorized\"}"
+      "encoded": "{\"type\":\"handoffImportResult\",\"requestId\":\"requestId\",\"ok\":true,\"newCwd\":\"newCwd\",\"worktreeRoot\":\"worktreeRoot\",\"observationGeneration\":1,\"error\":\"error\",\"refusal\":\"unauthorized\"}"
     }
   ]
 }

@@ -1,6 +1,5 @@
 import { HarnessAgent } from '@podium/model'
 import {
-  AGENT_CAPABILITIES,
   BUILTIN_HARNESS_KINDS,
   type BuiltinHarnessKind,
   HarnessId,
@@ -14,7 +13,18 @@ import {
   supported,
   unsupported,
 } from './manifest.js'
-import { AGENT_MANIFESTS, agentStateProviderFor, manifestFor } from './registry.js'
+import {
+  AGENT_MANIFESTS,
+  agentStateProviderFor,
+  harnessCapabilitiesFor,
+  harnessDisplayName,
+  harnessResumeKind,
+  harnessShowsPromptModeHints,
+  harnessSupportsHandoff,
+  harnessSupportsMcp,
+  manifestFor,
+  transcriptRecordMapperFor,
+} from './registry.js'
 
 const CAPABILITY_FIELDS = [
   'argvPrompt',
@@ -25,6 +35,15 @@ const CAPABILITY_FIELDS = [
   'composerScrape',
   'oscTitle',
   'subagentModelEnv',
+  'promptModeHints',
+  'handoff',
+  'mcp',
+  'observationProvider',
+  'observationProtocol',
+  'submitVerification',
+  'exclusiveInteractiveResume',
+  'promptTitleFallback',
+  'mcpConfigTransport',
   'hookInstall',
 ] as const
 
@@ -33,6 +52,7 @@ const CAPABILITY_FIELDS = [
 const DECLARED_FIELDS = [
   'exec',
   'headless',
+  'handoffTranscript',
   'state',
   'observer',
   'transcript',
@@ -42,13 +62,12 @@ const DECLARED_FIELDS = [
 describe('agent manifest registry', () => {
   it('has one manifest per builtin harness kind with every capability field declared', () => {
     // 'New harness = one manifest file + registry entry': every BuiltinHarnessKind
-    // has a manifest, keyed by its own kind, embedding its protocol capability row
-    // with ALL fields present (no partial rows sneaking in via casts).
+    // has a manifest, keyed by its own kind, carrying ALL capability fields
+    // directly (no parallel table and no partial rows sneaking in via casts).
     for (const kind of BUILTIN_HARNESS_KINDS) {
       const manifest = AGENT_MANIFESTS[kind]
       expect(manifest, `missing manifest for ${kind}`).toBeDefined()
       expect(manifest.kind).toBe(kind)
-      expect(manifest.capabilities).toBe(AGENT_CAPABILITIES[kind])
       for (const field of CAPABILITY_FIELDS) {
         expect(manifest.capabilities[field], `${kind}.capabilities.${field}`).toBeDefined()
       }
@@ -95,6 +114,12 @@ describe('agent manifest registry', () => {
       expect(transcript.chainPaths.supported, `${kind} chainPaths vs storage`).toBe(
         transcript.storage === 'file-chain',
       )
+      expect(transcript.recordToItems.supported, `${kind} record mapper vs storage`).toBe(
+        transcript.storage === 'file-chain',
+      )
+      expect(typeof transcriptRecordMapperFor(kind), kind).toBe(
+        transcript.storage === 'file-chain' ? 'function' : 'undefined',
+      )
     }
   })
 
@@ -104,6 +129,7 @@ describe('agent manifest registry', () => {
       if (!headless) continue
       expect(headless.driver, kind).toBeDefined()
       expect(headless.resumeIdAllocation, kind).toBeDefined()
+      expect(headless.outputFormat, kind).toBeDefined()
       expect(headless.buildExec.supported, `${kind} buildExec vs driver`).toBe(
         headless.driver !== 'claude-sdk',
       )
@@ -131,6 +157,28 @@ describe('agent manifest registry', () => {
     expect(manifestFor('shell')).toBeUndefined()
     expect(manifestFor('not-a-kind')).toBeUndefined()
     expect(agentStateProviderFor('shell')).toBeUndefined()
+    expect(harnessCapabilitiesFor('shell')).toBeUndefined()
+    expect(transcriptRecordMapperFor('not-a-kind')).toBeUndefined()
+  })
+
+  it('derives capability answers from manifests and degrades unknown ids closed', () => {
+    expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessSupportsHandoff(kind))).toEqual([
+      'claude-code',
+      'codex',
+    ])
+    expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessShowsPromptModeHints(kind))).toEqual([
+      'claude-code',
+    ])
+    expect(harnessSupportsHandoff('future-harness')).toBe(false)
+    expect(harnessShowsPromptModeHints('future-harness')).toBe(false)
+    expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessSupportsMcp(kind))).toEqual([
+      'claude-code',
+      'codex',
+    ])
+    expect(harnessDisplayName('claude-code')).toBe('Claude')
+    expect(harnessDisplayName('future-harness')).toBe('future-harness')
+    expect(harnessResumeKind('codex')).toBe('codex-thread')
+    expect(harnessResumeKind('future-harness')).toBeUndefined()
   })
 })
 
@@ -177,7 +225,8 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       // set — the point is that the SHAPE is satisfiable, not that a sixth
       // harness exists.
       kind: fictional,
-      capabilities: AGENT_CAPABILITIES['claude-code'],
+      displayName: 'Fictional',
+      capabilities: { ...AGENT_MANIFESTS['claude-code'].capabilities },
       resumeKind: 'fictional-session',
       inventory: {
         binCandidates: () => ['fictional'],
@@ -201,6 +250,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       observer: unsupported('no native store to observe yet'),
       transcript: unsupported('no transcript reader yet'),
       classifyBrowserOpen: unsupported('no known domains'),
+      handoffTranscript: unsupported('no cross-machine handoff yet'),
     }
 
     // Every degraded axis reads as explicitly-unsupported WITH a reason — never as

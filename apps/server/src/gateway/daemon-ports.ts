@@ -90,6 +90,7 @@ export interface RpcDaemonPort {
   onHandoffChunkReadResult(msg: DaemonFrame<'handoffChunkReadResult'>): void
   onHandoffImportChunkResult(msg: DaemonFrame<'handoffImportChunkResult'>): void
   onHandoffImportResult(msg: DaemonFrame<'handoffImportResult'>): void
+  onHandoffBindingFinalizeResult(msg: DaemonFrame<'handoffBindingFinalizeResult'>): void
   onWorkspaceExportResult(msg: DaemonFrame<'workspaceExportResult'>): void
   onWorkspaceImportResult(msg: DaemonFrame<'workspaceImportResult'>): void
   onWorkspaceCleanResult(msg: DaemonFrame<'workspaceCleanResult'>): void
