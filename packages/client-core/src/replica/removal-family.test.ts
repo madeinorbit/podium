@@ -86,7 +86,7 @@ import {
 } from '@podium/sync/replica'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { FeedServerFrame } from '../transport'
+import type { FeedServerFrame } from '../socket-transport'
 import { FeedAuthorityClient } from './feed/authority-client'
 import { PushedBootstrapSource } from './feed/bootstrap-source'
 import { FeedSink } from './feed/sink'

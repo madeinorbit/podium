@@ -8,11 +8,11 @@
  * timeline, and every unit test green.
  */
 
+import type { MetadataAppliedState } from '../socket-transport'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { COLD_CURSOR } from '../replica/feed'
 import { createReplica, memoryStorage } from '../replica/replica'
-import type { MetadataAppliedState } from '../transport'
 import { createEngineHub } from './wiring'
 
 /** Build the hub wiring over a real replica, capturing the persist hook. */

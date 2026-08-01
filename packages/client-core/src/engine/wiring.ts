@@ -9,6 +9,7 @@
 import type { ConfirmationRule } from '@podium/commands'
 import type { SessionId, WorkState } from '@podium/model'
 import { ENQUEUEABLE_DELIVERY, type OutboxCommand } from '@podium/sync/outbox'
+import { type FeedSinkPort, SocketHub } from '../socket-transport'
 import type { PodiumClientApi } from '../api'
 import {
   Outbox,
@@ -20,7 +21,6 @@ import {
 import { reasonSummary } from '../outbox-recovery-copy'
 import { advanceCursor, identityVerdict } from '../replica/feed'
 import type { Replica } from '../replica/replica'
-import { type FeedSinkPort, SocketHub } from '../transport'
 import type { StoreNotices } from './types'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md

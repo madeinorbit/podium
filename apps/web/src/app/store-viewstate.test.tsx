@@ -73,7 +73,7 @@ class FakeHub {
   sendSessionDraft() {}
 }
 
-vi.mock('@podium/client-core/transport', () => ({
+vi.mock('@podium/client-core/socket-transport', () => ({
   SocketHub: FakeHub,
 }))
 

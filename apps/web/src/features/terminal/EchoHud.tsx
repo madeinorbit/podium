@@ -1,4 +1,4 @@
-import type { SocketHub } from '@podium/client-core/transport'
+import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { MountedSession } from '@podium/terminal-client'
 import type { JSX, RefObject } from 'react'
 import { useEffect, useState } from 'react'
