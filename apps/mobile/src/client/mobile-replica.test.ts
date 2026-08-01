@@ -284,7 +284,7 @@ describe('the mobile replica composition root', () => {
     // adapter's commit is synchronous, and that is the property the whole
     // sync-save-over-async-apply binding rests on.
     expect(durableOutbox(file).map((row) => row.mutationId)).toEqual(['m-new'])
-    expect(device.keys()).toEqual([])
+    expect(device.keys()).toEqual(['podium.replica.principal.default.namespace.v1'])
   })
 
   for (const arm of UNATTRIBUTABLE) {
@@ -329,7 +329,7 @@ describe('the mobile replica composition root', () => {
     // half the gate does NOT govern, asserted so the next reader does not mistake it
     // for the gate working.
     expect(outcome.cursorDiscarded).toBe(true)
-    expect(device.keys()).toEqual([])
+    expect(device.keys()).toEqual(['podium.replica.principal.default.namespace.v1'])
 
     const hydrated = await replica.hydrate()
     expect(hydrated.sessions).toEqual([])

@@ -4,7 +4,7 @@
  * object. It owns:
  *
  *  - SocketHub lifecycle + subscription wiring (via the P5a `on()` seam),
- *  - replica hydration + hydrate-first paint (seedMetadata),
+ *  - replica snapshot consumption (hydration/publication live in replica-binding),
  *  - the outbox (durable offline writes) + drain-on-reconnect — whose pending
  *    entries double as THE optimistic overlay (#263, see overlay.ts: replica =
  *    server truth only, snapshots fold rows + pending mutations' patches),
@@ -105,6 +105,11 @@ import {
   VIEW_KEY,
   WT_KEY,
 } from './persistence'
+import {
+  createReplicaBinding,
+  type ReplicaBinding,
+  type ReplicaPublication,
+} from './replica-binding'
 import {
   defaultFormatError,
   NOOP_NOTICES,
@@ -262,6 +267,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly router: Router
   readonly ui: UiState
 
+  private readonly replicaBinding: ReplicaBinding
+
   private readonly api: TApi
   private readonly notices: StoreNotices
   private readonly onFatalError: (message: string) => void
@@ -342,6 +349,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.replica = init.createReplicaFn()
     this.ui = this.replica.uiState()
+    this.replicaBinding = createReplicaBinding({ replica: this.replica })
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,
       api: this.api,
@@ -398,13 +406,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // them BEFORE any subscriber reads — the old useReplicaRows path exposed
     // persisted rows at the very first render, and an empty initial snapshot
     // regressed that into "not found" flashes until start() (a passive effect)
-    // ran. start() stays network/subscription arming only. (The async
-    // `hydrate()` in start() still covers storages that load asynchronously.)
-    const seedSessions = this.replica.rows('sessions')
+    // ran. ReplicaBinding also owns async hydrate for adapters that need it.
+    const replicaSeed = this.replicaBinding.snapshot()
+    const seedSessions = replicaSeed.sessions
     this.baseSessions =
       seedSessions.length === 0 ? seedSessions : dedupeSessionsByResume(seedSessions)
-    this.baseIssues = this.replica.rows('issues')
-    this.baseIssueProjections = this.replica.rows('issueProjections')
+    this.baseIssues = replicaSeed.issues
+    this.baseIssueProjections = replicaSeed.issueProjections
     // Baseline for the worktree-follow diff: the seeded rows are "first sight",
     // not moves (matches the old effect's first observed sessions snapshot).
     this.prevCwds = Object.fromEntries(this.baseSessions.map((s) => [s.sessionId, s.cwd]))
@@ -430,9 +438,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       sessions: seededSessionFold.rows,
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
-      conversations: this.replica.rows('conversations'),
-      automations: this.replica.rows('automations'),
-      automationRuns: this.replica.rows('automationRuns'),
+      conversations: replicaSeed.conversations,
+      automations: replicaSeed.automations,
+      automationRuns: replicaSeed.automationRuns,
       pendingSpawnIds: EMPTY_ID_SET,
       hostMetrics: [],
       machines: [],
@@ -537,19 +545,29 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // armed even if no replica change ever recomputes them.
     this.armAwaitingSweep()
 
-    // Entity state, single-sourced: the hub writes ONLY into the replica
-    // (onMetadataApplied) and the engine re-reads rows on collection changes.
-    // In private browsing the same collections run in memory, so there is no
-    // parallel entity path.
-    offs.push(this.replica.subscribeRows('sessions', () => this.refreshSessionRows()))
-    offs.push(this.replica.subscribeRows('issues', () => this.refreshIssueRows()))
+    // Entity state, single-sourced. ReplicaBinding owns preload + row
+    // subscriptions and publishes a coalesced slice; engine.ts never hydrates or
+    // reaches collection listeners directly.
     offs.push(
-      this.replica.subscribeRows('issueProjections', () => this.refreshIssueProjectionRows()),
+      this.replicaBinding.start({
+        publish: (publication) => this.publishReplica(publication),
+        hydrated: (snap) => {
+          // Wire-v1 compatibility. The kernel feed's persisted slice is already
+          // the first Store paint and must never be copied into v1 hub lists.
+          if (
+            !this.onFeed &&
+            snap.sessions.length +
+              snap.issues.length +
+              snap.conversations.length +
+              snap.automations.length +
+              snap.automationRuns.length >
+              0
+          ) {
+            this.hub.seedMetadata(snap)
+          }
+        },
+      }),
     )
-    offs.push(this.replica.subscribeRows('conversations', () => this.refreshConversationRows()))
-    offs.push(this.replica.subscribeRows('automations', () => this.refreshAutomationRows()))
-    offs.push(this.replica.subscribeRows('automationRuns', () => this.refreshAutomationRunRows()))
-    this.refreshAllRows()
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
@@ -616,34 +634,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.onVisibilityChange()
 
-    // Hydrate-first paint (docs/spec/thin-client-replica.md §2.2): seed the hub's
-    // entity lists from the persisted replica so last-known data shows before
-    // (or without) the network answering. The hydrate microtask resolves before
-    // the deferred connect below, and `seedMetadata` refuses to clobber server
-    // truth if a heal somehow lands first. `hydrate` never throws (a poisoned
-    // replica clears itself and cold-starts).
-    void this.replica.hydrate().then((snap) => {
-      if (
-        // ON THE FEED PATH THERE IS NOTHING TO SEED, and seeding would be
-        // wrong rather than merely redundant: `seedMetadata` fills the hub's
-        // WIRE-v1 metadata lists, which a v2 hub never reads and never
-        // reconciles. Cold-start paint is preserved by a different mechanism —
-        // the kernel Replica's store is already open, so `rows()` reads the
-        // persisted slice on the first render, before any frame arrives.
-        !this.onFeed &&
-        snap.sessions.length +
-          snap.issues.length +
-          snap.conversations.length +
-          snap.automations.length +
-          snap.automationRuns.length >
-          0
-      ) {
-        this.hub.seedMetadata(snap)
-      }
-      // Re-read rows after preload — belt-and-braces for a collection whose
-      // load didn't emit change events.
-      this.refreshAllRows()
-    })
     this.connectTimer = setTimeout(() => {
       this.connectTimer = null
       try {
@@ -1012,43 +1002,28 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // ----------------------------------------------------------- replica ↔ state
 
-  private refreshAllRows(): void {
-    this.refreshSessionRows()
-    this.refreshIssueRows()
-    this.refreshIssueProjectionRows()
-    this.refreshConversationRows()
-    this.refreshAutomationRows()
-    this.refreshAutomationRunRows()
-  }
-
-  private refreshSessionRows(): void {
-    const rows = this.replica.rows('sessions')
-    // Collapse duplicate rows for the same underlying conversation (e.g. a
-    // Codex thread surfaced twice on resume).
-    this.baseSessions = rows.length === 0 ? rows : dedupeSessionsByResume(rows)
-    this.recomputeSessions()
-  }
-
-  private refreshIssueRows(): void {
-    this.baseIssues = this.replica.rows('issues')
-    this.recomputeIssues()
-  }
-
-  private refreshIssueProjectionRows(): void {
-    this.baseIssueProjections = this.replica.rows('issueProjections')
-    this.recomputeIssueProjections()
-  }
-
-  private refreshConversationRows(): void {
-    this.apply({ conversations: this.replica.rows('conversations') })
-  }
-
-  private refreshAutomationRows(): void {
-    this.apply({ automations: this.replica.rows('automations') })
-  }
-
-  private refreshAutomationRunRows(): void {
-    this.apply({ automationRuns: this.replica.rows('automationRuns') })
+  private publishReplica(publication: ReplicaPublication): void {
+    const { snapshot, changed } = publication
+    if (changed.has('sessions')) {
+      const rows = snapshot.sessions
+      // Collapse duplicate rows for the same underlying conversation (e.g. a
+      // Codex thread surfaced twice on resume).
+      this.baseSessions = rows.length === 0 ? rows : dedupeSessionsByResume(rows)
+      this.recomputeSessions()
+    }
+    if (changed.has('issues')) {
+      this.baseIssues = snapshot.issues
+      this.recomputeIssues()
+    }
+    if (changed.has('issueProjections')) {
+      this.baseIssueProjections = snapshot.issueProjections
+      this.recomputeIssueProjections()
+    }
+    const patch: Partial<EngineState> = {}
+    if (changed.has('conversations')) patch.conversations = snapshot.conversations
+    if (changed.has('automations')) patch.automations = snapshot.automations
+    if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
+    this.apply(patch)
   }
 
   /** The pending overlays for one entity, in application order: resolved

@@ -99,11 +99,7 @@ import type {
 import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor, EntityRecord } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
-import {
-  mergeScrubReports,
-  planSecretScrub,
-  type SecretScrubReport,
-} from '../secret-scrub'
+import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import {
   ALL_TABLES,
   applySchema,
@@ -370,6 +366,38 @@ export class SqliteSyncStore {
     const view = new SqliteStoreView(this, principal)
     this.views.set(principal, view)
     return view
+  }
+
+  /**
+   * Erase one principal's entity, cursor and authored-work regions atomically.
+   * This is lifecycle retention/sign-out, not D7 cache healing, so reaching the
+   * outbox is intentional.
+   */
+  async erasePrincipal(principal: string): Promise<void> {
+    this.guardReadable()
+    await this.unitOfWork.transact(async (span) => {
+      const draft = this.draftFor(span)
+      draft.ops.push(
+        {
+          sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
+          params: [principal],
+        },
+        {
+          sql: `DELETE FROM ${META_TABLE} WHERE principal = ?`,
+          params: [principal],
+        },
+        {
+          sql: `DELETE FROM ${OUTBOX_TABLE} WHERE principal = ?`,
+          params: [principal],
+        },
+      )
+      draft.entities.set(principal, new Map())
+      draft.cursors.set(principal, null)
+      draft.outbox.set(principal, [])
+      draft.touchedCache = true
+      draft.touchedOutbox = true
+    })
+    this.views.delete(principal)
   }
 
   /**

@@ -17,10 +17,15 @@
  * carries the reason so Settings can say so.
  */
 
-import type { ReplicaMode } from '@podium/client-core/replica'
+import { inspectPrincipalNamespaces, type ReplicaMode } from '@podium/client-core/replica'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
-import { type KernelAssembly, openKernelAssembly, resolveWebReplicaMode } from './kernelReplica'
+import {
+  KERNEL_SIDE_CACHE_PREFIX,
+  type KernelAssembly,
+  openKernelAssembly,
+  resolveWebReplicaMode,
+} from './kernelReplica'
 import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 
 export type KernelReplicaGate =
@@ -38,16 +43,18 @@ export type KernelReplicaGate =
       readonly authorityScoped: boolean
     }
 
-const IDENTITY_LEDGER_KEY = 'podium-kernel-identity-ledger'
-
 export function recordIdentityEvidence(principal: string): LegacyIdentityEvidence {
   try {
-    const parsed = JSON.parse(globalThis.localStorage.getItem(IDENTITY_LEDGER_KEY) ?? '[]')
-    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== 'string')) {
-      return { kind: 'unknown' }
-    }
-    const identities = [...new Set([...parsed, principal])]
-    globalThis.localStorage.setItem(IDENTITY_LEDGER_KEY, JSON.stringify(identities))
+    const identities = [
+      ...new Set([
+        ...inspectPrincipalNamespaces({
+          storage: globalThis.localStorage,
+          enumerateKeys: () => Object.keys(globalThis.localStorage),
+          basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+        }),
+        principal,
+      ]),
+    ]
     return { kind: 'multi-user', signedInAs: principal, identitiesEverSignedIn: identities }
   } catch {
     return { kind: 'unknown' }

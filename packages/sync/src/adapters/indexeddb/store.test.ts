@@ -297,6 +297,43 @@ describe('IndexedDbSyncStore', () => {
       expect((await readDurable(factory))[ENTITY_STORE]).toHaveLength(1)
       store.close()
     })
+
+    it('sign-out erases entity, cursor and outbox for only that principal', async () => {
+      const store = await open()
+      for (const principal of ['ada', 'grace']) {
+        const view = store.viewFor(principal)
+        view.cache.applyAtomic({
+          operations: [
+            {
+              kind: 'upsert',
+              entity: 'issue',
+              entityId: 'SHARED',
+              value: { owner: principal },
+              provenance: { seq: 1 },
+            },
+          ],
+          cursor: CURSOR,
+        })
+        await view.outbox.apply({
+          put: [record(`m-${principal}`)],
+          expect: [{ mutationId: `m-${principal}` as MutationId, expect: 'absent' }],
+        })
+      }
+      await store.settled()
+      await store.erasePrincipal('ada')
+      store.close()
+
+      const reopened = await open()
+      const ada = reopened.viewFor('ada')
+      expect(ada.cache.readEntities()).toEqual([])
+      expect(ada.cache.readCursor()).toBeNull()
+      expect(await ada.outbox.read()).toEqual([])
+      const grace = reopened.viewFor('grace')
+      expect(grace.cache.read('issue', 'SHARED')?.value).toEqual({ owner: 'grace' })
+      expect(grace.cache.readCursor()).toEqual(CURSOR)
+      expect((await grace.outbox.read()).map((row) => row.mutationId)).toEqual(['m-grace'])
+      reopened.close()
+    })
   })
 
   it('GUARD — the conformance instantiation really is IndexedDB-backed', async () => {

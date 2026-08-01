@@ -19,6 +19,7 @@ import {
   createAsyncStorageReplicaStorage,
   createKernelOutboxStorage,
   createReplica,
+  preparePrincipalNamespace,
   type KernelOutboxStorages,
   REPLICA_KEY_PREFIX,
   type Replica,
@@ -80,6 +81,7 @@ import {
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
+import { fetchAuthStatus } from './auth'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
 
 export interface MobileClientValue {
@@ -102,6 +104,8 @@ export interface MobileClientValue {
   /** The app-wide transport hub; terminal views share it instead of opening another socket. */
   hub: SocketHub | null
   trpc: MobileTrpc
+  /** Principal-scoped UI preference store; no screen writes raw AsyncStorage. */
+  uiState: UiState
   /** The same optimistic draft-issue launch used by desktop's New Agent control. */
   spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
     sessionId: SessionId
@@ -133,6 +137,8 @@ export interface MobileClientValue {
   /** Round-robin triage order: needsYou, then idle, then working. */
   focusSessionIds: string[]
   outboxSize: number
+  /** Default sign-out policy: erase this principal's complete local namespace. */
+  eraseLocalData(): Promise<void>
 }
 
 const MobileClientContext = createContext<MobileClientValue | null>(null)
@@ -189,6 +195,11 @@ function demoValue(config: ServerConfig): MobileClientValue {
         archive: { mutate: noop },
       },
     } as unknown as MobileTrpc,
+    uiState: {
+      get: () => null,
+      set: () => undefined,
+      subscribe: () => () => undefined,
+    },
     spawnDraftAgent: () => ({ sessionId: asSessionId('demo-session'), issueId: 'demo-issue' }),
     sessionById: (id) => sessions.find((s) => s.sessionId === id),
     issueById: (id) => DEMO_ISSUES.find((i) => i.id === id),
@@ -213,6 +224,7 @@ function demoValue(config: ServerConfig): MobileClientValue {
       (s) => s.sessionId,
     ),
     outboxSize: 0,
+    eraseLocalData: noop,
   }
 }
 
@@ -223,16 +235,8 @@ function demoValue(config: ServerConfig): MobileClientValue {
 /** The SQLite file the durable outbox lives in. */
 export const MOBILE_REPLICA_DB = 'podium-replica.db'
 
-/**
- * The principal this device's slice is stored under.
- *
- * `CLIENT_PRINCIPAL_GRADE` is still `device` — `/auth/status` is a shared-password
- * gate and `auth.ts`'s `AuthStatus` carries no user identity — so there is exactly one
- * principal this app can name and it is this constant. It is NOT a placeholder to
- * fill in with a user id later without thought: when per-user login lands, a store
- * keyed `default` holds rows captured before anyone could be attributed, and
- * POD-377's rule applies — adopt only when attribution is CERTAIN.
- */
+/** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
+ * unattributed pre-identity store is accepted only through the injected gate. */
 export const MOBILE_REPLICA_PRINCIPAL = 'default'
 
 /** `ENQUEUEABLE_DELIVERY` is declared against the WHOLE delivery union while
@@ -269,6 +273,10 @@ export interface MobileReplicaDeps {
   /** The hydrated AsyncStorage bridge: the legacy replica's backing AND the
    *  migration's source. */
   readonly storage: StorageApi
+  /** Hydrated AsyncStorage inventory used for namespace retention/erasure. */
+  readonly enumerateKeys?: () => string[]
+  /** Await write-behind durability, especially before sign-out reloads. */
+  readonly flushStorage?: () => Promise<void>
   readonly principal?: string
   /** WHO THIS DEVICE'S EXISTING QUEUE BELONGS TO — the attribution gate's input.
    *  Injected, never derived here: a gate that supplied its own evidence would be
@@ -286,6 +294,9 @@ export interface MobileReplica {
   /** What the migration did — the caller tells the user (D4.4). */
   readonly outcome: LegacyMigrationOutcome
   readonly store: SqliteSyncStore
+  readonly principal: string
+  /** Fail-closed sign-out: erase AsyncStorage and SQLite for this principal. */
+  erase(): Promise<void>
 }
 
 /**
@@ -330,33 +341,35 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
         `Offline changes may not survive a restart on this device (${degradation.cause}).`,
       ),
   })
+  const namespace = preparePrincipalNamespace({
+    storage: deps.storage,
+    enumerateKeys: deps.enumerateKeys ?? (() => []),
+    basePrefix: REPLICA_KEY_PREFIX,
+    principal,
+    now: deps.now,
+  })
+  for (const stalePrincipal of namespace.evictedPrincipals) {
+    await store.erasePrincipal(stalePrincipal)
+  }
   const view = store.viewFor(principal)
   const attribution: OutboxAttribution = {
     actor: { kind: 'user', userId: principal },
     onBehalfOf: principal,
   }
 
-  // ---- THE ATTRIBUTION GATE, before the store answers a single read ---------
-  //
-  // POD-377 built this and POD-378 verified it; until now nothing on either client
-  // called it, and a gate with no caller is indistinguishable from an enforced one
-  // in every handoff that cites it. It guards a privacy rule: POD-307 says a store
-  // that cannot be attributed to the person signed in is DISCARDED and re-bootstrapped,
-  // never adopted, because on a shared device adoption is how one person's queued
-  // writes become another person's — replayed under their name and re-authorized
-  // against their rights, which is not a check that can catch it.
-  //
-  // The default arm is `single-account`, and that is a claim about this tree rather
-  // than a convenience: `AuthStatus` is `{needsAuth, authed}` and nothing else, so no
-  // user identities exist in the system at all and the queue can only be the one
-  // operator's. `auth-status-tripwire.test.ts` fails the day that stops being true.
+  // Default evidence is the per-principal namespace ledger assembled above.
+  // A caller may inject unknown/foreign evidence to exercise the refusal arm.
   const outcome = await migrateLegacyReplica({
     legacy: deps.storage,
     outbox: view.outbox,
     transact: store.unitOfWork.transact,
     resolveCommand: resolveMobileCommand,
     attribution,
-    evidence: deps.evidence ?? { kind: 'single-account', principal },
+    evidence: deps.evidence ?? {
+      kind: 'multi-user',
+      signedInAs: principal,
+      identitiesEverSignedIn: namespace.knownPrincipals,
+    },
     now: deps.now ?? Date.now,
   })
 
@@ -368,9 +381,20 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   })
 
   return {
-    replica: withDurableOutbox(createReplica({ storage: deps.storage }), outboxes),
+    replica: withDurableOutbox(
+      createReplica({ storage: deps.storage, keyPrefix: namespace.keyPrefix }),
+      outboxes,
+    ),
     outcome,
     store,
+    principal,
+    erase: async () => {
+      namespace.erase()
+      await Promise.all([
+        store.erasePrincipal(principal),
+        deps.flushStorage?.() ?? Promise.resolve(),
+      ])
+    },
   }
 }
 
@@ -450,15 +474,22 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // migration then runs BEFORE the store answers a read and the app does not
   // paint until it resolves — a replica read mid-migration would show a slice
   // that is about to be retired.
-  const [replica, setReplica] = useState<Replica | null>(null)
+  const [openedReplica, setOpenedReplica] = useState<MobileReplica | null>(null)
   useEffect(() => {
     let alive = true
     void (async () => {
-      const bridge = await createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES)
+      const [bridge, status] = await Promise.all([
+        createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
+        fetchAuthStatus(config.httpOrigin),
+      ])
+      if (status.userId === null) throw new Error('authenticated account is unavailable')
       const opened = await openMobileReplica({
         openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
         deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
         storage: bridge.storage,
+        enumerateKeys: bridge.keys,
+        flushStorage: bridge.flush,
+        principal: status.userId,
         onDegraded: setNotice,
       })
       if (!alive) return
@@ -481,12 +512,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
       } else if (opened.outcome.cursorDiscarded) {
         setNotice('Refreshing from the server after a storage upgrade.')
       }
-      setReplica(opened.replica)
+      setOpenedReplica(opened)
     })()
     return () => {
       alive = false
     }
-  }, [])
+  }, [config.httpOrigin])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
   // `info` stays a no-op: the engine's only info is a transient "a session moved
   // to X" toast, and `notice` below is a STICKY banner for the storage facts the
@@ -495,17 +526,22 @@ function LiveProvider({ children }: { children: ReactNode }) {
     () => ({ error: (message) => setError(message), info: () => {} }),
     [],
   )
-  if (!replica) return <BootSplash />
+  if (!openedReplica) return <BootSplash />
   return (
     <StoreProvider
       config={config}
       api={trpc}
       onFatalError={setError}
       notices={notices}
-      createReplicaFn={() => replica}
+      createReplicaFn={() => openedReplica.replica}
       routerWindow={routerWindow}
     >
-      <LiveBridge config={config} error={error} notice={notice}>
+      <LiveBridge
+        config={config}
+        error={error}
+        notice={notice}
+        eraseLocalData={openedReplica.erase}
+      >
         {children}
       </LiveBridge>
     </StoreProvider>
@@ -517,11 +553,13 @@ function LiveBridge({
   config,
   error,
   notice,
+  eraseLocalData,
   children,
 }: {
   config: ServerConfig
   error: string | null
   notice: string | null
+  eraseLocalData: () => Promise<void>
   children: ReactNode
 }) {
   const store = useStore<MobileTrpc>()
@@ -589,11 +627,13 @@ function LiveBridge({
       serverConfig: config,
       hub,
       trpc,
+      uiState: replica.uiState(),
       spawnDraftAgent: store.spawnDraftAgent,
       sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       issueById: (issueId) => issues.find((i) => i.id === issueId),
       focusSessionIds,
       outboxSize,
+      eraseLocalData,
       readTranscript,
       subscribeTranscript,
       subscribeHeadless,
@@ -628,6 +668,7 @@ function LiveBridge({
       store.spawnDraftAgent,
       focusSessionIds,
       outboxSize,
+      eraseLocalData,
       readTranscript,
       subscribeTranscript,
       subscribeHeadless,

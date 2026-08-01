@@ -29,6 +29,8 @@ export interface AsyncKeyValueStorage {
 export interface AsyncReplicaStorage {
   /** Synchronous StorageApi over the hydrated cache — pass as `ReplicaInit.storage`. */
   storage: StorageApi
+  /** Hydrated namespace inventory, updated with synchronous writes/removals. */
+  keys(): string[]
   /** Resolves when every write issued so far has flushed to the async backing. */
   flush(): Promise<void>
 }
@@ -74,6 +76,7 @@ export async function createAsyncStorageReplicaStorage(
         enqueue(() => backing.removeItem(k))
       },
     },
+    keys: () => [...cache.keys()],
     flush: () => tail,
   }
 }
