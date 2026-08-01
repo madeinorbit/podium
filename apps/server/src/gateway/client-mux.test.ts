@@ -1,3 +1,4 @@
+import { attachTestClient } from '../test-support/client-transport'
 /**
  * THE CLIENT MUX (POD-390): the routing table is TOTAL, the gate FAILS CLOSED,
  * the principal comes from the transport, and the fan-out mechanism delivers the
@@ -16,8 +17,9 @@ import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
 import { ClientMux } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
 import { CLIENT_PRINCIPAL_GRADE } from './client-principal'
-import { feedTestPlumbing } from './feed-test-plumbing'
 import { ClientRegistry } from './client-registry'
+import { feedTestPlumbing } from './feed-test-plumbing'
+import type { PresenceRouting } from './presence-routing'
 
 /**
  * The two lookups the gate ANDs together are independently forceable to `null`
@@ -35,6 +37,9 @@ vi.mock('./client-frame-routing', async (importOriginal) => {
   }
 })
 
+const presenceStub = (): PresenceRouting =>
+  ({ route: vi.fn(), setVisible: vi.fn(), disconnect: vi.fn() }) as unknown as PresenceRouting
+
 function harness() {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
@@ -48,9 +53,14 @@ function harness() {
       onFeedPublished: vi.fn(),
     },
   }
-  const mux = new ClientMux({ registry, ports, feed: feedTestPlumbing().serving })
+  const mux = new ClientMux({
+    registry,
+    ports,
+    feed: feedTestPlumbing().serving,
+    presence: presenceStub(),
+  })
   const sent: ServerMessage[] = []
-  const id = mux.attachClient((msg) => sent.push(msg))
+  const id = attachTestClient(mux, (msg) => sent.push(msg))
   return { registry, ports, mux, sent, id }
 }
 
@@ -172,9 +182,16 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
     expect(principal?.user).toBe('user:sole')
   })
 
+  it('fails closed when an in-process peer has no authenticated identity', () => {
+    const h = harness()
+    const before = h.registry.size
+    expect(() => h.mux.attachClient(() => {})).toThrow(/identity is unavailable/)
+    expect(h.registry.size).toBe(before)
+  })
+
   it('gives two connections distinct DEVICES under the same user', () => {
     const h = harness()
-    const second = h.mux.attachClient(() => {})
+    const second = attachTestClient(h.mux, () => {})
     expect(second).not.toBe(h.id)
     expect(h.mux.principalOf(second)?.device).not.toBe(h.mux.principalOf(h.id)?.device)
     expect(h.mux.principalOf(second)?.user).toBe(h.mux.principalOf(h.id)?.user)
@@ -235,11 +252,12 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
         },
       },
       feed: feedTestPlumbing().serving,
+      presence: presenceStub(),
     })
     const inboxes = new Map<string, ServerMessage[]>()
     const ids = ['a', 'b', 'c'].map(() => {
       const inbox: ServerMessage[] = []
-      const id = mux.attachClient((msg) => inbox.push(msg))
+      const id = attachTestClient(mux, (msg) => inbox.push(msg))
       inboxes.set(id, inbox)
       return id
     })
@@ -309,9 +327,10 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
         },
       },
       feed: feedTestPlumbing().serving,
+      presence: presenceStub(),
     })
     const prepared: string[] = []
-    const id = mux.attachClient({
+    const id = attachTestClient(mux, {
       send: () => {},
       publication: {
         principal: 'operator',

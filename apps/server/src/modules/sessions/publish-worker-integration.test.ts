@@ -1,8 +1,8 @@
-import type { MetadataChange } from '@podium/protocol'
 import { asSessionId } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { attachTestClient } from '../../test-support/client-transport'
 import { SessionPublicationActor } from './publish-worker-actor.js'
 import { PublishWorkerClient, type PublishWorkerLike } from './publish-worker-client.js'
 import type { PublishWorkerCommand, PublishWorkerResult } from './publish-worker-protocol.js'
@@ -127,15 +127,15 @@ describe('SessionLifecycle publication worker integration', () => {
       }),
     })
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
-    registry.clientGateway.attachClient((message) => objectMessages.push(message), {
+    attachTestClient(registry.clientGateway, (message) => objectMessages.push(message), {
       sendPrepared: (bytes) => aliceA.push(bytes),
       ...authority('alice', [aliceSession]),
     })
-    registry.clientGateway.attachClient((message) => objectMessages.push(message), {
+    attachTestClient(registry.clientGateway, (message) => objectMessages.push(message), {
       sendPrepared: (bytes) => aliceB.push(bytes),
       ...authority('alice', [aliceSession]),
     })
-    registry.clientGateway.attachClient((message) => objectMessages.push(message), {
+    attachTestClient(registry.clientGateway, (message) => objectMessages.push(message), {
       sendPrepared: (bytes) => bob.push(bytes),
       ...authority('bob', [bobSession]),
     })
@@ -168,7 +168,8 @@ describe('SessionLifecycle publication worker integration', () => {
     let allowed = [first, revoked]
     const encoded: string[] = []
     const objectMessages: ServerMessage[] = []
-    const clientId = registry.clientGateway.attachClient(
+    const clientId = attachTestClient(
+      registry.clientGateway,
       (message) => objectMessages.push(message),
       {
         sendPrepared: (bytes) => encoded.push(bytes),
@@ -228,7 +229,7 @@ describe('SessionLifecycle publication worker integration', () => {
     const attach = (principal: string, allowedSessionIds: string[]) => {
       const encoded: string[] = []
       const objects: ServerMessage[] = []
-      const id = registry.clientGateway.attachClient((message) => objects.push(message), {
+      const id = attachTestClient(registry.clientGateway, (message) => objects.push(message), {
         sendPrepared: (bytes) => encoded.push(bytes),
         principal,
         scope: 'principal:' + principal,
@@ -299,7 +300,7 @@ describe('SessionLifecycle publication worker integration', () => {
     }).sessionId
     registry.modules.sessions.flushBroadcasts()
     const encoded: string[] = []
-    const clientId = registry.clientGateway.attachClient(() => {}, {
+    const clientId = attachTestClient(registry.clientGateway, () => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'operator',
       scope: 'all',
@@ -389,7 +390,7 @@ describe('SessionLifecycle publication worker integration', () => {
     }).sessionId
     registry.modules.sessions.flushBroadcasts()
     const encoded: string[] = []
-    const clientId = registry.clientGateway.attachClient(() => {}, {
+    const clientId = attachTestClient(registry.clientGateway, () => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'operator',
       scope: 'all',
@@ -427,7 +428,7 @@ describe('SessionLifecycle publication worker integration', () => {
     registry.modules.sessions.flushBroadcasts()
 
     const encoded: string[] = []
-    registry.clientGateway.attachClient(() => {}, {
+    attachTestClient(registry.clientGateway, () => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'alice',
       scope: 'principal:alice',
@@ -462,7 +463,7 @@ describe('SessionLifecycle publication worker integration', () => {
     registry.modules.sessions.flushBroadcasts()
 
     const encoded: string[] = []
-    const clientId = registry.clientGateway.attachClient(() => {}, {
+    const clientId = attachTestClient(registry.clientGateway, () => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'alice',
       scope: 'principal:alice',
@@ -537,7 +538,7 @@ describe('SessionLifecycle publication worker integration', () => {
     let revision = 1
     let allowed = [first, revoked]
     const encoded: string[] = []
-    const clientId = registry.clientGateway.attachClient(() => {}, {
+    const clientId = attachTestClient(registry.clientGateway, () => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'alice',
       scope: 'principal:alice',
@@ -607,7 +608,7 @@ describe('SessionLifecycle publication worker integration', () => {
       },
     ) => {
       const encoded: string[] = []
-      const id = registry.clientGateway.attachClient(() => {}, {
+      const id = attachTestClient(registry.clientGateway, () => {}, {
         sendPrepared: (bytes) => encoded.push(bytes),
         principal,
         scope: `principal:${principal}`,
@@ -696,7 +697,7 @@ describe('SessionLifecycle publication worker integration', () => {
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
     const publications = Array.from({ length: 4 }, () => [] as string[])
     for (const encoded of publications) {
-      registry.clientGateway.attachClient(() => {}, {
+      attachTestClient(registry.clientGateway, () => {}, {
         sendPrepared: (bytes) => encoded.push(bytes),
         principal: 'operator',
         scope: 'all',

@@ -78,7 +78,7 @@ import type {
 } from '../replica/types'
 import type { FeedIdentity, FeedIdentityRegistry } from './identity'
 import { BoundedSendQueue, type SendQueueConfig } from './send-queue'
-import { principalIdOf, type FeedPrincipal } from './visibility'
+import { type FeedPrincipal, principalIdOf } from './visibility'
 
 /**
  * The retention floor, read live (ADR 2 D5).
@@ -183,11 +183,7 @@ function toEnvelope(change: ScopedChange): ChangeEnvelope {
  * re-bootstrap storm after a policy change would be misdiagnosed as backpressure.
  */
 function rescopeTo(state: ConnectionState, identity: FeedIdentity, reason: string): void {
-  const frame: RescopeFrame | null = state.queue.rescopeNow(
-    identity.feedId,
-    identity.epoch,
-    reason,
-  )
+  const frame: RescopeFrame | null = state.queue.rescopeNow(identity.feedId, identity.epoch, reason)
   state.watermarkThrough = null
   if (frame !== null) state.pending.push(frame)
 }
@@ -269,9 +265,25 @@ export class FeedPublisher {
    * rescope is an oracle for what that caller cannot see.
    */
   publish(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+    this.publishTo([...this.connections.keys()], principal, delivery)
+  }
+
+  /**
+   * Frame an evaluated slice only for the connection ids selected by the
+   * gateway's shared subscription registry. The principal check remains as a
+   * fail-closed assertion against a widened or stale target set; it is not an
+   * audience selector.
+   */
+  publishTo(
+    connectionIds: readonly string[],
+    principal: FeedPrincipal,
+    delivery: ScopedDelivery,
+  ): void {
     const audience = principalIdOf(principal)
     this.published = Math.max(this.published, delivery.throughSeq)
-    for (const state of this.connections.values()) {
+    for (const id of connectionIds) {
+      const state = this.connections.get(id)
+      if (!state) continue
       if (principalIdOf(state.principal) !== audience) continue
       if (delivery.kind === 'rescope') {
         rescopeTo(state, this.identity(), delivery.reason)

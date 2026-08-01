@@ -14,8 +14,11 @@
  */
 
 import type { ConversationDiagnosticWire } from '@podium/model'
-import { Authority, FeedIdentityRegistry, Ledger, type FeedIdentity } from '@podium/sync'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { SubscriptionRegistry } from '@podium/protocol'
+import { type Authority, type FeedIdentity, FeedIdentityRegistry, Ledger } from '@podium/sync'
 import { SessionStore } from '../store'
+import { type ClientPrincipal, userClientPrincipal } from './client-principal'
 import { FeedServing } from './feed-serving'
 
 export interface FeedTestPlumbing {
@@ -23,6 +26,8 @@ export interface FeedTestPlumbing {
   readonly ledger: Ledger
   readonly authority: Authority
   readonly store: SessionStore
+  readonly subscriptions: SubscriptionRegistry
+  readonly routingPrincipal: (peerId: string) => ClientPrincipal
 }
 
 export function feedTestPlumbing(
@@ -36,6 +41,7 @@ export function feedTestPlumbing(
   })
   let minted = 0
   let identity: FeedIdentity | null = null
+  const subscriptions = new SubscriptionRegistry()
   const serving = new FeedServing({
     authority: ledger.authority,
     identity: new FeedIdentityRegistry(
@@ -45,10 +51,21 @@ export function feedTestPlumbing(
           identity = next
         },
       },
-      () => `id-${(minted += 1)}`,
+      () => {
+        minted += 1
+        return `id-${minted}`
+      },
     ),
     retention: { minAvailableSeq: () => store.sync.minChangeSeq() },
+    subscriptions,
     diagnostics: opts.diagnostics ?? (() => []),
   })
-  return { serving, ledger, authority: ledger.authority, store }
+  return {
+    serving,
+    ledger,
+    authority: ledger.authority,
+    store,
+    subscriptions,
+    routingPrincipal: (peerId) => userClientPrincipal(peerId, FIRST_ADMIN_USER_ID, 'admin'),
+  }
 }

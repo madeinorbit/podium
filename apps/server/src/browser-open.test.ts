@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { ClientPublicationAuthority } from './modules/sessions/session'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -100,8 +101,8 @@ describe('remote browser-open routing', () => {
     const { registry, sessionId } = setup()
     const first: ServerMessage[] = []
     const second: ServerMessage[] = []
-    const c0 = registry.clientGateway.attachClient((message) => first.push(message))
-    const c1 = registry.clientGateway.attachClient((message) => second.push(message))
+    const c0 = attachTestClient(registry.clientGateway, (message) => first.push(message))
+    const c1 = attachTestClient(registry.clientGateway, (message) => second.push(message))
     first.length = 0
     second.length = 0
 
@@ -159,16 +160,31 @@ describe('remote browser-open routing', () => {
     const owner: ServerMessage[] = []
     const grantee: ServerMessage[] = []
     const unrelated: ServerMessage[] = []
-    registry.clientGateway.attachClient(
-      (message) => owner.push(message),
+    attachTestClient(
+      registry.clientGateway,
+      {
+        send: (message) => owner.push(message),
+        userId: asUserId('user:owner'),
+        userRole: 'member',
+      },
       scopedAuthority('owner', [sessionId]),
     )
-    registry.clientGateway.attachClient(
-      (message) => grantee.push(message),
+    attachTestClient(
+      registry.clientGateway,
+      {
+        send: (message) => grantee.push(message),
+        userId: asUserId('user:grantee'),
+        userRole: 'member',
+      },
       scopedAuthority('grantee', [sessionId]),
     )
-    registry.clientGateway.attachClient(
-      (message) => unrelated.push(message),
+    attachTestClient(
+      registry.clientGateway,
+      {
+        send: (message) => unrelated.push(message),
+        userId: asUserId('user:unrelated'),
+        userRole: 'member',
+      },
       scopedAuthority('unrelated', []),
     )
     owner.length = 0
@@ -193,7 +209,7 @@ describe('remote browser-open routing', () => {
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-parked'))
 
     const messages: ServerMessage[] = []
-    registry.clientGateway.attachClient((message) => messages.push(message))
+    attachTestClient(registry.clientGateway, (message) => messages.push(message))
     expect(messages).toContainEqual(
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-parked' }),
     )
@@ -202,7 +218,7 @@ describe('remote browser-open routing', () => {
   it('routes to the owning daemon and stamps resolver identity from the transport', () => {
     const { registry, sessionId, m1, m2 } = setup()
     const messages: ServerMessage[] = []
-    const clientId = registry.clientGateway.attachClient((message) => messages.push(message))
+    const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
     messages.length = 0
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-callback'))
 
@@ -262,7 +278,7 @@ describe('remote browser-open routing', () => {
   it('drops open intents forged by a daemon that does not own the session', () => {
     const { registry, sessionId } = setup()
     const messages: ServerMessage[] = []
-    registry.clientGateway.attachClient((message) => messages.push(message))
+    attachTestClient(registry.clientGateway, (message) => messages.push(message))
     messages.length = 0
 
     registry.gateway.routeDaemonFrame('m2', request(sessionId, 'open-forged'))

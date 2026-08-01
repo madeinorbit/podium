@@ -1,4 +1,5 @@
 import { resolvePrincipal } from '../../command-principal'
+import { attachTestClient } from '../../test-support/client-transport'
 /**
  * SessionService ORACLE support (POD-392, the decomposition oracle for
  * POD-393/POD-394/POD-395; originally established by POD-379).
@@ -38,7 +39,7 @@ import { resolvePrincipal } from '../../command-principal'
  */
 
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import { WIRE_VERSION, type ControlMessage, type ServerMessage } from '@podium/protocol'
+import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
@@ -212,7 +213,7 @@ export function makeOracle(
       })
     }
   })
-  const clientId = reg.clientGateway.attachClient((msg) => client.push(msg))
+  const clientId = attachTestClient(reg.clientGateway, (msg) => client.push(msg))
   reg.clientGateway.routeClientFrame(clientId, {
     type: 'hello',
     wireVersion: WIRE_VERSION,
@@ -225,7 +226,8 @@ export function makeOracle(
     registry: reg,
     repos,
     superagent,
-    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
+    capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
   })
   return {
     reg,

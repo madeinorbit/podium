@@ -1,5 +1,5 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
-import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -10,6 +10,7 @@ import {
 import { SessionRegistry } from './relay'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 /**
  * The normalized issue wire, end to end through the PRODUCTION wiring
@@ -134,7 +135,7 @@ afterEach(() => {
 })
 
 function client(registry: SessionRegistry, caps: string[] | undefined): string {
-  const id = registry.clientGateway.attachClient(() => {})
+  const id = attachTestClient(registry.clientGateway, () => {})
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
     wireVersion: WIRE_VERSION,
@@ -199,7 +200,10 @@ function issueWorkForOneFieldSessionChange(
 ): { builds: number; scans: number } {
   registry.modules.sessions.flushBroadcasts()
   resetIssueWireBuildCount()
-  registry.modules.sessions.setWorkState({ sessionId: asSessionId(sessionId), workState: 'testing' })
+  registry.modules.sessions.setWorkState({
+    sessionId: asSessionId(sessionId),
+    workState: 'testing',
+  })
   registry.modules.sessions.flushBroadcasts()
   return { builds: issueWireBuildCount(), scans: issueMembershipScanCount() }
 }
@@ -324,10 +328,10 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
   it('paints current issue data without embedding sessions', () => {
     const { registry } = world({ issues: 3, sessions: 2 })
     const inbox: ServerMessage[] = []
-    const id = registry.clientGateway.attachClient((message) => inbox.push(message))
+    const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
-    wireVersion: WIRE_VERSION,
+      wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })

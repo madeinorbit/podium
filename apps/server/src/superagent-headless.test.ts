@@ -1,13 +1,14 @@
+import { attachTestClient } from './test-support/client-transport'
 // Headless superagent turns (concierge unification, Phase B): threads are
 // persistent harness sessions — sendTurn acks before completion, progress fans
 // out as headlessActivity frames, the harness session id becomes the thread's
 // resume value, and "open in terminal" takes a one-writer lock.
 
 import { asThreadId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import { harnessResumeKind } from './harness-manifest'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
+import { harnessResumeKind } from './harness-manifest'
 import {
   buildHandoffSeed,
   explicitlyRequestsExpandedResponse,
@@ -68,7 +69,7 @@ async function harness() {
   const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
-  registry.clientGateway.attachClient((m) => clientMsgs.push(m))
+  attachTestClient(registry.clientGateway, (m) => clientMsgs.push(m))
   const activity = () => clientMsgs.flatMap((m) => (m.type === 'headlessActivity' ? [m] : []))
   const resolveTurn = (
     req: TurnReq,

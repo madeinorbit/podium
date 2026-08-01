@@ -3834,9 +3834,6 @@ export class SessionLifecycle {
         client.transcriptSubs.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.unsubscribeTranscript(id)
         break
-      case 'presence':
-        client.visible = msg.visible
-        break
       case 'viewState':
         client.viewVisible = new Set(msg.visible)
         client.focused = msg.focused

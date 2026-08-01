@@ -1,11 +1,12 @@
-import { asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 // Agent action offer [spec:SP-c7f1] — service-level set/replace/clear, meta
 // surfacing, persistence across a restart, and clear-on-turn (queue path).
@@ -185,8 +186,11 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // Pinned a minute after the offer: same-ms input would not count as "after"
     // (strictly-greater, matching the boot reconcile).
     function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
-      const clientId = reg.clientGateway.attachClient(() => {})
-      reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId: asSessionId(sessionId) })
+      const clientId = attachTestClient(reg.clientGateway, () => {})
+      reg.clientGateway.routeClientFrame(clientId, {
+        type: 'attach',
+        sessionId: asSessionId(sessionId),
+      })
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(afterIso) + 60_000)
       try {
         reg.clientGateway.routeClientFrame(clientId, {

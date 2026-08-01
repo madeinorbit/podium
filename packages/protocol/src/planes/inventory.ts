@@ -43,20 +43,20 @@ export const HANDSHAKE_PLANE_CLASS = {
  * live in BOTH directions, including the answer to a join (D10.4): a room
  * subscription dies with the connection and must never be queued or replayed.
  *
- * These frames are not yet members of `ClientMessage` / `ServerMessage` — POD-1078
- * lands them there, and the counts below stay a statement about today's tree. The
- * classification binds now precisely so the implementer does not pick the plane.
+ * These frames now live in the post-auth unions. This named subset is derived
+ * from the defining message-class tables so the ADR checklist remains auditable
+ * without becoming a second classification source.
  */
 export const PRESENCE_ROOM_CLIENT_PLANE_CLASS = {
-  presenceSubscribe: 'stream.live',
-  presenceUnsubscribe: 'stream.live',
-  presenceUpdate: 'stream.live',
+  presenceSubscribe: CLIENT_PLANE_CLASS.presenceSubscribe,
+  presenceUnsubscribe: CLIENT_PLANE_CLASS.presenceUnsubscribe,
+  presenceUpdate: CLIENT_PLANE_CLASS.presenceUpdate,
 } as const satisfies Record<PresenceRoomClientMessage['type'], 'stream.live'>
 
 export const PRESENCE_ROOM_SERVER_PLANE_CLASS = {
-  presenceRoomState: 'stream.live',
-  presenceRoomDelta: 'stream.live',
-  presenceRoomClosed: 'stream.live',
+  presenceRoomState: SERVER_PLANE_CLASS.presenceRoomState,
+  presenceRoomDelta: SERVER_PLANE_CLASS.presenceRoomDelta,
+  presenceRoomClosed: SERVER_PLANE_CLASS.presenceRoomClosed,
 } as const satisfies Record<PresenceRoomServerMessage['type'], 'stream.live'>
 
 /**
@@ -146,10 +146,8 @@ export const POST_AUTH_PLANE_CLASS_TABLES = {
   DaemonMessage: DAEMON_PLANE_CLASS,
 } as const
 
-/** Frames classified ahead of their wire landing (Amendment 1 D16). */
+/** Port-contract frames still outside the four post-auth wire unions. */
 export const PENDING_FRAME_PLANE_CLASS_TABLES = {
-  PresenceRoomClientMessage: PRESENCE_ROOM_CLIENT_PLANE_CLASS,
-  PresenceRoomServerMessage: PRESENCE_ROOM_SERVER_PLANE_CLASS,
   ScopedFeedServerMessage: SCOPED_FEED_PLANE_CLASS,
 } as const
 
@@ -171,10 +169,7 @@ export const PLANE_INVENTORY_COUNTS = {
     countOf(CONTROL_PLANE_CLASS) +
     countOf(DAEMON_PLANE_CLASS),
   handshake: countOf(HANDSHAKE_PLANE_CLASS),
-  pendingFrames:
-    countOf(PRESENCE_ROOM_CLIENT_PLANE_CLASS) +
-    countOf(PRESENCE_ROOM_SERVER_PLANE_CLASS) +
-    countOf(SCOPED_FEED_PLANE_CLASS),
+  pendingFrames: countOf(SCOPED_FEED_PLANE_CLASS),
 } as const
 
 /**

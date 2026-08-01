@@ -254,7 +254,7 @@ describe('ADR 7 Amendment 1 D16 — new frames are not exempt from totality', ()
     for (const table of Object.values(PENDING_FRAME_PLANE_CLASS_TABLES)) {
       for (const value of Object.values(table)) expect(PLANE_CLASSES).toContain(value)
     }
-    expect(PLANE_INVENTORY_COUNTS.pendingFrames).toBe(7)
+    expect(PLANE_INVENTORY_COUNTS.pendingFrames).toBe(1)
   })
 
   it('does not double-classify a type across the post-auth tables of one direction', () => {

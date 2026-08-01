@@ -8,8 +8,8 @@ import {
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { deviceClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
+import { testClientPrincipal } from '../../test-support/client-principal'
 import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
 import type { Session } from './session'
 
@@ -138,7 +138,7 @@ describe('SessionInbox authorization and identity', () => {
 
   it('carries the browser principal through controller gating into PTY attribution', () => {
     const h = harness()
-    const principal = deviceClientPrincipal('browser-1')
+    const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
     h.inbox.handleControllerInput(principal, client, SID, 'x')

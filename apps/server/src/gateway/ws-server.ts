@@ -41,9 +41,6 @@ export interface WsAuthOptions {
   roleForClient?: (req: IncomingMessage) => UserRole | undefined
   /** Resolve a revocable, request-specific publication world on the real socket path. */
   resolvePublicationAuthority?: (req: IncomingMessage) => PublicationAuthority
-  /** ViewKey identity supplied by the main authority (defaults to local operator). */
-  principal?: string
-  scope?: string
   serverRole?: string
 }
 

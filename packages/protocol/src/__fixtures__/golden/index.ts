@@ -21,6 +21,7 @@ import issues from './issues.json' with { type: 'json' }
 import maintenance from './maintenance.json' with { type: 'json' }
 import model from './model.json' with { type: 'json' }
 import perf from './perf.json' with { type: 'json' }
+import presenceRooms from './presence-rooms.json' with { type: 'json' }
 import runtimeState from './runtime-state.json' with { type: 'json' }
 import search from './search.json' with { type: 'json' }
 import server from './server.json' with { type: 'json' }
@@ -51,6 +52,7 @@ export const GOLDEN: Record<string, unknown> = {
   maintenance: maintenance,
   model: model,
   perf: perf,
+  'presence-rooms': presenceRooms,
   'runtime-state': runtimeState,
   search: search,
   server: server,

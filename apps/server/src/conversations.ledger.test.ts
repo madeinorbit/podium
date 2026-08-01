@@ -1,9 +1,10 @@
-import { type ConversationSummaryWireInput, type ConversationSummaryWire } from '@podium/model'
+import type { ConversationSummaryWire, ConversationSummaryWireInput } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 /**
  * Conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257 — the LAST
@@ -51,7 +52,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   function client(registry: SessionRegistry, caps: string[] = []): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
-    const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
+    const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       wireVersion: 2,

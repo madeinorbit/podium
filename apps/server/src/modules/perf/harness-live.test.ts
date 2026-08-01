@@ -1,3 +1,5 @@
+import { attachTestClient } from '../../test-support/client-transport'
+
 /**
  * THE HARNESS IS LIVE — can this instrument say NO? [POD-736]
  *
@@ -32,9 +34,9 @@
  * leak" is satisfied perfectly by a harness that recorded nothing at all.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
-import { PHASE_MIGRATION } from '@podium/protocol'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { PHASE_MIGRATION } from '@podium/protocol'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { feedPrincipalOf, userClientPrincipal } from '../../gateway/client-principal'
 import { SessionRegistry } from '../../relay'
 import { perfPrincipal } from './principal'
@@ -50,7 +52,7 @@ const LIVE = perfPrincipal(
 function drive(): { registry: SessionRegistry; inbox: unknown[] } {
   const registry = new SessionRegistry()
   const inbox: unknown[] = []
-  const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
+  const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
     wireVersion: 2,

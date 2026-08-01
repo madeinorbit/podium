@@ -1,0 +1,644 @@
+{
+  "family": "presence-rooms",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "PresenceIdentity",
+      "variant": "minimal",
+      "wire": {
+        "kind": "user",
+        "user": "user"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"user\":\"user\"}"
+    },
+    {
+      "schema": "PresenceIdentity",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "user",
+        "user": "user"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"user\":\"user\"}"
+    },
+    {
+      "schema": "PresenceIdentity",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "agent",
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"agent\",\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\"}"
+    },
+    {
+      "schema": "PresenceMember",
+      "variant": "minimal",
+      "wire": {
+        "identity": {
+          "kind": "user",
+          "user": "identity.user"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"identity\":{\"kind\":\"user\",\"user\":\"identity.user\"}}"
+    },
+    {
+      "schema": "PresenceMember",
+      "variant": "full/arm0",
+      "wire": {
+        "identity": {
+          "kind": "user",
+          "user": "identity.user"
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        },
+        "visible": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"identity\":{\"kind\":\"user\",\"user\":\"identity.user\"},\"payload\":{\"unknownFixture\":\"payload\"},\"visible\":true}"
+    },
+    {
+      "schema": "PresenceMember",
+      "variant": "full/arm1",
+      "wire": {
+        "identity": {
+          "kind": "agent",
+          "agentIdentity": "identity.agentIdentity",
+          "onBehalfOf": "identity.onBehalfOf"
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        },
+        "visible": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"identity\":{\"kind\":\"agent\",\"agentIdentity\":\"identity.agentIdentity\",\"onBehalfOf\":\"identity.onBehalfOf\"},\"payload\":{\"unknownFixture\":\"payload\"},\"visible\":false}"
+    },
+    {
+      "schema": "PresencePayload",
+      "variant": "minimal",
+      "wire": {
+        "unknownFixture": ""
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"unknownFixture\":\"\"}"
+    },
+    {
+      "schema": "PresencePayload",
+      "variant": "full",
+      "wire": {
+        "unknownFixture": ""
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"unknownFixture\":\"\"}"
+    },
+    {
+      "schema": "PresenceRoomClientMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceSubscribe",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceSubscribe\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceRoomClientMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceSubscribe",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceSubscribe\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceRoomClientMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceUnsubscribe",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUnsubscribe\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceRoomClientMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "presenceUpdate",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        },
+        "visible": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUpdate\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"payload\":{\"unknownFixture\":\"payload\"},\"visible\":true}"
+    },
+    {
+      "schema": "PresenceRoomClosedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceRoomClosed",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomClosed\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceRoomClosedMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceRoomClosed",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomClosed\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceRoomClosedMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceRoomClosed",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomClosed\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceRoomDeltaMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceRoomDelta",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "change": "joined",
+        "member": {
+          "identity": {
+            "kind": "user",
+            "user": "member.identity.user"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomDelta\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"change\":\"joined\",\"member\":{\"identity\":{\"kind\":\"user\",\"user\":\"member.identity.user\"}}}"
+    },
+    {
+      "schema": "PresenceRoomDeltaMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceRoomDelta",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "change": "joined",
+        "member": {
+          "identity": {
+            "kind": "user",
+            "user": "member.identity.user"
+          },
+          "payload": {
+            "unknownFixture": "member.payload"
+          },
+          "visible": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomDelta\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"change\":\"joined\",\"member\":{\"identity\":{\"kind\":\"user\",\"user\":\"member.identity.user\"},\"payload\":{\"unknownFixture\":\"member.payload\"},\"visible\":true}}"
+    },
+    {
+      "schema": "PresenceRoomDeltaMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceRoomDelta",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "change": "left",
+        "member": {
+          "identity": {
+            "kind": "agent",
+            "agentIdentity": "member.identity.agentIdentity",
+            "onBehalfOf": "member.identity.onBehalfOf"
+          },
+          "payload": {
+            "unknownFixture": "member.payload"
+          },
+          "visible": false
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomDelta\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"change\":\"left\",\"member\":{\"identity\":{\"kind\":\"agent\",\"agentIdentity\":\"member.identity.agentIdentity\",\"onBehalfOf\":\"member.identity.onBehalfOf\"},\"payload\":{\"unknownFixture\":\"member.payload\"},\"visible\":false}}"
+    },
+    {
+      "schema": "PresenceRoomServerMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceRoomState",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "members": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomState\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"members\":[]}"
+    },
+    {
+      "schema": "PresenceRoomServerMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceRoomState",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "members": [
+          {
+            "identity": {
+              "kind": "user",
+              "user": "members[0].identity.user"
+            },
+            "payload": {
+              "unknownFixture": "members[0].payload"
+            },
+            "visible": true
+          }
+        ],
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomState\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"members\":[{\"identity\":{\"kind\":\"user\",\"user\":\"members[0].identity.user\"},\"payload\":{\"unknownFixture\":\"members[0].payload\"},\"visible\":true}],\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceRoomServerMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceRoomDelta",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "change": "left",
+        "member": {
+          "identity": {
+            "kind": "agent",
+            "agentIdentity": "member.identity.agentIdentity",
+            "onBehalfOf": "member.identity.onBehalfOf"
+          },
+          "payload": {
+            "unknownFixture": "member.payload"
+          },
+          "visible": false
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomDelta\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"change\":\"left\",\"member\":{\"identity\":{\"kind\":\"agent\",\"agentIdentity\":\"member.identity.agentIdentity\",\"onBehalfOf\":\"member.identity.onBehalfOf\"},\"payload\":{\"unknownFixture\":\"member.payload\"},\"visible\":false}}"
+    },
+    {
+      "schema": "PresenceRoomServerMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "presenceRoomClosed",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomClosed\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceRoomStateMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceRoomState",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "members": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomState\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"members\":[]}"
+    },
+    {
+      "schema": "PresenceRoomStateMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceRoomState",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "members": [
+          {
+            "identity": {
+              "kind": "user",
+              "user": "members[0].identity.user"
+            },
+            "payload": {
+              "unknownFixture": "members[0].payload"
+            },
+            "visible": true
+          }
+        ],
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomState\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"members\":[{\"identity\":{\"kind\":\"user\",\"user\":\"members[0].identity.user\"},\"payload\":{\"unknownFixture\":\"members[0].payload\"},\"visible\":true}],\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceRoomStateMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceRoomState",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "members": [
+          {
+            "identity": {
+              "kind": "agent",
+              "agentIdentity": "members[0].identity.agentIdentity",
+              "onBehalfOf": "members[0].identity.onBehalfOf"
+            },
+            "payload": {
+              "unknownFixture": "members[0].payload"
+            },
+            "visible": false
+          }
+        ],
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceRoomState\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"members\":[{\"identity\":{\"kind\":\"agent\",\"agentIdentity\":\"members[0].identity.agentIdentity\",\"onBehalfOf\":\"members[0].identity.onBehalfOf\"},\"payload\":{\"unknownFixture\":\"members[0].payload\"},\"visible\":false}],\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceSubscribeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceSubscribe",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceSubscribe\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceSubscribeMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceSubscribe",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceSubscribe\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceSubscribeMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceSubscribe",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "token": "token"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceSubscribe\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"token\":\"token\"}"
+    },
+    {
+      "schema": "PresenceUnsubscribeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceUnsubscribe",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUnsubscribe\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceUnsubscribeMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceUnsubscribe",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUnsubscribe\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceUnsubscribeMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceUnsubscribe",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUnsubscribe\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceUpdateMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presenceUpdate",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUpdate\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"}}"
+    },
+    {
+      "schema": "PresenceUpdateMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "presenceUpdate",
+        "room": {
+          "kind": "session",
+          "id": "room.id"
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        },
+        "visible": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUpdate\",\"room\":{\"kind\":\"session\",\"id\":\"room.id\"},\"payload\":{\"unknownFixture\":\"payload\"},\"visible\":true}"
+    },
+    {
+      "schema": "PresenceUpdateMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "presenceUpdate",
+        "room": {
+          "kind": "issue",
+          "id": "room.id"
+        },
+        "payload": {
+          "unknownFixture": "payload"
+        },
+        "visible": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presenceUpdate\",\"room\":{\"kind\":\"issue\",\"id\":\"room.id\"},\"payload\":{\"unknownFixture\":\"payload\"},\"visible\":false}"
+    },
+    {
+      "schema": "RoomRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "session",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"session\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "RoomRef",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "session",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"session\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "RoomRef",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "issue",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"issue\",\"id\":\"id\"}"
+    }
+  ]
+}
