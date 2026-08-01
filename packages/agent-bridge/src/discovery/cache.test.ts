@@ -150,6 +150,21 @@ describe('ConversationDiscoveryCache', () => {
     reopened.close()
   })
 
+  test('persists ignored files without exposing them as summaries', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root, 'guardian.jsonl')
+    const fileStat = await stat(file)
+    const first = new ConversationDiscoveryCache(db)
+    first.upsertIgnoredMany([{ path: file, stats: fileStat, agentKind: 'codex' }])
+    first.close()
+
+    const reopened = new ConversationDiscoveryCache(db)
+    expect(reopened.getFresh(file, fileStat, 'codex')).toBeNull()
+    expect(reopened.listSummaries()).toEqual([])
+    reopened.close()
+  })
+
   test('schema version changes make existing rows stale', async () => {
     const db = await tempDb()
     const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))

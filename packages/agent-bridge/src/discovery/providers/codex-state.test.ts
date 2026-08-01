@@ -6,7 +6,9 @@ import { describe, expect, test, vi } from 'vitest'
 import {
   createCodexStateMetadataReader,
   createSharedCodexStateMetadataReaders,
+  createTimedCodexStateMetadataReader,
   readCodexStateMetadata,
+  readCodexThreadMetadata,
 } from './codex-state.js'
 
 // Rewrite the (single) threads row's title in place so a fresh read returns
@@ -118,6 +120,41 @@ describe('readCodexStateMetadata', () => {
     )
   })
 
+  test('reads one known thread without materializing inventory-only fields', async () => {
+    const root = await createCodexRoot()
+    createStateDb(join(root, 'state_5.sqlite'))
+
+    const result = await readCodexThreadMetadata(root, 'thread-1')
+
+    expect(result).toEqual({
+      id: 'thread-1',
+      rolloutPath: join(root, 'sessions/2026/06/01/thread-1.jsonl'),
+      title: 'Native Codex Title',
+    })
+    expect(await readCodexThreadMetadata(root, 'missing-thread')).toBeUndefined()
+  })
+
+  test('bounds payload-sized native titles inside SQLite', async () => {
+    const root = await createCodexRoot()
+    const dbPath = join(root, 'state_5.sqlite')
+    createStateDb(dbPath)
+    const db = openDatabase(dbPath)
+    db.prepare('UPDATE threads SET title = ?, preview = ?, first_user_message = ? WHERE id = ?').run(
+      't'.repeat(20_000),
+      'p'.repeat(20_000),
+      'm'.repeat(20_000),
+      'thread-1',
+    )
+    db.close()
+
+    const inventory = await readCodexStateMetadata(root)
+    const targeted = await readCodexThreadMetadata(root, 'thread-1')
+
+    expect(inventory.byThreadId.get('thread-1')?.title).toHaveLength(512)
+    expect(inventory.byThreadId.get('thread-1')?.preview).toBeUndefined()
+    expect(targeted?.title).toHaveLength(512)
+  })
+
   test('returns empty metadata when no state database exists', async () => {
     const root = await createCodexRoot()
 
@@ -126,6 +163,26 @@ describe('readCodexStateMetadata', () => {
     expect(result.byThreadId.size).toBe(0)
     expect(result.byRolloutPath.size).toBe(0)
     expect(result.diagnostics).toEqual([])
+  })
+})
+
+describe('createTimedCodexStateMetadataReader', () => {
+  test('coalesces each root until the discovery TTL expires', async () => {
+    let now = 1_000
+    const result = { byThreadId: new Map(), byRolloutPath: new Map(), diagnostics: [] }
+    const read = vi.fn(async () => result)
+    const reader = createTimedCodexStateMetadataReader(read, 300_000, () => now)
+
+    const first = await reader('/root-a')
+    expect(await reader('/root-a')).toBe(first)
+    expect(read).toHaveBeenCalledTimes(1)
+
+    await reader('/root-b')
+    expect(read).toHaveBeenCalledTimes(2)
+
+    now += 300_001
+    expect(await reader('/root-a')).toBe(result)
+    expect(read).toHaveBeenCalledTimes(3)
   })
 })
 

@@ -27,10 +27,11 @@ import { AgentConversationLoadError } from '../types.js'
 import {
   type CodexStateMetadataResult,
   type CodexThreadMetadata,
-  readCodexStateMetadata,
+  createTimedCodexStateMetadataReader,
 } from './codex-state.js'
 
 const providerId = 'codex-jsonl'
+const readDiscoveryState = createTimedCodexStateMetadataReader()
 
 export function createCodexConversationProvider(): ConversationProvider {
   return {
@@ -66,7 +67,7 @@ async function scanRoot(root: string): Promise<ProviderScanResult> {
 
 async function listRoot(root: string): Promise<ProviderRootListing> {
   const sessionsRoot = join(root, 'sessions')
-  const state = await readCodexStateMetadata(root)
+  const state = await readDiscoveryState(root)
   if (!(await pathExists(sessionsRoot))) {
     return { files: [], diagnostics: state.diagnostics, state }
   }
@@ -147,7 +148,7 @@ async function summarizeFile(
 
   const state = isCodexStateMetadataResult(context.rootState)
     ? context.rootState
-    : await readCodexStateMetadata(root)
+    : await readDiscoveryState(root)
   const metadata = state.byRolloutPath.get(canonical) ?? state.byRolloutPath.get(file.path)
 
   return {
@@ -266,13 +267,14 @@ function summarizeCodexHeadRecords(
 
   // With no native thread title, fall back to the first human prompt (like the
   // Claude provider) so an untitled session reads as what it's about, not a uuid.
-  const promptTitle = metadata?.title ? undefined : firstCodexPrompt(records)
+  const nativeTitle = cleanCodexTitle(metadata?.title)
+  const promptTitle = nativeTitle ? undefined : firstCodexPrompt(records)
 
   return {
     id,
     agentKind: 'codex',
-    title: metadata?.title ?? promptTitle ?? fallbackTitle(file),
-    titleSource: metadata?.title ? 'native' : promptTitle ? 'heuristic' : 'filename',
+    title: nativeTitle ?? promptTitle ?? fallbackTitle(file),
+    titleSource: nativeTitle ? 'native' : promptTitle ? 'heuristic' : 'filename',
     projectPath: metadata?.cwd ?? (meta ? stringField(meta, 'cwd') : undefined),
     parentConversationId: metadata?.parentThreadId,
     statusHint: metadata?.archived ? 'archived' : 'unknown',

@@ -96,6 +96,38 @@ describe('scanAgentConversationsCached', () => {
     cache.close()
   })
 
+  test('negative-caches unchanged files that intentionally produce no summary', async () => {
+    const root = await createRoot()
+    const file = await writeCandidate(root, 'guardian.jsonl', '2026-06-01T10:00:00.000Z')
+    const cache = new ConversationDiscoveryCache(':memory:')
+    const calls = { summarize: 0 }
+    const provider = providerFor([file], calls)
+    provider.summarizeFile = async () => {
+      calls.summarize++
+      return { diagnostics: [] }
+    }
+
+    const first = await scanAgentConversationsCached({
+      cache,
+      providers: [provider],
+      includeDefaults: false,
+      extraRoots: { codex: [root] },
+    })
+    const second = await scanAgentConversationsCached({
+      cache,
+      providers: [provider],
+      includeDefaults: false,
+      extraRoots: { codex: [root] },
+    })
+
+    expect(first.conversations).toEqual([])
+    expect(second.conversations).toEqual([])
+    expect(calls.summarize).toBe(1)
+    expect(cache.getFresh(file, await stat(file), 'codex')).toBeNull()
+    expect(cache.listSummaries()).toEqual([])
+    cache.close()
+  })
+
   test('re-summarizes changed files and deletes missing cache rows', async () => {
     const root = await createRoot()
     const file = await writeCandidate(root, 'one.jsonl', '2026-06-01T10:00:00.000Z')

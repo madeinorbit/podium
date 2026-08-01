@@ -10,6 +10,7 @@ import type { AgentConversationSummary, AgentKind, ConversationFileStat } from '
 // (issue #94); v1 caches keep re-poisoning the parent's registry path.
 export const DISCOVERY_CACHE_SCHEMA_VERSION = 2
 const DB_SCHEMA_VERSION = '1'
+const IGNORED_SUMMARY_JSON = '{"__podiumDiscoveryIgnored":true}'
 
 export function defaultDiscoveryDbPath(): string {
   return join(stateDir(), 'discovery.db')
@@ -66,7 +67,7 @@ export class ConversationDiscoveryCache {
     path: string,
     stats: ConversationFileStat,
     agentKind: AgentKind,
-  ): AgentConversationSummary | undefined {
+  ): AgentConversationSummary | null | undefined {
     const row = this.db
       .prepare(
         `SELECT path, agent_kind, mtime_ms, size, schema_version, summary_json
@@ -78,6 +79,7 @@ export class ConversationDiscoveryCache {
     if (row.schema_version !== this.schemaVersion) return undefined
     if (row.size !== stats.size) return undefined
     if (Math.abs(row.mtime_ms - stats.mtimeMs) > 0.5) return undefined
+    if (row.summary_json === IGNORED_SUMMARY_JSON) return null
     return decodeSummary(row.summary_json)
   }
 
@@ -118,6 +120,33 @@ export class ConversationDiscoveryCache {
           row.stats.size,
           this.schemaVersion,
           encodeSummary(row.summary),
+        )
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+    this.writeEpoch++
+  }
+
+  /** Cache files that were inspected successfully but intentionally produced no
+   * user conversation, such as Codex guardian/subagent rollouts. */
+  upsertIgnoredMany(
+    rows: readonly { path: string; stats: ConversationFileStat; agentKind: AgentKind }[],
+  ): void {
+    if (rows.length === 0) return
+    const stmt = this.upsertPrepared()
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const row of rows) {
+        stmt.run(
+          row.path,
+          row.agentKind,
+          row.stats.mtimeMs,
+          row.stats.size,
+          this.schemaVersion,
+          IGNORED_SUMMARY_JSON,
         )
       }
       this.db.exec('COMMIT')
@@ -300,6 +329,7 @@ function encodeSummary(summary: AgentConversationSummary): string {
 }
 
 function decodeSummary(raw: string): AgentConversationSummary | undefined {
+  if (raw === IGNORED_SUMMARY_JSON) return undefined
   let parsed: SummaryJson
   try {
     parsed = JSON.parse(raw) as SummaryJson

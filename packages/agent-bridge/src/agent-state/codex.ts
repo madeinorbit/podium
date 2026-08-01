@@ -17,10 +17,7 @@ import {
   codexPromptTitle,
   isInteractiveCodexSource,
 } from '../discovery/providers/codex.js'
-import {
-  readCodexStateMetadata,
-  sharedCodexStateMetadataReaders,
-} from '../discovery/providers/codex-state.js'
+import { readCodexThreadMetadata } from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
 import { initialAgentState, reduceAgentState, withEventTime } from './reducer.js'
@@ -32,6 +29,13 @@ const POLL_MS = 700
 // pane routing is already P-keyed, so native resumability may safely lag a few
 // seconds without taxing the daemon on a large process table.
 const PROCESS_ROLLOUT_POLL_MS = 10_000
+// The cwd/time corpus walk is the same last-resort binding path as process
+// correlation. It must not run on the 700 ms state-tail cadence: on a large
+// history, probing every session_meta can occupy the filesystem pool continuously.
+const FILESYSTEM_ROLLOUT_POLL_MS = 10_000
+// Native `/rename` is low urgency. Poll one indexed row slowly; prompt-derived
+// titles and hook/rollout state remain on the normal 700 ms tail cadence.
+const NATIVE_TITLE_POLL_MS = 10_000
 const PROCESS_SCAN_CACHE_MS = 9_000
 const PROCESS_SCAN_BATCH = 64
 // Bound the polled tail read: a long session's rollout can be many MB, but the
@@ -1078,6 +1082,12 @@ export function observeCodexState(opts: {
   statTick?: StatTick
   /** Test override for Linux process correlation. */
   procRoot?: string
+  /** Test override for platform-specific exact-correlation policy. */
+  platform?: NodeJS.Platform
+  /** Test seam for the indexed single-thread Codex state lookup. */
+  readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>
+  /** Test override for native-title polling cadence. */
+  nativeTitlePollMs?: number
   onSession?: (sessionId: string, rolloutPath: string, confidence: 'exact' | 'heuristic') => void
   // Fires with a human-readable title whenever it changes (deduped on the last
   // value, never re-emitting an unchanged one). Codex's own OSC terminal title is
@@ -1092,24 +1102,30 @@ export function observeCodexState(opts: {
   /** Test/attribution seam: fires only when changed rollout bytes require a
    * complete-record boundary scan. Unchanged polls must not fire it. */
   onCausalBoundaryScan?: () => void
+  /** Test/attribution seam for the expensive unbound corpus fallback. */
+  onFilesystemRolloutScan?: () => void
 }): CodexStateObservation {
   const codexHome = join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
   const startedAtMs = opts.startedAtMs ?? 0
-  // A fresh spawn passes its spawn time as the floor; a reattach passes the
-  // session's original createdAt (the server persists it). Codex creates the
-  // rollout file LAZILY — often only at the first prompt, which can land after a
-  // daemon restart — so reattach MUST be able to discover by cwd+floor or a
-  // session whose rollout appeared after a restart stays status-blind forever.
-  // With no resumeValue AND no floor at all (older server), discovering by cwd
-  // would grab a sibling's rollout, so we stay idle instead.
-  const canDiscoverByCwd = opts.startedAtMs !== undefined
+  // The cwd/time walk is a compatibility fallback only. A Podium-owned Linux
+  // session has two exact identity channels instead: its inherited stable P id
+  // correlated through /proc/open rollout FDs, and the native hook receipt. Never
+  // trade those exact channels for a whole-history heuristic walk: on a large
+  // Codex corpus even one walk can exhaust memory and miss the daemon watchdog.
+  // Non-Linux hosts retain cwd+floor discovery because /proc correlation is not
+  // available there. A non-Podium observer may also use it when it has a floor.
+  // With no resumeValue AND no floor at all, discovering by cwd would grab a
+  // sibling's rollout, so stay idle instead.
+  const canDiscoverByCwd =
+    opts.startedAtMs !== undefined && (!opts.podiumSessionId || (opts.platform ?? process.platform) !== 'linux')
   let stopped = false
   let rolloutPath: string | undefined
   let rolloutCreatedMs = 0
   let rolloutConfidence: 'exact' | 'heuristic' | undefined
   let announcedThreadId: string | undefined
   let nextProcessRolloutPollAt = 0
+  let nextFilesystemRolloutPollAt = 0
   // One-shot diagnostics: an observer that can't bind is a silently dead status
   // pipeline (the exact failure mode that left active sessions shown idle), so
   // say so once instead of polling forever in silence.
@@ -1163,8 +1179,9 @@ export function observeCodexState(opts: {
     causalRetryAt = now + causalRetryMs
     causal.onObservation(observation)
   }
-  const stateReader = sharedCodexStateMetadataReaders.acquire(codexHome)
-  const readState = stateReader.read
+  const readThreadState =
+    opts.readThreadState ?? ((threadId: string) => readCodexThreadMetadata(codexHome, threadId))
+  let nextNativeTitlePollAt = 0
 
   const bindRollout = (found: {
     path: string
@@ -1195,6 +1212,7 @@ export function observeCodexState(opts: {
     if (found.id && announcedThreadId !== found.id) {
       announcedThreadId = found.id
       threadId = found.id
+      nextNativeTitlePollAt = 0
       opts.onSession?.(found.id, found.path, found.confidence)
     }
   }
@@ -1208,17 +1226,16 @@ export function observeCodexState(opts: {
     opts.onTitle?.(title)
   }
 
-  // The title Codex maintains in its state DB — set when a user runs `/rename`, and
-  // the title a resumed session needs (its first prompt sits above our tail window).
-  // Re-read on every tick (not once at discovery) so an in-session `/rename` is
-  // picked up; `sendTitle` suppresses re-emits while the value is unchanged. A
-  // present native title wins over the first-prompt fallback. Missing DB → the live
-  // tail still titles fresh sessions from their first prompt.
+  // Query only this known thread's indexed state row. `/rename` is low urgency,
+  // so keep it off the 700 ms tail cadence; prompt-derived titles remain immediate.
   const pollNativeTitle = async (): Promise<void> => {
     if (!threadId) return
+    const now = Date.now()
+    if (now < nextNativeTitlePollAt) return
+    nextNativeTitlePollAt = now + (opts.nativeTitlePollMs ?? NATIVE_TITLE_POLL_MS)
     try {
-      const meta = await readState()
-      sendTitle(cleanCodexTitle(meta.byThreadId.get(threadId)?.title))
+      const meta = await readThreadState(threadId)
+      sendTitle(cleanCodexTitle(meta?.title))
     } catch {
       // no/unreadable state DB — fall back to the first-prompt tail
     }
@@ -1375,12 +1392,21 @@ export function observeCodexState(opts: {
         // mtime would collapse them all onto the single most-recent rollout, so
         // every session's chat showed one transcript and the rest "disappeared"
         // into one conversation identity. Only a FRESH spawn (no resumeValue, no
-        // rollout yet) discovers by cwd.
-        const found = opts.resumeValue
-          ? await resolvePinnedCodexRollout(opts.resumeValue, opts.homeDir)
-          : canDiscoverByCwd
-            ? await findLiveCodexRollout(root, opts.cwd, startedAtMs, opts.podiumSessionId)
-            : undefined
+        // rollout yet) discovers by cwd. Both are last-resort filesystem walks:
+        // native hooks and process correlation bind exact identities first, so do
+        // not repeat the corpus walk on the 700 ms state-tail cadence.
+        let found:
+          | Awaited<ReturnType<typeof resolvePinnedCodexRollout>>
+          | Awaited<ReturnType<typeof findLiveCodexRollout>> = undefined
+        if ((opts.resumeValue || canDiscoverByCwd) && now >= nextFilesystemRolloutPollAt) {
+          nextFilesystemRolloutPollAt = now + FILESYSTEM_ROLLOUT_POLL_MS
+          opts.onFilesystemRolloutScan?.()
+          found = opts.resumeValue
+            ? await resolvePinnedCodexRollout(opts.resumeValue, opts.homeDir, readThreadState)
+            : canDiscoverByCwd
+              ? await findLiveCodexRollout(root, opts.cwd, startedAtMs, opts.podiumSessionId)
+              : undefined
+        }
         if (!found) {
           unboundTicks++
           if (!warnedUnbound && unboundTicks === 40) {
@@ -1551,7 +1577,6 @@ export function observeCodexState(opts: {
     stop() {
       stopped = true
       stopPolling()
-      stateReader.release()
     },
   }
 }
@@ -1573,6 +1598,36 @@ export interface ProcessBoundCodexRollout {
   id: string
   createdMs: number
   confidence: 'exact'
+}
+
+const PROCESS_ROLLOUT_IDENTITY_BYTES = 4 * 1024
+
+/** Read only the fixed identity fields at the front of Codex's session_meta line.
+ * Real headers can be 14–20 KB because they carry environment/context, but
+ * type/id/source are all within the first ~500 bytes. Process correlation used to
+ * read 256 KB from every open rollout FD every 10 seconds. */
+async function readProcessRolloutIdentity(
+  path: string,
+): Promise<{ id: string; startedAtMs?: number } | undefined> {
+  const handle = await open(path, 'r')
+  try {
+    const buffer = Buffer.allocUnsafe(PROCESS_ROLLOUT_IDENTITY_BYTES)
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+    const prefix = buffer.toString('utf8', 0, bytesRead)
+    if (!/"type"\s*:\s*"session_meta"/.test(prefix)) return undefined
+    const id = prefix.match(/"id"\s*:\s*"([^"]+)"/)?.[1]
+    if (!id) return undefined
+    const source = prefix.match(/"source"\s*:\s*("[^"]*"|\{)/)?.[1]
+    if (source && source !== '"cli"') return undefined
+    const timestamp = prefix.match(/"timestamp"\s*:\s*"([^"]+)"/)?.[1]
+    const startedAtMs = timestamp ? Date.parse(timestamp) : undefined
+    return {
+      id,
+      ...(startedAtMs !== undefined && Number.isFinite(startedAtMs) ? { startedAtMs } : {}),
+    }
+  } finally {
+    await handle.close()
+  }
 }
 
 async function scanProcessBoundCodexRollouts(
@@ -1627,31 +1682,16 @@ async function scanProcessBoundCodexRollouts(
         seenPaths.add(path)
 
         try {
-          const prefix = await readPrefix(path)
-          const nl = prefix?.indexOf('\n') ?? -1
-          const head = prefix ? (nl >= 0 ? prefix.slice(0, nl) : prefix) : undefined
-          const meta = head ? JSON.parse(head) : undefined
-          const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
-          const id = payload ? strField(payload, 'id') : undefined
-          if (
-            !payload ||
-            !id ||
-            strField(meta, 'type') !== 'session_meta' ||
-            !isInteractiveCodexSource(payload.source)
-          ) {
-            continue
-          }
+          const identity = await readProcessRolloutIdentity(path)
+          if (!identity) continue
           const info = await stat(path)
           const createdMs =
-            sessionMetaStartedAtMs(meta, payload) ||
-            info.birthtimeMs ||
-            info.ctimeMs ||
-            info.mtimeMs
+            identity.startedAtMs || info.birthtimeMs || info.ctimeMs || info.mtimeMs
           const prior = byPodiumId.get(podiumSessionId)
           if (!prior || createdMs >= prior.createdMs) {
             byPodiumId.set(podiumSessionId, {
               path,
-              id,
+              id: identity.id,
               createdMs,
               confidence: 'exact',
             })
@@ -1873,8 +1913,13 @@ export async function findLiveCodexRollout(
 export async function resolvePinnedCodexRollout(
   resumeValue: string,
   homeDir: string | undefined,
+  readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>,
 ): Promise<{ path: string; id: string; createdMs: number; confidence: 'exact' } | undefined> {
-  const path = await findCodexRolloutPath({ resumeValue, ...(homeDir ? { homeDir } : {}) })
+  const path = await findCodexRolloutPath({
+    resumeValue,
+    ...(homeDir ? { homeDir } : {}),
+    ...(readThreadState ? { readThreadState } : {}),
+  })
   if (!path) return undefined
   try {
     const info = await stat(path)
@@ -1892,12 +1937,14 @@ export async function resolvePinnedCodexRollout(
 export async function findCodexRolloutPath(opts: {
   resumeValue: string
   homeDir?: string
+  readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>
 }): Promise<string | undefined> {
   const root = join(opts.homeDir ?? homedir(), '.codex')
   try {
-    const meta = await readCodexStateMetadata(root)
-    const fromDb = meta.byThreadId.get(opts.resumeValue)?.rolloutPath
-    if (fromDb) return fromDb
+    const meta = opts.readThreadState
+      ? await opts.readThreadState(opts.resumeValue)
+      : await readCodexThreadMetadata(root, opts.resumeValue)
+    if (meta?.rolloutPath) return meta.rolloutPath
   } catch {
     // fall through to the filename match
   }

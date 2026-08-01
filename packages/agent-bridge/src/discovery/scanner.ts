@@ -153,6 +153,11 @@ async function scanAgentConversationsCachedInternal(
     summary: AgentConversationSummary
     agentKind: AgentKind
   }[] = []
+  const ignoredCacheWrites: {
+    path: string
+    stats: ConversationFileStat
+    agentKind: AgentKind
+  }[] = []
   const seenPaths = new Set<string>()
   const memoCanonicalPath = memoizeCanonicalPath()
 
@@ -220,8 +225,8 @@ async function scanAgentConversationsCachedInternal(
 
               seenPaths.add(file.path)
               const cached = options.cache.getFresh(file.path, stats, provider.agentKind)
-              if (cached) {
-                conversations.push(cached)
+              if (cached !== undefined) {
+                if (cached) conversations.push(cached)
                 return
               }
 
@@ -231,7 +236,16 @@ async function scanAgentConversationsCachedInternal(
                 rootState: listing.state,
               })
               diagnostics.push(...extracted.diagnostics)
-              if (!extracted.summary) return
+              if (!extracted.summary) {
+                if (extracted.diagnostics.length === 0) {
+                  ignoredCacheWrites.push({
+                    path: file.path,
+                    stats,
+                    agentKind: provider.agentKind,
+                  })
+                }
+                return
+              }
 
               cacheWrites.push({
                 path: file.path,
@@ -248,6 +262,7 @@ async function scanAgentConversationsCachedInternal(
   )
 
   options.cache.upsertMany(cacheWrites)
+  options.cache.upsertIgnoredMany(ignoredCacheWrites)
   // A targeted refresh (`skipPrune`) never prunes: it only ever saw the dirty paths,
   // so it cannot tell what is genuinely missing — `removed` stays empty.
   const pruned = internal.skipPrune
