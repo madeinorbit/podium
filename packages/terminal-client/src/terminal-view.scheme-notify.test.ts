@@ -7,9 +7,10 @@
 // re-queries OSC 11 and repaints. TerminalView TRACKS the subscription;
 // session-mount pushes the report on a real background change — as PTY input,
 // so it obeys the controller-only input rule.
+
+import type { SessionCallbacks, SocketHub } from '@podium/client-core/transport'
 import { asSessionId } from '@podium/model'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import type { SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
 import { colorSchemeReport, DEFAULT_THEME, isLightBackground, TerminalView } from './terminal-view'
 

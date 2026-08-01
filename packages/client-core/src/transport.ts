@@ -1,5 +1,9 @@
 import { WIRE_VERSION } from '@podium/protocol'
 
+export * from './transport/echo-latency'
+export * from './transport/socket-hub'
+export * from './transport/subscriptions'
+
 /** Relay endpoints parsed from a `ws://`/`wss://`/HTTP(S) origin. */
 export type ServerOrigin = {
   wsClientUrl: string

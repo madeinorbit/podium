@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
+
+import type { ConnectionState, SessionCallbacks, SocketHub } from '@podium/client-core/transport'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { ConnectionState, SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
 import { TerminalView } from './terminal-view'
 

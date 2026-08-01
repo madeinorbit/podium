@@ -17,7 +17,6 @@
  * web and mobile bind exactly as before.
  */
 
-import type { FeedSinkPort } from '@podium/terminal-client'
 import type { JSX } from 'react'
 import {
   createContext,
@@ -38,6 +37,7 @@ import {
 } from '../engine/types'
 import type { Replica } from '../replica/replica'
 import type { RouterWindow } from '../router'
+import type { FeedSinkPort } from '../transport'
 
 // Shared engine seams (#262): types live with the engine; re-exported here so
 // the react entrypoint's public surface is unchanged.

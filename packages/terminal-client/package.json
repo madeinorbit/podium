@@ -2,7 +2,7 @@
   "name": "@podium/terminal-client",
   "version": "0.0.0",
   "private": true,
-  "description": "Browser presentation client for Podium agent terminal sessions: xterm.js rendering, mobile key toolbar, touch/scroll policy, reconnect, multi-client, transcript view.",
+  "description": "Browser terminal DOM presentation: xterm rendering, links, viewport, keyboard and touch policy.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,11 +13,6 @@
       "@podium/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./connection": {
-      "@podium/source": "./src/connection.ts",
-      "types": "./src/connection.ts",
-      "import": "./src/connection.ts"
     },
     "./session-mount": {
       "@podium/source": "./src/session-mount.ts",
@@ -37,6 +32,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@podium/client-core": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/composer": "workspace:*",
     "@podium/protocol": "workspace:*",

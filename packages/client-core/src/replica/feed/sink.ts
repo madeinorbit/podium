@@ -16,8 +16,8 @@
  * and that is stated at {@link FeedSink.frame}.
  */
 
-import type { FeedServerFrame, FeedSinkPort } from '@podium/terminal-client'
 import type { Replica as KernelReplica } from '@podium/sync/replica'
+import type { FeedServerFrame, FeedSinkPort } from '../../transport'
 import type { PushedBootstrapSource } from './bootstrap-source'
 import { toBootstrapChunk, toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
 

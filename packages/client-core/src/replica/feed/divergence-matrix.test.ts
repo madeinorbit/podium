@@ -37,14 +37,19 @@
  * should be read as the second-account check.
  */
 
-import { IDBFactory } from 'fake-indexeddb'
 import { ConformanceAuthority, type ConformancePrincipal } from '@podium/sync'
-import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
-import { Replica, type BootstrapChunk, type DeltaFrame, type ReplicaEvent } from '@podium/sync/replica'
-import type { FeedServerFrame } from '@podium/terminal-client'
+import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import {
+  type BootstrapChunk,
+  type DeltaFrame,
+  Replica,
+  type ReplicaEvent,
+} from '@podium/sync/replica'
+import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { PushedBootstrapSource } from './bootstrap-source'
+import type { FeedServerFrame } from '../../transport'
 import { FeedAuthorityClient } from './authority-client'
+import { PushedBootstrapSource } from './bootstrap-source'
 import { FeedSink } from './sink'
 
 const ALICE: ConformancePrincipal = { kind: 'user', userId: 'user:alice' }
@@ -68,7 +73,13 @@ function asWireDelta(frame: DeltaFrame): FeedServerFrame {
     minAvailableSeq: frame.minAvailableSeq,
     changes: frame.changes.map((change) =>
       change.op === 'upsert'
-        ? { seq: change.seq, entity: change.entity, entityId: change.entityId, op: 'upsert', value: change.payload }
+        ? {
+            seq: change.seq,
+            entity: change.entity,
+            entityId: change.entityId,
+            op: 'upsert',
+            value: change.payload,
+          }
         : { seq: change.seq, entity: change.entity, entityId: change.entityId, op: change.op },
     ),
   } as FeedServerFrame
@@ -173,7 +184,10 @@ describe('POD-376 divergence matrix', () => {
         fetchChangesSince: async (cursor) => {
           const reply = await port.changesSince(cursor)
           if (reply.kind === 'bootstrap-required') {
-            return { kind: 'bootstrap-required', ...(reply.reason === undefined ? {} : { reason: reply.reason }) }
+            return {
+              kind: 'bootstrap-required',
+              ...(reply.reason === undefined ? {} : { reason: reply.reason }),
+            }
           }
           return {
             kind: 'delta',
@@ -184,8 +198,19 @@ describe('POD-376 divergence matrix', () => {
             minAvailableSeq: reply.minAvailableSeq,
             changes: reply.changes.map((change) =>
               change.op === 'upsert'
-                ? { seq: change.seq, entity: change.entity, entityId: change.entityId, op: 'upsert' as const, value: change.payload }
-                : { seq: change.seq, entity: change.entity, entityId: change.entityId, op: change.op },
+                ? {
+                    seq: change.seq,
+                    entity: change.entity,
+                    entityId: change.entityId,
+                    op: 'upsert' as const,
+                    value: change.payload,
+                  }
+                : {
+                    seq: change.seq,
+                    entity: change.entity,
+                    entityId: change.entityId,
+                    op: change.op,
+                  },
             ),
           }
         },
@@ -293,7 +318,12 @@ describe('POD-376 divergence matrix', () => {
   it('case 4 · a grant mid-session arrives as a re-admitting upsert, contiguous, with no heal', async () => {
     authority.append({ entity: 'session', entityId: 'mine', op: 'upsert', payload: { id: 'mine' } })
     authority.grant('user:alice', 'session', 'mine')
-    authority.append({ entity: 'session', entityId: 'theirs', op: 'upsert', payload: { id: 'theirs' } })
+    authority.append({
+      entity: 'session',
+      entityId: 'theirs',
+      op: 'upsert',
+      payload: { id: 'theirs' },
+    })
     authority.grant('user:bob', 'session', 'theirs')
 
     const alice = await openClient(ALICE)
@@ -318,7 +348,12 @@ describe('POD-376 divergence matrix', () => {
   // ── 5: revoke mid-session — NOT a deletion ────────────────────────────────
 
   it('case 5 · a revoke leaves the view as an EVICT, and is not rendered as a deletion', async () => {
-    authority.append({ entity: 'session', entityId: 'shared', op: 'upsert', payload: { id: 'shared' } })
+    authority.append({
+      entity: 'session',
+      entityId: 'shared',
+      op: 'upsert',
+      payload: { id: 'shared' },
+    })
     authority.grant('user:alice', 'session', 'shared')
     const alice = await openClient(ALICE)
     await online(alice)
@@ -341,7 +376,12 @@ describe('POD-376 divergence matrix', () => {
   it('case 5b · a real DELETION is still rendered as one — the two arms are distinguishable', async () => {
     // The counterfactual. Without it, case 5 is satisfied by a client that reports
     // EVERYTHING as an eviction, which loses the distinction just as completely.
-    authority.append({ entity: 'session', entityId: 'doomed', op: 'upsert', payload: { id: 'doomed' } })
+    authority.append({
+      entity: 'session',
+      entityId: 'doomed',
+      op: 'upsert',
+      payload: { id: 'doomed' },
+    })
     authority.grant('user:alice', 'session', 'doomed')
     const alice = await openClient(ALICE)
     await online(alice)
@@ -482,7 +522,12 @@ describe('POD-376 divergence matrix', () => {
     // the SAME client code against the SAME authority and legitimately hold
     // different sets of rows — which is precisely why a naive snapshot diff
     // between two paths would report correct scoping as divergence.
-    authority.append({ entity: 'session', entityId: 'private-to-alice', op: 'upsert', payload: { id: 'p' } })
+    authority.append({
+      entity: 'session',
+      entityId: 'private-to-alice',
+      op: 'upsert',
+      payload: { id: 'p' },
+    })
     authority.grant('user:alice', 'session', 'private-to-alice')
 
     const alice = await openClient(ALICE, { databaseName: 'alice' })

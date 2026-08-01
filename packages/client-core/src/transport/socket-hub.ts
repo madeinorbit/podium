@@ -23,21 +23,31 @@ import {
   isKnownMetadataChange,
   type MetadataChange,
   type MetadataChangeLenient,
-  type MetadataDeltaMessageLenient,
-  parseChangesSinceResult,
+  type PresenceIdentity,
+  type PresencePayload,
+  type PresenceRoomClientMessage,
+  type PresenceRoomServerMessage as PresenceRoomServerFrame,
+  PresenceRoomServerMessage,
   parseServerMessageLenient,
+  presencePayloadWithinBudget,
+  type RoomRef,
   type ServerMessage,
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResultLenient,
+  type TerminalOutcomeMessage as TerminalOutcomeFrame,
+  TerminalOutcomeMessage,
   WIRE_VERSION,
 } from '@podium/protocol'
+import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
+import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
 
 export interface WebSocketLike {
   send(data: string): void
   close(): void
+  readonly bufferedAmount?: number
   onopen: ((ev: unknown) => void) | null
   onmessage: ((ev: { data: unknown }) => void) | null
   onclose: ((ev: unknown) => void) | null
@@ -50,10 +60,14 @@ export interface ConnectionViewport {
   dpr: number
 }
 
+export type TerminalOutcome = 'unauthorized' | 'unreachable'
+
 export interface ConnectionState {
   connected: boolean
   clientId: string
   controllerId: string | null
+  controllerIdentity: PresenceIdentity | null
+  outcome: TerminalOutcome | null
   sessionId: SessionId
   role: 'controller' | 'spectator'
   cols: number
@@ -79,6 +93,7 @@ export interface SessionCallbacks {
    * child with an empty replay buffer would hang it forever.
    */
   onAttached?: () => void
+  onOutcome?: (outcome: TerminalOutcome) => void
 }
 
 export interface SocketHubOptions {
@@ -243,6 +258,26 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+const PRESENCE_OUTBOUND_BUDGET_BYTES = 64 * 1024
+
+function parseTerminalOutcomeFrame(raw: string): TerminalOutcomeFrame | null {
+  try {
+    const parsed = TerminalOutcomeMessage.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+function parsePresenceRoomFrame(raw: string): PresenceRoomServerFrame | null {
+  try {
+    const parsed = PresenceRoomServerMessage.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
 // Liveness + recovery tuning. The heartbeat catches connections that died without a
 // close event (laptop sleep leaves a half-open TCP; some proxies drop idle sockets
 // silently), doubles as proxy-keepalive traffic, and — at this cadence — works as a
@@ -267,9 +302,6 @@ const PING_QUEUE_CAP = 8
 // reconnect, so a blip doesn't silently swallow input. Capped so a long outage
 // can't replay an unbounded burst of stale typing into the agent on return.
 const INPUT_QUEUE_CAP = 1_000
-// Flat retry for a failed changesSince heal while the socket is up (tRPC blips are
-// rare when the WS is healthy; a reconnect re-enters the heal path anyway).
-const HEAL_RETRY_MS = 3_000
 
 /** Fold one oplog change into an entity list (upsert replaces by id or appends;
  *  an upsert with no value is a producer bug the protocol says to drop). */
@@ -353,6 +385,9 @@ export interface HubEvents {
    *  subscription these frames depend on). */
   transcriptDelta: [sessionId: SessionId, items: TranscriptItem[], meta: { reset: boolean }]
   headlessActivity: [sessionId: SessionId, event: HeadlessActivityEvent]
+  presenceRoomState: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomState' }>]
+  presenceRoomDelta: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomDelta' }>]
+  presenceRoomClosed: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomClosed' }>]
 }
 
 export type HubEventKind = keyof HubEvents
@@ -366,6 +401,8 @@ type AnyHubEventHandler = (...payload: never[]) => void
 export class SocketHub {
   private readonly opts: SocketHubOptions
   private readonly makeSocket: (url: string) => WebSocketLike
+  private readonly legacyFeed: LegacyWireV1Feed | undefined
+  private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private socket: WebSocketLike | undefined
   private connectedFlag = false
   private clientIdValue = ''
@@ -391,20 +428,6 @@ export class SocketHub {
    *  authority's flag is on. */
   private issueDepList: IssueDepProjection[] = []
   private repoList: RepoProjection[] = []
-  // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
-  /** Last applied oplog seq; null until the first changesSince completes. */
-  private metadataCursor: number | null = null
-  /** Feed identity as last stamped by the authority (ADR 2 D1/D5), forwarded to
-   *  the embedder with every applied batch so the replica's cursor can be the
-   *  triple. Empty against an authority that stamps nothing. See noteFeedStamp. */
-  private readonly feedStamp: { feedId?: string; epoch?: string; minAvailableSeq?: number } = {}
-  /** The options' `initialCursor` is spent on the FIRST heal only — after that
-   *  the live `metadataCursor` (or null → snapshot) is always the truth. */
-  private initialCursorSpent = false
-  /** Deltas that arrived while a heal/bootstrap was in flight — replayed after. */
-  private pendingDeltas: MetadataDeltaMessageLenient[] = []
-  private healInFlight = false
-  private healRetryTimer: ReturnType<typeof setTimeout> | undefined
   private intentionalClose = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
@@ -424,6 +447,7 @@ export class SocketHub {
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   private readonly connections = new Map<SessionId, SessionConnection>()
+  private readonly terminalAttachDenials = new Set<SessionId>()
   // Per-session structured transcript subscriptions. The hub is a thin
   // delta-forwarder: it holds NO buffered items (ChatView owns history, seeded
   // from a tRPC read). It tracks only `since` — the cursor of the newest item
@@ -468,7 +492,18 @@ export class SocketHub {
       )
     }
     this.opts = opts
+    this.subscriptionRegistry = new ClientSubscriptionRegistry(opts.feed !== undefined)
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
+    this.legacyFeed = opts.fetchChangesSince
+      ? new LegacyWireV1Feed({
+          fetchChangesSince: opts.fetchChangesSince,
+          initialCursor: opts.initialCursor,
+          isConnected: () => this.connectedFlag,
+          applyChanges: (changes) => this.applyChanges(changes),
+          replaceSnapshot: (snapshot) => this.replaceMetadataSnapshot(snapshot),
+          applied: (cursor, stamp) => this.emitMetadataApplied(cursor, stamp),
+        })
+      : undefined
   }
 
   get connected(): boolean {
@@ -545,12 +580,13 @@ export class SocketHub {
       // Catch up on whatever the metadata stream did while we were away (or take
       // the bootstrap snapshot on a first connect). The attach-time snapshots the
       // server sends pre-hello already painted the UI; this establishes the cursor.
-      this.healMetadata()
+      this.legacyFeed?.connected()
       // Re-attach with a resume cursor: the view survived the drop, so ask the
       // server to catch us up from the last seq we rendered instead of wiping and
       // replaying the whole buffer. A connection that has rendered nothing yet
       // (lastSeq -1) omits the cursor → full replay.
       for (const [sessionId, conn] of this.connections) {
+        if (this.terminalAttachDenials.has(sessionId)) continue
         const sinceSeq = conn.resumeCursor
         this.sendRaw({ type: 'attach', sessionId, ...(sinceSeq >= 0 ? { sinceSeq } : {}) })
       }
@@ -565,9 +601,11 @@ export class SocketHub {
           ...(entry.since ? { since: entry.since } : {}),
         })
       }
-      // Always assert presence on (re)connect: the server defaults a new client
-      // to not-visible (fail-safe toward notifying), so a visible tab must say so.
-      this.sendRaw({ type: 'presence', visible: this.lastVisible })
+      // Restore lossy room membership from the SAME registry as the durable feed.
+      // Updates are full-state and never enter the control queue.
+      for (const frame of this.subscriptionRegistry.reconnectFrames()) {
+        this.sendPresenceFrame(frame)
+      }
       // Re-assert per-session view state the same way: the server starts each new
       // client with empty view state, so a reconnecting client must re-declare which
       // sessions it renders / has focused for output-relay prioritization to resume.
@@ -610,13 +648,7 @@ export class SocketHub {
     // stale. Told here rather than by an embedder watching `connected`, so the
     // posture changes at the same instant the frames stop.
     this.opts.feed?.disconnected()
-    // A heal retry is pointless with the socket down (and deltas queued during an
-    // outage are superseded by the reconnect heal) — the onopen path re-enters.
-    if (this.healRetryTimer !== undefined) {
-      clearTimeout(this.healRetryTimer)
-      this.healRetryTimer = undefined
-    }
-    this.pendingDeltas = []
+    this.legacyFeed?.disconnected()
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth()
     if (!this.intentionalClose && this.everConnected) this.scheduleReconnect()
@@ -742,6 +774,7 @@ export class SocketHub {
   }
 
   detach(sessionId: SessionId): void {
+    this.terminalAttachDenials.delete(sessionId)
     if (this.connections.delete(sessionId) && this.connectedFlag) {
       this.sendRaw({ type: 'detach', sessionId })
     }
@@ -876,7 +909,7 @@ export class SocketHub {
     automations?: AutomationWire[]
     automationRuns?: AutomationRunWire[]
   }): void {
-    if (this.metadataCursor !== null) return
+    if (this.legacyFeed !== undefined && !this.legacyFeed.canSeed()) return
     this.sessionList = seed.sessions
     this.issueList = seed.issues
     // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
@@ -1024,10 +1057,51 @@ export class SocketHub {
     })
   }
 
+  subscriptionSnapshot(): readonly ClientSubscription[] {
+    return this.subscriptionRegistry.snapshot()
+  }
+
+  subscribeRoom(room: RoomRef, payload?: PresencePayload): () => void {
+    const fresh = this.subscriptionRegistry.subscribeRoom(room, payload, this.lastVisible)
+    if (fresh && this.connectedFlag) this.sendPresenceFrame({ type: 'presenceSubscribe', room })
+    if (this.connectedFlag) {
+      this.sendPresenceFrame({
+        type: 'presenceUpdate',
+        room,
+        ...(payload !== undefined ? { payload } : {}),
+        visible: this.lastVisible,
+      })
+    }
+    return () => {
+      if (!this.subscriptionRegistry.unsubscribeRoom(room)) return
+      if (this.connectedFlag) this.sendPresenceFrame({ type: 'presenceUnsubscribe', room })
+    }
+  }
+
+  publishPresence(room: RoomRef, payload: PresencePayload): boolean {
+    if (!presencePayloadWithinBudget(payload)) return false
+    if (!this.subscriptionRegistry.updateRoom(room, payload, this.lastVisible)) return false
+    return this.sendPresenceFrame({
+      type: 'presenceUpdate',
+      room,
+      payload,
+      visible: this.lastVisible,
+    })
+  }
+
   /** Report page visibility; the server's smart router skips mobile push while visible. */
   setVisible(visible: boolean): void {
     this.lastVisible = visible
-    if (this.connectedFlag) this.sendRaw({ type: 'presence', visible })
+    this.subscriptionRegistry.updateVisibility(visible)
+    for (const subscription of this.subscriptionRegistry.snapshot()) {
+      if (subscription.room === undefined) continue
+      this.sendPresenceFrame({
+        type: 'presenceUpdate',
+        room: subscription.room,
+        ...(subscription.payload !== undefined ? { payload: subscription.payload } : {}),
+        visible,
+      })
+    }
   }
 
   /**
@@ -1111,6 +1185,23 @@ export class SocketHub {
     if (this.inputQueue.length < INPUT_QUEUE_CAP) this.inputQueue.push(msg)
   }
 
+  /**
+   * Principal rebinding seam. This instance is terminal after release: callers
+   * construct a fresh hub after authentication changes, so no room, attach,
+   * input, transcript cursor or transport-derived identity can cross users.
+   */
+  releasePrincipal(): void {
+    this.subscriptionRegistry.clearForPrincipalChange()
+    for (const entry of this.transcripts.values()) entry.off()
+    this.transcripts.clear()
+    this.headlessSubs.clear()
+    this.connections.clear()
+    this.terminalAttachDenials.clear()
+    this.clientIdValue = ''
+    this.preOpenQueue.length = 0
+    this.dispose()
+  }
+
   dispose(): void {
     this.intentionalClose = true
     if (this.reconnectTimer !== undefined) {
@@ -1122,10 +1213,25 @@ export class SocketHub {
     this.socket = undefined
     this.connectedFlag = false
     this.inputQueue.length = 0
+    this.preOpenQueue.length = 0
+    this.legacyFeed?.dispose()
     this.notifyConnections()
   }
 
   private route(raw: string): void {
+    const terminalOutcome = parseTerminalOutcomeFrame(raw)
+    if (terminalOutcome !== null) {
+      if (terminalOutcome.outcome === 'unauthorized') {
+        this.terminalAttachDenials.add(terminalOutcome.sessionId)
+      }
+      this.connections.get(terminalOutcome.sessionId)?._outcome(terminalOutcome.outcome)
+      return
+    }
+    const roomFrame = parsePresenceRoomFrame(raw)
+    if (roomFrame !== null) {
+      this.routePresenceRoomFrame(roomFrame)
+      return
+    }
     let msg: ServerMessageLenient | null
     try {
       // Lenient parse: for the collection-bearing messages, one poisoned element
@@ -1139,20 +1245,29 @@ export class SocketHub {
         console.warn(
           `[podium] quarantined ${result.dropped} invalid item(s) in a ${msg?.type ?? '?'} message`,
         )
-        // A quarantined element in a DELTA batch is an invisible cursor gap (list
-        // messages self-heal on the next snapshot; a delta stream does not) — treat
-        // it like any other gap and resync through changesSince.
-        if (msg?.type === 'metadataDelta') {
-          this.healMetadata()
-          return
-        }
       }
+      if (!msg) return
+      this.dispatchServerMessage(msg, { dropped: result.dropped })
     } catch (err) {
       console.warn('[podium] dropped an unparseable server message', err)
       return
     }
-    if (!msg) return
-    this.dispatchServerMessage(msg, undefined)
+  }
+
+  private routePresenceRoomFrame(frame: PresenceRoomServerFrame): void {
+    switch (frame.type) {
+      case 'presenceRoomState':
+        this.emit('presenceRoomState', frame)
+        return
+      case 'presenceRoomDelta':
+        this.emit('presenceRoomDelta', frame)
+        return
+      case 'presenceRoomClosed':
+        this.emit('presenceRoomClosed', frame)
+        return
+      default:
+        frame satisfies never
+    }
   }
 
   /**
@@ -1161,7 +1276,10 @@ export class SocketHub {
    * message type to the protocol breaks compilation HERE until it is handled —
    * the hand-written if-ladder this replaces could silently ignore one.
    */
-  private readonly dispatchServerMessage = createDispatcher<ServerMessageLenient>({
+  private readonly dispatchServerMessage = createDispatcher<
+    ServerMessageLenient,
+    { dropped: number }
+  >({
     pong: () => {
       // Liveness was already recorded in onmessage; here the pong closes out the
       // oldest in-flight ping to yield a round-trip sample.
@@ -1176,8 +1294,8 @@ export class SocketHub {
       this.clientIdValue = msg.clientId
       this.notifyConnections()
     },
-    metadataDelta: (msg) => {
-      this.ingestDelta(msg)
+    metadataDelta: (msg, context) => {
+      this.legacyFeed?.frame(msg, context.dropped)
     },
     // ---- wire v2 (POD-308 built it, POD-376 consumes it) ----
     // WHICH WIRE THIS HUB SPEAKS IS PER CONNECTION, not per build. Without a
@@ -1194,7 +1312,7 @@ export class SocketHub {
     // call `healMetadata()` on a suspect frame the way `metadataDelta` does. The
     // v2 frame certifies its own range, so a gap is something the Replica sees in
     // `fromSeq` and resolves down its own ladder; healing from here would be the
-    // transport deciding a rung.
+    // transport deciding a rung. Parser quarantine counts are ignored here too.
     //
     // The rollout order is server → clients → daemons
     // (docs/rearch-wire-cutover-rollout.md): this is the CLIENT step, and it stays
@@ -1316,33 +1434,12 @@ export class SocketHub {
     this.connections.get(msg.sessionId)?._ingest(msg)
   }
 
-  // ---- metadata oplog: delta application + cursor healing (spec §2.4) ----
-
-  /** Live `metadataDelta` intake. Queued while a heal is in flight (the heal's
-   *  cursor decides what still applies); a seq gap aborts into a heal. */
-  private ingestDelta(msg: MetadataDeltaMessageLenient): void {
-    // Record the identity even for a frame we go on to queue or heal past: the
-    // stamp describes the FEED, not this batch, so it is true regardless of what
-    // happens to the batch.
-    this.noteFeedStamp(msg)
-    if (this.healInFlight || this.metadataCursor == null) {
-      this.pendingDeltas.push(msg)
-      // No cursor yet and no heal running (changesSince rejected and is waiting on
-      // its retry timer): the queue alone would grow unboundedly — nudge the heal.
-      if (!this.healInFlight && this.healRetryTimer === undefined) this.healMetadata()
-      return
-    }
-    if (this.applyDelta(msg)) this.emitMetadataApplied()
-    else this.healMetadata()
-  }
-
-  /** Persist hook: hand the current lists + cursor to the embedder after an
-   *  applied batch. Allocation-light — passes the live arrays, not copies. */
-  private emitMetadataApplied(): void {
-    const cb = this.opts.onMetadataApplied
-    if (cb === undefined || this.metadataCursor === null) return
-    cb({
-      cursor: this.metadataCursor,
+  private emitMetadataApplied(
+    cursor: number,
+    stamp: { feedId?: string; epoch?: string; minAvailableSeq?: number },
+  ): void {
+    this.opts.onMetadataApplied?.({
+      cursor,
       sessions: this.sessionList,
       issues: this.issueList,
       issueProjections: this.issueProjectionList,
@@ -1351,53 +1448,29 @@ export class SocketHub {
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
-      ...this.feedStamp,
+      ...stamp,
     })
   }
 
-  /** Record the feed identity a stamped batch carried (ADR 2 D1/D5).
-   *
-   *  Fields are only overwritten when PRESENT: a mixed-version authority (one
-   *  node stamps, one does not) must not blank an identity an earlier reply
-   *  established, or the next stamped reply reads as a mismatch against nothing.
-   *  `minAvailableSeq` moves with the retention horizon and is simply the latest
-   *  the authority published. */
-  private noteFeedStamp(stamp: {
-    feedId?: string
-    epoch?: string
-    minAvailableSeq?: number
-  }): void {
-    if (stamp.feedId !== undefined) this.feedStamp.feedId = stamp.feedId
-    if (stamp.epoch !== undefined) this.feedStamp.epoch = stamp.epoch
-    if (stamp.minAvailableSeq !== undefined) this.feedStamp.minAvailableSeq = stamp.minAvailableSeq
-  }
-
-  /**
-   * Apply one batch against the cursor. Returns false on a gap (batch starts past
-   * cursor + 1) — the caller must heal. Changes at or below the cursor are skipped
-   * (a heal may have already covered them); upserts are idempotent by id.
-   */
-  private applyDelta(msg: MetadataDeltaMessageLenient): boolean {
-    const cursor = this.metadataCursor as number
-    if (msg.seq <= cursor) return true // entirely stale — already healed past it
-    if (msg.fromExclusive !== undefined) {
-      if (msg.fromExclusive > cursor) return false
-      const fresh = msg.changes.filter((change) => change.seq > cursor)
-      let previous = cursor
-      for (const change of fresh) {
-        if (change.seq <= previous || change.seq > msg.seq) return false
-        previous = change.seq
-      }
-      if (fresh.length > 0) this.applyChanges(fresh)
-      this.metadataCursor = msg.seq
-      return true
-    }
-    const fresh = msg.changes.filter((c) => c.seq > cursor)
-    if (fresh.length === 0) return true
-    if ((fresh[0] as MetadataChangeLenient).seq !== cursor + 1) return false
-    this.applyChanges(fresh)
-    this.metadataCursor = msg.seq
-    return true
+  private replaceMetadataSnapshot(
+    result: Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
+  ): void {
+    this.sessionList = result.sessions
+    this.issueList = result.issues
+    this.issueProjectionList = result.issueProjections ?? []
+    this.issueDepList = result.issueDeps ?? []
+    this.repoList = result.repos ?? []
+    this.conversationList = result.conversations
+    this.automationList = result.automations ?? []
+    this.automationRunList = result.automationRuns ?? []
+    this.emit('sessions', this.sessionList)
+    this.emit('issues', this.issueList)
+    this.emit('issueProjections', this.issueProjectionList)
+    this.emit('issueDeps', this.issueDepList)
+    this.emit('repos', this.repoList)
+    this.emit('conversations', this.conversationList)
+    this.emit('automations', this.automationList)
+    this.emit('automationRuns', this.automationRunList)
   }
 
   /** Fold wire changes into the entity lists and notify only touched observers.
@@ -1478,103 +1551,12 @@ export class SocketHub {
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
   }
 
-  /**
-   * Establish or repair the cursor via changesSince: bootstrap (null cursor) and
-   * compaction both come back as a snapshot (full replace — same source of truth
-   * as any delta in flight, so a replace is always safe); otherwise the missed
-   * changes are applied as a delta. Single-flight; deltas arriving meanwhile queue
-   * and are drained after, re-healing if they still don't line up. Fetch failures
-   * retry on a flat 3s timer while the socket is up — a reconnect also re-enters.
-   */
-  private healMetadata(): void {
-    const fetch = this.opts.fetchChangesSince
-    if (!fetch || this.healInFlight) return
-    if (this.healRetryTimer !== undefined) {
-      clearTimeout(this.healRetryTimer)
-      this.healRetryTimer = undefined
-    }
-    this.healInFlight = true
-    // A persisted replica's cursor stands in for null on the very first fetch
-    // only (warm reload → delta, not the world). Once spent — whatever the
-    // outcome — the live cursor owns every subsequent heal.
-    const since =
-      this.metadataCursor ?? (this.initialCursorSpent ? null : (this.opts.initialCursor ?? null))
-    this.initialCursorSpent = true
-    // Runtime validation of the heal result ([spec:SP-3fe2] #247): the WS
-    // frames parse leniently, but this HTTP result used to be consumed on
-    // trust — a known-kind row with a malformed value installed into the UI
-    // lists and the cursor skipped it permanently. A malformed delta escalates
-    // to a SNAPSHOT heal (null-cursor refetch, the server's own corrupt-row
-    // fallback); a malformed snapshot rejects into the normal retry path.
-    // Never install, never advance past a row we could not validate.
-    const fetchValidated = async (): Promise<SyncChangesSinceResultLenient> => {
-      const first = parseChangesSinceResult(await fetch(since), { fromCursor: since })
-      if (first !== null) return first
-      if (since !== null) {
-        const snap = parseChangesSinceResult(await fetch(null))
-        // Only a full snapshot may satisfy the escalation — a shape-valid
-        // delta (e.g. empty with a later cursor) would skip the malformed
-        // rows permanently instead of replacing the untrusted state.
-        if (snap !== null && snap.kind === 'snapshot') return snap
-      }
-      throw new Error('malformed changesSince result')
-    }
-    fetchValidated().then(
-      (result) => {
-        this.healInFlight = false
-        // The changesSince reply carries the identity on BOTH arms and
-        // unconditionally — it is a tRPC query, so there is no hello to
-        // negotiate on and stamping it is additive (an older client's zod parse
-        // strips the keys). The snapshot arm needs it most: a re-bootstrap is
-        // exactly where a replica learns which generation it is now on.
-        this.noteFeedStamp(result)
-        if (result.kind === 'snapshot') {
-          this.sessionList = result.sessions
-          this.issueList = result.issues
-          this.issueProjectionList = result.issueProjections ?? []
-          this.issueDepList = result.issueDeps ?? []
-          this.repoList = result.repos ?? []
-          this.conversationList = result.conversations
-          this.automationList = result.automations ?? []
-          this.automationRunList = result.automationRuns ?? []
-          this.emit('sessions', this.sessionList)
-          this.emit('issues', this.issueList)
-          this.emit('issueProjections', this.issueProjectionList)
-          this.emit('issueDeps', this.issueDepList)
-          this.emit('repos', this.repoList)
-          this.emit('conversations', this.conversationList)
-          this.emit('automations', this.automationList)
-          this.emit('automationRuns', this.automationRunList)
-        } else if (result.changes.length > 0) {
-          this.applyChanges(result.changes.filter((c) => c.seq > (this.metadataCursor ?? 0)))
-        }
-        this.metadataCursor = result.cursor
-        const queued = this.pendingDeltas.splice(0)
-        for (let i = 0; i < queued.length; i++) {
-          if (!this.applyDelta(queued[i] as MetadataDeltaMessageLenient)) {
-            // Still gapped (changes raced past between the fetch and now): requeue
-            // the rest and go around again. The re-entered heal emits the persist
-            // hook once it settles — no intermediate emit for the torn state.
-            this.pendingDeltas = queued.slice(i)
-            this.healMetadata()
-            return
-          }
-        }
-        this.emitMetadataApplied()
-      },
-      () => {
-        this.healInFlight = false
-        // Bound the offline queue: after a failed heal these are all stale-or-future;
-        // the eventual successful heal supersedes them.
-        this.pendingDeltas = []
-        if (this.connectedFlag && this.healRetryTimer === undefined) {
-          this.healRetryTimer = setTimeout(() => {
-            this.healRetryTimer = undefined
-            this.healMetadata()
-          }, HEAL_RETRY_MS)
-        }
-      },
-    )
+  private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {
+    const socket = this.socket
+    if (!this.connectedFlag || socket === undefined) return false
+    if ((socket.bufferedAmount ?? 0) >= PRESENCE_OUTBOUND_BUDGET_BYTES) return false
+    socket.send(JSON.stringify(frame))
+    return true
   }
 
   private notifyConnections(): void {
@@ -1607,6 +1589,8 @@ export class SessionConnection {
   private readonly hub: SocketHub
   private cb: SessionCallbacks
   private controllerId: string | null = null
+  private controllerIdentity: PresenceIdentity | null = null
+  private outcome: TerminalOutcome | null = null
   private cols: number
   private rows: number
   private epoch = 0
@@ -1665,6 +1649,8 @@ export class SessionConnection {
       connected: this.hub.connected,
       clientId,
       controllerId: this.controllerId,
+      controllerIdentity: this.controllerIdentity,
+      outcome: this.outcome,
       sessionId: this.sessionId,
       role: clientId !== '' && clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
@@ -1683,7 +1669,9 @@ export class SessionConnection {
    *  compile-checked exhaustiveness as the hub's table, replacing the switch. */
   private readonly dispatchSessionMessage = createDispatcher<SessionScopedServerMessage>({
     attached: (msg) => {
+      this.outcome = null
       this.controllerId = msg.controllerId
+      this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
       this.epoch = msg.epoch
@@ -1703,6 +1691,7 @@ export class SessionConnection {
     },
     controllerChanged: (msg) => {
       this.controllerId = msg.controllerId
+      this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
       this.emit()
@@ -1716,6 +1705,13 @@ export class SessionConnection {
       this.emit()
     },
   })
+
+  /** @internal Transport outcome for this session. */
+  _outcome(outcome: TerminalOutcome): void {
+    this.outcome = outcome
+    this.emit()
+    this.cb.onOutcome?.(outcome)
+  }
 
   /** @internal Hub-internal: connection/clientId changed → recompute role. */
   _notifyHubChange(): void {

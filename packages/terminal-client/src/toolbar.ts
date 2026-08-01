@@ -1,4 +1,4 @@
-import type { SessionConnection } from './connection'
+import type { SessionConnection } from '@podium/client-core/transport'
 import { ctrlByte, ctrlSequence, keySequence, type SpecialKey } from './keys'
 
 /** One key on the mobile accessory bar: its visible label and the bytes it sends. */

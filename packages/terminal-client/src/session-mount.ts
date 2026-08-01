@@ -1,7 +1,7 @@
-import type { SessionId } from '@podium/model'
-import type { ConnectionState, SessionConnection, SocketHub } from './connection'
-import { DomViewportSource } from './dom-viewport'
+import type { ConnectionState, SessionConnection, SocketHub } from '@podium/client-core/transport'
 import { extractCodexPromptDraft } from '@podium/composer'
+import type { SessionId } from '@podium/model'
+import { DomViewportSource } from './dom-viewport'
 import { decideResizeAction, type Grid } from './session-viewport'
 import {
   createTerminalDiagnosticRecorder,

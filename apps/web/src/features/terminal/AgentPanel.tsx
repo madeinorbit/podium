@@ -1,13 +1,9 @@
 import { randomUUID } from '@podium/client-core/id'
 import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
+import { composerDriverFor } from '@podium/composer'
 import type { SessionId } from '@podium/model'
-import {
-  composerDriverFor,
-  keySequence,
-  type MountedSession,
-  type SpecialKey,
-} from '@podium/terminal-client'
+import { keySequence, type MountedSession, type SpecialKey } from '@podium/terminal-client'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import {
   Archive,

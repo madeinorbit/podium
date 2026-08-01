@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
+
+import type { SessionCallbacks, SocketHub } from '@podium/client-core/transport'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
 
 // happy-dom has no ResizeObserver; DomViewportSource needs one to construct.
