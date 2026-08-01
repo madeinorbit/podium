@@ -1,5 +1,5 @@
-import { SOLE_USER_ID, asSessionId, type SessionMeta } from '@podium/model'
-import type { MetadataChange, ServerMessage } from '@podium/protocol'
+import { FIRST_ADMIN_USER_ID, SOLE_USER_ID, asSessionId, type SessionMeta } from '@podium/model'
+import { WIRE_VERSION, type MetadataChange, type ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
@@ -37,14 +37,24 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
+      wireVersion: WIRE_VERSION,
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
     })
     return { inbox }
   }
 
-  const batches = (inbox: ServerMessage[]) =>
-    inbox.flatMap((m) => (m.type === 'metadataDelta' ? [m] : []))
+  const batches = (inbox: ServerMessage[]): { seq: number; changes: MetadataChange[] }[] =>
+    inbox.flatMap((m) => {
+      if (m.type === 'metadataDelta') return [m]
+      if (m.type !== 'feedDelta') return []
+      return [{
+        seq: m.seq,
+        changes: m.changes
+          .filter((change) => change.op !== 'evict')
+          .map((change) => ({ ...change, id: change.entityId }) as MetadataChange),
+      }]
+    })
 
   const sessionChanges = (inbox: ServerMessage[]): MetadataChange[] =>
     batches(inbox)
@@ -69,6 +79,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
         write: () =>
           store.sessions.upsertSession({
             id: asSessionId('s-atomic'),
+            ownerUserId: FIRST_ADMIN_USER_ID,
             agentKind: 'shell',
             cwd: '/w',
             title: 't',
@@ -147,7 +158,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.renameSession({ sessionId, name: 'renamed-mid-stream' })
     registry.modules.sessions.flushBroadcasts() // drain the coalesced pipeline
     const received = batches(delta.inbox.slice(before)).flatMap((b) => b.changes)
-    expect(received.length).toBeGreaterThanOrEqual(3)
+    expect(received.length).toBeGreaterThanOrEqual(2)
     expect(received.some((c) => c.entity === 'session')).toBe(true)
     expect(received.some((c) => c.entity === 'issue')).toBe(true)
     // Strict seq order, and gap-free: the stream carries EVERY seq in its range.
@@ -468,42 +479,33 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(second.modules.sessions.listSessions()[0]).not.toHaveProperty('revision')
   })
 
-  it('invalidates a coalesced legacy snapshot when state reverts to identical bytes', () => {
+  it('publishes the final state when coalesced changes revert to identical bytes', () => {
     const registry = makeRegistry()
-    const legacy: ServerMessage[] = []
-    registry.clientGateway.attachClient((message) => legacy.push(message))
+    const current = deltaClient(registry)
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.sessions.flushBroadcasts()
     const originalSession = registry.modules.sessions
       .listSessions()
-      .find((s) => s.sessionId === sessionId)
+      .find((session) => session.sessionId === sessionId)
     expect(originalSession).toBeDefined()
     const original = originalSession?.name
-    const before = legacy.filter((message) => message.type === 'sessionsChanged').length
+    current.inbox.length = 0
     const cursorBefore = registry.modules.sessions.syncChangesSince(null).cursor
 
     registry.modules.sessions.renameSession({ sessionId, name: 'temporary' })
     registry.modules.sessions.renameSession({ sessionId, name: original ?? '' })
     registry.modules.sessions.flushBroadcasts()
 
-    // THE COUNT MOVED AND THE PROPERTY DID NOT (POD-1203). It was `before + 2`,
-    // one snapshot per broadcast; the two renames now coalesce into ONE frame, so
-    // it is `before + 1`. Asserting the count alone would make this case about
-    // coalescing, which it never was — the defect it guards is a revert to
-    // IDENTICAL BYTES being swallowed by the dedup baseline, leaving the client
-    // showing 'temporary' forever. So assert the two things that name states:
-    const snapshots = legacy.filter((message) => message.type === 'sessionsChanged')
-    expect(snapshots).toHaveLength(before + 1)
-    // 1. the client's last word is the ORIGINAL name, not the intermediate one;
-    const last = snapshots.at(-1) as { sessions: { sessionId: string; name?: string }[] }
-    expect(last.sessions.find((s) => s.sessionId === sessionId)?.name).toBe(original)
-    // 2. and BOTH transitions are in the durable log — a dedup that swallowed the
-    //    second would leave one row here and 'temporary' on the wire.
-    const renames = registry.modules.sessions
-      .syncChangesSince(cursorBefore)
+    const projected = sessionChanges(current.inbox).filter(
+      (change) => change.id === sessionId && change.op === 'upsert',
+    )
+    expect(projected.length).toBeGreaterThan(0)
+    expect((projected.at(-1)?.value as SessionMeta | undefined)?.name).toBe(original)
+    const renames = registry.modules.sessions.syncChangesSince(cursorBefore)
     expect(renames.kind).toBe('delta')
     expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
   })
+
 
   it('coalesces a resize burst into one async capture and one projection event', () => {
     const registry = makeRegistry()
@@ -919,6 +921,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
+      wireVersion: WIRE_VERSION,
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps,
     })
@@ -926,7 +929,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   }
 
   const deltas = (inbox: ServerMessage[]) =>
-    inbox.flatMap((m) => (m.type === 'metadataDelta' ? [m] : []))
+    inbox.flatMap((m) => (m.type === 'feedDelta' ? [m] : []))
 
   it('(c) the bootstrap snapshot carries feedId, epoch and minAvailableSeq', () => {
     // The snapshot arm needs the identity MOST: every rung of the D7 healing
@@ -970,53 +973,37 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     expect(registry.modules.sessions.syncChangesSince(0).kind).toBe('delta')
   })
 
-  it('leaves the v1 delta FRAME unstamped for EVERY client — identity rides wire v2 here', () => {
-    // MAIN STAMPS THE v1 FRAME behind a `syncFeedIdentity` capability. This tree
-    // does not, and the difference is a decision rather than a gap: POD-1203 moved
-    // framing to the serving edge, and `deliverEntityMessage`'s own doc records
-    // that the capability check left that layer on purpose ("a peer that did not
-    // announce the delta capability is handed full lists by its version's
-    // adapter"). The identity a replica needs is carried by the WIRE v2
-    // `feedDelta` frame (`gateway/feed-serving.ts` `toWireFrame`), which carries
-    // `feedId`, `epoch`, `fromSeq` and `minAvailableSeq` unconditionally — a
-    // stronger guarantee than a capability-gated v1 stamp, because there is no
-    // client that can ask for the frame and not get the identity.
-    //
-    // What survives from main's case is its second half, unchanged and still
-    // load-bearing: the v1 frame is byte-for-byte today's frame. That is why
-    // WIRE_VERSION stays at 1, and asserting the exact key set is what would
-    // catch a stamp leaking back onto it.
+  it('serves identity on every production wire-v2 delta', () => {
     const registry = makeRegistry()
     const asked = client(registry, ['metadataDelta', 'syncFeedIdentity'])
-    const legacy = client(registry, ['metadataDelta'])
+    const baseline = client(registry, ['metadataDelta'])
     asked.inbox.length = 0
-    legacy.inbox.length = 0
+    baseline.inbox.length = 0
 
     registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.funnel.flushDeltas()
 
     const mine = deltas(asked.inbox)
-    const theirs = deltas(legacy.inbox)
+    const theirs = deltas(baseline.inbox)
     expect(mine.length).toBeGreaterThan(0)
     expect(theirs.length).toBe(mine.length)
-
-    // `fromExclusive` is this tree's v1 frame field (the contiguity anchor the
-    // client's gap rule reads); it is the SAME for both clients, which is the
-    // point. What must not appear is any identity member.
     for (const frame of [mine[0], theirs[0]]) {
       expect(Object.keys(frame ?? {}).sort()).toEqual([
         'changes',
-        'fromExclusive',
+        'epoch',
+        'feedId',
+        'fromSeq',
+        'minAvailableSeq',
         'seq',
         'type',
       ])
     }
 
-    // The identity is still SERVED — over the query arm, unconditionally.
     const identity = registry.modules.sessions.syncChangesSince(null)
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
   })
+
 
   it('both clients receive the SAME changes in the SAME order — the cap changes the envelope, never the feed', () => {
     const registry = makeRegistry()

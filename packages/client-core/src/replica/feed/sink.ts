@@ -64,8 +64,12 @@ export class FeedSink implements FeedSinkPort {
    * the failure through `bootstrap-failed` instead of a stray unhandled rejection.
    */
   disconnected(): void {
-    this.deps.bootstraps.reset('socket closed')
-    this.deps.replica.disconnect()
+    const requestedByBootstrap = this.deps.bootstraps.reset('socket closed')
+    // A bootstrap obtains a fresh world by deliberately replacing the socket.
+    // That close belongs to the in-flight walk: disconnecting the Replica would
+    // increment its generation and discard the world the replacement socket is
+    // about to deliver. Real drops still transition to stale/cold as before.
+    if (!requestedByBootstrap) this.deps.replica.disconnect()
   }
 
   frame(frame: FeedServerFrame): void {

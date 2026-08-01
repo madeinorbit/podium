@@ -40,8 +40,12 @@ const toolName = (c: IssueCommand): string => `issue_${c.name.replace(/-/g, '_')
 /** MCP tools for the native issue tracker, generated from the shared command registry. */
 export class IssueToolProvider implements McpToolProvider {
   private client: IssueTrpc | undefined
+  private clientForThread: ((threadId: ThreadId) => IssueTrpc) | undefined
   setClient(client: IssueTrpc): void {
     this.client = client
+  }
+  setClientResolver(resolve: (threadId: ThreadId) => IssueTrpc): void {
+    this.clientForThread = resolve
   }
   mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }> {
     return ISSUE_COMMANDS.map((c) => ({
@@ -50,10 +54,15 @@ export class IssueToolProvider implements McpToolProvider {
       inputSchema: zodToJsonSchema(c.args),
     }))
   }
-  async callMcpTool(name: string, args: Record<string, unknown>): Promise<string> {
+  async callMcpTool(
+    name: string,
+    args: Record<string, unknown>,
+    threadId?: ThreadId,
+  ): Promise<string> {
     const cmd = ISSUE_COMMANDS.find((c) => toolName(c) === name)
     if (!cmd) throw new Error(`unknown issue tool: ${name}`)
-    if (!this.client) throw new Error('issue MCP not ready (no client)')
+    const client = threadId ? (this.clientForThread?.(threadId) ?? this.client) : this.client
+    if (!client) throw new Error('issue MCP requires an owned superagent thread')
     const parsed = cmd.args.safeParse(args)
     if (!parsed.success)
       throw new Error(
@@ -61,7 +70,7 @@ export class IssueToolProvider implements McpToolProvider {
           .map((i) => `${i.path.join('.') || 'args'}: ${i.message}`)
           .join('; ')}`,
       )
-    const res = await cmd.run(this.client, parsed.data as Record<string, unknown>)
+    const res = await cmd.run(client, parsed.data as Record<string, unknown>)
     return res.text
   }
 }

@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
@@ -36,6 +36,7 @@ describe('machines store', () => {
     const s = new SessionStore(':memory:')
     s.sessions.upsertSession({
       id: asSessionId('sess'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'shell',
       cwd: '/x',
       title: 't',
@@ -122,6 +123,7 @@ describe('machines store', () => {
     s1.repos.addRepo('/a')
     s1.sessions.upsertSession({
       id: asSessionId('s1'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'shell',
       cwd: '/',
       title: 't',

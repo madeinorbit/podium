@@ -153,8 +153,7 @@ describe('POD-1179: every wake-capable mail command declares machineVerb `use`',
       lifecycle: 'wake',
     })
     return (
-      parsed.success &&
-      (parsed.data as { lifecycle?: string } | undefined)?.lifecycle === 'wake'
+      parsed.success && (parsed.data as { lifecycle?: string } | undefined)?.lifecycle === 'wake'
     )
   }
 
@@ -438,7 +437,7 @@ describe('the two halves of the ceiling are one object', () => {
     // delivery service a port from `mailPolicy()`. A comment saying so is not
     // evidence; the source is.
     const src = sourceOf('../../relay.ts')
-    expect(src).toContain('const mail = mailPolicy()')
+    expect(src).toContain('const mail = principalMailPolicy({')
     expect(src).toContain('authorizeAtApply: mail.authorizeAtApply')
     expect(src).toContain('mail.gateOptions')
   })
@@ -474,10 +473,15 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
 
     // Accepted while the target is visible; no live session there, so it QUEUES —
     // which is the state the whole re-authorization rule is about.
-    const accepted = (await h.gate.dispatch(h.agentCap(sender.id, asSessionId('sSender')), true, 'send', {
-      to: target.id,
-      body: 'work please',
-    })) as { id: string; disposition: string }
+    const accepted = (await h.gate.dispatch(
+      h.agentCap(sender.id, asSessionId('sSender')),
+      true,
+      'send',
+      {
+        to: target.id,
+        body: 'work please',
+      },
+    )) as { id: string; disposition: string }
     expect(accepted.disposition).toBe('held')
     expect(h.svc.message(accepted.id)?.status).toBe('queued')
 
@@ -506,10 +510,15 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     const sender = h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
 
-    const accepted = (await h.gate.dispatch(h.agentCap(sender.id, asSessionId('sSender')), true, 'send', {
-      to: target.id,
-      body: 'work please',
-    })) as { id: string; disposition: string }
+    const accepted = (await h.gate.dispatch(
+      h.agentCap(sender.id, asSessionId('sSender')),
+      true,
+      'send',
+      {
+        to: target.id,
+        body: 'work please',
+      },
+    )) as { id: string; disposition: string }
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     h.svc.sweep()
 

@@ -126,7 +126,7 @@ export function assignStepHandler(
   // the apply-time half runs when the step is checkpointed. Both are needed
   // because a run is long-lived and a `use` grant can be revoked between them.
   if (input.sessionId !== null) {
-    access.assertMayPlaceOn(access.machineForSession(input.sessionId))
+    access.assertMayPlaceOn(caller, access.machineForSession(input.sessionId))
   }
   deps.store.assignStep(run.id, input.stepId, input.sessionId)
   deps.store.appendEvent({

@@ -1,3 +1,4 @@
+import { familyState } from '../derived-family'
 /**
  * THE DERIVED SETTINGS WRITE SURFACE (POD-420) — `settings.updatePersonal`,
  * `settings.updateInstance`, `settings.setSecret` and `settings.clearSecret`,
@@ -65,17 +66,18 @@ import {
 type IsRead<N extends SettingsCommandName> =
   (typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['policy']['action'] extends 'read' ? true : false
 
-type SettingsProcedure<N extends SettingsCommandName> = IsRead<N> extends true
-  ? TRPCQueryProcedure<{
-      meta: unknown
-      input: z.input<(typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['input']>
-      output: Awaited<ReturnType<(typeof SETTINGS_COMMANDS_TRPC)[N]['handler']>>
-    }>
-  : TRPCMutationProcedure<{
-      meta: unknown
-      input: z.input<(typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['input']>
-      output: Awaited<ReturnType<(typeof SETTINGS_COMMANDS_TRPC)[N]['handler']>>
-    }>
+type SettingsProcedure<N extends SettingsCommandName> =
+  IsRead<N> extends true
+    ? TRPCQueryProcedure<{
+        meta: unknown
+        input: z.input<(typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['input']>
+        output: Awaited<ReturnType<(typeof SETTINGS_COMMANDS_TRPC)[N]['handler']>>
+      }>
+    : TRPCMutationProcedure<{
+        meta: unknown
+        input: z.input<(typeof SETTINGS_COMMANDS_TRPC)[N]['contract']['input']>
+        output: Awaited<ReturnType<(typeof SETTINGS_COMMANDS_TRPC)[N]['handler']>>
+      }>
 
 /**
  * Every derived procedure, keyed by the PROC name the router serves it under —
@@ -112,12 +114,12 @@ function runSettingsCommand(
   input: unknown,
 ): unknown | Promise<unknown> {
   const deps = settingsAuthzDeps(ctx)
-  // ONE `mods(ctx)`, used for both the trail and the handler. Two calls would be
+  // ONE `familyState(ctx).modules`, used for both the trail and the handler. Two calls would be
   // two `router-triple-access` sites where one is needed, and the audit
-  // repository is deliberately NOT reached out of `ctx.registry.sessionStore`:
+  // repository is deliberately NOT reached out of `familyState(ctx).store`:
   // it is a dependency of the SERVICE (`SettingsService.recordCommand`), so the
   // transport never touches the store.
-  const service = mods(ctx).settings
+  const service = familyState(ctx).modules.settings
   const record = (outcome: 'applied' | 'refused', error?: string): void => {
     service.recordCommand({
       command: name,

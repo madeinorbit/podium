@@ -54,11 +54,25 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       ...(caps.length ? { caps } : {}),
     })
     return { inbox }
+  }
+
+  const ownConversation = (registry: SessionRegistry, conversationId: string): void => {
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/owned-conversation',
+    })
+    registry.gateway.routeDaemonFrame('m1', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: conversationId },
+    })
+    registry.modules.sessions.flushBroadcasts()
   }
 
   const cursorOf = (registry: SessionRegistry): number =>
@@ -75,7 +89,13 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   const deltaConversationChanges = (inbox: ServerMessage[]): MetadataChange[] =>
     inbox
-      .flatMap((m) => (m.type === 'metadataDelta' ? m.changes : []))
+      .flatMap((message) => {
+        if (message.type === 'metadataDelta') return message.changes
+        if (message.type !== 'feedDelta') return []
+        return message.changes
+          .filter((change) => change.op !== 'evict')
+          .map((change) => ({ ...change, id: change.entityId }) as MetadataChange)
+      })
       .filter((c) => c.entity === 'conversation')
 
   it('(a) a throw between the store writes and the change append rolls BOTH back (nested-savepoint layering)', () => {
@@ -189,6 +209,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const registry = makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1', { title: 't' })])
+    ownConversation(registry, 'c1')
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
     const cursor = cursorOf(registry)
@@ -207,13 +228,13 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(
       deltaChanges.some((c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run'),
     ).toBe(true)
-    // …and the legacy client got a conversationsChanged snapshot carrying the name.
-    const snap = legacy.inbox
-      .slice(legacyBefore)
-      .filter((m) => m.type === 'conversationsChanged')
-      .at(-1)
-    if (snap?.type !== 'conversationsChanged') throw new Error('no snapshot fan-out')
-    expect(snap.conversations.find((c) => c.id === 'c1')?.name).toBe('My run')
+    // …and the peer without the retired cap got the same canonical update.
+    const baselineChanges = deltaConversationChanges(legacy.inbox.slice(legacyBefore))
+    expect(
+      baselineChanges.some(
+        (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
+      ),
+    ).toBe(true)
     // The store write itself landed too (the original behavior, now seam-bound).
     expect(
       registry.sessionStore.conversations.searchConversations({}).find((r) => r.id === 'c1')?.name,
@@ -260,25 +281,18 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(changes.map((c) => c.id)).toEqual(['c1'])
   })
 
-  it('(e) diagnostics ride snapshots ONLY — never the delta stream', async () => {
+  it('(e) diagnostics stay outside the canonical feed while entity changes remain live', async () => {
     const registry = makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
+    ownConversation(registry, 'c1')
     const delta = client(registry, ['metadataDelta'])
-    // Diagnostics changed → cap clients get the snapshot too (their only path
-    // to scan-level diagnostics).
+    // Diagnostics are advisory scan state, not canonical entity-feed content.
     push(registry, [conv('c1', { title: 't' })], {
       diagnostics: [{ severity: 'warning', message: 'scan hiccup' }],
     })
     registry.modules.sessions.flushBroadcasts()
-    // The diagnostics re-serve is deferred by one microtask ON PURPOSE (POD-1203):
-    // an advisory is not feed content and must not overtake the rows that were
-    // committed with it, or a v1 peer renders a list built from the projection as
-    // it was BEFORE them.
-    await Promise.resolve()
-    const snap = delta.inbox.filter((m) => m.type === 'conversationsChanged').at(-1)
-    if (snap?.type !== 'conversationsChanged')
-      throw new Error('cap client missed the diagnostics snapshot')
-    expect(snap.diagnostics).toHaveLength(1)
+    expect(delta.inbox.some((message) => message.type === 'conversationsChanged')).toBe(false)
+    expect(deltaConversationChanges(delta.inbox).some((change) => change.id === 'c1')).toBe(true)
     // Diagnostics unchanged + a conversation change → cap clients get ONLY the
     // metadataDelta (no snapshot re-send), and deltas carry no diagnostics.
     const before = delta.inbox.length

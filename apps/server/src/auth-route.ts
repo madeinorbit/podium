@@ -2,8 +2,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import { SESSION_COOKIE } from '@podium/protocol'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
-import { hasPassword, verifyPassword } from './auth-store'
+import { FIRST_ADMIN_USER_ID, asUserId, type UserId, type UserRole } from '@podium/model'
+import { hashPassword, hasPassword, verifyPassword, verifyPasswordHash } from './auth-store'
 
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
 export interface ClientSessionStore {
@@ -37,14 +37,24 @@ export function hashToken(token: string): string {
 
 /** True when the request carries a valid (unexpired) session cookie. Reused by the
  *  auth middleware and the /client WS upgrade gate so they share one definition of "authed". */
+export function requestUserId(
+  store: ClientSessionStore,
+  cookieHeader: string | undefined,
+  nowMs: number = Date.now(),
+): UserId | undefined {
+  const token = parseSessionCookie(cookieHeader)
+  if (!token) return undefined
+  const tokenHash = hashToken(token)
+  if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
+  return store.getClientSession(tokenHash)?.userId
+}
+
 export function isRequestAuthed(
   store: ClientSessionStore,
   cookieHeader: string | undefined,
   nowMs: number = Date.now(),
 ): boolean {
-  const token = parseSessionCookie(cookieHeader)
-  if (!token) return false
-  return store.isClientSessionValid(hashToken(token), new Date(nowMs).toISOString())
+  return requestUserId(store, cookieHeader, nowMs) !== undefined
 }
 
 function parseSessionCookie(cookieHeader: string | undefined): string | undefined {
@@ -84,13 +94,14 @@ function setSessionCookie(c: Context, token: string): void {
  */
 export function clientAuthGuard(opts: {
   store?: ClientSessionStore
+  users?: AccountCredentialStore
   authDir?: string
   now?: () => number
 }): MiddlewareHandler {
   const now = opts.now ?? (() => Date.now())
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return next()
-    if (!hasPassword(opts.authDir)) return next()
+    if (!hasPassword(opts.authDir) && !opts.users?.hasPerUserCredentials()) return next()
     const store = opts.store
     const token = store ? parseSessionCookie(c.req.header('cookie')) : undefined
     const nowMs = now()
@@ -116,8 +127,30 @@ export function clientAuthGuard(opts: {
   }
 }
 
+export interface AccountCredentialStore {
+  get(userId: string): { role: UserRole } | undefined
+  create(
+    account: {
+      id: string
+      displayName: string
+      role: UserRole
+      createdAt: string
+      disabledAt: null
+    },
+    passwordHash: string,
+  ): void
+  credentialFor(userId: string):
+    | {
+        source: 'instance-password' | 'per-user-scrypt'
+        passwordHash: string | null
+      }
+    | undefined
+  hasPerUserCredentials(): boolean
+}
+
 export interface AuthRouteOptions {
   store?: ClientSessionStore
+  users?: AccountCredentialStore
   /** State dir holding the password hash (auth.json). Defaults to the real state dir. */
   authDir?: string
   throttle?: { maxFailures?: number; lockoutMs?: number }
@@ -127,6 +160,7 @@ export interface AuthRouteOptions {
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void {
   const store = opts.store
   const authDir = opts.authDir
+  const users = opts.users
   const now = opts.now ?? (() => Date.now())
   const maxFailures = opts.throttle?.maxFailures ?? DEFAULT_MAX_FAILURES
   const lockoutMs = opts.throttle?.lockoutMs ?? DEFAULT_LOCKOUT_MS
@@ -136,32 +170,47 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   let lockedUntil = 0
 
   app.get('/auth/status', (c) => {
-    const needsAuth = hasPassword(authDir)
+    const needsAuth = hasPassword(authDir) || Boolean(users?.hasPerUserCredentials())
     const authed =
       needsAuth && store ? isRequestAuthed(store, c.req.header('cookie'), now()) : false
-    return c.json({ needsAuth, authed })
+    const userId = store ? requestUserId(store, c.req.header('cookie'), now()) : undefined
+    return c.json({ needsAuth, authed, ...(userId ? { userId } : {}) })
   })
 
   app.post('/auth/login', async (c) => {
-    if (!hasPassword(authDir)) {
+    if (!hasPassword(authDir) && !users?.hasPerUserCredentials()) {
       // No password configured → auth is disabled; there's nothing to log into.
       return c.json({ error: 'auth disabled' }, 400)
     }
     const at = now()
     if (at < lockedUntil) {
       const retryAfter = Math.ceil((lockedUntil - at) / 1000)
-      return c.json({ error: 'too many attempts' }, 429, { 'retry-after': String(retryAfter) })
+      return c.json({ error: 'too many attempts' }, 429, {
+        'retry-after': String(retryAfter),
+      })
     }
 
     let password = ''
+    let userId: UserId = FIRST_ADMIN_USER_ID
     try {
-      const body = (await c.req.json()) as { password?: unknown }
+      const body = (await c.req.json()) as {
+        userId?: unknown
+        password?: unknown
+      }
+      if (typeof body?.userId === 'string' && body.userId.trim()) userId = body.userId as UserId
       if (typeof body?.password === 'string') password = body.password
     } catch {
       // fall through — empty password fails verification below
     }
 
-    const ok = password ? await verifyPassword(password, authDir) : false
+    const credential = users?.credentialFor(userId)
+    const ok = password
+      ? credential?.source === 'per-user-scrypt' && credential.passwordHash
+        ? await verifyPasswordHash(password, credential.passwordHash)
+        : credential?.source === 'instance-password' || (!users && userId === FIRST_ADMIN_USER_ID)
+          ? await verifyPassword(password, authDir)
+          : false
+      : false
     if (!ok) {
       failures += 1
       if (failures >= maxFailures) {
@@ -183,10 +232,53 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     // the instance's one account — passed EXPLICITLY rather than defaulted in the
     // store, so per-user login (POD-315) changes this line and nothing silently
     // keeps writing one id for everybody.
-    store?.createClientSession(hashToken(token), FIRST_ADMIN_USER_ID, expiresAt)
+    store?.createClientSession(hashToken(token), userId, expiresAt)
 
     setSessionCookie(c, token)
-    return c.json({ ok: true })
+    return c.json({ ok: true, userId })
+  })
+
+  app.post('/auth/users', async (c) => {
+    if (!store || !users) return c.json({ error: 'account store unavailable' }, 503)
+    const actorId = requestUserId(store, c.req.header('cookie'), now())
+    if (!actorId) return c.json({ error: 'authentication required' }, 401)
+    if (users.get(actorId)?.role !== 'admin') {
+      return c.json({ error: 'admin account required' }, 403)
+    }
+    let body: { userId?: unknown; displayName?: unknown; role?: unknown; password?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'invalid request body' }, 400)
+    }
+    if (
+      typeof body.userId !== 'string' ||
+      !body.userId.trim() ||
+      typeof body.displayName !== 'string' ||
+      !body.displayName.trim() ||
+      (body.role !== 'admin' && body.role !== 'member') ||
+      typeof body.password !== 'string' ||
+      body.password.length < 8
+    ) {
+      return c.json(
+        { error: 'userId, displayName, role, and an 8-character password are required' },
+        400,
+      )
+    }
+    const userId = asUserId(body.userId.trim())
+    if (users.get(userId)) return c.json({ error: 'account already exists' }, 409)
+    const createdAt = new Date(now()).toISOString()
+    users.create(
+      {
+        id: userId,
+        displayName: body.displayName.trim(),
+        role: body.role,
+        createdAt,
+        disabledAt: null,
+      },
+      await hashPassword(body.password),
+    )
+    return c.json({ id: userId, displayName: body.displayName.trim(), role: body.role }, 201)
   })
 
   app.post('/auth/logout', (c) => {

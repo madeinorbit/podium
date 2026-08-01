@@ -21,16 +21,17 @@
  */
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
-import type { IssueId, SessionId, SessionMeta } from '@podium/model'
-import { resolvePrincipal } from '../../command-principal'
+import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
 import { sessionSpawnerParentId } from '../../steward'
 import type { Capability } from '../../issue-authz'
+import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import {
   type MachineAccess,
   MailAccess,
   type MailDeliveryMode,
+  type MailCaller,
   type MailHandlerContext,
   SINGLE_USER_MACHINE_ACCESS,
 } from './handlers/context'
@@ -45,6 +46,7 @@ export interface MessageGateDeps {
    *  SessionsService.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
   spawnSession?(input: {
+    ownerUserId: UserId
     cwd: string
     agentKind?: string
     initialPrompt?: string
@@ -72,7 +74,12 @@ export interface MessageGateDeps {
   }
   /** Resolve a named workflow execution profile. When a run + step are present,
    *  the workflow service returns the immutable snapshot pinned to that run. */
-  resolveExecutionProfile?(input: { profileId: string; runId?: string; stepId?: string }): {
+  resolveExecutionProfile?(input: {
+    profileId: string
+    runId?: string
+    stepId?: string
+    caller?: MailCaller
+  }): {
     id: string
     accountId: string
     machineId: string | null
@@ -82,6 +89,9 @@ export interface MessageGateDeps {
   }
   /** The DELIBERATE `--new` issue-create path (never automatic). */
   createIssue?(input: {
+    ownerUserId: UserId
+    createdByActor: string
+    createdByOnBehalfOf: UserId
     repoPath: string
     title: string
     description?: string
@@ -139,11 +149,32 @@ export class MessageGate {
   /** The shared authz + projection arithmetic (L3), also handed to every joined
    *  handler so there is exactly ONE authz path rather than one per command. */
   private readonly access: MailAccess
+  private readonly principalForCapability?: (capability: Capability) => CommandPrincipal
+  private readonly policyFor?: (principal: CommandPrincipal) => {
+    ceiling: HumanCeiling
+    machines: MachineAccess
+  }
 
   constructor(
     private readonly deps: MessageGateDeps,
-    opts?: { ceiling?: HumanCeiling; machines?: MachineAccess },
+    opts?: {
+      ceiling?: HumanCeiling
+      machines?: MachineAccess
+      principalForCapability?: (capability: Capability) => CommandPrincipal
+      policyFor?: (principal: CommandPrincipal) => {
+        ceiling: HumanCeiling
+        machines: MachineAccess
+      }
+    },
   ) {
+    this.principalForCapability = opts?.principalForCapability
+    this.policyFor = opts?.policyFor
+    if ((this.principalForCapability === undefined) !== (this.policyFor === undefined)) {
+      throw new Error('MessageGate: principalForCapability and policyFor must be wired together')
+    }
+    if (this.policyFor !== undefined && deps.messages().appliedPolicy !== 'dynamic') {
+      throw new Error('MessageGate: principal policy requires dynamic apply-time authorization')
+    }
     const ceiling = opts?.ceiling ?? SINGLE_USER_CEILING
     // THE OTHER HALF OF THE CEILING, CHECKED AT BOOT (POD-729).
     //
@@ -195,12 +226,16 @@ export class MessageGate {
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
     const sessions = this.deps.listSessions()
-    const principal = resolvePrincipal(capability, {
-      parentSessionOf: (sessionId) =>
-        sessionSpawnerParentId(
-          sessions.find((session) => session.sessionId === sessionId)?.spawnedBy,
-        ),
-    })
+    const principal =
+      this.principalForCapability?.(capability) ??
+      resolvePrincipal(capability, {
+        parentSessionOf: (sessionId) =>
+          sessionSpawnerParentId(
+            sessions.find((session) => session.sessionId === sessionId)?.spawnedBy,
+          ),
+      })
+    const policy = this.policyFor?.(principal)
+    const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
     const caller = {
       capability,
       principal,
@@ -209,7 +244,7 @@ export class MessageGate {
     const ctx: MailHandlerContext = {
       caller,
       deps: this.deps,
-      access: this.access,
+      access,
       ...(deliveryMode ? { deliveryMode } : {}),
     }
     // Invoked SYNCHRONOUSLY, with a sync throw converted to a rejection.

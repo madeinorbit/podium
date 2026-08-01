@@ -255,9 +255,11 @@ describe('workflows under two humans', () => {
 
   it('refuses one member READING another member’s workflow, and honours an explicit grant', () => {
     const created = alicesWorkflow()
-    expect(thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)))).toBe(
-      `unknown workflow: ${created.workflow.id}`,
-    )
+    expect(
+      thrown(() =>
+        h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)),
+      ),
+    ).toBe(`unknown workflow: ${created.workflow.id}`)
     expect(h.service.list({}, policy.caller(asSessionId('b1'), BOB))).toEqual([])
     // ADR 9 D2: sharing is EXPLICIT and it is an edge. A read grant opens the
     // read and nothing else — the write stays refused, which is what makes this
@@ -272,9 +274,11 @@ describe('workflows under two humans', () => {
     expect(h.service.get({ id: created.workflow.id }, policy.caller(null, BOB)).workflow.id).toBe(
       created.workflow.id,
     )
-    expect(thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)))).toBe(
-      `unknown workflow: ${created.workflow.id}`,
-    )
+    expect(
+      thrown(() =>
+        h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)),
+      ),
+    ).toBe(`unknown workflow: ${created.workflow.id}`)
     // …and the read grant does not open the WRITE path for Bob either.
     expect(
       thrown(() =>
@@ -330,10 +334,14 @@ describe('workflows under two humans', () => {
 
     // THE COUNTERFACTUAL for all four: Alice sees her own. Without this the
     // assertions above would pass against a surface that lists nothing at all.
-    expect(h.service.runs({}, policy.caller(asSessionId('a1'), ALICE)).map((r) => r.id)).toEqual([run.id])
+    expect(h.service.runs({}, policy.caller(asSessionId('a1'), ALICE)).map((r) => r.id)).toEqual([
+      run.id,
+    ])
     expect(h.service.bindings(policy.caller(asSessionId('a1'), ALICE))).toHaveLength(1)
     expect(h.service.profiles(policy.caller(null, ALICE, 'admin'))).toHaveLength(1)
-    expect(h.service.status({ runId: run.id }, policy.caller(asSessionId('a1'), ALICE)).id).toBe(run.id)
+    expect(h.service.status({ runId: run.id }, policy.caller(asSessionId('a1'), ALICE)).id).toBe(
+      run.id,
+    )
   })
 
   it('closes the ambient global-scope write path, for a member of either account', () => {
@@ -472,9 +480,11 @@ describe('workflows under two humans', () => {
     ).toBe('Workflow complete.')
     // …and the refusal is the same string an unknown run gives, so a revoked
     // principal cannot use its own revocation as an existence oracle.
-    expect(thrown(() => h.service.status({ runId: 'wrun_nope' }, policy.caller(asSessionId('a1'), ALICE)))).toBe(
-      'no active workflow run for this session',
-    )
+    expect(
+      thrown(() =>
+        h.service.status({ runId: 'wrun_nope' }, policy.caller(asSessionId('a1'), ALICE)),
+      ),
+    ).toBe('no active workflow run for this session')
   })
 
   /**
@@ -551,16 +561,26 @@ describe('workflows under two humans', () => {
     policy.own(profile.id, ALICE)
     // Alice may launch it today.
     policy.setActing(ALICE)
-    expect(h.service.executionProfileForLaunch({ profileId: profile.id }).machineId).toBe('m-alice')
+    expect(
+      h.service.executionProfileForLaunch({
+        profileId: profile.id,
+        caller: policy.caller(null, ALICE, 'admin'),
+      }).machineId,
+    ).toBe('m-alice')
     // BOB may not — the same pinned profile, a different effective principal.
     // This is the apply-time half: the profile's machine was authorized when it
     // was saved, and authorization is re-taken every time work is placed rather
     // than inherited from the snapshot (ADR 9 D5 A1 / POD-730 §4's warning that
     // a reproducibility snapshot must not become an authorization model).
     policy.setActing(BOB)
-    expect(thrown(() => h.service.executionProfileForLaunch({ profileId: profile.id }))).toBe(
-      'not authorized to run work on machine m-alice',
-    )
+    expect(
+      thrown(() =>
+        h.service.executionProfileForLaunch({
+          profileId: profile.id,
+          caller: policy.caller(null, BOB, 'admin'),
+        }),
+      ),
+    ).toBe('not authorized to run work on machine m-alice')
   })
 
   it('refuses a member saving an execution profile, and an admin editing another admin’s', () => {
@@ -721,7 +741,8 @@ describe('the ownership port is consulted, not assumed', () => {
     )
     policy.own(created.workflow.id, ALICE)
     expect(
-      h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('a1'), ALICE)).workflow.name,
+      h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('a1'), ALICE)).workflow
+        .name,
     ).toBe('Probe')
     expect(h.service.list({}, policy.caller(asSessionId('a1'), ALICE))).toHaveLength(1)
   })
@@ -747,7 +768,9 @@ describe('the ownership port is consulted, not assumed', () => {
     )
     // Deliberately NOT recorded as owned — the pre-migration row.
     expect(
-      thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('a1'), ALICE))),
+      thrown(() =>
+        h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('a1'), ALICE)),
+      ),
     ).toBe(`unknown workflow: ${created.workflow.id}`)
     expect(
       h.service.get({ id: created.workflow.id }, policy.caller(null, ALICE, 'admin')).workflow.id,

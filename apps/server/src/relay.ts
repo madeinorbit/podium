@@ -3,11 +3,24 @@ import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, SessionMeta } from '@podium/model'
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
 import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
-import { FeedIdentityRegistry, Ledger, MutationLedger } from '@podium/sync'
+import {
+  DEVICE_GRADE_PRINCIPAL,
+  FeedIdentityRegistry,
+  GrantEdgeVisibilityPolicy,
+  Ledger,
+  MutationLedger,
+  type VisibilityAnchorPort,
+} from '@podium/sync'
+import {
+  onBehalfOfUser,
+  resolvePrincipal,
+  systemPrincipal,
+  userCommandPrincipal,
+} from './command-principal'
 import { deviceGradeSoleOwner } from './device-grade-owner'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
@@ -15,6 +28,7 @@ import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { checkIssueAccess } from './issue-authz'
+import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
@@ -36,7 +50,7 @@ import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
-import { mailPolicy } from './modules/messages/handlers/context'
+import { principalMailPolicy } from './modules/messages/handlers/context'
 import {
   DELIVERY_RETRY_BACKSTOP_MS,
   MessageDeliveryService,
@@ -64,7 +78,7 @@ import { HeadlessService } from './modules/superagent/headless'
 import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
-import { StewardService } from './steward'
+import { StewardService, sessionSpawnerParentId } from './steward'
 import { SessionStore } from './store'
 import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
@@ -237,6 +251,33 @@ export class SessionRegistry {
     // reach them through these lazy closures (sessionsSvc is assigned below, and
     // none of the closures can run before the constructor finishes wiring).
     let sessionsSvc!: SessionsService
+    const principalForCapability = (capability: import('@podium/model').Capability) =>
+      resolvePrincipal(capability, {
+        parentSessionOf: (candidate) =>
+          sessionSpawnerParentId(
+            sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
+              ?.spawnedBy,
+          ),
+        onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
+      })
+    const workflowCallerForCapability = (
+      capability: import('@podium/model').Capability,
+      overrideScope?: boolean,
+    ): import('./modules/workflows/service').WorkflowCaller => {
+      const principal = principalForCapability(capability)
+      const human = onBehalfOfUser(principal)
+      const role = human === null ? undefined : this.store.users.roleOf(human)
+      return {
+        actor: capability.actorSessionId
+          ? { kind: 'session', id: capability.actorSessionId }
+          : { kind: 'operator', id: null },
+        capability,
+        principal,
+        onBehalfOf: human,
+        ...(role === 'admin' ? { protectedWrite: true } : {}),
+        ...(overrideScope ? { overrideScope: true } : {}),
+      }
+    }
     // Unified messaging (#237) [spec:SP-34d7] — assigned after the store-backed
     // graph exists; consumed only via lazy closures/per-dispatch calls below.
     let messagesSvc!: MessageDeliveryService
@@ -294,14 +335,6 @@ export class SessionRegistry {
     })
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
-      // THE PLACEHOLDER, AT THE COMPOSITION ROOT (POD-1080). The claim code must
-      // be stamped with the transport principal's user; this build's transport
-      // is one shared password (`CLIENT_PRINCIPAL_GRADE === 'device'`), so the
-      // only true answer available is the sole account. `deviceGradeSoleOwner`
-      // says that in its name, `audit:machine-grants` counts this call site, and
-      // POD-315 deletes the module — making this line a compile error that has
-      // to name the real principal.
-      mintingUser: deviceGradeSoleOwner,
       // The append-only settings trail (POD-421). Injected here so the transport
       // never reaches into the store for it.
       audit: { repo: this.store.settingsAudit, now: () => new Date(this.now()).toISOString() },
@@ -369,7 +402,113 @@ export class SessionRegistry {
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
+    const feedMayReadIssue = (userId: string, issueId: string): boolean => {
+      // Authority publishes after the transaction commits but before IssueService
+      // installs a newly-created row in its live map. Read the durable row here so
+      // the creation frame is scoped from the same committed truth catch-up sees.
+      const row = this.store.issues.getIssue(issueId)
+      if (row?.ownerUserId === userId) return true
+      return this.store.grants
+        .listForResource('issue', issueId)
+        .some(
+          (edge) =>
+            edge.grantee === userId &&
+            (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
+        )
+    }
+    const visibility = new GrantEdgeVisibilityPolicy({
+      classOf: (entity) => {
+        if (entity === 'repo') return 'deployment-substrate'
+        if (
+          entity === 'session' ||
+          entity === 'issue' ||
+          entity === 'issueProjection' ||
+          entity === 'issueDep' ||
+          entity === 'conversation' ||
+          entity === 'automation' ||
+          entity === 'automationRun'
+        )
+          return 'personal'
+        return null
+      },
+      mayRead: (userId, ref) => {
+        if (userId === 'device:shared-instance-password') return true
+        if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
+          return feedMayReadIssue(userId, ref.entityId)
+        }
+        if (ref.entity === 'issueDep') {
+          const dep = parseIssueDepId(ref.entityId)
+          return dep !== null && feedMayReadIssue(userId, dep.fromId)
+        }
+        if (ref.entity === 'session') {
+          const owner = sessionsSvc.sessionOwner(asSessionId(ref.entityId))
+          return owner?.owner === userId || owner?.grants.includes(userId) === true
+        }
+        if (ref.entity === 'conversation') {
+          const session = sessionsSvc
+            .listSessions()
+            .find((candidate) => candidate.resume?.value === ref.entityId)
+          const owner = session ? sessionsSvc.sessionOwner(session.sessionId) : undefined
+          return owner?.owner === userId || owner?.grants.includes(userId) === true
+        }
+        if (ref.entity === 'automation') {
+          return this.store.automations.get(ref.entityId)?.ownerUserId === userId
+        }
+        if (ref.entity === 'automationRun') {
+          const run = this.store.automations.getRun(ref.entityId)
+          return run ? this.store.automations.get(run.automationId)?.ownerUserId === userId : false
+        }
+        return false
+      },
+      keyedUserOf: () => null,
+    })
+    const anchors: VisibilityAnchorPort = {
+      visibilityEdge: (ref) => {
+        if (ref.entity !== 'issue') return null
+        const audience = this.store.grants.visibilityAudienceFor('issue', ref.entityId)
+        if (audience.length === 0) return null
+        const issueSessions = sessionsSvc
+          .listSessions()
+          .filter((session) => session.issueId === ref.entityId)
+        const subjects = [
+          { entity: 'issue' as const, entityId: ref.entityId },
+          { entity: 'issueProjection' as const, entityId: ref.entityId },
+          ...issueSessions.map((session) => ({
+            entity: 'session' as const,
+            entityId: session.sessionId,
+          })),
+          ...issueSessions.flatMap((session) =>
+            session.resume
+              ? [{ entity: 'conversation' as const, entityId: session.resume.value }]
+              : [],
+          ),
+          ...(issues?.allDepProjections() ?? [])
+            .filter((row) => parseIssueDepId(row.id)?.fromId === ref.entityId)
+            .map((row) => ({ entity: 'issueDep' as const, entityId: row.id })),
+        ]
+        return { audience, subjects }
+      },
+      currentValueOf: (ref) => {
+        if (ref.entity === 'issue') return issues?.get(ref.entityId) ?? undefined
+        if (ref.entity === 'issueProjection') {
+          return issues?.allProjections()?.find((row) => row.id === ref.entityId)?.value
+        }
+        if (ref.entity === 'issueDep') {
+          return issues?.allDepProjections()?.find((row) => row.id === ref.entityId)?.value
+        }
+        if (ref.entity === 'session') {
+          return sessionsSvc.listSessions().find((session) => session.sessionId === ref.entityId)
+        }
+        if (ref.entity === 'conversation') {
+          return conversations?.allConversations().find((row) => row.id === ref.entityId)
+        }
+        return undefined
+      },
+    }
     const ledger = new Ledger({
+      visibility,
+      anchors,
+      listenerPrincipal: DEVICE_GRADE_PRINCIPAL,
       repo: this.store.sync,
       now: () => this.now(),
       transact: (fn) => this.store.transact(fn),
@@ -503,10 +642,7 @@ export class SessionRegistry {
       machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
       notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
       executeServerOp: (op, sessionId) => {
-        const caller = {
-          actor: { kind: 'session' as const, id: sessionId },
-          protectedWrite: true,
-        }
+        const caller = workflowCallerForCapability(sessionsSvc.capabilityForSession(sessionId))
         if (op.kind === 'workflow-publish') {
           // The approval broker's server-side ops enter by the SAME door every
           // transport uses (POD-732) — the deleted `publish`/`assign` shims were
@@ -542,20 +678,31 @@ export class SessionRegistry {
             throw new Error(`unknown target session: ${existingSessionId}`)
           }
           const fresh = op.target.kind === 'fresh' ? op.target : null
-          const scheduled = automations.create({
-            name: op.name,
-            scheduleKind: 'once',
-            cron: null,
-            runAt: op.runAt,
-            targetSessionId: existingSessionId,
-            repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
-            agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
-            model: fresh?.model ?? 'auto',
-            effort: fresh?.effort ?? 'auto',
-            prompt: op.prompt,
-            enabled: true,
-            sessionMode: existingSessionId === null ? 'fresh' : 'resume',
+          const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
+            parentSessionOf: (candidate) =>
+              sessionSpawnerParentId(
+                sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
+                  ?.spawnedBy,
+              ),
+            onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
           })
+          const scheduled = automations.create(
+            {
+              name: op.name,
+              scheduleKind: 'once',
+              cron: null,
+              runAt: op.runAt,
+              targetSessionId: existingSessionId,
+              repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
+              agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
+              model: fresh?.model ?? 'auto',
+              effort: fresh?.effort ?? 'auto',
+              prompt: op.prompt,
+              enabled: true,
+              sessionMode: existingSessionId === null ? 'fresh' : 'resume',
+            },
+            principal,
+          )
           return `scheduled one-off automation ${scheduled.id} for ${scheduled.runAt}`
         }
 
@@ -647,6 +794,40 @@ export class SessionRegistry {
          * re-running". The workflow key namespaces it by command and run, so a
          * mutation id replayed against another run is a different delivery.
          */
+        ownership: {
+          ownerOf: (entity) => this.store.workflows.ownerOf(entity.kind, entity.id),
+          hasGrant: (user, entity, verb) =>
+            this.store.grants
+              .listForResource(entity.kind, entity.id)
+              .some((grant) => grant.grantee === user && grant.verb === verb),
+        },
+        machinesFor: (workflowPrincipal) => {
+          let principal
+          if (workflowPrincipal.onBehalfOf === null) {
+            return {
+              mayUse: () => false,
+              isReachable: (machineId: string) => machines.hasDaemon(machineId),
+            }
+          }
+          if (workflowPrincipal.actor.startsWith('session:')) {
+            const sessionId = asSessionId(workflowPrincipal.actor.slice('session:'.length))
+            try {
+              principal = principalForCapability(sessionsSvc.capabilityForSession(sessionId))
+            } catch {
+              principal = undefined
+            }
+          } else {
+            const userId = asUserId(workflowPrincipal.onBehalfOf)
+            const role = this.store.users.roleOf(userId)
+            principal = role ? userCommandPrincipal(userId, role) : undefined
+          }
+          return {
+            mayUse: (machineId: string) =>
+              principal !== undefined &&
+              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
+            isReachable: (machineId: string) => machines.hasDaemon(machineId),
+          }
+        },
         ledger: {
           recall: (key) => this.store.sync.getAppliedMutation(key),
           record: (key, result) =>
@@ -685,6 +866,7 @@ export class SessionRegistry {
                 afterSpawn: () => {
                   workflows.startRun({
                     sessionId,
+                    onBehalfOf: sessionsSvc.sessionOwner(sessionId)?.owner ?? null,
                     cwd,
                     ...(issueId ? { issueId } : {}),
                     revisionId: prepared.revision.id,
@@ -736,16 +918,7 @@ export class SessionRegistry {
         if (router === 'workflows') {
           return dispatchWorkflowRpc(
             workflows,
-            {
-              // WorkflowActor is discriminated (POD-362): the operator arm carries
-              // `id: null` and only the session arm carries a SessionId, so the arm
-              // is CHOSEN here instead of a `?? null` collapsing both into one.
-              actor: capability.actorSessionId
-                ? ({ kind: 'session', id: capability.actorSessionId } as const)
-                : ({ kind: 'operator', id: null } as const),
-              capability,
-              ...(overrideScope ? { overrideScope: true } : {}),
-            },
+            workflowCallerForCapability(capability, overrideScope),
             proc,
             input,
           )
@@ -1176,6 +1349,7 @@ export class SessionRegistry {
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
           ...(o.machineId ? { machineId: o.machineId } : {}),
+          ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
         }),
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
@@ -1208,7 +1382,7 @@ export class SessionRegistry {
     // stamped by each surface from its authenticated caller; issue-addressed
     // sends dual-write the legacy issue_messages mirror so inbox/claim/pending
     // keep working until those readers migrate.
-    // ONE CEILING OBJECT, TWO HALVES (POD-729). `mailPolicy()` is the only
+    // Principal-resolved at accept and apply time; queued rows retain attribution.
     // producer: the delivery service gets its apply-time port and the gate gets
     // its resolution-time ceiling, and MessageGate refuses at boot if they are
     // not the same object. Today's ceiling is the single-user maximum, so this
@@ -1216,7 +1390,46 @@ export class SessionRegistry {
     // rejection path (ADR 3 D8 / Amendment 1 D16) is now LIVE end to end rather
     // than only unit-tested against the handler, so POD-1075's real ceiling
     // arrives at a composition root that already carries it.
-    const mail = mailPolicy()
+    const mail = principalMailPolicy({
+      principalForCapability,
+      principalForMessage: (message) => {
+        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
+        if (message.fromSession) {
+          try {
+            return principalForCapability(sessionsSvc.capabilityForSession(message.fromSession))
+          } catch {
+            return undefined
+          }
+        }
+        if (!message.attribution?.onBehalfOf) return undefined
+        const userId = asUserId(message.attribution?.onBehalfOf)
+        const role = this.store.users.roleOf(userId)
+        return role ? userCommandPrincipal(userId, role) : undefined
+      },
+      policyFor: (principal) => {
+        const userId = onBehalfOfUser(principal)
+        return {
+          ceiling: {
+            canSee: (ref) => {
+              if (principal.kind === 'system') return true
+              if (userId === null) return false
+              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
+              if (ref.kind === 'session') {
+                const owner = sessionsSvc.sessionOwner(asSessionId(ref.id))
+                return owner?.owner === userId || owner?.grants.includes(userId) === true
+              }
+              return false
+            },
+          },
+          machines: {
+            mayUse: (machineId) =>
+              principal.kind === 'system' ||
+              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
+            isReachable: (machineId) => machines.hasDaemon(machineId),
+          },
+        }
+      },
+    })
     messagesSvc = new MessageDeliveryService({
       authorizeAtApply: mail.authorizeAtApply,
       messages: this.store.messages,
@@ -1279,6 +1492,7 @@ export class SessionRegistry {
         // deliberate issue-create path (never automatic).
         spawnSession: (o) =>
           sessionsSvc.createSession({
+            ownerUserId: o.ownerUserId,
             cwd: o.cwd,
             agentKind: o.agentKind as AgentKind,
             ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
@@ -1293,7 +1507,15 @@ export class SessionRegistry {
             ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
             ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
           }),
-        resolveExecutionProfile: (input) => workflows.executionProfileForLaunch(input),
+        resolveExecutionProfile: (input) => {
+          const { caller, ...profileInput } = input
+          return workflows.executionProfileForLaunch({
+            ...profileInput,
+            ...(caller
+              ? { caller: workflowCallerForCapability(caller.capability, caller.overrideScope) }
+              : {}),
+          })
+        },
         createIssue: (o) => issues.create({ ...o, startNow: false }),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => new Date(this.now()).toISOString(),
@@ -1328,7 +1550,7 @@ export class SessionRegistry {
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
-    issues.boot()
+    issues.boot(systemPrincipal('boot-reconcile'))
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
     try {
@@ -1340,6 +1562,7 @@ export class SessionRegistry {
       )
     }
     this.steward = new StewardService({
+      principal: systemPrincipal('steward'),
       store: this.store.events,
       facts: this.store.notificationFacts,
       messages: this.store.messages,
@@ -1449,6 +1672,13 @@ export class SessionRegistry {
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),
+      principalForOwner: (ownerUserId) => {
+        const role = this.store.users.roleOf(ownerUserId)
+        return role ? userCommandPrincipal(ownerUserId, role) : undefined
+      },
+      mayUseDefaultMachine: (principal) =>
+        checkMachineUse(principal, machines.defaultMachine(), ownershipFromMachines(machines)) ===
+        undefined,
       now: () => new Date(this.now()),
     })
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.

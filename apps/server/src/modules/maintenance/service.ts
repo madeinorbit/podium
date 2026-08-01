@@ -31,6 +31,11 @@ import type { MessageRow } from '../../store/types'
 import type { AutomationsService } from '../automations/service'
 import type { WriteFunnel } from '../funnel'
 import type { IssueService } from '../issues/service'
+import {
+  attributionOf,
+  systemPrincipal,
+  type SystemCommandPrincipal,
+} from '../../command-principal'
 
 const LEASE_NAME = 'janitor'
 const DEFAULT_LEASE_TTL_MS = 90_000
@@ -243,7 +248,7 @@ export class MaintenanceService {
       runKey: command.runKey,
     }
     const appliedAt = new Date(nowMs).toISOString()
-    this.appendExpiredEvent(current, appliedAt)
+    this.appendExpiredEvent(current, appliedAt, systemPrincipal('expiry'))
     this.store.maintenance.recordCommand(applied, command.fencingToken, appliedAt)
     return applied
   }
@@ -343,7 +348,7 @@ export class MaintenanceService {
     if (!this.issues) {
       return this.stale(command, 'precondition')
     }
-    const result = this.issues.tryAutoArchiveObserved(observed, nowMs)
+    const result = this.issues.tryAutoArchiveObserved(observed, nowMs, systemPrincipal('expiry'))
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
     const applied: MaintenanceCommandReply = {
@@ -549,7 +554,11 @@ export class MaintenanceService {
   }
 
   /** Message transition ledger append, committed with the row + run outcome. */
-  private appendExpiredEvent(message: MessageRow, appliedAt: string): void {
+  private appendExpiredEvent(
+    message: MessageRow,
+    appliedAt: string,
+    principal: SystemCommandPrincipal,
+  ): void {
     this.store.events.appendEvent({
       ts: appliedAt,
       kind: 'message.expired',
@@ -567,6 +576,7 @@ export class MaintenanceService {
         urgency: message.urgency,
         lifecycle: message.lifecycle,
         status: 'expired',
+        attribution: attributionOf(principal),
         ...(message.hop ? { hop: message.hop } : {}),
         ...(message.clampedFrom ? { clampedFrom: message.clampedFrom } : {}),
         ...(message.deliveredTo ? { deliveredTo: message.deliveredTo } : {}),

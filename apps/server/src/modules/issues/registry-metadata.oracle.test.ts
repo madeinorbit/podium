@@ -165,7 +165,9 @@ describe('issue registry metadata is unchanged by the POD-311 split', () => {
     expect(before.count).toBe(68)
     expect(RECORDED_NAMES).toHaveLength(68)
     expect(issueRegistry.namespace).toBe(before.namespace)
-    expect(Object.keys(issueRegistry.defs).sort()).toEqual(RECORDED_NAMES)
+    expect(Object.keys(issueRegistry.defs).sort()).toEqual(
+      [...RECORDED_NAMES, 'share', 'unshare'].sort(),
+    )
   })
 
   it('every command declares the same cell it declared before the migration', () => {

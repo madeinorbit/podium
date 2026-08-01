@@ -44,7 +44,7 @@ import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podi
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
-import type { Outbox, OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
+import type { OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
 import type { Replica, UiState } from '../replica/replica'
 import {
@@ -113,7 +113,14 @@ import {
   type StoreServerConfig,
   type UserFocus,
 } from './types'
-import { type CreateHub, createEngineHub, createEngineOutbox, type OutboxKinds } from './wiring'
+import {
+  type CreateEngineOutbox,
+  type CreateHub,
+  createEngineHub,
+  createEngineOutbox,
+  type EngineOutbox,
+  type OutboxKinds,
+} from './wiring'
 
 /** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface
  *  the operator is looking at marks it read immediately (POD-272 — it is already
@@ -184,6 +191,8 @@ export interface EngineInit<TApi extends PodiumClientApi> {
    * engine its two ends. Absent ⇒ the shipped v1 path, byte-for-byte unchanged.
    */
   feed?: FeedSinkPort
+  /** Platform queue factory. Web injects the real kernel Outbox opened over IndexedDB. */
+  createOutboxFn?: CreateEngineOutbox
   /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
   spawnConfirmGraceMs?: number
 }
@@ -249,7 +258,7 @@ const asIssueIdOrNull = (v: string | null | undefined): IssueId | null => (v ? a
 export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly replica: Replica
   readonly hub: SocketHub
-  readonly outbox: Outbox<OutboxKinds>
+  readonly outbox: EngineOutbox
   readonly router: Router
   readonly ui: UiState
 
@@ -342,7 +351,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       feed: init.feed,
     })
     this.onFeed = init.feed !== undefined
-    this.outbox = createEngineOutbox({
+    this.outbox = (init.createOutboxFn ?? createEngineOutbox)({
       api: this.api,
       replica: this.replica,
       notices: { error: (m) => this.notices.error(m), info: (m, d) => this.notices.info(m, d) },
@@ -1237,10 +1246,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  outbox subscription (armed in start()) already repaints on any queue
    *  change; recomputing here as well keeps actions optimistic before start()
    *  and after dispose() (the duplicate recompute is a no-op publish). */
-  private enqueueOverlayed<K extends keyof OutboxKinds & string>(
+  private async enqueueOverlayed<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
-  ): void {
+  ): Promise<void> {
     // Enqueue-time baseline (#263 review finding 2): fingerprint the target
     // row's REPLICA truth (unpainted — the replica is server truth only) so
     // resolution can tell whether truth already moved while in flight.
@@ -1265,7 +1274,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         this.awaitingTruth.some((a) => sameRow(a.overlay)) ||
         this.outbox.pending().some((e) => sameRow(overlayForOutboxEntry(e)))
     }
-    const entry = this.outbox.enqueue(kind, input, {
+    const entry = await this.outbox.enqueue(kind, input, {
       ...(baseline !== undefined ? { baseline } : {}),
       ...(chained ? { chained } : {}),
     })
@@ -1827,7 +1836,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       resumeAndSend: async (sessionId: SessionId, text: string) => {
         // Outboxed: the wake+deliver is durably queued server-side once it lands,
         // and the outbox carries it there across offline gaps/reloads.
-        this.outbox.enqueue('resumeAndSend', { sessionId, text })
+        await this.outbox.enqueue('resumeAndSend', { sessionId, text })
       },
       // Curation mutations are optimistic via ONE mechanism (#263): enqueueing
       // IS the optimistic apply — the pending entry's patch paints over server
@@ -1835,13 +1844,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // survives being authored offline (durable queue), and retires per the
       // rule in overlay.ts. The replica itself stays server truth only.
       renameSession: async (sessionId: SessionId, name: string) => {
-        this.enqueueOverlayed('rename', { sessionId, name })
+        await this.enqueueOverlayed('rename', { sessionId, name })
       },
       archiveSession: async (sessionId: SessionId, archived: boolean) => {
         // Archiving "files the work away": it also lands the session in the board's
         // Done lane. Unarchiving only restores it — it doesn't reopen the work state.
-        this.enqueueOverlayed('setArchived', { sessionId, archived })
-        if (archived) this.enqueueOverlayed('setWorkState', { sessionId, workState: 'done' })
+        await this.enqueueOverlayed('setArchived', { sessionId, archived })
+        if (archived) await this.enqueueOverlayed('setWorkState', { sessionId, workState: 'done' })
         // Filing the work away also drops it from pinned panels — a pinned tab for an
         // archived session is dead weight, exactly as closing/killing it removes the
         // pin (mirrors killSession's local pin filter). Unlike kill, archiving doesn't
@@ -1855,31 +1864,31 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         }
       },
       setWorkState: async (sessionId: SessionId, workState: WorkState | null) => {
-        this.enqueueOverlayed('setWorkState', { sessionId, workState })
+        await this.enqueueOverlayed('setWorkState', { sessionId, workState })
       },
       setSnooze: async (sessionId: SessionId, until: string | null) => {
-        this.enqueueOverlayed('snoozeSet', { sessionId, until })
+        await this.enqueueOverlayed('snoozeSet', { sessionId, until })
       },
       clearSnooze: async (sessionId: SessionId) => {
-        this.enqueueOverlayed('snoozeClear', { sessionId })
+        await this.enqueueOverlayed('snoozeClear', { sessionId })
       },
       // Mark a session / issue read (issue #124): the pending entry stamps
       // readAt (from its queuedAt) + clears unread until server truth covers
       // it. markSessionUnread (#138) is the email-style inverse.
       markSessionRead: async (sessionId: SessionId) => {
-        this.enqueueOverlayed('sessionMarkRead', { sessionId })
+        await this.enqueueOverlayed('sessionMarkRead', { sessionId })
       },
       markSessionUnread: async (sessionId: SessionId) => {
-        this.enqueueOverlayed('sessionMarkUnread', { sessionId })
+        await this.enqueueOverlayed('sessionMarkUnread', { sessionId })
       },
       markIssueRead: async (id: string) => {
-        this.enqueueOverlayed('issueMarkRead', { id })
+        await this.enqueueOverlayed('issueMarkRead', { id })
       },
       markIssueUnread: async (id: string) => {
-        this.enqueueOverlayed('issueMarkUnread', { id })
+        await this.enqueueOverlayed('issueMarkUnread', { id })
       },
       setIssueTucked: async (id: string, tucked: boolean) => {
-        this.enqueueOverlayed('issueSetTucked', { id, tucked })
+        await this.enqueueOverlayed('issueSetTucked', { id, tucked })
       },
       setSessionDraft: (sessionId: SessionId, text: string) => {
         this.adoptSessionDraft(sessionId, text)
@@ -1890,11 +1899,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         this.apply({ sidebarSettings: { ...this.state.sidebarSettings, ...next } })
         // Persist by loading the full settings blob, patching sidebar, and saving.
         try {
-          const current = await api.settings.get.query()
-          const updated = await api.settings.set.mutate({
-            ...current,
-            sidebar: { ...current.sidebar, ...next },
-          })
+          const values = Object.fromEntries(
+            Object.entries(next).map(([key, value]) => [`sidebar.${key}`, value]),
+          )
+          const updated = await api.settings.updatePersonal.mutate({ values })
           this.apply({ sidebarSettings: updated.sidebar })
         } catch {
           // best-effort — the optimistic state already applied

@@ -71,8 +71,7 @@ function makeSecrets() {
     clear: (key: ServerSecretKey): void => {
       rows.delete(key)
     },
-    apiKeyFor: (provider: string): string | undefined =>
-      rows.get(`apiKeys.${provider}`)?.value,
+    apiKeyFor: (provider: string): string | undefined => rows.get(`apiKeys.${provider}`)?.value,
     presence: (): SecretPresenceWire[] =>
       SERVER_SECRET_KEYS.map((key) => ({
         key,
@@ -103,7 +102,6 @@ beforeEach(() => {
     // REQUIRED (POD-421): an absent trail is indistinguishable from a working
     // one at every call site, so it is a compile error rather than a default.
     audit: { repo: { append: () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
-    mintingUser: () => asUserId('user:sole'),
     fingerprintKey: () => FINGERPRINT_KEY,
     now: () => Date.parse('2026-07-30T12:00:00.000Z'),
     modelProbe: { list: vi.fn(async () => []) } as never,
@@ -191,7 +189,8 @@ describe('the blob write may not carry a secret', () => {
     // secret added to the model without a case here is a failure rather than a
     // silently unchecked key.
     expect(mutated).toHaveLength(SERVER_SECRET_KEYS.length)
-    for (const next of mutated) expect(() => service.setSettingsFor(USER, next)).toThrow(/server-owned/)
+    for (const next of mutated)
+      expect(() => service.setSettingsFor(USER, next)).toThrow(/server-owned/)
   })
 
   it('lets a NON-secret member of the same nested object through', () => {
@@ -274,7 +273,9 @@ describe('the preference patch applies by path and validates by model', () => {
   it('REFUSES a value the model rejects — the parse is the value gate', () => {
     // The contract decides ADDRESSES and the model decides VALUE TYPES. Without
     // this the patch would be an untyped write into the blob.
-    expect(() => service.updatePreferences(USER, { 'hibernation.memoryPct': 'not a number' })).toThrow()
+    expect(() =>
+      service.updatePreferences(USER, { 'hibernation.memoryPct': 'not a number' }),
+    ).toThrow()
     expect(() => service.updatePreferences(USER, { 'gitWorkflow.mergeStyle': 'octopus' })).toThrow()
     expect(service.getSettingsFor(USER).gitWorkflow.mergeStyle).toBe('ff-only')
   })
@@ -297,7 +298,6 @@ describe('the preference patch applies by path and validates by model', () => {
   })
 })
 
-
 // ---------------------------------------------------------------------------
 // The binding ceremony (POD-1080, ADR 3 Amendment 1 D22)
 // ---------------------------------------------------------------------------
@@ -312,7 +312,6 @@ describe('the binding names the MINTER, never whoever redeems', () => {
   function ceremony(): {
     service: SettingsService
     bound: TelegramChatBinding[]
-    setUser: (u: UserId) => void
   } {
     const st = makeStore()
     // The bot token lives in the KEYED SECRET STORE, not in the settings blob:
@@ -324,13 +323,11 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     const secretStore = makeSecrets()
     secretStore.set('notifications.telegramBotToken', 'bot:tok', '2026-07-30T12:00:00.000Z')
     const bound: TelegramChatBinding[] = []
-    let current: UserId = ALICE
     const service = new SettingsService(st, secretStore, new EventBus(), {
       telegramBindings: { upsert: (b) => bound.push(b) },
       // REQUIRED (POD-421): an absent trail is indistinguishable from a working
-    // one at every call site, so it is a compile error rather than a default.
-    audit: { repo: { append: () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
-    mintingUser: () => current,
+      // one at every call site, so it is a compile error rather than a default.
+      audit: { repo: { append: () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
       generateTelegramSetupCode: () => 'PODIUM-CODE',
       telegramSetup: {
         getMe: async () => ({ username: 'bot' }),
@@ -343,7 +340,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
       now: () => Date.parse('2026-07-30T12:00:00.000Z'),
       modelProbe: { list: vi.fn(async () => []) } as never,
     })
-    return { service, bound, setUser: (u) => { current = u } }
+    return { service, bound }
   }
 
   it('binds the chat to the user who MINTED, with a different user now current', async () => {
@@ -352,9 +349,8 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // because the user travelled inside the mint. If it says Bob, ownership is
     // flowing from the redeeming call — POD-1079's failure mode, where anyone
     // holding a setupId completes someone else's ceremony and takes the chat.
-    const { service, bound, setUser } = ceremony()
-    const setup = await service.startTelegramSetup()
-    setUser(BOB)
+    const { service, bound } = ceremony()
+    const setup = await service.startTelegramSetup(ALICE)
     const result = await service.pollTelegramSetup(setup.setupId)
 
     expect(result.status).toBe('connected')
@@ -366,10 +362,8 @@ describe('the binding names the MINTER, never whoever redeems', () => {
   it('binds to BOB when BOB is the one who minted — the mint is read, not a constant', async () => {
     // The positive control the previous test needs: without it, an
     // implementation that hard-coded Alice would pass it perfectly.
-    const { service, bound, setUser } = ceremony()
-    setUser(BOB)
-    const setup = await service.startTelegramSetup()
-    setUser(ALICE)
+    const { service, bound } = ceremony()
+    const setup = await service.startTelegramSetup(BOB)
     await service.pollTelegramSetup(setup.setupId)
 
     expect(bound[0]?.userId).toBe(BOB)
@@ -377,7 +371,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
 
   it('records the chat the claimant messaged from', async () => {
     const { service, bound } = ceremony()
-    const setup = await service.startTelegramSetup()
+    const setup = await service.startTelegramSetup(ALICE)
     await service.pollTelegramSetup(setup.setupId)
     expect(bound[0]?.chatId).toBe('555')
   })
@@ -388,7 +382,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // by a service that binds at MINT time, which would let anyone who can start
     // a ceremony bind a chat they do not control.
     const { service, bound } = ceremony()
-    await service.startTelegramSetup()
+    await service.startTelegramSetup(ALICE)
     expect(bound).toEqual([])
   })
 
@@ -402,7 +396,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
 
   it('a redeemed mint is single-use — the second redemption is `expired`', async () => {
     const { service, bound } = ceremony()
-    const setup = await service.startTelegramSetup()
+    const setup = await service.startTelegramSetup(ALICE)
     expect((await service.pollTelegramSetup(setup.setupId)).status).toBe('connected')
     expect(await service.pollTelegramSetup(setup.setupId)).toEqual({ status: 'expired' })
     expect(bound).toHaveLength(1)

@@ -4,7 +4,7 @@
  * 'concierge' intake threads).
  */
 
-import { asThreadId, type SessionId } from '@podium/model'
+import { asThreadId, FIRST_ADMIN_USER_ID, type SessionId, type UserId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -19,25 +19,26 @@ export class SuperagentRepository {
   constructor(private readonly db: SqlDatabase) {}
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
-  seedGlobalThread(): void {
+  seedGlobalThread(ownerUserId: UserId = FIRST_ADMIN_USER_ID): void {
     const saNow = new Date().toISOString()
     this.db
       .prepare(
-        `INSERT OR IGNORE INTO superagent_threads (id, kind, created_at, updated_at)
-         VALUES ('global', 'global', ?, ?)`,
+        `INSERT OR IGNORE INTO superagent_threads (id, owner_user_id, kind, created_at, updated_at)
+         VALUES ('global', ?, 'global', ?, ?)`,
       )
-      .run(saNow, saNow)
+      .run(ownerUserId, saNow, saNow)
   }
 
   loadSuperagentMessages(threadId = 'global', limit = 200): SuperagentMessageRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, role, content, tool_calls, tool_call_id, tool_name, created_at
+        `SELECT id, owner_user_id, role, content, tool_calls, tool_call_id, tool_name, created_at
          FROM superagent_messages WHERE thread_id = ? ORDER BY id DESC LIMIT ?`,
       )
       .all(threadId, limit) as Record<string, unknown>[]
     return rows.reverse().map((r) => ({
       id: r.id as number,
+      ownerUserId: r.owner_user_id as UserId,
       role: r.role as SuperagentMessageRow['role'],
       content: r.content as string,
       toolCalls: parseJsonColumn<ToolCallRow[]>(
@@ -52,17 +53,20 @@ export class SuperagentRepository {
 
   appendSuperagentMessage(
     threadId: string,
-    m: Omit<SuperagentMessageRow, 'id' | 'createdAt'>,
+    m: Omit<SuperagentMessageRow, 'id' | 'createdAt' | 'ownerUserId'> & { ownerUserId?: UserId },
   ): SuperagentMessageRow {
     const createdAt = new Date().toISOString()
+    const ownerUserId = m.ownerUserId ?? this.getSuperagentThread(threadId)?.ownerUserId
+    if (!ownerUserId) throw new Error(`unknown superagent thread: ${threadId}`)
     const result = this.db
       .prepare(
         `INSERT INTO superagent_messages
-           (thread_id, role, content, tool_calls, tool_call_id, tool_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (thread_id, owner_user_id, role, content, tool_calls, tool_call_id, tool_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         threadId,
+        ownerUserId,
         m.role,
         m.content,
         m.toolCalls ? JSON.stringify(m.toolCalls) : null,
@@ -73,29 +77,36 @@ export class SuperagentRepository {
     this.db
       .prepare('UPDATE superagent_threads SET updated_at = ? WHERE id = ?')
       .run(createdAt, threadId)
-    return { ...m, id: Number(result.lastInsertRowid), createdAt }
+    return { ...m, ownerUserId, id: Number(result.lastInsertRowid), createdAt }
   }
 
   clearSuperagentMessages(threadId = 'global'): void {
     this.db.prepare('DELETE FROM superagent_messages WHERE thread_id = ?').run(threadId)
   }
 
-  listSuperagentThreads(): SuperagentThreadRow[] {
+  listSuperagentThreads(ownerUserId: UserId): SuperagentThreadRow[] {
     const rows = this.db
-      .prepare(`SELECT * FROM superagent_threads WHERE archived = 0 ORDER BY updated_at DESC`)
-      .all() as Record<string, unknown>[]
+      .prepare(
+        `SELECT * FROM superagent_threads WHERE owner_user_id = ? AND archived = 0 ORDER BY updated_at DESC`,
+      )
+      .all(ownerUserId) as Record<string, unknown>[]
     return rows.map((r) => this.mapSuperagentThread(r))
   }
 
-  getSuperagentThread(id: string): SuperagentThreadRow | undefined {
-    const r = this.db.prepare('SELECT * FROM superagent_threads WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
+  getSuperagentThread(id: string, ownerUserId?: UserId): SuperagentThreadRow | undefined {
+    const r = this.db
+      .prepare(
+        ownerUserId
+          ? 'SELECT * FROM superagent_threads WHERE id = ? AND owner_user_id = ?'
+          : 'SELECT * FROM superagent_threads WHERE id = ?',
+      )
+      .get(...(ownerUserId ? [id, ownerUserId] : [id])) as Record<string, unknown> | undefined
     return r ? this.mapSuperagentThread(r) : undefined
   }
 
   upsertSuperagentThread(t: {
     id: string
+    ownerUserId: UserId
     kind: 'global' | 'btw' | 'concierge'
     originSessionId?: SessionId
     repoPath?: string
@@ -104,13 +115,14 @@ export class SuperagentRepository {
     const now = new Date().toISOString()
     this.db
       .prepare(
-        `INSERT INTO superagent_threads (id, kind, origin_session_id, repo_path, title, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO superagent_threads (id, owner_user_id, kind, origin_session_id, repo_path, title, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = COALESCE(excluded.title, title), archived = 0, updated_at = ?`,
       )
       .run(
         t.id,
+        t.ownerUserId,
         t.kind,
         t.originSessionId ?? null,
         t.repoPath ?? null,
@@ -176,11 +188,12 @@ export class SuperagentRepository {
     this.db
       .prepare(
         `INSERT INTO superagent_queued_inputs
-           (input_id, thread_id, text, focus_json, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
+           (input_id, owner_user_id, thread_id, text, focus_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.inputId,
+        row.ownerUserId,
         row.threadId,
         row.text,
         row.focus ? JSON.stringify(row.focus) : null,
@@ -195,6 +208,7 @@ export class SuperagentRepository {
       .all() as Record<string, unknown>[]
     return rows.map((row) => ({
       inputId: row.input_id as string,
+      ownerUserId: row.owner_user_id as UserId,
       // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
       threadId: asThreadId(row.thread_id as string),
       text: row.text as string,
@@ -215,11 +229,12 @@ export class SuperagentRepository {
     this.db
       .prepare(
         `INSERT INTO superagent_pending_turns
-           (turn_id, thread_id, podium_session_id, payload_json, first_turn, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (turn_id, owner_user_id, thread_id, podium_session_id, payload_json, first_turn, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.turnId,
+        row.ownerUserId,
         row.threadId,
         row.podiumSessionId,
         JSON.stringify(row.payload),
@@ -253,6 +268,7 @@ export class SuperagentRepository {
       if (!payload) throw new Error(`invalid persisted superagent turn payload: ${turnId}`)
       return {
         turnId,
+        ownerUserId: row.owner_user_id as UserId,
         // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
         threadId: asThreadId(row.thread_id as string),
         podiumSessionId: row.podium_session_id as SessionId,
@@ -270,6 +286,7 @@ export class SuperagentRepository {
   private mapSuperagentThread(r: Record<string, unknown>): SuperagentThreadRow {
     return {
       id: r.id as string,
+      ownerUserId: r.owner_user_id as UserId,
       kind: r.kind as 'global' | 'btw' | 'concierge',
       originSessionId: (r.origin_session_id as SessionId | null) ?? undefined,
       repoPath: (r.repo_path as string | null) ?? undefined,

@@ -20,14 +20,14 @@ import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loo
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
+import { clientAuthGuard, registerAuthRoute, requestUserId } from './auth-route'
 import { applyEnvPassword, hasPassword } from './auth-store'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { attachWebSockets } from './gateway/ws-server'
 import { PairingManager } from './hub/pairing'
-import { OPERATOR } from './issue-authz'
+import { userCommandPrincipal } from './command-principal'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
@@ -347,14 +347,23 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const guard = clientAuthGuard({ store: store.auth })
+  const credentialsRequired = () => hasPassword() || store.users.hasPerUserCredentials()
+  const requestPrincipal = (cookie: string | undefined) => {
+    const userId =
+      requestUserId(store.auth, cookie) ??
+      (!credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
+    if (userId === undefined) return undefined
+    const account = store.users.get(userId)
+    return account ? userCommandPrincipal(userId, account.role) : undefined
+  }
+  const guard = clientAuthGuard({ store: store.auth, users: store.users })
   app.use('/setup/*', cors())
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
-  registerAuthRoute(app, { store: store.auth })
+  registerAuthRoute(app, { store: store.auth, users: store.users })
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
@@ -401,13 +410,16 @@ export async function startServer(
       // relayed via their daemon and carry their own capability (agent integration).
       createContext: (_request, hono) => {
         const publicationAuthority = opts.resolvePublicationAuthority?.http(hono.req.raw)
+        const principal = requestPrincipal(hono.req.header('cookie'))
+        if (principal === undefined) throw new Error('authenticated account is unavailable')
         return {
           registry,
           repos,
           discovery: repoDiscovery,
           superagent,
           cloud,
-          capability: OPERATOR,
+          principal,
+          capability: principal.capability,
           modules: registry.modules,
           ...(publicationAuthority ? { publicationAuthority } : {}),
           // Only so telemetry.preview can show the REAL report [spec:SP-f933];
@@ -506,7 +518,14 @@ export async function startServer(
         // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
         // also the seam for per-agent capabilities later: pass a constrained capability
         // instead of OPERATOR.
-        issueTools.setClient(registry.issueCommands.asIssueTrpc(OPERATOR))
+        issueTools.setClientResolver((threadId) => {
+          const ownerUserId = superagent.threadOwner(threadId)
+          const account = ownerUserId ? store.users.get(ownerUserId) : undefined
+          if (!ownerUserId || !account) throw new Error('MCP thread owner is unavailable')
+          return registry.issueCommands.asIssueTrpc(
+            userCommandPrincipal(ownerUserId, account.role).capability,
+          )
+        })
         // Bridge the issue tools into the superagent's API tool loop (issue #64):
         // concierge (and global) threads drive the tracker through the same
         // in-process OPERATOR caller. Constraining this to an agent capability is
@@ -523,8 +542,11 @@ export async function startServer(
         const ws = attachWebSockets(server as unknown as Server, registry, {
           // Same gate as the HTTP guard: open unless a password is set, then require a valid
           // session cookie on the upgrade request.
-          authorizeClient: (req) =>
-            !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
+          userForClient: (req) => requestPrincipal(req.headers.cookie)?.user,
+          roleForClient: (req) => {
+            const principal = requestPrincipal(req.headers.cookie)
+            return principal ? store.users.roleOf(principal.user) : undefined
+          },
           ...(opts.resolvePublicationAuthority
             ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
             : {}),

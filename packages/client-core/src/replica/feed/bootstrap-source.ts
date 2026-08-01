@@ -146,13 +146,17 @@ export class PushedBootstrapSource {
    * went away. Any other close — a real network drop, a shutdown — still fails the
    * walk, because there is then nothing coming.
    */
-  reset(reason: string): void {
+  reset(reason: string): boolean {
     this.slot = undefined
-    if (this.requesting) return
+    if (this.requesting) {
+      this.requesting = false
+      return true
+    }
     const fail = this.failWaiter
     this.waiter = undefined
     this.failWaiter = undefined
-    fail?.(new Error(`bootstrap abandoned: ${reason}`))
+    fail?.(new Error('bootstrap abandoned: ' + reason))
+    return false
   }
 
   /** True while a walk is waiting for a world. Read by the sink, which must not

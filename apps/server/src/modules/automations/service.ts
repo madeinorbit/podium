@@ -20,6 +20,7 @@ import {
   type AgentKind,
   type AutomationScheduleKind,
   type AutomationSessionMode,
+  type UserId,
 } from '@podium/model'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { automationOccurrenceRunId } from '@podium/protocol'
@@ -30,6 +31,7 @@ import type {
   AutomationRunRow,
   AutomationsRepository,
 } from '../../store/automations'
+import { attributionOf, onBehalfOfUser, type CommandPrincipal } from '../../command-principal'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
 
 export interface AutomationsDeps {
@@ -46,6 +48,7 @@ export interface AutomationsDeps {
     spawnedBy?: string
     title?: string
     issueId?: IssueId
+    ownerUserId: UserId
   }): { sessionId: SessionId }
   /** SessionsService.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
@@ -72,9 +75,16 @@ export interface AutomationsDeps {
     defaultModel: string
     defaultEffort: string
     type: 'automation'
+    ownerUserId: UserId
+    createdByActor: string
+    createdByOnBehalfOf: UserId
   }): { id: IssueId }
   /** Sessions currently running — the overlap check's input. */
   liveSessionIds(): Set<SessionId>
+  /** Re-resolve the creator account on every fire; disabled/removed means no principal. */
+  principalForOwner(ownerUserId: UserId): CommandPrincipal | undefined
+  /** Re-check the creator's current use grant on the selected machine. */
+  mayUseDefaultMachine(principal: CommandPrincipal): boolean
   now(): Date
   /** Where a GLOBAL (repo-less) automation runs. Injected for the tests. */
   homeDir?(): string
@@ -169,17 +179,40 @@ export class AutomationsService {
     return this.deps.store.list()
   }
 
+  listForUser(userId: UserId): AutomationRow[] {
+    return this.deps.store.list().filter((row) => row.ownerUserId === userId)
+  }
+
   runs(automationId: string, limit?: number): AutomationRunRow[] {
     return this.deps.store.listRuns(automationId, limit)
+  }
+
+  runsForUser(userId: UserId, automationId: string, limit?: number): AutomationRunRow[] {
+    const automation = this.deps.store.get(automationId)
+    return automation?.ownerUserId === userId ? this.deps.store.listRuns(automationId, limit) : []
   }
 
   allRuns(): AutomationRunRow[] {
     return this.deps.store.listAllRuns()
   }
 
+  private ownerFor(principal: CommandPrincipal): UserId {
+    const owner = onBehalfOfUser(principal)
+    if (owner === null) throw new Error('automation writes require a human principal')
+    return owner
+  }
+
+  private assertOwner(principal: CommandPrincipal, automation: AutomationRow): void {
+    if (this.ownerFor(principal) !== automation.ownerUserId) {
+      throw new Error('unknown automation: ' + automation.id)
+    }
+  }
+
   /** Create an automation. Validation happens before persistence, including the
    *  explicit one-minute floor [spec:SP-17db]. */
-  create(input: AutomationInput): AutomationRow {
+  create(input: AutomationInput, principal: CommandPrincipal): AutomationRow {
+    const attribution = attributionOf(principal)
+    const ownerUserId = this.ownerFor(principal)
     const scheduleKind = input.scheduleKind ?? 'cron'
     const cron = input.cron?.trim() || null
     const runAt = input.runAt ? new Date(input.runAt).toISOString() : null
@@ -208,6 +241,9 @@ export class AutomationsService {
       nextRunAt: this.armFrom(scheduleKind, cron, runAt, enabled),
       lastRunAt: null,
       createdAt: this.now().toISOString(),
+      ownerUserId,
+      createdByActor: attribution.actor,
+      createdByOnBehalfOf: ownerUserId,
     }
     const created = this.deps.ledger.commit({
       write: () => {
@@ -223,9 +259,10 @@ export class AutomationsService {
 
   /** Patch an automation. Any schedule/enabled change re-arms from now; an edited
    *  cron never retains the old expression's pending fire. */
-  update(id: string, patch: Partial<AutomationInput>): AutomationRow {
+  update(id: string, patch: Partial<AutomationInput>, principal: CommandPrincipal): AutomationRow {
     const current = this.deps.store.get(id)
-    if (!current) throw new Error(`unknown automation: ${id}`)
+    if (!current) throw new Error('unknown automation: ' + id)
+    this.assertOwner(principal, current)
     const scheduleKind = patch.scheduleKind ?? current.scheduleKind
     const cron = patch.cron !== undefined ? patch.cron?.trim() || null : current.cron
     const runAt =
@@ -284,12 +321,14 @@ export class AutomationsService {
     return updated
   }
 
-  setEnabled(id: string, enabled: boolean): AutomationRow {
-    return this.update(id, { enabled })
+  setEnabled(id: string, enabled: boolean, principal: CommandPrincipal): AutomationRow {
+    return this.update(id, { enabled }, principal)
   }
 
-  remove(id: string): { removed: boolean } {
-    if (!this.deps.store.get(id)) return { removed: false }
+  remove(id: string, principal: CommandPrincipal): { removed: boolean } {
+    const current = this.deps.store.get(id)
+    if (!current) return { removed: false }
+    this.assertOwner(principal, current)
     const runIds = this.deps.store
       .listAllRuns()
       .filter((run) => run.automationId === id)
@@ -376,6 +415,8 @@ export class AutomationsService {
               sessionId: null,
               outcome,
               detail: decision.detail ?? null,
+              actor: 'system:automation',
+              onBehalfOf: automation.ownerUserId,
             })
           } else {
             this.deps.store.updateRun(runId, {
@@ -416,6 +457,8 @@ export class AutomationsService {
             sessionId: null,
             outcome: 'error',
             detail: 'reserved',
+            actor: 'system:automation',
+            onBehalfOf: automation.ownerUserId,
           })
           return this.deps.store.getRun(runId)!
         },
@@ -535,6 +578,13 @@ export class AutomationsService {
    * mutation id.
    */
   private spawn(automation: AutomationRow, runId: string): SessionId {
+    const principal = this.deps.principalForOwner(automation.ownerUserId)
+    if (!principal) {
+      throw new AutomationSpawnError('automation creator account is disabled or missing', null)
+    }
+    if (!this.deps.mayUseDefaultMachine(principal)) {
+      throw new AutomationSpawnError('automation creator no longer has machine use access', null)
+    }
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
       const previousSessionId =
         automation.targetSessionId ?? this.deps.store.lastSpawnedSessions().get(automation.id)
@@ -567,6 +617,9 @@ export class AutomationsService {
       defaultModel: automation.model,
       defaultEffort: automation.effort,
       type: 'automation',
+      ownerUserId: automation.ownerUserId,
+      createdByActor: 'system:automation',
+      createdByOnBehalfOf: automation.ownerUserId,
     })
     const { sessionId } = this.deps.createSession({
       cwd,
@@ -576,6 +629,7 @@ export class AutomationsService {
       spawnedBy: `automation:${automation.id}`,
       title: automation.name,
       issueId: issue.id,
+      ownerUserId: automation.ownerUserId,
     })
     const queued = this.deps.queueText({
       sessionId,

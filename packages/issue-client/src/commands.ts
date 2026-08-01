@@ -999,6 +999,42 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'share',
+    summary: 'Share an issue with a user: share <id> <grantee> --verb read|write|manage.',
+    args: z.strictObject({
+      id: idArg,
+      grantee: z.string(),
+      verb: z.enum(['read', 'write', 'manage']).default('read'),
+    }),
+    positionals: ['id', 'grantee'],
+    async run(c, a) {
+      const data = await c.issues.share.mutate({
+        id: a.id as string,
+        grantee: a.grantee as string,
+        verb: a.verb as 'read' | 'write' | 'manage',
+      })
+      return { text: 'shared ' + String(a.id) + ' with ' + String(a.grantee), data }
+    },
+  },
+  {
+    name: 'unshare',
+    summary: 'Revoke issue sharing: unshare <id> <grantee> --verb read|write|manage.',
+    args: z.strictObject({
+      id: idArg,
+      grantee: z.string(),
+      verb: z.enum(['read', 'write', 'manage']).default('read'),
+    }),
+    positionals: ['id', 'grantee'],
+    async run(c, a) {
+      const data = await c.issues.unshare.mutate({
+        id: a.id as string,
+        grantee: a.grantee as string,
+        verb: a.verb as 'read' | 'write' | 'manage',
+      })
+      return { text: 'unshared ' + String(a.id) + ' from ' + String(a.grantee), data }
+    },
+  },
+  {
     name: 'defer',
     summary: 'Defer an issue until a date: defer <id> --until 2026-07-01.',
     args: z.strictObject({ id: idArg, until: z.string() }),

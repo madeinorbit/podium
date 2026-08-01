@@ -153,12 +153,12 @@ type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
  * the value arrives with the column.
  */
 const principalOf = (from: MessageSender): MailSenderPrincipal =>
-  ({ ...from, user: null }) as MailSenderPrincipal
+  ({ ...from, user: from.attribution?.onBehalfOf ?? null }) as MailSenderPrincipal
 
 const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
   ({
     kind: m.fromKind,
-    user: null,
+    user: m.attribution?.onBehalfOf ?? null,
     ...(m.fromIssue ? { issueId: m.fromIssue } : {}),
     ...(m.fromSession ? { sessionId: m.fromSession } : {}),
     ...(m.fromName ? { name: m.fromName } : {}),
@@ -2001,7 +2001,10 @@ export class MessageDeliveryService {
    *  {@link senderBrakeKey} for why `operator`/`superagent` must be re-keyed per
    *  user and why the bare kind is still the right answer today. */
   private senderKey(from: MessageSender): string {
-    return senderBrakeKey(principalOf(from))
+    const authority = this.authorityOf(from)
+    return senderBrakeKey(
+      principalOf({ ...from, attribution: authority.attribution, delegationRef: authority.delegationRef }),
+    )
   }
 
   private senderKeyOfRow(m: MessageRow): string {
@@ -2418,6 +2421,12 @@ export class MessageDeliveryService {
    * behaviour is deliberate: two ceilings that happen to agree today are still
    * two ceilings, and identity is the property the invariant is about.
    */
+  get appliedPolicy(): 'dynamic' | 'static' | undefined {
+    const port = this.deps.authorizeAtApply as { dynamic?: boolean; ceiling?: unknown } | undefined
+    if (!port) return undefined
+    return port.dynamic === true ? 'dynamic' : 'static'
+  }
+
   get appliedCeiling(): unknown {
     return (this.deps.authorizeAtApply as { ceiling?: unknown } | undefined)?.ceiling
   }

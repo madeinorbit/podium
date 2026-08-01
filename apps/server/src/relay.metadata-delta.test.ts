@@ -31,6 +31,7 @@ describe('SessionRegistry metadata deltas', () => {
     const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       ...(caps ? { caps } : {}),
@@ -39,13 +40,19 @@ describe('SessionRegistry metadata deltas', () => {
   }
 
   const deltas = (inbox: ServerMessage[]): MetadataChange[] =>
-    inbox.flatMap((m) => (m.type === 'metadataDelta' ? m.changes : []))
+    inbox.flatMap((message) => {
+      if (message.type === 'metadataDelta') return message.changes
+      if (message.type !== 'feedDelta') return []
+      return message.changes
+        .filter((change) => change.op !== 'evict')
+        .map((change) => ({ ...change, id: change.entityId }) as MetadataChange)
+    })
 
   /** Emission is coalesced at microtask level since #256 (one ordered pipe);
    *  flush deterministically before reading a delta client's inbox. */
   const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
 
-  it('sends per-entity deltas to cap clients and full lists to legacy clients', () => {
+  it('sends canonical per-entity deltas regardless of the retired metadataDelta cap', () => {
     const registry = makeLegacyRegistry()
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
@@ -55,12 +62,12 @@ describe('SessionRegistry metadata deltas', () => {
     registry.issues.create({ repoPath: '/r', title: 'first', startNow: false })
     flush(registry)
 
-    // Legacy: a full issuesChanged list, and NEVER a metadataDelta.
+    // Wire v2 is canonical; the retired cap no longer selects a second entity path.
     const legacyNew = legacy.inbox.slice(legacyBefore)
-    expect(legacyNew.some((m) => m.type === 'issuesChanged')).toBe(true)
+    expect(legacyNew.some((m) => m.type === 'feedDelta')).toBe(true)
     expect(legacyNew.some((m) => m.type === 'metadataDelta')).toBe(false)
 
-    // Delta clients receive both unconditional feeds; only the residue drives issuesChanged.
+    // Both clients receive the same scoped feed; capabilities do not widen it.
     const deltaNew = delta.inbox.slice(deltaBefore)
     expect(deltaNew.some((m) => m.type === 'issuesChanged')).toBe(false)
     const changes = deltas(deltaNew)
@@ -70,7 +77,7 @@ describe('SessionRegistry metadata deltas', () => {
     expect((residue?.value as IssueWire).title).toBe('first')
   })
 
-  it('a single-issue update touches ONE row — the legacy list is a translation, not a rebuild (#22)', () => {
+  it('a single-issue update touches one canonical row and never rebuilds the bystander (#22)', () => {
     const registry = makeRegistry()
     const w = registry.issues.create({ repoPath: '/r', title: 'solo', startNow: false })
     registry.issues.create({ repoPath: '/r', title: 'bystander', startNow: false })
@@ -83,22 +90,17 @@ describe('SessionRegistry metadata deltas', () => {
     registry.issues.update(w.id, { notes: 'self-contained edit' })
     flush(registry)
 
-    // WHAT CHANGED AT POD-1203, stated rather than hidden: a snapshot peer used
-    // to get the targeted `issueUpdated` message and now gets `issuesChanged`.
-    // The v1 adapter's vocabulary is the five full lists, and it folds one out of
-    // its own in-memory projection — no `allWire()` rebuild, no feature involved,
-    // and the whole message shape expires with the adapter. The property that
-    // actually mattered in this case survives BELOW, and is asserted more
-    // strongly than it was: the update produced exactly ONE change row, so the
-    // bystander issue was not re-derived.
+    // Both wire-v2 peers receive exactly the changed issue rows. There is no
+    // full-list translation on the production path and the bystander is untouched.
     const legacyNew = legacy.inbox.slice(legacyBefore)
-    expect(legacyNew.map((m) => m.type)).toEqual(['issuesChanged'])
-    const list = legacyNew[0] as { issues: IssueWire[] }
-    expect(list.issues.find((i) => i.id === w.id)?.notes).toBe('self-contained edit')
-    // The bystander is present and UNCHANGED — a full-list rebuild is what this
-    // case has always been about, and the translation is not one.
-    expect(list.issues.map((i) => i.title).sort()).toEqual(['bystander', 'solo'])
-    // Delta client: exactly one oplog upsert for that issue — the bystander is untouched.
+    expect(legacyNew.map((m) => m.type)).toEqual(['feedDelta'])
+    const legacyChanges = deltas(legacyNew)
+    expect(legacyChanges.map((change) => change.entity).sort()).toEqual([
+      'issue',
+      'issueProjection',
+    ])
+    expect(legacyChanges.every((change) => change.id === w.id)).toBe(true)
+    // The cap-advertising peer observes the same canonical rows.
     const changes = deltas(delta.inbox.slice(deltaBefore))
     expect(changes.map((change) => change.entity).sort()).toEqual(['issue', 'issueProjection'])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
@@ -214,14 +216,15 @@ describe('SessionRegistry metadata deltas', () => {
     expect((change as { value: IssueWire } | undefined)?.value.tuckedAt).toBeTruthy()
   })
 
-  it('a pre-hello client is legacy: bootstrap snapshots, no deltas', () => {
+  it('a pre-hello client receives no entity world until it announces an eviction-capable wire', () => {
     const registry = makeRegistry()
     const inbox: ServerMessage[] = []
     registry.clientGateway.attachClient((msg) => inbox.push(msg)) // no hello at all
-    expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(true)
+    expect(inbox.some((message) => message.type === 'feedBootstrap')).toBe(false)
+    const before = inbox.length
     registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })
     flush(registry)
     expect(inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
-    expect(inbox.filter((m) => m.type === 'issuesChanged').length).toBeGreaterThanOrEqual(2)
+    expect(inbox).toHaveLength(before)
   })
 })

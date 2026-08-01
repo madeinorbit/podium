@@ -1,4 +1,3 @@
-import type { Replica } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -16,11 +15,9 @@ import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
-import { desktopReplicaFactory } from '@/lib/desktopReplica'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
@@ -61,28 +58,6 @@ function LoadingScreen(): JSX.Element {
   )
 }
 
-/** Desktop SQLite replica gate (POD-789): `null` = still resolving (Tauri
- *  only — a plain browser resolves synchronously to the localStorage
- *  default). The store must not mount before this settles: the engine reads
- *  the replica synchronously at construction, so the SQLite-backed one has to
- *  arrive already hydrated. */
-function useDesktopReplica(): { createReplicaFn?: () => Replica } | null {
-  const [resolved, setResolved] = useState<{ createReplicaFn?: () => Replica } | null>(() =>
-    nativeDesktopBridge() ? null : {},
-  )
-  useEffect(() => {
-    if (resolved) return
-    let alive = true
-    void desktopReplicaFactory().then((createReplicaFn) => {
-      if (alive) setResolved(createReplicaFn ? { createReplicaFn } : {})
-    })
-    return () => {
-      alive = false
-    }
-  }, [resolved])
-  return resolved
-}
-
 /**
  * Attach the engine's hub to the kernel assembly (POD-1223).
  *
@@ -101,7 +76,6 @@ function KernelHubAttach({ assembly }: { assembly: KernelAssembly }): null {
 export function AppShell(): JSX.Element {
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
-  const desktopReplica = useDesktopReplica()
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
@@ -110,10 +84,22 @@ export function AppShell(): JSX.Element {
   // The store must not mount until BOTH gates settle: the desktop SQLite
   // replica and the kernel-replica decision. Each one is a synchronous read the
   // engine makes at construction.
-  if (!desktopReplica || kernel.status === 'resolving') {
+  if (kernel.status === 'resolving') {
     return (
       <TooltipProvider>
         <LoadingScreen />
+      </TooltipProvider>
+    )
+  }
+
+  if (kernel.status === 'failed') {
+    return (
+      <TooltipProvider>
+        <AppErrorPage
+          title="Podium could not open its private replica"
+          message={kernel.failure}
+          onRetry={() => window.location.reload()}
+        />
       </TooltipProvider>
     )
   }
@@ -132,15 +118,12 @@ export function AppShell(): JSX.Element {
           <StoreProvider
             config={config}
             onFatalError={setAppError}
-            createReplicaFn={
-              kernel.status === 'kernel'
-                ? kernel.assembly.createReplicaFn
-                : desktopReplica.createReplicaFn
-            }
-            feed={kernel.status === 'kernel' ? kernel.assembly.feed : undefined}
+            createReplicaFn={kernel.assembly.createReplicaFn}
+            feed={kernel.assembly.feed}
+            createOutboxFn={kernel.assembly.createOutboxFn}
           >
-            {kernel.status === 'kernel' ? <KernelHubAttach assembly={kernel.assembly} /> : null}
-            {kernel.status === 'kernel' && kernel.shadow ? (
+            <KernelHubAttach assembly={kernel.assembly} />
+            {kernel.shadow ? (
               <ShadowComparisonRunner
                 assembly={kernel.assembly}
                 trpc={gateTrpc}

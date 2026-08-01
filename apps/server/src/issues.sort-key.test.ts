@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 /**
  * POD-168 — manual order via persisted sortKey (POD-100 §4):
  * create mints a key ABOVE its sibling scope's minimum ("new at top" R2),
@@ -15,7 +16,7 @@ const ctx = (registry: SessionRegistry) =>
     registry,
     repos: {} as never,
     superagent: {} as never,
-    capability: OPERATOR,
+    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
   })
 
 describe('sortKey minting on create (POD-168)', () => {

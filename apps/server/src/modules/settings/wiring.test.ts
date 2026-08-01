@@ -1,3 +1,4 @@
+import { resolvePrincipal } from '../../command-principal'
 /**
  * THE SETTINGS GATE AND TRAIL, AGAINST THE REAL DERIVED ROUTER (POD-421).
  *
@@ -48,19 +49,19 @@ const SECRET = 'sk-ant-real-material-do-not-log'
 
 function harness(role: UserRole | undefined) {
   const store = new SessionStore(':memory:')
-  // THE ONE OVERRIDE. See the header: the account grade is the only fact the
-  // transport cannot vary on this build, and leaving the refusing arm untested
-  // through the router is the worse trade.
-  const users = store.users as { roleOf: (id: string) => UserRole | undefined }
-  users.roleOf = (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
-
   const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
   registry.modules.machines.ensureLocalMachine()
+
+  // Override only after boot has loaded the real migration account. The command
+  // gate must see the requested role (including unreadable), while unrelated
+  // session-state bootstrap remains a production-valid account read.
+  const users = store.users as { roleOf: (id: string) => UserRole | undefined }
+  users.roleOf = (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     store,
-    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
     audit: () => store.settingsAudit.list(),
   }
 }

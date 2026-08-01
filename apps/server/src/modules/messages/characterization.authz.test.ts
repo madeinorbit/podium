@@ -17,7 +17,7 @@
  * and attention routing per-user. None of it is asserted as desirable.
  */
 
-import { asIssueId, asSessionId, type IssueScope } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type IssueScope } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -364,7 +364,12 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
     }[]
     expect(rows.map((m) => m.status)).toEqual(['read'])
 
-    const noMailbox: Capability = { role: 'worker', scope: { kind: 'none' } }
+    const noMailbox: Capability = {
+      role: 'worker',
+      scope: { kind: 'none' },
+      actorUser: FIRST_ADMIN_USER_ID,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    }
     await expect(h.gate.dispatch(noMailbox, undefined, 'inbox', {})).rejects.toThrow(
       'no mailbox bound to this caller',
     )
@@ -596,7 +601,7 @@ describe('characterization: the operator principal class (A6)', () => {
     }
   })
 
-  it('collapses senderKey so ALL superagent traffic shares one cooldown bucket', () => {
+  it('keys superagent cooldowns by their accountable user', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'sleeper' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
@@ -604,12 +609,9 @@ describe('characterization: the operator principal class (A6)', () => {
 
     const first = h.svc.send({ kind: 'superagent' }, { to, body: '1', lifecycle: 'wake' })
     expect(first.message.lifecycle).toBe('wake')
-    // The cooldown key is the LITERAL string 'superagent' — there is one bucket
-    // for the whole class, so a second superagent wake to the same issue is
-    // clamped no matter which superagent thread it came from. SINGLE-USER
-    // ARTEFACT: §3.1.6 makes the superagent per-user, at which point this shared
-    // bucket has to become per-person or one user throttles another.
-    expect(h.store.messages.getWakeCooldown(`superagent|${iss.id}`)).toBe(h.now())
+    // Superagent automation is private per owner, so its unattended-wake brake
+    // is keyed by that accountable user rather than shared across the instance.
+    expect(h.store.messages.getWakeCooldown(`superagent:${FIRST_ADMIN_USER_ID}|${iss.id}`)).toBe(h.now())
     const second = h.svc.send({ kind: 'superagent' }, { to, body: '2', lifecycle: 'wake' })
     expect(second.message.lifecycle).toBe('wait')
     expect(JSON.parse(second.message.clampedFrom!).reasons).toEqual([

@@ -24,7 +24,13 @@
 
 import type { HumanCeiling } from '@podium/commands'
 import {
-  FIRST_ADMIN_USER_ID, asSessionId, type AgentPhase, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+  FIRST_ADMIN_USER_ID,
+  asSessionId,
+  type AgentPhase,
+  type IssueId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
@@ -170,7 +176,12 @@ export interface MailHarness {
   events(kinds?: string[]): { kind: string; subject: string; payload: unknown }[]
 }
 
-const OPERATOR_CAP: Capability = { role: 'admin', scope: { kind: 'all' } }
+const OPERATOR_CAP: Capability = {
+  role: 'admin',
+  scope: { kind: 'all' },
+  actorUser: FIRST_ADMIN_USER_ID,
+  onBehalfOf: FIRST_ADMIN_USER_ID,
+}
 export const OPERATOR = OPERATOR_CAP
 
 export function mailHarness(opts?: HarnessOptions): MailHarness {
@@ -343,6 +354,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       role: 'worker',
       scope: { kind: 'subtree', rootId: issueId },
       ...(sessionId ? { actorSessionId: sessionId } : {}),
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     }),
     events: (kinds) =>
       store.events

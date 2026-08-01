@@ -137,8 +137,6 @@ export interface DepReportEntry {
  *  instead of hand-copying it as `ShowSession` (#20). Re-exported here because
  *  `IssueTreeNode` and this module's consumers name it from here — the
  *  definition moved, the import surface did not (POD-366). */
-export type { IssueTreeSession }
-
 /** One node of an epic subtree payload — see tree() (issue #82).
  *
  *  DEFINED IN `@podium/model` since POD-1141, for the same reason
@@ -146,7 +144,7 @@ export type { IssueTreeSession }
  *  `apps/server`, so it hand-copied this shape (inventory §3 #7, a drifted
  *  duplicate that dropped `id` and `type`). The definition moved; this module's
  *  import surface did not. */
-export type { IssueTree, IssueTreeNode }
+export type { IssueTree, IssueTreeNode, IssueTreeSession }
 
 export interface IssueDeps {
   store: SessionStore
@@ -172,6 +170,7 @@ export interface IssueDeps {
     initialPrompt?: string
     spawnedBy?: string
     machineId?: string
+    ownerUserId?: import('@podium/model').UserId
   }): {
     sessionId: SessionId
     agentId?: string
@@ -299,6 +298,11 @@ export interface CreateIssueInput
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
   startNow: boolean
+  /** Server-derived ownership and attribution; never accepted from public schemas. */
+  ownerUserId?: import('@podium/model').UserId
+  visibility?: import('@podium/model').VisibilityClass
+  createdByActor?: string
+  createdByOnBehalfOf?: import('@podium/model').UserId | null
   linear?: { id?: string; identifier: string; url: string }
   labels?: string[]
   /** Who CREATED this issue; caller-derived, default 'human' (#198). */

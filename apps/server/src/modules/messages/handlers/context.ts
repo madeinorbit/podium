@@ -93,7 +93,7 @@ export const SINGLE_USER_MACHINE_ACCESS: MachineAccess = {
 export type ApplyCeilingPort = NonNullable<MessageDeliveryDeps['authorizeAtApply']> & {
   /** The object this port was built from. Read by {@link MessageGate}'s boot
    *  check — the reason the port is tagged rather than anonymous. */
-  readonly ceiling: HumanCeiling
+  readonly ceiling?: HumanCeiling
 }
 
 export const applyAuthFromCeiling = (ceiling: HumanCeiling): ApplyCeilingPort =>
@@ -120,6 +120,41 @@ export const applyAuthFromCeiling = (ceiling: HumanCeiling): ApplyCeilingPort =>
  * it — is silent, so it had to fail loudly somewhere, and boot is the only place
  * where failing loudly costs nobody a message.
  */
+export interface PrincipalMailPolicy {
+  principalForCapability(capability: Capability): CommandPrincipal
+  principalForMessage(message: MessageRow): CommandPrincipal | undefined
+  policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
+}
+
+export function principalMailPolicy(opts: PrincipalMailPolicy): {
+  authorizeAtApply: ApplyCeilingPort
+  gateOptions: {
+    principalForCapability(capability: Capability): CommandPrincipal
+    policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
+  }
+} {
+  const authorizeAtApply = Object.assign(
+    (message: MessageRow) => {
+      if (message.toKind !== 'issue' || !message.toId) return { ok: true } as const
+      const principal = opts.principalForMessage(message)
+      if (!principal)
+        return { ok: false, reason: 'sender authorization is no longer valid' } as const
+      if (opts.policyFor(principal).ceiling.canSee({ kind: 'issue', id: message.toId })) {
+        return { ok: true } as const
+      }
+      return { ok: false, reason: 'issue no longer exists' } as const
+    },
+    { dynamic: true as const },
+  )
+  return {
+    authorizeAtApply,
+    gateOptions: {
+      principalForCapability: opts.principalForCapability,
+      policyFor: opts.policyFor,
+    },
+  }
+}
+
 export function mailPolicy(opts?: { ceiling?: HumanCeiling; machines?: MachineAccess }): {
   ceiling: HumanCeiling
   machines: MachineAccess

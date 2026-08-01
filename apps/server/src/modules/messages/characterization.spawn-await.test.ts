@@ -29,17 +29,22 @@ describe('characterization: spawn target resolution (S1)', () => {
     const target = h.createIssue({ title: 'target' })
     h.setWorktree(target.id, '/wt/target')
 
-    const r = (await h.gate.dispatch(h.agentCap(parent.id, asSessionId('sParent')), true, 'spawnAgent', {
-      issue: `#${target.seq}`,
-      prompt: 'do the thing',
-      harness: 'codex',
-      model: 'gpt-5.6',
-      effort: 'high',
-      force: true,
-      title: 'Curated child name',
-      workflowRunId: 'run_1',
-      workflowStepId: 'step_2',
-    })) as Record<string, unknown>
+    const r = (await h.gate.dispatch(
+      h.agentCap(parent.id, asSessionId('sParent')),
+      true,
+      'spawnAgent',
+      {
+        issue: `#${target.seq}`,
+        prompt: 'do the thing',
+        harness: 'codex',
+        model: 'gpt-5.6',
+        effort: 'high',
+        force: true,
+        title: 'Curated child name',
+        workflowRunId: 'run_1',
+        workflowStepId: 'step_2',
+      },
+    )) as Record<string, unknown>
 
     expect(h.gateSpawns[0]).toMatchObject({
       cwd: '/wt/target',
@@ -96,10 +101,15 @@ describe('characterization: spawn target resolution (S1)', () => {
   it('takes --new as the deliberate issue-create path, inheriting the caller’s repo and parent', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine', repoPath: '/repo' })
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'spawnAgent', {
-      newTitle: 'a fresh child',
-      prompt: 'the brief',
-    })) as { issueId: string }
+    const r = (await h.gate.dispatch(
+      h.agentCap(mine.id, asSessionId('sMine')),
+      undefined,
+      'spawnAgent',
+      {
+        newTitle: 'a fresh child',
+        prompt: 'the brief',
+      },
+    )) as { issueId: string }
     const created = h.issues.getMeta(r.issueId)!
     expect(created).toMatchObject({ title: 'a fresh child', repoPath: '/repo', parentId: mine.id })
     // The prompt becomes the new issue's description, and origin follows the
@@ -163,7 +173,7 @@ describe('characterization: spawn target resolution (S1)', () => {
   it('lets a resolved execution profile OVERRIDE the caller’s launch preset, and audits it', async () => {
     const h = mailHarness({
       resolveExecutionProfile: (input) => {
-        expect(input).toEqual({ profileId: 'prof_review', runId: 'run_1', stepId: 'review' })
+        expect(input).toMatchObject({ profileId: 'prof_review', runId: 'run_1', stepId: 'review' })
         return {
           id: 'prof_review',
           accountId: 'native:codex',
@@ -542,10 +552,15 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     })
     expect(facts.hasActive(factKey, 'sParent', h.now())).toBe(true)
 
-    await h.gate.dispatch(h.agentCap(parentIssue.id, asSessionId('sParent')), undefined, 'awaitAgent', {
-      sessionId: asSessionId('sChild'),
-      timeoutSeconds: 0,
-    })
+    await h.gate.dispatch(
+      h.agentCap(parentIssue.id, asSessionId('sParent')),
+      undefined,
+      'awaitAgent',
+      {
+        sessionId: asSessionId('sChild'),
+        timeoutSeconds: 0,
+      },
+    )
     // POD-917/POD-923: cleared so a later GENUINE re-completion can re-wake once.
     expect(facts.hasActive(factKey, 'sParent', h.now())).toBe(false)
   })

@@ -27,8 +27,27 @@ describe('SessionRegistry conversation registry', () => {
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', () => {
     const registry = makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
+    for (const conversationId of ['parent-1', 'sub-1']) {
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/owned/' + conversationId,
+      })
+      registry.gateway.routeDaemonFrame('m1', {
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'claude-session', value: conversationId },
+      })
+    }
+    registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    registry.clientGateway.attachClient((m) => inbox.push(m))
+    const clientId = registry.clientGateway.attachClient((m) => inbox.push(m))
+    registry.clientGateway.routeClientFrame(clientId, {
+      type: 'hello',
+      wireVersion: 2,
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
+    inbox.length = 0
     registry.gateway.routeDaemonFrame('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1'), conv('sub-1', { parentConversationId: 'parent-1' })],
@@ -38,9 +57,15 @@ describe('SessionRegistry conversation registry', () => {
     // deterministic seam. Without it the last `conversationsChanged` in the inbox
     // is still the one the ATTACH produced, before the scan committed anything.
     registry.modules.funnel.flushDeltas()
-    const msg = inbox.filter((m) => m.type === 'conversationsChanged').at(-1)
-    if (msg?.type !== 'conversationsChanged') throw new Error('no conversationsChanged')
-    const byId = new Map(msg.conversations.map((c) => [c.id, c]))
+    const byId = new Map(
+      inbox
+        .flatMap((message) => (message.type === 'feedDelta' ? message.changes : []))
+        .filter((change) => change.entity === 'conversation' && change.op === 'upsert')
+        .map((change) => {
+          const conversation = change.value as ConversationSummaryWire
+          return [conversation.id, conversation] as const
+        }),
+    )
     const parent = byId.get('parent-1')
     const sub = byId.get('sub-1')
     expect(parent?.podiumId).toMatch(/^conv_/)
@@ -53,9 +78,10 @@ describe('SessionRegistry conversation registry', () => {
       conversations: [conv('parent-1')],
       diagnostics: [],
     })
-    const again = inbox.filter((m) => m.type === 'conversationsChanged').at(-1)
-    if (again?.type !== 'conversationsChanged') throw new Error('no rebroadcast')
-    expect(again.conversations[0]?.podiumId).toBe(parent?.podiumId)
+    const again = registry.modules.conversations
+      .allConversations()
+      .find((conversation) => conversation.id === 'parent-1')
+    expect(again?.podiumId).toBe(parent?.podiumId)
   })
 
   it('transcriptRead carries the recorded segment path as pathHint', () => {

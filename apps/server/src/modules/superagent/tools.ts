@@ -8,7 +8,7 @@ import {
   asSessionId,
   isAgentKind,
   type SessionId,
-  SOLE_USER_ID,
+  asThreadId,
   type TranscriptItem,
   WorkState,
 } from '@podium/model'
@@ -98,7 +98,10 @@ export function buildSuperagentTools(
   const issues = modules.issues
   const rpc = modules.rpc
   // Session provenance (issue #60): thread-scoped when the executing thread is known.
-  const spawnedBy = threadId ? `superagent:${threadId}` : 'superagent'
+  const spawnedBy = threadId ? 'superagent:' + threadId : 'superagent'
+  const ownerUserId = threadId
+    ? store.superagent.getSuperagentThread(asThreadId(threadId))?.ownerUserId
+    : undefined
   const getSession = (id: string) => sessions.listSessions().find((s) => s.sessionId === id)
   const tools: SuperagentTool[] = [
     {
@@ -225,6 +228,7 @@ export function buildSuperagentTools(
         // an unstarted one returned). cwd is required exactly when issueId is absent.
         if (!cwd) return 'pass cwd or issueId (with issueId the cwd is derived from the issue)'
         const title = str(args.title)
+        if (!ownerUserId) return 'unknown superagent thread'
         const { sessionId } = sessions.createSession({
           agentKind,
           cwd,
@@ -234,6 +238,7 @@ export function buildSuperagentTools(
           ...(str(args.model) ? { model: str(args.model)! } : {}),
           ...(str(args.effort) ? { effort: str(args.effort)! } : {}),
           spawnedBy,
+          ownerUserId,
         })
         if (str(args.name)) sessions.renameSession({ sessionId, name: str(args.name) ?? '' })
         const first = str(args.firstMessage)
@@ -411,7 +416,8 @@ export function buildSuperagentTools(
         // The superagent is PER-USER (§3.1.6 S1) — "you, automated" — so its snooze
         // is its human's row, not an instance-wide one. SOLE_USER_ID until POD-1075
         // gives the superagent thread a real owner to read the identity from.
-        sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: value })
+        if (!ownerUserId) return 'unknown superagent thread'
+        sessions.setSnooze({ userId: ownerUserId, sessionId, until: value })
         return JSON.stringify({ snoozedUntil: value })
       },
     },
@@ -428,7 +434,8 @@ export function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         if (!getSession(sessionId)) return 'unknown session'
-        sessions.clearSnooze(SOLE_USER_ID, sessionId)
+        if (!ownerUserId) return 'unknown superagent thread'
+        sessions.clearSnooze(ownerUserId, sessionId)
         return 'snooze cleared'
       },
     },
@@ -876,7 +883,8 @@ export function buildSuperagentTools(
           description: spec.description,
           parameters: spec.inputSchema as Record<string, unknown>,
         },
-        run: (args) => issueProvider.callMcpTool(spec.name, args),
+        run: (args) =>
+          issueProvider.callMcpTool(spec.name, args, threadId ? asThreadId(threadId) : undefined),
       })
     }
   }

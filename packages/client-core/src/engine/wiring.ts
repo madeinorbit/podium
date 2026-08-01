@@ -8,7 +8,11 @@
 
 import type { ConfirmationRule } from '@podium/commands'
 import type { SessionId, WorkState } from '@podium/model'
-import { ENQUEUEABLE_DELIVERY, type OutboxCommand } from '@podium/sync/outbox'
+import {
+  ENQUEUEABLE_DELIVERY,
+  type OutboxCommand,
+  type RetrySatisfaction,
+} from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import {
   Outbox,
@@ -42,6 +46,40 @@ export type OutboxKinds = {
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }
 }
+
+/** The engine-facing queue contract. Kernel-backed web clients inject this
+ * implementation; legacy and mobile clients keep the compatibility queue. */
+export interface EngineOutbox {
+  attach(): void
+  dispose(): void
+  subscribe(listener: (size: number) => void): () => void
+  size(): number
+  pending(): OutboxEntry[]
+  awaiting(): OutboxEntry[]
+  deadLetters(): OutboxDeadLetterEntry[]
+  enqueue<K extends keyof OutboxKinds & string>(
+    kind: K,
+    input: OutboxKinds[K],
+    opts?: { baseline?: string; chained?: boolean },
+  ): OutboxEntry | Promise<OutboxEntry>
+  retireAwaiting(mutationId: string): void
+  retry(mutationId: string, satisfaction: RetrySatisfaction): unknown
+  edit(mutationId: string, input: unknown): unknown
+  discard(mutationId: string): unknown
+  notifyConnected(): void
+  drain(): Promise<void>
+}
+
+export interface EngineOutboxCallbacks {
+  readonly api: PodiumClientApi
+  readonly replica: Replica
+  readonly notices: StoreNotices
+  readonly onApplied?: (entry: OutboxEntry) => unknown
+  readonly onDropped?: (entry: OutboxEntry) => void
+  readonly onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
+}
+
+export type CreateEngineOutbox = (callbacks: EngineOutboxCallbacks) => EngineOutbox
 
 /** `ENQUEUEABLE_DELIVERY` narrowed and nothing else — the same value, reused
  *  rather than re-spelled, so a rename of the class reaches this table. */
@@ -145,23 +183,7 @@ export function createEngineHub(args: {
  *  pending entry paints its patch over the replica's server truth, so an
  *  offline write both survives a reload AND keeps painting after it, then
  *  replays (deduped by mutationId) on reconnect. */
-export function createEngineOutbox(args: {
-  api: PodiumClientApi
-  replica: Replica
-  notices: StoreNotices
-  /** Drain success — the engine hands the entry's overlay to the
-   *  awaiting-truth stage (retirement rule (a), overlay.ts). Returning true
-   *  keeps the entry durably in storage as state:'awaiting-truth' (#263
-   *  review finding 1) until the engine retires it. */
-  onApplied?: (entry: OutboxEntry) => unknown
-  /** A definitive refusal — the engine repaints without the entry's overlay
-   *  (retirement rule (b)). The entry itself is PARKED, not dropped; this is
-   *  only the overlay's retirement. */
-  onDropped?: (entry: OutboxEntry) => void
-  /** The entry parked for recovery, with its reason code. Fired after the
-   *  toast. */
-  onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
-}): Outbox<OutboxKinds> {
+export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKinds> {
   const { api } = args
   return new Outbox<OutboxKinds>({
     isOnline: platformIsOnline,

@@ -10,18 +10,25 @@
  */
 
 import { SOLE_USER_ID } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
 
 afterEach(() => disposeOracles())
 
-const lastSessions = (client: ServerMessage[]) =>
-  client
-    .filter(
-      (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
-    )
-    .at(-1)
+const sessionChanges = (client: ServerMessage[], sessionId: string) =>
+  client.flatMap((message) =>
+    message.type === 'feedDelta' || message.type === 'feedBootstrap'
+      ? message.changes.filter(
+          (change) => change.entity === 'session' && change.entityId === sessionId,
+        )
+      : [],
+  )
+
+const lastSession = (client: ServerMessage[], sessionId: string) =>
+  sessionChanges(client, sessionId)
+    .filter((change) => change.op === 'upsert')
+    .at(-1)?.value as { name?: string; readAt?: string; draftUpdatedAt?: string } | undefined
 
 describe('oracle: rename (the curated name slot)', () => {
   it(`${MUST_NOT_CHANGE}: rename trims, persists the name, and stamps nameSource 'user'`, async () => {
@@ -34,7 +41,7 @@ describe('oracle: rename (the curated name slot)', () => {
     const row = o.store.sessions.loadSessions().find((r) => r.id === sessionId)
     expect(row).toMatchObject({ name: 'Deploy pipeline', nameSource: 'user' })
     await waitFor(
-      () => lastSessions(o.client)?.sessions.some((s) => s.name === 'Deploy pipeline') === true,
+      () => lastSession(o.client, sessionId)?.name === 'Deploy pipeline',
       'the rename to reach the attached client',
     )
   })
@@ -162,7 +169,13 @@ describe('oracle: read state', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
-    o.reg.clientGateway.attachClient((m) => second.push(m))
+    const secondId = o.reg.clientGateway.attachClient((m) => second.push(m))
+    o.reg.clientGateway.routeClientFrame(secondId, {
+      type: 'hello',
+      wireVersion: WIRE_VERSION,
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
 
     await o.call.sessions.markRead({ sessionId })
 
@@ -170,8 +183,7 @@ describe('oracle: read state', () => {
     expect(typeof readAt).toBe('string')
     // Both DEVICES of the one principal see the same readAt — the feed is unscoped.
     await waitFor(
-      () =>
-        lastSessions(second)?.sessions.find((s) => s.sessionId === sessionId)?.readAt === readAt,
+      () => lastSession(second, sessionId)?.readAt === readAt,
       "the other client to observe this operator's readAt",
     )
 
@@ -366,7 +378,19 @@ describe('oracle: composer drafts', () => {
     const author: ServerMessage[] = []
     const authorId = o.reg.clientGateway.attachClient((m) => author.push(m))
     const watcher: ServerMessage[] = []
-    o.reg.clientGateway.attachClient((m) => watcher.push(m))
+    o.reg.clientGateway.routeClientFrame(authorId, {
+      type: 'hello',
+      wireVersion: WIRE_VERSION,
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
+    const watcherId = o.reg.clientGateway.attachClient((m) => watcher.push(m))
+    o.reg.clientGateway.routeClientFrame(watcherId, {
+      type: 'hello',
+      wireVersion: WIRE_VERSION,
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
 
     o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'half typed' }, authorId)
 
@@ -401,21 +425,15 @@ describe('oracle: composer drafts', () => {
 
     svc.setSessionDraft({ sessionId, text: 'a' })
     await waitFor(
-      () =>
-        lastSessions(o.client)?.sessions.find((s) => s.sessionId === sessionId)?.draftUpdatedAt !==
-        undefined,
-      'the DRAFT marker flip to reach the client',
+      () => lastSession(o.client, sessionId)?.draftUpdatedAt !== undefined,
+      'the DRAFT session-state marker to reach the client',
     )
-    const broadcastsAfterFirstKeystroke = o.client.filter(
-      (m) => m.type === 'sessionsChanged',
-    ).length
+    const broadcastsAfterFirstKeystroke = sessionChanges(o.client, sessionId).length
 
     svc.setSessionDraft({ sessionId, text: 'ab' })
     svc.setSessionDraft({ sessionId, text: 'abc' })
     await waitFor(() => true, 'the microtask queue to drain')
 
-    expect(o.client.filter((m) => m.type === 'sessionsChanged')).toHaveLength(
-      broadcastsAfterFirstKeystroke,
-    )
+    expect(sessionChanges(o.client, sessionId)).toHaveLength(broadcastsAfterFirstKeystroke)
   })
 })

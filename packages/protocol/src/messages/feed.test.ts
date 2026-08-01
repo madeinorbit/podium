@@ -24,7 +24,10 @@ import {
   ChangeEntityIdField,
   ChangeSeqField,
   ConversationSummaryWire,
+  IssueDepProjection,
+  IssueProjection,
   IssueWire,
+  RepoProjection,
   SessionMeta,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -51,6 +54,9 @@ const arms = FeedChange.options as unknown as Arm[]
 const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   session: SessionMeta,
   issue: IssueWire,
+  issueProjection: IssueProjection,
+  issueDep: IssueDepProjection,
+  repo: RepoProjection,
   conversation: ConversationSummaryWire,
   automation: AutomationWire,
   automationRun: AutomationRunWire,
@@ -74,10 +80,10 @@ const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all five entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all eight entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(5)
+    expect(arms).toHaveLength(8)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 
@@ -140,23 +146,29 @@ describe('the certified range travels with the payload', () => {
     ).toBe(true)
   })
 
-  it.each(['fromSeq', 'seq', 'minAvailableSeq', 'feedId', 'epoch'])(
-    'refuses a delta frame with no %s',
-    (field) => {
-      const frame: Record<string, unknown> = delta()
-      delete frame[field]
-      expect(FeedDeltaMessage.safeParse(frame).success).toBe(false)
-    },
-  )
+  it.each([
+    'fromSeq',
+    'seq',
+    'minAvailableSeq',
+    'feedId',
+    'epoch',
+  ])('refuses a delta frame with no %s', (field) => {
+    const frame: Record<string, unknown> = delta()
+    delete frame[field]
+    expect(FeedDeltaMessage.safeParse(frame).success).toBe(false)
+  })
 
-  it.each(['fromSeq', 'seq', 'minAvailableSeq', 'feedId', 'epoch'])(
-    'refuses a BOOTSTRAP frame with no %s',
-    (field) => {
-      const frame: Record<string, unknown> = { ...delta(), type: 'feedBootstrap', last: true }
-      delete frame[field]
-      expect(FeedBootstrapMessage.safeParse(frame).success).toBe(false)
-    },
-  )
+  it.each([
+    'fromSeq',
+    'seq',
+    'minAvailableSeq',
+    'feedId',
+    'epoch',
+  ])('refuses a BOOTSTRAP frame with no %s', (field) => {
+    const frame: Record<string, unknown> = { ...delta(), type: 'feedBootstrap', last: true }
+    delete frame[field]
+    expect(FeedBootstrapMessage.safeParse(frame).success).toBe(false)
+  })
 
   it('declares the range fields ONCE — the same instances in every frame', () => {
     for (const field of ['feedId', 'epoch', 'fromSeq', 'seq', 'minAvailableSeq'] as const) {

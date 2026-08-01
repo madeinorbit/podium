@@ -8,7 +8,7 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
-import { resolveTelegramPrincipal } from '@podium/model'
+import { asThreadId, resolveTelegramPrincipal } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
@@ -36,13 +36,20 @@ import type {
  *  bridge needs (kept narrow for tests). */
 export interface SuperagentTurnPort {
   sendTurn(input: {
+    ownerUserId: UserId
     threadId: string
     text: string
   }): Promise<{ threadId: string; podiumSessionId: string }>
-  interruptTurn(input: { threadId: string }): void
-  restartThread(input: { threadId: string }): void
-  startBtwTurn(input: { sessionId: SessionId }): { threadId: string; isNew: boolean }
-  ensureConciergeThread(input: { repoPath: string }): { threadId: string; isNew: boolean }
+  interruptTurn(input: { ownerUserId: UserId; threadId: string }): void
+  restartThread(input: { ownerUserId: UserId; threadId: string }): void
+  startBtwTurn(input: { ownerUserId: UserId; sessionId: SessionId }): {
+    threadId: string
+    isNew: boolean
+  }
+  ensureConciergeThread(input: { ownerUserId: UserId; repoPath: string }): {
+    threadId: string
+    isNew: boolean
+  }
 }
 
 /** Persisted forum-topic ↔ superagent-thread bindings. */
@@ -110,6 +117,7 @@ export interface MessagingDeps {
 }
 
 interface QueuedInbound {
+  ownerUserId: UserId
   threadId: string
   source: ConversationRef
   text: string
@@ -332,12 +340,14 @@ export class MessagingService implements TelegramNoticePort {
     return 'global'
   }
 
-  private resolveIssueThread(issue: IssueWire): string {
+  private resolveIssueThread(issue: IssueWire, ownerUserId: UserId): string {
     const session = pickIssueSession(issue, this.deps.sessions?.listSessions() ?? [])
     if (session) {
-      return this.deps.superagent.startBtwTurn({ sessionId: session.sessionId }).threadId
+      return this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId })
+        .threadId
     }
-    return this.deps.superagent.ensureConciergeThread({ repoPath: issue.repoPath }).threadId
+    return this.deps.superagent.ensureConciergeThread({ ownerUserId, repoPath: issue.repoPath })
+      .threadId
   }
 
   private issueThreadNote(issue: IssueWire): string {
@@ -380,21 +390,22 @@ export class MessagingService implements TelegramNoticePort {
 
     this.lastInboundRef = msg.source
     if (msg.callback) {
-      void this.handleCallback(msg)
+      void this.handleCallback(msg, boundUser)
       return
     }
     const slash = parseSlashCommand(msg.text)
     if (slash) {
       const threadId = this.resolveThreadId(msg)
-      void this.handleSlash(threadId, msg.source, slash)
+      void this.handleSlash(boundUser, threadId, msg.source, slash)
       return
     }
-    void this.handleChatMessage(msg)
+    void this.handleChatMessage(msg, boundUser)
   }
 
   /** Plain chat (not slash/callback): optional inactivity recap, then queue. */
-  private async handleChatMessage(msg: InboundChatMessage): Promise<void> {
-    const threadId = this.resolveThreadId(msg)
+  private async handleChatMessage(msg: InboundChatMessage, ownerUserId: UserId): Promise<void> {
+    const resolvedThreadId = this.resolveThreadId(msg)
+    const threadId = resolvedThreadId
     // [spec:SP-62c3] First message after >30min idle → recap BEFORE dispatch.
     if (this.shouldPostInactivityRecap(msg.source)) {
       await this.postTopicRecap(msg.source, threadId)
@@ -406,6 +417,7 @@ export class MessagingService implements TelegramNoticePort {
       return
     }
     queue.push({
+      ownerUserId,
       threadId,
       source: msg.source,
       text: msg.text,
@@ -520,7 +532,11 @@ export class MessagingService implements TelegramNoticePort {
     const turnOwner = turnTypingOwner(threadId)
     this.acquireTyping(turnOwner, next.source)
     void this.deps.superagent
-      .sendTurn({ threadId, text: this.turnText(next) })
+      .sendTurn({
+        ownerUserId: next.ownerUserId,
+        threadId: asThreadId(threadId),
+        text: this.turnText(next),
+      })
       .then(() => {
         this.dispatching.delete(threadId)
         queue?.shift()
@@ -538,6 +554,7 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   private async handleSlash(
+    ownerUserId: UserId,
     threadId: string,
     source: ConversationRef,
     slash: { command: string; args: string[] },
@@ -563,7 +580,7 @@ export class MessagingService implements TelegramNoticePort {
         }
         case 'stop':
           try {
-            this.deps.superagent.interruptTurn({ threadId })
+            this.deps.superagent.interruptTurn({ ownerUserId, threadId: asThreadId(threadId) })
             await this.reply(source, 'Stopping the current turn…')
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -572,7 +589,7 @@ export class MessagingService implements TelegramNoticePort {
           return
         case 'new':
           try {
-            this.deps.superagent.restartThread({ threadId })
+            this.deps.superagent.restartThread({ ownerUserId, threadId: asThreadId(threadId) })
             this.queues.delete(threadId)
             await this.reply(
               source,
@@ -613,7 +630,7 @@ export class MessagingService implements TelegramNoticePort {
     this.pump(ev.threadId)
   }
 
-  private async handleCallback(msg: InboundChatMessage): Promise<void> {
+  private async handleCallback(msg: InboundChatMessage, ownerUserId: UserId): Promise<void> {
     const cb = msg.callback
     if (!cb) return
     const issueId = parseIssueCallbackData(cb.data)
@@ -628,7 +645,7 @@ export class MessagingService implements TelegramNoticePort {
         await this.adapter?.answerCallback?.(cb.id, 'Issue not found')
         return
       }
-      const opened = await this.openIssueTopic(msg.source.chatId, issue)
+      const opened = await this.openIssueTopic(ownerUserId, msg.source.chatId, issue)
       await this.adapter?.answerCallback?.(cb.id, opened.reused ? 'Opened topic' : 'Created topic')
       const topicRef: ConversationRef = {
         channel: msg.source.channel,
@@ -678,10 +695,11 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   private async openIssueTopic(
+    ownerUserId: UserId,
     chatId: string,
     issue: IssueWire,
   ): Promise<{ threadRef: string; text: string; reused: boolean; superagentThreadId: string }> {
-    const threadId = this.resolveIssueThread(issue)
+    const threadId = this.resolveIssueThread(issue, ownerUserId)
     const ref = issueDisplayRef(issue)
     const sessionNote = this.issueThreadNote(issue)
     const existing =

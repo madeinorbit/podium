@@ -18,12 +18,7 @@ import {
 import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray, requireUserId } from './helpers'
-import type {
-  IssueCommentRow,
-  IssueMessageRow,
-  IssueRow,
-  StoredIssueUserState,
-} from './types'
+import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
 
 export class IssuesRepository {
   /** Rows skipped by the last {@link listIssueRows} because they were
@@ -37,6 +32,9 @@ export class IssuesRepository {
   ) {}
 
   upsertIssue(row: IssueRow): void {
+    if (!row.ownerUserId || !row.visibility || !row.createdByActor || row.createdByOnBehalfOf === undefined) {
+      throw new Error(`upsertIssue: complete ownership attribution is required for ${row.id}`)
+    }
     // Strict on write: stage is a load-bearing enum (the board column + zod-validated
     // on the wire). defaultAgent is intentionally NOT validated here — 'auto' is a
     // legal stored sentinel resolved to a concrete kind only at spawn time.
@@ -81,7 +79,7 @@ export class IssuesRepository {
     this.db
       .prepare(
         `INSERT INTO issues
-           (id, repo_path, repo_id, seq, title, description, brief, stage, worktree_path, branch, parent_branch,
+           (id, owner_user_id, visibility, created_by_actor, created_by_on_behalf_of, repo_path, repo_id, seq, title, description, brief, stage, worktree_path, branch, parent_branch,
             default_agent, default_model, default_effort, machine_id,
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
@@ -91,7 +89,7 @@ export class IssuesRepository {
             human_question_asked_by, human_question_asked_at, panel,
             created_at, updated_at, archived, origin, audience, draft, deleted_at, revision,
             coordinator_session_id, started_by_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
@@ -126,6 +124,10 @@ export class IssuesRepository {
       )
       .run(
         row.id,
+        row.ownerUserId,
+        row.visibility,
+        row.createdByActor ?? row.ownerUserId,
+        row.createdByOnBehalfOf,
         row.repoPath,
         row.repoId ?? this.resolveRepoIdForPath(row.repoPath),
         row.seq,
@@ -195,6 +197,16 @@ export class IssuesRepository {
   private mapIssueRow(r: Record<string, unknown>): IssueRow {
     return {
       id: r.id as IssueId,
+      ownerUserId: r.owner_user_id as UserId,
+      visibility:
+        r.visibility === 'deployment-substrate' ||
+        r.visibility === 'owned-compute' ||
+        r.visibility === 'per-user-state' ||
+        r.visibility === 'secret'
+          ? r.visibility
+          : 'personal',
+      createdByActor: r.created_by_actor as string,
+      createdByOnBehalfOf: (r.created_by_on_behalf_of as UserId | null) ?? null,
       repoPath: r.repo_path as string,
       repoId: (r.repo_id as RepoId | null) ?? null,
       seq: r.seq as number,
@@ -587,9 +599,9 @@ export class IssuesRepository {
   addIssueComment(c: IssueCommentRow): void {
     this.db
       .prepare(
-        'INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO issue_comments (id, issue_id, author, body, created_at, actor, on_behalf_of) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(c.id, c.issueId, c.author, c.body, c.createdAt)
+      .run(c.id, c.issueId, c.author, c.body, c.createdAt, c.actor ?? null, c.onBehalfOf ?? null)
   }
 
   listIssueComments(issueId: IssueId): IssueCommentRow[] {
@@ -603,6 +615,8 @@ export class IssuesRepository {
       author: r.author as string,
       body: r.body as string,
       createdAt: r.created_at as string,
+      actor: (r.actor as string | null | undefined) ?? null,
+      onBehalfOf: (r.on_behalf_of as string | null | undefined) ?? null,
     }))
   }
 
@@ -671,16 +685,7 @@ export class IssuesRepository {
            (id, issue_id, from_author, body, created_at, status, claimed_by, claimed_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(
-        m.id,
-        m.issueId,
-        m.fromAuthor,
-        m.body,
-        m.createdAt,
-        m.status,
-        m.claimedBy,
-        m.claimedAt,
-      )
+      .run(m.id, m.issueId, m.fromAuthor, m.body, m.createdAt, m.status, m.claimedBy, m.claimedAt)
   }
 
   getIssueMessage(id: string): IssueMessageRow | null {
@@ -804,11 +809,7 @@ export class IssuesRepository {
    * A row whose three markers all end up null is DELETED, so the table holds only
    * issues a person has actually touched and "absent" keeps its single meaning.
    */
-  setIssueUserState(
-    userId: string,
-    issueId: string,
-    patch: Partial<StoredIssueUserState>,
-  ): void {
+  setIssueUserState(userId: string, issueId: string, patch: Partial<StoredIssueUserState>): void {
     requireUserId(userId)
     if (!issueId) throw new Error('issue user-state issue id is empty')
     const current = this.getIssueUserState(userId, issueId) ?? {

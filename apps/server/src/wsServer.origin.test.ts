@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import { attachWebSockets, isAllowedWsOrigin, type WsHandle } from './gateway/ws-server'
@@ -87,7 +88,10 @@ describe('the CSWSH guard on the real upgrade path', () => {
     store = new SessionStore(':memory:')
     registry = new SessionRegistry(store)
     server = createServer()
-    handle = attachWebSockets(server as Server, registry)
+    handle = attachWebSockets(server as Server, registry, {
+      userForClient: () => FIRST_ADMIN_USER_ID,
+      roleForClient: () => 'admin',
+    })
     await new Promise<void>((res) => (server as Server).listen(0, res))
     return `ws://127.0.0.1:${(server?.address() as AddressInfo).port}`
   }

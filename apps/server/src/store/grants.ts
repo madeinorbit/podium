@@ -84,6 +84,18 @@ function toRow(r: Record<string, unknown>): GrantRow | undefined {
 }
 
 export class GrantsRepository {
+  private readonly visibilityAudiences = new Map<string, Set<string>>()
+
+  visibilityAudienceFor(resourceKind: string, resourceId: string): readonly string[] {
+    return [...(this.visibilityAudiences.get(resourceKind + ':' + resourceId) ?? [])]
+  }
+
+  private noteVisibilityAudience(resourceKind: string, resourceId: string, grantee: string): void {
+    const key = resourceKind + ':' + resourceId
+    const audience = this.visibilityAudiences.get(key) ?? new Set<string>()
+    audience.add(grantee)
+    this.visibilityAudiences.set(key, audience)
+  }
   constructor(private readonly db: SqlDatabase) {}
 
   /** Every edge on one resource, read LIVE (D16.1). Unparseable rows are omitted. */
@@ -118,6 +130,7 @@ export class GrantsRepository {
    * that owner rather than to the previous one.
    */
   upsert(row: GrantRow): void {
+    this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
     this.db
       .prepare(
         `INSERT OR REPLACE INTO grants
@@ -142,6 +155,7 @@ export class GrantsRepository {
    *  caller can tell "revoked" from "there was nothing to revoke" without a
    *  second read that could race the delete. */
   remove(resourceKind: string, resourceId: string, grantee: string, verb: GrantVerb): boolean {
+    this.noteVisibilityAudience(resourceKind, resourceId, grantee)
     const before = this.db
       .prepare(
         'SELECT COUNT(*) AS n FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb = ?',

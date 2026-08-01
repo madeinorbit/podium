@@ -21,12 +21,13 @@ import type { ReplicaMode } from '@podium/client-core/replica'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { type KernelAssembly, openKernelAssembly, resolveWebReplicaMode } from './kernelReplica'
+import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 
 export type KernelReplicaGate =
   /** Still deciding. The caller must render its loading screen. */
   | { readonly status: 'resolving' }
   /** Run the shipped TanStack path. `assembly` is absent, not empty. */
-  | { readonly status: 'legacy'; readonly mode: ReplicaMode | null; readonly failure?: string }
+  | { readonly status: 'failed'; readonly mode: ReplicaMode | null; readonly failure: string }
   | {
       readonly status: 'kernel'
       readonly mode: ReplicaMode
@@ -36,6 +37,22 @@ export type KernelReplicaGate =
       /** `/version`'s grade, handed to the shadow harness. */
       readonly authorityScoped: boolean
     }
+
+const IDENTITY_LEDGER_KEY = 'podium-kernel-identity-ledger'
+
+export function recordIdentityEvidence(principal: string): LegacyIdentityEvidence {
+  try {
+    const parsed = JSON.parse(globalThis.localStorage.getItem(IDENTITY_LEDGER_KEY) ?? '[]')
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== 'string')) {
+      return { kind: 'unknown' }
+    }
+    const identities = [...new Set([...parsed, principal])]
+    globalThis.localStorage.setItem(IDENTITY_LEDGER_KEY, JSON.stringify(identities))
+    return { kind: 'multi-user', signedInAs: principal, identitiesEverSignedIn: identities }
+  } catch {
+    return { kind: 'unknown' }
+  }
+}
 
 declare global {
   /**
@@ -62,12 +79,24 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
       const { mode, serverGrade } = await resolveWebReplicaMode({ httpOrigin, trpc })
       if (!alive) return
       if (mode.path === 'legacy') {
-        globalThis.__podiumReplicaPath = 'legacy'
-        setGate({ status: 'legacy', mode })
+        globalThis.__podiumReplicaPath = undefined
+        setGate({
+          status: 'failed',
+          mode,
+          failure: 'This server cannot provide the principal-scoped kernel replica.',
+        })
         return
       }
       try {
-        const assembly = await openKernelAssembly({ trpc })
+        const status = (await fetch(`/auth/status`).then((response) => response.json())) as {
+          userId?: string
+        }
+        if (!status.userId) throw new Error('authenticated account is unavailable')
+        const assembly = await openKernelAssembly({
+          trpc,
+          principal: status.userId,
+          evidence: recordIdentityEvidence(status.userId),
+        })
         if (!alive) {
           void assembly.dispose()
           return
@@ -84,11 +113,11 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
       } catch (error) {
         // Reported, not swallowed: a flag that silently did nothing would be
         // indistinguishable from a flag that worked.
-        console.warn('[podium] kernel replica unavailable — running the legacy path', error)
+        console.warn('[podium] kernel replica unavailable', error)
         if (alive) {
-          globalThis.__podiumReplicaPath = 'legacy'
+          globalThis.__podiumReplicaPath = undefined
           setGate({
-            status: 'legacy',
+            status: 'failed',
             mode,
             failure: error instanceof Error ? error.message : String(error),
           })

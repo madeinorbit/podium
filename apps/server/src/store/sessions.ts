@@ -4,7 +4,14 @@
  * deletion preserves them; explicit internal purge removes them.
  */
 
-import { type AccountId, AgentKind, asSessionId, type IssueId, type SessionId } from '@podium/model'
+import {
+  type AccountId,
+  AgentKind,
+  asSessionId,
+  type IssueId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import type {
   OfferMap,
@@ -31,6 +38,11 @@ export class SessionsRepository {
     return this.readSessions('deleted_at IS NULL')
   }
 
+  /** One durable row, including a tombstone, for scoped delete visibility. */
+  getSession(sessionId: SessionId): SessionRow | undefined {
+    return this.readSessions('id = ?', sessionId)[0]
+  }
+
   /** All session tombstones, for repository-level inspection and maintenance. */
   loadDeletedSessions(): SessionRow[] {
     return this.readSessions('deleted_at IS NOT NULL')
@@ -47,7 +59,7 @@ export class SessionsRepository {
   private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
+        `SELECT id, owner_user_id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
                 resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
@@ -71,6 +83,7 @@ export class SessionsRepository {
   private mapSession(r: Record<string, unknown>): SessionRow {
     return {
       id: r.id as SessionId,
+      ownerUserId: r.owner_user_id as UserId,
       agentKind: r.agent_kind as string,
       ...(r.model != null ? { model: r.model as string } : {}),
       ...(r.effort != null ? { effort: r.effort as string } : {}),
@@ -135,6 +148,9 @@ export class SessionsRepository {
   }
 
   upsertSession(row: SessionRow): void {
+    if (!row.ownerUserId) {
+      throw new Error(`upsertSession: ownerUserId is required for ${row.id}`)
+    }
     // Strict on write: never persist an out-of-enum agentKind. That value later fails
     // the sessionsChanged zod-parse on every client and silently blanks the whole list
     // (see relay.createSession, which resolves the 'auto' sentinel before it gets here).
@@ -146,7 +162,7 @@ export class SessionsRepository {
     this.db
       .prepare(
         `INSERT INTO sessions
-           (id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
+           (id, owner_user_id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
             resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
@@ -154,7 +170,7 @@ export class SessionsRepository {
             spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            model = excluded.model,
@@ -203,6 +219,7 @@ export class SessionsRepository {
       )
       .run(
         row.id,
+        row.ownerUserId,
         row.agentKind,
         row.model ?? null,
         row.effort ?? null,

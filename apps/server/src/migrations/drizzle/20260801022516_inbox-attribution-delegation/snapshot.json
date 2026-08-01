@@ -420,6 +420,26 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "approval_requests"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "approval_requests"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "decided_at",
       "entityType": "columns",
       "table": "approval_requests"
@@ -441,6 +461,26 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "automation_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'system:automation-migration'",
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "automation_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "on_behalf_of",
       "entityType": "columns",
       "table": "automation_runs"
     },
@@ -501,6 +541,36 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_actor",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_on_behalf_of",
       "entityType": "columns",
       "table": "automations"
     },
@@ -1098,6 +1168,16 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "execution_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "resource_kind",
@@ -1246,6 +1326,26 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -1376,6 +1476,26 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issue_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "issue_messages"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": "'unread'",
@@ -1481,6 +1601,46 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'personal'",
+      "generated": null,
+      "name": "visibility",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_actor",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by_on_behalf_of",
       "entityType": "columns",
       "table": "issues"
     },
@@ -1951,6 +2111,26 @@
       "default": null,
       "generated": null,
       "name": "created_at",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
       "entityType": "columns",
       "table": "issues"
     },
@@ -3648,6 +3828,16 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "agent_kind",
@@ -4378,6 +4568,16 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "role",
@@ -4446,6 +4646,16 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -4510,6 +4720,36 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "input_id",
       "entityType": "columns",
       "table": "superagent_queued_inputs"
@@ -4560,7 +4800,37 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "superagent_threads"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "superagent_threads"
     },
@@ -5035,6 +5305,16 @@
       "table": "workflow_bindings"
     },
     {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "workflow_bindings"
+    },
+    {
       "type": "integer",
       "notNull": false,
       "autoincrement": true,
@@ -5476,6 +5756,16 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "workflow_runs"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -5581,6 +5871,16 @@
       "default": null,
       "generated": null,
       "name": "updated_at",
+      "entityType": "columns",
+      "table": "workflows"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "workflows"
     },

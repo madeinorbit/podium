@@ -147,6 +147,10 @@ export {
   machineRenameInput,
   machineRevokeContract,
   machineRevokeInput,
+  machineShareContract,
+  machineShareInput,
+  machineUnshareContract,
+  machineUnshareInput,
   repoAddContract,
   repoAddInput,
   repoAddManyContract,
@@ -302,6 +306,17 @@ export {
   perfResetContract,
   perfResetInput,
 } from './perf/contracts'
+export {
+  applyRedaction,
+  applyRedactionWithReport,
+  messageMentionsRedactedValue,
+  REDACTED,
+  type RedactionReport,
+  type RedactionSide,
+  redactForLog,
+  redactReport,
+  redactUnknownForLog,
+} from './redaction'
 export * from './sessions/command-plane'
 export {
   EXPORTABLE_HARNESSES,
@@ -438,14 +453,3 @@ export {
   type WorkflowVerb,
   workflowDecision,
 } from './workflows/ownership'
-export {
-  applyRedaction,
-  applyRedactionWithReport,
-  messageMentionsRedactedValue,
-  REDACTED,
-  redactForLog,
-  type RedactionReport,
-  type RedactionSide,
-  redactReport,
-  redactUnknownForLog,
-} from './redaction'

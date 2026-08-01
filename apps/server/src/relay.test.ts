@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IssueWire } from '@podium/model'
 import {
+  actorAgent,
+  asAgentIdentityId,
   type AgentPhase,
   type AgentRuntimeState,
   asSessionId,
@@ -11,10 +13,11 @@ import {
   type SessionId,
   SOLE_USER_ID,
 } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import { WIRE_VERSION, type ControlMessage, type ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
+import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
 
@@ -33,6 +36,26 @@ afterAll(() => {
 function sink() {
   const sent: ServerMessage[] = []
   return { send: (m: ServerMessage) => sent.push(m), sent }
+}
+
+function attachCurrent(reg: SessionRegistry, send: (message: ServerMessage) => void): string {
+  const id = reg.clientGateway.attachClient(send)
+  reg.clientGateway.routeClientFrame(id, {
+    type: 'hello',
+    clientId: id,
+    viewport: { cols: 80, rows: 24, dpr: 1 },
+    wireVersion: WIRE_VERSION,
+  })
+  return id
+}
+
+function feedValues(sent: ServerMessage[], entity: string): unknown[] {
+  return sent
+    .flatMap((message) =>
+      message.type === 'feedBootstrap' || message.type === 'feedDelta' ? message.changes : [],
+    )
+    .filter((change) => change.entity === entity && change.op === 'upsert')
+    .map((change) => change.value)
 }
 const G = { cols: 80, rows: 24 }
 const bind = (sessionId: SessionId) =>
@@ -377,7 +400,14 @@ describe('SessionRegistry', () => {
     })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (message) => daemon.push(message))
-    const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
+    const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+    const operator = {
+      actor: { kind: 'operator' as const, id: null },
+      capability: principal.capability,
+      principal,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+      protectedWrite: true,
+    }
     // POD-732: the eleven shims are deleted; every caller enters at `execute`.
     const created = reg.modules.workflows.execute(operator, 'create', {
       name: 'Research, plan, implement',
@@ -398,6 +428,7 @@ describe('SessionRegistry', () => {
       targetKind: 'global',
       targetId: '',
       revisionId: created.revision.id,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -471,7 +502,14 @@ describe('SessionRegistry', () => {
       agentKind: 'codex',
       cwd: '/w',
     }).sessionId
-    const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
+    const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+    const operator = {
+      actor: { kind: 'operator' as const, id: null },
+      capability: principal.capability,
+      principal,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+      protectedWrite: true,
+    }
     const created = reg.modules.workflows.execute(operator, 'create', {
       name: 'Delegated review',
       description: '',
@@ -490,20 +528,33 @@ describe('SessionRegistry', () => {
       sessionId: coordinator,
       cwd: '/w',
       revisionId: created.revision.id,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     })
+    const coordinatorCapability = reg.modules.sessions.capabilityForSession(coordinator)
     const coordinatorCaller = {
       actor: { kind: 'session' as const, id: coordinator },
-      capability: reg.modules.sessions.capabilityForSession(coordinator),
+      capability: coordinatorCapability,
+      principal: resolvePrincipal(coordinatorCapability, {
+        parentSessionOf: () => undefined,
+        onBehalfOfFor: (candidate) => reg.modules.sessions.sessionOwner(candidate)?.owner,
+      }),
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     }
     reg.modules.workflows.execute(coordinatorCaller, 'assignStep', {
       runId: run.id,
       stepId: 'review',
       sessionId: worker,
     })
+    const workerCapability = reg.modules.sessions.capabilityForSession(worker)
     reg.modules.workflows.execute(
       {
         actor: { kind: 'session', id: worker },
-        capability: reg.modules.sessions.capabilityForSession(worker),
+        capability: workerCapability,
+        principal: resolvePrincipal(workerCapability, {
+          parentSessionOf: () => undefined,
+          onBehalfOfFor: (candidate) => reg.modules.sessions.sessionOwner(candidate)?.owner,
+        }),
+        onBehalfOf: FIRST_ADMIN_USER_ID,
       },
       'checkpoint',
       {
@@ -593,10 +644,10 @@ describe('SessionRegistry', () => {
       throw new Error('boom')
     }
     const sent: ServerMessage[] = []
-    expect(() => reg.clientGateway.attachClient((m) => sent.push(m))).not.toThrow()
+    expect(() => attachCurrent(reg, (m) => sent.push(m))).not.toThrow()
     reg.modules.funnel.flushDeltas()
     expect(sent.some((m) => m.type === 'welcome')).toBe(true)
-    expect(sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
+    expect(sent.some((m) => m.type === 'feedBootstrap')).toBe(true)
   })
 
   it('a throwing issues projection degrades to an empty list and logs', () => {
@@ -947,6 +998,7 @@ describe('SessionRegistry', () => {
   // registry probes exited rows and reattaches the ones still running.
   const exitedRow = (id: string, over: Partial<SessionRow> = {}): SessionRow => ({
     id: asSessionId(id),
+    ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'claude-code',
     cwd: '/proj',
     title: 'agent',
@@ -1074,29 +1126,32 @@ describe('SessionRegistry', () => {
   it('attachClient sends welcome plus session and conversation snapshots', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
-    reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/a',
+    })
+    reg.gateway.routeDaemonFrame('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'conv-1' },
+    })
     reg.gateway.routeDaemonFrame('local', {
       type: 'conversationsChanged',
       conversations: [{ id: 'conv-1', agentKind: 'codex', providerId: 'codex-jsonl' }],
       diagnostics: [],
     })
     const c = sink()
-    const id = reg.clientGateway.attachClient(c.send)
+    const id = attachCurrent(reg, c.send)
     expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
-    expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
-    expect(c.sent).toContainEqual({
-      type: 'conversationsChanged',
-      // The registry enriches broadcasts with the stable podium identity.
-      conversations: [
-        {
-          id: 'conv-1',
-          agentKind: 'codex',
-          providerId: 'codex-jsonl',
-          podiumId: expect.stringMatching(/^conv_/),
-        },
-      ],
-      diagnostics: [],
-    })
+    expect(feedValues(c.sent, 'session')).toContainEqual(expect.objectContaining({ sessionId }))
+    expect(feedValues(c.sent, 'conversation')).toContainEqual(
+      expect.objectContaining({
+        id: 'conv-1',
+        agentKind: 'codex',
+        providerId: 'codex-jsonl',
+        podiumId: expect.stringMatching(/^conv_/),
+      }),
+    )
   })
 
   it('broadcasts updated metas when a session gains a resume ref (resumable → hibernate)', () => {
@@ -1104,7 +1159,7 @@ describe('SessionRegistry', () => {
     reg.gateway.attachDaemon('local', () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const c = sink()
-    reg.clientGateway.attachClient(c.send)
+    attachCurrent(reg, c.send)
     c.sent.length = 0
 
     reg.gateway.routeDaemonFrame('local', {
@@ -1114,11 +1169,9 @@ describe('SessionRegistry', () => {
     })
     reg.modules.sessions.flushBroadcasts() // createSession's broadcast armed the coalescer — run the pending pipeline
 
-    const pushed = c.sent.filter(
-      (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
+    expect(feedValues(c.sent, 'session')).toContainEqual(
+      expect.objectContaining({ sessionId, resumable: true }),
     )
-    expect(pushed.length).toBeGreaterThan(0)
-    expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.resumable).toBe(true)
   })
 
   it('lets exact Codex identity evidence heal a stale sibling binding', () => {
@@ -1157,8 +1210,17 @@ describe('SessionRegistry', () => {
   it('broadcasts daemon conversation changes to current clients', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/a',
+    })
+    reg.gateway.routeDaemonFrame('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'conv-2' },
+    })
     const c = sink()
-    reg.clientGateway.attachClient(c.send)
+    attachCurrent(reg, c.send)
     c.sent.length = 0
 
     reg.gateway.routeDaemonFrame('local', {
@@ -1172,28 +1234,28 @@ describe('SessionRegistry', () => {
     // already used; what changed is that the legacy list rides it too.
     reg.modules.funnel.flushDeltas()
 
-    expect(c.sent).toEqual([
-      {
-        type: 'conversationsChanged',
-        conversations: [
-          {
-            id: 'conv-2',
-            agentKind: 'claude-code',
-            providerId: 'claude-code-jsonl',
-            podiumId: expect.stringMatching(/^conv_/),
-          },
-        ],
-        diagnostics: [],
-      },
-    ])
+    expect(feedValues(c.sent, 'conversation')).toContainEqual(
+      expect.objectContaining({
+        id: 'conv-2',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        podiumId: expect.stringMatching(/^conv_/),
+      }),
+    )
   })
 
   it('scanResult updates the latest conversation snapshot and broadcasts it', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/a' })
+    reg.gateway.routeDaemonFrame('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'conv-3' },
+    })
     const c = sink()
-    reg.clientGateway.attachClient(c.send)
+    attachCurrent(reg, c.send)
     c.sent.length = 0
     const p = reg.modules.rpc.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
@@ -1208,18 +1270,14 @@ describe('SessionRegistry', () => {
     })
 
     await expect(p).resolves.toMatchObject({ conversations: [{ id: 'conv-3' }] })
-    expect(c.sent).toContainEqual({
-      type: 'conversationsChanged',
-      conversations: [
-        {
-          id: 'conv-3',
-          agentKind: 'codex',
-          providerId: 'codex-jsonl',
-          podiumId: expect.stringMatching(/^conv_/),
-        },
-      ],
-      diagnostics: [],
-    })
+    expect(feedValues(c.sent, 'conversation')).toContainEqual(
+      expect.objectContaining({
+        id: 'conv-3',
+        agentKind: 'codex',
+        providerId: 'codex-jsonl',
+        podiumId: expect.stringMatching(/^conv_/),
+      }),
+    )
   })
 
   it('scan correlates the daemon scanResult back to the caller', async () => {
@@ -1483,6 +1541,7 @@ describe('SessionRegistry', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession({
       id: asSessionId('good'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
       cwd: '/a',
       title: 'good',
@@ -1507,6 +1566,7 @@ describe('SessionRegistry', () => {
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
     store.sessions.upsertSession({
       id: asSessionId('bad'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
       cwd: '/b',
       title: 'bad',
@@ -1958,7 +2018,7 @@ describe('agent state', () => {
         },
       )
 
-      const setup = await reg.modules.settings.startTelegramSetup()
+      const setup = await reg.modules.settings.startTelegramSetup(FIRST_ADMIN_USER_ID)
       expect(setup).toEqual({
         setupId: expect.any(String),
         code: 'PODIUM123',
@@ -3501,17 +3561,15 @@ describe('SessionRegistry read state (#124)', () => {
     })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
     const c = sink()
-    reg.clientGateway.attachClient(c.send)
+    attachCurrent(reg, c.send)
     c.sent.length = 0
 
     reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
 
-    const pushed = c.sent.filter(
-      (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
+    expect(feedValues(c.sent, 'session')).toContainEqual(
+      expect.objectContaining({ sessionId, unread: false }),
     )
-    expect(pushed.length).toBeGreaterThan(0)
-    expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.unread).toBe(false)
     reg.dispose()
   })
 
@@ -3528,7 +3586,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
     const c = sink()
-    reg.clientGateway.attachClient(c.send)
+    attachCurrent(reg, c.send)
     c.sent.length = 0
     reg.modules.sessions.markSessionUnread(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
@@ -3539,11 +3597,10 @@ describe('SessionRegistry read state (#124)', () => {
     // Durable: a fresh registry over the same store reads readAt back as null.
     const reg2 = new SessionRegistry(store)
     expect(reg2.modules.sessions.listSessions()[0]?.readAt).toBeNull()
-    // And the change was broadcast to clients.
-    const pushed = c.sent.filter(
-      (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
+    // And the scoped-feed change was broadcast to clients.
+    expect(feedValues(c.sent, 'session')).toContainEqual(
+      expect.objectContaining({ sessionId, unread: true }),
     )
-    expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.unread).toBe(true)
     reg.dispose()
     reg2.dispose()
   })
@@ -3623,6 +3680,7 @@ describe('SessionRegistry snooze', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession({
       id: asSessionId('s1'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
       cwd: '/p',
       title: 't',
@@ -3961,7 +4019,14 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         issueId: issue.id,
       })
       const sent = registry.modules.messages.send(
-        { kind: 'superagent' },
+        {
+          kind: 'superagent',
+          attribution: {
+            actor: actorAgent(asAgentIdentityId('superagent')),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+          delegationRef: 'superagent',
+        },
         { to: { kind: 'issue', id: issue.id }, body: 'deliver after bind' },
       )
       expect(sent.message.status).toBe('queued')

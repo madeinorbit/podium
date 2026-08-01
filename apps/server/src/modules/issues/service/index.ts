@@ -1,4 +1,9 @@
 import { IssueServiceWorkflow } from './workflow'
+import {
+  attributionOf,
+  systemPrincipal,
+  type SystemCommandPrincipal,
+} from '../../../command-principal'
 
 /**
  * Server-side issue tracker (issue #190: moved from apps/server/src/issues.ts
@@ -20,7 +25,7 @@ export class IssueService extends IssueServiceWorkflow {
    * client that reconnects heals via changesSince instead of silently missing
    * the gap.
    */
-  boot(): this {
+  boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): this {
     this.init()
     // One-shot membership totalization [POD-856]: historical sessions predate
     // sessions.issue_id, while the normalized replica indexes membership ONLY by
@@ -79,6 +84,7 @@ export class IssueService extends IssueServiceWorkflow {
       const depProjections = this.allDepProjections()
       if (depProjections) this.deps.ledger.reconcile('issueDep', depProjections)
       this.publishRepos()
+      this.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
     } catch (err) {
       console.warn('[podium:issues] boot reconciliation record failed:', err)
     }

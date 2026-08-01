@@ -166,8 +166,10 @@ function ctxFor(
         'immediate',
       )!,
     rpc: () => modules.rpc,
-    createDraftIssue: (repoPath, agentKind, issueId) =>
-      modules.issues.createDraftFor(repoPath, agentKind, issueId),
+
+    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
+      modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    issueOwner: () => undefined,
     access: {
       listSessions: () => modules.sessions.listSessions(),
       issues: modules.issues,

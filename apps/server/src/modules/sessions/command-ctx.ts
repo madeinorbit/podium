@@ -51,6 +51,7 @@ export function sessionCommandCtx(
       sessionSpawnerParentId(
         sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
       ),
+    onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,
   })
   const deps: SessionCommandDeps = {
     sessions: () => sessions,
@@ -76,8 +77,9 @@ export function sessionCommandCtx(
         transport,
         'immediate',
       )!,
-    createDraftIssue: (repoPath, agentKind, issueId) =>
-      issues.createDraftFor(repoPath, agentKind, issueId),
+    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
+      issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    issueOwner: (issueId) => issues.ownedTarget(issueId, 'read')?.owner ?? undefined,
     access: {
       listSessions: () => sessions.listSessions(),
       issues,

@@ -56,17 +56,19 @@ function readFile(dir: string): AuthFile {
 }
 
 /** Encode a scrypt hash self-describingly so verify can recover the params + salt. */
-async function hash(password: string): Promise<string> {
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
   const dk = (await scrypt(password, salt, KEYLEN, {
     N: SCRYPT_N,
     r: SCRYPT_R,
     p: SCRYPT_P,
   })) as Buffer
-  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt.toString('base64')}$${dk.toString('base64')}`
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt.toString(
+    'base64',
+  )}$${dk.toString('base64')}`
 }
 
-async function verifyAgainst(password: string, stored: string): Promise<boolean> {
+export async function verifyPasswordHash(password: string, stored: string): Promise<boolean> {
   const [tag, n, r, p, saltB64, hashB64] = stored.split('$')
   if (tag !== 'scrypt' || !n || !r || !p || !saltB64 || !hashB64) return false
   const salt = Buffer.from(saltB64, 'base64')
@@ -94,7 +96,7 @@ export async function setPassword(password: string, dir: string = stateDir()): P
   if (!password?.trim()) {
     throw new Error('password must not be empty')
   }
-  const passwordHash = await hash(password)
+  const passwordHash = await hashPassword(password)
   mkdirSync(dir, { recursive: true })
   const next: AuthFile = { ...readFile(dir), passwordHash }
   writeFileSync(authPath(dir), JSON.stringify(next), { mode: 0o600 })
@@ -126,5 +128,5 @@ export async function applyEnvPassword(
 export async function verifyPassword(password: string, dir: string = stateDir()): Promise<boolean> {
   const stored = readFile(dir).passwordHash
   if (!stored) return false
-  return verifyAgainst(password, stored)
+  return verifyPasswordHash(password, stored)
 }

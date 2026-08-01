@@ -54,8 +54,8 @@ import {
 import {
   computePriorities,
   FIRST_ADMIN_USER_ID,
-  OPERATOR,
   repoNameFromOrigin,
+  NO_SESSION_USER_STATE,
   type SessionUserOverlay,
 } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
@@ -88,17 +88,13 @@ import { resolveRole } from '@podium/runtime'
 import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
-import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../command-principal'
+import { resolvePrincipal, systemPrincipal, userCommandPrincipal, type CommandPrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
-// OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
-// binding, so importing it from both is a duplicate identifier rather than two
-// different capabilities — verified before deduping, because two same-named symbols
-// from different modules is exactly the shape that is a real vocabulary fork.
 import type { Capability } from '../../issue-authz'
 import {
   liveSessionsUsingWorktree,
@@ -152,7 +148,7 @@ import {
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
-import { SessionStateRegistry, soleHumanSessionStateWsPrincipal } from './session-state/registry'
+import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import {
   createViewKey,
   type PreparedPublication,
@@ -658,7 +654,9 @@ export class SessionsService {
       ) {
         return refused
       }
-      principal = { kind: 'user', user, capability: OPERATOR }
+      const role = this.store.users.roleOf(user)
+      if (!role) return refused
+      principal = userCommandPrincipal(user, role)
     } else {
       const actorSessionId = asSessionId(input.principal.principalRef)
       if (
@@ -977,7 +975,7 @@ export class SessionsService {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultStatePrincipal()
     return this.stampRef(session, {
-      ...session.toMeta(this.state.overlay(viewer.userId, session.sessionId)),
+      ...session.toMeta(viewer ? this.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE),
       machineName: this.machines.machineName(session.machineId),
       ...(harnessCapabilities
         ? {
@@ -1000,11 +998,16 @@ export class SessionsService {
   }
 
   private statePrincipalForTrustedUser(userId: UserId): SessionStatePrincipal {
-    return { userId, capability: OPERATOR, onBehalfOf: userId, humanDirect: true }
+    const role = this.store.users.roleOf(userId)
+    if (!role) throw new Error(`refused: no active account for session-state user ${userId}`)
+    return sessionStatePrincipalFor(userCommandPrincipal(userId, role))
   }
 
-  private defaultStatePrincipal(): SessionStatePrincipal {
-    return this.statePrincipalForTrustedUser(FIRST_ADMIN_USER_ID)
+  private defaultStatePrincipal(): SessionStatePrincipal | undefined {
+    const role = this.store.users.roleOf(FIRST_ADMIN_USER_ID)
+    return role
+      ? sessionStatePrincipalFor(userCommandPrincipal(FIRST_ADMIN_USER_ID, role))
+      : undefined
   }
 
   /**
@@ -1134,6 +1137,7 @@ export class SessionsService {
     let session!: Session
     session = new Session({
       sessionId: r.id,
+      ownerUserId: r.ownerUserId ?? FIRST_ADMIN_USER_ID,
       agentKind: kind.data,
       cwd: r.cwd,
       title: r.title,
@@ -1491,6 +1495,7 @@ export class SessionsService {
     // mapper, so the "must agree byte-for-byte" invariant in its doc comment is
     // structural instead of hand-maintained (POD-366).
     const principal = forPrincipal ?? this.defaultStatePrincipal()
+    if (!principal) return []
     const local: SessionMeta[] = [...this.sessions.values()]
       .filter((session) => this.state.canReadSession(principal, session.sessionId))
       .map((session) => this.sessionWire(session, principal))
@@ -1545,9 +1550,26 @@ export class SessionsService {
    * that answer is given; POD-1070 ownership work replaces it here rather than
    * in eleven handlers.
    */
-  sessionOwner(sessionId: SessionId): { owner: UserId | null; grants: string[] } | undefined {
-    if (!this.sessions.has(sessionId)) return undefined
-    return { owner: FIRST_ADMIN_USER_ID, grants: [] }
+  sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined {
+    const live = this.sessions.get(sessionId)
+    const durable = live ?? this.store.sessions.getSession(sessionId)
+    if (!durable) return undefined
+    const issueId = durable.issueId ?? undefined
+    const resourceKind = issueId ? 'issue' : 'session'
+    const resourceId = issueId ?? sessionId
+    const parentOwner = issueId
+      ? (this.store.issues.getIssue(issueId)?.ownerUserId ?? durable.ownerUserId)
+      : durable.ownerUserId
+    if (!parentOwner) return undefined
+    const grants = [
+      ...new Set(
+        this.store.grants
+          .listForResource(resourceKind, resourceId)
+          .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+          .map((edge) => edge.grantee),
+      ),
+    ]
+    return { owner: parentOwner, grants }
   }
 
   /**
@@ -1620,6 +1642,8 @@ export class SessionsService {
    *  agents (claude/codex/grok) it rides the launch command (`claude "<prompt>"`,
    *  race-free); for the rest it's seeded into the composer draft. */
   createSession(input: {
+    /** Authenticated human owner; every production caller supplies this. */
+    ownerUserId?: UserId
     agentKind?: AgentKind
     cwd: string
     title?: string
@@ -1711,6 +1735,10 @@ export class SessionsService {
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
     const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
+    // The binding follows the session's resolved owner. Production command, mail,
+    // workflow, automation and superagent callers all supply that owner; legacy
+    // in-process fixtures retain the migration owner without a second identity mint.
+    const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
     const machineId = this.machines.resolveMachineForAgent(
       input.machineId,
       input.cwd,
@@ -1719,6 +1747,7 @@ export class SessionsService {
     )
     const spawned = this.spawn({
       agentKind,
+      ownerUserId,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
@@ -1738,10 +1767,9 @@ export class SessionsService {
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(issueId ? { issueId } : {}),
       binding: input.binding ?? {
-        // Internal pre-account callers act as the instance's one authenticated
-        // human. Keeping this mint on the server makes every process spawn carry
-        // an explicit principal while the daemon remains unable to invent one.
-        principal: { kind: 'user', userId: FIRST_ADMIN_USER_ID },
+        // One ownership answer feeds both the durable row and the daemon binding;
+        // this seam never invents a different principal.
+        principal: { kind: 'user', userId: ownerUserId },
       },
       sessionId,
     })
@@ -1780,13 +1808,19 @@ export class SessionsService {
   capabilityForSession(sessionId: SessionId): Capability {
     const s = this.sessions.get(sessionId)
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
+    const attribution = { onBehalfOf: s.ownerUserId }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd
     // sits in another issue's worktree (or none).
     const issueId = s.issueId ?? this.issues().issueForCwd(s.cwd)
     return issueId
-      ? { role: 'worker', scope: { kind: 'subtree', rootId: issueId }, actorSessionId: sessionId }
-      : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId }
+      ? {
+          role: 'worker',
+          scope: { kind: 'subtree', rootId: issueId },
+          actorSessionId: sessionId,
+          ...attribution,
+        }
+      : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId, ...attribution }
   }
 
   /**
@@ -1812,6 +1846,7 @@ export class SessionsService {
   }
 
   async resumeSession(input: {
+    ownerUserId?: UserId
     agentKind: AgentKind
     cwd: string
     resume: ResumeRef
@@ -1858,6 +1893,7 @@ export class SessionsService {
     })
     const spawned = this.spawn({
       agentKind: input.agentKind,
+      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       cwd: input.cwd,
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
@@ -2665,27 +2701,9 @@ export class SessionsService {
    */
   handoffSession(
     input: { sessionId: SessionId; machineId: string },
-    caller: { capability: Capability; principal?: CommandPrincipal } = {
-      capability: OPERATOR,
-    },
+    caller: HandoffCaller,
   ): Promise<{ ok: true; newCwd: string }> {
-    // THE GATE IS BUILT PER DISPATCH, not held on the coordinator. Two callers
-    // with different rights can have transfers in flight at once, so a stored gate
-    // would answer the last installer's rights for both — and the coordinator's
-    // apply-time re-checks would replay one frozen answer, which is the exact
-    // snapshot ADR 3 D16 forbids.
-    const normalized: HandoffCaller = {
-      capability: caller.capability,
-      principal:
-        caller.principal ??
-        resolvePrincipal(caller.capability, {
-          parentSessionOf: (sessionId) =>
-            sessionSpawnerParentId(
-              this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
-            ),
-        }),
-    }
-    return this.handoffs().handoff(input, normalized, this.machineUseGate(normalized))
+    return this.handoffs().handoff(input, caller, this.machineUseGate(caller))
   }
 
   /**
@@ -3316,6 +3334,7 @@ export class SessionsService {
 
   private spawn(input: {
     agentKind: AgentKind
+    ownerUserId?: UserId
     cwd: string
     title?: string
     /** Curated name at birth (spawner-prescribed or other); pairs with nameSource. */
@@ -3365,6 +3384,7 @@ export class SessionsService {
             .accountId)
     const session = new Session({
       sessionId,
+      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       agentKind: input.agentKind,
       cwd: input.cwd,
       title: input.title || basename(input.cwd) || input.cwd,
@@ -3557,12 +3577,10 @@ export class SessionsService {
     // hidden SessionMeta values and defeat the worker boundary.
     if (!publication || publication.global) {
       this.state.replayDrafts(
-        {
-          userId: client.principal.user,
-          capability: OPERATOR,
-          humanDirect: true,
-          clientId: client.id,
-        },
+        sessionStatePrincipalFor(
+          userCommandPrincipal(asUserId(client.principal.user), client.principal.role),
+          client.id,
+        ),
         send,
       )
       send({ type: 'machinesChanged', machines: this.machines.listMachines() })
@@ -3999,11 +4017,10 @@ export class SessionsService {
         this.sessionStateEnvelope().execute(
           'sessions.setDraft',
           { sessionId: msg.sessionId, edit: { kind: 'replace', text: msg.text } },
-          {
-            ...soleHumanSessionStateWsPrincipal(OPERATOR, id),
-            userId: principal.user,
-            onBehalfOf: principal.user,
-          },
+          sessionStatePrincipalFor(
+            userCommandPrincipal(asUserId(principal.user), principal.role),
+            id,
+          ),
           'ws',
         )
         break

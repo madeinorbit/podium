@@ -45,7 +45,10 @@ import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
  * counts that as debt and counted this before it was a Pick. The narrowing is
  * still real — this module must not reach for a field it has not asked for.
  */
-export type SessionTargetRow = Pick<SessionMeta, 'sessionId' | 'cwd' | 'issueId' | 'spawnedBy'>
+export type SessionTargetRow = Pick<
+  SessionMeta,
+  'sessionId' | 'cwd' | 'issueId' | 'spawnedBy' | 'status'
+>
 
 /**
  * Is this session visible to the principal's delegating HUMAN?
@@ -54,10 +57,7 @@ export type SessionTargetRow = Pick<SessionMeta, 'sessionId' | 'cwd' | 'issueId'
  * account, everything visible — stated as a function rather than assumed, so
  * that turning it on is a policy change and not a second migration.
  */
-export type SessionVisibility = (
-  principal: CommandPrincipal,
-  session: SessionTargetRow,
-) => boolean
+export type SessionVisibility = (principal: CommandPrincipal, session: SessionTargetRow) => boolean
 
 export const everythingVisible: SessionVisibility = () => true
 

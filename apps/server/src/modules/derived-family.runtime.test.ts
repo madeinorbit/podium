@@ -144,6 +144,6 @@ describe('the derived families, against the RUNNING appRouter', () => {
     // `settings.get` is a query and `settings.set` a mutation — a pair the reader
     // must be able to TELL APART, so this fails if `verbOf` returns a constant.
     expect(verbOf(settings.get)).toBe('query')
-    expect(verbOf(settings.set)).toBe('mutation')
+    expect(verbOf(settings.updateInstance)).toBe('mutation')
   })
 })

@@ -35,6 +35,7 @@ import {
   type StoreNotices,
   type StoreServerConfig,
 } from '../engine/types'
+import type { CreateEngineOutbox } from '../engine/wiring'
 import type { Replica } from '../replica/replica'
 import type { RouterWindow } from '../router'
 import type { FeedSinkPort } from '../socket-transport'
@@ -77,6 +78,8 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
    *  `createReplicaFn` by the platform's composition root; the two are one
    *  assembly and neither half is meaningful alone. */
   feed?: FeedSinkPort
+  /** Platform queue factory paired with the replica assembly. */
+  createOutboxFn?: CreateEngineOutbox
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: engine timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
@@ -93,6 +96,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   notices = NOOP_NOTICES,
   createReplicaFn,
   feed,
+  createOutboxFn,
   routerWindow,
   engineOverrides,
   children,
@@ -133,6 +137,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         },
         createReplicaFn,
         feed,
+        createOutboxFn,
         routerWindow,
         ...engineOverrides,
       }),

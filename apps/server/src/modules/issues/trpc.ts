@@ -1,3 +1,4 @@
+import { familyState } from '../derived-family'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, issueCaller, mods, t } from '../../trpc'
@@ -10,7 +11,7 @@ import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
  * `def.target` from the DEFINITION (the old issueCapabilityGuard parsed the
  * middleware path string to find the proc, so renaming a proc silently changed
  * its permissions). The resolver runs the same handler the relay/MCP dispatch
- * runs (via mods(ctx).issueCommands), so the four surfaces cannot drift.
+ * runs (via familyState(ctx).modules.issueCommands), so the four surfaces cannot drift.
  */
 
 /** The precise procedure type one definition derives to — what keeps AppRouter
@@ -38,7 +39,13 @@ type ProceduresFor<T extends Record<string, AnyIssueCommandDef>> = {
  *  old path-parsing issueCapabilityGuard did. */
 function guardFor(name: string, def: AnyIssueCommandDef) {
   return t.middleware(async ({ ctx, next, getRawInput }) => {
-    guardIssueCommand(issueCaller(ctx), mods(ctx).issues, name, def, await getRawInput())
+    guardIssueCommand(
+      issueCaller(ctx),
+      familyState(ctx).modules.issues,
+      name,
+      def,
+      await getRawInput(),
+    )
     return next()
   })
 }
@@ -50,7 +57,7 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
   for (const [name, def] of Object.entries<AnyIssueCommandDef>(registry.defs)) {
     const proc = t.procedure.use(guardFor(name, def)).input(def.input)
     const resolve = (opts: { ctx: Context; input: unknown }) =>
-      mods(opts.ctx).issueCommands.run(issueCaller(opts.ctx), name, def, opts.input)
+      familyState(opts.ctx).modules.issueCommands.run(issueCaller(opts.ctx), name, def, opts.input)
     record[name] = def.kind === 'mutation' ? proc.mutation(resolve) : proc.query(resolve)
   }
   return t.router(record as ProceduresFor<T>)

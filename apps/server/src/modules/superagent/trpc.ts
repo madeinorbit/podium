@@ -54,6 +54,7 @@
 
 import type { TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
+import { asUserId, type UserId } from '@podium/model'
 import { t } from '../../trpc'
 import { SUPERAGENT_COMMANDS, type SuperagentProcName } from './registry'
 
@@ -69,6 +70,18 @@ type MutationProcedure<N extends SuperagentProcName> = TRPCMutationProcedure<{
   output: Awaited<ReturnType<(typeof SUPERAGENT_COMMANDS)[N]['handler']>>
 }>
 
+function ownerOf(ctx: {
+  principal?: { kind: string; user?: UserId; onBehalfOf?: UserId }
+  capability: { onBehalfOf?: UserId }
+}): UserId {
+  const owner =
+    ctx.principal?.kind === 'user'
+      ? ctx.principal.user
+      : (ctx.principal?.onBehalfOf ?? ctx.capability.onBehalfOf)
+  if (!owner) throw new Error('superagent caller has no authenticated owner')
+  return asUserId(owner)
+}
+
 /**
  * One mutation, built out of its contract: the contract's own schema instance
  * for validation and for the client's input type, and a body that is the joined
@@ -82,7 +95,13 @@ function superagentMutation<N extends SuperagentProcName>(name: N): MutationProc
   return t.procedure
     .input(contract.input)
     .mutation(({ ctx, input }) =>
-      (handler as (s: typeof ctx.superagent, i: unknown) => unknown)(ctx.superagent, input),
+      (
+        handler as (
+          s: typeof ctx.superagent,
+          i: unknown,
+          owner: ReturnType<typeof asUserId>,
+        ) => unknown
+      )(ctx.superagent, input, ownerOf(ctx)),
     ) as MutationProcedure<N>
 }
 

@@ -32,8 +32,8 @@
  */
 
 import { join } from 'node:path'
-import { expect, type Page, test } from '@playwright/test'
-import { openApp } from './_harness'
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
+import { openApp, RELAY } from './_harness'
 
 /**
  * Screenshots land in the REPO, not in test-results/: they are this issue's runtime
@@ -44,7 +44,44 @@ const EVIDENCE = join(import.meta.dirname, '../../../docs/evidence/pod-351')
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: join(EVIDENCE, `${name}.png`), fullPage: false })
 
-test.skip(({ isMobile }) => isMobile, 'desktop verification: the rename affordance is the sidebar row')
+const PHASE3_EVIDENCE = join(import.meta.dirname, '../../../docs/evidence/pod-1283')
+const phase3Shot = (page: Page, name: string) =>
+  page.screenshot({ path: join(PHASE3_EVIDENCE, `${name}.png`), fullPage: false })
+const HTTP = RELAY.replace(/^ws/, 'http')
+const OWNER_PASSWORD = process.env.PODIUM_PASSWORD
+
+async function rpc<T>(
+  request: APIRequestContext,
+  proc: string,
+  input?: unknown,
+  method: 'post' | 'get' = 'post',
+): Promise<T> {
+  const response =
+    method === 'get'
+      ? await request.get(`${HTTP}/trpc/${proc}`)
+      : await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
+  if (!response.ok()) throw new Error(`${proc} -> ${response.status()}: ${await response.text()}`)
+  const body = (await response.json()) as { result?: { data?: T } }
+  return body.result?.data as T
+}
+
+async function login(
+  request: APIRequestContext,
+  userId: string,
+  password: string,
+): Promise<string> {
+  const response = await request.post(`${HTTP}/auth/login`, { data: { userId, password } })
+  if (!response.ok())
+    throw new Error(`login ${userId} -> ${response.status()}: ${await response.text()}`)
+  const cookie = response.headers()['set-cookie']?.match(/podium_session=([^;]+)/)?.[1]
+  if (!cookie) throw new Error(`login ${userId} returned no podium_session cookie`)
+  return cookie
+}
+
+test.skip(
+  ({ isMobile }) => isMobile,
+  'desktop verification: the rename affordance is the sidebar row',
+)
 test.setTimeout(240_000)
 
 /**
@@ -94,6 +131,24 @@ async function openSessionId(page: Page): Promise<string> {
   return id
 }
 
+/** Connect the real app without asking its empty state to spawn an agent. The
+ * recovery test creates its controlled target after the feed is attached. */
+async function openBareApp(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
+  const params = new URLSearchParams({ server: RELAY, e2e: '1' })
+  await page.goto(`/?${params}`)
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
+  await sidebar(page)
+    .waitFor({ state: 'visible', timeout: 20_000 })
+    .catch(async () => {
+      throw new Error(
+        `app shell missing at ${page.url()}: ${await page.locator('body').innerText()}`,
+      )
+    })
+}
+
 /** Rename through the UI exactly as a user does: double-click the tab, type, Enter. */
 async function renameViaUi(page: Page, sessionId: string, to: string): Promise<void> {
   const tab = workspaceTab(page, sessionId)
@@ -120,6 +175,26 @@ async function renameViaUi(page: Page, sessionId: string, to: string): Promise<v
   await editor.press('Enter')
 }
 
+/** The same real editor, reached through the work-list row so the recovery
+ * journey does not need a live terminal panel. */
+async function renameViaSidebar(page: Page, sessionId: string, to: string): Promise<void> {
+  const row = sidebar(page).locator(`[data-session="${sessionId}"]`)
+  await row.waitFor({ state: 'visible', timeout: 45_000 })
+  const editor = row.locator('input[type="text"]').first()
+  const primary = row.locator(':scope > button[data-pressable]')
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await primary.dblclick()
+    const opened = await editor
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false)
+    if (opened) break
+    if (attempt === 1) throw new Error(`sidebar rename editor never opened for ${sessionId}`)
+  }
+  await editor.fill(to)
+  await editor.press('Enter')
+}
+
 /** Wait until this client has RENDERED `expected` in its work list. */
 async function expectConverged(page: Page, expected: string): Promise<void> {
   await expect
@@ -136,6 +211,52 @@ async function expectGone(page: Page, absent: string): Promise<void> {
 
 /** The label `openApp`'s empty-state spawn gives a fresh session. */
 const FRESH_SESSION = 'New Claude session'
+
+async function kernelEntityKeys(page: Page): Promise<string[]> {
+  return page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const opened = indexedDB.open('podium-kernel-replica')
+        opened.onerror = () => reject(opened.error ?? new Error('failed to open kernel replica'))
+        opened.onsuccess = () => {
+          const db = opened.result
+          const tx = db.transaction('entities', 'readonly')
+          const rows = tx.objectStore('entities').getAll()
+          rows.onerror = () => reject(rows.error ?? new Error('failed to read kernel entities'))
+          rows.onsuccess = () => {
+            const keys = (
+              rows.result as Array<{ principal: string; entity: string; entityId: string }>
+            ).map((row) => `${row.principal}:${row.entity}:${row.entityId}`)
+            db.close()
+            resolve(keys)
+          }
+        }
+      }),
+  )
+}
+
+async function kernelOutboxStates(page: Page): Promise<string[]> {
+  return page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const opened = indexedDB.open('podium-kernel-replica')
+        opened.onerror = () => reject(opened.error ?? new Error('failed to open kernel replica'))
+        opened.onsuccess = () => {
+          const db = opened.result
+          const tx = db.transaction('outbox', 'readonly')
+          const rows = tx.objectStore('outbox').getAll()
+          rows.onerror = () => reject(rows.error ?? new Error('failed to read kernel Outbox'))
+          rows.onsuccess = () => {
+            const states = (rows.result as Array<{ record?: { state?: string } }>).map(
+              (row) => row.record?.state ?? 'unknown',
+            )
+            db.close()
+            resolve(states)
+          }
+        }
+      }),
+  )
+}
 
 test.describe('session.rename on the target path, end to end', () => {
   test('online: a rename converges on a second client', async ({ page, context }) => {
@@ -225,4 +346,189 @@ test.describe('session.rename on the target path, end to end', () => {
 
     await observer.close()
   })
+})
+
+test('kernel Outbox dead-letter retry, edit, and discard after a live apply refusal', async ({
+  browser,
+  context: ownerContext,
+}) => {
+  test.skip(!OWNER_PASSWORD, 'requires PODIUM_PASSWORD so two production principals can log in')
+  if (!OWNER_PASSWORD) return
+
+  const owner = 'user:sole'
+  const member = 'user:phase3-member'
+  const memberPassword = 'phase3-member-password'
+  const ownerToken = await login(ownerContext.request, owner, OWNER_PASSWORD)
+  await ownerContext.addCookies([
+    {
+      name: 'podium_session',
+      value: ownerToken,
+      url: HTTP,
+      httpOnly: true,
+      sameSite: 'Lax',
+    },
+  ])
+
+  const account = await ownerContext.request.post(`${HTTP}/auth/users`, {
+    data: {
+      userId: member,
+      displayName: 'Phase 3 Member',
+      role: 'member',
+      password: memberPassword,
+    },
+  })
+  if (!account.ok()) {
+    throw new Error(`create member -> ${account.status()}: ${await account.text()}`)
+  }
+
+  const repos = await rpc<string[]>(ownerContext.request, 'repos.list', undefined, 'get')
+  const repoPath = repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
+  const memberContext = await browser.newContext({ baseURL: HTTP })
+  try {
+    const memberToken = await login(memberContext.request, member, memberPassword)
+    await memberContext.addCookies([
+      {
+        name: 'podium_session',
+        value: memberToken,
+        url: HTTP,
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ])
+    const memberPage = await memberContext.newPage()
+    const issue = await rpc<{ id: string }>(ownerContext.request, 'issues.create', {
+      repoPath,
+      title: `Phase 3 outbox ${Date.now()}`,
+      startNow: false,
+    })
+    const grant = { id: issue.id, grantee: member, verb: 'write' }
+    await rpc(ownerContext.request, 'issues.share', grant)
+    const machines = await rpc<Array<{ id: string }>>(
+      ownerContext.request,
+      'machines.list',
+      undefined,
+      'get',
+    )
+    const machineId = machines[0]?.id
+    if (!machineId) throw new Error('harness registered no machine')
+    await rpc(ownerContext.request, 'machines.share', {
+      id: machineId,
+      grantee: member,
+      verb: 'use',
+    })
+    await expect
+      .poll(async () =>
+        (await rpc<Array<{ id: string }>>(memberContext.request, 'machines.list', undefined, 'get'))
+          .map((machine) => machine.id)
+          .includes(machineId),
+      )
+      .toBe(true)
+    await rpc(ownerContext.request, 'issues.start', { id: issue.id, agentKind: 'claude' })
+    await rpc(ownerContext.request, 'issues.addSession', { id: issue.id, agentKind: 'claude' })
+
+    let sessionId: string | undefined
+    await expect
+      .poll(async () => {
+        const sessions = await rpc<Array<{ sessionId: string; issueId?: string }>>(
+          memberContext.request,
+          'sessions.list',
+          undefined,
+          'get',
+        )
+        const issueSessions = sessions.filter((session) => session.issueId === issue.id)
+        sessionId = issueSessions[0]?.sessionId
+        return issueSessions.length >= 2 ? sessionId : undefined
+      })
+      .not.toBeUndefined()
+    if (!sessionId) throw new Error('shared issue agent did not appear for grantee')
+
+    const memberSlice = await rpc<{
+      rows: Array<{ entity: string; entityId: string }>
+    }>(memberContext.request, 'sync.feedSlice', undefined, 'get')
+    expect(memberSlice.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ entity: 'issue', entityId: issue.id }),
+        expect.objectContaining({ entity: 'session', entityId: sessionId }),
+      ]),
+    )
+
+    await openBareApp(memberPage)
+    await expect
+      .poll(() => memberPage.evaluate(() => globalThis.__podiumReplicaPath))
+      .toBe('kernel')
+    await expect
+      .poll(() => kernelEntityKeys(memberPage), { timeout: 30_000 })
+      .toEqual(
+        expect.arrayContaining([`${member}:issue:${issue.id}`, `${member}:session:${sessionId}`]),
+      )
+    await expectConverged(memberPage, 'Phase 3 outbox')
+    await memberPage
+      .locator('[data-issue-row="' + issue.id + '"]')
+      .getByRole('button', { name: /^Expand / })
+      .click()
+    const chip = memberPage.getByTestId('outbox-recovery-chip')
+
+    const restore = async (): Promise<void> => {
+      await rpc(ownerContext.request, 'issues.share', grant)
+    }
+    const serverName = async (): Promise<string | undefined> => {
+      const sessions = await rpc<Array<{ sessionId: string; name?: string }>>(
+        ownerContext.request,
+        'sessions.list',
+        undefined,
+        'get',
+      )
+      return sessions.find((session) => session.sessionId === sessionId)?.name
+    }
+    const parkRevokedGrant = async (name: string): Promise<void> => {
+      const renameTransport = '**/trpc/sessions.rename*'
+      await memberPage.route(renameTransport, (route) => route.abort('internetdisconnected'))
+      await renameViaSidebar(memberPage, sessionId, name)
+      await expect(sidebar(memberPage).locator('[data-session="' + sessionId + '"]')).toContainText(
+        name,
+      )
+      await expect.poll(() => kernelOutboxStates(memberPage)).toContain('queued')
+      await rpc(ownerContext.request, 'issues.unshare', grant)
+      await memberPage.unroute(renameTransport)
+      await memberPage.evaluate(() => window.dispatchEvent(new Event('online')))
+      await expect
+        .poll(() => kernelOutboxStates(memberPage), { timeout: 60_000 })
+        .toContain('dead-letter')
+      await expect(chip).toBeVisible({ timeout: 60_000 })
+    }
+
+    const retried = `phase3-retry-${Date.now()}`
+    await parkRevokedGrant(retried)
+    await chip.click()
+    await expect(memberPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await phase3Shot(memberPage, '01-live-authorization-dead-letter')
+    await restore()
+    await memberPage.getByTestId('outbox-retry').click()
+    await expect(chip).toBeHidden({ timeout: 30_000 })
+    await expect.poll(serverName).toBe(retried)
+
+    const originalEdit = `phase3-edit-original-${Date.now()}`
+    const edited = `phase3-edit-recovered-${Date.now()}`
+    await parkRevokedGrant(originalEdit)
+    await chip.click()
+    await expect(memberPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await memberPage.getByRole('button', { name: 'Edit', exact: true }).click()
+    await memberPage.getByRole('textbox', { name: 'Your text' }).fill(edited)
+    await phase3Shot(memberPage, '02-edit-recovery-before-send')
+    await restore()
+    await memberPage.getByRole('button', { name: 'Save and send', exact: true }).click()
+    await expect(chip).toBeHidden({ timeout: 30_000 })
+    await expect.poll(serverName).toBe(edited)
+
+    const discarded = `phase3-discard-${Date.now()}`
+    await parkRevokedGrant(discarded)
+    await chip.click()
+    await phase3Shot(memberPage, '03-discard-recovery-before-cancel')
+    await memberPage.getByRole('button', { name: 'Discard', exact: true }).click()
+    await expect(chip).toBeHidden({ timeout: 30_000 })
+    expect(await serverName()).not.toBe(discarded)
+  } finally {
+    await memberContext.close()
+  }
 })

@@ -73,7 +73,6 @@ const typeOf = (name: string): string | undefined => procedures[name]?._def?.typ
  */
 const HAND_WRITTEN: Record<string, 'query' | 'mutation'> = {
   'settings.get': 'query',
-  'settings.set': 'mutation',
   // POD-421. `viewer` answers WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT,
   // so a control can be disabled-with-reason instead of editable-then-refused.
   // Hand-written for the same reason `get` is: a `visibility` class names the
@@ -164,7 +163,7 @@ describe('this guard can say NO', () => {
    */
   it('the accessor reads a real dispatch table, not an empty object', () => {
     expect(Object.keys(procedures).length).toBeGreaterThan(50)
-    expect(typeOf('settings.set')).toBe('mutation')
+    expect(typeOf('settings.updateInstance')).toBe('mutation')
     expect(typeOf('settings.nonexistent')).toBeUndefined()
   })
 

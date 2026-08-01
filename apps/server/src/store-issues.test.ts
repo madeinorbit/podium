@@ -1,4 +1,4 @@
-import { asIssueId, asRepoId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asIssueId, asRepoId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +8,8 @@ import { SessionStore } from './store'
 
 const base = () => ({
   id: asIssueId('iss_1'), repoPath: '/r', seq: 1, title: 'Fix login', description: 'desc',
+  ownerUserId: FIRST_ADMIN_USER_ID, visibility: 'personal' as const, createdByActor: FIRST_ADMIN_USER_ID,
+  createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
   stage: 'backlog', worktreePath: null, branch: null, parentBranch: 'main',
   defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
   linearId: null, linearIdentifier: null, linearUrl: null,

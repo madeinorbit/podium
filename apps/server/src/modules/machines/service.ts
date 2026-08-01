@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  agentCapabilityRejection,
   type AgentKind,
+  agentCapabilityRejection,
   type Inventory,
   type MachineUseDecision,
   type MachineWire,
@@ -10,6 +10,7 @@ import type {
   ControlMessage,
   DaemonHandshake,
   LiveServerMessage,
+  MachineVerb,
   ServerMessage,
 } from '@podium/protocol'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
@@ -472,6 +473,48 @@ export class MachinesService {
     this.deps.store.machines.renameMachine(id, name)
     this.invalidateMachineCache()
     this.deps.sessionsChangedForMachine(id) // sessions show machineName — recapture + refresh
+    this.broadcastMachines()
+  }
+
+  shareMachine(
+    id: string,
+    grantee: string,
+    verb: MachineVerb,
+    attribution: { actor: string; onBehalfOf: string },
+  ): void {
+    const machine = this.deps.store.machines.getMachine(id)
+    if (!machine?.ownerUserId || machine.ownerUserId !== attribution.onBehalfOf) {
+      throw new Error('only the machine owner may change sharing')
+    }
+    const actorKind = attribution.actor.startsWith('session:')
+      ? 'agent'
+      : attribution.actor.startsWith('system:')
+        ? 'system'
+        : 'user'
+    const actorId = attribution.actor.includes(':')
+      ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
+      : attribution.actor
+    this.deps.store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: id,
+      grantee,
+      verb,
+      owner: machine.ownerUserId,
+      visibility: 'owned-compute',
+      createdAt: new Date().toISOString(),
+      actorKind,
+      actorId,
+      onBehalfOf: attribution.onBehalfOf,
+    })
+    this.broadcastMachines()
+  }
+
+  unshareMachine(id: string, grantee: string, verb: MachineVerb, owner: string): void {
+    const machine = this.deps.store.machines.getMachine(id)
+    if (!machine?.ownerUserId || machine.ownerUserId !== owner) {
+      throw new Error('only the machine owner may change sharing')
+    }
+    this.deps.store.grants.remove('machine', id, grantee, verb)
     this.broadcastMachines()
   }
 

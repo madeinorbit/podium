@@ -105,16 +105,22 @@ describe('startServer with the hub role disabled (node shape)', () => {
 
   /**
    * The 404 loop above names its three by hand, which is right for readability
-   * and wrong as a completeness claim: an eleventh hub-role command would be
+   * and wrong as a completeness claim: another hub-role command would be
    * added with no 404 test and nothing would say so. This binds the list to the
    * SHIPPED contract table.
    */
-  it('covers every hub-role fleet contract, so an eleventh cannot arrive untested', () => {
+  it('covers every hub-role fleet contract, so another cannot arrive untested', () => {
     const hubNames = Object.values(FLEET_CONTRACTS)
       .filter((c) => c.serverRole === 'hub')
       .map((c) => c.name)
       .sort()
-    expect(hubNames).toEqual(['machines.pairingCode', 'machines.rename', 'machines.revoke'])
+    expect(hubNames).toEqual([
+      'machines.pairingCode',
+      'machines.rename',
+      'machines.revoke',
+      'machines.share',
+      'machines.unshare',
+    ])
     // Non-vacuity: the filter must actually be filtering. If every contract were
     // `hub` (or the table were empty) the assertion above could still be made to
     // pass by editing one literal; this cannot.

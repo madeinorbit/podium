@@ -1,4 +1,5 @@
-import { asIssueId, type IssueId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import { asIssueId, asSessionId, type IssueId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
@@ -102,6 +103,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
+        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
       })
       await caller.issues.reparent({ id: f.moving.id, parentId: f.newParent.id })
       await caller.issues.supersede({ oldId: f.superseded.id, newId: f.replacement.id })
@@ -121,6 +123,8 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       const client = registry.issueCommands.asIssueTrpc({
         role: 'worker',
         scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
+        actorSessionId: asSessionId('test-agent'),
+        onBehalfOf: FIRST_ADMIN_USER_ID,
       })
       await runIssueClient(client, f)
       verify(registry, f)
@@ -138,6 +142,8 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         registry.issueCommands.asIssueTrpc({
           role: 'worker',
           scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
+          actorSessionId: asSessionId('test-agent'),
+          onBehalfOf: FIRST_ADMIN_USER_ID,
         }),
       )
       for (const [name, input] of lifecycleInputs(f)) {

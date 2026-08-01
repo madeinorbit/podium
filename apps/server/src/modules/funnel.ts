@@ -1,8 +1,4 @@
-import type {
-  FeedChangesSinceReply,
-  FeedCursorField,
-  MetadataChange,
-} from '@podium/protocol'
+import type { FeedChangesSinceReply, FeedCursorField, MetadataChange } from '@podium/protocol'
 import { toFeedChange } from '../gateway/feed-serving'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -53,6 +49,7 @@ export interface WriteFunnelDeps {
 /** What the funnel needs of the serving edge. Narrow so a test can drive it. */
 export interface FeedServingPort {
   publish(principal: typeof DEVICE_GRADE_PRINCIPAL, delivery: ScopedDelivery): void
+  flushPending(): void
   /** ADR 2 D1's `(feedId, epoch)`. Needed by the wire-v2 catch-up read, which is
    *  an HTTP query and therefore has no frame to read identity off. */
   identity(): { readonly feedId: string; readonly epoch: string }
@@ -221,13 +218,16 @@ export class WriteFunnel {
    * different number lines. The replica's own rung 4 would catch it on the next
    * frame; catching it here means the wrong answer is never produced.
    */
-  feedChangesSince(cursor: FeedCursorField | null): FeedChangesSinceReply {
+  feedChangesSince(
+    cursor: FeedCursorField | null,
+    principal: import('@podium/sync').FeedPrincipal,
+  ): FeedChangesSinceReply {
     const identity = this.deps.serving.identity()
     if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
       return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
     }
     const from = cursor?.seq ?? null
-    const delivery = this.deps.authority.changesSince(from, DEVICE_GRADE_PRINCIPAL)
+    const delivery = this.deps.authority.changesSince(from, principal)
     if (delivery === null) return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
     if (delivery.kind !== 'batch') {
       // The authority derived a rescope for this range. Answering it as a delta
@@ -271,14 +271,14 @@ export class WriteFunnel {
    * and a version, and shipping every row's value to a diagnostic read would make
    * a debugging aid the largest response on the wire.
    */
-  feedSlice(): {
+  feedSlice(principal: import('@podium/sync').FeedPrincipal): {
     feedId: string
     epoch: string
     throughSeq: number
     rows: { entity: string; entityId: string }[]
   } {
     const identity = this.deps.serving.identity()
-    const world = this.deps.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
+    const world = this.deps.authority.bootstrap(principal)
     return {
       feedId: identity.feedId,
       epoch: identity.epoch,
@@ -289,7 +289,6 @@ export class WriteFunnel {
       })),
     }
   }
-
 
   // ---- THE ordered, coalesced delivery pipe (#256) ----
   // Appends arrive synchronously and in seq order (single-threaded process, one
@@ -317,6 +316,7 @@ export class WriteFunnel {
   /** Emit any coalesced (pending) delivery NOW. Deterministic seam for tests
    *  and dispose; the scheduled microtask then finds nothing and no-ops. */
   flushDeltas(): void {
+    this.deps.serving.flushPending()
     this.flushScheduled = false
     if (this.pending.length === 0) return
     // `feedPublish.total` IS `sessionsBroadcast.total`'s successor, and the

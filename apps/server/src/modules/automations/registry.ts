@@ -26,6 +26,7 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { z } from 'zod'
+import type { CommandPrincipal } from '../../command-principal'
 import type { AutomationsService } from './service'
 
 /** One contract joined to the handler that implements it. */
@@ -37,7 +38,11 @@ export interface AutomationCommand {
    * would make the table untypeable rather than safer.
    */
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous table — see above
-  readonly handler: (service: AutomationsService, input: any) => unknown
+  readonly handler: (
+    service: AutomationsService,
+    input: any,
+    principal: CommandPrincipal,
+  ) => unknown
 }
 
 /**
@@ -53,23 +58,23 @@ export interface AutomationCommand {
 export const AUTOMATION_COMMANDS = {
   create: {
     contract: AUTOMATION_CONTRACTS.create,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.create.input>) =>
-      service.create(input),
+    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.create.input>, principal) =>
+      service.create(input, principal),
   },
   update: {
     contract: AUTOMATION_CONTRACTS.update,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.update.input>) =>
-      service.update(input.id, input.patch),
+    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.update.input>, principal) =>
+      service.update(input.id, input.patch, principal),
   },
   setEnabled: {
     contract: AUTOMATION_CONTRACTS.setEnabled,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.setEnabled.input>) =>
-      service.setEnabled(input.id, input.enabled),
+    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.setEnabled.input>, principal) =>
+      service.setEnabled(input.id, input.enabled, principal),
   },
   remove: {
     contract: AUTOMATION_CONTRACTS.remove,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.remove.input>) =>
-      service.remove(input.id),
+    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.remove.input>, principal) =>
+      service.remove(input.id, principal),
   },
 } as const satisfies Record<AutomationContractName, AutomationCommand>
 

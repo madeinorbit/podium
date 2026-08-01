@@ -37,6 +37,7 @@ export function createHandler(
     scope: input.scope,
     scopeRef,
     actor: engine.actor(caller),
+    ownerUserId: access.owner(caller),
     now,
   })
   const revision = deps.store.insertRevision({
@@ -188,10 +189,15 @@ export function assignHandler(
     // `targetId` is polymorphic by `targetKind` (a session id here, an issue id on
     // the other arm), so the brand is recovered INSIDE the narrowed branch — the
     // same rule POD-362 applies to MessageRow.toId and EntityChangeSpec.id.
-    access.assertMayPlaceOn(access.machineForSession(asSessionId(input.targetId)))
+    access.assertMayPlaceOn(caller, access.machineForSession(asSessionId(input.targetId)))
   }
   const now = deps.now()
-  const binding = deps.store.setBinding({ ...input, actor: engine.actor(caller), now })
+  const binding = deps.store.setBinding({
+    ...input,
+    actor: engine.actor(caller),
+    ownerUserId: access.owner(caller),
+    now,
+  })
   deps.store.appendEvent({
     workflowId: revision.workflowId,
     kind: 'workflow.assigned',
@@ -213,7 +219,7 @@ export function profileSaveHandler(
   // `use` grant is checked when the pin is written as well as when it is used.
   // Checking only at launch would let a principal stage a binding it may not
   // run and hand it to someone who can.
-  access.assertMayPlaceOn(input.machineId)
+  access.assertMayPlaceOn(caller, input.machineId)
   const now = deps.now()
   return deps.store.upsertProfile({
     id: input.id ?? `wfp_${randomUUID()}`,
@@ -224,6 +230,7 @@ export function profileSaveHandler(
     model: input.model,
     effort: input.effort,
     actor: engine.actor(caller),
+    ownerUserId: access.owner(caller),
     now,
   })
 }

@@ -1,4 +1,5 @@
-import { asIssueId, asUserId, type SessionId } from '@podium/model'
+import { resolvePrincipal } from './command-principal'
+import { FIRST_ADMIN_USER_ID, asIssueId, asUserId, type SessionId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -220,6 +221,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
 
   it('create → claim → comment → close yields identical rows, events, comments, and folded oplog via IssueService, the CLI command registry, and the tRPC router', async () => {
@@ -284,6 +286,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         assignee: 'agent:test',
       })
       expect((obsA.events as { kind: string }[]).map((e) => e.kind)).toEqual([
+        'issue.boot_reconciled',
         'issue.created',
         'issue.stage_changed',
         'issue.closed',
@@ -565,6 +568,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
+        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
       })
       const caller = (capability: Capability, overrideScope = false) =>
         appRouter.createCaller({
@@ -572,15 +576,42 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
           repos: {} as never,
           superagent: {} as never,
           capability,
+          principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
           overrideScope,
         })
       const A = await op.issues.create({ repoPath: '/r', title: 'mine', startNow: false })
-      const B = await op.issues.create({ repoPath: '/r', title: 'theirs', startNow: false })
-      const mailA = await op.issues.mailSend({ id: A.id, body: 'for A' })
-      const mailB = await op.issues.mailSend({ id: B.id, body: 'for B' })
+      const C = await op.issues.create({
+        repoPath: '/r',
+        title: 'visible sibling',
+        startNow: false,
+      })
+      const otherUser = asUserId('user:other')
+      const other = caller({
+        role: 'admin',
+        scope: { kind: 'all' },
+        actorUser: otherUser,
+        onBehalfOf: otherUser,
+      })
+      const B = await other.issues.create({ repoPath: '/r', title: 'theirs', startNow: false })
+      // Seed durable mailbox rows directly: the production send path can
+      // legitimately dead-letter when these fixture issues have no recipient
+      // sessions, while this contract is specifically about claim authz.
+      const mailA = reg.issues.sendMail(A.id, 'operator', 'for A')
+      const mailB = reg.issues.sendMail(B.id, 'operator', 'for B')
+      const mailC = reg.issues.sendMail(C.id, 'operator', 'for C')
 
-      const worker = caller({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
-      const viewer = caller({ role: 'viewer', scope: { kind: 'all' } })
+      const worker = caller({
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: A.id },
+        actorUser: FIRST_ADMIN_USER_ID,
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      })
+      const viewer = caller({
+        role: 'viewer',
+        scope: { kind: 'all' },
+        actorUser: FIRST_ADMIN_USER_ID,
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      })
 
       // Middleware path (issues.update / issues.delete).
       expect(await outcome(worker.issues.update({ id: A.id, patch: { notes: 'in' } }))).toBe('OK')
@@ -593,22 +624,37 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       expect(await outcome(worker.issues.delete({ id: A.id }))).toBe('FORBIDDEN') // manage beats scope
       expect(await outcome(op.issues.update({ id: B.id, patch: { notes: 'op' } }))).toBe('OK')
 
-      // mailClaim path — the scope check duplicated INSIDE the proc (the guard
-      // cannot resolve message→issue). Same codes for the same failure modes.
+      // mailClaim resolves the message target under the caller's visibility first.
+      // An out-of-scope invisible target is deliberately indistinguishable from absence.
       expect(await outcome(viewer.issues.mailClaim({ messageId: mailA.id }))).toBe('FORBIDDEN')
-      expect(await outcome(worker.issues.mailClaim({ messageId: mailB.id }))).toBe(
-        'PRECONDITION_FAILED',
-      )
+      expect(await outcome(worker.issues.mailClaim({ messageId: mailB.id }))).toBe('NOT_FOUND')
       expect(await outcome(worker.issues.mailClaim({ messageId: mailA.id }))).toBe('OK')
 
       // The override lever unlocks exactly the PRECONDITION_FAILED cases, on both
       // paths — and never the FORBIDDEN ones.
-      const overridden = caller({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } }, true)
-      expect(await outcome(overridden.issues.update({ id: B.id, patch: { notes: 'o' } }))).toBe(
+      const overridden = caller(
+        {
+          role: 'worker',
+          scope: { kind: 'subtree', rootId: A.id },
+          actorUser: FIRST_ADMIN_USER_ID,
+          onBehalfOf: FIRST_ADMIN_USER_ID,
+        },
+        true,
+      )
+      expect(await outcome(overridden.issues.update({ id: C.id, patch: { notes: 'o' } }))).toBe(
         'OK',
       )
-      expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('OK')
-      const overriddenViewer = caller({ role: 'viewer', scope: { kind: 'all' } }, true)
+      expect(await outcome(overridden.issues.mailClaim({ messageId: mailC.id }))).toBe('OK')
+      expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('NOT_FOUND')
+      const overriddenViewer = caller(
+        {
+          role: 'viewer',
+          scope: { kind: 'all' },
+          actorUser: FIRST_ADMIN_USER_ID,
+          onBehalfOf: FIRST_ADMIN_USER_ID,
+        },
+        true,
+      )
       expect(
         await outcome(overriddenViewer.issues.update({ id: A.id, patch: { notes: 'x' } })),
       ).toBe('FORBIDDEN')

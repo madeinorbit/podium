@@ -14,12 +14,20 @@ import {
   type AutomationSessionMode,
   type AutomationWire,
   type SessionId,
+  type UserId,
 } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export type { AutomationRunOutcome } from '@podium/model'
-export type AutomationRow = AutomationWire
-export type AutomationRunRow = AutomationRunWire
+export type AutomationRow = AutomationWire & {
+  ownerUserId: UserId
+  createdByActor: string
+  createdByOnBehalfOf: UserId
+}
+export type AutomationRunRow = AutomationRunWire & {
+  actor: string
+  onBehalfOf: UserId
+}
 
 // SERIALIZATION EDGE (POD-362): sqlite hands back `Record<string, unknown>`, so
 // this is where a stored string re-enters its branded id space. The row type IS
@@ -43,6 +51,9 @@ function rowToAutomation(r: Record<string, unknown>): AutomationRow {
     nextRunAt: (r.next_run_at as string | null) ?? null,
     lastRunAt: (r.last_run_at as string | null) ?? null,
     createdAt: r.created_at as string,
+    ownerUserId: r.owner_user_id as UserId,
+    createdByActor: r.created_by_actor as string,
+    createdByOnBehalfOf: r.created_by_on_behalf_of as UserId,
   }
 }
 
@@ -55,6 +66,8 @@ function rowToRun(r: Record<string, unknown>): AutomationRunRow {
     sessionId: (r.session_id as SessionId | null) ?? null,
     outcome: r.outcome as AutomationRunOutcome,
     detail: (r.detail as string | null) ?? null,
+    actor: r.actor as string,
+    onBehalfOf: r.on_behalf_of as UserId,
   }
 }
 
@@ -80,8 +93,9 @@ export class AutomationsRepository {
       .prepare(
         `INSERT INTO automations
            (id, name, enabled, repo_path, schedule_kind, cron, run_at, target_session_id,
-            agent_kind, model, effort, prompt, session_mode, next_run_at, last_run_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            agent_kind, model, effort, prompt, session_mode, next_run_at, last_run_at, created_at,
+            owner_user_id, created_by_actor, created_by_on_behalf_of)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         a.id,
@@ -100,6 +114,9 @@ export class AutomationsRepository {
         a.nextRunAt,
         a.lastRunAt,
         a.createdAt,
+        a.ownerUserId,
+        a.createdByActor,
+        a.createdByOnBehalfOf,
       )
   }
 
@@ -142,10 +159,19 @@ export class AutomationsRepository {
   addRun(run: AutomationRunRow): void {
     this.db
       .prepare(
-        `INSERT INTO automation_runs (id, automation_id, fired_at, session_id, outcome, detail)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO automation_runs (id, automation_id, fired_at, session_id, outcome, detail, actor, on_behalf_of)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(run.id, run.automationId, run.firedAt, run.sessionId, run.outcome, run.detail)
+      .run(
+        run.id,
+        run.automationId,
+        run.firedAt,
+        run.sessionId,
+        run.outcome,
+        run.detail,
+        run.actor,
+        run.onBehalfOf,
+      )
   }
 
   getRun(id: string): AutomationRunRow | undefined {

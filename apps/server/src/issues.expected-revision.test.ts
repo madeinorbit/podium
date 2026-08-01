@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { TRPCError } from '@trpc/server'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { describe, expect, it } from 'vitest'
@@ -26,6 +27,7 @@ function callerFor(registry: SessionRegistry) {
     repos: {} as never,
     superagent: {} as never,
     capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
   })
 }
 
@@ -311,6 +313,7 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
             repos: {} as never,
             superagent: {} as never,
             capability: OPERATOR,
+            principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
           }) as never,
       })
 
@@ -345,7 +348,7 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
   it('covers every mutating command in the registry', () => {
     // A canary on the enumeration itself: if this count moves, a command was
     // added or removed and the rows below must be re-read, not re-baselined.
-    expect(mutations).toHaveLength(43)
+    expect(mutations).toHaveLength(45)
   })
 
   it.each(mutations)('%s declares a conflict class', (_name, def) => {
@@ -375,7 +378,10 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
       issueRegistry.defs as Record<string, AnyIssueCommandDef>,
     )) {
       if (def.kind === 'mutation') continue
-      expect(def.conflict, `${name} is a query and must not declare a conflict class`).toBeUndefined()
+      expect(
+        def.conflict,
+        `${name} is a query and must not declare a conflict class`,
+      ).toBeUndefined()
     }
   })
 })

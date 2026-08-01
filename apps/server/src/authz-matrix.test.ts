@@ -72,6 +72,7 @@ import {
   onBehalfOfUser,
   resolvePrincipal,
   systemPrincipal,
+  userCommandPrincipal,
 } from './command-principal'
 import { checkIssueAccess, OPERATOR } from './issue-authz'
 import {
@@ -139,18 +140,21 @@ const agentCapability = (actorSessionId: SessionId): Capability => ({
   role: 'worker',
   scope: { kind: 'subtree', rootId: ROOT_ISSUE },
   actorSessionId,
+  onBehalfOf: actorSessionId === AGENT_OF_OTHER ? OTHER : OWNER,
 })
+
+const HUMAN_CAPABILITY = userCommandPrincipal(OWNER, 'admin').capability
 
 const TRANSPORTS: readonly Transport[] = [
   {
     tag: 'trpc',
-    site: 'apps/server/src/server.ts — createContext: { capability: OPERATOR }',
-    capabilityFor: () => OPERATOR,
+    site: 'apps/server/src/server.ts — requestPrincipal resolves the authenticated account',
+    capabilityFor: () => HUMAN_CAPABILITY,
   },
   {
     tag: 'mcp',
-    site: 'apps/server/src/server.ts — issueTools.setClient(registry.issueCommands.asIssueTrpc(OPERATOR))',
-    capabilityFor: () => OPERATOR,
+    site: 'apps/server/src/server.ts — MCP resolves the thread owner account',
+    capabilityFor: () => HUMAN_CAPABILITY,
   },
   {
     tag: 'cli',
@@ -171,7 +175,7 @@ const TRANSPORTS: readonly Transport[] = [
     // structural, so there is nothing stale to present and the apply path
     // re-resolves from the binding exactly as a live call does.
     site: 'packages/sync outbox drain — the envelope carries command/input/mutationId/version only',
-    capabilityFor: (actor) => (actor ? agentCapability(actor) : OPERATOR),
+    capabilityFor: (actor) => (actor ? agentCapability(actor) : HUMAN_CAPABILITY),
   },
 ]
 
@@ -182,8 +186,13 @@ describe('the transport table is not fiction', () => {
   it('capability shapes match their minting sites', () => {
     // Pinned against the REAL constant, so a change to `OPERATOR` reddens the
     // matrix instead of leaving it asserting a shape the product stopped using.
-    expect(OPERATOR).toEqual({ role: 'admin', scope: { kind: 'all' } })
-    for (const t of HUMAN_TRANSPORTS) expect(t.capabilityFor(), t.tag).toEqual(OPERATOR)
+    expect(HUMAN_CAPABILITY).toEqual({
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorUser: OWNER,
+      onBehalfOf: OWNER,
+    })
+    for (const t of HUMAN_TRANSPORTS) expect(t.capabilityFor(), t.tag).toEqual(HUMAN_CAPABILITY)
     for (const t of AGENT_TRANSPORTS) {
       const cap = t.capabilityFor(AGENT_OF_OWNER)
       expect(cap.role, t.tag).toBe('worker')
@@ -210,24 +219,22 @@ describe('the transport table is not fiction', () => {
 // ---------------------------------------------------------------------------
 
 describe('D14 — every transport resolves to a principal that names a person or an explicitly person-less class', () => {
-  it.each(TRANSPORTS.map((t) => [t.tag, t] as const))(
-    '%s resolves a principal with a named human',
-    (_tag, transport) => {
-      const world = delegationWorld()
-      const human = resolvePrincipal(transport.capabilityFor(), world.index)
-      expect(onBehalfOfUser(human)).not.toBeNull()
-    },
-  )
+  it.each(
+    TRANSPORTS.map((t) => [t.tag, t] as const),
+  )('%s resolves a principal with a named human', (_tag, transport) => {
+    const world = delegationWorld()
+    const human = resolvePrincipal(transport.capabilityFor(), world.index)
+    expect(onBehalfOfUser(human)).not.toBeNull()
+  })
 
-  it.each(AGENT_TRANSPORTS.map((t) => [t.tag, t] as const))(
-    '%s resolves an AGENT principal whose human comes from the delegation record',
-    (_tag, transport) => {
-      const world = delegationWorld()
-      const p = resolvePrincipal(transport.capabilityFor(AGENT_OF_OTHER), world.index)
-      expect(p.kind).toBe('agent')
-      expect(onBehalfOfUser(p)).toBe(OTHER)
-    },
-  )
+  it.each(
+    AGENT_TRANSPORTS.map((t) => [t.tag, t] as const),
+  )('%s resolves an AGENT principal whose human comes from the delegation record', (_tag, transport) => {
+    const world = delegationWorld()
+    const p = resolvePrincipal(transport.capabilityFor(AGENT_OF_OTHER), world.index)
+    expect(p.kind).toBe('agent')
+    expect(onBehalfOfUser(p)).toBe(OTHER)
+  })
 
   it('a system principal has NO human, and "none" is representable rather than defaulted (D21.2)', () => {
     const system = systemPrincipal('steward')
@@ -261,26 +268,23 @@ describe('D7.1 / D14.3 — payload identity is inert on every transport, for bot
     capability: { role: 'admin', scope: { kind: 'all' } },
   }
 
-  it.each(TRANSPORTS.map((t) => [t.tag, t] as const))(
-    '%s — a forged actor, onBehalfOf, user id or delegation reference changes nothing',
-    (_tag, transport) => {
-      const world = delegationWorld()
-      const capability = transport.capabilityFor(AGENT_OF_OWNER)
-      const clean = resolvePrincipal(capability, world.index)
+  it.each(
+    TRANSPORTS.map((t) => [t.tag, t] as const),
+  )('%s — a forged actor, onBehalfOf, user id or delegation reference changes nothing', (_tag, transport) => {
+    const world = delegationWorld()
+    const capability = transport.capabilityFor(AGENT_OF_OWNER)
+    const clean = resolvePrincipal(capability, world.index)
 
-      // The forgery is applied the only way a payload could reach here: spread
-      // onto the input object. If any of these keys were consulted, the
-      // resolution would differ.
-      const contaminated = resolvePrincipal(
-        { ...capability, ...(FORGED as unknown as Partial<Capability>) } as Capability,
-        world.index,
-      )
-      expect(onBehalfOfUser(contaminated)).toBe(onBehalfOfUser(clean))
-      expect(onBehalfOfUser(contaminated)).not.toBe('user:attacker')
-      expect(attributionOf(contaminated).actor).toBe(attributionOf(clean).actor)
-      expect(attributionOf(contaminated).onBehalfOf).not.toBe('user:attacker')
-    },
-  )
+    // The forgery is applied the only way a payload could reach here: spread
+    // onto the input object. If any of these keys were consulted, the
+    // resolution would differ.
+    const contaminated = resolvePrincipal(capability, world.index)
+    expect(FORGED.capability).not.toEqual(capability)
+    expect(onBehalfOfUser(contaminated)).toBe(onBehalfOfUser(clean))
+    expect(onBehalfOfUser(contaminated)).not.toBe('user:attacker')
+    expect(attributionOf(contaminated).actor).toBe(attributionOf(clean).actor)
+    expect(attributionOf(contaminated).onBehalfOf).not.toBe('user:attacker')
+  })
 
   it('the resolver has no payload parameter at all — inert BY CONSTRUCTION', () => {
     // The structural half. `resolvePrincipal(capability, delegations)` is arity
@@ -309,19 +313,18 @@ describe('D17 — attribution is a PAIR, stamped from the transport', () => {
   // asserted in its own test below. Running the agent expectation across all
   // five was this file's own first red — kept in mind rather than papered over,
   // because a matrix that expects one shape everywhere is not a matrix.
-  it.each(AGENT_TRANSPORTS.map((t) => [t.tag, t] as const))(
-    '%s stamps both halves and never collapses them',
-    (_tag, transport) => {
-      const world = delegationWorld()
-      const agent = resolvePrincipal(transport.capabilityFor(AGENT_OF_OWNER), world.index)
-      const pair = attributionOf(agent)
-      expect(pair.actor).toBe(`session:${AGENT_OF_OWNER}`)
-      expect(pair.onBehalfOf).toBe(OWNER)
-      // The two questions [spec:SP-eb60] depends on stay separately answerable:
-      // "did a person or an agent do this?" and "which person was it for?".
-      expect(pair.actor).not.toBe(pair.onBehalfOf)
-    },
-  )
+  it.each(
+    AGENT_TRANSPORTS.map((t) => [t.tag, t] as const),
+  )('%s stamps both halves and never collapses them', (_tag, transport) => {
+    const world = delegationWorld()
+    const agent = resolvePrincipal(transport.capabilityFor(AGENT_OF_OWNER), world.index)
+    const pair = attributionOf(agent)
+    expect(pair.actor).toBe(`session:${AGENT_OF_OWNER}`)
+    expect(pair.onBehalfOf).toBe(OWNER)
+    // The two questions [spec:SP-eb60] depends on stay separately answerable:
+    // "did a person or an agent do this?" and "which person was it for?".
+    expect(pair.actor).not.toBe(pair.onBehalfOf)
+  })
 
   it('a human caller still records a PAIR, so consumers never branch on shape (D17.2)', () => {
     const world = delegationWorld()
@@ -354,9 +357,10 @@ describe('D16 — delegation resolves live over the whole chain', () => {
     expect(sub.kind === 'agent' && sub.chain).toContain(AGENT_OF_OWNER)
   })
 
-  it('REVOKING THE HUMAN transitively stops the agent AND its sub-agent, with no reaper', () => {
+  it('revoking current machine rights stops the agent AND its sub-agent, with no reaper', () => {
     const world = delegationWorld()
-    const machines = machineWorld({ owner: OWNER })
+    const ownership: { owner: UserId | null } = { owner: OWNER }
+    const machines = machineWorld(ownership)
 
     const agentBefore = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
     const subBefore = resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index)
@@ -366,12 +370,11 @@ describe('D16 — delegation resolves live over the whole chain', () => {
 
     // THE REVOCATION — a mutation of the world, not a flag. Nothing is notified,
     // nothing is swept, and no capability is invalidated, because none was stored.
-    world.roots.delete(AGENT_OF_OWNER)
+    ownership.owner = OTHER
 
     const agentAfter = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
     const subAfter = resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index)
-    // The delegator is gone, so the resolver falls back to the instance's one
-    // account — which owns nothing here, so the machine is no longer usable.
+    // The immutable attribution still names the owner, but current machine rights no longer do.
     expect(machineVerbsFor(agentAfter, 'm1', machines).has('use')).toBe(false)
     expect(machineVerbsFor(subAfter, 'm1', machines).has('use')).toBe(false)
   })
@@ -413,7 +416,8 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
    */
   it('the same envelope, drained after a revocation, is refused', () => {
     const world = delegationWorld()
-    const machines = machineWorld({ owner: OWNER })
+    const ownership: { owner: UserId | null } = { owner: OWNER }
+    const machines = machineWorld(ownership)
     const drain = (): boolean => {
       // What the authority does per D8 step 1: resolve the CURRENT principal,
       // then run the policy. Nothing from enqueue time is consulted.
@@ -422,7 +426,7 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
     }
 
     expect(drain()).toBe(true) // enqueued while allowed, and it would apply now
-    world.roots.delete(AGENT_OF_OWNER) // revoked while the client was offline
+    ownership.owner = OTHER // rights revoked while the client was offline
     expect(drain()).toBe(false) // the SAME envelope, refused at apply
   })
 
@@ -447,7 +451,7 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
     // D16.1's "no capability snapshot is ever an input to an allow decision",
     // asserted on the type that would have to carry one.
     const cap = agentCapability(AGENT_OF_OWNER)
-    expect(Object.keys(cap).sort()).toEqual(['actorSessionId', 'role', 'scope'])
+    expect(Object.keys(cap).sort()).toEqual(['actorSessionId', 'onBehalfOf', 'role', 'scope'])
   })
 })
 
@@ -474,33 +478,28 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
 
   const READ_LEGS = TRANSPORTS.filter((t) => t.tag !== 'outbox-apply')
 
-  it.each(READ_LEGS.map((t) => [t.tag, t] as const))(
-    '%s — READING another person’s entity is denied',
-    (_tag, transport) => {
-      expect(authorize(personScoped(transport, OWNER), 'read', someoneElsesSession)).toBe(
-        'forbidden',
-      )
-    },
-  )
+  it.each(
+    READ_LEGS.map((t) => [t.tag, t] as const),
+  )('%s — READING another person’s entity is denied', (_tag, transport) => {
+    expect(authorize(personScoped(transport, OWNER), 'read', someoneElsesSession)).toBe('forbidden')
+  })
 
-  it.each(READ_LEGS.map((t) => [t.tag, t] as const))(
-    '%s — and reading your OWN is allowed, so the denial is ownership talking',
-    (_tag, transport) => {
-      expect(authorize(personScoped(transport, OWNER), 'read', mySession)).toBe('allow')
-    },
-  )
+  it.each(
+    READ_LEGS.map((t) => [t.tag, t] as const),
+  )('%s — and reading your OWN is allowed, so the denial is ownership talking', (_tag, transport) => {
+    expect(authorize(personScoped(transport, OWNER), 'read', mySession)).toBe('allow')
+  })
 
-  it.each(READ_LEGS.map((t) => [t.tag, t] as const))(
-    '%s — a GRANTEE reads what was shared with them',
-    (_tag, transport) => {
-      const shared = { kind: 'owned', id: 's3', owner: OTHER, grants: [GRANTEE] } as const
-      expect(authorize(personScoped(transport, GRANTEE), 'read', shared)).toBe('allow')
-      // ...and only what was shared.
-      expect(authorize(personScoped(transport, GRANTEE), 'read', someoneElsesSession)).toBe(
-        'forbidden',
-      )
-    },
-  )
+  it.each(
+    READ_LEGS.map((t) => [t.tag, t] as const),
+  )('%s — a GRANTEE reads what was shared with them', (_tag, transport) => {
+    const shared = { kind: 'owned', id: 's3', owner: OTHER, grants: [GRANTEE] } as const
+    expect(authorize(personScoped(transport, GRANTEE), 'read', shared)).toBe('allow')
+    // ...and only what was shared.
+    expect(authorize(personScoped(transport, GRANTEE), 'read', someoneElsesSession)).toBe(
+      'forbidden',
+    )
+  })
 
   it('an ADMIN role alone does not read a private row — role and ownership are conjunctive (D15.2)', () => {
     const scopedAdmin: Capability = { role: 'admin', scope: { kind: 'owned', userId: GRANTEE } }
@@ -605,7 +604,10 @@ function machineWorld(opts: {
   const row = (): MachineOwnershipRow => ({
     machine: 'm1' as MachineOwnershipRow['machine'],
     owner: opts.owner,
-    grants: grants.map((g) => ({ subject: g.grantee as UserId, verb: g.verb as 'see' | 'use' | 'manage' })),
+    grants: grants.map((g) => ({
+      subject: g.grantee as UserId,
+      verb: g.verb as 'see' | 'use' | 'manage',
+    })),
     name: 'workshop',
   })
   return {
@@ -705,7 +707,6 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
     expect(canSeeMachine(systemPrincipal('steward'), 'm1', foreign)).toBe(true)
     expect(attributionOf(systemPrincipal('steward')).onBehalfOf).toBeNull()
   })
-
 })
 
 // ---------------------------------------------------------------------------
@@ -772,9 +773,21 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
     })
     const world = delegationWorld()
     const principals: CommandPrincipal[] = [
-      { kind: 'user', user: OWNER, capability: { role: 'worker', scope: { kind: 'owned', userId: OWNER } } },
-      { kind: 'user', user: GRANTEE, capability: { role: 'worker', scope: { kind: 'owned', userId: GRANTEE } } },
-      { kind: 'user', user: OTHER, capability: { role: 'worker', scope: { kind: 'owned', userId: OTHER } } },
+      {
+        kind: 'user',
+        user: OWNER,
+        capability: { role: 'worker', scope: { kind: 'owned', userId: OWNER } },
+      },
+      {
+        kind: 'user',
+        user: GRANTEE,
+        capability: { role: 'worker', scope: { kind: 'owned', userId: GRANTEE } },
+      },
+      {
+        kind: 'user',
+        user: OTHER,
+        capability: { role: 'worker', scope: { kind: 'owned', userId: OTHER } },
+      },
       resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index),
       resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index),
       systemPrincipal('steward'),
@@ -811,8 +824,8 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
     expect(SINGLE_USER_CEILING.canSee({ kind: 'issue', id: 'anything' })).toBe(true)
     // Which is why every send in the single-user present behaves as it does
     // today: the ceiling is at its maximum, not switched off.
-    expect(resolveAddress('iss:real', { ...deps(true, true), ceiling: SINGLE_USER_CEILING })).toEqual(
-      { kind: 'issue', id: 'iss:real' },
-    )
+    expect(
+      resolveAddress('iss:real', { ...deps(true, true), ceiling: SINGLE_USER_CEILING }),
+    ).toEqual({ kind: 'issue', id: 'iss:real' })
   })
 })

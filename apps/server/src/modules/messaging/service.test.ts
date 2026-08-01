@@ -34,9 +34,7 @@ describe('parseTelegramUpdates', () => {
       { update_id: 11, message: { chat: { id: 42 }, photo: [{}] } },
       { update_id: 12, edited_message: { text: 'edited', chat: { id: 42 } } },
     ])
-    expect(messages).toEqual([
-      { updateId: 10, chatId: '42', text: 'hello', senderLabel: '@mika' },
-    ])
+    expect(messages).toEqual([{ updateId: 10, chatId: '42', text: 'hello', senderLabel: '@mika' }])
     expect(callbacks).toEqual([])
     expect(lastUpdateId).toBe(12)
   })
@@ -255,8 +253,7 @@ function makeHarness(
     },
   }
   const sendTurn = vi.fn(
-    opts.sendTurnImpl ??
-      (() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
+    opts.sendTurnImpl ?? (() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
   )
   const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
   const restartThread = vi.fn(opts.restartThreadImpl ?? (() => {}))
@@ -529,8 +526,7 @@ describe('MessagingService', () => {
     it('clears typing when the thread is busy elsewhere', async () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sendTurnImpl: () =>
-          Promise.reject(new Error('a turn is already running on this thread')),
+        sendTurnImpl: () => Promise.reject(new Error('a turn is already running on this thread')),
       })
       h.inbound('hello')
       await flushMicro()
@@ -562,15 +558,15 @@ describe('MessagingService', () => {
       vi.useRealTimers()
     })
 
-    function agentState(phase: 'working' | 'idle' | 'needs_user' | 'errored' | 'ended' | 'compacting') {
+    function agentState(
+      phase: 'working' | 'idle' | 'needs_user' | 'errored' | 'ended' | 'compacting',
+    ) {
       return {
         phase,
         since: '2026-07-16T00:00:00.000Z',
         nativeSubagentCount: 0,
         ...(phase === 'needs_user' ? { need: { kind: 'question' as const } } : {}),
-        ...(phase === 'errored'
-          ? { error: { class: 'server_error', retryable: true } }
-          : {}),
+        ...(phase === 'errored' ? { error: { class: 'server_error', retryable: true } } : {}),
         ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
       }
     }
@@ -636,29 +632,32 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toHaveLength(3)
     })
 
-    it.each(['idle', 'needs_user', 'errored', 'ended', 'compacting'] as const)(
-      'stops ambient typing on %s',
-      (phase) => {
-        vi.useFakeTimers()
-        const h = makeHarness({
-          sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
-        })
-        const { sessionId } = bindTopic(h)
-        h.bus.emit('session.stateChanged', {
-          sessionId,
-          prev: undefined,
-          next: agentState('working'),
-        })
-        const countWhileWorking = h.typingCalls.length
-        h.bus.emit('session.stateChanged', {
-          sessionId,
-          prev: agentState('working'),
-          next: agentState(phase),
-        })
-        vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
-        expect(h.typingCalls).toHaveLength(countWhileWorking)
-      },
-    )
+    it.each([
+      'idle',
+      'needs_user',
+      'errored',
+      'ended',
+      'compacting',
+    ] as const)('stops ambient typing on %s', (phase) => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+      })
+      const { sessionId } = bindTopic(h)
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: undefined,
+        next: agentState('working'),
+      })
+      const countWhileWorking = h.typingCalls.length
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: agentState('working'),
+        next: agentState(phase),
+      })
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+      expect(h.typingCalls).toHaveLength(countWhileWorking)
+    })
 
     it('stops ambient typing on session.exited', () => {
       vi.useFakeTimers()
@@ -793,7 +792,7 @@ describe('MessagingService', () => {
     const h = makeHarness()
     h.inbound('/stop')
     await flush()
-    expect(h.interruptTurn).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(h.interruptTurn).toHaveBeenCalledWith({ ownerUserId: BOUND_USER, threadId: 'global' })
     expect(h.sendTurn).not.toHaveBeenCalled()
   })
 
@@ -803,7 +802,7 @@ describe('MessagingService', () => {
     await flush()
     h.inbound('/new')
     await flush()
-    expect(h.restartThread).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(h.restartThread).toHaveBeenCalledWith({ ownerUserId: BOUND_USER, threadId: 'global' })
     expect(h.sent.at(-1)!.text).toContain('restarted')
     h.bus.emit('superagent.turnEnded', {
       threadId: 'global',
@@ -875,7 +874,10 @@ describe('MessagingService', () => {
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
     expect(h.createForumTopic).toHaveBeenCalledWith('42', 'POD-9 Slash commands')
-    expect(h.startBtwTurn).toHaveBeenCalledWith({ sessionId: asSessionId('sess_1') })
+    expect(h.startBtwTurn).toHaveBeenCalledWith({
+      ownerUserId: BOUND_USER,
+      sessionId: asSessionId('sess_1'),
+    })
     expect(h.answerCallback).toHaveBeenCalledWith('cb1', 'Created topic')
     expect(h.sent[0]!.threadRef).toBe('9001')
     h.inbound('status in topic', { threadRef: '9001' })
@@ -1016,7 +1018,10 @@ describe('MessagingService', () => {
     })
     h.inbound('', { callback: { id: 'cb2', data: 'i:iss_i2' } })
     await flush()
-    expect(h.ensureConciergeThread).toHaveBeenCalledWith({ repoPath: '/my/repo' })
+    expect(h.ensureConciergeThread).toHaveBeenCalledWith({
+      ownerUserId: BOUND_USER,
+      repoPath: '/my/repo',
+    })
     h.inbound('hello concierge', { threadRef: '9001' })
     await flush()
     expect(h.sendTurn.mock.calls[0]![0]!.threadId).toMatch(/^concierge_/)
@@ -1064,14 +1069,13 @@ describe('MessagingService', () => {
       chatId: '42',
     })
     await flush()
-    expect(h.sent).toEqual([
-      { chatId: '42', text: 'keyboard needs you\n\nSQLite or Postgres?' },
-    ])
+    expect(h.sent).toEqual([{ chatId: '42', text: 'keyboard needs you\n\nSQLite or Postgres?' }])
   })
 
   it('sendNotice with sessionId routes to the bound issue forum topic', async () => {
     const h = makeHarness({
-      sessionIssueId: (sessionId) => (sessionId === asSessionId('s_pod') ? asIssueId('iss_pod') : null),
+      sessionIssueId: (sessionId) =>
+        sessionId === asSessionId('s_pod') ? asIssueId('iss_pod') : null,
     })
     h.topics.upsert({
       issueId: 'iss_pod',
@@ -1081,10 +1085,14 @@ describe('MessagingService', () => {
       updatedAt: '2026-07-16T00:00:00.000Z',
     })
     h.inbound('in another topic', { threadRef: '77' })
-    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
-      botToken: 'tok',
-      chatId: '42',
-    }, { sessionId: asSessionId('s_pod') })
+    h.service.sendNotice(
+      'keyboard needs you\n\nSQLite or Postgres?',
+      {
+        botToken: 'tok',
+        chatId: '42',
+      },
+      { sessionId: asSessionId('s_pod') },
+    )
     await flush()
     expect(h.sent).toEqual([
       {
@@ -1100,10 +1108,14 @@ describe('MessagingService', () => {
       sessionIssueId: () => asIssueId('iss_unbound'),
     })
     h.inbound('in topic', { threadRef: '77' })
-    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
-      botToken: 'tok',
-      chatId: '42',
-    }, { sessionId: asSessionId('s1') })
+    h.service.sendNotice(
+      'keyboard needs you\n\nSQLite or Postgres?',
+      {
+        botToken: 'tok',
+        chatId: '42',
+      },
+      { sessionId: asSessionId('s1') },
+    )
     await flush()
     expect(h.sent).toEqual([
       {
@@ -1211,7 +1223,6 @@ describe('MessagingService', () => {
   })
 })
 
-
 // ---------------------------------------------------------------------------
 // The identity gate (POD-1080, ADR 3 Amendment 1 D22)
 // ---------------------------------------------------------------------------
@@ -1273,7 +1284,10 @@ describe('an inbound chat must resolve to a user, or nothing happens', () => {
   it('ADMITS the same slash command and callback once the chat IS bound', async () => {
     // The positive control for the two arms above, so "slash commands are
     // refused" cannot be satisfied by a slash path that never worked here.
-    const h = makeHarness({ bindings: [boundChat('42')], issues: { list: () => [liveIssue()] as never } })
+    const h = makeHarness({
+      bindings: [boundChat('42')],
+      issues: { list: () => [liveIssue()] as never },
+    })
     h.inbound('/issues')
     await flush()
     expect(h.sent.length).toBeGreaterThan(0)

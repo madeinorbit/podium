@@ -1,3 +1,4 @@
+import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
 import { asIssueId, asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
@@ -58,6 +59,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'epic root', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'unrelated', startNow: false })
@@ -67,14 +69,28 @@ describe('issues.* subtree scope (P1a)', () => {
     for (const r of registries.splice(0)) r.dispose()
   })
 
-  const callerWith = (capability: Capability, overrideScope = false) =>
-    appRouter.createCaller({
+  const callerWith = (rawCapability: Capability, overrideScope = false) => {
+    const capability: Capability =
+      rawCapability.scope.kind === 'subtree'
+        ? {
+            ...rawCapability,
+            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          }
+        : {
+            ...rawCapability,
+            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          }
+    return appRouter.createCaller({
       registry,
       repos: {} as never,
       superagent: {} as never,
       capability,
+      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
       overrideScope,
     })
+  }
 
   it('worker may write inside its subtree', async () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
@@ -86,7 +102,10 @@ describe('issues.* subtree scope (P1a)', () => {
     await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).rejects.toThrow(
       /outside your subtree/,
     )
-    const c2 = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } }, true)
+    const c2 = callerWith(
+      { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } },
+      true,
+    )
     await expect(c2.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
   })
 
@@ -104,6 +123,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
     await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
   })
@@ -122,6 +142,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
     const w = (await op.issues.setNeedsHuman({
       id: A.id,
@@ -214,6 +235,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       role: 'worker',
       scope: { kind: 'subtree', rootId: i.id },
       actorSessionId: sid,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     })
 
     const { sessionId: sid2 } = registry.modules.sessions.createSession({
@@ -224,6 +246,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       role: 'worker',
       scope: { kind: 'none' },
       actorSessionId: sid2,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     })
 
     // No session behind the id → no actor to name.
@@ -328,6 +351,7 @@ describe('issues.mail* (agent mail #103)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'mine', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'other', startNow: false })
@@ -337,16 +361,31 @@ describe('issues.mail* (agent mail #103)', () => {
     for (const r of registries.splice(0)) r.dispose()
   })
 
-  const callerWith = (capability: Capability, overrideScope = false) =>
-    appRouter.createCaller({
+  const callerWith = (rawCapability: Capability, overrideScope = false) => {
+    const capability: Capability =
+      rawCapability.scope.kind === 'subtree'
+        ? {
+            ...rawCapability,
+            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          }
+        : {
+            ...rawCapability,
+            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          }
+    return appRouter.createCaller({
       registry,
       repos: {} as never,
       superagent: {} as never,
       capability,
+      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
       overrideScope,
     })
+  }
 
-  const scopedToA = () => callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
+  const scopedToA = () =>
+    callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
 
   it('mailSend to ANOTHER issue needs no --outside-scope; sender is issue:#<seq>', async () => {
     const m = await scopedToA().issues.mailSend({ id: B.id, body: 'heads up' })
@@ -359,7 +398,7 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 
   it('mailInbox / mailPending with no id resolve to the caller bound issue', async () => {
-    await callerWith(OPERATOR).issues.mailSend({ id: A.id, body: 'for A' })
+    registry.issues.sendMail(A.id, 'operator', 'for A')
     const c = scopedToA()
     expect(await c.issues.mailPending()).toMatchObject({ unread: 1 })
     const inbox = await c.issues.mailInbox()
@@ -369,12 +408,15 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 
   it('a PEEK at another mailbox (operator or other agent) does not consume unread', async () => {
-    await callerWith(OPERATOR).issues.mailSend({ id: A.id, body: 'for A' })
+    registry.issues.sendMail(A.id, 'operator', 'for A')
     // operator peek
     const opInbox = await callerWith(OPERATOR).issues.mailInbox({ id: A.id })
     expect(opInbox[0]).toMatchObject({ status: 'unread', wasUnread: true })
     // other agent peek (reads are scope-free)
-    const scopedToB = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(B.id) } })
+    const scopedToB = callerWith({
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(B.id) },
+    })
     await scopedToB.issues.mailInbox({ id: A.id })
     // recipient still sees it unread and consumes it
     expect(await scopedToA().issues.mailPending()).toMatchObject({ unread: 1 })
@@ -390,8 +432,8 @@ describe('issues.mail* (agent mail #103)', () => {
 
   it('mailClaim is scope-gated to the OWN issue via the message target', async () => {
     const op = callerWith(OPERATOR)
-    const mine = await op.issues.mailSend({ id: A.id, body: 'mine' })
-    const theirs = await op.issues.mailSend({ id: B.id, body: 'theirs' })
+    const mine = registry.issues.sendMail(A.id, 'operator', 'mine')
+    const theirs = registry.issues.sendMail(B.id, 'operator', 'theirs')
     const c = scopedToA()
     const r = await c.issues.mailClaim({ messageId: mine.id })
     expect(r.claimed).toBe(true)
@@ -399,7 +441,10 @@ describe('issues.mail* (agent mail #103)', () => {
     await expect(c.issues.mailClaim({ messageId: theirs.id })).rejects.toThrow(
       /outside your subtree/,
     )
-    const c2 = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } }, true)
+    const c2 = callerWith(
+      { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } },
+      true,
+    )
     await expect(c2.issues.mailClaim({ messageId: theirs.id })).resolves.toMatchObject({
       claimed: true,
     })
@@ -410,7 +455,7 @@ describe('issues.mail* (agent mail #103)', () => {
 
   it('second claim on the same message loses', async () => {
     const op = callerWith(OPERATOR)
-    const m = await op.issues.mailSend({ id: A.id, body: 'race' })
+    const m = registry.issues.sendMail(A.id, 'operator', 'race')
     expect((await op.issues.mailClaim({ messageId: m.id })).claimed).toBe(true)
     const again = await scopedToA().issues.mailClaim({ messageId: m.id })
     expect(again.claimed).toBe(false)
@@ -434,6 +479,7 @@ describe('issues router create/list/update', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
   }
 
@@ -469,6 +515,7 @@ describe('issues.subscription* authz (Phase B)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'root A', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'root B', startNow: false })
@@ -478,14 +525,28 @@ describe('issues.subscription* authz (Phase B)', () => {
     for (const r of registries.splice(0)) r.dispose()
   })
 
-  const callerWith = (capability: Capability, overrideScope = false) =>
-    appRouter.createCaller({
+  const callerWith = (rawCapability: Capability, overrideScope = false) => {
+    const capability: Capability =
+      rawCapability.scope.kind === 'subtree'
+        ? {
+            ...rawCapability,
+            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          }
+        : {
+            ...rawCapability,
+            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
+            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          }
+    return appRouter.createCaller({
       registry,
       repos: {} as never,
       superagent: {} as never,
       capability,
+      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
       overrideScope,
     })
+  }
   const scopedTo = (id: string) =>
     callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(id) } })
 

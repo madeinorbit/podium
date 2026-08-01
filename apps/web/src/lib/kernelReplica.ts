@@ -28,6 +28,7 @@
  * `bootstrapping` with nothing coming.
  */
 
+import { type CreateEngineOutbox, openKernelEngineOutbox } from '@podium/client-core/engine'
 import {
   type Replica as ClientReplica,
   createKernelReplica,
@@ -60,13 +61,14 @@ export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
  * keyed `default` holds rows captured before anyone could be attributed, and
  * POD-377's rule applies — adopt only when attribution is CERTAIN.
  */
-export const KERNEL_REPLICA_PRINCIPAL = 'default'
 
 export interface KernelAssembly {
   /** Handed to the engine; called once. */
   readonly createReplicaFn: () => ClientReplica
   /** Handed to the engine; makes its hub advertise wire 2. */
   readonly feed: FeedSinkPort
+  /** Real kernel Outbox over this assembly's IndexedDB store. */
+  readonly createOutboxFn: CreateEngineOutbox
   /** The kernel Replica itself — the shadow harness classifies against it. */
   readonly kernel: KernelReplica
   readonly store: IndexedDbSyncStore
@@ -80,7 +82,7 @@ export interface KernelAssembly {
 export interface OpenKernelAssemblyOptions {
   readonly trpc: Trpc
   readonly databaseName?: string
-  readonly principal?: string
+  readonly principal: string
   /** Injected by tests (fake-indexeddb); defaults to the browser's. */
   readonly factory?: IdbFactoryLike
   /** Surfaced rather than swallowed (ADR 6 D4). */
@@ -107,7 +109,7 @@ export interface OpenKernelAssemblyOptions {
    * can present `unknown` or a foreign ledger and observe the REFUSAL, which is
    * the only way to know the gate can say no.
    */
-  readonly evidence?: LegacyIdentityEvidence
+  readonly evidence: LegacyIdentityEvidence
 }
 
 export async function openKernelAssembly(
@@ -124,7 +126,7 @@ export async function openKernelAssembly(
       console.warn('[podium] kernel replica storage degraded', detail)
     },
   })
-  const view = store.viewFor(options.principal ?? KERNEL_REPLICA_PRINCIPAL)
+  const view = store.viewFor(options.principal)
 
   // ---- THE ATTRIBUTION GATE, before a single row is read ------------------
   //
@@ -132,10 +134,7 @@ export async function openKernelAssembly(
   // and the records are two things it returns, and only the decision applies
   // here. Re-deriving the rule locally would fork it, and a second copy of a
   // privacy rule is worse than an off-label call to the first.
-  const evidence: LegacyIdentityEvidence = options.evidence ?? {
-    kind: 'single-account',
-    principal: options.principal ?? KERNEL_REPLICA_PRINCIPAL,
-  }
+  const evidence: LegacyIdentityEvidence = options.evidence
   const adoption = decideLegacyAdoption(
     { verdict: 'import', outbox: [], retireKeys: [], rejected: [], cursorDiscarded: false },
     evidence,
@@ -166,6 +165,12 @@ export async function openKernelAssembly(
   })
 
   const listeners = new Set<(event: ReplicaEvent) => void>()
+  const createOutboxFn = await openKernelEngineOutbox({
+    store: view.outbox,
+    principal: options.principal,
+    api: trpc,
+    onDegraded: (detail) => options.onDegraded?.(detail),
+  })
   const facade = createKernelReplica({
     cache: view.cache,
     side: createSideCache({
@@ -205,6 +210,7 @@ export async function openKernelAssembly(
   return {
     createReplicaFn: () => facade,
     feed: sink,
+    createOutboxFn,
     kernel,
     store,
     attachHub: (attached) => {
@@ -264,7 +270,7 @@ export async function resolveWebReplicaMode(args: {
     flags?.flags.find((f) => f.id === id)?.enabled ?? false
   return {
     mode: resolveReplicaMode({
-      kernelReplicaEnabled: enabledFlag('kernel-replica'),
+      kernelReplicaEnabled: true,
       shadowEnabled: enabledFlag('kernel-replica-shadow'),
       serverGrade,
     }),

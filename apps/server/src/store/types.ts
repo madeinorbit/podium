@@ -14,6 +14,7 @@ import type {
   SessionId,
   ThreadId,
   UserId,
+  VisibilityClass,
 } from '@podium/model'
 import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 
@@ -111,6 +112,8 @@ export interface TerminalCandidateRecord {
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
   id: SessionId
+  /** Immutable human owner; optional only at legacy adapter boundaries. */
+  ownerUserId?: UserId
   agentKind: string
   /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
   model?: string | null
@@ -285,6 +288,11 @@ export interface MachineRecord {
  */
 export interface IssueRow {
   id: IssueId
+  /** Immutable accountable ownership; optional only at legacy adapter boundaries. */
+  ownerUserId?: UserId
+  visibility?: VisibilityClass
+  createdByActor?: string
+  createdByOnBehalfOf?: UserId | null
   repoPath: string
   /** Stable repo identity (#74/#164) — the issue's repo KEY: repo-scoped reads
    *  and seq allocation key on it (UNIQUE(repo_id, seq)). repoPath remains the
@@ -397,6 +405,8 @@ export interface IssueCommentRow {
   author: string
   body: string
   createdAt: string
+  actor?: string | null
+  onBehalfOf?: string | null
 }
 
 /**
@@ -574,6 +584,7 @@ export interface ToolCallRow {
 /** One message of a superagent thread (the 'global' orchestrator, or a 'btw_<id>' thread). */
 export interface SuperagentMessageRow {
   id: number
+  ownerUserId: UserId
   role: 'user' | 'assistant' | 'tool' | 'system'
   content: string
   toolCalls?: ToolCallRow[]
@@ -586,6 +597,7 @@ export interface SuperagentMessageRow {
  *  thread, or a per-repo 'concierge' intake thread. */
 export interface SuperagentThreadRow {
   id: string
+  ownerUserId: UserId
   kind: 'global' | 'btw' | 'concierge'
   originSessionId?: SessionId
   /** The repo this thread fronts (concierge threads only). */
@@ -614,6 +626,7 @@ export interface SuperagentThreadRow {
  * the restart-stable portion of a headlessTurnRequest. */
 export interface PendingSuperagentTurnRow {
   turnId: string
+  ownerUserId: UserId
   threadId: ThreadId
   podiumSessionId: SessionId
   payload: {
@@ -638,6 +651,7 @@ export interface PendingSuperagentTurnRow {
 /** Raw user input persisted synchronously before context/session preparation. */
 export interface QueuedSuperagentInputRow {
   inputId: string
+  ownerUserId: UserId
   threadId: ThreadId
   text: string
   focus?: {

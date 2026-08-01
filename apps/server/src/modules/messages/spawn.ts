@@ -11,7 +11,7 @@
  * in MessageDeliveryService.trySpawn. This module only knows how to spawn.
  */
 
-import type { AgentKind, IssueId, SessionId } from '@podium/model'
+import type { AgentKind, IssueId, SessionId, UserId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'
@@ -27,6 +27,7 @@ export interface SpawnOnWakeDeps {
     issueId?: IssueId
     spawnedBy?: string
     machineId?: string
+    ownerUserId: UserId
   }): { sessionId: SessionId }
 }
 
@@ -63,6 +64,11 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
           effort: issue.defaultEffort,
           issueId: issue.id,
           spawnedBy: spawnedByForMessage(message),
+          ownerUserId:
+            issue.ownerUserId ??
+            (() => {
+              throw new Error('issue has no accountable owner')
+            })(),
           ...(issue.machineId ? { machineId: issue.machineId } : {}),
         })
         return { ok: true, sessionId }

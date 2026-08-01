@@ -17,9 +17,9 @@
  */
 
 import { TRPCError } from '@trpc/server'
+import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
-import { onBehalfOfUser } from '../../command-principal'
 import { fleetAuthzDeps, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
@@ -68,6 +68,34 @@ const badRequest = (e: unknown): never => {
 
 export const machineRenameHandler = ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
   mods(ctx).machines.renameMachine(input.id, input.name)
+  return mods(ctx).machines.listMachines()
+}
+
+export const machineShareHandler = ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage' }>) => {
+  const principal = fleetAuthzDeps(ctx).principal
+  const attribution = attributionOf(principal)
+  if (attribution.onBehalfOf === null) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
+  }
+  mods(ctx).machines.shareMachine(input.id, input.grantee, input.verb, {
+    actor: attribution.actor,
+    onBehalfOf: attribution.onBehalfOf,
+  })
+  return mods(ctx).machines.listMachines()
+}
+
+export const machineUnshareHandler = ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage' }>) => {
+  const owner = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
+  if (owner === null) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
+  }
+  mods(ctx).machines.unshareMachine(input.id, input.grantee, input.verb, owner)
   return mods(ctx).machines.listMachines()
 }
 

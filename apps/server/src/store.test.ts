@@ -1,4 +1,10 @@
-import { SOLE_USER_ID, asAccountId, asIssueId, asSessionId } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID,
+  SOLE_USER_ID,
+  asAccountId,
+  asIssueId,
+  asSessionId,
+} from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -57,7 +63,11 @@ describe('versioned drafts — column guard (POD-859)', () => {
         history: ['old'],
       }),
     ).not.toThrow()
-    expect(repo.loadDraftDocs()[asSessionId('sess')]).toMatchObject({ text: 'v2 text', rev: 0, history: [] })
+    expect(repo.loadDraftDocs()[asSessionId('sess')]).toMatchObject({
+      text: 'v2 text',
+      rev: 0,
+      history: [],
+    })
     db.close()
   })
 })
@@ -142,6 +152,7 @@ describe('SessionStore repos', () => {
 function row(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     id: asSessionId('id-1'),
+    ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'claude-code',
     cwd: '/proj',
     title: 'proj',
@@ -303,7 +314,9 @@ describe('SessionStore sessions', () => {
 
     store.sessions.restoreDeletedForIssue('iss_1')
     expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([])
-    expect(store.sessions.loadSessions()).toEqual([row({ issueId: asIssueId('iss_1'), status: 'exited' })])
+    expect(store.sessions.loadSessions()).toEqual([
+      row({ issueId: asIssueId('iss_1'), status: 'exited' }),
+    ])
     store.close()
   })
 
@@ -394,7 +407,10 @@ describe('SessionStore sessions', () => {
   it('reads spawnedBy as null on a legacy row that never had it', () => {
     const store = new SessionStore(':memory:')
     // A row written without the field (the pre-#60 write shape) reads back null.
-    const { spawnedBy: _omit, ...legacy } = row({ id: asSessionId('s2'), durableLabel: 'podium-s2' })
+    const { spawnedBy: _omit, ...legacy } = row({
+      id: asSessionId('s2'),
+      durableLabel: 'podium-s2',
+    })
     store.sessions.upsertSession(legacy)
     expect(store.sessions.loadSessions()[0]?.spawnedBy).toBeNull()
     store.close()
@@ -567,7 +583,10 @@ describe('SessionStore snoozes', () => {
 
     store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), null)
     store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s2'), '2999-01-01T05:00:00.000Z')
-    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({ s1: null, s2: '2999-01-01T05:00:00.000Z' })
+    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({
+      s1: null,
+      s2: '2999-01-01T05:00:00.000Z',
+    })
 
     // overwrite s1 with a timed value
     store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), '2999-01-01T05:00:00.000Z')
@@ -653,7 +672,10 @@ describe('SessionStore tab order', () => {
     store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s1', 's2'])
     store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', ['s9'])
     store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s2', 's1'])
-    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2', 's1'], '/repo/b': ['s9'] })
+    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({
+      '/repo/a': ['s2', 's1'],
+      '/repo/b': ['s9'],
+    })
 
     store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', [])
     expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2', 's1'] })
@@ -662,7 +684,9 @@ describe('SessionStore tab order', () => {
 
   it('rejects an empty worktree path', () => {
     const store = new SessionStore(':memory:')
-    expect(() => store.sessions.setTabOrder(SOLE_USER_ID, '  ', ['s1'])).toThrow('worktree path is empty')
+    expect(() => store.sessions.setTabOrder(SOLE_USER_ID, '  ', ['s1'])).toThrow(
+      'worktree path is empty',
+    )
     store.close()
   })
 
@@ -879,9 +903,16 @@ describe('conversation index', () => {
 describe('SessionStore superagent threads', () => {
   it('creates a default global thread and scopes messages by thread', () => {
     const s = new SessionStore(':memory:')
-    expect(s.superagent.listSuperagentThreads().some((t) => t.id === 'global')).toBe(true)
+    expect(
+      s.superagent.listSuperagentThreads(FIRST_ADMIN_USER_ID).some((t) => t.id === 'global'),
+    ).toBe(true)
     s.superagent.appendSuperagentMessage('global', { role: 'user', content: 'hi' })
-    s.superagent.upsertSuperagentThread({ id: 'btw_x', kind: 'btw', originSessionId: asSessionId('x') })
+    s.superagent.upsertSuperagentThread({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      id: 'btw_x',
+      kind: 'btw',
+      originSessionId: asSessionId('x'),
+    })
     s.superagent.appendSuperagentMessage('btw_x', { role: 'user', content: 'ctx' })
     expect(s.superagent.loadSuperagentMessages('global').map((m) => m.content)).toEqual(['hi'])
     expect(s.superagent.loadSuperagentMessages('btw_x').map((m) => m.content)).toEqual(['ctx'])
@@ -895,7 +926,12 @@ describe('SessionStore superagent threads', () => {
   })
   it('stores and reads a btw watermark', () => {
     const s = new SessionStore(':memory:')
-    s.superagent.upsertSuperagentThread({ id: 'btw_y', kind: 'btw', originSessionId: asSessionId('y') })
+    s.superagent.upsertSuperagentThread({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      id: 'btw_y',
+      kind: 'btw',
+      originSessionId: asSessionId('y'),
+    })
     s.superagent.setThreadWatermark('btw_y', 'item-42', '2026-06-16T08:00:00Z')
     const t = s.superagent.getSuperagentThread('btw_y')
     expect(t?.watermarkItemId).toBe('item-42')
@@ -905,7 +941,12 @@ describe('SessionStore superagent threads', () => {
   it('clears only the targeted thread', () => {
     const s = new SessionStore(':memory:')
     s.superagent.appendSuperagentMessage('global', { role: 'user', content: 'g' })
-    s.superagent.upsertSuperagentThread({ id: 'btw_z', kind: 'btw', originSessionId: asSessionId('z') })
+    s.superagent.upsertSuperagentThread({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      id: 'btw_z',
+      kind: 'btw',
+      originSessionId: asSessionId('z'),
+    })
     s.superagent.appendSuperagentMessage('btw_z', { role: 'user', content: 'z' })
     s.superagent.clearSuperagentMessages('btw_z')
     expect(s.superagent.loadSuperagentMessages('global').length).toBe(1)

@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
@@ -19,6 +19,12 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
     const clientId = reg.clientGateway.attachClient((m) => inbox.push(m))
+    reg.clientGateway.routeClientFrame(clientId, {
+      type: 'hello',
+      wireVersion: WIRE_VERSION,
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
     reg.modules.sessions.flushBroadcasts()
     // Clear the bootstrap traffic; from here on we watch only what our churn emits.
     inbox.length = 0
@@ -49,7 +55,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // satisfied by a connection that was never served at all.
     reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
     reg.modules.sessions.flushBroadcasts()
-    expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(true)
+    expect(inbox.some((m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'))).toBe(true)
     reg.dispose()
   })
 
@@ -75,7 +81,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
     reg.modules.sessions.flushBroadcasts()
 
-    expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(true)
+    expect(inbox.some((m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'))).toBe(true)
     expect(inbox.some((m) => m.type === 'issuesChanged')).toBe(false)
 
     // THE PAIRED HALF, without which the line above is satisfied by an issue
@@ -86,7 +92,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     expect(issue).toBeDefined()
     reg.issues.update(issue!.id, { title: 'renamed' })
     reg.modules.sessions.flushBroadcasts()
-    expect(inbox.some((m) => m.type === 'issuesChanged')).toBe(true)
+    expect(inbox.some((m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'issue'))).toBe(true)
     reg.dispose()
   })
 })

@@ -42,10 +42,13 @@ const SESSION_STATE_CLOSED_DEFAULT = provisional(
 )
 
 describe('oracle: not-found shape, per write', () => {
-  it(`${EXISTENCE_ORACLE}: the session-state writes are SILENT NO-OPS on an unknown session — no throw, no row, no reason`, async () => {
+  it(`${EXISTENCE_ORACLE}: rename gives the Outbox a normalized refusal while the remaining session-state writes stay silent`, async () => {
     const o = makeOracle()
 
-    await expect(o.call.sessions.rename({ sessionId: GHOST, name: 'x' })).resolves.toBeUndefined()
+    await expect(o.call.sessions.rename({ sessionId: GHOST, name: 'x' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      message: 'command refused',
+    })
     await expect(
       o.call.sessions.setArchived({ sessionId: GHOST, archived: true }),
     ).resolves.toBeUndefined()
@@ -221,7 +224,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     expect(o.daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
-  it(`${willChange('POD-1079', 'M5 requires unreachable to be DISTINGUISHABLE; today a send to an unreachable machine reports success')}: both send paths report ok/queued when the target's machine has gone away`, async () => {
+  it(`${MUST_NOT_CHANGE}: both send paths distinguish an unreachable machine from authorization refusal`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame('local', {
@@ -240,11 +243,16 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })
     const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'anyone there' })
 
-    // THIS IS THE BASELINE M5 HAS TO CHANGE: unreachable is reported as a
-    // successful queue, indistinguishable from a busy-agent queue, and nothing
-    // says the machine is gone. `unauthorized` has no shape at all yet.
-    expect(sent).toEqual({ ok: true, queued: true, disposition: 'queued' })
-    expect(woken).toEqual({ ok: true, queued: true, disposition: 'queued' })
+    expect(sent).toEqual({
+      ok: false,
+      reason: 'machine unreachable',
+      disposition: 'dead_letter',
+    })
+    expect(woken).toEqual({
+      ok: false,
+      reason: 'machine unreachable',
+      disposition: 'dead_letter',
+    })
     expect(o.daemon.filter((m) => m.type === 'input')).toEqual([])
   })
 

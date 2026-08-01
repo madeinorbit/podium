@@ -1,7 +1,7 @@
 /**
- * THE TEN FLEET COMMAND CONTRACTS (POD-384; ADR 3 D1, POD-311's L1/L3 split).
+ * THE TWELVE FLEET COMMAND CONTRACTS (POD-384; ADR 3 D1, POD-311's L1/L3 split).
  *
- * `machines.rename · machines.revoke · machines.pairingCode ·
+ * `machines.rename · machines.share · machines.unshare · machines.revoke · machines.pairingCode ·
  *  repos.add · repos.addMany · repos.remove · repos.setPrefix ·
  *  discovery.refreshRepos · discovery.scanFolder · discovery.scanMachine`
  *
@@ -14,7 +14,7 @@
  * ONE VISIBILITY CLASS, READ OFF ADR 1's MATRIX AND NOT CHOSEN HERE
  * ---------------------------------------------------------------------------
  *
- * Nine of the ten write (or execute against) `owned-compute`, and the tenth
+ * Eleven of the twelve write (or execute against) `owned-compute`, and the remaining one
  * writes a `secret`. Neither is a judgement call made in this file:
  *
  *  - `ROW.machine` — "Machine (fleet row / `machines`)" — is `owned-compute`,
@@ -60,7 +60,7 @@
  *
  * The precedent for splitting these is `workflows.profileSave`, which names a
  * machine and declares NO `machineVerb` because it pins compute rather than
- * running on it. Same question, asked ten times.
+ * running on it. Same question, asked twelve times.
  *
  * ---------------------------------------------------------------------------
  * THE ROLE FLOOR, AND THE ONE PLACE ADR 9 READS TWO WAYS
@@ -96,7 +96,7 @@
  * EXPOSURE IS DEFAULT-CLOSED AND MEASURED
  * ---------------------------------------------------------------------------
  *
- * Every one of the ten declares `['trpc']` and nothing else, because tRPC is
+ * Every one of the twelve declares `['trpc']` and nothing else, because tRPC is
  * what serves them: `RELAY_ALLOWED` (`modules/issues/relay-gate.ts`) grants the
  * `repos` router exactly `inferFromPath` — a QUERY — and does not list
  * `machines` or `discovery` at all, so no relayed agent can reach any of these;
@@ -109,6 +109,7 @@ import { z } from 'zod'
 import type {
   AttributionPolicy,
   CommandContract,
+  CommandPolicy,
   DeliveryPolicy,
   RedactionPolicy,
   TransportTag,
@@ -139,6 +140,7 @@ export type FleetServerRole = 'core' | 'hub'
 
 export interface FleetCommandContract<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknown>
   extends CommandContract<In, Out> {
+  readonly policy: CommandPolicy & { readonly machineSharingAuthority?: 'owner-only' }
   readonly serverRole: FleetServerRole
 }
 
@@ -156,6 +158,14 @@ export const machineRenameInput = z.object({
   id: z.string(),
   name: z.string().min(1).max(80),
 })
+
+export const machineShareInput = z.object({
+  id: z.string(),
+  grantee: z.string().min(1),
+  verb: z.enum(['see', 'use', 'manage']),
+})
+
+export const machineUnshareInput = machineShareInput
 
 export const machineRevokeInput = z.object({ id: z.string() })
 
@@ -367,6 +377,78 @@ export const machineRenameContract = {
   serverRole: 'hub',
   cli: { summary: 'Rename a machine in the fleet' },
 } as const satisfies FleetCommandContract<typeof machineRenameInput>
+
+/**
+ * Share one machine verb. The target row gate requires `manage`, then the
+ * fleet-specific authority cell narrows that to the direct owner: a `manage`
+ * grantee may administer the machine but may not widen its audience.
+ */
+export const machineShareContract = {
+  name: 'machines.share',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineShareInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    machineSharingAuthority: 'owner-only',
+    confirmation: 'none',
+    rationale:
+      'Sharing widens who may see, use, or manage someone’s compute. The member floor keeps the owner reachable, the manage check hides invisible rows, and owner-only authority prevents a manage grantee or instance admin from re-delegating another person’s machine.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: ['machine grant edge'],
+    owner: 'on-behalf-of-human',
+    visibility: 'owned-compute',
+    inheritanceOnCreate: 'parent',
+    note: 'The edge is subordinate to the machine and records the machine owner as grantor.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'An invisible machine and an unknown id share one refusal; a visible non-owner is told sharing is owner-only.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Share machine access with a user' },
+} as const satisfies FleetCommandContract<typeof machineShareInput>
+
+/** Revoke exactly one machine grant. The same owner-only authority applies. */
+export const machineUnshareContract = {
+  name: 'machines.unshare',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineUnshareInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    machineSharingAuthority: 'owner-only',
+    confirmation: 'none',
+    rationale:
+      'Revocation changes the machine audience and is reserved to the direct owner for the same reason as sharing; a delegated manage grant is not authority to rewrite delegation.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: { creates: [], note: 'Removes one machine grant edge; creates nothing.' },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'The same visibility and owner-only refusal shape as machines.share.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Remove a user’s machine access' },
+} as const satisfies FleetCommandContract<typeof machineUnshareInput>
 
 /**
  * Remove a machine from the fleet. M1's `manage` again ("unpair", "remove from
@@ -751,7 +833,7 @@ export const discoveryScanMachineContract = {
 // ---------------------------------------------------------------------------
 
 /**
- * THE TEN, keyed by their dotted wire name.
+ * THE TWELVE, keyed by their dotted wire name.
  *
  * `discovery.scan` is NOT here and its absence is deliberate: despite the name it
  * scans CONVERSATIONS (`rpc.scan()` returns `{ conversations, diagnostics }`),
@@ -761,6 +843,8 @@ export const discoveryScanMachineContract = {
  */
 export const FLEET_CONTRACTS = {
   'machines.rename': machineRenameContract,
+  'machines.share': machineShareContract,
+  'machines.unshare': machineUnshareContract,
   'machines.revoke': machineRevokeContract,
   'machines.pairingCode': machinePairingCodeContract,
   'repos.add': repoAddContract,

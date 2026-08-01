@@ -126,9 +126,9 @@ export const FEATURE_QUERIES = {
  *  hand-written because a read writes nothing. */
 export const SUPERAGENT_QUERIES = {
   /** The global orchestrator thread plus per-session 'btw' threads. */
-  listThreads: q(noInput, (s) => s.superagent.listThreads()),
+  listThreads: q(noInput, (s) => s.superagent.listThreads(asUserId(s.caller.userId))),
   history: q(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }), (s, input) =>
-    s.superagent.history(input.threadId),
+    s.superagent.history(asUserId(s.caller.userId), input.threadId),
   ),
 } as const
 
@@ -161,12 +161,13 @@ export const SETTINGS_QUERIES = {
 /** POD-735 derived the four automation writes; these two reads stayed
  *  hand-written for the same reason. */
 export const AUTOMATION_QUERIES = {
-  list: q(noInput, (s) => s.modules.automations.list()),
+  list: q(noInput, (s) => s.modules.automations.listForUser(asUserId(s.caller.userId))),
   runs: q(
     z.object({
       automationId: z.string().min(1).pipe(AutomationIdField),
       limit: z.number().int().optional(),
     }),
-    (s, input) => s.modules.automations.runs(input.automationId, input.limit),
+    (s, input) =>
+      s.modules.automations.runsForUser(asUserId(s.caller.userId), input.automationId, input.limit),
   ),
 } as const

@@ -5,6 +5,7 @@ import {
   DeviceGradeUnscopedPolicy,
   DEVICE_GRADE_PRINCIPAL,
 } from './feed/visibility'
+import type { FeedPrincipal, FeedVisibilityPolicy, VisibilityAnchorPort } from './feed/visibility'
 import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
@@ -102,6 +103,9 @@ export interface LedgerDeps {
   monotonicNow?: () => number
   /** Records each retention job's total duration and max uninterrupted slice. */
   onPruneMetrics?: Parameters<typeof pruneChangeLog>[1]['onMetrics']
+  visibility?: FeedVisibilityPolicy
+  anchors?: VisibilityAnchorPort
+  listenerPrincipal?: FeedPrincipal
 }
 
 export interface LedgerBootOptions {
@@ -182,15 +186,15 @@ export class Ledger {
       // exactly this one, so a second `DeviceGradeUnscopedPolicy` cannot appear
       // quietly; when per-user login lands, deleting that export is what forces
       // every site to name a real policy.
-      visibility: new DeviceGradeUnscopedPolicy(),
-      anchors: new DeviceGradeNoAnchors(),
+      visibility: deps.visibility ?? new DeviceGradeUnscopedPolicy(),
+      anchors: deps.anchors ?? new DeviceGradeNoAnchors(),
     })
     // One subscription, translating the kernel's vocabulary into this facade's.
     // Registered in the CONSTRUCTOR rather than lazily on first listener: the
     // Authority delivers batches in append order through one queue, and joining
     // that queue late would put this facade's listeners behind changes they were
     // registered before.
-    this.authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
+    this.authority.subscribe(deps.listenerPrincipal ?? DEVICE_GRADE_PRINCIPAL, (delivery) => {
       // D14.4's terminal arm is unreachable from here — `DeviceGradeNoAnchors`
       // reports no visibility edges, so no anchored row is ever derived and the
       // threshold cannot be crossed. Handled rather than cast, because "cannot

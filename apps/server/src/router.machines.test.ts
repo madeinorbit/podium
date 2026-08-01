@@ -1,3 +1,4 @@
+import { resolvePrincipal } from './command-principal'
 import { describe, expect, it } from 'vitest'
 import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
@@ -23,7 +24,7 @@ function machineCaller() {
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     registry,
-    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
   }
 }
 
@@ -90,7 +91,7 @@ describe('sessions.create with machineId', () => {
     registry.gateway.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
+    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',
@@ -110,7 +111,7 @@ describe('sessions.create with machineId', () => {
     registry.gateway.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
+    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',

@@ -5,13 +5,15 @@ import {
   actorAgent,
   asAgentIdentityId,
   asSessionId,
+  asUserId,
   FIRST_ADMIN_USER_ID,
   SOLE_USER_ID,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef, type ControlMessage, type ServerMessage } from '@podium/protocol'
+import { asDelegationRef, type ControlMessage, type MetadataChange, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -192,17 +194,20 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
-      const automation = reg.modules.automations.create({
-        name: 'Night quota wake',
-        scheduleKind: 'once',
-        runAt,
-        targetSessionId: sessionId,
-        repoPath: '/w',
-        agentKind: 'claude-code',
-        prompt: 'continue-night-work',
-        enabled: true,
-        sessionMode: 'resume',
-      })
+      const automation = reg.modules.automations.create(
+        {
+          name: 'Night quota wake',
+          scheduleKind: 'once',
+          runAt,
+          targetSessionId: sessionId,
+          repoPath: '/w',
+          agentKind: 'claude-code',
+          prompt: 'continue-night-work',
+          enabled: true,
+          sessionMode: 'resume',
+        },
+        userCommandPrincipal(asUserId(SOLE_USER_ID), 'admin'),
+      )
 
       vi.setSystemTime(new Date('2026-07-16T22:02:01.000Z'))
 
@@ -385,6 +390,7 @@ describe('queueText (durable outbox sends)', () => {
     const clientId = reg.clientGateway.attachClient((m) => inbox.push(m))
     reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+      wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
@@ -397,9 +403,13 @@ describe('queueText (durable outbox sends)', () => {
     })
     reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
-    const changes = inbox
-      .slice(before)
-      .flatMap((m) => (m.type === 'metadataDelta' ? m.changes : []))
+    const changes = inbox.slice(before).flatMap((message) => {
+      if (message.type === 'metadataDelta') return message.changes
+      if (message.type !== 'feedDelta') return []
+      return message.changes
+        .filter((change) => change.op !== 'evict')
+        .map((change) => ({ ...change, id: change.entityId }) as MetadataChange)
+    })
     const upserts = changes.filter(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     )

@@ -41,6 +41,7 @@ export interface WorkflowRunRow {
   supersedesRunId: string | null
   startedAt: string
   completedAt: string | null
+  ownerUserId: string
 }
 
 type Raw = Record<string, unknown>
@@ -128,6 +129,7 @@ function toRun(row: Raw): WorkflowRunRow {
     supersedesRunId: nullableText(row.supersedes_run_id),
     startedAt: text(row.started_at),
     completedAt: nullableText(row.completed_at),
+    ownerUserId: text(row.owner_user_id),
   }
 }
 
@@ -158,6 +160,38 @@ function toRunStep(row: Raw): RunStep {
 
 export class WorkflowsRepository {
   constructor(private readonly db: SqlDatabase) {}
+
+  ownerOf(kind: string, id: string): string | null {
+    let row: { owner_user_id?: string | null } | undefined
+    if (kind === 'workflow-definition' || kind === 'workflow-library-entry') {
+      row = this.db
+        .prepare('SELECT owner_user_id FROM workflows WHERE id = ?')
+        .get(id) as typeof row
+    } else if (kind === 'workflow-revision') {
+      row = this.db
+        .prepare(
+          'SELECT w.owner_user_id FROM workflow_revisions r JOIN workflows w ON w.id = r.workflow_id WHERE r.id = ?',
+        )
+        .get(id) as typeof row
+    } else if (kind === 'workflow-binding') {
+      const split = id.indexOf(':')
+      if (split < 0) return null
+      row = this.db
+        .prepare(
+          'SELECT owner_user_id FROM workflow_bindings WHERE target_kind = ? AND target_id = ?',
+        )
+        .get(id.slice(0, split), id.slice(split + 1)) as typeof row
+    } else if (kind === 'execution-profile') {
+      row = this.db
+        .prepare('SELECT owner_user_id FROM execution_profiles WHERE id = ?')
+        .get(id) as typeof row
+    } else if (kind === 'workflow-run') {
+      row = this.db
+        .prepare('SELECT owner_user_id FROM workflow_runs WHERE id = ?')
+        .get(id) as typeof row
+    }
+    return typeof row?.owner_user_id === 'string' ? row.owner_user_id : null
+  }
 
   listWorkflows(
     opts: { includeArchived?: boolean; scope?: WorkflowScope; scopeRef?: string } = {},
@@ -204,13 +238,14 @@ export class WorkflowsRepository {
     scope: WorkflowScope
     scopeRef: string | null
     actor: WorkflowActor
+    ownerUserId: string
     now: string
   }): void {
     this.db
       .prepare(
         `INSERT INTO workflows
-          (id, name, description, scope, scope_ref, created_by_kind, created_by_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, name, description, scope, scope_ref, created_by_kind, created_by_id, owner_user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -220,6 +255,7 @@ export class WorkflowsRepository {
         row.scopeRef,
         row.actor.kind,
         row.actor.id,
+        row.ownerUserId,
         row.now,
         row.now,
       )
@@ -305,13 +341,14 @@ export class WorkflowsRepository {
     targetId: string
     revisionId: string
     actor: WorkflowActor
+    ownerUserId: string
     now: string
   }): WorkflowBindingWire {
     this.db
       .prepare(
         `INSERT INTO workflow_bindings
-          (target_kind, target_id, revision_id, updated_by_kind, updated_by_id, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+          (target_kind, target_id, revision_id, updated_by_kind, updated_by_id, owner_user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(target_kind, target_id) DO UPDATE SET
            revision_id = excluded.revision_id,
            updated_by_kind = excluded.updated_by_kind,
@@ -324,6 +361,7 @@ export class WorkflowsRepository {
         input.revisionId,
         input.actor.kind,
         input.actor.id,
+        input.ownerUserId,
         input.now,
       )
     return required(
@@ -356,13 +394,14 @@ export class WorkflowsRepository {
     model: string
     effort: string
     actor: WorkflowActor
+    ownerUserId: string
     now: string
   }): ExecutionProfile {
     this.db
       .prepare(
         `INSERT INTO execution_profiles
-          (id, name, account_id, machine_id, harness, model, effort, created_by_kind, created_by_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, name, account_id, machine_id, harness, model, effort, created_by_kind, created_by_id, owner_user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            account_id = excluded.account_id,
@@ -382,6 +421,7 @@ export class WorkflowsRepository {
         input.effort,
         input.actor.kind,
         input.actor.id,
+        input.ownerUserId,
         input.now,
         input.now,
       )
@@ -448,8 +488,8 @@ export class WorkflowsRepository {
         .prepare(
           `INSERT INTO workflow_runs
             (id, subject_kind, subject_id, coordinator_session_id, revision_id, status,
-             supersedes_run_id, started_at, completed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             supersedes_run_id, started_at, completed_at, owner_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.run.id,
@@ -461,6 +501,7 @@ export class WorkflowsRepository {
           input.run.supersedesRunId,
           input.run.startedAt,
           input.run.completedAt,
+          input.run.ownerUserId,
         )
       const insert = this.db.prepare(
         `INSERT INTO workflow_run_steps

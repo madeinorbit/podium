@@ -7,6 +7,7 @@
  * and re-exports the typed hooks so existing `./store` imports keep working.
  */
 
+import type { CreateEngineOutbox } from '@podium/client-core/engine'
 import { setSwitchTraceReporter } from '@podium/client-core/perf'
 import {
   type Store as CoreStore,
@@ -48,6 +49,7 @@ export function StoreProvider({
   // it always was, moved to where it is a named composition root.
   createReplicaFn = createWebReplica,
   feed,
+  createOutboxFn,
   children,
 }: {
   config: ServerOrigin
@@ -64,6 +66,8 @@ export function StoreProvider({
    *  kernel-backed `createReplicaFn` when the flag resolves to the kernel path.
    *  Providing it makes the engine's hub advertise wire v2. */
   feed?: FeedSinkPort
+  /** Kernel Outbox factory paired with the kernel replica assembly. */
+  createOutboxFn?: CreateEngineOutbox
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
@@ -85,6 +89,7 @@ export function StoreProvider({
       engineOverrides={engineOverrides}
       createReplicaFn={createReplicaFn}
       feed={feed}
+      createOutboxFn={createOutboxFn}
     >
       {children}
     </CoreStoreProvider>

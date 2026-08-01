@@ -1,4 +1,12 @@
-import { DEFER_NEXT_MESSAGE, asUserId, type IssueId, type IssueWire, type OrphanIssue, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  asUserId,
+  DEFER_NEXT_MESSAGE,
+  type IssueId,
+  type IssueWire,
+  type OrphanIssue,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
@@ -166,6 +174,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       ...(initialPrompt ? { initialPrompt } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
+      ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return {
@@ -788,6 +797,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
+      ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return this.toWire(row)

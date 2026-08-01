@@ -129,8 +129,14 @@ export interface SessionCommandDeps {
   createDraftIssue(
     repoPath: string,
     agentKind: AgentKind | undefined,
-    issueId?: IssueId,
+    issueId: IssueId | undefined,
+    ownership: {
+      ownerUserId: import('@podium/model').UserId
+      createdByActor: string
+      createdByOnBehalfOf: import('@podium/model').UserId
+    },
   ): { id: IssueId }
+  issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
   /** The daemon control leg for `uploadImage`. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
@@ -411,6 +417,13 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       if (ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
       return { ...UNADDRESSABLE_SEND }
     }
+    if (target.status === 'reconnecting') {
+      return {
+        ok: false,
+        reason: 'machine unreachable',
+        disposition: 'dead_letter',
+      }
+    }
     return substrateSend(ctx, input, lifecycle)
   }
 }
@@ -431,21 +444,30 @@ export const SESSION_COMMAND_HANDLERS = {
     // a denied principal must never cause.
     if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
     const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
+    const ownership = createdOwnership(
+      ctx.principal,
+      rest.issueId ? { id: rest.issueId, owner: ctx.deps.issueOwner(rest.issueId) } : undefined,
+    )
+    if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     const issueId =
       rest.issueId ??
       (draftIssue
-        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId).id
+        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
+            ownerUserId: ownership.owner as import('@podium/model').UserId,
+            createdByActor: attributionOf(ctx.principal).actor,
+            createdByOnBehalfOf: ownership.owner as import('@podium/model').UserId,
+          }).id
         : undefined)
     // The draft-issue vessel path produces an OWNED draft, not an ownerless
     // one: the session and its vessel resolve the same owner because they
     // resolve it from the same principal.
-    void createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
     return ctx.sessions.createSession({
       ...rest,
       ...target,
       ...(issueId ? { issueId } : {}),
       use: ctx.machineUse,
       spawnedBy: spawnedByFor(ctx.principal),
+      ownerUserId: ownership.owner as import('@podium/model').UserId,
       binding: {
         principal: bindingPrincipalFor(ctx.principal),
         ...(ctx.overrideScope && ctx.principal.kind !== 'system'
@@ -460,6 +482,8 @@ export const SESSION_COMMAND_HANDLERS = {
 
   resume: (ctx: SessionCommandCtx, input: ResumeInput) => {
     if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
+    const ownership = createdOwnership(ctx.principal, undefined)
+    if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
     // A resume landing on an EXISTING row keeps that row's provenance; the stamp
     // here is the fresh-spawn fallback only.
     return ctx.sessions.resumeSession({
@@ -467,6 +491,7 @@ export const SESSION_COMMAND_HANDLERS = {
       resume: input.resume as ResumeInput['resume'] & { kind: string; value: string },
       use: ctx.machineUse,
       spawnedBy: spawnedByFor(ctx.principal),
+      ownerUserId: ownership.owner as import('@podium/model').UserId,
     })
   },
 

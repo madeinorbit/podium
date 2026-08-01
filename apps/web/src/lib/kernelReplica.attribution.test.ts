@@ -38,6 +38,7 @@ async function open(
     factory: factory as never,
     databaseName,
     evidence,
+    principal: 'alice',
     onDegraded: (d) => degraded.push(d),
   })
   return { assembly, degraded }
@@ -106,7 +107,7 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
     // that left the rows in place would satisfy every test above and none of the
     // privacy rule.
     const seeded = await open({ kind: 'single-account', principal: 'default' }, db, factory)
-    seeded.assembly.store.viewFor('default').cache.applyAtomic({
+    seeded.assembly.store.viewFor('alice').cache.applyAtomic({
       operations: [
         {
           kind: 'upsert',
@@ -119,13 +120,13 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
       cursor: { feedId: 'f', epoch: 'e', seq: 1 },
     })
     await seeded.assembly.store.settled()
-    expect(seeded.assembly.store.viewFor('default').cache.readEntities()).toHaveLength(1)
+    expect(seeded.assembly.store.viewFor('alice').cache.readEntities()).toHaveLength(1)
     await seeded.assembly.dispose()
 
     // Re-open the SAME database with evidence that cannot attribute it.
     const reopened = await open({ kind: 'unknown' }, db, factory)
-    expect(reopened.assembly.store.viewFor('default').cache.readEntities()).toEqual([])
-    expect(reopened.assembly.store.viewFor('default').cache.readCursor()).toBeNull()
+    expect(reopened.assembly.store.viewFor('alice').cache.readEntities()).toEqual([])
+    expect(reopened.assembly.store.viewFor('alice').cache.readCursor()).toBeNull()
     await reopened.assembly.dispose()
   })
 
@@ -133,7 +134,7 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
     // The counterfactual for the case above. Without it, a `discardCache()` that
     // ran unconditionally would pass every assertion in this file.
     const seeded = await open({ kind: 'single-account', principal: 'default' }, db, factory)
-    seeded.assembly.store.viewFor('default').cache.applyAtomic({
+    seeded.assembly.store.viewFor('alice').cache.applyAtomic({
       operations: [
         {
           kind: 'upsert',
@@ -149,7 +150,7 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
     await seeded.assembly.dispose()
 
     const reopened = await open({ kind: 'single-account', principal: 'default' }, db, factory)
-    expect(reopened.assembly.store.viewFor('default').cache.readEntities()).toHaveLength(1)
+    expect(reopened.assembly.store.viewFor('alice').cache.readEntities()).toHaveLength(1)
     await reopened.assembly.dispose()
   })
 })

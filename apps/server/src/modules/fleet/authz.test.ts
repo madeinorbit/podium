@@ -1,3 +1,4 @@
+import { resolvePrincipal } from '../../command-principal'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
  * read until now.
@@ -34,7 +35,7 @@ import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SessionStore } from '../../store'
 import { SuperagentService } from '../superagent'
-import { type FleetAuthzDeps, FLEET_TARGETS, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
+import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 
 const OWNER = FIRST_ADMIN_USER_ID
 const COLLEAGUE: UserId = asUserId('colleague')
@@ -89,15 +90,19 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(10)
-    expect(MACHINE_COMMANDS).toHaveLength(9)
+    expect(NAMES).toHaveLength(12)
+    expect(MACHINE_COMMANDS).toHaveLength(11)
   })
 })
 
 describe('the role floor is read from the contract', () => {
   it('a member may not attempt an `admin`-floor command, and an admin may', () => {
     // `machines.pairingCode` is the only admin floor in the family (POD-384).
-    const asMember = fleetAuthzFailure('machines.pairingCode', {}, deps(user(OWNER), { role: 'member' }))
+    const asMember = fleetAuthzFailure(
+      'machines.pairingCode',
+      {},
+      deps(user(OWNER), { role: 'member' }),
+    )
     expect(asMember?.code).toBe('FORBIDDEN')
 
     expect(
@@ -123,11 +128,10 @@ describe('the role floor is read from the contract', () => {
     expect(roleSatisfiesFloor('admin', 'admin')).toBe(true)
     expect(roleSatisfiesFloor('member', 'admin')).toBe(false)
 
-    const refusal = fleetAuthzFailure(
-      'machines.rename',
-      anyInput,
-      { ...deps(user(OWNER)), role: undefined },
-    )
+    const refusal = fleetAuthzFailure('machines.rename', anyInput, {
+      ...deps(user(OWNER)),
+      role: undefined,
+    })
     expect(refusal?.code).toBe('FORBIDDEN')
   })
 
@@ -173,6 +177,15 @@ describe('the machine verb is read from the contract, per command', () => {
     // POD-384 classified it `use` for exactly this reason, and a manage grant
     // must not carry it.
     expect(fleetAuthzFailure('discovery.scanMachine', anyInput, manage)?.code).toBe('FORBIDDEN')
+  })
+
+  it('a manage grantee cannot re-delegate machine access', () => {
+    const manage = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'manage' }] })
+    const input = { id: 'laptop', grantee: 'another-user', verb: 'use' }
+
+    expect(fleetAuthzFailure('machines.share', input, manage)?.code).toBe('FORBIDDEN')
+    expect(fleetAuthzFailure('machines.unshare', input, manage)?.code).toBe('FORBIDDEN')
+    expect(fleetAuthzFailure('machines.share', input, deps(user(OWNER)))).toBeUndefined()
   })
 
   it('a `use` grant admits the discovery family and NOT the manage family', () => {
@@ -236,7 +249,13 @@ describe('the derived fleet router actually calls the gate', () => {
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {
       store,
-      call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+      call: appRouter.createCaller({
+        registry,
+        repos,
+        superagent,
+        capability: OPERATOR,
+        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      }),
     }
   }
 
@@ -257,6 +276,25 @@ describe('the derived fleet router actually calls the gate', () => {
     const { call } = caller(FIRST_ADMIN_USER_ID)
     const after = await call.machines.rename({ id: 'm1', name: 'renamed' })
     expect(after.find((m) => m.id === 'm1')?.name).toBe('renamed')
+  })
+
+  it('persists owner-issued grants with authenticated attribution and revokes them', async () => {
+    const { call, store } = caller(FIRST_ADMIN_USER_ID)
+
+    await call.machines.share({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
+    expect(store.grants.listForResource('machine', 'm1')).toEqual([
+      expect.objectContaining({
+        grantee: COLLEAGUE,
+        verb: 'use',
+        owner: FIRST_ADMIN_USER_ID,
+        actorKind: 'user',
+        actorId: 'sole',
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      }),
+    ])
+
+    await call.machines.unshare({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
+    expect(store.grants.listForResource('machine', 'm1')).toEqual([])
   })
 
   it('refuses to rename an UNOWNED machine, with the unknown-machine wording', async () => {
@@ -341,14 +379,13 @@ describe('a paired machine belongs to whoever minted its code', () => {
     return { store, machines: registry.modules.machines }
   }
 
-  const pairFrame = (code: string) =>
-    ({
-      type: 'pair' as const,
-      code,
-      machineId: 'joiner',
-      hostname: 'joiner.local',
-      name: 'joiner',
-    })
+  const pairFrame = (code: string) => ({
+    type: 'pair' as const,
+    code,
+    machineId: 'joiner',
+    hostname: 'joiner.local',
+    name: 'joiner',
+  })
 
   it('the pairer named at mint becomes the owner of the machine that redeems the code', () => {
     const { store, machines } = service()

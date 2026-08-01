@@ -73,17 +73,18 @@ import {
 } from '@podium/commands'
 import { type SessionHandoffOutput, sessionHandoffInput } from '@podium/commands'
 
-import type { TRPCMutationProcedure } from '@trpc/server'
+import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { PinState, SnoozeMap } from '../../store/types'
 import { type Context, mods, t } from '../../trpc'
+import { familyState } from '../derived-family'
 import { sessionCommandCtx } from './command-ctx'
 import {
   dispatchSessionCommand,
   type SessionCommandKey,
   type SessionCommandResult,
 } from './command-plane'
-import { SessionStateRegistry, soleHumanSessionStatePrincipal } from './session-state/registry'
+import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import { dispatchRename } from './rename-adapter'
 
 // ---------------------------------------------------------------------------
@@ -189,18 +190,18 @@ function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): Session
 /** The session-state envelope for one call. */
 function sessionStateRegistryFor(ctx: Context): SessionStateRegistry {
   return new SessionStateRegistry({
-    sessions: mods(ctx).sessions,
-    state: mods(ctx).sessions.state,
+    sessions: familyState(ctx).modules.sessions,
+    state: familyState(ctx).modules.sessions.state,
 
     // THE composition root's ledger — framework idempotency, one instance.
-    mutations: mods(ctx).mutations,
+    mutations: familyState(ctx).modules.mutations,
   })
 }
 
 /** The transport principal for a tRPC call. One shared password ⇒ the sole human
  *  (§3.2); POD-1075 replaces this with a real per-user principal. */
 export function sessionStatePrincipal(ctx: Context) {
-  return soleHumanSessionStatePrincipal(ctx.capability)
+  return sessionStatePrincipalFor(ctx.principal)
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +237,7 @@ export function sessionStatePrincipal(ctx: Context) {
  * instance (asserted with `toBe` in `packages/commands/src/sessions/rename.test.ts`),
  * so there is one schema object and the two envelopes cannot diverge on the wire.
  *
- * ## The return type stays `void`, deliberately
+ * ## The public return type stays `void`, deliberately
  *
  * The session-state class's refusal shape is a silent no-op (§3.1.5, pinned by POD-379).
  * Surfacing the target path's richer outcome to THIS transport would make a denial
@@ -249,8 +250,8 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
   return t.procedure
     .input(sessionStateInputs['sessions.rename'])
     .mutation(({ ctx, input }): void => {
-      const modules = mods(ctx)
-      dispatchRename(
+      const modules = familyState(ctx).modules
+      const dispatch = dispatchRename(
         {
           sessions: modules.sessions,
           mutations: modules.mutations,
@@ -261,6 +262,17 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
         },
         input,
       )
+      if (dispatch === undefined) return
+      if (dispatch.outcome === 'denied' || dispatch.outcome === 'not-exposed') {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'command refused' })
+      }
+      if (dispatch.outcome === 'invalid-input') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid command input' })
+      }
+      if (dispatch.result == null) return
+      if (!dispatch.result.ok) {
+        throw new TRPCError({ code: 'CONFLICT', message: dispatch.result.reason })
+      }
     }) as SessionStateProcedure<'sessions.rename'>
 }
 
@@ -296,7 +308,7 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
     .input(schema)
     .mutation(({ ctx, input }): unknown =>
       dispatchSessionCommand(
-        sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope),
+        sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
         key,
         input,
       ),
@@ -334,7 +346,7 @@ function handoffProcedure(): HandoffProcedure {
     .input(sessionHandoffInput)
     .mutation(
       ({ ctx, input }): Promise<SessionHandoffOutput> =>
-        mods(ctx).sessions.handoffSession(input, { capability: ctx.capability }),
+        familyState(ctx).modules.sessions.handoffSession(input, { capability: ctx.capability, principal: ctx.principal }),
     ) as HandoffProcedure
 }
 

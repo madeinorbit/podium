@@ -41,10 +41,10 @@ import type {
  * agent prime context. Pure reads — no store writes, no broadcasts.
  */
 export abstract class IssueServiceReads extends IssueServiceCore {
-  readyList(repoPath?: string): IssueWire[] {
+  readyList(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueWire[] {
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
-      .filter((r) => !r.deletedAt && this.inRepoScope(r, repoPath))
+      .filter((r) => mayRead(r.id) && !r.deletedAt && this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, commentCounts))
       .filter((w) => w.ready)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
@@ -59,9 +59,9 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
-  graph(repoPath?: string): IssueGraph {
+  graph(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueGraph {
     const rows = [...this.rows.values()].filter(
-      (r) => !r.deletedAt && this.inRepoScope(r, repoPath),
+      (r) => mayRead(r.id) && !r.deletedAt && this.inRepoScope(r, repoPath),
     )
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     const nodes = rows.map((r) => {
@@ -88,9 +88,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return { nodes, edges }
   }
 
-  epicStatus(id: string): EpicStatus {
+  epicStatus(id: string, mayRead: (id: string) => boolean = () => true): EpicStatus {
     const row = this.rowOrThrow(id)
-    const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
+    const children = [...this.rows.values()].filter(
+      (r) => mayRead(r.id) && r.parentId === row.id && !r.deletedAt,
+    )
     const childDoneCount = children.filter((c) => this.isClosed(c)).length
     return {
       id: row.id,
@@ -103,12 +105,16 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   /** Subissues of an issue — direct children, or the whole subtree with
    *  `recursive`. Sorted by seq; wires carry ready/blocked so a caller can
    *  attack an epic without stitching list+graph together. */
-  children(id: string, recursive = false): IssueWire[] {
+  children(
+    id: string,
+    recursive = false,
+    mayRead: (id: string) => boolean = () => true,
+  ): IssueWire[] {
     const root = this.rowOrThrow(id)
     const rows: IssueRow[] = []
     const walk = (pid: string): void => {
       for (const r of this.rows.values()) {
-        if (r.parentId !== pid) continue
+        if (!mayRead(r.id) || r.parentId !== pid) continue
         if (r.deletedAt) continue
         rows.push(r)
         if (recursive) walk(r.id)
@@ -128,13 +134,18 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  manager can see live reviewers/implementers before spawn [spec:SP-99d3].
    *  Children omitted by the depth or node cap are counted on their parent
    *  (`omittedChildren`) and in the total (`omitted`). */
-  tree(ref: string, opts: { maxDepth?: number; maxNodes?: number } = {}): IssueTree {
+  tree(
+    ref: string,
+    opts: { maxDepth?: number; maxNodes?: number } = {},
+    mayRead: (id: string) => boolean = () => true,
+  ): IssueTree {
     const maxDepth = opts.maxDepth ?? 3
     const maxNodes = opts.maxNodes ?? 100
     const rootRow = this.rowOrThrow(this.resolveRef(ref))
+    if (!mayRead(rootRow.id)) throw new Error('unknown issue ' + ref)
     const byParent = new Map<string, IssueRow[]>()
     for (const r of this.rows.values()) {
-      if (!r.parentId || r.archived) continue
+      if (!mayRead(r.id) || !r.parentId || r.archived) continue
       if (r.deletedAt) continue
       const list = byParent.get(r.parentId)
       if (list) list.push(r)
@@ -153,7 +164,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         .filter((d) => d.type === 'blocks')
         .flatMap((d) => {
           const target = this.rows.get(d.toId)
-          return target ? [target.seq] : []
+          return target && mayRead(target.id) ? [target.seq] : []
         })
       const kids = (byParent.get(row.id) ?? []).sort((a, b) => a.seq - b.seq)
       const children: IssueTreeNode[] = []
@@ -203,14 +214,18 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  root included) or a whole repo. One entry per member with its blocks/waits
    *  edges resolved to seq+open/closed state, so an agent can see at a glance
    *  what is ready, what blocks what, and why something is not ready. */
-  depReport(opts: { id?: string; repoPath?: string } = {}): DepReportEntry[] {
+  depReport(
+    opts: { id?: string; repoPath?: string } = {},
+    mayRead: (id: string) => boolean = () => true,
+  ): DepReportEntry[] {
     let members: IssueRow[]
     if (opts.id) {
       const root = this.rowOrThrow(opts.id)
+      if (!mayRead(root.id)) throw new Error('unknown issue ' + opts.id)
       members = [root]
       const walk = (pid: string): void => {
         for (const r of this.rows.values()) {
-          if (r.parentId !== pid) continue
+          if (!mayRead(r.id) || r.parentId !== pid) continue
           if (r.deletedAt) continue
           members.push(r)
           walk(r.id)
@@ -219,7 +234,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       walk(root.id)
     } else {
       members = [...this.rows.values()].filter(
-        (r) => !r.deletedAt && this.inRepoScope(r, opts.repoPath),
+        (r) => mayRead(r.id) && !r.deletedAt && this.inRepoScope(r, opts.repoPath),
       )
     }
     const ref = (row: IssueRow, type: string): DepReportRef => ({
@@ -237,11 +252,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         // lives in issues.parent_id, not in issue_deps (#164).
         const deps = this.deps.store.issues.listIssueDeps(row.id).flatMap((d) => {
           const target = this.rows.get(d.toId)
-          return target ? [ref(target, d.type)] : []
+          return target && mayRead(target.id) ? [ref(target, d.type)] : []
         })
         const dependents = this.deps.store.issues.listDependents(row.id).flatMap((d) => {
           const source = this.rows.get(d.fromId)
-          return source ? [ref(source, d.type)] : []
+          return source && mayRead(source.id) ? [ref(source, d.type)] : []
         })
         return {
           id: row.id,
@@ -258,20 +273,30 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       })
   }
 
-  closeEligibleEpics(repoPath?: string): IssueWire[] {
+  closeEligibleEpics(
+    repoPath?: string,
+    mayRead: (id: string) => boolean = () => true,
+  ): IssueWire[] {
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
-      .filter((r) => this.inRepoScope(r, repoPath) && r.type === 'epic' && !this.isClosed(r))
-      .filter((r) => this.epicStatus(r.id).complete)
+      .filter(
+        (r) =>
+          mayRead(r.id) && this.inRepoScope(r, repoPath) && r.type === 'epic' && !this.isClosed(r),
+      )
+      .filter((r) => this.epicStatus(r.id, mayRead).complete)
       .map((r) => this.toWire(r, commentCounts))
   }
 
   /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
    *  Returns id pairs (`a.seq < b.seq`) whose token-set similarity over
    *  `title + ' ' + description` is >= threshold, sorted by score desc. */
-  findDuplicates(repoPath?: string, threshold = 0.6): DuplicateCandidate[] {
+  findDuplicates(
+    repoPath?: string,
+    threshold = 0.6,
+    mayRead: (id: string) => boolean = () => true,
+  ): DuplicateCandidate[] {
     const open = [...this.rows.values()]
-      .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
+      .filter((r) => mayRead(r.id) && this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .sort((a, b) => a.seq - b.seq)
     const toks = new Map(open.map((r) => [r.id, tokenize(`${r.title} ${r.description}`)]))
     const out: DuplicateCandidate[] = []
@@ -290,27 +315,32 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   /** Open issues whose `updatedAt` is older than `days` days before `nowMs`,
    *  oldest-first. `nowMs` is injectable so tests can pin "now". */
-  staleList(repoPath?: string, days = 30, nowMs = Date.now()): IssueWire[] {
+  staleList(
+    repoPath?: string,
+    days = 30,
+    nowMs = Date.now(),
+    mayRead: (id: string) => boolean = () => true,
+  ): IssueWire[] {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
-      .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
+      .filter((r) => mayRead(r.id) && this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
       .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
       .map((r) => this.toWire(r, commentCounts))
   }
 
   /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
-  lint(repoPath?: string): LintFinding[] {
+  lint(repoPath?: string, mayRead: (id: string) => boolean = () => true): LintFinding[] {
     return [...this.rows.values()]
-      .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
+      .filter((r) => mayRead(r.id) && this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
       .filter((f) => f.findings.length > 0)
   }
 
-  doctor(repoPath?: string): DoctorReport {
+  doctor(repoPath?: string, mayRead: (id: string) => boolean = () => true): DoctorReport {
     const rows = [...this.rows.values()].filter(
-      (r) => !r.deletedAt && this.inRepoScope(r, repoPath),
+      (r) => mayRead(r.id) && !r.deletedAt && this.inRepoScope(r, repoPath),
     )
     const ids = new Set(rows.map((r) => r.id))
     const danglingDeps: DoctorReport['danglingDeps'] = []
@@ -342,23 +372,29 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return {
       cycles,
       danglingDeps,
-      lintCount: this.lint(repoPath).length,
-      staleCount: this.staleList(repoPath).length,
+      lintCount: this.lint(repoPath, mayRead).length,
+      staleCount: this.staleList(repoPath, 30, Date.now(), mayRead).length,
     }
   }
 
-  preflight(repoPath?: string): { ok: boolean; report: DoctorReport } {
-    const report = this.doctor(repoPath)
+  preflight(
+    repoPath?: string,
+    mayRead: (id: string) => boolean = () => true,
+  ): { ok: boolean; report: DoctorReport } {
+    const report = this.doctor(repoPath, mayRead)
     return { ok: report.cycles.length === 0 && report.danglingDeps.length === 0, report }
   }
 
-  async orphans(repoPath: string): Promise<OrphanIssue[]> {
+  async orphans(
+    repoPath: string,
+    mayRead: (id: string) => boolean = () => true,
+  ): Promise<OrphanIssue[]> {
     const res = await this.deps.repoOp('log', repoPath).catch(() => ({ ok: false, output: '' }))
     if (!res.ok || !res.output) return []
     const log = res.output
     const out: OrphanIssue[] = []
     for (const r of this.rows.values()) {
-      if (!this.inRepoScope(r, repoPath) || this.isClosed(r)) continue
+      if (!mayRead(r.id) || !this.inRepoScope(r, repoPath) || this.isClosed(r)) continue
       // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
       if (r.deletedAt) continue
       const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
@@ -369,11 +405,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return out.sort((a, b) => a.seq - b.seq)
   }
 
-  search(filter: IssueSearchFilter): IssueWire[] {
+  search(filter: IssueSearchFilter, mayRead: (id: string) => boolean = () => true): IssueWire[] {
     const text = filter.text?.toLowerCase()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
-      .filter((r) => this.inRepoScope(r, filter.repoPath))
+      .filter((r) => mayRead(r.id) && this.inRepoScope(r, filter.repoPath))
       .map((r) => this.toWire(r, commentCounts))
       .filter((r) => !r.deletedAt)
       .filter((w) => {
@@ -397,9 +433,9 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
-  count(repoPath?: string): IssueCount {
+  count(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueCount {
     const rows = [...this.rows.values()].filter(
-      (r) => !r.deletedAt && this.inRepoScope(r, repoPath),
+      (r) => mayRead(r.id) && !r.deletedAt && this.inRepoScope(r, repoPath),
     )
     const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
     const bump = (m: Record<string, number>, k: string): void => {
@@ -414,10 +450,10 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return c
   }
 
-  stats(repoPath?: string): IssueStats {
+  stats(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueStats {
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     const wires = [...this.rows.values()]
-      .filter((r) => !r.deletedAt && this.inRepoScope(r, repoPath))
+      .filter((r) => mayRead(r.id) && !r.deletedAt && this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, commentCounts))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
     return {
@@ -445,6 +481,27 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   /** Session-free existence check for server-side issue references. [spec:SP-fb7e] */
   has(id: string): boolean {
     return this.rows.has(this.resolveRef(id))
+  }
+
+  /** Live authorization target: owner plus grantees whose verb covers this action. */
+  ownedTarget(id: string, action: import('@podium/model').IssueAction) {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) return undefined
+    const covers = (verb: string): boolean =>
+      action === 'read'
+        ? verb === 'read' || verb === 'write' || verb === 'manage'
+        : action === 'write'
+          ? verb === 'write' || verb === 'manage'
+          : verb === 'manage'
+    return {
+      kind: 'owned' as const,
+      id: row.id,
+      owner: row.ownerUserId ?? null,
+      grants: this.deps.store.grants
+        .listForResource('issue', row.id)
+        .filter((edge) => covers(edge.verb))
+        .map((edge) => edge.grantee),
+    }
   }
 
   /** One issue's comment thread, oldest-first (#175): comment BODIES left
@@ -513,7 +570,10 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
   }
 
-  prime(opts: { repoPath?: string; boundIssueId?: string | null }): string {
+  prime(
+    opts: { repoPath?: string; boundIssueId?: string | null },
+    mayRead: (id: string) => boolean = () => true,
+  ): string {
     const rules = [
       // Human-facing ids (#474): agents must name issues/sessions by their nice id.
       // Bare `#N` never linkifies in the UI — only the `PREFIX-seq` grammar does
@@ -549,19 +609,19 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       'If you INTENTIONALLY move to a different git worktree/checkout, report it: run `podium worktree` from it (or `podium worktree <path>`) so Podium regroups this session.',
     ]
     if (opts.boundIssueId) {
-      const me = this.get(opts.boundIssueId)
+      const me = mayRead(opts.boundIssueId) ? this.get(opts.boundIssueId) : null
       if (me) {
         const kids = this.list(me.repoPath).filter(
-          (i) => i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
+          (i) => mayRead(i.id) && i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
         )
         // Match computeBlocked: only blocks-deps whose TARGET is open (not closed)
         // actually block — a resolved blocker must not be listed under "Blocked by:".
         const blockers = (me.deps ?? [])
           .filter((d) => d.type === 'blocks')
           .map((d) => this.rows.get(d.id))
-          .filter((b): b is IssueRow => b != null && !this.isClosed(b))
+          .filter((b): b is IssueRow => b != null && mayRead(b.id) && !this.isClosed(b))
           .map((b) => `${this.niceRef(b)} (${b.title})`)
-        const parent = me.parentId ? this.get(me.parentId) : null
+        const parent = me.parentId && mayRead(me.parentId) ? this.get(me.parentId) : null
         if (me.draft) {
           return [
             `This session is attached to a draft work item (${this.niceRef(me)}).`,
@@ -613,7 +673,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
           .join('\n')
       }
     }
-    const ready = this.list(opts.repoPath).filter((i) => i.ready)
+    const ready = this.list(opts.repoPath).filter((i) => mayRead(i.id) && i.ready)
     return [
       'No issue bound to this session.',
       ready.length

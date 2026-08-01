@@ -51,13 +51,13 @@ import {
   type AuthTarget,
   authorize,
   type Capability,
-  capabilityAttribution,
   type IssueId,
   type SessionId,
   SOLE_USER_ID,
 } from '@podium/model'
 
 import type { MutationLedgerPort } from '@podium/sync'
+import type { CommandPrincipal } from '../../../command-principal'
 import type { SessionsService } from '../service'
 import { type SessionStatePrincipal, SessionStateService } from './service'
 export type { SessionStatePrincipal } from './service'
@@ -83,8 +83,9 @@ export type SessionStateTransport = 'trpc' | 'relay' | 'cli' | 'mcp' | 'ws'
  * questions, and `nameSource` is the shipped feature that depends on the answer.
  */
 /**
- * The sole principal until POD-1075 mints real accounts: the cookie-authed human,
- * unconstrained (`OPERATOR`), acting as {@link SOLE_USER_ID}.
+ * Compatibility constructor for the first administrator. A direct human now has
+ * `actorUser` attribution, so directness is identified by the absence of an agent
+ * session rather than by an empty actor slot.
  *
  * A FUNCTION, not a constant, so a caller cannot mutate the shared object — and
  * so every call site that will need a real principal is one grep away.
@@ -94,7 +95,7 @@ export function soleHumanSessionStatePrincipal(capability: Capability): SessionS
     userId: asUserId(SOLE_USER_ID),
     capability,
     onBehalfOf: asUserId(SOLE_USER_ID),
-    humanDirect: capabilityAttribution(capability).actor === null,
+    humanDirect: capability.actorSessionId === undefined,
   }
 }
 
@@ -103,6 +104,22 @@ export function soleHumanSessionStatePrincipal(capability: Capability): SessionS
  * (both are the one shared password today) but carrying the attached client's id,
  * which the draft handler needs.
  */
+export function sessionStatePrincipalFor(
+  principal: CommandPrincipal,
+  clientId?: string,
+): SessionStatePrincipal {
+  if (principal.kind === 'system') throw new Error('system principal has no per-user session state')
+  const userId = principal.kind === 'user' ? principal.user : principal.onBehalfOf
+  return {
+    userId,
+    capability: principal.capability,
+    ...(principal.kind === 'agent' ? { actorSessionId: principal.agentSessionId } : {}),
+    onBehalfOf: userId,
+    humanDirect: principal.kind === 'user',
+    ...(clientId ? { clientId } : {}),
+  }
+}
+
 export function soleHumanSessionStateWsPrincipal(
   capability: Capability,
   clientId: string,

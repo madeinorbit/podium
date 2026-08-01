@@ -102,7 +102,7 @@ export const DERIVED_SPREAD = '...settingsFamily'
  * something: if they were still hand-written in `router.ts`, dropping them here
  * would fail check 1 rather than pass quietly.
  */
-export const ALLOWED_HAND_WRITTEN: readonly string[] = ['set']
+export const ALLOWED_HAND_WRITTEN: readonly string[] = []
 
 /**
  * Extract a `<name>: t.router({ … })` literal by BRACE MATCHING.
@@ -346,28 +346,15 @@ export function auditSettingsCommands(
 // --probe — every check must find its planted fixture
 // ---------------------------------------------------------------------------
 
-/** A clean fixture: the derived spread, the one named exception, and a nested
- *  `z.object` whose LAST FIELD would fool a column-anchored matcher into naming
- *  it as the procedure (POD-386's defect, planted deliberately).
- *
- *  The decoy moved onto `set` when POD-1080 contracted the telegram ceremony and
- *  the exception list shrank to one. It had to move rather than be dropped: the
- *  POD-386 defect is about how a procedure KEY is chosen, and a fixture with no
- *  nested object literal stops exercising it. */
+/** A clean fixture: the derived spread and no hand-written writes. */
 const PROBE_CLEAN_ROUTER = `
 export const appRouter = t.router({
   settings: t.router({
     get: t.procedure.query(({ ctx }) => mods(ctx).settings.getSettings()),
-    set: t.procedure
-      .input(z.object({ values: PodiumSettings, decoy: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
     ...settingsFamily,
   }),
 })
 `
-
-/** The same fixture with an UNGOVERNED write added after a nested block closed —
- *  the position a naive line scan stops before. */
 const PROBE_SMUGGLED_ROUTER = PROBE_CLEAN_ROUTER.replace(
   '    ...settingsFamily,',
   `    ...settingsFamily,
@@ -376,24 +363,14 @@ const PROBE_SMUGGLED_ROUTER = PROBE_CLEAN_ROUTER.replace(
       .mutation(({ ctx, input }) => mods(ctx).settings.smuggle(input)),`,
 )
 
-/** A fixture that lost a NAMED exception — the removal direction. An absorbed
- *  surface reads as progress on every ratchet, so it must be a finding. */
-const PROBE_ABSORBED_ROUTER = PROBE_CLEAN_ROUTER.replace(
-  `    set: t.procedure
-      .input(z.object({ values: PodiumSettings, decoy: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),\n`,
-  '',
-)
-
-/** A fixture with no derived spread — check 1 passes against it perfectly. */
+/** A fixture with no derived spread — the write census still passes against it. */
 const PROBE_UNDERIVED_ROUTER = PROBE_CLEAN_ROUTER.replace('    ...settingsFamily,\n', '')
 
-const PROBE_CLEAN_CONTRACTS = `const SERVED_ON: readonly TransportTag[] = ['trpc']
-export const c = { name: 'settings.setSecret', exposure: SERVED_ON }
-export const d = { name: 'settings.updatePersonal', exposure: ['trpc'] }
+const PROBE_CLEAN_CONTRACTS = `const SERVED_ON: readonly TransportTag[] = ["trpc"]
+export const c = { name: "settings.setSecret", exposure: SERVED_ON }
+export const d = { name: "settings.updatePersonal", exposure: ["trpc"] }
 `
-const PROBE_QUEUED_CONTRACTS = `export const c = { name: 'settings.setSecret', exposure: ['trpc', 'outbox'] }`
-
+const PROBE_QUEUED_CONTRACTS = `export const c = { name: "settings.setSecret", exposure: ["trpc", "outbox"] }`
 const PROBE_CLEAN_SERVICE = `  private assertNoSecretChange(previous: PodiumSettings, next: PodiumSettings): void {
     return
   }
@@ -438,35 +415,25 @@ export function probe(): Finding[] {
     })
   }
 
-  // The parser itself, on the shape a column matcher gets wrong.
-  const keys = procedureKeys(routerBlock(PROBE_CLEAN_ROUTER, 'settings')?.text ?? '')
-  if (!keys.every((k) => ALLOWED_HAND_WRITTEN.includes(k.key))) {
+  // Positive parser fixture: zero production exceptions must not make the instrument vacuous.
+  const parserFixture = PROBE_CLEAN_ROUTER.replace(
+    '    ...settingsFamily,',
+    `    parsed: t.procedure
+      .input(z.object({ values: PodiumSettings, decoy: z.string() }))
+      .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
+    ...settingsFamily,`,
+  )
+  const parsedKeys = procedureKeys(routerBlock(parserFixture, 'settings')?.text ?? '')
+  if (parsedKeys.length !== 1 || parsedKeys[0]?.key !== 'parsed') {
     failures.push({
       check: 'instrument',
       where: at,
-      detail:
-        `the depth parser attributed a mutation to ${JSON.stringify(keys.map((k) => k.key))} on a ` +
-        'CLEAN fixture — a nested `z.object` field was read as the procedure key (POD-386), which ' +
-        'is what anchoring on columns rather than nesting depth produces',
-    })
-  }
-  // DERIVED from the allowlist rather than a literal (was `3` until POD-1080
-  // shrank the list to one). The clean fixture is built to contain exactly the
-  // allowed keys, so deriving it means adding an exception without extending the
-  // fixture fires HERE — where a literal would just have to be re-typed. The
-  // `> 0` half is the original point: a parser that finds nothing passes every
-  // absence claim, and an empty allowlist must not make that vacuous.
-  if (keys.length !== ALLOWED_HAND_WRITTEN.length || keys.length === 0) {
-    failures.push({
-      check: 'instrument',
-      where: at,
-      detail: `the depth parser found ${keys.length} mutations in a fixture built to have ${ALLOWED_HAND_WRITTEN.length} — a parser that finds none passes every absence claim`,
+      detail: 'the depth parser did not attribute exactly one positive fixture to parsed',
     })
   }
 
   no(handWrittenDrift(PROBE_CLEAN_ROUTER, '<probe>'), 'clean router')
   yes('hand-written-write', handWrittenDrift(PROBE_SMUGGLED_ROUTER, '<probe>'), 'ungoverned write')
-  yes('hand-written-write', handWrittenDrift(PROBE_ABSORBED_ROUTER, '<probe>'), 'REMOVED exception')
   yes('settings-router-present', handWrittenDrift('export const x = 1', '<probe>'), 'no router')
 
   no(derivedSpreadMissing(PROBE_CLEAN_ROUTER, '<probe>'), 'clean router')

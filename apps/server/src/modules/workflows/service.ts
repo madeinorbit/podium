@@ -13,6 +13,7 @@ import type {
 } from '@podium/protocol'
 import type { z } from 'zod'
 import type { Capability } from '../../issue-authz'
+import type { CommandPrincipal } from '../../command-principal'
 import type { IssueRow } from '../../store/types'
 import type { WorkflowActor, WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
 import {
@@ -49,6 +50,7 @@ export interface WorkflowListInput {
 }
 
 export interface WorkflowCaller {
+  principal?: CommandPrincipal
   actor: WorkflowActor
   capability?: Capability
   overrideScope?: boolean
@@ -257,6 +259,7 @@ export class WorkflowService implements WorkflowEngine {
     profileId: string
     runId?: string
     stepId?: string
+    caller?: WorkflowCaller
   }): ExecutionProfileWire & { harness: AgentKind } {
     let profile: ExecutionProfileWire | null
     if (input.runId && input.stepId) {
@@ -288,7 +291,8 @@ export class WorkflowService implements WorkflowEngine {
     // correct for REPRODUCIBILITY but must never become the model for
     // AUTHORIZATION (POD-730 §4). So the machine is re-checked here, against
     // the current grants, every time work is actually placed.
-    this.access.assertMayPlaceOn(profile.machineId)
+    if (!input.caller) throw new Error('workflow launch requires an authenticated caller')
+    this.access.assertMayPlaceOn(input.caller, profile.machineId)
     const harness = AgentKind.safeParse(profile.harness)
     if (!harness.success) {
       throw new Error(`execution profile ${profile.id} has unsupported harness ${profile.harness}`)
@@ -422,6 +426,11 @@ export class WorkflowService implements WorkflowEngine {
     if (input.startStepId && startPosition < 0)
       throw new Error(`workflow has no step ${input.startStepId}`)
     const now = this.deps.now()
+    const ownerUserId =
+      input.onBehalfOf !== undefined
+        ? input.onBehalfOf
+        : this.access.owner({ actor: { kind: 'session', id: input.sessionId } })
+    if (ownerUserId === null) throw new Error('workflow run has no live owner')
     const run: WorkflowRunRow = {
       id: `wrun_${randomUUID()}`,
       subjectKind,
@@ -432,6 +441,7 @@ export class WorkflowService implements WorkflowEngine {
       supersedesRunId: input.supersedesRunId ?? null,
       startedAt: now,
       completedAt: null,
+      ownerUserId,
     }
     this.deps.store.insertRun({
       run,

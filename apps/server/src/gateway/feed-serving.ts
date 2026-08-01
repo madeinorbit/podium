@@ -82,7 +82,7 @@ import type {
   ScopedDelivery,
   ServerFrame,
 } from '@podium/sync'
-import { FeedPublisher } from '@podium/sync'
+import { FeedPublisher, principalIdOf } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import {
@@ -129,6 +129,16 @@ export class FeedServing {
   private readonly connections = new Map<string, FeedConnection>()
   /** The wire version each connection's WORLD was expressed in. */
   private readonly servedVersion = new Map<string, number>()
+  private readonly principalByPeer = new Map<string, string>()
+  private readonly principalSubscriptions = new Map<
+    string,
+    { refs: number; unsubscribe: () => void }
+  >()
+  private readonly pendingByPrincipal = new Map<
+    string,
+    { principal: FeedPrincipal; deliveries: ScopedDelivery[] }
+  >()
+  private flushScheduled = false
 
   constructor(private readonly deps: FeedServingDeps) {
     this.publisher = new FeedPublisher({
@@ -207,7 +217,39 @@ export class FeedServing {
       // takes back. Reusing it keeps ONE way for a position to be set.
       existing.rearm(world.throughSeq)
     }
+    this.retainPrincipal(peer.id, principal)
     perf.record('phase', 'feedBootstrap.total', performance.now() - t0, perfKey)
+  }
+
+  private retainPrincipal(peerId: string, principal: FeedPrincipal): void {
+    const key = principalIdOf(principal)
+    if (this.principalByPeer.get(peerId) === key) return
+    this.releasePrincipal(peerId)
+    const current = this.principalSubscriptions.get(key)
+    if (current) {
+      current.refs += 1
+    } else {
+      this.principalSubscriptions.set(key, {
+        refs: 1,
+        unsubscribe: this.deps.authority.subscribe(principal, (delivery) =>
+          this.queue(principal, delivery),
+        ),
+      })
+    }
+    this.principalByPeer.set(peerId, key)
+  }
+
+  private releasePrincipal(peerId: string): void {
+    const key = this.principalByPeer.get(peerId)
+    if (!key) return
+    this.principalByPeer.delete(peerId)
+    const current = this.principalSubscriptions.get(key)
+    if (!current) return
+    current.refs -= 1
+    if (current.refs === 0) {
+      current.unsubscribe()
+      this.principalSubscriptions.delete(key)
+    }
   }
 
   /**
@@ -246,11 +288,32 @@ export class FeedServing {
   }
 
   detach(peerId: string): void {
+    this.releasePrincipal(peerId)
     this.edge.detach(peerId)
     this.peers.delete(peerId)
     this.servedVersion.delete(peerId)
     this.connections.get(peerId)?.disconnect()
     this.connections.delete(peerId)
+  }
+
+  private queue(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+    const key = principalIdOf(principal)
+    const pending = this.pendingByPrincipal.get(key) ?? { principal, deliveries: [] }
+    pending.deliveries.push(delivery)
+    this.pendingByPrincipal.set(key, pending)
+    if (this.flushScheduled) return
+    this.flushScheduled = true
+    queueMicrotask(() => this.flushPending())
+  }
+
+  /** Flush every principal independently, preserving certified range order. */
+  flushPending(): void {
+    this.flushScheduled = false
+    const pending = [...this.pendingByPrincipal.values()]
+    this.pendingByPrincipal.clear()
+    for (const { principal, deliveries } of pending) {
+      for (const delivery of coalesceScopedDeliveries(deliveries)) this.publish(principal, delivery)
+    }
   }
 
   /**
@@ -261,6 +324,12 @@ export class FeedServing {
    * about, and there is no other tick in this server that would come back for it.
    */
   publish(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+    const totalStartedAt = performance.now()
+    const perfKey = perfPrincipal(principal)
+    // Scoping has already been evaluated by Authority for this principal. Record
+    // the handoff under that same principal so bootstrap and publication remain
+    // comparable after per-user transport authentication.
+    perf.record('phase', 'feedPublish.scope', 0, perfKey)
     // THE RE-POINTED SWITCH PHASES [POD-736]. `sessionsBroadcast.stringify` and
     // `.fanout` named the two halves of the deleted snapshot pipeline —
     // serialize the payload, then walk the connections. The same two halves are
@@ -269,13 +338,13 @@ export class FeedServing {
     // connection's certified frames through its version adapter). The names
     // changed because the pipeline they named is gone; `PHASE_MIGRATION` in
     // `@podium/protocol` is the map a recorded baseline resolves through.
-    const perfKey = perfPrincipal(principal)
     const t0 = performance.now()
     this.publisher.publish(principal, delivery)
     const tFramed = performance.now()
     perf.record('phase', 'feedPublish.frame', tFramed - t0, perfKey)
     this.flush(delivery.throughSeq)
     perf.record('phase', 'feedPublish.fanout', performance.now() - tFramed, perfKey)
+    perf.record('phase', 'feedPublish.total', performance.now() - totalStartedAt, perfKey)
   }
 
   /** Roll the epoch and demote every connection to a re-bootstrap (D1 → D7 r4). */
@@ -352,6 +421,25 @@ export class FeedServing {
   }
 }
 
+function coalesceScopedDeliveries(
+  deliveries: readonly ScopedDelivery[],
+): ScopedDelivery[] {
+  const coalesced: ScopedDelivery[] = []
+  for (const delivery of deliveries) {
+    const previous = coalesced.at(-1)
+    if (delivery.kind === 'batch' && previous?.kind === 'batch') {
+      coalesced[coalesced.length - 1] = {
+        kind: 'batch',
+        throughSeq: delivery.throughSeq,
+        changes: [...previous.changes, ...delivery.changes],
+      }
+    } else {
+      coalesced.push(delivery)
+    }
+  }
+  return coalesced
+}
+
 /**
  * Kernel frame → wire frame.
  *
@@ -424,6 +512,8 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
 export function toFeedChange(change: ScopedChange): FeedChange {
   const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
   return (
-    change.op === 'upsert' ? { ...base, op: 'upsert', value: change.value } : { ...base, op: change.op }
+    change.op === 'upsert'
+      ? { ...base, op: 'upsert', value: change.value }
+      : { ...base, op: change.op }
   ) as FeedChange
 }

@@ -62,7 +62,7 @@ import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
-import { soleHumanSessionStatePrincipal } from './sessions/session-state/registry'
+import { sessionStatePrincipalFor } from './sessions/session-state/registry'
 import { type Context, mods, t } from '../trpc'
 
 /**
@@ -144,7 +144,7 @@ export interface FamilyState {
   readonly caller: {
     readonly userId: string
     /** Passed opaque to SessionStateService, which owns the visibility decision. */
-    readonly sessionState: ReturnType<typeof soleHumanSessionStatePrincipal>
+    readonly sessionState: ReturnType<typeof sessionStatePrincipalFor>
     /** The capability's OWN field type, not a widened `string | null`. The first
      *  draft widened it and tsgo caught the consequence immediately: the read
      *  toolkit takes a branded `ReaderRef`, so a widened id would have forced a
@@ -155,6 +155,7 @@ export interface FamilyState {
   /** Request-scoped world used by websocket publication and sync catch-up; the
    *  one read (`sync.changesSince`) passes it straight through to the service. */
   readonly publicationAuthority?: Context['publicationAuthority']
+  readonly feedPrincipal?: import('@podium/sync').FeedPrincipal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
    *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
@@ -365,18 +366,36 @@ function assertSurfaceMatchesDeclarations(
  * these things drift — one gains a member and the other does not, and the reads
  * and the writes of the same family start seeing different state.
  */
-const familyState = (ctx: Context): FamilyState => ({
+const callerUserId = (ctx: Context): string => {
+  if (ctx.principal?.kind === 'user') return ctx.principal.user
+  if (ctx.principal?.kind === 'agent' && ctx.principal.onBehalfOf) return ctx.principal.onBehalfOf
+  throw new Error('authenticated human principal is required')
+}
+
+export const familyState = (ctx: Context): FamilyState => ({
   modules: mods(ctx),
   repos: ctx.repos,
   telemetry: ctx.telemetry,
   store: ctx.registry.sessionStore,
   cloud: ctx.cloud,
   caller: {
-    userId: soleHumanSessionStatePrincipal(ctx.capability).userId,
-    sessionState: soleHumanSessionStatePrincipal(ctx.capability),
+    userId: callerUserId(ctx),
+    sessionState: sessionStatePrincipalFor(ctx.principal),
     actorSessionId: ctx.capability.actorSessionId,
   },
   publicationAuthority: ctx.publicationAuthority,
+  ...(ctx.principal?.kind === 'user'
+    ? { feedPrincipal: { kind: 'user' as const, userId: ctx.principal.user } }
+    : ctx.principal?.kind === 'agent'
+      ? {
+          feedPrincipal: {
+            kind: 'agent' as const,
+            sessionId: ctx.principal.agentSessionId,
+            onBehalfOf: ctx.principal.onBehalfOf,
+            scope: { kind: 'entities' as const, keys: new Set<string>() },
+          },
+        }
+      : {}),
   discovery: ctx.discovery,
   superagent: ctx.superagent,
 })
