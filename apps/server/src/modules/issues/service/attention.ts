@@ -4,8 +4,8 @@ import { attributionOf, type SystemCommandPrincipal } from '../../../command-pri
 import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { IssueStore } from './core'
-import type { IssueCrudMethods } from './crud'
-import type { IssueReportsMethods } from './reads'
+import type { IssueCrudModule } from './crud'
+import type { IssueReportsModule } from './reads'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
 
 /**
@@ -13,11 +13,65 @@ import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
  * archive + the read-gated auto-archive sweep (#127), the session-attach /
  * draft-vessel flows (issue-as-workspace), and event subscriptions (Phase B).
  */
-export interface IssueAttentionMethods extends IssueStore, IssueReportsMethods, IssueCrudMethods {}
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the composition root installs this stateless method bundle onto IssueStore.
-export class IssueAttentionMethods {
-  /** Public hierarchy dependency injected by the composition root. */
-  declare addDep: (fromRef: string, toRef: string, type?: string) => IssueWire
+export class IssueAttentionModule {
+  constructor(
+    readonly store: IssueStore,
+    private readonly crud: () => Pick<
+      IssueCrudModule,
+      | 'create'
+      | 'update'
+      | 'purgeEmptyDraft'
+      | 'defer'
+      | 'undefer'
+      | 'setNeedsHuman'
+      | 'clearNeedsHuman'
+      | 'markIssueRead'
+      | 'markIssueUnread'
+      | 'setIssueTucked'
+    >,
+    private readonly hierarchy: () => {
+      addDep(fromRef: string, toRef: string, type?: string): IssueWire
+    },
+    private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
+  ) {}
+
+  defer(...args: Parameters<IssueCrudModule['defer']>): ReturnType<IssueCrudModule['defer']> {
+    return this.crud().defer(...args)
+  }
+
+  undefer(...args: Parameters<IssueCrudModule['undefer']>): ReturnType<IssueCrudModule['undefer']> {
+    return this.crud().undefer(...args)
+  }
+
+  setNeedsHuman(
+    ...args: Parameters<IssueCrudModule['setNeedsHuman']>
+  ): ReturnType<IssueCrudModule['setNeedsHuman']> {
+    return this.crud().setNeedsHuman(...args)
+  }
+
+  clearNeedsHuman(
+    ...args: Parameters<IssueCrudModule['clearNeedsHuman']>
+  ): ReturnType<IssueCrudModule['clearNeedsHuman']> {
+    return this.crud().clearNeedsHuman(...args)
+  }
+
+  markIssueRead(
+    ...args: Parameters<IssueCrudModule['markIssueRead']>
+  ): ReturnType<IssueCrudModule['markIssueRead']> {
+    return this.crud().markIssueRead(...args)
+  }
+
+  markIssueUnread(
+    ...args: Parameters<IssueCrudModule['markIssueUnread']>
+  ): ReturnType<IssueCrudModule['markIssueUnread']> {
+    return this.crud().markIssueUnread(...args)
+  }
+
+  setIssueTucked(
+    ...args: Parameters<IssueCrudModule['setIssueTucked']>
+  ): ReturnType<IssueCrudModule['setIssueTucked']> {
+    return this.crud().setIssueTucked(...args)
+  }
   /** Re-home a session onto another issue (agent self-organization).
    *  - `newSubissue`: create a child issue first (parent = the session's current
    *    issue, else `targetId`), then attach to it. Decomposition: the parent is
@@ -35,7 +89,7 @@ export class IssueAttentionMethods {
     newSpinoff?: { title: string; origin: 'human' | 'agent' }
     confirmRehome?: boolean
   }): IssueWire {
-    const { getSessionIssueId, setSessionIssueId } = this.deps
+    const { getSessionIssueId, setSessionIssueId } = this.store.deps
     if (!getSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
     }
@@ -46,12 +100,12 @@ export class IssueAttentionMethods {
     let target: IssueRow | undefined
     const newIssue = opts.newSubissue ?? opts.newSpinoff
     if (newIssue) {
-      const prev = prevId ? this.rows.get(prevId) : undefined
+      const prev = prevId ? this.store.rows.get(prevId) : undefined
       // A native subagent inherits its parent's relay, so an unconfirmed attach
       // could silently re-home the parent session [spec:SP-bab8].
       if (prev && !prev.draft && !opts.confirmRehome) {
         throw new Error(
-          `attach blocked: this session already belongs to ${this.niceRef(prev)} (a real issue), ` +
+          `attach blocked: this session already belongs to ${this.reports().niceRef(prev)} (a real issue), ` +
             'so this could re-home that session unexpectedly. A native subagent must not ' +
             'self-attach; its parent must attach it. For a deliberate top-level move, re-run ' +
             'with `--confirm-rehome`.',
@@ -59,14 +113,14 @@ export class IssueAttentionMethods {
       }
       const title = newIssue.title.trim()
       if (!title) throw new Error(`${opts.newSubissue ? 'subissue' : 'spinoff'} title is empty`)
-      const anchorId = prevId ?? (opts.targetId ? this.resolveRef(opts.targetId) : null)
+      const anchorId = prevId ?? (opts.targetId ? this.store.resolveRef(opts.targetId) : null)
       if (!anchorId) {
         throw new Error(
           `no ${opts.newSubissue ? 'parent' : 'origin'} for the new issue: session is unattached and no --id given`,
         )
       }
-      const anchor = this.rowOrThrow(anchorId)
-      const wire = this.create({
+      const anchor = this.store.rowOrThrow(anchorId)
+      const wire = this.crud().create({
         repoPath: anchor.repoPath,
         title,
         startNow: false,
@@ -80,36 +134,36 @@ export class IssueAttentionMethods {
         // an agent created it (#198). The "agent cuts a human-facing issue" case.
         audience: 'human',
       })
-      if (opts.newSpinoff) this.addDep(wire.id, anchorId, 'discovered-from')
-      target = this.rowOrThrow(wire.id)
+      if (opts.newSpinoff) this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
+      target = this.store.rowOrThrow(wire.id)
     } else {
       if (!opts.targetId) throw new Error('attach needs --id <issue> or --subissue "<title>"')
-      target = this.rowOrThrow(this.resolveRef(opts.targetId))
+      target = this.store.rowOrThrow(this.store.resolveRef(opts.targetId))
       // Re-homing off a REAL issue is blocked [spec:SP-8744]: it strands the old
       // issue session-less so it drops out of the sidebar. Only the draft→issue
       // flow (naming a fresh vessel) may move between issues; from a real issue
       // the sanctioned move is `--subissue`, which keeps the subtree intact.
-      const prev = prevId && prevId !== target.id ? this.rows.get(prevId) : undefined
+      const prev = prevId && prevId !== target.id ? this.store.rows.get(prevId) : undefined
       if (prev && !prev.draft) {
         throw new Error(
-          `attach blocked: this session already belongs to ${this.niceRef(prev)} (a real issue). ` +
+          `attach blocked: this session already belongs to ${this.reports().niceRef(prev)} (a real issue). ` +
             'Reassigning a session to a different issue is disabled; for new work use ' +
             '`podium issue attach --subissue "<title>" --confirm-rehome` or file the issue ' +
             'for another agent.',
         )
       }
     }
-    if (prevId === target.id) return this.toWire(target) // self-attach: no-op
+    if (prevId === target.id) return this.store.toWire(target) // self-attach: no-op
     setSessionIssueId(opts.sessionId, target.id)
-    this.emitEvent('issue.session_attached', target.id, {
+    this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
       sessionId: opts.sessionId,
       ...(prevId ? { from: prevId } : {}),
     })
     // Clean up the abandoned draft vessel it came from, if now completely empty.
     if (prevId) this.deleteIfEmptyDraft(prevId)
-    this.broadcastList()
-    return this.toWire(this.rowOrThrow(target.id))
+    this.store.broadcastList()
+    return this.store.toWire(this.store.rowOrThrow(target.id))
   }
 
   /** Delete `id` iff it is a draft with no LIVING attached sessions, no worktree
@@ -120,19 +174,19 @@ export class IssueAttentionMethods {
    *  sessions still pointing at the deleted issue are detached so nothing
    *  dangles. Returns true iff the issue was deleted. */
   reapIfEmptyDraft(id: string): boolean {
-    const row = this.rows.get(id)
+    const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
-    const hasChildren = [...this.rows.values()].some((r) => r.parentId === id)
+    const hasChildren = [...this.store.rows.values()].some((r) => r.parentId === id)
     if (hasChildren) return false
-    const attached = this.deps.listSessions().filter((s) => s.issueId === id)
+    const attached = this.store.deps.listSessions().filter((s) => s.issueId === id)
     const blocking = attached.some((s) => !s.archived && s.status !== 'exited')
     if (blocking) return false
     // Detach the remaining dead sessions BEFORE deleting so their broadcasts
     // never reference a vanished issue.
-    if (this.deps.setSessionIssueId) {
-      for (const s of attached) this.deps.setSessionIssueId(s.sessionId, null)
+    if (this.store.deps.setSessionIssueId) {
+      for (const s of attached) this.store.deps.setSessionIssueId(s.sessionId, null)
     }
-    this.purgeEmptyDraft(id)
+    this.crud().purgeEmptyDraft(id)
     return true
   }
 
@@ -146,8 +200,8 @@ export class IssueAttentionMethods {
    *  of drafts reaped. */
   reapLeakedDrafts(): number {
     let n = 0
-    for (const id of [...this.rows.keys()]) {
-      if (this.rows.get(id)?.draft && this.reapIfEmptyDraft(id)) n++
+    for (const id of [...this.store.rows.keys()]) {
+      if (this.store.rows.get(id)?.draft && this.reapIfEmptyDraft(id)) n++
     }
     return n
   }
@@ -161,7 +215,7 @@ export class IssueAttentionMethods {
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
   ): IssueWire {
-    return this.create({
+    return this.crud().create({
       repoPath,
       title: 'Draft',
       startNow: false,
@@ -196,42 +250,43 @@ export class IssueAttentionMethods {
       subscriberId: input.subscriberId,
       event: input.event,
       sourceKind: input.sourceKind,
-      sourceRef: input.sourceKind === 'issue' ? this.resolveRef(input.sourceRef) : input.sourceRef,
+      sourceRef:
+        input.sourceKind === 'issue' ? this.store.resolveRef(input.sourceRef) : input.sourceRef,
       deliverNudge: input.deliverNudge ?? true,
       deliverNotify: input.deliverNotify ?? false,
       origin: input.origin ?? 'custom',
       enabled: true,
-      createdAt: this.now(),
+      createdAt: this.store.now(),
     }
-    this.deps.funnel.run({ write: () => this.deps.store.events.addSubscription(sub) })
+    this.store.deps.funnel.run({ write: () => this.store.deps.store.events.addSubscription(sub) })
     return sub
   }
 
   subscriptionRemove(id: string): { removed: boolean } {
-    const existed = this.deps.store.events.listSubscriptions().some((s) => s.id === id)
-    this.deps.funnel.run({ write: () => this.deps.store.events.removeSubscription(id) })
+    const existed = this.store.deps.store.events.listSubscriptions().some((s) => s.id === id)
+    this.store.deps.funnel.run({ write: () => this.store.deps.store.events.removeSubscription(id) })
     return { removed: existed }
   }
 
   subscriptionList(filter?: { subscriberId?: string }): Subscription[] {
-    return this.deps.store.events.listSubscriptions(filter)
+    return this.store.deps.store.events.listSubscriptions(filter)
   }
 
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
    *  the additive dispatcher pass, so disabling one never touches the built-in
    *  handlers — it is safe and reversible. */
   subscriptionSetEnabled(id: string, enabled: boolean): { updated: boolean } {
-    return this.deps.funnel.run({
-      write: () => ({ updated: this.deps.store.events.setSubscriptionEnabled(id, enabled) }),
+    return this.store.deps.funnel.run({
+      write: () => ({ updated: this.store.deps.store.events.setSubscriptionEnabled(id, enabled) }),
     })
   }
 
   subscriptionGet(id: string): Subscription | undefined {
-    return this.deps.store.events.getSubscription(id)
+    return this.store.deps.store.events.getSubscription(id)
   }
 
   archive(id: string): IssueWire {
-    return this.update(id, { archived: true })
+    return this.crud().update(id, { archived: true })
   }
 
   /**
@@ -253,28 +308,28 @@ export class IssueAttentionMethods {
    * Returns the wires it archived (empty when nothing qualified).
    */
   sweepAutoArchive(
-    nowMs: number = Date.parse(this.now()),
+    nowMs: number = Date.parse(this.store.now()),
     principal?: SystemCommandPrincipal,
   ): IssueWire[] {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueWire[] = []
     let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
-    for (const row of this.rows.values()) {
+    for (const row of this.store.rows.values()) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
-      if (!this.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
+      if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
       // "Read" is now a fact about a READER, so the sweep asks the broadcast
       // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
       // open question "auto-archived because WHO read it?" is POD-1136's, and it
       // is now askable because the value has an owner.
-      const viewerReadAt = this.issueOverlay(row.id).readAt
+      const viewerReadAt = this.store.issueOverlay(row.id).readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
       // Post-read activity re-marks the issue unread (the operator hasn't seen it):
       // honour that here so a re-touched done issue isn't archived out from under them.
-      sessionList ??= this.deps.listSessions()
+      sessionList ??= this.store.deps.listSessions()
       const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
-      if (this.computeUnread(row, sessions)) continue
+      if (this.store.computeUnread(row, sessions)) continue
       out.push(this.autoArchive(row, principal))
     }
     return out
@@ -294,10 +349,10 @@ export class IssueAttentionMethods {
       archived: false
       deletedAt: null
     },
-    nowMs: number = Date.parse(this.now()),
+    nowMs: number = Date.parse(this.store.now()),
     principal?: SystemCommandPrincipal,
   ): 'applied' | 'precondition' | 'not-due' {
-    const row = this.rows.get(observed.issueId)
+    const row = this.store.rows.get(observed.issueId)
     if (!row) return 'precondition'
     if (row.archived || row.deletedAt) return 'precondition'
     if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
@@ -311,8 +366,8 @@ export class IssueAttentionMethods {
     // happen to match. When `archived` becomes per-user (POD-1077), this
     // comparison becomes "the principal whose flag you are setting" and the
     // observation already carries it.
-    if (observed.readerUserId !== this.broadcastViewer()) return 'precondition'
-    const viewerReadAt = this.issueOverlay(row.id).readAt
+    if (observed.readerUserId !== this.store.broadcastViewer()) return 'precondition'
+    const viewerReadAt = this.store.issueOverlay(row.id).readAt
     // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
     // and deliberately no `viewerReadAt == null` guard here either: the two
     // cases the CAS caught are both already refused BELOW, and a second guard
@@ -321,12 +376,12 @@ export class IssueAttentionMethods {
     // mark-unread deletes the row, so `Date.parse(null ?? '')` is NaN and the
     // `Number.isFinite` check refuses it. Mutate either of those two lines and
     // `issues.test.ts`'s POD-1229 cases go red.
-    if (!this.isClosed(row) || row.parentId) return 'precondition'
+    if (!this.store.isClosed(row) || row.parentId) return 'precondition'
     const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
-    const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
-    if (this.computeUnread(row, sessions)) return 'precondition'
+    const sessions = sessionsForIssue(row.worktreePath, this.store.deps.listSessions(), row.id)
+    if (this.store.computeUnread(row, sessions)) return 'precondition'
     this.autoArchive(row, principal)
     return 'applied'
   }
@@ -338,10 +393,10 @@ export class IssueAttentionMethods {
    *  its own line, and nothing downstream mistakes a sweep for a user action. */
   private autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): IssueWire {
     row.archived = true
-    const wire = this.persist(row)
-    this.emitEvent('issue.auto_archived', row.id, {
+    const wire = this.store.persist(row)
+    this.store.emitEvent('issue.auto_archived', row.id, {
       seq: row.seq,
-      readAt: this.issueOverlay(row.id).readAt,
+      readAt: this.store.issueOverlay(row.id).readAt,
       ...(principal ? { attribution: attributionOf(principal) } : {}),
     })
     // Cascade onto member sessions (issue #133): the sweep must not leave a
@@ -361,10 +416,10 @@ export class IssueAttentionMethods {
    *  relay.setArchived) so each archived session persists + broadcasts. Skips
    *  already-archived sessions so a re-archive is a no-op with no redundant
    *  broadcast. */
-  protected cascadeArchiveSessions(row: IssueRow): void {
-    const setArchived = this.deps.setSessionArchived
+  public cascadeArchiveSessions(row: IssueRow): void {
+    const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
-    for (const s of sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)) {
+    for (const s of sessionsForIssue(row.worktreePath, this.store.deps.listSessions(), row.id)) {
       if (s.archived) continue
       setArchived(s.sessionId, true)
     }
@@ -377,10 +432,10 @@ export class IssueAttentionMethods {
    *  the explicit "work is finished" flip — clear standing offers so finished
    *  work cannot keep demanding attention. No-ops when the clear hook is absent
    *  (test deps) or a session has no offer. */
-  protected retireIssueOffers(row: IssueRow): void {
-    const clearOffer = this.deps.clearSessionOffer
+  public retireIssueOffers(row: IssueRow): void {
+    const clearOffer = this.store.deps.clearSessionOffer
     if (!clearOffer) return
-    for (const s of sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)) {
+    for (const s of sessionsForIssue(row.worktreePath, this.store.deps.listSessions(), row.id)) {
       if (!s.offer) continue
       clearOffer(s.sessionId)
     }

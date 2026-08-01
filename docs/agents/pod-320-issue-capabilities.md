@@ -4,16 +4,18 @@
 
 `IssueService` is now a composition root over one `IssueStore`. The store alone owns hydration,
 the row cache, per-user overlays, wire serialization, persistence, ledger commits, projections and
-publication. Six stateless method modules are installed over that store and exposed through narrow
+publication. Six separately instantiated capability modules receive that store and expose narrow
 interfaces: CRUD plus stage machine, hierarchy plus dependencies, comments plus tracker mail,
-attention plus subscriptions, git workflow, and reports. Specs remain the `SpecsService` sibling in
-the tracker module set; they do not enter the issue store.
+attention plus subscriptions, git workflow, and reports. Cross-capability behavior travels through
+constructor-injected interfaces; no module reads another module's state. Specs remain the
+`SpecsService` sibling in the tracker module set and never enter the issue store.
 
 Issue command dependencies expose `IssueTrackerCapabilities`, not `IssueService`. Every registry
 handler selects its owning capability, while the shared authorization adapter flattens only the
 public report lookup and hierarchy ancestry interfaces needed by `checkIssueAccess`. A temporary
-compatibility proxy preserves direct `IssueService` calls for non-command integrations and existing
-tests; it owns no state and command handlers cannot type against it.
+compatibility proxy forwards direct `IssueService` calls to the owning capability for non-command
+integrations and existing tests; it copies no methods, owns no state, and command handlers cannot
+type against it.
 
 ## Ownership and attribution declarations
 
@@ -50,7 +52,9 @@ now passes the authenticated transport principal into comment persistence, so an
 records `actor = session:<agent>` and `onBehalfOf = <delegating human>`. The registry regression
 test proves both halves; no payload field can supply either value.
 
-Verification: full monorepo typecheck; full default unit/web/mobile/Bun test lane; focused dense
-issue, lifecycle-authz, CLI, MCP, relay, multi-user mail ceiling and consistent-error suites;
-module-boundary audit; rearchitecture deletion audit; explicit source audits report zero issue
-service class inheritance and zero command-handler `IssueService` bindings.
+Verification on the final object composition: server typecheck; 2-file/20-test composition and
+registry checkpoint; 28-file/632-test dense issue, funnel, authorization, mail, CLI, MCP and relay
+surface; 10-file/183-test named SessionService oracle. Final repository lanes are recorded in the
+issue handoff; explicit source audits report one `IssueStore` construction, six distinct capability
+objects, zero service class inheritance, zero prototype installation and zero command-handler
+`IssueService` bindings.

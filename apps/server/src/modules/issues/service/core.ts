@@ -80,12 +80,12 @@ export class IssueStore {
    * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
    * body with the request's principal; every caller already asks the question.
    */
-  protected broadcastViewer(): string {
+  broadcastViewer(): string {
     return FIRST_ADMIN_USER_ID
   }
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
-  protected issueOverlay(issueId: string): IssueUserOverlay {
+  issueOverlay(issueId: string): IssueUserOverlay {
     if (this.viewerState === null) {
       this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
     }
@@ -93,7 +93,7 @@ export class IssueStore {
   }
 
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`. */
-  protected issueUserState(issueId: string): StoredIssueUserState | undefined {
+  issueUserState(issueId: string): StoredIssueUserState | undefined {
     if (this.viewerState === null) {
       this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
     }
@@ -108,7 +108,7 @@ export class IssueStore {
    * Bumps `issueInputsGen`: a marker change is an issue-side wire input, and
    * POD-723's memo would otherwise serve the pre-change payload.
    */
-  protected writeIssueUserState(issueId: string, patch: Partial<StoredIssueUserState>): void {
+  writeIssueUserState(issueId: string, patch: Partial<StoredIssueUserState>): void {
     const user = this.broadcastViewer()
     this.deps.store.issues.setIssueUserState(user, issueId, patch)
     if (this.viewerState === null) {
@@ -143,18 +143,18 @@ export class IssueStore {
    *  column. Lost on restart by design — the next turn end re-probes, and the
    *  attribution ledger's absence is what flips `fallback` on. Writers must
    *  broadcast via {@link broadcastList} so the POD-723 memo invalidates. */
-  protected readonly gitStates = new Map<string, IssueGitState>()
+  readonly gitStates = new Map<string, IssueGitState>()
 
   /** Signal that some issue-side input feeding {@link toWire} changed, so cached
    *  wire payloads must be rebuilt on the next list() [POD-723]. */
-  protected bumpIssueInputs(): void {
+  bumpIssueInputs(): void {
     this.issueInputsGen++
   }
 
   /** The in-memory row map, lazily hydrated. Row-level quarantine lives in the
    *  store (listIssueRows skips + logs + counts corrupt rows), so hydration is
    *  total: a corrupt row costs that row, never the boot. */
-  protected get rows(): Map<string, IssueRow> {
+  get rows(): Map<string, IssueRow> {
     if (this.hydrated === null) this.hydrate()
     return this.hydrated as Map<string, IssueRow>
   }
@@ -195,22 +195,22 @@ export class IssueStore {
       .filter((p): p is string => !!p)
   }
 
-  protected now(): string {
+  now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
   }
 
   /** The service's clock as the model's `Instant` (epoch ms) — the adapter at
    *  this edge (POD-299). The service holds an ISO `now` because that is what it
    *  stamps onto rows; the model's predicates compare instants, never strings. */
-  protected nowInstant(): Instant {
+  nowInstant(): Instant {
     return requireInstant(this.now())
   }
 
-  protected isClosed(row: IssueRow): boolean {
+  isClosed(row: IssueRow): boolean {
     return !!row.deletedAt || isIssueClosed(row)
   }
 
-  protected isDeferred(row: IssueRow): boolean {
+  isDeferred(row: IssueRow): boolean {
     return isIssueDeferred(row, this.nowInstant())
   }
 
@@ -223,7 +223,7 @@ export class IssueStore {
    *  DERIVED, NEVER STORED (POD-1076): it joins one person's `readAt` to a shared
    *  `lastActiveAt`, so it is a fact about a reader AND an issue and belongs to
    *  neither row alone. */
-  protected computeUnread(row: IssueRow, sessions: SessionMeta[]): boolean {
+  computeUnread(row: IssueRow, sessions: SessionMeta[]): boolean {
     if (row.deletedAt) return false
     const readAt = this.issueOverlay(row.id).readAt
     if (readAt == null) return true
@@ -262,7 +262,7 @@ export class IssueStore {
   }
 
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
-  protected computeBlocked(row: IssueRow): boolean {
+  computeBlocked(row: IssueRow): boolean {
     const blocksTargets = this.deps.store.issues
       .listIssueDeps(row.id)
       .filter((d) => d.type === 'blocks')
@@ -535,14 +535,14 @@ export class IssueStore {
    *  The decode itself is an R1 ↔ R3 encoding split and lives in the one pair
    *  (ADR 4 §4.1); this stays as the row-shaped entry point `crud.ts` uses when
    *  it is about to patch the same row AS a row. */
-  protected parsePanel(row: IssueRow): IssuePanel {
+  parsePanel(row: IssueRow): IssuePanel {
     return decodePanel(row.panel)
   }
 
   /** True when `row` belongs to the repo identified by `repoPath`, compared by the
    *  stable `repo_id` so every checkout of one origin unifies (#140); falls back to
    *  path equality only when a repo_id can't be resolved. `undefined` scope matches all. */
-  protected inRepoScope(row: IssueRow, repoPath: string | undefined): boolean {
+  inRepoScope(row: IssueRow, repoPath: string | undefined): boolean {
     if (!repoPath) return true
     const scope = this.deps.store.repos.resolveRepoIdForPath(repoPath)
     const rowRepoId = row.repoId ?? this.deps.store.repos.resolveRepoIdForPath(row.repoPath)
@@ -633,7 +633,7 @@ export class IssueStore {
   /** The `issueProjection` change ONE issue's write declares.
    *  Returned as an array so a call site can spread it into its `changes()` and
    *  stay a single expression when the flag is off. */
-  protected projectionChanges(
+  projectionChanges(
     row: IssueRow,
   ): { entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[] {
     return [
@@ -672,7 +672,7 @@ export class IssueStore {
   /** The `issueDep` change ONE edge write declares. O(1) per edge —
    *  this is what makes a dep add cost nothing per issue. Returned as an array so
    *  a call site can spread it and stay a single expression when the flag is off. */
-  protected depChanges(
+  depChanges(
     deps: readonly { fromId: string; toId: string; type: string }[],
     op: 'upsert' | 'remove',
   ): { entity: 'issueDep'; id: string; op: 'upsert' | 'remove'; value?: IssueDepProjection }[] {
@@ -739,7 +739,7 @@ export class IssueStore {
    *  (broadcastList, purgeEmptyDraft). Both kinds reconcile against the same
    *  truth in the same pass, so the legacy feed and the normalized feed can
    *  never disagree about which issues exist. */
-  protected reconcileAndPublish(spec: PublishSpec): void {
+  reconcileAndPublish(spec: PublishSpec): void {
     this.deps.ledger.reconcile('issue', spec.rows)
     const projections = this.allProjections()
     if (projections) this.deps.ledger.reconcile('issueProjection', projections)
@@ -770,7 +770,7 @@ export class IssueStore {
    *  toWire; mutations that change OTHER issues' derived wire data (closed flips
    *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
    *  membership changes) additionally call {@link broadcastList}. */
-  protected persist(row: IssueRow, opts?: { touch?: boolean }): IssueWire {
+  persist(row: IssueRow, opts?: { touch?: boolean }): IssueWire {
     return this.persistWith(row, undefined, opts)
   }
 
@@ -779,7 +779,7 @@ export class IssueStore {
    *  commit ([spec:SP-3fe2] #255) binds the write and its declared change row
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
-  protected persistWith(
+  persistWith(
     row: IssueRow,
     extraWrite?: () => void,
     opts?: {
@@ -876,7 +876,7 @@ export class IssueStore {
    *  shape ([spec:SP-3fe2] #255). The reconciled rows are the ones the
    *  snapshot carries (local ∪ hub-mirrored, unioned by the publisher), so the
    *  change log records exactly what legacy clients see. */
-  protected broadcastList(): void {
+  broadcastList(): void {
     // Cross-issue derived ripples (a close flipping dependents' blocked/ready,
     // a re-parent moving childCount) change OTHER rows' wire output without a
     // write on them — bump BEFORE allWire so the memo rebuilds every row against
@@ -886,7 +886,7 @@ export class IssueStore {
   }
 
   /** Cross-issue legacy fields still require a full-list transitional emit. */
-  protected broadcastListForDerivedRipple(): void {
+  broadcastListForDerivedRipple(): void {
     this.broadcastList()
   }
 
@@ -894,7 +894,7 @@ export class IssueStore {
    * state). Unlike broadcastList this does not rebuild every issue merely
    * because one row's computed field changed. The reconcile keeps delta clients
    * and the durable change log aligned with the legacy single-row snapshot. */
-  protected broadcastIssue(row: IssueRow): void {
+  broadcastIssue(row: IssueRow): void {
     // Same restoration as in persist: the write-less derived publish (git state)
     // changes a computed field with no row write behind it, so nothing else bumps
     // the generation and the next list() would serve the stale payload.
@@ -917,18 +917,18 @@ export class IssueStore {
   }
 
   /** @internal */
-  protected rowOrThrow(id: string): IssueRow {
+  rowOrThrow(id: string): IssueRow {
     const r = this.rows.get(this.resolveRef(id))
     if (!r) throw new Error(`unknown issue ${id}`)
     return r
   }
   /** @internal */
-  protected persistRow(row: IssueRow): IssueWire {
+  persistRow(row: IssueRow): IssueWire {
     return this.persist(row)
   }
   /** @internal */
-  protected get d(): IssueDeps {
+  get d(): IssueDeps {
     return this.deps
   }
-  protected slug = slugifyBranch
+  slug = slugifyBranch
 }

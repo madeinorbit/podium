@@ -29,11 +29,16 @@ describe('issue tracker capability composition', () => {
       ...issueTestPlumbing(),
     }
     const tracker = new IssueService(deps)
-    expect(tracker.crud).toBe(tracker.hierarchy)
-    expect(tracker.hierarchy).toBe(tracker.commentsMail)
-    expect(tracker.commentsMail).toBe(tracker.attention)
-    expect(tracker.attention).toBe(tracker.gitWorkflow)
-    expect(tracker.gitWorkflow).toBe(tracker.reports)
+    const capabilities = [
+      tracker.crud,
+      tracker.hierarchy,
+      tracker.commentsMail,
+      tracker.attention,
+      tracker.gitWorkflow,
+      tracker.reports,
+    ]
+    expect(new Set(capabilities).size).toBe(capabilities.length)
+    expect(new Set(capabilities.map((capability) => capability.store)).size).toBe(1)
 
     expect(tracker.reports.list()).toEqual([])
     const created = tracker.crud.create({ repoPath: '/repo', title: 'one store', startNow: false })
@@ -55,6 +60,8 @@ describe('issue tracker capability composition', () => {
     const service = files.map((file) => source(file)).join('\n')
     expect(service).not.toMatch(/class\s+\w+\s+extends\s+Issue/)
     expect(service.match(/new IssueStore\(/g)).toHaveLength(1)
+    expect(service).not.toContain('installMethods')
+    expect(service).not.toContain('Methods.prototype')
   })
 
   it('binds command handlers to capabilities, never the compatibility service', () => {

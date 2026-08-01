@@ -3,22 +3,18 @@ import {
   type SystemCommandPrincipal,
   systemPrincipal,
 } from '../../../command-principal'
-import { IssueAttentionMethods } from './attention'
+import { IssueAttentionModule } from './attention'
 import { IssueStore } from './core'
-import { IssueCrudMethods } from './crud'
-import { IssueHierarchyMethods } from './hierarchy'
-import { IssueCommentsMailMethods } from './mail'
-import {
-  DEFAULT_ISSUE_REPORT_VISIBILITY,
-  IssueReportsMethods,
-  type IssueReportVisibilityPolicy,
-} from './reads'
+import { IssueCrudModule } from './crud'
+import { IssueHierarchyModule } from './hierarchy'
+import { IssueCommentsMailModule } from './mail'
+import { IssueReportsModule } from './reads'
 import type { IssueDeps } from './types'
-import { IssueGitWorkflowMethods } from './workflow'
+import { IssueGitWorkflowModule } from './workflow'
 
 /** Public command-facing CRUD and stage-machine contract. */
 export type IssueCrudCapability = Pick<
-  IssueCrudMethods,
+  IssueCrudModule,
   | 'setState'
   | 'panelApply'
   | 'panelArtifactAdd'
@@ -43,7 +39,7 @@ export type IssueCrudCapability = Pick<
 
 /** Public hierarchy and dependency contract. */
 export type IssueHierarchyCapability = Pick<
-  IssueHierarchyMethods,
+  IssueHierarchyModule,
   | 'addDep'
   | 'removeDep'
   | 'reparent'
@@ -54,15 +50,14 @@ export type IssueHierarchyCapability = Pick<
 >
 
 /** Public comments and tracker-mail contract. */
-export type IssueCommentsMailCapability = Pick<IssueReportsMethods, 'comments'> &
-  Pick<
-    IssueCommentsMailMethods,
-    'addComment' | 'sendMail' | 'mailInbox' | 'mailClaim' | 'mailPending' | 'mailMessage'
-  >
+export type IssueCommentsMailCapability = Pick<
+  IssueCommentsMailModule,
+  'comments' | 'addComment' | 'sendMail' | 'mailInbox' | 'mailClaim' | 'mailPending' | 'mailMessage'
+>
 
 /** Public attention, per-user markers and subscription contract. */
 export type IssueAttentionCapability = Pick<
-  IssueAttentionMethods,
+  IssueAttentionModule,
   | 'attachSession'
   | 'reapIfEmptyDraft'
   | 'reapLeakedDrafts'
@@ -75,21 +70,18 @@ export type IssueAttentionCapability = Pick<
   | 'archive'
   | 'sweepAutoArchive'
   | 'tryAutoArchiveObserved'
-> &
-  Pick<
-    IssueCrudMethods,
-    | 'defer'
-    | 'undefer'
-    | 'setNeedsHuman'
-    | 'clearNeedsHuman'
-    | 'markIssueRead'
-    | 'markIssueUnread'
-    | 'setIssueTucked'
-  >
+  | 'defer'
+  | 'undefer'
+  | 'setNeedsHuman'
+  | 'clearNeedsHuman'
+  | 'markIssueRead'
+  | 'markIssueUnread'
+  | 'setIssueTucked'
+>
 
 /** Public worktree, PR/merge and assistant contract. */
 export type IssueGitWorkflowCapability = Pick<
-  IssueGitWorkflowMethods,
+  IssueGitWorkflowModule,
   | 'rehome'
   | 'start'
   | 'createAndMaybeStart'
@@ -112,7 +104,7 @@ export type IssueGitWorkflowCapability = Pick<
 
 /** Public read/report contract. */
 export type IssueReportsCapability = Pick<
-  IssueReportsMethods,
+  IssueReportsModule,
   | 'readyList'
   | 'blockedList'
   | 'graph'
@@ -139,10 +131,12 @@ export type IssueReportsCapability = Pick<
   | 'listEvents'
   | 'niceRef'
   | 'prime'
-> &
-  Pick<IssueStore, 'list' | 'resolveRef' | 'worktreePaths' | 'unreadFor'> & {
-    readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy>
-  }
+  | 'list'
+  | 'resolveRef'
+  | 'worktreePaths'
+  | 'unreadFor'
+  | 'visibilityPolicy'
+>
 
 export interface IssueTrackerCapabilities {
   readonly crud: IssueCrudCapability
@@ -155,82 +149,110 @@ export interface IssueTrackerCapabilities {
 
 export { DEFAULT_ISSUE_REPORT_VISIBILITY, type IssueReportVisibilityPolicy } from './reads'
 
-type IssueCapabilityHost = IssueStore &
-  IssueReportsMethods &
-  IssueCrudMethods &
-  IssueHierarchyMethods &
-  IssueAttentionMethods &
-  IssueCommentsMailMethods &
-  IssueGitWorkflowMethods
+type PublicSurface<T> = Pick<T, keyof T>
 
-/** Install one stateless method set onto the single mutable IssueStore. */
-function installMethods(host: object, methods: object): void {
-  for (const key of Reflect.ownKeys(methods)) {
-    if (key === 'constructor') continue
-    const descriptor = Object.getOwnPropertyDescriptor(methods, key)
-    if (descriptor) Object.defineProperty(host, key, descriptor)
-  }
-}
+type IssueLegacySurface = PublicSurface<IssueStore> &
+  PublicSurface<IssueReportsModule> &
+  PublicSurface<IssueCrudModule> &
+  PublicSurface<IssueHierarchyModule> &
+  PublicSurface<IssueAttentionModule> &
+  PublicSurface<IssueCommentsMailModule> &
+  PublicSurface<IssueGitWorkflowModule>
 
 /**
  * Server-side issue tracker composition root.
  *
- * Capability modules are stateless method sets over exactly one IssueStore.
- * Command handlers receive {@link IssueTrackerCapabilities}; the Proxy is a
- * compatibility face for older non-command integrations while they migrate.
+ * Six independent capability objects share exactly one IssueStore. Cross-module
+ * behavior travels through narrow constructor ports, never through another
+ * module's state. The Proxy only preserves the legacy flat service API: it
+ * forwards each old call to its owning object and never copies methods.
  */
-export interface IssueService extends IssueCapabilityHost {}
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: this is the temporary typed compatibility face for non-command callers.
-export class IssueService implements IssueTrackerCapabilities {
-  private readonly store: IssueCapabilityHost
-  readonly crud: IssueCrudCapability
-  readonly hierarchy: IssueHierarchyCapability
-  readonly commentsMail: IssueCommentsMailCapability
-  readonly attention: IssueAttentionCapability
-  readonly gitWorkflow: IssueGitWorkflowCapability
-  readonly reports: IssueReportsCapability
+class IssueServiceRoot implements IssueTrackerCapabilities {
+  private readonly store: IssueStore
+  readonly crud: IssueCrudModule
+  readonly hierarchy: IssueHierarchyModule
+  readonly commentsMail: IssueCommentsMailModule
+  readonly attention: IssueAttentionModule
+  readonly gitWorkflow: IssueGitWorkflowModule
+  readonly reports: IssueReportsModule
+  private readonly legacyOwners: object[]
 
   constructor(deps: IssueDeps) {
-    const store = new IssueStore(deps) as IssueCapabilityHost
-    installMethods(store, IssueReportsMethods.prototype)
-    installMethods(store, IssueCrudMethods.prototype)
-    installMethods(store, IssueHierarchyMethods.prototype)
-    installMethods(store, IssueAttentionMethods.prototype)
-    installMethods(store, IssueCommentsMailMethods.prototype)
-    installMethods(store, IssueGitWorkflowMethods.prototype)
+    const store = new IssueStore(deps)
     this.store = store
 
-    this.crud = store
-    this.hierarchy = store
-    this.commentsMail = store
-    this.attention = store
-    this.gitWorkflow = store
-    Object.defineProperty(store, 'visibilityPolicy', {
-      value: DEFAULT_ISSUE_REPORT_VISIBILITY,
-      enumerable: true,
-      writable: false,
-    })
-    this.reports = store as unknown as IssueReportsCapability
+    let crud: IssueCrudModule
+    let hierarchy: IssueHierarchyModule
+    let commentsMail: IssueCommentsMailModule
+    let attention: IssueAttentionModule
+    const reports = new IssueReportsModule(store)
+    hierarchy = new IssueHierarchyModule(store, () => crud)
+    attention = new IssueAttentionModule(
+      store,
+      () => crud,
+      () => hierarchy,
+      () => reports,
+    )
+    crud = new IssueCrudModule(
+      store,
+      () => hierarchy,
+      () => attention,
+    )
+    commentsMail = new IssueCommentsMailModule(store, () => reports)
+    const gitWorkflow = new IssueGitWorkflowModule(
+      store,
+      () => crud,
+      () => commentsMail,
+      () => attention,
+    )
 
-    // biome-ignore lint/correctness/noConstructorReturn: the compatibility face must preserve legacy `svc.method()` interception while commands use capabilities.
+    this.reports = reports
+    this.crud = crud
+    this.hierarchy = hierarchy
+    this.commentsMail = commentsMail
+    this.attention = attention
+    this.gitWorkflow = gitWorkflow
+    this.legacyOwners = [store, reports, crud, hierarchy, attention, commentsMail, gitWorkflow]
+
+    const ownerOf = (property: PropertyKey): object | undefined =>
+      this.legacyOwners.find((owner) => Reflect.has(owner, property))
+    const descriptorOf = (owner: object, property: PropertyKey): PropertyDescriptor | undefined => {
+      let current: object | null = owner
+      while (current) {
+        const descriptor = Reflect.getOwnPropertyDescriptor(current, property)
+        if (descriptor) return descriptor
+        current = Reflect.getPrototypeOf(current)
+      }
+      return undefined
+    }
+
+    // biome-ignore lint/correctness/noConstructorReturn: compatibility-only forwarding; behavior stays on the owning store/module object.
     return new Proxy(this, {
-      has: (target, property) => Reflect.has(target, property) || Reflect.has(store, property),
+      has: (target, property) => Reflect.has(target, property) || ownerOf(property) !== undefined,
       get: (target, property, receiver) => {
         if (Reflect.has(target, property)) return Reflect.get(target, property, receiver)
-        const value = Reflect.get(store, property, store)
-        return typeof value === 'function' ? value.bind(store) : value
+        const owner = ownerOf(property)
+        if (!owner) return undefined
+        const value = Reflect.get(owner, property, owner)
+        return typeof value === 'function' ? value.bind(owner) : value
       },
       set: (target, property, value, receiver) => {
         if (Reflect.has(target, property)) return Reflect.set(target, property, value, receiver)
-        return Reflect.set(store, property, value, store)
+        const owner = ownerOf(property)
+        return owner ? Reflect.set(owner, property, value, owner) : false
       },
-      getOwnPropertyDescriptor: (target, property) =>
-        Reflect.getOwnPropertyDescriptor(target, property) ??
-        Reflect.getOwnPropertyDescriptor(store, property),
-      defineProperty: (target, property, descriptor) =>
-        Reflect.has(store, property)
-          ? Reflect.defineProperty(store, property, descriptor)
-          : Reflect.defineProperty(target, property, descriptor),
+      getOwnPropertyDescriptor: (target, property) => {
+        const own = Reflect.getOwnPropertyDescriptor(target, property)
+        if (own) return own
+        const owner = ownerOf(property)
+        return owner ? descriptorOf(owner, property) : undefined
+      },
+      defineProperty: (target, property, descriptor) => {
+        const owner = ownerOf(property)
+        return owner
+          ? Reflect.defineProperty(owner, property, descriptor)
+          : Reflect.defineProperty(target, property, descriptor)
+      },
     })
   }
 
@@ -291,3 +313,12 @@ export {
   type IssueTreeSession,
   UNSNOOZE_BACKDATE_MS,
 } from './types'
+
+/**
+ * Typed compatibility value for legacy callers while command handlers consume
+ * IssueTrackerCapabilities. Runtime behavior remains on the owning capability.
+ */
+export type IssueService = IssueServiceRoot & IssueLegacySurface
+export const IssueService = IssueServiceRoot as unknown as {
+  new (deps: IssueDeps): IssueService
+}

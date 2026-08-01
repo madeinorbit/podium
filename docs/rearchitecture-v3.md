@@ -2357,9 +2357,12 @@ header what it structurally cannot see.
 
 The six-class IssueService inheritance chain is gone. One `IssueStore` owns hydrated state,
 serialization, persistence and publication; CRUD/stage-machine, hierarchy/dependencies,
-comments/mail, attention/subscriptions, git-workflow and reports are stateless capability modules
-composed over it. Every issue command handler now binds to a narrow capability interface rather
-than `IssueService`; pspec remains the sibling `SpecsService` in the tracker module set. The
+comments/mail, attention/subscriptions, git-workflow and reports are separately instantiated
+capability objects over it. Cross-capability behavior uses narrow constructor ports; no module
+reads another module's state. Every issue command handler now binds to a narrow capability
+interface rather than `IssueService`; pspec remains the sibling `SpecsService` in the tracker
+module set.
+The ownership declarations, open default-closed existence switches, reparent routing and the sole
 ownership declarations, open default-closed existence switches, reparent routing and the sole
 deliberate behavior change are recorded in
 `docs/agents/pod-320-issue-capabilities.md`.
