@@ -437,6 +437,7 @@ export class SessionLifecycle {
   private lastIssueProjectionGeneration = -1
   private readonly browserOpen: BrowserOpenGateway
   private readonly bindingReceipts: SessionBindingReceipts
+  // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.flushActivity(), 12_000)
 

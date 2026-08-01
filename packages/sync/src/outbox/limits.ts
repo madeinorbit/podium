@@ -12,7 +12,7 @@
  * ## What is NOT here, and why
  *
  * **Receipt retention.** That number is ADR 2's, and it lives at its prune site
- * (`APPLIED_MUTATIONS_MAX_AGE_MS` in `apps/server/src/modules/sessions/service.ts`).
+ * (`APPLIED_MUTATIONS_MAX_AGE_MS` in `apps/server/src/modules/sessions/lifecycle.ts`).
  * D11.3 requires the inequality to IMPORT it rather than copy it: a hard-coded
  * `30d` here would be a comment that fails open the day someone tunes the
  * service constant. `packages/*` may not import `apps/*` (boundary rule 4), so

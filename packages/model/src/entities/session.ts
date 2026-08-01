@@ -157,7 +157,7 @@ export const SessionOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('spawn') }),
   /** NOT a branded `ConversationId`, and this is evidence-based rather than an
    *  oversight: this field holds the HARNESS-NATIVE conversation id, not the
-   *  Podium-stable `podiumId`. `apps/server/src/modules/sessions/service.ts`
+   *  Podium-stable `podiumId`. `apps/server/src/modules/sessions/lifecycle.ts`
    *  fills it from `session.resume.value` — the native resume ref — on the
    *  handoff path, and elsewhere from `r.conversationId ?? ''`. A native id has
    *  no brand by decision (see `ids/brands.ts`), and the empty-string default is
