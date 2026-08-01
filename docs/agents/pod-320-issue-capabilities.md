@@ -16,6 +16,8 @@ public report lookup and hierarchy ancestry interfaces needed by `checkIssueAcce
 compatibility proxy forwards direct `IssueService` calls to the owning capability for non-command
 integrations and existing tests; it copies no methods, owns no state, and command handlers cannot
 type against it.
+Git-workflow methods are explicitly bound to their module instance because session lifecycle ports
+may retain them as callbacks; timers and git-attribution maps therefore remain per service instance.
 
 ## Ownership and attribution declarations
 
@@ -53,7 +55,7 @@ records `actor = session:<agent>` and `onBehalfOf = <delegating human>`. The reg
 test proves both halves; no payload field can supply either value.
 
 Verification on the final object composition: server typecheck; 2-file/20-test composition and
-registry checkpoint; 29-file/640-test dense issue, funnel, authorization, mail, CLI, MCP and relay
+registry checkpoint; 29-file/641-test dense issue, funnel, authorization, mail, CLI, MCP and relay
 surface; 10-file/183-test named SessionService oracle. Final repository lanes are recorded in the
 issue handoff; explicit source audits report one `IssueStore` construction, six distinct capability
 objects, zero service class inheritance, zero prototype installation and zero command-handler
