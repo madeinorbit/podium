@@ -126,7 +126,7 @@ export const codexComposerDriver: ComposerDriver = {
  * concern would cite it. The registry form needs no exception at all.
  *
  * Keys mirror the `composerScrape` capability in @podium/protocol
- * (AGENT_CAPABILITIES): a kind with no driver here scrapes no composer, and
+ * (the manifest's composerScrape capability): a kind with no driver here scrapes no composer, and
  * `null` is the "no driver" answer callers already handle.
  */
 const COMPOSER_DRIVERS: Partial<Record<AgentKind, ComposerDriver>> = {

@@ -19,7 +19,8 @@ import {
   type SessionId,
   type ThreadId,
 } from '@podium/model'
-import { HARNESS_MCP_SUPPORT, resolveRole, superagentHarnessAgent } from '@podium/runtime'
+import { harnessResumeKind, harnessSupportsMcp } from '../../harness-manifest'
+import { resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
 import type {
@@ -64,18 +65,6 @@ export const SUPERAGENT_HARNESS_TIMEOUT_MS = 600_000
 /** Persisted marker for a failed headless turn (a visible, durable line on the
  *  thread — never a silent fallback). */
 export const TURN_FAILED_MARKER = 'the headless harness turn failed'
-/** The native resume-ref kind each harness's sessions are stored under — the
- *  same convention the PTY spawn path persists (daemon.ts resume observers), so
- *  per-kind transcript reads and `agentLaunchCommand` resume argv both work on
- *  a headless session's ref. */
-export const RESUME_KIND: Record<HarnessAgent, string> = {
-  'claude-code': 'claude-session',
-  codex: 'codex-thread',
-  grok: 'grok-session',
-  opencode: 'opencode-session',
-  cursor: 'cursor-chat',
-}
-
 const SYSTEM_PROMPT = `You are Podium's superagent — the orchestrator with cross-project context.
 You manage real coding-agent sessions (Claude Code, Codex, Grok CLIs in PTYs), worktrees, and tickets
 for a developer. You can start/steer/stop agents, inspect their transcripts, run constrained git
@@ -550,7 +539,7 @@ export class SuperagentService {
     }
     // Full-MCP harnesses need a fresh endpoint/token after every server restart;
     // never replay the stale credential serialized by an older process.
-    if (HARNESS_MCP_SUPPORT[agent.data] === 'full' && !this.mcpEndpoint && !allowWithoutMcp) {
+    if (harnessSupportsMcp(agent.data) && !this.mcpEndpoint && !allowWithoutMcp) {
       return
     }
     this.dispatchedTurnIds.add(pending.turnId)
@@ -561,7 +550,7 @@ export class SuperagentService {
         threadId: pending.threadId,
         ...pending.payload,
         agent: agent.data,
-        ...(HARNESS_MCP_SUPPORT[agent.data] === 'full' && this.mcpEndpoint
+        ...(harnessSupportsMcp(agent.data) && this.mcpEndpoint
           ? this.harnessMcp(pending.threadId)
           : {}),
       },
@@ -609,7 +598,7 @@ export class SuperagentService {
             harnessSessionId,
           })
           this.modules.headless.setHeadlessResume(pending.podiumSessionId, {
-            kind: RESUME_KIND[agent.data],
+            kind: harnessResumeKind(agent.data),
             value: harnessSessionId,
           })
         }
@@ -704,7 +693,7 @@ export class SuperagentService {
     const { sessionId } = await this.modules.sessions.resumeSession({
       agentKind: agent.data,
       cwd: this.threadCwd(thread),
-      resume: { kind: RESUME_KIND[agent.data], value: thread.harnessSessionId },
+      resume: { kind: harnessResumeKind(agent.data), value: thread.harnessSessionId },
       conversationId: thread.harnessSessionId,
       ...(thread.title ? { title: thread.title } : {}),
       spawnedBy: `superagent:${threadId}`,
@@ -819,11 +808,14 @@ export class SuperagentService {
     const src = thread.podiumSessionId
     if (!src) return undefined
     try {
-      const { items } = await this.modules.rpc.readTranscript({
-        sessionId: src,
-        direction: 'before',
-        limit: 2000,
-      })
+      const { items } = await this.modules.rpc.readTranscript(
+        {
+          sessionId: src,
+          direction: 'before',
+          limit: 2000,
+        },
+        { kind: 'system', id: 'superagent-handoff' },
+      )
       if (items.length === 0) return undefined
       return buildHandoffSeed({ from, to, items })
     } catch {
@@ -870,11 +862,14 @@ export class SuperagentService {
     }
     if (thread.kind === 'btw' && thread.originSessionId) {
       const originId = thread.originSessionId
-      const { items } = await this.modules.rpc.readTranscript({
-        sessionId: originId,
-        direction: 'before',
-        limit: 2000,
-      })
+      const { items } = await this.modules.rpc.readTranscript(
+        {
+          sessionId: originId,
+          direction: 'before',
+          limit: 2000,
+        },
+        { kind: 'system', id: 'superagent-context' },
+      )
       const last = items[items.length - 1]
       if (firstTurn) {
         const info = this.listSessions().find((s) => s.sessionId === originId)

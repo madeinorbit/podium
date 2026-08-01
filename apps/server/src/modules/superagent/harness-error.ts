@@ -17,6 +17,7 @@
  */
 
 import type { HarnessAgent } from '@podium/model'
+import { harnessDisplayName } from '../../harness-manifest'
 
 export type HarnessErrorKind =
   | 'usage-limit'
@@ -30,15 +31,6 @@ export interface ClassifiedHarnessError {
   kind: HarnessErrorKind
   /** Concise, user-facing explanation — no stack traces or transport noise. */
   message: string
-}
-
-/** Human-facing harness label (never a raw kind string). */
-const PROVIDER_LABEL: Record<HarnessAgent, string> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'opencode',
-  cursor: 'Cursor',
 }
 
 /** How the user re-authenticates each harness's provider. */
@@ -61,7 +53,7 @@ function shorten(raw: string, max = 300): string {
 }
 
 export function classifyHarnessError(raw: string, agent: HarnessAgent): ClassifiedHarnessError {
-  const provider = PROVIDER_LABEL[agent] ?? agent
+  const provider = harnessDisplayName(agent)
   const text = raw.toLowerCase()
 
   // 1. Podium's own MCP tool endpoint — checked FIRST (its rmcp text contains

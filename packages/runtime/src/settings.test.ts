@@ -4,7 +4,6 @@ import {
   AUTO_CONTINUE_BASE_DELAY_MS,
   AUTO_CONTINUE_MAX_DELAY_MS,
   DEFAULT_SETTINGS,
-  HARNESS_MCP_SUPPORT,
   HarnessAgent,
   managedAccountId,
   nativeAccountId,
@@ -276,15 +275,6 @@ describe('superagentHarnessAgent (issue #84)', () => {
     expect(superagentHarnessAgent(normalizeSettings({ sessionDefaults: { agent: 'auto' } }))).toBe(
       'claude-code',
     )
-  })
-  it('the capability matrix marks claude-code and codex full, the rest none', () => {
-    expect(HARNESS_MCP_SUPPORT).toEqual({
-      'claude-code': 'full',
-      codex: 'full',
-      grok: 'none',
-      opencode: 'none',
-      cursor: 'none',
-    })
   })
 })
 

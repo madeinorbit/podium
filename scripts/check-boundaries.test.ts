@@ -536,15 +536,12 @@ describe('checkPrincipalFree', () => {
     ).toHaveLength(1)
   })
 
-  it('does NOT flag AgentCapabilities — that is the harness capability descriptor', () => {
+  it('does NOT flag HarnessCapabilities — that is the software capability descriptor', () => {
     // The two senses of "capability" collide exactly here. A rule that flagged
     // this would be uselessly noisy AND would teach the next contributor that the
-    // harness capability table is an authorization concept, which it is not.
+    // harness capability descriptor is an authorization concept, which it is not.
     expect(
-      checkPrincipalFree(HARNESS, `import type { AgentCapabilities } from '@podium/protocol'`),
-    ).toEqual([])
-    expect(
-      checkPrincipalFree(HARNESS, `import { AGENT_CAPABILITIES } from '@podium/protocol'`),
+      checkPrincipalFree(HARNESS, `import type { HarnessCapabilities } from './manifest.js'`),
     ).toEqual([])
   })
 
@@ -554,6 +551,12 @@ describe('checkPrincipalFree', () => {
   })
 
   it('applies only to the principal-free workspaces', () => {
+    expect(
+      checkPrincipalFree(
+        'packages/transcript/src/slice.ts',
+        `import type { UserId } from '@podium/model'`,
+      ),
+    ).toHaveLength(1)
     expect(
       checkPrincipalFree('apps/server/src/x.ts', `import type { UserId } from '@podium/protocol'`),
     ).toEqual([])
@@ -566,7 +569,7 @@ describe('checkPrincipalFree', () => {
     ).toHaveLength(1)
   })
 
-  it('passes clean against the REAL packages/harness tree', () => {
+  it('passes clean against the REAL harness and transcript trees', () => {
     // The claim the acceptance criterion actually makes. Walks the shipped source
     // rather than a fixture, so reintroducing a principal import fails here.
     const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -578,7 +581,7 @@ describe('checkPrincipalFree', () => {
             ? [`${dir}/${e.name}`]
             : [],
       )
-    const files = walk('packages/harness/src')
+    const files = [...walk('packages/harness/src'), ...walk('packages/transcript/src')]
     expect(files.length).toBeGreaterThan(50)
     const violations = files.flatMap((f) =>
       checkPrincipalFree(f, readFileSync(join(repoRoot, f), 'utf8')),

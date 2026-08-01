@@ -44,6 +44,11 @@ import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import {
+  harnessCapabilitiesFor,
+  harnessSupportsEffort,
+  harnessSupportsInitialPrompt,
+} from '../../harness-manifest'
+import {
   computePriorities,
   FIRST_ADMIN_USER_ID,
   OPERATOR,
@@ -52,12 +57,9 @@ import {
 } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import {
-  AGENT_CAPABILITIES,
   type AgentInstruction,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
-  agentSupportsEffort,
-  agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -823,6 +825,7 @@ export class SessionsService {
    * meant to infer from that that the seam is unused.
    */
   private sessionWire(session: Session, _forPrincipal?: SessionWirePrincipal): SessionMeta {
+    const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     return this.stampRef(session, {
       // PER-USER STATE (POD-1076): `readAt` and `snoozedUntil` are facts about a
       // reader, so the projection is given one. `_forPrincipal` is the seam that
@@ -830,6 +833,12 @@ export class SessionsService {
       // the broadcast serves one named viewer.
       ...session.toMeta(this.viewerOverlay(session.sessionId)),
       machineName: this.machines.machineName(session.machineId),
+      ...(harnessCapabilities
+        ? {
+            harnessHandoff: harnessCapabilities.handoff,
+            harnessPromptModeHints: harnessCapabilities.promptModeHints,
+          }
+        : {}),
     })
   }
 
@@ -1646,7 +1655,7 @@ export class SessionsService {
       ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    const useArgv = taskPrompt !== undefined && agentSupportsInitialPrompt(agentKind)
+    const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
     const machineId = this.machines.resolveMachineForAgent(
       input.machineId,
       input.cwd,
@@ -4054,12 +4063,12 @@ export class SessionsService {
     const subagentModel = coding.subagentModel
     return {
       ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),
-      ...(subagentModel !== 'auto' && AGENT_CAPABILITIES[agentKind].subagentModelEnv
+      ...(subagentModel !== 'auto' && harnessCapabilitiesFor(agentKind)?.subagentModelEnv
         ? { subagentModel }
         : {}),
       // Cursor + shell have no effort flag; agentLaunchCommand also drops it, but
       // gating here keeps the spawn message clean (capability lookup, #158).
-      ...(effort !== 'auto' && agentSupportsEffort(agentKind) ? { effort } : {}),
+      ...(effort !== 'auto' && harnessSupportsEffort(agentKind) ? { effort } : {}),
       // Per-session CLI theme seeding rides every (re)spawn so a resurrected
       // session keeps the configured behaviour too [spec:SP-a04d].
       ...(agentKind !== 'shell' ? { seedCliTheme: coding.seedCliTheme } : {}),

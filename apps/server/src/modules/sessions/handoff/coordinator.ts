@@ -64,7 +64,7 @@ import {
   asMachineId,
   HandoffManifestV1,
 } from '@podium/model'
-import { agentSupportsHandoff } from '@podium/protocol'
+import { harnessSupportsHandoff } from '../../../harness-manifest'
 import {
   transferHandoffPackage,
   verifiedBundleBases,
@@ -155,7 +155,7 @@ export class HandoffCoordinator {
       // harness list copied into the command path, which is what the
       // harness-branching boundary rule exists to stop: an unknown harness is not
       // handoff-eligible, and that stays true without this file being edited.
-      if (!agentSupportsHandoff(session.agentKind)) {
+      if (!harnessSupportsHandoff(session.agentKind)) {
         throw new Error('session harness does not support handoff')
       }
       if (!session.resume) throw new Error('session has no resume reference')
@@ -203,7 +203,7 @@ export class HandoffCoordinator {
     // bundle it produces accept only the exportable kinds, and this is the
     // MANIFEST'S OWN list (the shared schema instance from `packages/model`, whose
     // header explains that widening it would accept a bundle no importer can
-    // resume). So the two tables cannot drift silently: if the capability table
+    // resume). So the manifest and schema cannot drift silently: if the capability
     // above ever calls a kind handoff-capable that the bundle format cannot carry,
     // this parse says so loudly instead of shipping an unresumable package.
     const agentKind = HandoffManifestV1.shape.agentKind.parse(session.agentKind)

@@ -524,7 +524,8 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
         // The wire type moved to model at the POD-361 flip; protocol's
         // `messages/issues.ts` now carries only the envelope messages.
         file: 'packages/model/src/entities/issue.ts',
-        needle: 'export const IssueWire = IssueWireCore.extend(ISSUE_FLAT_PROVENANCE_SHAPE).extend(',
+        needle:
+          'export const IssueWire = IssueWireCore.extend(ISSUE_FLAT_PROVENANCE_SHAPE).extend(',
       },
       {
         // The session-free legacy emit — a named method here rather than main's
@@ -1115,6 +1116,10 @@ export const CHECKS: AuditCheck[] = [
         // second independent route.
         pattern:
           /^\s*(?:export )?const \w+: (?:Readonly<)?Record<\s*(?:AgentKind|HarnessAgent|BuiltinHarnessKind)\s*,/,
+        // The canonical exhaustive AgentManifest registry is the destination of
+        // this fold, not another capability table. Keep BuiltinHarnessKind in the
+        // matcher so any parallel table elsewhere still counts.
+        skip: (file) => file === 'packages/harness/src/registry.ts',
       }),
   },
   {

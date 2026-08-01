@@ -14,11 +14,7 @@ import {
   ThreadIdField,
   WorkState,
 } from '@podium/model'
-import {
-  agentSupportsCloud,
-  clientSwitchTraceSchema,
-  type FileReadResultMessage,
-} from '@podium/protocol'
+import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
@@ -326,7 +322,10 @@ export const appRouter = t.router({
     set: t.procedure
       .input(PodiumSettings)
       .mutation(({ ctx, input }) =>
-        mods(ctx).settings.setSettingsFor(asUserId(soleHumanPrincipal(ctx.capability).userId), input),
+        mods(ctx).settings.setSettingsFor(
+          asUserId(soleHumanPrincipal(ctx.capability).userId),
+          input,
+        ),
       ),
     /**
      * WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT (POD-421).

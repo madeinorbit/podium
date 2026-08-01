@@ -1,7 +1,6 @@
 import { stat } from 'node:fs/promises'
 import type { HarnessAgent, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type {
-  AgentCapabilities,
   AgentInstruction,
   AgentObservation,
   AgentObservationAckMessage,
@@ -11,7 +10,13 @@ import type {
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import type { StatTick, TranscriptSource } from '@podium/transcript'
+import {
+  fileChainSource,
+  fileIdFor,
+  type StatTick,
+  type TranscriptRecordMapper,
+  type TranscriptSource,
+} from '@podium/transcript'
 import type { AgentStateEvent, AgentStateProvider } from './agent-state/types.js'
 import type { ConversationProvider } from './discovery/types.js'
 
@@ -350,6 +355,10 @@ export interface TranscriptSourceInput {
 
 export interface HarnessTranscript {
   storage: 'file-chain' | 'sqlite'
+  /** Pure native-record parser selected by this manifest. SQLite-backed
+   *  transcripts declare this unsupported because their adapter maps typed rows
+   *  before applying the storage-neutral slice contract. */
+  recordToItems: Declared<TranscriptRecordMapper>
   /** Ordered oldest→newest JSONL files for a session ('file-chain' storage only;
    *  unsupported for 'sqlite', which has no files to chain). Every file-based
    *  harness resolves the SPECIFIC conversation by its resume value — a cwd
@@ -358,6 +367,25 @@ export interface HarnessTranscript {
   chainPaths: Declared<(input: TranscriptSourceInput) => Promise<string[]>>
   /** Resolve this session's transcript read source (file chain or DB-backed). */
   sourceFor(input: TranscriptSourceInput): Promise<TranscriptSource>
+}
+
+/** Build the common file-backed transcript declaration without restating its
+ * mapper in both `recordToItems` and `sourceFor`. The parser implementation stays
+ * in browser-safe @podium/transcript (ADR 8 D4.3); the per-CLI manifest owns the
+ * choice of which parser applies. */
+export function fileTranscript(
+  chainPaths: (input: TranscriptSourceInput) => Promise<string[]>,
+  recordToItems: TranscriptRecordMapper,
+): HarnessTranscript {
+  return {
+    storage: 'file-chain',
+    recordToItems: supported(recordToItems),
+    chainPaths: supported(chainPaths),
+    async sourceFor(input) {
+      const chain = (await chainPaths(input)).map((path) => ({ path, fileId: fileIdFor(path) }))
+      return fileChainSource(chain, recordToItems)
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -382,8 +410,8 @@ export interface BrowserOpenClassification {
  * Everything Podium needs to drive one coding-agent CLI (#158/#249) — ONE object
  * per CLI, and the single home for behavioral variance between them. A new
  * harness is ONE manifest file + a registry entry (the exhaustive
- * `Record<BuiltinHarnessKind, AgentManifest>` makes a missing kind a type error)
- * + its AGENT_CAPABILITIES row in @podium/protocol. The daemon is a generic host
+ * `Record<BuiltinHarnessKind, AgentManifest>` makes a missing kind a type error).
+ * The daemon is a generic host
  * over this interface: launch, exec, headless turns, per-session observation and
  * transcript reads all dispatch through the registry — no per-agent tables and no
  * `if (kind === 'codex')` outside it.
@@ -405,8 +433,11 @@ export interface BrowserOpenClassification {
  */
 export interface AgentManifest {
   kind: BuiltinHarnessKind
-  /** This harness's row of the protocol capability table (@podium/protocol). */
-  capabilities: AgentCapabilities
+  /** Human-facing CLI/provider name for diagnostics. */
+  displayName: string
+  /** Static SOFTWARE facts for this CLI. These are deliberately declared beside
+   * transcript mapping and launch behavior rather than in a parallel table. */
+  capabilities: HarnessCapabilities
   /** The resume.kind stamped on this harness's native conversations. */
   resumeKind: string
   /** Machine-local installation and account discovery owned by this harness. */
@@ -436,6 +467,36 @@ export interface AgentManifest {
    *  heuristic. Unsupported (or returning undefined) ⇒ generic fallback decides.
    *  POD-738 owns making this a fully declared capability. */
   classifyBrowserOpen: Declared<(url: URL) => BrowserOpenClassification | undefined>
+}
+
+/** Static per-CLI feature declarations. This is software metadata: it carries no
+ * machine, owner, principal, grant, or visibility state. Resolved installation
+ * availability is the separate machine-keyed `MachineHarnessInventory`. */
+export interface HarnessCapabilities {
+  /** Accepts the first prompt as a trailing positional argv token. */
+  argvPrompt: boolean
+  /** How a reasoning-effort override reaches the CLI. */
+  effortFlag: 'effort' | 'codex-config' | 'variant' | 'none'
+  /** Has a native extra-system-prompt flag. */
+  systemPromptFlag: boolean
+  /** The host can read local quota/rate-limit state. */
+  quota: boolean
+  /** Sessions of this kind can move to a cloud runtime. */
+  cloud: boolean
+  /** The web controller can scrape the native TUI composer. */
+  composerScrape: boolean
+  /** The CLI's OSC terminal title is meaningful and should be forwarded. */
+  oscTitle: boolean
+  /** Reads a native subagent-model environment variable. */
+  subagentModelEnv: boolean
+  /** Native TUI honours Podium's prompt-mode hint keys. */
+  promptModeHints: boolean
+  /** Sessions can be packaged and moved to another machine. */
+  handoff: boolean
+  /** A one-shot invocation can mount Podium's HTTP MCP tool endpoint. */
+  mcp: 'full' | 'none'
+  /** How Podium state hooks reach the harness. */
+  hookInstall: 'settings-args' | 'global-env' | 'none'
 }
 
 /** @deprecated Renamed to `AgentManifest` (POD-303/POD-325 vocabulary: the object

@@ -1,20 +1,20 @@
-import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { AgentKind, SessionMeta } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
+import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
+import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
+import { FeedIdentityRegistry, Ledger, MutationLedger } from '@podium/sync'
 import { deviceGradeSoleOwner } from './device-grade-owner'
+import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
-import { FeedServing } from './gateway/feed-serving'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
-import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
-import { FeedIdentityRegistry, Ledger, MutationLedger } from '@podium/sync'
-import { getFeatureStates, isFeatureEnabled } from './features'
+import { FeedServing } from './gateway/feed-serving'
 import { checkIssueAccess } from './issue-authz'
-import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
@@ -315,14 +315,14 @@ export class SessionRegistry {
     })
     const notify = new NotifyService(
       {
-      // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
-      // preferences, which no longer live on the instance blob — an unresolved
-      // read would see the model's defaults instead of the operator's choices.
-      // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
-      // `IssueService.broadcastViewer` uses: this build's transport cannot name
-      // a person (one shared password), so the sole account is the only true
-      // answer, and POD-315/POD-1077 replace the argument rather than finding a
-      // hidden read.
+        // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
+        // preferences, which no longer live on the instance blob — an unresolved
+        // read would see the model's defaults instead of the operator's choices.
+        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
+        // `IssueService.broadcastViewer` uses: this build's transport cannot name
+        // a person (one shared password), so the sole account is the only true
+        // answer, and POD-315/POD-1077 replace the argument rather than finding a
+        // hidden read.
         getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
@@ -338,7 +338,7 @@ export class SessionRegistry {
             info: noticeInfo(s),
             state: s.agentState,
           })),
-        notificationsEnabled: () => featureEnabled("notifications"),
+        notificationsEnabled: () => featureEnabled('notifications'),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
@@ -456,7 +456,10 @@ export class SessionRegistry {
           {
             getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
             sessions: sessionsSvc,
-            rpc,
+            rpc: {
+              readTranscript: (input) =>
+                rpc.readTranscript(input, { kind: 'system', id: 'issue-answer-delivery' }),
+            },
           },
           { sessionId, answer, textFallback: true },
         )
@@ -1300,7 +1303,8 @@ export class SessionRegistry {
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,
       repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
-      readTranscript: (input) => rpc.readTranscript(input),
+      readTranscript: (input) =>
+        rpc.readTranscript(input, { kind: 'system', id: 'session-read-toolkit' }),
       now: () => new Date(this.now()).toISOString(),
     })
 

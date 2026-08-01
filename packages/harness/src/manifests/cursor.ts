@@ -1,6 +1,5 @@
 import { join } from 'node:path'
-import { AGENT_CAPABILITIES } from '@podium/protocol'
-import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
+import { cursorRecordToItems } from '@podium/transcript'
 import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
 import { cursorBinCandidates, resolveCursorBin } from '../cursor/cli.js'
 import { cursorSessionPaths } from '../cursor/paths.js'
@@ -8,6 +7,7 @@ import { createCursorConversationProvider } from '../discovery/providers/cursor.
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
+  fileTranscript,
   isSet,
   supported,
   type TranscriptSourceInput,
@@ -27,7 +27,21 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
 
 export const cursorManifest: AgentManifest = {
   kind: 'cursor',
-  capabilities: AGENT_CAPABILITIES.cursor,
+  displayName: 'Cursor',
+  capabilities: {
+    argvPrompt: false,
+    effortFlag: 'none',
+    systemPromptFlag: false,
+    quota: false,
+    cloud: false,
+    composerScrape: false,
+    oscTitle: true,
+    subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: false,
+    mcp: 'none',
+    hookInstall: 'none',
+  },
   resumeKind: 'cursor-chat',
 
   inventory: {
@@ -139,14 +153,7 @@ export const cursorManifest: AgentManifest = {
 
   discovery: createCursorConversationProvider(),
 
-  transcript: supported({
-    storage: 'file-chain',
-    chainPaths: supported(chainPaths),
-    async sourceFor(input) {
-      const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
-      return fileChainSource(chain, recordToItemsForKind('cursor'))
-    },
-  }),
+  transcript: supported(fileTranscript(chainPaths, cursorRecordToItems)),
 
   classifyBrowserOpen: unsupported(
     'no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

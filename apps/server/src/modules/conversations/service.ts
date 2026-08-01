@@ -1,15 +1,16 @@
-import {
-  type AgentKind,
-  type ConversationId,
-  type ConversationDiagnosticWire,
-  type ConversationSummaryWire,
-  type ResumeRef,
-  type TranscriptItem,
+import type {
+  AgentKind,
+  ConversationDiagnosticWire,
+  ConversationId,
+  ConversationSummaryWire,
+  ResumeRef,
+  TranscriptItem,
 } from '@podium/model'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import { MirrorService } from '@podium/sync'
-import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
+import { fileChainSource, fileIdFor } from '@podium/transcript'
+import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import { TranscriptIndexer } from '../../transcript-indexer'
 
@@ -360,10 +361,9 @@ export class ConversationsService {
     if (this.deps.store.conversations.mirrorCursor(session.machineId, nativeId) <= 0)
       return undefined
     const path = this.mirror.lakePath(session.machineId, nativeId)
-    const source = fileChainSource(
-      [{ path, fileId: fileIdFor(path) }],
-      recordToItemsForKind(session.agentKind),
-    )
+    const recordToItems = transcriptRecordMapperFor(session.agentKind)
+    if (!recordToItems) return undefined
+    const source = fileChainSource([{ path, fileId: fileIdFor(path) }], recordToItems)
     const slice = await source.readSlice({
       ...(input.anchor ? { anchor: input.anchor } : {}),
       direction: input.direction,

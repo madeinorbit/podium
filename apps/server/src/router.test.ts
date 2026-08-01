@@ -1,8 +1,8 @@
-import { asSessionId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { asSessionId } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from './issue-authz'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SuperagentService } from './modules/superagent'
@@ -75,7 +75,11 @@ describe('appRouter', () => {
   it('sessions.create rejects a non-uuid sessionId (guards the durableLabel/scope path)', async () => {
     const { call } = caller()
     await expect(
-      call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: asSessionId('../../evil') }),
+      call.sessions.create({
+        agentKind: 'claude-code',
+        cwd: '/p',
+        sessionId: asSessionId('../../evil'),
+      }),
     ).rejects.toThrow()
   })
 
@@ -180,6 +184,7 @@ describe('appRouter', () => {
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
+    const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
     registry.gateway.attachDaemon('local', (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
@@ -203,6 +208,10 @@ describe('appRouter', () => {
       hasMore: false,
     })
     await expect(p).resolves.toEqual({ items: [], hasMore: false })
+    expect(readTranscript).toHaveBeenCalledWith(
+      { sessionId, direction: 'before', limit: 100 },
+      { kind: 'user', id: expect.any(String) },
+    )
   })
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
@@ -419,7 +428,11 @@ describe('repos router', () => {
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {
     const { registry, call } = caller()
     const store = registry.sessionStore
-    store.superagent.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: asSessionId('s9') })
+    store.superagent.upsertSuperagentThread({
+      id: 'btw_s9',
+      kind: 'btw',
+      originSessionId: asSessionId('s9'),
+    })
     store.superagent.setThreadWatermark('btw_s9', 'item-1', '2026-06-16T00:00:00Z')
     // Unknown session → empty transcript → no delta → re-open path, no backend call.
     const res = await call.superagent.startBtw({ sessionId: asSessionId('s9') })

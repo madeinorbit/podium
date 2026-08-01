@@ -3,7 +3,6 @@ import {
   type ChainEntry,
   fileChainSource,
   fileIdFor,
-  recordToItemsForKind,
   type TranscriptSource,
 } from '@podium/transcript'
 import { declaredValue } from './manifest.js'
@@ -56,7 +55,7 @@ export async function transcriptSourceFor(input: {
 }): Promise<TranscriptSource> {
   const manifest = manifestFor(input.agentKind)
   const transcript = manifest && declaredValue(manifest.transcript)
-  if (!transcript) return fileChainSource([], recordToItemsForKind(input.agentKind))
+  if (!transcript) return fileChainSource([], () => [])
   return transcript.sourceFor({
     cwd: input.cwd,
     ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
