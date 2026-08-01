@@ -11,7 +11,6 @@ import {
   type IssueWire,
   type LintFinding,
   type OrphanIssue,
-  type SessionMeta,
   toIssueTreeSession,
 } from '@podium/model'
 import {
@@ -25,7 +24,7 @@ import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
-import { IssueServiceCore } from './core'
+import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import type {
   DepReportEntry,
@@ -35,12 +34,33 @@ import type {
   IssueTreeSession,
 } from './types'
 
+/** One default-closed switch per report/existence-leak surface. */
+export interface IssueReportVisibilityPolicy {
+  crossBoundaryEdges: 'hide' | 'opaque'
+  counts: 'visible-only' | 'include-hidden'
+  tree: 'visible-only' | 'opaque-hidden'
+  graph: 'visible-only' | 'opaque-hidden'
+  doctor: 'visible-only' | 'include-hidden'
+  refAllocation: 'opaque' | 'global'
+}
+
+export const DEFAULT_ISSUE_REPORT_VISIBILITY: Readonly<IssueReportVisibilityPolicy> = {
+  crossBoundaryEdges: 'hide',
+  counts: 'visible-only',
+  tree: 'visible-only',
+  graph: 'visible-only',
+  doctor: 'visible-only',
+  refAllocation: 'opaque',
+}
+
 /**
- * IssueService layer 1 — read views (issue #190 split): list projections,
+ * Reports capability: list projections,
  * the epic tree / dependency reports, search/stats/doctor diagnostics and the
  * agent prime context. Pure reads — no store writes, no broadcasts.
  */
-export abstract class IssueServiceReads extends IssueServiceCore {
+export interface IssueReportsMethods extends IssueStore {}
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the composition root installs this stateless method bundle onto IssueStore.
+export class IssueReportsMethods {
   readyList(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueWire[] {
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
@@ -142,7 +162,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     const maxDepth = opts.maxDepth ?? 3
     const maxNodes = opts.maxNodes ?? 100
     const rootRow = this.rowOrThrow(this.resolveRef(ref))
-    if (!mayRead(rootRow.id)) throw new Error('unknown issue ' + ref)
+    if (!mayRead(rootRow.id)) throw new Error(`unknown issue ${ref}`)
     const byParent = new Map<string, IssueRow[]>()
     for (const r of this.rows.values()) {
       if (!mayRead(r.id) || !r.parentId || r.archived) continue
@@ -221,7 +241,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     let members: IssueRow[]
     if (opts.id) {
       const root = this.rowOrThrow(opts.id)
-      if (!mayRead(root.id)) throw new Error('unknown issue ' + opts.id)
+      if (!mayRead(root.id)) throw new Error(`unknown issue ${opts.id}`)
       members = [root]
       const walk = (pid: string): void => {
         for (const r of this.rows.values()) {

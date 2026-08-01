@@ -1,17 +1,23 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
-import { sessionsForIssue } from '../../../issue-util'
 import { attributionOf, type SystemCommandPrincipal } from '../../../command-principal'
+import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
-import { IssueServiceCrud } from './crud'
+import type { IssueStore } from './core'
+import type { IssueCrudMethods } from './crud'
+import type { IssueReportsMethods } from './reads'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
 
 /**
- * IssueService layer 3 — attention & lifecycle housekeeping (issue #190 split):
+ * Attention and subscriptions capability:
  * archive + the read-gated auto-archive sweep (#127), the session-attach /
  * draft-vessel flows (issue-as-workspace), and event subscriptions (Phase B).
  */
-export abstract class IssueServiceAttention extends IssueServiceCrud {
+export interface IssueAttentionMethods extends IssueStore, IssueReportsMethods, IssueCrudMethods {}
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the composition root installs this stateless method bundle onto IssueStore.
+export class IssueAttentionMethods {
+  /** Public hierarchy dependency injected by the composition root. */
+  declare addDep: (fromRef: string, toRef: string, type?: string) => IssueWire
   /** Re-home a session onto another issue (agent self-organization).
    *  - `newSubissue`: create a child issue first (parent = the session's current
    *    issue, else `targetId`), then attach to it. Decomposition: the parent is

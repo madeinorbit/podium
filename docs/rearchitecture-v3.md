@@ -2353,6 +2353,17 @@ including an admit → revoke → refuse sequence across three consecutive calls
 the positive first. `audit:machine-grants` is the source-text half and says in its own
 header what it structurally cannot see.
 
+#### LEDGER ENTRY — POD-320 (4.4 issue tracker): one store, six capabilities
+
+The six-class IssueService inheritance chain is gone. One `IssueStore` owns hydrated state,
+serialization, persistence and publication; CRUD/stage-machine, hierarchy/dependencies,
+comments/mail, attention/subscriptions, git-workflow and reports are stateless capability modules
+composed over it. Every issue command handler now binds to a narrow capability interface rather
+than `IssueService`; pspec remains the sibling `SpecsService` in the tracker module set. The
+ownership declarations, open default-closed existence switches, reparent routing and the sole
+deliberate behavior change are recorded in
+`docs/agents/pod-320-issue-capabilities.md`.
+
 ### Phase 5 — Machine host tightening (POD-292) · exit gate POD-426
 
 **Scope:** SessionBinding designed lifecycle (POD-323, design doc gates code), async-only

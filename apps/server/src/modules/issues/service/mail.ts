@@ -1,13 +1,38 @@
 import { randomUUID } from 'node:crypto'
+import type { IssueWire } from '@podium/model'
+import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
-import { IssueServiceAttention } from './attention'
+import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
+import type { IssueReportsMethods } from './reads'
 
 /**
- * IssueService layer 4 — agent mail (issue #103, #190 split): durable messages
+ * Comments and tracker-mail capability: durable messages
  * addressed to an ISSUE, with send-time nudge delivery via deps.onMailSent.
  */
-export abstract class IssueServiceMail extends IssueServiceAttention {
+export interface IssueCommentsMailMethods extends IssueStore, IssueReportsMethods {}
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the composition root installs this stateless method bundle onto IssueStore.
+export class IssueCommentsMailMethods {
+  /**
+   * Comments inherit their issue aggregate's owner and grants; actor and
+   * on-behalf-of attribution are stamped from the authenticated principal.
+   */
+  addComment(id: string, author: string, body: string, principal?: CommandPrincipal): IssueWire {
+    const issueId = this.resolveRef(id)
+    const row = this.rowOrThrow(issueId)
+    const attribution = principal ? attributionOf(principal) : undefined
+    return this.persistWith(row, () =>
+      this.deps.store.issues.addIssueComment({
+        id: `cmt_${randomUUID()}`,
+        issueId,
+        author,
+        body,
+        createdAt: this.now(),
+        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
+      }),
+    )
+  }
+
   // ---- agent mail (issue #103): messages addressed to an ISSUE ----
 
   /** Create a mail message on the target issue, then fire the delivery hook

@@ -1,28 +1,27 @@
 import {
   asIssueId,
   FIRST_ADMIN_USER_ID,
-  isIssueBlocked,
-  isIssueClosed,
-  isIssueDeferred,
-  requireInstant,
   type Instant,
   type IssueDepProjection,
-  type IssueDepWire,
   type IssueGitState,
   type IssueId,
   type IssuePanel,
   type IssueProjection,
   type IssueUserOverlay,
   type IssueWire,
+  isIssueBlocked,
+  isIssueClosed,
+  isIssueDeferred,
   issueOverlayOf,
   type RepoProjection,
+  requireInstant,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
-import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
-import { decodePanel, fromStorage } from '../../../store/issue-storage'
+import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
+import { decodePanel, fromStorage } from '../../../store/issue-storage'
 import { countIssueWireBuild } from '../instrumentation'
 import {
   issueDepProjectionRows,
@@ -46,14 +45,13 @@ interface IssueWireBatch {
 }
 
 /**
- * IssueService layer 0 — shared state and primitives (issue #190 split).
+ * The one mutable issue store shared by every tracker capability.
  *
- * The service is one class split along its seams into an inheritance chain
- * (core → reads → crud → attention → mail → workflow → IssueService); this
- * layer owns the hydrated row map, the wire serializer, ref resolution and the
- * persist/broadcast tail every mutation funnels through.
+ * This owns hydration, wire serialization, ref resolution and the
+ * persist/broadcast tail every mutation funnels through. Capability modules are
+ * composed over this object; none owns a second row cache.
  */
-export abstract class IssueServiceCore {
+export class IssueStore {
   /** Hydrated row cache; null until the first {@link init}/lazy access. Kept out
    *  of the constructor so constructing the service can never crash-loop the
    *  server boot on bad data (the composition root calls init() explicitly;
@@ -74,7 +72,7 @@ export abstract class IssueServiceCore {
    * nothing else, because no other code holds a marker.
    */
   private viewerState: Map<string, StoredIssueUserState> | null = null
-  constructor(protected readonly deps: IssueDeps) {}
+  constructor(readonly deps: IssueDeps) {}
 
   /**
    * WHOSE per-user markers the broadcast carries. `FIRST_ADMIN_USER_ID` spelled
@@ -639,7 +637,12 @@ export abstract class IssueServiceCore {
     row: IssueRow,
   ): { entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[] {
     return [
-      { entity: 'issueProjection', id: row.id, op: 'upsert', value: issueRowToProjection(row, this.deps.store.issues.getIssueLabels(row.id)) },
+      {
+        entity: 'issueProjection',
+        id: row.id,
+        op: 'upsert',
+        value: issueRowToProjection(row, this.deps.store.issues.getIssueLabels(row.id)),
+      },
     ]
   }
 
@@ -749,7 +752,7 @@ export abstract class IssueServiceCore {
   }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */
-  protected emitEvent(kind: string, subject: string, payload: Record<string, unknown>): void {
+  emitEvent(kind: string, subject: string, payload: Record<string, unknown>): void {
     try {
       this.deps.store.events.appendEvent({
         ts: this.now(),

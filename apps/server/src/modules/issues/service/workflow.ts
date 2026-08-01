@@ -3,7 +3,6 @@ import {
   DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueWire,
-  type OrphanIssue,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
@@ -17,15 +16,20 @@ import { completeForRole } from '../../../llm-roles'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { issueRefsPattern, probeGitState } from '../git-state'
-import { IssueServiceMail } from './mail'
+import type { IssueAttentionMethods } from './attention'
+import type { IssueStore } from './core'
 import type { CreateIssueInput } from './types'
 
 /**
- * IssueService layer 5 — git workflow + assistant (issue #190 split): worktree
+ * Git-workflow capability: worktree
  * start/cleanup, PR/merge actions, epic integration (#70), extra sessions,
  * Linear search and the LLM activity digest.
  */
-export abstract class IssueServiceWorkflow extends IssueServiceMail {
+export interface IssueGitWorkflowMethods extends IssueStore, IssueAttentionMethods {}
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the composition root installs this stateless method bundle onto IssueStore.
+export class IssueGitWorkflowMethods {
+  /** Public comments capability injected by the composition root. */
+  declare addComment: (id: string, author: string, body: string) => IssueWire
   /**
    * Move an issue's home to another machine after its session was handed off
    * ([spec:SP-3f7a], POD-824). The target worktree is where the work now lives,

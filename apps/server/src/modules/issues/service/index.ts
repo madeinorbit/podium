@@ -1,46 +1,249 @@
-import { IssueServiceWorkflow } from './workflow'
 import {
   attributionOf,
-  systemPrincipal,
   type SystemCommandPrincipal,
+  systemPrincipal,
 } from '../../../command-principal'
+import { IssueAttentionMethods } from './attention'
+import { IssueStore } from './core'
+import { IssueCrudMethods } from './crud'
+import { IssueHierarchyMethods } from './hierarchy'
+import { IssueCommentsMailMethods } from './mail'
+import {
+  DEFAULT_ISSUE_REPORT_VISIBILITY,
+  IssueReportsMethods,
+  type IssueReportVisibilityPolicy,
+} from './reads'
+import type { IssueDeps } from './types'
+import { IssueGitWorkflowMethods } from './workflow'
+
+/** Public command-facing CRUD and stage-machine contract. */
+export type IssueCrudCapability = Pick<
+  IssueCrudMethods,
+  | 'setState'
+  | 'panelApply'
+  | 'panelArtifactAdd'
+  | 'panelArtifactRemove'
+  | 'create'
+  | 'update'
+  | 'markIssueRead'
+  | 'markIssueUnread'
+  | 'setIssueTucked'
+  | 'prepareSoftDelete'
+  | 'purgeEmptyDraft'
+  | 'prepareRestore'
+  | 'setLabels'
+  | 'share'
+  | 'unshare'
+  | 'claim'
+  | 'setCoordinator'
+  | 'close'
+  | 'applySuggestion'
+  | 'dismissSuggestion'
+>
+
+/** Public hierarchy and dependency contract. */
+export type IssueHierarchyCapability = Pick<
+  IssueHierarchyMethods,
+  | 'addDep'
+  | 'removeDep'
+  | 'reparent'
+  | 'ancestorIds'
+  | 'inProposedSubtree'
+  | 'supersede'
+  | 'duplicate'
+>
+
+/** Public comments and tracker-mail contract. */
+export type IssueCommentsMailCapability = Pick<IssueReportsMethods, 'comments'> &
+  Pick<
+    IssueCommentsMailMethods,
+    'addComment' | 'sendMail' | 'mailInbox' | 'mailClaim' | 'mailPending' | 'mailMessage'
+  >
+
+/** Public attention, per-user markers and subscription contract. */
+export type IssueAttentionCapability = Pick<
+  IssueAttentionMethods,
+  | 'attachSession'
+  | 'reapIfEmptyDraft'
+  | 'reapLeakedDrafts'
+  | 'createDraftFor'
+  | 'subscriptionAdd'
+  | 'subscriptionRemove'
+  | 'subscriptionList'
+  | 'subscriptionSetEnabled'
+  | 'subscriptionGet'
+  | 'archive'
+  | 'sweepAutoArchive'
+  | 'tryAutoArchiveObserved'
+> &
+  Pick<
+    IssueCrudMethods,
+    | 'defer'
+    | 'undefer'
+    | 'setNeedsHuman'
+    | 'clearNeedsHuman'
+    | 'markIssueRead'
+    | 'markIssueUnread'
+    | 'setIssueTucked'
+  >
+
+/** Public worktree, PR/merge and assistant contract. */
+export type IssueGitWorkflowCapability = Pick<
+  IssueGitWorkflowMethods,
+  | 'rehome'
+  | 'start'
+  | 'createAndMaybeStart'
+  | 'action'
+  | 'freeWorktreeKeepBranch'
+  | 'ensureWorktree'
+  | 'cleanup'
+  | 'integrate'
+  | 'addSession'
+  | 'addShell'
+  | 'linearSearch'
+  | 'onSessionAttention'
+  | 'onSessionActivity'
+  | 'recordSessionGitActivity'
+  | 'onSessionTurnEnd'
+  | 'onSessionRemovedOrArchived'
+  | 'refreshGitState'
+  | 'refreshAssistant'
+>
+
+/** Public read/report contract. */
+export type IssueReportsCapability = Pick<
+  IssueReportsMethods,
+  | 'readyList'
+  | 'blockedList'
+  | 'graph'
+  | 'epicStatus'
+  | 'children'
+  | 'tree'
+  | 'depReport'
+  | 'closeEligibleEpics'
+  | 'findDuplicates'
+  | 'staleList'
+  | 'lint'
+  | 'doctor'
+  | 'preflight'
+  | 'orphans'
+  | 'search'
+  | 'count'
+  | 'stats'
+  | 'get'
+  | 'getMeta'
+  | 'has'
+  | 'ownedTarget'
+  | 'issueForCwd'
+  | 'soleOwnerForCwd'
+  | 'listEvents'
+  | 'niceRef'
+  | 'prime'
+> &
+  Pick<IssueStore, 'list' | 'resolveRef' | 'worktreePaths' | 'unreadFor'> & {
+    readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy>
+  }
+
+export interface IssueTrackerCapabilities {
+  readonly crud: IssueCrudCapability
+  readonly hierarchy: IssueHierarchyCapability
+  readonly commentsMail: IssueCommentsMailCapability
+  readonly attention: IssueAttentionCapability
+  readonly gitWorkflow: IssueGitWorkflowCapability
+  readonly reports: IssueReportsCapability
+}
+
+export { DEFAULT_ISSUE_REPORT_VISIBILITY, type IssueReportVisibilityPolicy } from './reads'
+
+type IssueCapabilityHost = IssueStore &
+  IssueReportsMethods &
+  IssueCrudMethods &
+  IssueHierarchyMethods &
+  IssueAttentionMethods &
+  IssueCommentsMailMethods &
+  IssueGitWorkflowMethods
+
+/** Install one stateless method set onto the single mutable IssueStore. */
+function installMethods(host: object, methods: object): void {
+  for (const key of Reflect.ownKeys(methods)) {
+    if (key === 'constructor') continue
+    const descriptor = Object.getOwnPropertyDescriptor(methods, key)
+    if (descriptor) Object.defineProperty(host, key, descriptor)
+  }
+}
 
 /**
- * Server-side issue tracker (issue #190: moved from apps/server/src/issues.ts
- * into modules/issues/service/, split along its seams into an inheritance
- * chain). One service, one instance — the layers are files, not modules:
+ * Server-side issue tracker composition root.
  *
- *   core      — row map, wire serializer, ref resolution, persist/broadcast tail
- *   reads     — list projections, tree/dep reports, search/stats/doctor, prime
- *   crud      — create/update, stage machine (#24), deps/hierarchy, labels/comments
- *   attention — archive + auto-archive sweep (#127), drafts/attach, subscriptions
- *   mail      — agent mail (#103)
- *   workflow  — worktree start/cleanup, PR/merge, integration (#70), assistant
+ * Capability modules are stateless method sets over exactly one IssueStore.
+ * Command handlers receive {@link IssueTrackerCapabilities}; the Proxy is a
+ * compatibility face for older non-command integrations while they migrate.
  */
-export class IssueService extends IssueServiceWorkflow {
-  /**
-   * Boot-time lifecycle hook (the composition root calls this once, replacing
-   * the old inline relay-constructor sequence): eager hydration, the
-   * leaked-draft reap, and the ledger boot reconcile — a cursor-holding
-   * client that reconnects heals via changesSince instead of silently missing
-   * the gap.
-   */
+export interface IssueService extends IssueCapabilityHost {}
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: this is the temporary typed compatibility face for non-command callers.
+export class IssueService implements IssueTrackerCapabilities {
+  private readonly store: IssueCapabilityHost
+  readonly crud: IssueCrudCapability
+  readonly hierarchy: IssueHierarchyCapability
+  readonly commentsMail: IssueCommentsMailCapability
+  readonly attention: IssueAttentionCapability
+  readonly gitWorkflow: IssueGitWorkflowCapability
+  readonly reports: IssueReportsCapability
+
+  constructor(deps: IssueDeps) {
+    const store = new IssueStore(deps) as IssueCapabilityHost
+    installMethods(store, IssueReportsMethods.prototype)
+    installMethods(store, IssueCrudMethods.prototype)
+    installMethods(store, IssueHierarchyMethods.prototype)
+    installMethods(store, IssueAttentionMethods.prototype)
+    installMethods(store, IssueCommentsMailMethods.prototype)
+    installMethods(store, IssueGitWorkflowMethods.prototype)
+    this.store = store
+
+    this.crud = store
+    this.hierarchy = store
+    this.commentsMail = store
+    this.attention = store
+    this.gitWorkflow = store
+    Object.defineProperty(store, 'visibilityPolicy', {
+      value: DEFAULT_ISSUE_REPORT_VISIBILITY,
+      enumerable: true,
+      writable: false,
+    })
+    this.reports = store as unknown as IssueReportsCapability
+
+    // biome-ignore lint/correctness/noConstructorReturn: the compatibility face must preserve legacy `svc.method()` interception while commands use capabilities.
+    return new Proxy(this, {
+      has: (target, property) => Reflect.has(target, property) || Reflect.has(store, property),
+      get: (target, property, receiver) => {
+        if (Reflect.has(target, property)) return Reflect.get(target, property, receiver)
+        const value = Reflect.get(store, property, store)
+        return typeof value === 'function' ? value.bind(store) : value
+      },
+      set: (target, property, value, receiver) => {
+        if (Reflect.has(target, property)) return Reflect.set(target, property, value, receiver)
+        return Reflect.set(store, property, value, store)
+      },
+      getOwnPropertyDescriptor: (target, property) =>
+        Reflect.getOwnPropertyDescriptor(target, property) ??
+        Reflect.getOwnPropertyDescriptor(store, property),
+      defineProperty: (target, property, descriptor) =>
+        Reflect.has(store, property)
+          ? Reflect.defineProperty(store, property, descriptor)
+          : Reflect.defineProperty(target, property, descriptor),
+    })
+  }
+
+  /** Boot hydration, membership totalization, draft reap and ledger reconcile. */
   boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): this {
-    this.init()
-    // One-shot membership totalization [POD-856]: historical sessions predate
-    // sessions.issue_id, while the normalized replica indexes membership ONLY by
-    // that field. Reuse soleOwnerForCwd verbatim so repo-root claims, archived
-    // owners, and ambiguous equal-depth owners remain excluded exactly as at
-    // spawn. Route every stamp through the injected session mutation seam: it
-    // persists normally and the coalesced session/issue feed re-emits. Running
-    // before draft reaping also prevents a living cwd-only session from looking
-    // like an empty leaked draft. The null guard makes every later boot a no-op.
-    const setSessionIssueId = this.deps.setSessionIssueId
+    const store = this.store
+    store.init()
+    const setSessionIssueId = store.deps.setSessionIssueId
     if (setSessionIssueId) {
       let totalized = 0
-      for (const session of this.deps.listSessions()) {
+      for (const session of store.deps.listSessions()) {
         if (session.issueId != null) continue
-        const issueId = this.soleOwnerForCwd(session.cwd)
+        const issueId = this.reports.soleOwnerForCwd(session.cwd)
         if (!issueId) continue
         setSessionIssueId(session.sessionId, issueId)
         totalized += 1
@@ -49,42 +252,25 @@ export class IssueService extends IssueServiceWorkflow {
         console.warn(`[podium:issues] boot attached ${totalized} legacy cwd-only session(s)`)
       }
     }
-    // Reap draft issues leaked before the kill-path reaper existed (sessions
-    // killed/removed while attached to an empty draft). Sessions are hydrated
-    // by the composition root BEFORE boot(), so the emptiness predicate sees
-    // real statuses: live sessions come back as 'reconnecting' (not 'exited')
-    // and hibernated stays 'hibernated' — both block the reap.
     try {
-      const reaped = this.reapLeakedDrafts()
+      const reaped = this.attention.reapLeakedDrafts()
       if (reaped > 0) {
         console.warn(`[podium:issues] boot sweep reaped ${reaped} leaked draft issue(s)`)
       }
     } catch (err) {
       console.warn('[podium:issues] boot draft sweep failed:', err)
     }
-    // Ledger boot reconcile ([spec:SP-3fe2] #255): full LOCAL wire truth diffed
-    // against the persisted baseline (including removes), no fan-out — same
-    // local-only list the legacy funnel.record boot pass fed the oplog.
     try {
-      this.deps.ledger.reconcile(
+      store.deps.ledger.reconcile(
         'issue',
-        this.allWire().map((i) => ({ id: i.id, value: i })),
+        store.allWire().map((i) => ({ id: i.id, value: i })),
       )
-      // The normalized kind seeds its baseline in the same boot pass [POD-796],
-      // so a projection feed that was enabled while the server was down starts
-      // from truth rather than replaying every issue as new on the first write.
-      const projections = this.allProjections()
-      if (projections) this.deps.ledger.reconcile('issueProjection', projections)
-      // The two kinds the replica joins against seed here too [POD-822]. Boot is
-      // the only pass that can heal them: edges and prefixes both change through
-      // paths with no ledger commit of their own (an issue delete CASCADEs its
-      // edges away; a prefix is written by the repo registry), so a change made
-      // while the server was down is invisible to every declared-change path and
-      // only a full-truth diff finds it.
-      const depProjections = this.allDepProjections()
-      if (depProjections) this.deps.ledger.reconcile('issueDep', depProjections)
-      this.publishRepos()
-      this.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
+      const projections = store.allProjections()
+      if (projections) store.deps.ledger.reconcile('issueProjection', projections)
+      const depProjections = store.allDepProjections()
+      if (depProjections) store.deps.ledger.reconcile('issueDep', depProjections)
+      store.publishRepos()
+      store.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
     } catch (err) {
       console.warn('[podium:issues] boot reconciliation record failed:', err)
     }

@@ -389,6 +389,41 @@ describe('guardIssueCommand authorization matrix', () => {
 })
 
 describe('issue spawn provenance', () => {
+  it('stamps agent comment actor and human owner from the transport principal', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+      await registry.issueCommands.dispatch(
+        {
+          capability: {
+            role: 'worker',
+            scope: { kind: 'subtree', rootId: issue.id },
+            actorSessionId: asSessionId('comment-agent'),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+        },
+        'issues',
+        'addComment',
+        { id: issue.id, author: 'agent', body: 'transport attributed' },
+      )
+
+      const internal = registry as unknown as {
+        store: {
+          issues: {
+            listIssueComments(
+              id: string,
+            ): Array<{ actor?: string | null; onBehalfOf?: string | null }>
+          }
+        }
+      }
+      expect(internal.store.issues.listIssueComments(issue.id)).toMatchObject([
+        { actor: 'session:comment-agent', onBehalfOf: FIRST_ADMIN_USER_ID },
+      ])
+    } finally {
+      registry.dispose()
+    }
+  })
+
   it('passes the exact initiating session through start and add-session commands', async () => {
     const registry = new SessionRegistry()
     try {

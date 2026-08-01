@@ -4,23 +4,21 @@ import {
   asRepoId,
   asSessionId,
   asUserId,
+  type GrantVerb,
+  type IssueWire,
   isSortKey,
   normalizeClosedPatch,
-  sortKeyBetween,
-  type ArtifactId,
-  type GrantVerb,
-  type IssueId,
-  type IssueWire,
   type SessionId,
   type SessionMeta,
+  sortKeyBetween,
   type UserId,
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
-import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { EntityChangeSpec } from '@podium/sync'
-import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import type { IssueRow } from '../../../store'
-import { IssueServiceReads } from './reads'
+import { type StoredIssue, toStorage } from '../../../store/issue-storage'
+import type { IssueStore } from './core'
+import type { IssueReportsMethods } from './reads'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
 
@@ -60,19 +58,27 @@ export interface IssueLifecyclePlan {
 }
 
 /**
- * IssueService layer 2 — row mutations and the stage machine (issue #190 split):
+ * CRUD and stage-machine capability:
  * create/update and every close/reopen path, dependency + hierarchy edits,
  * labels/comments/panel/state, and the attention-state event emissions that
  * update() detects. Every mutation ends in persist()/broadcastList() (core).
  */
-export abstract class IssueServiceCrud extends IssueServiceReads {
+export interface IssueCrudMethods extends IssueStore, IssueReportsMethods {}
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the composition root installs this stateless method bundle onto IssueStore.
+export class IssueCrudMethods {
+  /** Public hierarchy dependency injected by the composition root. */
+  declare reparent: (id: string, parentId: string | null) => IssueWire
+  declare setParentForUpdate: (
+    row: IssueRow,
+    parentId: import('@podium/model').IssueId | null,
+  ) => void
   /** Cascade an archive onto member sessions — implemented by the attention
    *  layer (issue #133); update() detects the archive flip and calls it. */
-  protected abstract cascadeArchiveSessions(row: IssueRow): void
+  protected declare cascadeArchiveSessions: (row: IssueRow) => void
   /** Retire pending session offers when the issue closes — implemented by the
    *  attention layer (POD-290); update() detects the closed-predicate flip and
    *  calls it so finished work cannot keep demanding a decision. */
-  protected abstract retireIssueOffers(row: IssueRow): void
+  protected declare retireIssueOffers: (row: IssueRow) => void
 
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
    *  field the assistant digest maintains; an explicit agent post is fresher truth
@@ -424,7 +430,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       })
     }
     if ('parentId' in rowPatch) {
-      this.setParent(row, rowPatch.parentId == null ? null : this.resolveRef(rowPatch.parentId))
+      this.setParentForUpdate(
+        row,
+        rowPatch.parentId == null ? null : this.resolveRef(rowPatch.parentId),
+      )
       const { parentId: _ignored, ...rest } = rowPatch
       Object.assign(row, rest)
     } else {
@@ -663,6 +672,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   ): IssueWire {
     const row = this.rowOrThrow(this.resolveRef(id))
     if (!row.ownerUserId) throw new Error('issue has no accountable owner')
+    const owner = row.ownerUserId
     const actorKind = attribution.actor.startsWith('session:')
       ? 'agent'
       : attribution.actor.startsWith('system:')
@@ -677,7 +687,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         resourceId: row.id,
         grantee,
         verb,
-        owner: row.ownerUserId!,
+        owner,
         visibility: 'personal',
         createdAt: this.now(),
         ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
@@ -696,117 +706,6 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       this.deps.store.grants.remove('issue', row.id, grantee, verb),
     )
     this.emitEvent('issue.unshared', row.id, { grantee, verb })
-    return wire
-  }
-
-  addComment(id: string, author: string, body: string, principal?: CommandPrincipal): IssueWire {
-    const issueId = this.resolveRef(id)
-    const row = this.rowOrThrow(issueId)
-    const attribution = principal ? attributionOf(principal) : undefined
-    return this.persistWith(row, () =>
-      this.deps.store.issues.addIssueComment({
-        id: `cmt_${randomUUID()}`,
-        issueId,
-        author,
-        body,
-        createdAt: this.now(),
-        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
-      }),
-    )
-  }
-
-  /** Return the dependency-only path from startId to targetId, if one exists.
-   *  Parent containment is organization, not scheduling, and deliberately does
-   *  not participate in dependency-cycle detection. */
-  private dependencyPath(startId: string, targetId: string): string[] | null {
-    const seen = new Set<string>()
-    const pending: Array<{ id: string; path: string[] }> = [{ id: startId, path: [startId] }]
-    while (pending.length) {
-      const current = pending.shift() as { id: IssueId; path: IssueId[] }
-      if (current.id === targetId) return current.path
-      if (seen.has(current.id)) continue
-      seen.add(current.id)
-      for (const dep of this.deps.store.issues.listIssueDeps(current.id)) {
-        if (dep.type === 'blocks') {
-          pending.push({ id: dep.toId, path: [...current.path, dep.toId] })
-        }
-      }
-    }
-    return null
-  }
-
-  /** Return the containment-only parent path from startId to targetId, if one exists. */
-  private containmentPath(startId: string, targetId: string): string[] | null {
-    const path = [startId]
-    const seen = new Set<string>()
-    let current: string | null | undefined = startId
-    while (current && !seen.has(current)) {
-      if (current === targetId) return path
-      seen.add(current)
-      current = this.rows.get(current)?.parentId
-      if (current) path.push(current)
-    }
-    return null
-  }
-
-  addDep(fromRef: string, toRef: string, type = 'blocks'): IssueWire {
-    // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it.
-    // Reject the type here so an arbitrary-type caller can't reintroduce
-    // parent-child rows into issue_deps.
-    if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
-    const fromId = this.resolveRef(fromRef)
-    const toId = this.resolveRef(toRef)
-    const row = this.rowOrThrow(fromId)
-    this.rowOrThrow(toId)
-    if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
-    if (type === 'blocks') {
-      const returnPath = this.dependencyPath(toId, fromId)
-      if (returnPath) {
-        throw new Error(
-          `dependency ${fromId} -> ${toId} would create a dependency cycle: ${[fromId, ...returnPath].join(' -> ')}`,
-        )
-      }
-    }
-    // The edge's own change row rides the SAME commit as the row upsert and the
-    // INSERT that creates it [POD-822] — one transact span, so the feed can never
-    // claim an edge the store rolled back. O(1): one edge, one row.
-    const wire = this.persistWith(
-      row,
-      () => this.deps.store.issues.addIssueDep(fromId, toId, type),
-      { extraChanges: this.depChanges([{ fromId, toId, type }], 'upsert') },
-    )
-    // The TARGET's dependents/blocked derivation changed too (#22) — on the
-    // LEGACY wire, where they are fields of the issue. A normalized client
-    // derives them from the edge row above; see broadcastListForDerivedRipple.
-    this.broadcastListForDerivedRipple()
-    return wire
-  }
-
-  removeDep(fromRef: string, toRef: string, type?: string): IssueWire {
-    // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it,
-    // and no parent-child rows exist in issue_deps for the bulk path to guard.
-    if (type === 'parent-child')
-      throw new Error('parent-child is managed by reparent, not removeDep')
-    const fromId = this.resolveRef(fromRef)
-    const toId = this.resolveRef(toRef)
-    const row = this.rowOrThrow(fromId)
-    // Enumerate what is about to go BEFORE deleting it [POD-822]. `type` is
-    // optional and an absent one deletes EVERY type between the two issues
-    // (removeIssueDep's second branch), so the edges removed are not derivable
-    // from the arguments — read them from the store while they still exist, or
-    // the feed keeps rows the store no longer has and the issue stays blocked on
-    // every replica forever.
-    const removed = this.deps.store.issues
-      .listIssueDeps(fromId)
-      .filter((d) => d.toId === toId && (type === undefined || d.type === type))
-      .map((d) => ({ fromId, toId, type: d.type }))
-    const wire = this.persistWith(
-      row,
-      () => this.deps.store.issues.removeIssueDep(fromId, toId, type),
-      { extraChanges: this.depChanges(removed, 'remove') },
-    )
-    // See addDep: legacy-wire ripple only.
-    this.broadcastListForDerivedRipple()
     return wire
   }
 
@@ -851,13 +750,14 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     })
     // Emit only on the false→true flip — a re-flag must not duplicate the event.
     if (!wasFlagged) {
+      const parentId = this.rows.get(wire.id)?.parentId
       this.emitEvent('issue.needs_human', wire.id, {
         seq: wire.seq,
         question: question ?? null,
         ...(options.length > 0 ? { options } : {}),
         ...(meta?.askedBy ? { askedBy: meta.askedBy } : {}),
         // Carried so a child needing a human can notify its parent's sessions.
-        ...(this.rows.get(wire.id)?.parentId ? { parentId: this.rows.get(wire.id)!.parentId } : {}),
+        ...(parentId ? { parentId } : {}),
       })
     }
     return wire
@@ -876,60 +776,6 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return wire
   }
 
-  /** The single cycle-checked reparent path. issues.parent_id is the ONLY
-   *  parent storage (#164). Dependency edges do not participate: hierarchy
-   *  cycles and scheduling cycles are separate invariants. */
-  private setParent(row: IssueRow, newParentId: IssueId | null): void {
-    if (newParentId === row.parentId) return
-    if (newParentId) {
-      this.rowOrThrow(newParentId)
-      const returnPath = this.containmentPath(newParentId, row.id)
-      if (returnPath) {
-        throw new Error(
-          `reparent ${row.id} -> ${newParentId} would create a containment cycle: ${[row.id, ...returnPath].join(' -> ')}`,
-        )
-      }
-    }
-    row.parentId = newParentId
-  }
-
-  reparent(id: string, parentId: string | null): IssueWire {
-    const row = this.rowOrThrow(id)
-    this.setParent(row, parentId == null ? null : this.resolveRef(parentId))
-    const wire = this.persist(row)
-    this.broadcastList() // both parents' childCount/childDoneCount changed (#22)
-    return wire
-  }
-
-  /** The issue's parent chain, nearest first. Cycle-safe (parent graph is invariant, but
-   *  guard anyway). Used by the authz middleware to test subtree membership. */
-  ancestorIds(id: string): string[] {
-    const out: string[] = []
-    const seen = new Set<string>()
-    let cur = this.rows.get(this.resolveRef(id))?.parentId ?? null
-    while (cur && !seen.has(cur)) {
-      seen.add(cur)
-      out.push(cur)
-      cur = this.rows.get(cur)?.parentId ?? null
-    }
-    return out
-  }
-
-  /** True when the issue or ANY ancestor sits in the proposed lane — the whole
-   *  proposal subtree is inert until an operator promotes the root. Fails
-   *  closed: an unresolvable ref counts as proposed. [spec:SP-6144] */
-  inProposedSubtree(id: string): boolean {
-    let row: IssueRow | undefined
-    try {
-      row = this.rows.get(this.resolveRef(id))
-    } catch {
-      row = undefined
-    }
-    if (!row) return true
-    if (row.stage === 'proposed') return true
-    return this.ancestorIds(row.id).some((a) => this.rows.get(a)?.stage === 'proposed')
-  }
-
   claim(id: string, assignee: UserId): IssueWire {
     return this.update(id, { assignee, stage: 'in_progress' })
   }
@@ -946,22 +792,6 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // update() emits issue.closed; actorSessionId rides through so the steward
     // can skip nudging the session that requested the close.
     return this.update(id, { stage: 'done', closedReason: reason }, opts)
-  }
-
-  supersede(oldRef: string, newRef: string): IssueWire {
-    const oldId = this.resolveRef(oldRef)
-    const newId = this.resolveRef(newRef)
-    this.rowOrThrow(newId)
-    this.addDep(oldId, newId, 'supersedes')
-    return this.update(oldId, { stage: 'done', closedReason: 'superseded', supersededBy: newId })
-  }
-
-  duplicate(ref: string, canonicalRef: string): IssueWire {
-    const id = this.resolveRef(ref)
-    const canonicalId = this.resolveRef(canonicalRef)
-    this.rowOrThrow(canonicalId)
-    this.addDep(id, canonicalId, 'related')
-    return this.update(id, { stage: 'done', closedReason: 'duplicate', duplicateOf: canonicalId })
   }
 
   applySuggestion(id: string): IssueWire {
