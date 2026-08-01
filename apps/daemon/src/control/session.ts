@@ -512,9 +512,7 @@ function stopSessionProcess(
   // separate server-authored binding transition.
   if (ctx.backend !== 'none') {
     const durableLabel =
-      msg.durableLabel ??
-      ctx.durableLabels.get(msg.sessionId) ??
-      ctx.durableLabelFor(msg.sessionId)
+      msg.durableLabel ?? ctx.durableLabels.get(msg.sessionId) ?? ctx.durableLabelFor(msg.sessionId)
     void (async () => {
       await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
     })()
@@ -580,9 +578,7 @@ export const sessionHandlers: Pick<
         conflictingSessionIds: msg.conflictingSessionIds,
         observedAt: msg.observedAt,
       })
-      .catch((err) =>
-        console.warn('[podium] could not record native identity conflict:', err),
-      )
+      .catch((err) => console.warn('[podium] could not record native identity conflict:', err))
   },
   input: (ctx, msg) => {
     const input = Buffer.from(msg.data, 'base64').toString('utf8')

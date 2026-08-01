@@ -960,7 +960,6 @@ describe('SessionBinding transition vocabulary', () => {
     expect(await bindings.read(base.sessionId)).toBeNull()
   })
 
-
   it('RECEIPT CONFLICT appends a durable marker, keeps evidence pending, and is idempotent', async () => {
     const bindings = await store()
     const before = await spawn(bindings, 'receipt-conflict', 'codex')
@@ -1009,9 +1008,7 @@ describe('SessionBinding transition vocabulary', () => {
     const persisted = await restarted.read(before.sessionId)
     expect(persisted?.conflictHistory).toHaveLength(1)
     expect(
-      persisted?.observations.some(
-        (entry) => entry.pendingServerAck?.value === 'thread-shared',
-      ),
+      persisted?.observations.some((entry) => entry.pendingServerAck?.value === 'thread-shared'),
     ).toBe(true)
   })
 

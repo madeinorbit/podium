@@ -30,6 +30,11 @@ export interface SessionBindingReceiptsDeps {
  * the durable session owner scopes the acknowledgement.
  */
 export class SessionBindingReceipts {
+  /** Provenance for the current scalar projection during this server lifetime.
+   * Absence is deliberately treated as exact after restart: losing provenance
+   * must make arbitration conservative, never destructive. */
+  private readonly projectedConfidence = new WeakMap<Session, 'exact' | 'heuristic'>()
+
   constructor(private readonly deps: SessionBindingReceiptsDeps) {}
 
   observeResumeRef(machineId: string, message: ResumeObservation): void {
@@ -42,7 +47,7 @@ export class SessionBindingReceipts {
       )
       return
     }
-
+    const confidence = message.confidence ?? 'heuristic'
     const conflicts =
       harnessRequiresExclusiveInteractiveResume(session.agentKind) && !session.headless
         ? [...this.deps.sessions()].filter(
@@ -56,33 +61,46 @@ export class SessionBindingReceipts {
           )
         : []
     if (conflicts.length > 0) {
-      if (message.confidence !== 'exact') {
+      if (confidence !== 'exact') {
         console.warn(
-          `[podium] ignored heuristic Codex resume collision ${message.resume.value} for ${session.sessionId}`,
+          `[podium] ignored heuristic native identity collision ${message.resume.value} for ${session.sessionId}`,
         )
         return
       }
-      const participants = [session, ...conflicts].sort((a, b) =>
-        a.sessionId.localeCompare(b.sessionId),
+      // Missing provenance means a durable projection survived a server restart;
+      // treat it as exact rather than destructively guessing it was heuristic.
+      const exactConflicts = conflicts.filter(
+        (conflict) => this.projectedConfidence.get(conflict) !== 'heuristic',
       )
-      const participantIds = participants.map((participant) => participant.sessionId)
-      const conflictId =
-        `resume-conflict:${message.resume.kind}:${message.resume.value}:${participantIds.join(',')}`
-      const observedAt = new Date(this.deps.now()).toISOString()
-      for (const participant of participants) {
-        this.deps.toMachine(participant.machineId, {
-          type: 'sessionResumeRefConflict',
-          sessionId: participant.sessionId,
-          resume: message.resume,
-          conflictId,
-          conflictingSessionIds: participantIds.filter((id) => id !== participant.sessionId),
-          observedAt,
-        })
+      if (exactConflicts.length > 0) {
+        const participants = [session, ...exactConflicts].sort((a, b) =>
+          a.sessionId.localeCompare(b.sessionId),
+        )
+        const participantIds = participants.map((participant) => participant.sessionId)
+        const conflictId = `resume-conflict:${message.resume.kind}:${message.resume.value}:${participantIds.join(',')}`
+        const observedAt = new Date(this.deps.now()).toISOString()
+        for (const participant of participants) {
+          this.deps.toMachine(participant.machineId, {
+            type: 'sessionResumeRefConflict',
+            sessionId: participant.sessionId,
+            resume: message.resume,
+            conflictId,
+            conflictingSessionIds: participantIds.filter((id) => id !== participant.sessionId),
+            observedAt,
+          })
+        }
+        console.warn(
+          `[podium] exact native identity conflict ${message.resume.value} across ${participantIds.join(', ')}`,
+        )
+        return
       }
-      console.warn(
-        `[podium] exact native identity conflict ${message.resume.value} across ${participantIds.join(', ')}`,
-      )
-      return
+      for (const conflict of conflicts) {
+        conflict.resume = undefined
+        conflict.conversationPodiumId = undefined
+        this.projectedConfidence.delete(conflict)
+        this.deps.persist(conflict)
+      }
+      this.deps.broadcastSessions()
     }
 
     if (
@@ -106,6 +124,7 @@ export class SessionBindingReceipts {
       this.deps.persist(session)
       this.deps.broadcastSessions()
     }
+    this.projectedConfidence.set(session, confidence)
 
     // Ack only after the exact mapping is already in durable server state.
     if (message.ackRequested && message.confidence === 'exact') {

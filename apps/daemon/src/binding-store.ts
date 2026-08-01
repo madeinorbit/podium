@@ -700,30 +700,38 @@ function parseBinding(value: unknown): SessionBindingRecord {
       if (!isRecord(entry)) throw new Error(`conflictHistory[${index}] must be an object`)
       const channel = requiredString(entry.channel, `conflictHistory[${index}].channel`)
       if (
-        !([
-          'resume-ref',
-          'provider-session',
-          'transcript-path',
-          'rollout-path',
-          'process-ownership',
-          'cwd',
-          'worktree-pin',
-        ] as readonly string[]).includes(channel)
+        !(
+          [
+            'resume-ref',
+            'provider-session',
+            'transcript-path',
+            'rollout-path',
+            'process-ownership',
+            'cwd',
+            'worktree-pin',
+          ] as readonly string[]
+        ).includes(channel)
       ) {
         throw new Error(`conflictHistory[${index}].channel is invalid`)
       }
       const ids = entry.conflictingSessionIds
-      if (!Array.isArray(ids)) throw new Error(`conflictHistory[${index}].conflictingSessionIds must be an array`)
+      if (!Array.isArray(ids))
+        throw new Error(`conflictHistory[${index}].conflictingSessionIds must be an array`)
       return {
         conflictId: requiredString(entry.conflictId, `conflictHistory[${index}].conflictId`),
         channel: channel as BindingObservationChannel,
         value: requiredString(entry.value, `conflictHistory[${index}].value`),
         conflictingSessionIds: ids.map((id, idIndex) =>
-          asSessionId(requiredString(id, `conflictHistory[${index}].conflictingSessionIds[${idIndex}]`)),
+          asSessionId(
+            requiredString(id, `conflictHistory[${index}].conflictingSessionIds[${idIndex}]`),
+          ),
         ),
         observedAt: requiredString(entry.observedAt, `conflictHistory[${index}].observedAt`),
         recordedAt: requiredString(entry.recordedAt, `conflictHistory[${index}].recordedAt`),
-        resolvedAt: optionalNullableString(entry.resolvedAt, `conflictHistory[${index}].resolvedAt`),
+        resolvedAt: optionalNullableString(
+          entry.resolvedAt,
+          `conflictHistory[${index}].resolvedAt`,
+        ),
       }
     }),
     transfer: (value.transfer ?? null) as BindingTransfer | null,
@@ -1727,6 +1735,8 @@ export class BindingStore {
             input,
             this.now(),
           )
+          break
+        }
       }
 
       if (!changed) throw new Error(`binding transition ${input.event} produced no outcome`)
@@ -1862,7 +1872,6 @@ export class BindingStore {
       }
     })
   }
-
 
   /**
    * Move the shipped receipt directory into binding observations, then remove

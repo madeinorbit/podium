@@ -28,7 +28,7 @@ export class SessionBinding {
     return this.store.bindingsForOwner(owner)
   }
 
-acknowledgeReceipt(
+  acknowledgeReceipt(
     owner: UserId | undefined,
     sessionId: SessionId,
     resume: ResumeRef,
