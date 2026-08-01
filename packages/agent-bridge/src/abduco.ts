@@ -1,6 +1,15 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
+import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveAbducoBin } from './abduco-bin.js'
@@ -234,6 +243,56 @@ export function abducoHasSession(label: string): boolean {
 const execFileAsync = promisify(execFile)
 
 /**
+ * Check one durable label directly in abduco's socket directory.
+ *
+ * Never use the global `abduco` listing on daemon recovery: listing connects to
+ * every master in lexical order, so one legacy master wedged while an old attach
+ * client was being torn down blocks the entire command forever. That turns one
+ * bad session into a fleet-wide reattach outage. The socket filename and mode are
+ * already abduco's authoritative index: S_IXGRP marks a terminated application;
+ * detached and attached live sessions both omit that bit.
+ */
+export function abducoSocketHasSession(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+  username?: string,
+): boolean {
+  const dirs: string[] = []
+  if (env.ABDUCO_SOCKET_DIR) {
+    let user = username
+    if (!user) {
+      try {
+        user = userInfo().username
+      } catch {
+        // Fall through to the non-user-specific compatibility candidates.
+      }
+    }
+    if (user) dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco', user))
+    dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco'), env.ABDUCO_SOCKET_DIR)
+  } else if (env.HOME) {
+    dirs.push(join(env.HOME, '.abduco'))
+  }
+
+  for (const dir of dirs) {
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
+      if (name !== label && !name.startsWith(`${label}@`)) continue
+      try {
+        return (statSync(join(dir, name)).mode & 0o010) === 0
+      } catch {
+        // The master exited between readdir and stat; keep looking.
+      }
+    }
+  }
+  return false
+}
+
+/**
  * Async twin of {@link listSessions}. The sync version does a blocking `spawnSync`
  * on the main thread; on the daemon's reattach path that runs once per session and,
  * for ~30 durable sessions, back-to-back `fork+exec` calls starve the event loop so
@@ -256,11 +315,7 @@ async function listSessionsAsync(): Promise<AbducoSessionEntry[]> {
 
 /** Non-blocking {@link abducoHasSession}. Prefer this on hot paths (reattach). */
 export async function abducoHasSessionAsync(label: string): Promise<boolean> {
-  try {
-    return (await listSessionsAsync()).some((s) => s.name === label && s.alive)
-  } catch {
-    return false
-  }
+  return abducoSocketHasSession(label)
 }
 
 /** SIGTERM the session master — verified to take the app down and clean the socket. */
