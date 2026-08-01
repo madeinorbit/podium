@@ -680,6 +680,26 @@ export class SessionRegistry {
       }
       for (const c of clients().values()) c.send(msg)
     }
+    const conversations = new ConversationsService(
+      {
+        store: this.store,
+        now: () => this.now(),
+        // Conversation writes commit through the write-seam ledger (#257):
+        // discovery/meta commits + list reconciles append durably at
+        // the write; the feed serves them (POD-1203 deleted the snapshot tail).
+        ledger,
+        // Scan diagnostics are not feed content and the v1 wire carried them
+        // inside `conversationsChanged`; the edge re-serves them to the wire
+        // versions that still need them (POD-1203).
+        onDiagnosticsChanged: (diagnostics) => {
+          conversationDiagnostics.current = diagnostics
+          feedServing.publishAdvisory('conversation-diagnostics')
+        },
+        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
+          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+      },
+      options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
+    )
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
@@ -702,7 +722,7 @@ export class SessionRegistry {
       machines,
       rpc,
       hosts,
-      conversations: () => conversations,
+      conversations,
       issues: () => issues,
       issuesWire: () => publisher.currentIssuesList(),
       issueProjectionsWire: () => (issues.allProjections() ?? []).map((row) => row.value),
@@ -773,26 +793,6 @@ export class SessionRegistry {
     // write-seam ledger — boot reconciliation lives in the sessions module now).
     sessionsSvc.loadFromStore()
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
-    const conversations = new ConversationsService(
-      {
-        store: this.store,
-        now: () => this.now(),
-        // Conversation writes commit through the write-seam ledger (#257):
-        // discovery/meta commits + list reconciles append durably at
-        // the write; the feed serves them (POD-1203 deleted the snapshot tail).
-        ledger,
-        // Scan diagnostics are not feed content and the v1 wire carried them
-        // inside `conversationsChanged`; the edge re-serves them to the wire
-        // versions that still need them (POD-1203).
-        onDiagnosticsChanged: (diagnostics) => {
-          conversationDiagnostics.current = diagnostics
-          feedServing.publishAdvisory('conversation-diagnostics')
-        },
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
-      },
-      options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
-    )
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).

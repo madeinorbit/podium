@@ -252,8 +252,7 @@ interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
-  /** Lazy: the conversations service is constructed after this one (post-load slot). */
-  conversations(): ConversationsService
+  conversations: ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
   issues(): IssueService
   /** The issue wire list (attachClient bootstrap + snapshot sync). */
@@ -824,7 +823,7 @@ export class SessionLifecycle {
   }
 
   private conversations(): ConversationsService {
-    return this.deps.conversations()
+    return this.deps.conversations
   }
   /**
    * Allocate and durably store the observer lease before its control message is
