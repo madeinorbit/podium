@@ -51,7 +51,7 @@ import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
-import { DaemonRpcService } from './modules/machines/rpc'
+import { DaemonRequestBroker, DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
@@ -304,29 +304,9 @@ export class SessionRegistry {
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clients().values(),
     })
-    const rpc = new DaemonRpcService({
-      store: this.store.conversations,
+    const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: () => machines.defaultMachine(),
-      resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
-      hasDaemon: (machineId) => machines.hasDaemon(machineId),
-      machineName: (id) => machines.machineName(id),
-      onlineMachineIds: () => machines.onlineMachineIds(),
-      getSession: (sessionId) => {
-        const session = liveSessions.get(sessionId)
-        return session
-          ? {
-              cwd: session.cwd,
-              machineId: session.machineId,
-              agentKind: session.agentKind,
-              resume: session.resume,
-              transcriptItems: () => session.terminal.transcriptItems(),
-            }
-          : undefined
-      },
-      // Lazy: the conversations service is constructed after loadFromStore below.
-      readTranscriptFromLake: (session, input) =>
-        conversations.readTranscriptFromLake(session, input),
     })
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
@@ -571,10 +551,34 @@ export class SessionRegistry {
           feedServing.publishAdvisory('conversation-diagnostics')
         },
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+          requestBroker.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
       options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
     )
+    const rpc = new DaemonRpcService({
+      broker: requestBroker,
+      store: this.store.conversations,
+      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      defaultMachine: () => machines.defaultMachine(),
+      resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
+      hasDaemon: (machineId) => machines.hasDaemon(machineId),
+      machineName: (id) => machines.machineName(id),
+      onlineMachineIds: () => machines.onlineMachineIds(),
+      getSession: (sessionId) => {
+        const session = liveSessions.get(sessionId)
+        return session
+          ? {
+              cwd: session.cwd,
+              machineId: session.machineId,
+              agentKind: session.agentKind,
+              resume: session.resume,
+              transcriptItems: () => session.terminal.transcriptItems(),
+            }
+          : undefined
+      },
+      readTranscriptFromLake: (session, input) =>
+        conversations.readTranscriptFromLake(session, input),
+    })
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
