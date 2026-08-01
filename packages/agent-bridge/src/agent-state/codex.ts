@@ -1089,6 +1089,9 @@ export function observeCodexState(opts: {
   onEvents: (events: AgentStateEvent[]) => void
   causal?: CodexCausalStateOptions
   onBootstrapFold?: () => void
+  /** Test/attribution seam: fires only when changed rollout bytes require a
+   * complete-record boundary scan. Unchanged polls must not fire it. */
+  onCausalBoundaryScan?: () => void
 }): CodexStateObservation {
   const codexHome = join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
@@ -1138,6 +1141,9 @@ export function observeCodexState(opts: {
   let reading = false
   let causalObserver: CodexCausalCursorObserver | null = null
   let causalPredecessorCursor: ProviderCursor | null = null
+  let causalBoundaryCache:
+    | { device: string; inode: string; size: number; completeEnd: number }
+    | undefined
   let causalBootstrapObservation: AgentObservation | null = null
   let awaitingCausalBootstrapAck = false
   let requestedRebindSessionId: string | null = null
@@ -1296,7 +1302,24 @@ export function observeCodexState(opts: {
       awaitingCausalBootstrapAck = false
       return null
     }
+    const cachedBoundary = causalBoundaryCache
+    if (
+      cachedBoundary !== undefined &&
+      cachedBoundary.device === device &&
+      cachedBoundary.inode === inode &&
+      cachedBoundary.size === info.size &&
+      observer.readOffset === cachedBoundary.completeEnd
+    ) {
+      return observer.acceptedSnapshot.providerCursor
+    }
+    opts.onCausalBoundaryScan?.()
     const completeEnd = await completeRecordEnd(handle, info.size)
+    causalBoundaryCache = {
+      device,
+      inode,
+      size: info.size,
+      completeEnd,
+    }
     while (!observer.waitingForAck && observer.readOffset < completeEnd) {
       const startOffset = observer.readOffset
       const complete = await readCodexCompleteRecord(handle, startOffset, completeEnd)
