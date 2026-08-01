@@ -4,23 +4,20 @@ import {
   asRepoId,
   asSessionId,
   asUserId,
+  type GrantVerb,
+  type IssueWire,
   isSortKey,
   normalizeClosedPatch,
-  sortKeyBetween,
-  type ArtifactId,
-  type GrantVerb,
-  type IssueId,
-  type IssueWire,
   type SessionId,
   type SessionMeta,
+  sortKeyBetween,
   type UserId,
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
-import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { EntityChangeSpec } from '@podium/sync'
-import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import type { IssueRow } from '../../../store'
-import { IssueServiceReads } from './reads'
+import { type StoredIssue, toStorage } from '../../../store/issue-storage'
+import type { IssueStore } from './core'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
 
@@ -60,29 +57,37 @@ export interface IssueLifecyclePlan {
 }
 
 /**
- * IssueService layer 2 — row mutations and the stage machine (issue #190 split):
+ * CRUD and stage-machine capability:
  * create/update and every close/reopen path, dependency + hierarchy edits,
  * labels/comments/panel/state, and the attention-state event emissions that
  * update() detects. Every mutation ends in persist()/broadcastList() (core).
  */
-export abstract class IssueServiceCrud extends IssueServiceReads {
-  /** Cascade an archive onto member sessions — implemented by the attention
-   *  layer (issue #133); update() detects the archive flip and calls it. */
-  protected abstract cascadeArchiveSessions(row: IssueRow): void
-  /** Retire pending session offers when the issue closes — implemented by the
-   *  attention layer (POD-290); update() detects the closed-predicate flip and
-   *  calls it so finished work cannot keep demanding a decision. */
-  protected abstract retireIssueOffers(row: IssueRow): void
+interface IssueCrudHierarchyPort {
+  reparent(id: string, parentId: string | null): IssueWire
+  setParentForUpdate(row: IssueRow, parentId: import('@podium/model').IssueId | null): void
+}
+
+interface IssueCrudAttentionPort {
+  cascadeArchiveSessions(row: IssueRow): void
+  retireIssueOffers(row: IssueRow): void
+}
+
+export class IssueCrudModule {
+  constructor(
+    readonly store: IssueStore,
+    private readonly hierarchy: () => IssueCrudHierarchyPort,
+    private readonly attention: () => IssueCrudAttentionPort,
+  ) {}
 
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
    *  field the assistant digest maintains; an explicit agent post is fresher truth
    *  and simply overwrites, and vice versa). Shown in the issue sidebar header. */
   setState(id: string, text: string): IssueWire {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     row.activityNotes = text
-    row.notesUpdatedAt = this.now()
-    const wire = this.persist(row)
-    this.emitEvent('issue.state', row.id, { seq: row.seq })
+    row.notesUpdatedAt = this.store.now()
+    const wire = this.store.persist(row)
+    this.store.emitEvent('issue.state', row.id, { seq: row.seq })
     return wire
   }
 
@@ -91,8 +96,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  and deferred-work items awaiting a user decision. Indexes are 1-based (what
    *  the CLI prints). Persists + broadcasts like any other issue update. */
   panelApply(id: string, op: IssuePanelOp): IssueWire {
-    const row = this.rowOrThrow(id)
-    const panel = this.parsePanel(row)
+    const row = this.store.rowOrThrow(id)
+    const panel = this.store.parsePanel(row)
     const at = <T>(list: T[], index: number): T => {
       const item = list[index - 1]
       if (!item) throw new Error(`no item ${index} (list has ${list.length})`)
@@ -121,7 +126,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         const next = {
           path: op.path,
           ...(op.title ? { title: op.title } : {}),
-          addedAt: this.now(),
+          addedAt: this.store.now(),
           ...(op.artifactId ? { artifactId: op.artifactId } : {}),
           ...(op.entry ? { entry: op.entry } : {}),
           ...(op.files ? { files: op.files } : {}),
@@ -136,7 +141,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         panel.artifacts.splice(op.index - 1, 1)
         break
       case 'deferred-add':
-        panel.deferred.push({ text: op.text, addedAt: this.now() })
+        panel.deferred.push({ text: op.text, addedAt: this.store.now() })
         break
       case 'deferred-remove':
         at(panel.deferred, op.index)
@@ -144,8 +149,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         break
     }
     row.panel = JSON.stringify(panel)
-    const wire = this.persist(row)
-    this.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
+    const wire = this.store.persist(row)
+    this.store.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
     return wire
   }
 
@@ -163,17 +168,17 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     input: { path: string; title?: string; extraPaths?: string[] },
     opts?: { actorSessionId?: string },
   ): Promise<IssueWire> {
-    const row = this.rowOrThrow(this.resolveRef(id))
-    const store = this.deps.artifacts
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const store = this.store.deps.artifacts
     // Re-add keeps the existing title unless a new one is given.
-    const existing = this.parsePanel(row).artifacts.find((a) => a.path === input.path)
+    const existing = this.store.parsePanel(row).artifacts.find((a) => a.path === input.path)
     const effectiveTitle = input.title ?? existing?.title
     const title = effectiveTitle ? { title: effectiveTitle } : {}
     if (!store) return this.panelApply(row.id, { op: 'artifact-add', path: input.path, ...title })
     // Owning machine + root: the issue worktree, falling back to the invoking
     // session's machine/cwd — the same resolution the live render route uses.
     const session = opts?.actorSessionId
-      ? this.deps.listSessions().find((s) => s.sessionId === opts.actorSessionId)
+      ? this.store.deps.listSessions().find((s) => s.sessionId === opts.actorSessionId)
       : undefined
     const root = row.worktreePath ?? session?.cwd
     if (!root) throw new Error('no worktree or session to read the artifact from')
@@ -201,11 +206,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
    *  The dir delete is best-effort AFTER the committed panel update. */
   panelArtifactRemove(id: string, index: number): IssueWire {
-    const row = this.rowOrThrow(this.resolveRef(id))
-    const removed = this.parsePanel(row).artifacts[index - 1]
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const removed = this.store.parsePanel(row).artifacts[index - 1]
     const wire = this.panelApply(row.id, { op: 'artifact-remove', index })
-    if (removed?.artifactId && this.deps.artifacts) {
-      void this.deps.artifacts.remove(row.id, removed.artifactId).catch(() => {})
+    if (removed?.artifactId && this.store.deps.artifacts) {
+      void this.store.deps.artifacts.remove(row.id, removed.artifactId).catch(() => {})
     }
     return wire
   }
@@ -216,15 +221,19 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  read error in this fanout must not make the succeeded mutation look failed. */
   private emitReadyAfterClose(closed: IssueRow, actorSessionId?: string): void {
     try {
-      const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
-      for (const r of this.rows.values()) {
-        if (r.id === closed.id || !this.inRepoScope(r, closed.repoPath) || this.isClosed(r))
+      const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
+      for (const r of this.store.rows.values()) {
+        if (
+          r.id === closed.id ||
+          !this.store.inRepoScope(r, closed.repoPath) ||
+          this.store.isClosed(r)
+        )
           continue
-        const blocksClosed = this.deps.store.issues
+        const blocksClosed = this.store.deps.store.issues
           .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
-        if (blocksClosed && this.toWire(r, commentCounts).ready) {
-          this.emitEvent('issue.ready', r.id, {
+        if (blocksClosed && this.store.toWire(r, commentCounts).ready) {
+          this.store.emitEvent('issue.ready', r.id, {
             seq: r.seq,
             unblockedBy: closed.seq,
             ...(actorSessionId ? { causedBySessionId: actorSessionId } : {}),
@@ -241,14 +250,14 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
   private archiveClosedSubtree(parentId: string, sessionList?: SessionMeta[]): void {
-    sessionList ??= this.deps.listSessions()
+    sessionList ??= this.store.deps.listSessions()
     const skipped: Array<{ seq: number; why: string }> = []
-    for (const child of this.rows.values()) {
+    for (const child of this.store.rows.values()) {
       if (child.parentId !== parentId || child.archived || child.deletedAt) continue
-      if (!this.isClosed(child)) continue // open work is never swept by a parent close
+      if (!this.store.isClosed(child)) continue // open work is never swept by a parent close
       // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
       // which is what "the operator has seen it" meant when this was a column.
-      if (this.issueOverlay(child.id).readAt == null) {
+      if (this.store.issueOverlay(child.id).readAt == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
       }
@@ -263,9 +272,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       this.update(child.id, { archived: true })
     }
     if (skipped.length) {
-      const parent = this.rows.get(parentId)
+      const parent = this.store.rows.get(parentId)
       if (parent) {
-        this.emitEvent('issue.cascade_skipped', parentId, { seq: parent.seq, skipped })
+        this.store.emitEvent('issue.cascade_skipped', parentId, { seq: parent.seq, skipped })
       }
     }
   }
@@ -276,12 +285,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  top-level non-pinned rows. Corrupt/legacy keys are ignored for the min. */
   private mintSortKey(repoId: string, repoPath: string, parentId: string | null): string {
     let min: string | null = null
-    for (const r of this.rows.values()) {
+    for (const r of this.store.rows.values()) {
       if (r.deletedAt) continue
       const sameScope = parentId
         ? r.parentId === parentId
         : r.parentId == null &&
-          !this.issueOverlay(r.id).pinned &&
+          !this.store.issueOverlay(r.id).pinned &&
           (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
       if (!sameScope) continue
       const k = r.sortKey
@@ -293,10 +302,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   create(input: CreateIssueInput): IssueWire {
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
-    const repoId = this.deps.store.repos.resolveRepoIdForPath(input.repoPath)
-    const seq = this.deps.store.issues.nextIssueSeq(repoId)
-    const ts = this.now()
-    const settings = this.deps.getSettings()
+    const repoId = this.store.deps.store.repos.resolveRepoIdForPath(input.repoPath)
+    const seq = this.store.deps.store.issues.nextIssueSeq(repoId)
+    const ts = this.store.now()
+    const settings = this.store.deps.getSettings()
     const coding = resolveRole(settings, 'coding')
     const defaultAgent = input.defaultAgent || coding.harness
     const useCodingDefaults = defaultAgent === coding.harness // [spec:SP-7ff1]
@@ -339,7 +348,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       sortKey: this.mintSortKey(
         repoId,
         input.repoPath,
-        input.parentId ? this.resolveRef(input.parentId, input.repoPath) : null,
+        input.parentId ? this.store.resolveRef(input.parentId, input.repoPath) : null,
       ),
       ...(input.color != null ? { color: input.color } : {}),
       needsHuman: false,
@@ -367,13 +376,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     row.createdByActor = input.createdByActor ?? row.ownerUserId
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId
     // parentId handled after persist via reparent (edge-maintaining): the row
-    // must be registered in this.rows first so wouldCycle/rowOrThrow work.
-    let wire = this.persist(row)
+    // must be registered in this.store.rows first so wouldCycle/rowOrThrow work.
+    let wire = this.store.persist(row)
     // New list MEMBERSHIP: single-issue deltas only patch known ids on legacy
     // clients, so a create still fans out the full list once (#22).
-    this.broadcastList()
-    this.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
-    if (input.parentId) wire = this.reparent(row.id, input.parentId)
+    this.store.broadcastList()
+    this.store.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
+    if (input.parentId) wire = this.hierarchy().reparent(row.id, input.parentId)
     if (input.labels?.length) wire = this.setLabels(row.id, input.labels)
     return wire
   }
@@ -392,10 +401,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
      *  can skip nudging the very session that caused them (self-nudge is noise). */
     opts?: { actorSessionId?: string },
   ): IssueWire {
-    const row = this.rows.get(this.resolveRef(id))
+    const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
     const prevStage = row.stage
-    const wasClosed = this.isClosed(row)
+    const wasClosed = this.store.isClosed(row)
     patch = this.normalizeClosedPatch(row, patch)
     if (patch.defaultAgent !== undefined && patch.defaultAgent !== row.defaultAgent) {
       patch = {
@@ -407,7 +416,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
-    const prevPinned = this.issueOverlay(row.id).pinned
+    const prevPinned = this.store.issueOverlay(row.id).pinned
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
     // Naming a draft promotes it to a real issue (issue-as-workspace).
@@ -418,13 +427,16 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const { pinned: pinnedPatch, ...rowPatch } = patch
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
-      const prevPinnedAt = this.issueUserState(row.id)?.pinnedAt ?? null
-      this.writeIssueUserState(row.id, {
-        pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.now()) : null,
+      const prevPinnedAt = this.store.issueUserState(row.id)?.pinnedAt ?? null
+      this.store.writeIssueUserState(row.id, {
+        pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null,
       })
     }
     if ('parentId' in rowPatch) {
-      this.setParent(row, rowPatch.parentId == null ? null : this.resolveRef(rowPatch.parentId))
+      this.hierarchy().setParentForUpdate(
+        row,
+        rowPatch.parentId == null ? null : this.store.resolveRef(rowPatch.parentId),
+      )
       const { parentId: _ignored, ...rest } = rowPatch
       Object.assign(row, rest)
     } else {
@@ -433,29 +445,29 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
     // flips, so post-close touches (notes, deps, steward writes) never restart
     // the sidebar's completion-decay window the way updatedAt would.
-    if (!wasClosed && this.isClosed(row)) row.closedAt = this.now()
-    else if (wasClosed && !this.isClosed(row)) {
+    if (!wasClosed && this.store.isClosed(row)) row.closedAt = this.store.now()
+    else if (wasClosed && !this.store.isClosed(row)) {
       row.closedAt = null
       // Reopening retires the dismissal (POD-333): reopened work must not inherit
       // a tuck from a PRIOR close, or the next time it finishes it would fold
       // itself away without the operator ever seeing it. A later close offers
       // Tuck away again. Cleared here — on the closed-predicate flip itself — so
       // every client converges on it through the same broadcast.
-      this.writeIssueUserState(row.id, { tuckedAt: null })
+      this.store.writeIssueUserState(row.id, { tuckedAt: null })
     }
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
     // unread after a purely human board edit (POD-325).
-    const wire = this.persist(row, {
+    const wire = this.store.persist(row, {
       touch: isOrganizationalOnlyPatch(patch) ? false : undefined,
     })
     // Cross-issue derived effects (#22): a closed-predicate flip changes the
     // dependents' blocked/ready and the parent's childDoneCount; a reparent
     // changes both parents' childCount. Those rows' wires must reach clients too.
-    if (wasClosed !== this.isClosed(row) || 'parentId' in patch) this.broadcastList()
+    if (wasClosed !== this.store.isClosed(row) || 'parentId' in patch) this.store.broadcastList()
     // Transitions into done log as issue.closed below, not stage_changed.
     if (patch.stage != null && patch.stage !== prevStage && patch.stage !== 'done') {
-      this.emitEvent('issue.stage_changed', row.id, {
+      this.store.emitEvent('issue.stage_changed', row.id, {
         seq: row.seq,
         from: prevStage,
         to: patch.stage,
@@ -471,15 +483,15 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // Both derive from actual closed-predicate FLIPS: a same-state re-close stays
     // silent, while a close after a real reopen fires issue.closed again (#24 —
     // normalizeClosedPatch guarantees a reopen actually flips the predicate).
-    if (wasClosed && !this.isClosed(row)) {
-      this.emitEvent('issue.reopened', row.id, {
+    if (wasClosed && !this.store.isClosed(row)) {
+      this.store.emitEvent('issue.reopened', row.id, {
         seq: row.seq,
         ...(row.parentId ? { parentId: row.parentId } : {}),
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
     }
-    if (!wasClosed && this.isClosed(row)) {
-      this.emitEvent('issue.closed', row.id, {
+    if (!wasClosed && this.store.isClosed(row)) {
+      this.store.emitEvent('issue.closed', row.id, {
         seq: row.seq,
         reason: row.closedReason ?? 'done',
         // Carried so the steward's trigger rules stay pure over the event
@@ -490,25 +502,25 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       // Closing completes the work: retire standing agent offers so a
       // delegate's "Merge / Send back" cannot demand a decision forever after
       // the coordinator finished through another session (POD-290).
-      this.retireIssueOffers(row)
+      this.attention().retireIssueOffers(row)
       this.emitReadyAfterClose(row, opts?.actorSessionId)
       this.archiveClosedSubtree(row.id)
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
-    const nowPinned = this.issueOverlay(row.id).pinned
+    const nowPinned = this.store.issueOverlay(row.id).pinned
     if (nowPinned !== prevPinned) {
-      this.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: nowPinned })
+      this.store.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: nowPinned })
     }
     if (row.archived !== prevArchived && row.archived) {
-      this.emitEvent('issue.archived', row.id, { seq: row.seq })
-      this.cascadeArchiveSessions(row)
+      this.store.emitEvent('issue.archived', row.id, { seq: row.seq })
+      this.attention().cascadeArchiveSessions(row)
     }
     if (row.deferUntil !== prevDeferUntil) {
       if (row.deferUntil != null) {
-        this.emitEvent('issue.snoozed', row.id, { seq: row.seq, until: row.deferUntil })
+        this.store.emitEvent('issue.snoozed', row.id, { seq: row.seq, until: row.deferUntil })
       } else {
-        this.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
+        this.store.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
       }
     }
     return wire
@@ -519,11 +531,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  now the latest timestamp). PER-USER STATE (POD-1076): the marker is written to
    *  the actor's `(userId, issueId)` row, not to the issue. */
   markIssueRead(id: string): IssueWire {
-    const row = this.rows.get(this.resolveRef(id))
+    const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
-    this.writeIssueUserState(row.id, { readAt: this.now() })
-    const wire = this.persist(row, { touch: false })
-    this.emitEvent('issue.read', row.id, { seq: row.seq })
+    this.store.writeIssueUserState(row.id, { readAt: this.store.now() })
+    const wire = this.store.persist(row, { touch: false })
+    this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
 
@@ -533,11 +545,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
   markIssueUnread(id: string): IssueWire {
-    const row = this.rows.get(this.resolveRef(id))
+    const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
-    this.writeIssueUserState(row.id, { readAt: null })
-    const wire = this.persist(row, { touch: false })
-    this.emitEvent('issue.unread', row.id, { seq: row.seq })
+    this.store.writeIssueUserState(row.id, { readAt: null })
+    const wire = this.store.persist(row, { touch: false })
+    this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
   }
 
@@ -552,24 +564,24 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
   setIssueTucked(id: string, tucked: boolean): IssueWire {
-    const row = this.rows.get(this.resolveRef(id))
+    const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
-    if (tucked && !this.isClosed(row)) throw new Error(`issue ${id} is not finished`)
+    if (tucked && !this.store.isClosed(row)) throw new Error(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
-    const prev = this.issueOverlay(row.id).tuckedAt
-    this.writeIssueUserState(row.id, { tuckedAt: tucked ? (prev ?? this.now()) : null })
-    return this.persist(row, { touch: false })
+    const prev = this.store.issueOverlay(row.id).tuckedAt
+    this.store.writeIssueUserState(row.id, { tuckedAt: tucked ? (prev ?? this.store.now()) : null })
+    return this.store.persist(row, { touch: false })
   }
 
   /** Build the issue half of a cross-aggregate soft-delete without mutating
    *  memory before the durable transaction succeeds. */
   prepareSoftDelete(id: string, _remainingSessions: SessionMeta[]): IssueLifecyclePlan {
-    id = this.resolveRef(id)
-    const current = this.rowOrThrow(id)
+    id = this.store.resolveRef(id)
+    const current = this.store.rowOrThrow(id)
     if (current.deletedAt) throw new Error(`issue ${id} is already deleted`)
-    const deletedAt = this.now()
+    const deletedAt = this.store.now()
     const row: IssueRow = { ...current, deletedAt, updatedAt: deletedAt }
     // Projected INSIDE write(), after upsertIssue has stamped row.revision —
     // see IssueLifecyclePlan.wire for why taking it here would be a bug.
@@ -585,44 +597,44 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       worktreePath: row.worktreePath,
       wire,
       write: () => {
-        this.deps.store.issues.upsertIssue(row)
-        committed = this.toWire(row)
+        this.store.deps.store.issues.upsertIssue(row)
+        committed = this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
-        this.rows.set(row.id, row)
-        this.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
+        this.store.rows.set(row.id, row)
+        this.store.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
       },
-      publish: () => this.broadcastList(),
+      publish: () => this.store.broadcastList(),
     }
   }
 
   /** Permanently purge an automatically-created empty draft. User-facing deletion
    *  must go through IssueSessionLifecycle and never reaches this method. */
   purgeEmptyDraft(ref: string): void {
-    const id = this.resolveRef(ref)
-    this.rowOrThrow(id)
-    this.deps.ledger.commit({
-      write: () => this.deps.store.issues.deleteIssue(id),
+    const id = this.store.resolveRef(ref)
+    this.store.rowOrThrow(id)
+    this.store.deps.ledger.commit({
+      write: () => this.store.deps.store.issues.deleteIssue(id),
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
-    this.reload()
+    this.store.reload()
     // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
     // the normalized feed as the remove reconcile derives from full truth.
     // POD-1203 deleted the funnel snapshot half; `reconcileAndPublish` is the
     // whole tail now.
-    this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(this.allWire()))
+    this.store.reconcileAndPublish(this.store.deps.publishSpecs.issuesChanged(this.store.allWire()))
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
-    void this.deps.artifacts?.removeIssue(id).catch(() => {})
+    void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
   }
 
   /** Build the issue half of a cross-aggregate restore without exposing the row
    *  before its issue and session tombstones have committed together. */
   prepareRestore(id: string, _restoredSessions: SessionMeta[]): IssueLifecyclePlan {
-    id = this.resolveRef(id)
-    const current = this.rowOrThrow(id)
+    id = this.store.resolveRef(id)
+    const current = this.store.rowOrThrow(id)
     if (!current.deletedAt) throw new Error(`issue ${id} is not deleted`)
-    const restoredAt = this.now()
+    const restoredAt = this.store.now()
     const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
     // Projected INSIDE write() — see prepareSoftDelete / IssueLifecyclePlan.wire.
     let committed: IssueWire | null = null
@@ -637,22 +649,24 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       worktreePath: row.worktreePath,
       wire,
       write: () => {
-        this.deps.store.issues.upsertIssue(row)
-        committed = this.toWire(row)
+        this.store.deps.store.issues.upsertIssue(row)
+        committed = this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
-        this.rows.set(row.id, row)
-        this.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
+        this.store.rows.set(row.id, row)
+        this.store.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
       },
-      publish: () => this.broadcastList(),
+      publish: () => this.store.broadcastList(),
     }
   }
 
   setLabels(id: string, labels: string[]): IssueWire {
-    id = this.resolveRef(id)
-    const row = this.rowOrThrow(id)
-    return this.persistWith(row, () => this.deps.store.issues.setIssueLabels(id, labels))
+    id = this.store.resolveRef(id)
+    const row = this.store.rowOrThrow(id)
+    return this.store.persistWith(row, () =>
+      this.store.deps.store.issues.setIssueLabels(id, labels),
+    )
   }
 
   share(
@@ -661,8 +675,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     verb: GrantVerb,
     attribution: { actor: string; onBehalfOf: UserId },
   ): IssueWire {
-    const row = this.rowOrThrow(this.resolveRef(id))
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
     if (!row.ownerUserId) throw new Error('issue has no accountable owner')
+    const owner = row.ownerUserId
     const actorKind = attribution.actor.startsWith('session:')
       ? 'agent'
       : attribution.actor.startsWith('system:')
@@ -671,142 +686,31 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const actorId = attribution.actor.includes(':')
       ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
       : attribution.actor
-    const wire = this.persistWith(row, () =>
-      this.deps.store.grants.upsert({
+    const wire = this.store.persistWith(row, () =>
+      this.store.deps.store.grants.upsert({
         resourceKind: 'issue',
         resourceId: row.id,
         grantee,
         verb,
-        owner: row.ownerUserId!,
+        owner,
         visibility: 'personal',
-        createdAt: this.now(),
+        createdAt: this.store.now(),
         ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
         actorKind,
         actorId,
         onBehalfOf: attribution.onBehalfOf,
       }),
     )
-    this.emitEvent('issue.shared', row.id, { grantee, verb, actor: attribution.actor })
+    this.store.emitEvent('issue.shared', row.id, { grantee, verb, actor: attribution.actor })
     return wire
   }
 
   unshare(id: string, grantee: UserId, verb: GrantVerb): IssueWire {
-    const row = this.rowOrThrow(this.resolveRef(id))
-    const wire = this.persistWith(row, () =>
-      this.deps.store.grants.remove('issue', row.id, grantee, verb),
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const wire = this.store.persistWith(row, () =>
+      this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
     )
-    this.emitEvent('issue.unshared', row.id, { grantee, verb })
-    return wire
-  }
-
-  addComment(id: string, author: string, body: string, principal?: CommandPrincipal): IssueWire {
-    const issueId = this.resolveRef(id)
-    const row = this.rowOrThrow(issueId)
-    const attribution = principal ? attributionOf(principal) : undefined
-    return this.persistWith(row, () =>
-      this.deps.store.issues.addIssueComment({
-        id: `cmt_${randomUUID()}`,
-        issueId,
-        author,
-        body,
-        createdAt: this.now(),
-        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
-      }),
-    )
-  }
-
-  /** Return the dependency-only path from startId to targetId, if one exists.
-   *  Parent containment is organization, not scheduling, and deliberately does
-   *  not participate in dependency-cycle detection. */
-  private dependencyPath(startId: string, targetId: string): string[] | null {
-    const seen = new Set<string>()
-    const pending: Array<{ id: string; path: string[] }> = [{ id: startId, path: [startId] }]
-    while (pending.length) {
-      const current = pending.shift() as { id: IssueId; path: IssueId[] }
-      if (current.id === targetId) return current.path
-      if (seen.has(current.id)) continue
-      seen.add(current.id)
-      for (const dep of this.deps.store.issues.listIssueDeps(current.id)) {
-        if (dep.type === 'blocks') {
-          pending.push({ id: dep.toId, path: [...current.path, dep.toId] })
-        }
-      }
-    }
-    return null
-  }
-
-  /** Return the containment-only parent path from startId to targetId, if one exists. */
-  private containmentPath(startId: string, targetId: string): string[] | null {
-    const path = [startId]
-    const seen = new Set<string>()
-    let current: string | null | undefined = startId
-    while (current && !seen.has(current)) {
-      if (current === targetId) return path
-      seen.add(current)
-      current = this.rows.get(current)?.parentId
-      if (current) path.push(current)
-    }
-    return null
-  }
-
-  addDep(fromRef: string, toRef: string, type = 'blocks'): IssueWire {
-    // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it.
-    // Reject the type here so an arbitrary-type caller can't reintroduce
-    // parent-child rows into issue_deps.
-    if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
-    const fromId = this.resolveRef(fromRef)
-    const toId = this.resolveRef(toRef)
-    const row = this.rowOrThrow(fromId)
-    this.rowOrThrow(toId)
-    if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
-    if (type === 'blocks') {
-      const returnPath = this.dependencyPath(toId, fromId)
-      if (returnPath) {
-        throw new Error(
-          `dependency ${fromId} -> ${toId} would create a dependency cycle: ${[fromId, ...returnPath].join(' -> ')}`,
-        )
-      }
-    }
-    // The edge's own change row rides the SAME commit as the row upsert and the
-    // INSERT that creates it [POD-822] — one transact span, so the feed can never
-    // claim an edge the store rolled back. O(1): one edge, one row.
-    const wire = this.persistWith(
-      row,
-      () => this.deps.store.issues.addIssueDep(fromId, toId, type),
-      { extraChanges: this.depChanges([{ fromId, toId, type }], 'upsert') },
-    )
-    // The TARGET's dependents/blocked derivation changed too (#22) — on the
-    // LEGACY wire, where they are fields of the issue. A normalized client
-    // derives them from the edge row above; see broadcastListForDerivedRipple.
-    this.broadcastListForDerivedRipple()
-    return wire
-  }
-
-  removeDep(fromRef: string, toRef: string, type?: string): IssueWire {
-    // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it,
-    // and no parent-child rows exist in issue_deps for the bulk path to guard.
-    if (type === 'parent-child')
-      throw new Error('parent-child is managed by reparent, not removeDep')
-    const fromId = this.resolveRef(fromRef)
-    const toId = this.resolveRef(toRef)
-    const row = this.rowOrThrow(fromId)
-    // Enumerate what is about to go BEFORE deleting it [POD-822]. `type` is
-    // optional and an absent one deletes EVERY type between the two issues
-    // (removeIssueDep's second branch), so the edges removed are not derivable
-    // from the arguments — read them from the store while they still exist, or
-    // the feed keeps rows the store no longer has and the issue stays blocked on
-    // every replica forever.
-    const removed = this.deps.store.issues
-      .listIssueDeps(fromId)
-      .filter((d) => d.toId === toId && (type === undefined || d.type === type))
-      .map((d) => ({ fromId, toId, type: d.type }))
-    const wire = this.persistWith(
-      row,
-      () => this.deps.store.issues.removeIssueDep(fromId, toId, type),
-      { extraChanges: this.depChanges(removed, 'remove') },
-    )
-    // See addDep: legacy-wire ripple only.
-    this.broadcastListForDerivedRipple()
+    this.store.emitEvent('issue.unshared', row.id, { grantee, verb })
     return wire
   }
 
@@ -823,12 +727,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  stale defer on open). Emits issue.unsnoozed directly — routing a past deferUntil
    *  through update() would misfire issue.snoozed. No-op when the issue isn't deferred. */
   undefer(id: string): IssueWire {
-    const row = this.rows.get(this.resolveRef(id))
+    const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
-    if (row.deferUntil == null) return this.toWire(row)
-    row.deferUntil = new Date(Date.parse(this.now()) - UNSNOOZE_BACKDATE_MS).toISOString()
-    const wire = this.persist(row)
-    this.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
+    if (row.deferUntil == null) return this.store.toWire(row)
+    row.deferUntil = new Date(Date.parse(this.store.now()) - UNSNOOZE_BACKDATE_MS).toISOString()
+    const wire = this.store.persist(row)
+    this.store.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
     return wire
   }
 
@@ -840,31 +744,32 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
      *  re-flag replaces the WHOLE pending question, metadata included. */
     meta?: { options?: string[]; askedBy?: SessionId },
   ): IssueWire {
-    const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
+    const wasFlagged = this.store.rows.get(this.store.resolveRef(id))?.needsHuman === true
     const options = meta?.options?.map((o) => o.trim()).filter(Boolean) ?? []
     const wire = this.update(id, {
       needsHuman: true,
       humanQuestion: question ?? null,
       humanQuestionOptions: options.length > 0 ? options : null,
       humanQuestionAskedBy: meta?.askedBy ?? null,
-      humanQuestionAskedAt: this.now(),
+      humanQuestionAskedAt: this.store.now(),
     })
     // Emit only on the false→true flip — a re-flag must not duplicate the event.
     if (!wasFlagged) {
-      this.emitEvent('issue.needs_human', wire.id, {
+      const parentId = this.store.rows.get(wire.id)?.parentId
+      this.store.emitEvent('issue.needs_human', wire.id, {
         seq: wire.seq,
         question: question ?? null,
         ...(options.length > 0 ? { options } : {}),
         ...(meta?.askedBy ? { askedBy: meta.askedBy } : {}),
         // Carried so a child needing a human can notify its parent's sessions.
-        ...(this.rows.get(wire.id)?.parentId ? { parentId: this.rows.get(wire.id)!.parentId } : {}),
+        ...(parentId ? { parentId } : {}),
       })
     }
     return wire
   }
 
   clearNeedsHuman(id: string): IssueWire {
-    const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
+    const wasFlagged = this.store.rows.get(this.store.resolveRef(id))?.needsHuman === true
     const wire = this.update(id, {
       needsHuman: false,
       humanQuestion: null,
@@ -872,62 +777,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       humanQuestionAskedBy: null,
       humanQuestionAskedAt: null,
     })
-    if (wasFlagged) this.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
+    if (wasFlagged) this.store.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
     return wire
-  }
-
-  /** The single cycle-checked reparent path. issues.parent_id is the ONLY
-   *  parent storage (#164). Dependency edges do not participate: hierarchy
-   *  cycles and scheduling cycles are separate invariants. */
-  private setParent(row: IssueRow, newParentId: IssueId | null): void {
-    if (newParentId === row.parentId) return
-    if (newParentId) {
-      this.rowOrThrow(newParentId)
-      const returnPath = this.containmentPath(newParentId, row.id)
-      if (returnPath) {
-        throw new Error(
-          `reparent ${row.id} -> ${newParentId} would create a containment cycle: ${[row.id, ...returnPath].join(' -> ')}`,
-        )
-      }
-    }
-    row.parentId = newParentId
-  }
-
-  reparent(id: string, parentId: string | null): IssueWire {
-    const row = this.rowOrThrow(id)
-    this.setParent(row, parentId == null ? null : this.resolveRef(parentId))
-    const wire = this.persist(row)
-    this.broadcastList() // both parents' childCount/childDoneCount changed (#22)
-    return wire
-  }
-
-  /** The issue's parent chain, nearest first. Cycle-safe (parent graph is invariant, but
-   *  guard anyway). Used by the authz middleware to test subtree membership. */
-  ancestorIds(id: string): string[] {
-    const out: string[] = []
-    const seen = new Set<string>()
-    let cur = this.rows.get(this.resolveRef(id))?.parentId ?? null
-    while (cur && !seen.has(cur)) {
-      seen.add(cur)
-      out.push(cur)
-      cur = this.rows.get(cur)?.parentId ?? null
-    }
-    return out
-  }
-
-  /** True when the issue or ANY ancestor sits in the proposed lane — the whole
-   *  proposal subtree is inert until an operator promotes the root. Fails
-   *  closed: an unresolvable ref counts as proposed. [spec:SP-6144] */
-  inProposedSubtree(id: string): boolean {
-    let row: IssueRow | undefined
-    try {
-      row = this.rows.get(this.resolveRef(id))
-    } catch {
-      row = undefined
-    }
-    if (!row) return true
-    if (row.stage === 'proposed') return true
-    return this.ancestorIds(row.id).some((a) => this.rows.get(a)?.stage === 'proposed')
   }
 
   claim(id: string, assignee: UserId): IssueWire {
@@ -948,24 +799,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return this.update(id, { stage: 'done', closedReason: reason }, opts)
   }
 
-  supersede(oldRef: string, newRef: string): IssueWire {
-    const oldId = this.resolveRef(oldRef)
-    const newId = this.resolveRef(newRef)
-    this.rowOrThrow(newId)
-    this.addDep(oldId, newId, 'supersedes')
-    return this.update(oldId, { stage: 'done', closedReason: 'superseded', supersededBy: newId })
-  }
-
-  duplicate(ref: string, canonicalRef: string): IssueWire {
-    const id = this.resolveRef(ref)
-    const canonicalId = this.resolveRef(canonicalRef)
-    this.rowOrThrow(canonicalId)
-    this.addDep(id, canonicalId, 'related')
-    return this.update(id, { stage: 'done', closedReason: 'duplicate', duplicateOf: canonicalId })
-  }
-
   applySuggestion(id: string): IssueWire {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     const stage = row.suggestedStage
     row.suggestedStage = null
     row.suggestedReason = null
@@ -974,12 +809,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // recreate the stage-only bimodal state. update() persists the cleared
     // suggestion fields along with the stage.
     if (stage) return this.update(row.id, { stage })
-    return this.persistRow(row)
+    return this.store.persistRow(row)
   }
   dismissSuggestion(id: string): IssueWire {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     row.suggestedStage = null
     row.suggestedReason = null
-    return this.persistRow(row)
+    return this.store.persistRow(row)
   }
 }
