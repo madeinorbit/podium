@@ -2889,7 +2889,7 @@ describe('hibernation', () => {
     const reg2 = new SessionRegistry(store)
     // biome-ignore lint/suspicious/noExplicitAny: inspect the rehydrated session
     const seeded = (reg2 as any).modules.sessions.sessions.get(sessionId)
-    expect(seeded.lastOutputAtMs).toBeGreaterThan(0)
+    expect(seeded.terminal.lastOutputAtMs).toBeGreaterThan(0)
   })
 
   it('hibernate kills the process, keeps the row, survives the agentExit echo', () => {

@@ -25,16 +25,11 @@ function submitsCommandLine(base64: string): boolean {
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
 export interface SessionTerminalState {
-  geometry: Geometry
-  outputAtMs: number
-  inputAtMs: number
-  resumedAtMs: number
-  inputCount: number
-  outputCount: number
-  activityCount: number
-  activityDirty: boolean
-  shellBusy: boolean
-  shellCommandRunning: boolean
+  grid: Geometry
+  times: readonly [outputAtMs: number, inputAtMs: number, resumedAtMs: number]
+  counts: readonly [inputCount: number, outputCount: number, activityCount: number]
+  dirty: boolean
+  shell: readonly [busy: boolean, commandRunning: boolean]
 }
 
 export interface SessionTerminalInit {
@@ -80,6 +75,7 @@ export class SessionTerminal {
   private readonly outputLog: { seq: number; data: string }[] = []
   private outputLogBytes = 0
   private transcript: TranscriptItem[] = []
+  private transcriptAvailable = false
   private readonly transcriptSubscribers = new Map<string, ClientConn>()
 
   constructor(private readonly init: SessionTerminalInit) {
@@ -211,8 +207,12 @@ export class SessionTerminal {
   }
 
   applyDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string }): boolean {
-    const becameAvailable = items.length > 0 && this.transcript.length === 0
-    if (becameAvailable) this.init.onTranscriptAvailable?.()
+    const becameAvailable =
+      !this.transcriptAvailable && (items.length > 0 || this.transcript.length > 0)
+    if (becameAvailable) {
+      this.transcriptAvailable = true
+      this.init.onTranscriptAvailable?.()
+    }
     if (opts.reset) this.transcript = []
     this.transcript = this.transcript.concat(items)
     if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
@@ -227,6 +227,10 @@ export class SessionTerminal {
     }
     for (const client of this.transcriptSubscribers.values()) client.send(delta)
     return becameAvailable
+  }
+
+  setTranscriptAvailable(available: boolean): void {
+    this.transcriptAvailable = available
   }
 
   detachClient(clientId: string): void {
@@ -380,30 +384,20 @@ export class SessionTerminal {
 
   captureState(): SessionTerminalState {
     return {
-      geometry: { ...this.geometry },
-      outputAtMs: this.outputAtMs_,
-      inputAtMs: this.inputAtMs_,
-      resumedAtMs: this.resumedAtMs_,
-      inputCount: this.inputCount_,
-      outputCount: this.outputCount_,
-      activityCount: this.activityCount_,
-      activityDirty: this.activityDirty_,
-      shellBusy: this.shellBusy_,
-      shellCommandRunning: this.shellCommandRunning,
+      grid: { ...this.geometry },
+      times: [this.outputAtMs_, this.inputAtMs_, this.resumedAtMs_],
+      counts: [this.inputCount_, this.outputCount_, this.activityCount_],
+      dirty: this.activityDirty_,
+      shell: [this.shellBusy_, this.shellCommandRunning],
     }
   }
 
   restoreState(state: SessionTerminalState, preserveGeometry: boolean): void {
-    if (!preserveGeometry) this.geometry = { ...state.geometry }
-    this.outputAtMs_ = state.outputAtMs
-    this.inputAtMs_ = state.inputAtMs
-    this.resumedAtMs_ = state.resumedAtMs
-    this.inputCount_ = state.inputCount
-    this.outputCount_ = state.outputCount
-    this.activityCount_ = state.activityCount
-    this.activityDirty_ = state.activityDirty
-    this.shellBusy_ = state.shellBusy
-    this.shellCommandRunning = state.shellCommandRunning
+    if (!preserveGeometry) this.geometry = { ...state.grid }
+    ;[this.outputAtMs_, this.inputAtMs_, this.resumedAtMs_] = state.times
+    ;[this.inputCount_, this.outputCount_, this.activityCount_] = state.counts
+    this.activityDirty_ = state.dirty
+    ;[this.shellBusy_, this.shellCommandRunning] = state.shell
   }
 
   private setGeometry(cols: number, rows: number): void {

@@ -574,6 +574,7 @@ export class Session {
     this.draftUpdatedAt = state.draftUpdatedAt
     this.offer = state.offer ? structuredClone(state.offer) : undefined
     this.transcriptAvailable = state.transcriptAvailable
+    this.terminal.setTranscriptAvailable(state.transcriptAvailable)
     this.terminal.restoreState(state.terminal, preserve.has('geometry'))
   }
 
