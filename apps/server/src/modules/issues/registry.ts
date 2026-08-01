@@ -122,6 +122,15 @@ function assertNotProposedForAgent(
 export interface IssueCommandDeps {
   /** Lazy — the composed tracker is assigned late in the composition root. */
   issues(): IssueTrackerCapabilities
+  /**
+   * Atomic issue/session attach workflow. The L3 application orchestrator owns
+   * the shared transaction and carries this transport-derived caller unchanged
+   * through both feature ports.
+   */
+  attachSession(
+    caller: IssueCaller,
+    input: Parameters<IssueAttentionCapability['attachSession']>[0],
+  ): ReturnType<IssueAttentionCapability['attachSession']>
   /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
   deleteIssue(id: string): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
@@ -901,7 +910,7 @@ const defs = {
         assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
       }
       const { newSubissue, newSpinoff, ...rest } = input
-      return ctx.attention.attachSession({
+      return ctx.deps.attachSession(ctx.caller, {
         ...rest,
         ...(newSubissue ? { newSubissue: { title: newSubissue.title, origin } } : {}),
         ...(newSpinoff ? { newSpinoff: { title: newSpinoff.title, origin } } : {}),

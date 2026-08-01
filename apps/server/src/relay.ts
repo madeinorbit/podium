@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
-import type { AgentKind, SessionMeta } from '@podium/model'
+import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
@@ -15,6 +15,7 @@ import {
   MutationLedger,
   type VisibilityAnchorPort,
 } from '@podium/sync'
+import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
@@ -291,7 +292,7 @@ export class SessionRegistry {
      */
     const mutations = new MutationLedger(this.store.sync, this.now)
     const sessionInstructions = new SessionInstructionRegistry()
-    const liveSessions = () => sessionsSvc.sessions
+    const liveSessions = new Map<SessionId, Session>()
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
     // the gateway owns it (POD-390), and the mux below is what mutates it.
     const clientRegistry = new ClientRegistry()
@@ -312,7 +313,7 @@ export class SessionRegistry {
       machineName: (id) => machines.machineName(id),
       onlineMachineIds: () => machines.onlineMachineIds(),
       getSession: (sessionId) => {
-        const session = liveSessions().get(sessionId)
+        const session = liveSessions.get(sessionId)
         return session
           ? {
               cwd: session.cwd,
@@ -345,7 +346,7 @@ export class SessionRegistry {
         clients: () => clients().values(),
         machineName: (id) => machines.machineName(id),
         sessions: () =>
-          [...liveSessions().values()].map((session) => ({
+          [...liveSessions.values()].map((session) => ({
             sessionId: session.sessionId,
             machineId: session.machineId,
             status: session.status,
@@ -562,6 +563,7 @@ export class SessionRegistry {
       },
     })
     const issueCommands = new IssueCommandDispatcher({
+      attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues: () => issues,
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
@@ -712,7 +714,7 @@ export class SessionRegistry {
         // which are NOT session ids. The lookup is expected to MISS for those —
         // that miss is how the unknown-relay sentinel gets pruned from a queue
         // (see LockSessionKey's note). So the map is probed as a plain key.
-        const s = (liveSessions() as ReadonlyMap<string, { status: string }>).get(sessionId)
+        const s = (liveSessions as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'
       },
       // Grant/steal notifications ride agent mail; best-effort by contract
@@ -733,7 +735,7 @@ export class SessionRegistry {
         store: this.store.workflows,
         now: () => new Date(this.now()).toISOString(),
         session: (sessionId) => {
-          const s = liveSessions().get(sessionId)
+          const s = liveSessions.get(sessionId)
           return s
             ? {
                 sessionId: s.sessionId,
@@ -1217,8 +1219,8 @@ export class SessionRegistry {
       },
     })
     const headless = new HeadlessService({
-      getSession: (sessionId) => liveSessions().get(sessionId),
-      registerSession: (session) => liveSessions().set(session.sessionId, session),
+      getSession: (sessionId) => liveSessions.get(sessionId),
+      registerSession: (session) => liveSessions.set(session.sessionId, session),
       resolveMachine: (requested, cwd, agentKind) =>
         machines.resolveMachineForAgent(requested, cwd, agentKind),
       defaultMachine: () => machines.defaultMachine(),
@@ -1251,6 +1253,7 @@ export class SessionRegistry {
       bus: this.bus,
       authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
       rejectQueuedMessage: (messageId, reason) => messagesSvc.rejectQueuedInput(messageId, reason),
+      sessions: liveSessions,
       funnel,
       clients: clientRegistry,
       disconnectClient: (id) => this.clientGateway.detachClient(id),
@@ -1578,6 +1581,10 @@ export class SessionRegistry {
       issues,
       sessions: sessionsSvc,
       ledger,
+    })
+    const issueAttach = new IssueAttachOrchestrator({
+      transact: (work) => this.store.transact(work),
+      attention: issues.attention,
     })
 
     // Module boot hook: eager hydration (a corrupt row is quarantined by the

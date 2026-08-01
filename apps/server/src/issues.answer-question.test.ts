@@ -41,6 +41,7 @@ function harness(
   const dispatcher = new IssueCommandDispatcher({
     issues: () => svc,
     deleteIssue: () => undefined,
+    attachSession: (_caller, input) => svc.attachSession(input),
     restoreIssue: () => undefined,
     // A ledger with no durable store: never dedupes, so every call runs — the
     // pass-through this file's cases assume. Idempotency itself is characterized

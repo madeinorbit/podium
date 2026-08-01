@@ -235,6 +235,9 @@ interface SessionLifecycleDeps {
    * client-plane mirror of the daemon mux's in-process peer form.
    */
   clients?: ClientRegistry
+  /** Shared live-session registry, constructed before every reader. Lifecycle
+   * remains its sole mutation owner. */
+  sessions?: Map<SessionId, Session>
   /**
    * Evict a client connection through the GATEWAY (registry removal + the sweep),
    * for the one place a feature initiates a disconnect: the reconnect reclaim,
@@ -312,7 +315,7 @@ export interface SessionSpawnResult {
 export class SessionLifecycle {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
-  readonly sessions = new Map<SessionId, Session>()
+  readonly sessions: Map<SessionId, Session>
   /**
    * THE CLIENT CONNECTION SET — OWNED BY THE GATEWAY (POD-390).
    *
@@ -378,6 +381,7 @@ export class SessionLifecycle {
 
   constructor(private readonly deps: SessionLifecycleDeps) {
     this.store = deps.store
+    this.sessions = deps.sessions ?? new Map()
     this.now = deps.now
     this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
     this.clients = deps.clients ?? new ClientRegistry()
