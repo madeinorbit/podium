@@ -983,7 +983,7 @@ describe('SessionRegistry', () => {
       sessionId: s1,
       transitionId: `retire:${s1}`,
       retiredAt: expect.any(String),
-      durableLabel: 'podium-' + s1,
+      durableLabel: `podium-${s1}`,
     })
     expect(reg.modules.sessions.listSessions()).toHaveLength(0)
   })

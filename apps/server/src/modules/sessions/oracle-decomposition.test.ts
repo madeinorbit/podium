@@ -377,7 +377,7 @@ describe('oracle: native identity receipts', () => {
     })
   })
 
-  it('two live exact claims remain visible, neither is redirected, and neither conflict is acked', () => {
+  it(`${MUST_NOT_CHANGE}: two live exact claims remain visible, neither is redirected, and neither conflict is acked`, () => {
     const f = twoUserOracle()
     const shared = { kind: 'codex-thread', value: 'thread-shared' } as const
 

@@ -1,9 +1,9 @@
 # SessionBinding: identity taxonomy on two axes
 
-Status: **in review — revision 3 current-tree addendum**
-Gate: revision 2 was approved on 2026-07-30 (§14). This addendum records the post-POD-395
-module split and gates the retirement and conflict-visibility corrections; implementation
-must not precede its review.
+Status: **approved and implemented — revision 3 current-tree addendum**
+Gate: revision 2 was approved on 2026-07-30 (§14), and revision 3 was approved on
+2026-08-02 before implementation began. This addendum records the post-POD-395 module
+split and the implemented retirement and conflict-visibility corrections.
 Issue: POD-414 (5.1a) · Epic: POD-323 (5.1 SessionBinding) · Programme: POD-279 Phase 5
 Date: 2026-07-30
 
@@ -78,13 +78,14 @@ the god-object ownership POD-395 removed.
 | **must-not-change** | Receipt persistence/acknowledgement stays outside lifecycle transitions | `SessionBindingReceipts` and daemon pending-receipt APIs are separate from `SessionBinding.transition` |
 | **must-not-change** | Ack only after durable server projection, exact-value and owner scoped | Enforced by `observeResumeRef` and `acknowledgePendingReceipt`; crash replay remains at-least-once |
 | **provisional compatibility** | Server exposes a scalar `Session.resume` head while the host retains observation history | The scalar is a projection, never the binding record and never licence to discard host history |
-| **violated — POD-1325** | Retirement is an explicit lifecycle transition with a production terminal caller | `BindingStore.retire()` sits outside `SESSION_BINDING_EVENTS` and has no production caller. The correction needs a server-authored terminal instruction distinct from generic `kill`, because hibernate and handoff also kill processes without ending the binding |
-| **violated — POD-1326** | Exact cross-session alias conflict is visible and retained, never silently won | `SessionBindingReceipts.observeResumeRef` currently clears a sibling's scalar resume projection and accepts the newcomer. It must preserve both live SessionIds, withhold ack and surface conflict without absorbing lifecycle ownership into the receipt seam |
+| **implemented — POD-1325** | Retirement is an explicit lifecycle transition with a production terminal caller | `retire` is a `SESSION_BINDING_EVENTS` transition. Standalone terminal deletion emits `sessionBindingRetire`; hibernate, handoff and restorable issue deletion retain generic process-only `kill` semantics |
+| **implemented — POD-1326** | Exact cross-session alias conflict is visible and retained, never silently won | `SessionBindingReceipts.observeResumeRef` preserves both live SessionIds, withholds acknowledgement and emits `sessionResumeRefConflict`; each claimant host durably appends the conflict while retaining its observations and pending receipt |
 
-This ledger is normative. Current behavior marked **violated** is not ratified merely
-because it exists; current behavior marked **provisional** may remain only behind the
-named projection boundary. Tests for the corrections must assert the property (surviving
-sessions, retained history and unchanged delegation), not merely count a matching frame.
+This ledger is normative. A row may move from **violated** to **implemented** only after
+its production caller and property-level tests land; current behavior marked
+**provisional** may remain only behind the named projection boundary. Tests for the
+corrections assert the property (surviving sessions, retained history and unchanged
+delegation), not merely count a matching frame.
 
 ---
 
