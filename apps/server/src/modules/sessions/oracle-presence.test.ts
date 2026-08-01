@@ -12,7 +12,13 @@
 import { SOLE_USER_ID } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { disposeOracles, MUST_NOT_CHANGE, makeOracle, waitFor, willChange } from './oracle-support'
+import {
+  disposeOracles,
+  MUST_NOT_CHANGE,
+  makeOracle,
+  provisional,
+  waitFor,
+} from './oracle-support'
 
 afterEach(() => disposeOracles())
 
@@ -81,7 +87,7 @@ describe('oracle: rename (the curated name slot)', () => {
 })
 
 describe('oracle: setArchived', () => {
-  it(`${MUST_NOT_CHANGE}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
+  it(`${provisional('readiness-3.3', 'archived is not yet classified as session-owned or per-user')}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame('local', {
@@ -109,7 +115,7 @@ describe('oracle: setArchived', () => {
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
   })
 
-  it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
+  it(`${provisional('readiness-3.3', 'archived is not yet classified as session-owned or per-user')}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame('local', {
@@ -129,7 +135,7 @@ describe('oracle: setArchived', () => {
     expect(o.daemon.filter((m) => m.type === 'spawn')).toHaveLength(spawnsAfterArchive)
   })
 
-  it(`${MUST_NOT_CHANGE}: archiving an already-parked session does not re-kill it`, async () => {
+  it(`${provisional('readiness-3.3', 'archived is not yet classified as session-owned or per-user')}: archiving an already-parked session does not re-kill it`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame('local', {
@@ -210,7 +216,7 @@ describe('oracle: read state', () => {
 })
 
 describe('oracle: setWorkState', () => {
-  it(`${MUST_NOT_CHANGE}: setWorkState persists the value and clearing it with null removes the field from the wire`, async () => {
+  it(`${provisional('readiness-3.3', 'workState is not yet classified as session-owned or per-user')}: setWorkState persists the value and clearing it with null removes the field from the wire`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
@@ -278,7 +284,9 @@ describe('oracle: snoozes', () => {
 
     expect(await o.call.snoozes.list()).toEqual({ [sessionId]: null })
     // Housekeeping only drops TIMED snoozes whose deadline passed.
-    expect(o.store.sessions.listSnoozes(SOLE_USER_ID, Date.now() + 10 * 365 * 24 * 3_600_000)).toEqual({
+    expect(
+      o.store.sessions.listSnoozes(SOLE_USER_ID, Date.now() + 10 * 365 * 24 * 3_600_000),
+    ).toEqual({
       [sessionId]: null,
     })
   })
@@ -355,7 +363,7 @@ describe('oracle: tab order', () => {
 })
 
 describe('oracle: composer drafts', () => {
-  it(`${MUST_NOT_CHANGE}: a draft edit fans out to every OTHER client and never echoes to its author`, async () => {
+  it(`${provisional('readiness-4', 'composer text is shared-surface state on the reserved, unbuilt op-stream path')}: a draft edit fans out to every OTHER client and never echoes to its author`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const author: ServerMessage[] = []
@@ -371,7 +379,7 @@ describe('oracle: composer drafts', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: persistence is DEBOUNCED for text but immediate for a cleared draft`, async () => {
+  it(`${provisional('readiness-4', 'whole-body draft persistence is current behavior, not the collaborative-text contract')}: persistence is DEBOUNCED for text but immediate for a cleared draft`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
@@ -389,7 +397,7 @@ describe('oracle: composer drafts', () => {
     expect(o.store.sessions.loadDrafts()[sessionId]).toBeUndefined()
   })
 
-  it(`${MUST_NOT_CHANGE}: the DRAFT presence flip is broadcast once per start/clear, never per keystroke`, async () => {
+  it(`${provisional('readiness-4', 'draft presence is retained while the document conflict class remains reserved')}: the DRAFT presence flip is broadcast once per start/clear, never per keystroke`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const svc = o.reg.modules.sessions

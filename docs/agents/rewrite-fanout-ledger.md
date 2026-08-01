@@ -4510,3 +4510,17 @@ they pointed rather than what they decided. This is the same sentence one level
 out — a build instrument trusted about WHICH TREE it read rather than what it
 compiled. Verdict, coordinates, and now provenance: three things a green does not
 tell you unless you ask it separately.
+
+## POD-392 — SessionService oracle refresh
+
+The current-head coverage ledger and the evidence for keeping handoff as a fourth
+module are in docs/agents/pod-392-sessionservice-oracle.md.
+
+MEASURED gaps, each tagged provisional in the executable oracle: session ownership
+and visibility still collapse onto user:sole; markRead and markUnread still route
+through the single broadcast viewer despite the per-user table; the browser
+principal remains device-grade; and identity-receipt owner acknowledgement consumes
+the same user:sole ownership answer. Snooze, pins, and tab order are correctly
+isolated for two distinct persisted users. Archived, workState, the priority-push
+flag, and composer text remain open classifications rather than preservation
+requirements.
