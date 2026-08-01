@@ -1,9 +1,9 @@
-import { asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
 import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
+import { asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
-import { deviceClientPrincipal } from '../../gateway/client-principal'
+import { testClientPrincipal } from '../../test-support/client-principal'
 import { Session } from './session'
 
 const geo: Geometry = { cols: 80, rows: 24 }
@@ -29,7 +29,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   const sent: ServerMessage[] = []
   return {
     id,
-    principal: deviceClientPrincipal(id),
+    principal: testClientPrincipal(id),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
     attached: new Set(),
@@ -166,7 +166,12 @@ describe('Session', () => {
     expect(toDaemon).not.toHaveBeenCalled()
     s.handleResize('a', 120, 40)
     expect(s.geometry).toEqual({ cols: 120, rows: 40 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 120, rows: 40 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 120,
+      rows: 40,
+    })
   })
 
   it('ignores a resize from a controller that isn’t rendering the session', () => {
@@ -194,7 +199,12 @@ describe('Session', () => {
     s.handleResize('a', 200, 50)
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
     expect(s.activityDirty).toBe(true)
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 200,
+      rows: 50,
+    })
   })
 
   it('broadcasts the applied geometry to all clients so the size is not lost (quarter-size fix)', () => {
@@ -212,7 +222,12 @@ describe('Session', () => {
     b.sent.length = 0
     s.handleResize('a', 200, 50)
     for (const c of [a, b]) {
-      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
+      expect(c.sent).toContainEqual({
+        type: 'geometry',
+        sessionId: asSessionId('s1'),
+        cols: 200,
+        rows: 50,
+      })
     }
   })
 
@@ -225,7 +240,12 @@ describe('Session', () => {
     a.sent.length = 0
     s.reconcileGeometry('a')
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(a.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
+    expect(a.sent).toContainEqual({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 200,
+      rows: 50,
+    })
   })
 
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
@@ -241,7 +261,12 @@ describe('Session', () => {
     expect(s.controllerId).toBe('b')
     expect(s.epoch).toBe(1)
     expect(s.geometry).toEqual({ cols: 50, rows: 60 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 50, rows: 60 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 50,
+      rows: 60,
+    })
     expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
@@ -250,7 +275,12 @@ describe('Session', () => {
         controllerId: 'b',
         geometry: { cols: 50, rows: 60 },
       })
-      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 50, rows: 60 })
+      expect(c.sent).toContainEqual({
+        type: 'geometry',
+        sessionId: asSessionId('s1'),
+        cols: 50,
+        rows: 60,
+      })
     }
   })
 
@@ -312,7 +342,12 @@ describe('Session', () => {
     s.reconcileGeometry('a')
     // The dropped fitted size is now applied — not lost.
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 200,
+      rows: 50,
+    })
   })
 
   it('reconcileGeometry is a no-op when the client is not the controller or not rendering', () => {
@@ -637,7 +672,8 @@ describe('Session', () => {
     // because collapsing it un-snoozes every open-ended snooze:
     //   undefined = no snooze row · null = until-next-message · ISO = timed.
     const s = makeSession()
-    const snoozed = (until: string | null | undefined) => s.toMeta({ readAt: null, snoozedUntil: until })
+    const snoozed = (until: string | null | undefined) =>
+      s.toMeta({ readAt: null, snoozedUntil: until })
 
     expect('snoozedUntil' in snoozed(undefined)).toBe(false)
     expect(snoozed(null).snoozedUntil).toBeNull()
@@ -723,7 +759,11 @@ describe('Session transcript cache (recent-delta window)', () => {
     const known = makeClient('k')
     s.subscribeTranscript(known, 'c1')
     expect(known.sent).toEqual([
-      { type: 'transcriptDelta', sessionId: asSessionId('s1'), items: [item('b', 'c2'), item('c', 'c3')] },
+      {
+        type: 'transcriptDelta',
+        sessionId: asSessionId('s1'),
+        items: [item('b', 'c2'), item('c', 'c3')],
+      },
     ])
 
     const stale = makeClient('s')

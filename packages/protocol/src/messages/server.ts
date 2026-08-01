@@ -1,5 +1,10 @@
 import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
+import {
+  PresenceRoomClosedMessage,
+  PresenceRoomDeltaMessage,
+  PresenceRoomStateMessage,
+} from '../planes/presence-rooms'
 import { ApprovalsChangedMessage } from './approvals'
 import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
@@ -91,5 +96,8 @@ export const ServerMessage = z.discriminatedUnion('type', [
   AutomationRunsChangedMessage,
   SessionOpenUrlMessage,
   SessionOpenUrlResultMessage,
+  PresenceRoomStateMessage,
+  PresenceRoomDeltaMessage,
+  PresenceRoomClosedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

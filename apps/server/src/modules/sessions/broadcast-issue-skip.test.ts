@@ -1,24 +1,35 @@
 import type { SessionId } from '@podium/model'
-import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { attachTestClient } from '../../test-support/client-transport'
 
 // POD-797: session broadcasts retain their own POD-722 coalescing behavior but never
 // republish the now-session-free issue residue.
 describe('POD-797 session broadcasts never republish issue residue', () => {
   const G = { cols: 80, rows: 24 }
   const bind = (sessionId: SessionId) =>
-    ({ type: 'bind', sessionId, cmd: 'claude', cwd: '/repo/w', agentKind: 'claude-code', geometry: G }) as const
+    ({
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/repo/w',
+      agentKind: 'claude-code',
+      geometry: G,
+    }) as const
 
   function setup() {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
-    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/w' }).sessionId
+    const s1 = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/repo/w',
+    }).sessionId
     reg.gateway.routeDaemonFrame('local', bind(s1))
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    const clientId = reg.clientGateway.attachClient((m) => inbox.push(m))
+    const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))
     reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,
@@ -55,7 +66,11 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // satisfied by a connection that was never served at all.
     reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
     reg.modules.sessions.flushBroadcasts()
-    expect(inbox.some((m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'))).toBe(true)
+    expect(
+      inbox.some(
+        (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'),
+      ),
+    ).toBe(true)
     reg.dispose()
   })
 
@@ -81,7 +96,11 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
     reg.modules.sessions.flushBroadcasts()
 
-    expect(inbox.some((m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'))).toBe(true)
+    expect(
+      inbox.some(
+        (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'),
+      ),
+    ).toBe(true)
     expect(inbox.some((m) => m.type === 'issuesChanged')).toBe(false)
 
     // THE PAIRED HALF, without which the line above is satisfied by an issue
@@ -92,7 +111,11 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     expect(issue).toBeDefined()
     reg.issues.update(issue!.id, { title: 'renamed' })
     reg.modules.sessions.flushBroadcasts()
-    expect(inbox.some((m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'issue'))).toBe(true)
+    expect(
+      inbox.some(
+        (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'issue'),
+      ),
+    ).toBe(true)
     reg.dispose()
   })
 })

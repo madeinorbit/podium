@@ -21,9 +21,9 @@
  * is no path here through which a payload value could become a routing identity.
  */
 
-import { parseClientMessage, WIRE_VERSION } from '@podium/protocol'
-import type { UserId, UserRole } from '@podium/model'
 import type { IncomingMessage } from 'node:http'
+import type { UserId, UserRole } from '@podium/model'
+import { parseClientMessage, WIRE_VERSION } from '@podium/protocol'
 import type { PublicationAuthority } from '../modules/sessions/session'
 import type { SessionRegistry } from '../relay'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
@@ -36,9 +36,6 @@ export interface ClientAuthorityOptions {
   userRole?: UserRole
   /** Resolve a revocable, request-specific publication world on the real socket path. */
   resolvePublicationAuthority?: (req: IncomingMessage) => PublicationAuthority
-  /** ViewKey identity supplied by the main authority (defaults to local operator). */
-  principal?: string
-  scope?: string
   serverRole?: string
 }
 
@@ -61,14 +58,19 @@ export function wireClientSocket(
   registry: SessionRegistry,
   auth: ClientAuthorityOptions = {},
 ): string | undefined {
+  if (auth.userId === undefined || auth.userRole === undefined) {
+    console.warn('[podium] rejected client with incomplete authenticated account')
+    ws.terminate()
+    return undefined
+  }
   const url = new URL(req.url ?? '/', 'http://localhost')
   const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
   const protocolVersion = rawVersion === null ? WIRE_VERSION : Number(rawVersion)
   let authority: PublicationAuthority
   try {
     authority = auth.resolvePublicationAuthority?.(req) ?? {
-      principal: auth.principal ?? 'operator',
-      scope: auth.scope ?? 'all',
+      principal: 'user:' + auth.userId,
+      scope: 'principal:user:' + auth.userId,
       serverRole: auth.serverRole ?? 'standalone',
       protocolVersion,
       global: true,
@@ -86,13 +88,9 @@ export function wireClientSocket(
   // The plane applies its own budget: this file never names a byte count, so it
   // cannot name the daemon plane's (POD-391).
   const sink = CLIENT_PLANE_LIVENESS.sink(ws)
-  if (auth.userId === undefined || auth.userRole === undefined) {
-    console.warn('[podium] rejected client with incomplete authenticated account')
-    ws.terminate()
-    return undefined
-  }
   const id = registry.clientGateway.attachClient({
     send: sink.send,
+    sendStream: sink.sendLossy,
     userId: auth.userId,
     userRole: auth.userRole,
     publication: { ...authority, sendPrepared: sink.sendPrepared },

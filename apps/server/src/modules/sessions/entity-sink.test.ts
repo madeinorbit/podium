@@ -19,9 +19,9 @@
 
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { SessionRegistry } from '../../relay'
 import type { ClientConn } from '../../gateway/client-registry'
-import { deviceClientPrincipal } from '../../gateway/client-principal'
+import { SessionRegistry } from '../../relay'
+import { testClientPrincipal } from '../../test-support/client-principal'
 
 const SESSIONS_CHANGED: ServerMessage = { type: 'sessionsChanged', sessions: [] }
 const ISSUES_CHANGED: ServerMessage = { type: 'issuesChanged', issues: [] }
@@ -39,7 +39,7 @@ function connection(publication?: { global: boolean }) {
   const sent: ServerMessage[] = []
   const conn: ClientConn = {
     id: 'c-test',
-    principal: deviceClientPrincipal('c-test'),
+    principal: testClientPrincipal('c-test'),
     send: (msg: ServerMessage) => {
       sent.push(msg)
       return 0

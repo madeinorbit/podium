@@ -4,8 +4,8 @@ import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
-import type { LiveServerMessage } from '@podium/protocol'
-import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
+import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
+import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
 import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -16,6 +16,7 @@ import {
   type VisibilityAnchorPort,
 } from '@podium/sync'
 import {
+  type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipal,
   systemPrincipal,
@@ -27,6 +28,7 @@ import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
+import { PresenceRouting } from './gateway/presence-routing'
 import { checkIssueAccess } from './issue-authz'
 import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
@@ -51,10 +53,7 @@ import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
-import {
-  DELIVERY_RETRY_BACKSTOP_MS,
-  MessageDeliveryService,
-} from './modules/messages/service'
+import { DELIVERY_RETRY_BACKSTOP_MS, MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { TelegramNoticePort } from './modules/messaging/types'
 import {
@@ -527,6 +526,7 @@ export class SessionRegistry {
     // identity is PERSISTED (`readFeedIdentity`/`writeFeedIdentity`), because ADR
     // 2 D1 makes a re-minted epoch across a restart indistinguishable from a
     // restored backup to every replica holding a cursor.
+    const subscriptions = new SubscriptionRegistry()
     const feedServing = new FeedServing({
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
@@ -541,6 +541,7 @@ export class SessionRegistry {
         () => randomUUID(),
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
+      subscriptions,
       diagnostics: () => conversations?.diagnostics() ?? [],
     })
     const funnel = new WriteFunnel({
@@ -802,7 +803,7 @@ export class SessionRegistry {
               .some((grant) => grant.grantee === user && grant.verb === verb),
         },
         machinesFor: (workflowPrincipal) => {
-          let principal
+          let principal: CommandPrincipal | undefined
           if (workflowPrincipal.onBehalfOf === null) {
             return {
               mayUse: () => false,
@@ -1722,10 +1723,27 @@ export class SessionRegistry {
     // that both surfaces arrive on the same socket.
     // The CLIENT plane's mux. Every client frame is session-owned today except
     // `ping`, which the mux answers itself — see gateway/client-frame-routing.ts.
+    const roomVisibility: VisibilityResolver = {
+      canSee: (principal, ref) => {
+        if (principal.kind !== 'user') return false
+        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
+        return visibility.mayDeliver(
+          { kind: 'user', userId: principal.user },
+          { entity: ref.kind, entityId: ref.id },
+        )
+      },
+    }
+    const presence = new PresenceRouting({
+      subscriptions,
+      clients: clientRegistry,
+      visibility: roomVisibility,
+      now: this.now,
+    })
     this.clientGateway = new ClientMux({
       registry: clientRegistry,
       ports: { sessions: sessionsSvc },
       feed: feedServing,
+      presence,
     })
     this.gateway = new DaemonMux({
       bus: this.bus,

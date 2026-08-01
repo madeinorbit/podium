@@ -40,7 +40,7 @@ export interface StreamPortDeps {
 
 export interface StreamPort {
   readonly planeClasses: readonly PlaneClass[]
-  join(target: PlaneTarget, room: RoomRef): boolean
+  join(target: PlaneTarget, room: RoomRef, token?: string): boolean
   leave(target: PlaneTarget, room: RoomRef): void
   publishPresence(
     target: PlaneTarget,
@@ -50,6 +50,8 @@ export interface StreamPort {
   ): void
   occupancy(room: RoomRef): readonly PresenceMember[]
   disconnect(subscriberId: SubscriberId): void
+  /** Compatibility mapping for the old room-less page visibility frame. */
+  setVisible(target: PlaneTarget, visible: boolean): void
   /** The forward mapping of today's anonymous `visible` bit (D9.5). */
   isWatchedBy(principal: Principal): boolean
 }
@@ -104,9 +106,13 @@ export class StreamPlanePort implements StreamPort {
    * On success the port sends a FULL OCCUPANCY SNAPSHOT in one frame (D10.5):
    * an idle room must be distinguishable from an empty one.
    */
-  join(target: PlaneTarget, room: RoomRef): boolean {
+  join(target: PlaneTarget, room: RoomRef, token?: string): boolean {
     if (this.deps.visibility.canSee(target.principal, room) !== true) {
-      this.deps.emit(target.subscriberId, { type: 'presenceRoomClosed', room })
+      this.deps.emit(target.subscriberId, {
+        type: 'presenceRoomClosed',
+        room,
+        ...(token === undefined ? {} : { token }),
+      })
       return false
     }
     const key = roomRoutingKey(room)
@@ -131,6 +137,7 @@ export class StreamPlanePort implements StreamPort {
       type: 'presenceRoomState',
       room,
       members: [...this.snapshot(key)],
+      ...(token === undefined ? {} : { token }),
     })
 
     // A newly present member is a join for everyone else; a second tab of an
@@ -194,6 +201,11 @@ export class StreamPlanePort implements StreamPort {
     this.principalOfConnection.delete(subscriberId)
   }
 
+  setVisible(target: PlaneTarget, visible: boolean): void {
+    this.visibleByConnection.set(target.subscriberId, visible)
+    this.principalOfConnection.set(target.subscriberId, target.principal)
+  }
+
   /**
    * D9.5's correctness fix for a SHIPPED feature: the notification router must
    * ask "is THIS user watching?", which today's anonymous OR across connections
@@ -243,12 +255,13 @@ export class StreamPlanePort implements StreamPort {
     if (members && members.size === 0) this.rooms.delete(key)
     const ref = room ?? roomKeyToRef(key)
     if (!ref || !state) return
-    this.router.publish(key, {
+    const outcome = this.router.publish(key, {
       type: 'presenceRoomDelta',
       room: ref,
       change: 'left',
       member: { identity: state.identity, payload: state.payload, visible: state.visible },
     })
+    this.settleEvictions(outcome.evicted, key, ref)
   }
 
   private fanOut(
@@ -259,12 +272,24 @@ export class StreamPlanePort implements StreamPort {
   ): void {
     const state = this.rooms.get(key)?.get(memberId)
     if (!state) return
-    this.router.publish(key, {
+    const outcome = this.router.publish(key, {
       type: 'presenceRoomDelta',
       room,
       change,
       member: { identity: state.identity, payload: state.payload, visible: state.visible },
     })
+    this.settleEvictions(outcome.evicted, key, room)
+  }
+
+  private settleEvictions(
+    subscribers: readonly SubscriberId[],
+    key: RoutingKey,
+    room: RoomRef,
+  ): void {
+    for (const subscriberId of subscribers) {
+      this.settleAfterLeave(subscriberId, key, room)
+      this.deps.emit(subscriberId, { type: 'presenceRoomClosed', room })
+    }
   }
 
   private memberMap(key: RoutingKey): Map<string, MemberState> {

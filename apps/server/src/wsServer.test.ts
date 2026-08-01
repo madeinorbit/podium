@@ -8,8 +8,8 @@ import {
   type SweepTimers,
   sweepPlaneLiveness,
 } from './gateway/plane-liveness'
-import { attachWebSockets } from './gateway/ws-server'
 import { safeSend, safeSendEncoded } from './gateway/ws-send'
+import { attachWebSockets } from './gateway/ws-server'
 
 function fakeSocket(readyState = 1) {
   return { readyState, ping: vi.fn(), terminate: vi.fn() }
@@ -183,6 +183,7 @@ describe('plane liveness policy', () => {
       expect(CLIENT_PLANE_LIVENESS.peer).toBe('client')
       expect(CLIENT_PLANE_LIVENESS.heartbeatIntervalMs).toBe(15_000)
       expect(CLIENT_PLANE_LIVENESS.sendBufferLimitBytes).toBe(16 * 1024 * 1024)
+      expect(CLIENT_PLANE_LIVENESS.lossySendBufferLimitBytes).toBe(256 * 1024)
     })
 
     it('the daemon plane sweeps at 10s with a 16 MB budget', () => {
@@ -208,6 +209,7 @@ describe('plane liveness policy', () => {
       peer: 'client',
       heartbeatIntervalMs: 1,
       sendBufferLimitBytes: 100,
+      lossySendBufferLimitBytes: 10,
     })
 
     it('sends through a socket under THIS policy s budget', () => {
@@ -236,6 +238,26 @@ describe('plane liveness policy', () => {
       tiny.sink(ws).sendPrepared('{"type":"sessionsChanged","sessions":[]}')
       expect(ws.send).not.toHaveBeenCalled()
       expect(ws.terminate).toHaveBeenCalledOnce()
+    })
+
+    it('drops stream frames over the lower budget without terminating control', () => {
+      const ws = fakeSendSocket({ bufferedAmount: 11 })
+      const sink = tiny.sink(ws)
+      expect(sink.sendLossy({ type: 'pong' })).toBe(false)
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(ws.terminate).not.toHaveBeenCalled()
+
+      // The same socket remains below the control budget and stays usable.
+      sink.send({ type: 'pong' })
+      expect(ws.send).toHaveBeenCalledOnce()
+      expect(ws.terminate).not.toHaveBeenCalled()
+    })
+
+    it('sends stream frames at the lower budget boundary', () => {
+      const ws = fakeSendSocket({ bufferedAmount: 10 })
+      expect(tiny.sink(ws).sendLossy({ type: 'pong' })).toBe(true)
+      expect(ws.send).toHaveBeenCalledOnce()
+      expect(ws.terminate).not.toHaveBeenCalled()
     })
 
     it('the two shipped planes hand out sinks that each carry their own peer s budget', () => {

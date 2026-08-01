@@ -13,14 +13,13 @@
  * where this file deviates from it, the deviation is called out below.
  *
  * ---------------------------------------------------------------------------
- * THE PRINCIPAL — AND WHY IT IS WEAKER THAN THE DAEMON'S, STATED PLAINLY
+ * THE PRINCIPAL
  * ---------------------------------------------------------------------------
  * Every routed frame carries a principal resolved from the AUTHENTICATED
  * TRANSPORT (ADR 3 D7 / ADR 5 D5), never from a payload. On this plane that
- * principal is DEVICE-GRADE: one shared password, no user column on
- * `client_sessions` (POD-351, `docs/multi-user-readiness.md` §3.2). The full
- * reasoning — and why it is still a `UserPrincipal` object rather than a
- * bespoke kind — is in `client-principal.ts`.
+ * principal is `(user, device, capability)`: the accepted client-session cookie
+ * supplies the user and role, the server-minted connection supplies the device,
+ * and the capability remains opaque to this router. See `client-principal.ts`.
  *
  * The forgery vector this plane actually has is `hello.clientId`: a PAYLOAD
  * field naming another connection, used by the reconnect reclaim to move
@@ -30,23 +29,21 @@
  * claiming to be someone else is still delivered as itself. `client-mux.test.ts`
  * pins that with a forged frame.
  *
- * What that does NOT do is make the reclaim a guarded capability. Under today's
- * device-grade principal it cannot be one: two connections holding the same
- * shared password are indistinguishable as persons, so "may this principal
- * reclaim that client" has no answer better than the existing single-user trust
- * note. Behaviour is therefore preserved exactly, the gap is recorded here and
- * reported, and the enforcement point is ready — the port receives a principal.
- *
  * ---------------------------------------------------------------------------
  * FAN-OUT: THE ONE PLACE THIS IS NOT THE DAEMON MIRROR
  * ---------------------------------------------------------------------------
  * The daemon plane is 1:1. This one is 1:many, and WHO RECEIVES WHAT is decided
- * by per-connection subscription state. That state, and the selectors reading
- * it, are unchanged by this extraction — see `client-registry.ts` for the exact
- * mechanism/selection split and for what POD-1077 still has to build.
+ * by the shared subscription registry. Durable feed delivery and lossy room
+ * delivery share its routing keys; the plane ports own their differing policy.
  */
 
-import { CAP_METADATA_DELTA, type ClientMessage } from '@podium/protocol'
+import type { UserId, UserRole } from '@podium/model'
+import {
+  CAP_METADATA_DELTA,
+  type ClientMessage,
+  type PresenceRoomClientMessage,
+} from '@podium/protocol'
+import type { ClientPublicationAuthority } from '../modules/sessions/session'
 import {
   type ClientPortId,
   clientPlaneClassFor,
@@ -58,11 +55,7 @@ import type { ClientPrincipal } from './client-principal'
 import { feedPrincipalOf, userClientPrincipal } from './client-principal'
 import type { ClientConn, ClientRegistry } from './client-registry'
 import type { FeedServing } from './feed-serving'
-import type { ClientPublicationAuthority } from '../modules/sessions/session'
-import type { UserId, UserRole } from '@podium/model'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
-
-const asTestUser = (): UserId => FIRST_ADMIN_USER_ID
+import type { PresenceRouting } from './presence-routing'
 
 /**
  * Per-frame dispatch, TOTAL over `ClientMessage` by construction: the value is a
@@ -81,6 +74,9 @@ type Dispatcher = {
 const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame): void =>
   mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg)
 
+const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): void =>
+  mux.presence.route(conn, msg)
+
 const DISPATCH: Dispatcher = {
   // ---- sessions ----
   hello: toSessions,
@@ -92,12 +88,17 @@ const DISPATCH: Dispatcher = {
   redrawRequest: toSessions,
   transcriptSubscribe: toSessions,
   transcriptUnsubscribe: toSessions,
-  presence: toSessions,
+  presence: (mux, conn, msg) => mux.presence.setVisible(conn, msg.visible),
   viewState: toSessions,
   setSessionDraft: toSessions,
   draftEdit: toSessions,
   sessionOpenUrlCallback: toSessions,
   sessionOpenUrlDismiss: toSessions,
+
+  // ---- stream rooms ----
+  presenceSubscribe: toPresence,
+  presenceUnsubscribe: toPresence,
+  presenceUpdate: toPresence,
 
   // ---- transport: the gateway answers its own liveness echo ----
   ping: (mux, conn) => mux.registry.deliver(conn, { type: 'pong' }),
@@ -110,6 +111,8 @@ export interface ClientTransport {
   userRole?: UserRole
   /** Outbound sink for this socket (backpressure-guarded by the caller). */
   send: ClientConn['send']
+  /** Lower-budget lossy sink for stream.live room fan-out. */
+  sendStream?: ClientConn['sendStream']
   /** Prepared-bytes sink + the main authority's publication world, when one was
    *  resolved for this request. Absent = the unscoped legacy path. */
   publication?: ClientPublicationAuthority
@@ -141,6 +144,7 @@ export interface ClientMuxDeps {
    * still owns is how a message reaches one connection (`deliverEntityMessage`).
    */
   readonly feed: FeedServing
+  readonly presence: PresenceRouting
 }
 
 export class ClientMux {
@@ -152,6 +156,10 @@ export class ClientMux {
 
   get registry(): ClientRegistry {
     return this.deps.registry
+  }
+
+  get presence(): PresenceRouting {
+    return this.deps.presence
   }
 
   /**
@@ -166,19 +174,22 @@ export class ClientMux {
   attachClient(peer: ClientPeer, publication?: ClientPublicationAuthority): string {
     const transport = transportOf(peer, publication)
     const id = this.deps.registry.nextId()
-    if (transport.userId !== undefined && transport.userRole === undefined) {
-      throw new Error('authenticated client role is unavailable')
+    if (transport.userId === undefined || transport.userRole === undefined) {
+      throw new Error('authenticated client identity is unavailable')
     }
-    const principal =
-      transport.userId === undefined
-        ? userClientPrincipal(id, asTestUser(), 'admin')
-        : userClientPrincipal(id, transport.userId, transport.userRole as UserRole)
+    const principal = userClientPrincipal(id, transport.userId, transport.userRole)
     const conn: ClientConn = {
       id,
       // TRANSPORT-DERIVED, always. The connection id is minted above and is the
       // only input; nothing a client can send participates.
       principal,
       send: transport.send,
+      sendStream:
+        transport.sendStream ??
+        ((message) => {
+          transport.send(message)
+          return true
+        }),
       ...(transport.publication ? { publication: transport.publication } : {}),
       publicationBootstrapped: false,
       publicationPending: false,
@@ -222,7 +233,7 @@ export class ClientMux {
     // authority. Enrolling it in the kernel feed as well would create two worlds
     // and, at wire v2, attempt to hand it an unprepared bootstrap.
     if (conn.publication?.global !== false) {
-      this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal))
+      this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal), conn.principal)
     }
     return id
   }
@@ -241,6 +252,7 @@ export class ClientMux {
   detachClient(id: string): void {
     const conn = this.deps.registry.get(id)
     if (!conn) return
+    this.deps.presence.disconnect(conn)
     this.deps.registry.delete(id)
     this.deps.feed.detach(id)
     this.deps.ports.sessions.onClientDetached(conn.principal, conn)
@@ -294,7 +306,11 @@ export class ClientMux {
     // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
     // with, so the absence is the advertisement.
     conn.wireVersion = announced ?? 1
-    const refusal = this.deps.feed.renegotiate(this.peerOf(conn), feedPrincipalOf(conn.principal))
+    const refusal = this.deps.feed.renegotiate(
+      this.peerOf(conn),
+      feedPrincipalOf(conn.principal),
+      conn.principal,
+    )
     if (refusal === null) return
     // DROPPED FROM THE SERVING SET, not merely un-resolvable. Until `hello` a
     // socket is admitted at wire 1 — the only honest reading of silence — so a

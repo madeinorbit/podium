@@ -1,17 +1,18 @@
-import { resolvePrincipal } from './command-principal'
-import { FIRST_ADMIN_USER_ID, asIssueId, asUserId, type SessionId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asIssueId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
+import { resolvePrincipal } from './command-principal'
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 /**
  * Characterization net for the architecture redesign (store.ts / relay.ts dissolution).
@@ -64,7 +65,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
 
     // A client attached from the start observes everything live.
     const witness = sink()
-    const witnessId = reg.clientGateway.attachClient(witness.send)
+    const witnessId = attachTestClient(reg.clientGateway, witness.send)
     reg.clientGateway.routeClientFrame(witnessId, { type: 'attach', sessionId })
 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
@@ -123,7 +124,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A client that disconnected mid-way resumes from its cursor: sinceSeq=2 →
     // resumed:true and EXACTLY the two missed frames, in order.
     const resumer = sink()
-    const resumerId = reg.clientGateway.attachClient(resumer.send)
+    const resumerId = attachTestClient(reg.clientGateway, resumer.send)
     reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
     expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
       sessionId,
@@ -140,7 +141,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A fresh mount (no cursor) gets the FULL buffer — pre-disconnect frames were
     // not dropped by the reconnect.
     const fresh = sink()
-    const freshId = reg.clientGateway.attachClient(fresh.send)
+    const freshId = attachTestClient(reg.clientGateway, fresh.send)
     reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
     expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
@@ -206,7 +207,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
     const c = sink()
-    const id = reg.clientGateway.attachClient(c.send)
+    const id = attachTestClient(reg.clientGateway, c.send)
     reg.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',

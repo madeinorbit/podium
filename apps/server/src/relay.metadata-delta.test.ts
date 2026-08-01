@@ -3,6 +3,7 @@ import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 // The split fan-out + catch-up seam (docs/spec/oplog-read-path.md §2.3-2.5):
 // delta-cap clients receive per-entity metadataDelta batches, legacy clients keep
@@ -28,7 +29,7 @@ describe('SessionRegistry metadata deltas', () => {
 
   function client(registry: SessionRegistry, caps?: string[]): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
-    const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
+    const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       wireVersion: 2,
@@ -219,7 +220,7 @@ describe('SessionRegistry metadata deltas', () => {
   it('a pre-hello client receives no entity world until it announces an eviction-capable wire', () => {
     const registry = makeRegistry()
     const inbox: ServerMessage[] = []
-    registry.clientGateway.attachClient((msg) => inbox.push(msg)) // no hello at all
+    attachTestClient(registry.clientGateway, (msg) => inbox.push(msg)) // no hello at all
     expect(inbox.some((message) => message.type === 'feedBootstrap')).toBe(false)
     const before = inbox.length
     registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })

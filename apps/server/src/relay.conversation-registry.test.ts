@@ -2,6 +2,7 @@ import type { ConversationSummaryWire, ConversationSummaryWireInput } from '@pod
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { attachTestClient } from './test-support/client-transport'
 
 // Registry wiring at the observation seams (docs/spec/conversation-registry.md):
 // scans mint identities + enrich the wire, sessionResumeRef stamps sessions and
@@ -40,7 +41,7 @@ describe('SessionRegistry conversation registry', () => {
     }
     registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    const clientId = registry.clientGateway.attachClient((m) => inbox.push(m))
+    const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: 2,

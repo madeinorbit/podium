@@ -73,7 +73,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     commit(p, 'automationRun', 'r1', { id: 'r1' })
 
     const peer = new Peer('legacy', 1)
-    expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL)).toBeNull()
+    expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))).toBeNull()
 
     // ORDER IS LOAD-BEARING: `onClientAttached` sent sessions → issues →
     // automations → runs → conversations, and a client that applies lists in
@@ -95,7 +95,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     commit(p, 'issue', 'i1', { id: 'i1', title: 'second' })
 
     const peer = new Peer('legacy', 1)
-    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL)
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     const issues = peer.last('issuesChanged') as { issues: { title: string }[] }
     expect(issues.issues).toEqual([{ id: 'i1', title: 'second' }])
   })
@@ -104,10 +104,13 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     const p = feedTestPlumbing()
     commit(p, 'issue', 'i1', { id: 'i1' })
     commit(p, 'issue', 'i2', { id: 'i2' })
-    p.ledger.commit({ write: () => {}, changes: () => [{ entity: 'issue', id: 'i1', op: 'remove' }] })
+    p.ledger.commit({
+      write: () => {},
+      changes: () => [{ entity: 'issue', id: 'i1', op: 'remove' }],
+    })
 
     const peer = new Peer('legacy', 1)
-    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL)
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     const issues = peer.last('issuesChanged') as { issues: { id: string }[] }
     expect(issues.issues.map((i) => i.id)).toEqual(['i2'])
   })
@@ -116,7 +119,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     const p = feedTestPlumbing()
     commit(p, 'session', 's1', { sessionId: 's1' })
     const peer = new Peer('modern-v1', 1, true)
-    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL)
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     const bootstrapSeq = p.authority.cursor()
 
     commit(p, 'session', 's2', { sessionId: 's2' })
@@ -143,8 +146,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     const p = feedTestPlumbing()
     const modern = new Peer('v2', WIRE_VERSION, true)
     const legacy = new Peer('v1', 1, true)
-    p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL)
-    p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL)
+    p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(modern.id))
+    p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
 
     commit(p, 'issue', 'i1', { id: 'i1' })
     publishPending(p, 0)
@@ -174,8 +177,16 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     const ancient = new Peer('too-old', MIN_SUPPORTED_VERSION - 1)
     const future = new Peer('too-new', WIRE_VERSION + 1)
 
-    const oldRefusal = p.serving.attach(ancient, DEVICE_GRADE_PRINCIPAL)
-    const newRefusal = p.serving.attach(future, DEVICE_GRADE_PRINCIPAL)
+    const oldRefusal = p.serving.attach(
+      ancient,
+      DEVICE_GRADE_PRINCIPAL,
+      p.routingPrincipal(ancient.id),
+    )
+    const newRefusal = p.serving.attach(
+      future,
+      DEVICE_GRADE_PRINCIPAL,
+      p.routingPrincipal(future.id),
+    )
 
     expect(oldRefusal?.status).toBe(426)
     expect(newRefusal?.status).toBe(426)
@@ -192,8 +203,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
 
   it('reports the window and the connected versions', () => {
     const p = feedTestPlumbing()
-    p.serving.attach(new Peer('a', 1), DEVICE_GRADE_PRINCIPAL)
-    p.serving.attach(new Peer('b', WIRE_VERSION), DEVICE_GRADE_PRINCIPAL)
+    p.serving.attach(new Peer('a', 1), DEVICE_GRADE_PRINCIPAL, p.routingPrincipal('a'))
+    p.serving.attach(new Peer('b', WIRE_VERSION), DEVICE_GRADE_PRINCIPAL, p.routingPrincipal('b'))
     expect(p.serving.support()).toEqual({ wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION })
     // The rollout's "may I raise the floor" question, answerable.
     expect(p.serving.versions().minimum).toBe(1)
@@ -221,7 +232,7 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
         commit(p, 'session', `storm-${index}`, { sessionId: `storm-${index}` })
         published = publishPending(p, published)
       }
-      expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL)).toBeNull()
+      expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))).toBeNull()
       bootstrapSeq.set(peer.id, p.authority.cursor())
     })
     expect(new Set(bootstrapSeq.values()).size).toBeGreaterThan(1)
@@ -263,7 +274,8 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
   it('a peer that detaches stops being framed for — the storm does not grow the publisher', () => {
     const p = feedTestPlumbing()
     const peers = Array.from({ length: 5 }, (_, i) => new Peer(`c${i}`, 1, true))
-    for (const peer of peers) p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL)
+    for (const peer of peers)
+      p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     expect(p.serving.connectionCount()).toBe(5)
     for (const peer of peers) p.serving.detach(peer.id)
     expect(p.serving.connectionCount()).toBe(0)
@@ -282,8 +294,8 @@ describe('advisories that are not feed content', () => {
     commit(p, 'conversation', 'c1', { id: 'c1' })
     const legacy = new Peer('v1', 1, true)
     const modern = new Peer('v2', WIRE_VERSION, true)
-    p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL)
-    p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL)
+    p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
+    p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(modern.id))
     const legacyBefore = legacy.received.length
     const modernBefore = modern.received.length
 

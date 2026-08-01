@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
@@ -10,6 +10,7 @@ import {
 import { SessionRegistry } from './relay'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 /**
  * POD-797 residue bench at live scale. A capless attach still builds the
@@ -120,7 +121,7 @@ function world() {
   registries.push(registry)
 
   resetIssueWireBuildCount()
-  const id = registry.clientGateway.attachClient(() => {})
+  const id = attachTestClient(registry.clientGateway, () => {})
   const attachBuilds = issueWireBuildCount()
   const attachScans = issueMembershipScanCount()
   registry.clientGateway.routeClientFrame(id, {

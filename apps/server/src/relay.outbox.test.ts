@@ -7,15 +7,21 @@ import {
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
-  SOLE_USER_ID,
   type SessionId,
   type SessionMeta,
+  SOLE_USER_ID,
 } from '@podium/model'
-import { asDelegationRef, type ControlMessage, type MetadataChange, type ServerMessage } from '@podium/protocol'
+import {
+  asDelegationRef,
+  type ControlMessage,
+  type MetadataChange,
+  type ServerMessage,
+} from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
 // queueText wake + durable delivery, restart survival, FIFO + spacing, the
@@ -387,7 +393,7 @@ describe('queueText (durable outbox sends)', () => {
     const sessionId = hibernatedSession(reg)
 
     const inbox: ServerMessage[] = []
-    const clientId = reg.clientGateway.attachClient((m) => inbox.push(m))
+    const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))
     reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: 2,

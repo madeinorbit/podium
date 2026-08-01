@@ -1,3 +1,5 @@
+import { attachTestClient } from '../../test-support/client-transport'
+
 /**
  * ORACLE — command-class session writes (POD-379 for POD-312 / POD-381).
  *
@@ -10,9 +12,9 @@
  * the durable row. See oracle-support.ts for the tag contract.
  */
 
-import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import { WIRE_VERSION, type ControlMessage, type ServerMessage } from '@podium/protocol'
+import { asSessionId, SOLE_USER_ID } from '@podium/model'
+import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -344,7 +346,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     // The claim is "bypasses CONTROLLER gating", so there has to BE a controller
     // that is not this caller — otherwise the test passes on a session nobody
     // controls and proves nothing about gating.
-    const controllerId = o.reg.clientGateway.attachClient(() => {})
+    const controllerId = attachTestClient(o.reg.clientGateway, () => {})
     o.reg.clientGateway.routeClientFrame(controllerId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,

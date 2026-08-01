@@ -40,10 +40,10 @@
  * terminated), and on both of the client plane's outbound doors.
  */
 
-import { asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
@@ -129,6 +129,18 @@ describe('a daemon reattach storm', () => {
       const clients = await Promise.all(
         Array.from({ length: CLIENTS }, () => connectClient(handle.port)),
       )
+      const room = { kind: 'session' as const, id: asSessionId(sessionIds[0] as string) }
+      for (const client of clients) {
+        client.ws.send(JSON.stringify({ type: 'presenceSubscribe', room }))
+      }
+      await Promise.all(
+        clients.map((client) =>
+          client.nextMatching(
+            (message) => message.type === 'presenceRoomState' && message.room.id === room.id,
+          ),
+        ),
+      )
+
       const health = `http://127.0.0.1:${handle.port}/health`
       const probes: Promise<string>[] = []
 
@@ -154,6 +166,22 @@ describe('a daemon reattach storm', () => {
             geometry,
           })
         }
+        // A populated room publishes full cursor state at a real 50Hz cadence.
+        // These frames share the client socket with the durable reattach feed,
+        // but use the lower lossy stream budget.
+        for (let tick = 0; tick < 6; tick += 1) {
+          for (const client of clients) {
+            client.ws.send(
+              JSON.stringify({
+                type: 'presenceUpdate',
+                room,
+                payload: { cursor: round * 6 + tick },
+              }),
+            )
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        }
+
         // Yield to the loop between rounds so the probes above can actually be
         // served — a storm that never yields is a different (and unshipped) bug.
         await Promise.resolve()
@@ -188,6 +216,14 @@ describe('a daemon reattach storm', () => {
         )
         if (settled.type !== 'sessionsChanged') throw new Error('expected sessionsChanged')
         expect(settled.sessions.every((s) => s.status === 'live')).toBe(true)
+      }
+      for (const client of clients) {
+        expect(
+          client.frames.some(
+            (message) => message.type === 'presenceRoomDelta' && message.room.id === room.id,
+          ),
+          'a populated room was starved during the storm',
+        ).toBe(true)
       }
 
       for (const client of clients) client.ws.close()

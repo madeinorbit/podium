@@ -1,3 +1,4 @@
+import { attachTestClient } from '../../test-support/client-transport'
 /**
  * SessionService decomposition oracle (POD-392).
  *
@@ -290,7 +291,7 @@ describe('oracle: priority pushes', () => {
       agentKind: 'claude-code',
       cwd: '/two',
     }).sessionId
-    const clientId = o.reg.clientGateway.attachClient(() => {})
+    const clientId = attachTestClient(o.reg.clientGateway, () => {})
     o.daemon.length = 0
 
     const viewState = { type: 'viewState' as const, visible: [first, second], focused: second }
@@ -385,7 +386,7 @@ describe('oracle: browser-open forwarding', () => {
       cwd: '/work',
     })
     const browser: ServerMessage[] = []
-    const clientId = o.reg.clientGateway.attachClient((message) => browser.push(message))
+    const clientId = attachTestClient(o.reg.clientGateway, (message) => browser.push(message))
     o.reg.gateway.attachDaemon('foreign', () => {})
     o.daemon.length = 0
     browser.length = 0

@@ -30,7 +30,7 @@ import { CLIENT_PLANE_CLASS, type ClientMessage, type PlaneClass } from '@podium
  * the sessions switch because the switch was there — and naming it as its own
  * owner keeps the table honest about the fact that the gateway answers it.
  */
-export const CLIENT_PORT_IDS = ['sessions', 'transport'] as const
+export const CLIENT_PORT_IDS = ['sessions', 'presence', 'transport'] as const
 export type ClientPortId = (typeof CLIENT_PORT_IDS)[number]
 
 /**
@@ -52,12 +52,17 @@ export const CLIENT_FRAME_PORTS = {
   redrawRequest: ['sessions'],
   transcriptSubscribe: ['sessions'],
   transcriptUnsubscribe: ['sessions'],
-  presence: ['sessions'],
+  presence: ['presence'],
   viewState: ['sessions'],
   setSessionDraft: ['sessions'],
   draftEdit: ['sessions'],
   sessionOpenUrlCallback: ['sessions'],
   sessionOpenUrlDismiss: ['sessions'],
+
+  // ---- gateway stream port ----
+  presenceSubscribe: ['presence'],
+  presenceUnsubscribe: ['presence'],
+  presenceUpdate: ['presence'],
 
   // ---- gateway transport ----
   ping: ['transport'],
@@ -65,7 +70,9 @@ export const CLIENT_FRAME_PORTS = {
 
 /** The session-owned subset, as a type — the sessions port's frame argument. */
 export type SessionsClientFrameType = {
-  [K in keyof typeof CLIENT_FRAME_PORTS]: (typeof CLIENT_FRAME_PORTS)[K] extends readonly ['sessions']
+  [K in keyof typeof CLIENT_FRAME_PORTS]: (typeof CLIENT_FRAME_PORTS)[K] extends readonly [
+    'sessions',
+  ]
     ? K
     : never
 }[keyof typeof CLIENT_FRAME_PORTS]

@@ -59,18 +59,14 @@
  * ---------------------------------------------------------------------------
  * WHAT THIS FILE IS STILL NOT
  * ---------------------------------------------------------------------------
- * D11 §5 requires a SECOND, LOWER budget for room/presence fan-out beneath the
- * socket budget, so that a colleague dragging a cursor cannot escalate into a
- * control-plane reconnect: "`safeSend`'s single-limit model is no longer the
- * whole backpressure story". That budget belongs to POD-1078 (presence rooms) and
- * is deliberately NOT built here — there is no room fan-out to charge against it
- * yet. What this file gives POD-1078 is the seam: a plane budget is now an object
- * with a method, so a sub-budget is a second sink obtained from the same policy
- * rather than a third literal at a fourth call site.
+ * D11 §5's second, lower room/presence budget is the `sendLossy` sink below.
+ * Stream pressure drops frames at 256 KB without terminating the socket, so a
+ * cursor burst cannot escalate into a control-plane reconnect. The 16 MB
+ * control limit retains the existing terminate-on-exceed behavior.
  */
 
 import type { encode as encodeFn } from '@podium/protocol'
-import { safeSend, safeSendEncoded, type SendSocket } from './ws-send'
+import { type SendSocket, safeSend, safeSendEncoded, safeSendLossy } from './ws-send'
 
 /** Minimal slice of a `ws` socket the heartbeat sweep needs (kept tiny for tests). */
 export interface HeartbeatSocket {
@@ -95,6 +91,8 @@ export interface PlaneSink {
   send(msg: Parameters<typeof encodeFn>[0]): void
   /** Send already-encoded bytes, capped. Client plane only, today. */
   sendPrepared(bytes: string): void
+  /** Lower-budget stream send: false means dropped; it never terminates. */
+  sendLossy(msg: Parameters<typeof encodeFn>[0]): boolean
 }
 
 /**
@@ -119,6 +117,8 @@ export interface PlaneLivenessPolicy {
   readonly heartbeatIntervalMs: number
   /** Outbound buffered bytes above which the socket is terminated, not grown. */
   readonly sendBufferLimitBytes: number
+  /** Lower stream budget; pressure drops instead of terminating the peer. */
+  readonly lossySendBufferLimitBytes: number
   /**
    * The outbound sink for one socket on this plane. The ONLY way to write to a
    * peer socket with this plane's budget applied — callers no longer read the
@@ -159,17 +159,20 @@ export function definePlaneLiveness(spec: {
   peer: 'client' | 'daemon'
   heartbeatIntervalMs: number
   sendBufferLimitBytes: number
+  lossySendBufferLimitBytes?: number
 }): PlaneLivenessPolicy {
   const policy: PlaneLivenessPolicy = {
     peer: spec.peer,
     heartbeatIntervalMs: spec.heartbeatIntervalMs,
     sendBufferLimitBytes: spec.sendBufferLimitBytes,
+    lossySendBufferLimitBytes: spec.lossySendBufferLimitBytes ?? spec.sendBufferLimitBytes,
     sink(ws) {
       // Read through `policy` rather than closing over `spec` so the budget that
       // binds is demonstrably THIS policy's, at send time.
       return {
         send: (msg) => safeSend(ws, msg, policy.sendBufferLimitBytes),
         sendPrepared: (bytes) => safeSendEncoded(ws, bytes, policy.sendBufferLimitBytes),
+        sendLossy: (msg) => safeSendLossy(ws, msg, policy.lossySendBufferLimitBytes),
       }
     },
     startHeartbeat(sockets, alive, timers = REAL_TIMERS) {
@@ -205,6 +208,7 @@ export const CLIENT_PLANE_LIVENESS: PlaneLivenessPolicy = definePlaneLiveness({
   peer: 'client',
   heartbeatIntervalMs: 15_000,
   sendBufferLimitBytes: 16 * 1024 * 1024,
+  lossySendBufferLimitBytes: 256 * 1024,
 })
 
 /**
@@ -234,6 +238,7 @@ export const DAEMON_PLANE_LIVENESS: PlaneLivenessPolicy = definePlaneLiveness({
   peer: 'daemon',
   heartbeatIntervalMs: 10_000,
   sendBufferLimitBytes: 16 * 1024 * 1024,
+  lossySendBufferLimitBytes: 16 * 1024 * 1024,
 })
 
 /**

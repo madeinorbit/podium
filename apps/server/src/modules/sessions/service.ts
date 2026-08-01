@@ -43,27 +43,18 @@ import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import {
-  harnessCapabilitiesFor,
-  harnessNeedsSubmitVerification,
-  harnessObservationProvider,
-  harnessRequiresExclusiveInteractiveResume,
-  harnessSupportsEffort,
-  harnessSupportsInitialPrompt,
-  harnessUsesPromptTitleFallback,
-} from '../../harness-manifest'
-import {
   computePriorities,
   FIRST_ADMIN_USER_ID,
-  repoNameFromOrigin,
   NO_SESSION_USER_STATE,
+  repoNameFromOrigin,
   type SessionUserOverlay,
 } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import {
-  asDelegationRef,
   type AgentInstruction,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  asDelegationRef,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -88,13 +79,27 @@ import { resolveRole } from '@podium/runtime'
 import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
-import { resolvePrincipal, systemPrincipal, userCommandPrincipal, type CommandPrincipal } from '../../command-principal'
+import {
+  type CommandPrincipal,
+  resolvePrincipal,
+  systemPrincipal,
+  userCommandPrincipal,
+} from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
+import {
+  harnessCapabilitiesFor,
+  harnessNeedsSubmitVerification,
+  harnessObservationProvider,
+  harnessRequiresExclusiveInteractiveResume,
+  harnessSupportsEffort,
+  harnessSupportsInitialPrompt,
+  harnessUsesPromptTitleFallback,
+} from '../../harness-manifest'
 import type { Capability } from '../../issue-authz'
 import {
   liveSessionsUsingWorktree,
@@ -137,18 +142,16 @@ import {
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
-import type { PreparedSessionInstructions } from './instructions'
 import {
+  type InboxPrincipalReference,
+  type InboxSendInput,
   inboxActorColumns,
   inboxActorFromColumns,
   inboxPrincipalFromCommand,
-  type InboxSendInput,
-  type InboxPrincipalReference,
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
-import { assertMayCommandSession, resolveSessionTarget } from './session-access'
-import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
+import type { PreparedSessionInstructions } from './instructions'
 import {
   createViewKey,
   type PreparedPublication,
@@ -166,6 +169,8 @@ import {
   type SessionDurableState,
   type SessionVolatileField,
 } from './session'
+import { assertMayCommandSession, resolveSessionTarget } from './session-access'
+import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
@@ -975,7 +980,9 @@ export class SessionsService {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultStatePrincipal()
     return this.stampRef(session, {
-      ...session.toMeta(viewer ? this.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE),
+      ...session.toMeta(
+        viewer ? this.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
+      ),
       machineName: this.machines.machineName(session.machineId),
       ...(harnessCapabilities
         ? {
@@ -3984,9 +3991,6 @@ export class SessionsService {
       case 'transcriptUnsubscribe':
         client.transcriptSubs.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.unsubscribeTranscript(id)
-        break
-      case 'presence':
-        client.visible = msg.visible
         break
       case 'viewState':
         client.viewVisible = new Set(msg.visible)
