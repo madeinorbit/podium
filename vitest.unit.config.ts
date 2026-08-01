@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
+import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
 
 /**
  * Unit-test scope (`bun run test:unit`) — the fast hermetic default, run on every PR
@@ -11,7 +12,8 @@ import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
  *   - tests/e2e/**            → full-stack e2e (real server + daemon + abduco + playwright)
  *   - *e2e*.test.ts           → boots a live in-process server on a real port
  *   - *.integration.*         → spawns real processes / systemd scopes
- *   - *.smoke.test.ts         → requires a real agent binary (claude/codex); opt-in only
+ *   - real-agent smoke tests  → require a real agent binary (claude/codex); opt-in only
+ *   - PTY smoke tests         → spawn a real PTY; integration lane
  *   - *.pty.test.ts, pty-behavior/, session.test, node-pty-backend.test, abduco*.test
  *                             → spawn real PTYs (node-pty native addon) or build/run abduco.
  *                               CI installs with --ignore-scripts, so node-pty's native
@@ -33,7 +35,8 @@ export default defineConfig({
       'tests/e2e/**',
       '**/*e2e*.test.{ts,tsx}',
       '**/*.integration.*',
-      '**/*.smoke.test.{ts,tsx}',
+      ...realAgentSmokeTests,
+      ...ptySmokeTests,
       '**/*.pty.test.{ts,tsx}',
       'packages/pty/test/pty-behavior/**',
       'packages/pty/test/session.test.ts',
