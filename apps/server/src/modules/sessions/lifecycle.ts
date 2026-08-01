@@ -37,7 +37,6 @@ import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import {
   type AgentInstruction,
-  type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
   asDelegationRef,
   type ControlMessage,
@@ -94,7 +93,6 @@ import type {
 import type { EventBus } from '../bus'
 import type { ConversationsService } from '../conversations/service'
 import type { WriteFunnel } from '../funnel'
-import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
@@ -238,20 +236,12 @@ interface SessionLifecycleDeps {
   /** Shared live-session registry, constructed before every reader. Lifecycle
    * remains its sole mutation owner. */
   sessions?: Map<SessionId, Session>
-  /**
-   * Evict a client connection through the GATEWAY (registry removal + the sweep),
-   * for the one place a feature initiates a disconnect: the reconnect reclaim,
-   * where a client's `hello` supersedes its own previous socket. Absent = the
-   * in-process fallback below.
-   */
-  disconnectClient?(id: string): void
   /** Test/fault-injection seam; production owns the default daemon client. */
   publicationWorker?: PublishWorkerClient
   /** Rollout-only old/new semantic comparison; never changes delivered bytes. */
   publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
-  hosts: HostsService
   conversations: ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
   issues(): IssueService
@@ -267,10 +257,6 @@ interface SessionLifecycleDeps {
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: string): void
-  /** Approval broker [spec:SP-edbb]: the attach snapshot. The daemon execution
-   *  OUTCOME no longer arrives here — `approvalExecResult` routes straight from
-   *  the gateway to the approvals port (POD-389). */
-  approvalsPending(): ApprovalWire[]
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
   instructionsForStart(input: {
@@ -333,7 +319,6 @@ export class SessionLifecycle {
   private readonly bus: EventBus
   private readonly machines: MachinesService
   private readonly rpc: DaemonRpcService
-  private readonly hosts: HostsService
   readonly headless: HeadlessService
   /** Durable viewer/shared-surface state, isolated behind explicit ports. */
   readonly state: SessionStateService
@@ -386,7 +371,6 @@ export class SessionLifecycle {
     this.bus = deps.bus
     this.machines = deps.machines
     this.rpc = deps.rpc
-    this.hosts = deps.hosts
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
     const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
@@ -609,22 +593,16 @@ export class SessionLifecycle {
     this.setSessionDraft = (input, fromClientId) => this.state.setDraft(input, fromClientId)
     this.draftRevision = (sessionId) => this.state.draftRevision(sessionId)
     this.clientControl = new SessionClientControl({
-      clients: this.clients,
       sessions: this.sessions,
       publication: this.publication,
       state: this.state,
       inbox: this.inbox,
       machines: this.machines,
-      hosts: this.hosts,
       browserOpen: this.browserOpen,
-      approvalsPending: () => this.deps.approvalsPending(),
       mutate: (sessionId, change, issueRelevant) =>
         this.repository.mutateSessionView(sessionId, change, issueRelevant),
       broadcastSessions: () => this.broadcastSessions(),
       pushPriorities: () => this.pushPriorities(),
-      ...(this.deps.disconnectClient
-        ? { disconnectClient: (id) => this.deps.disconnectClient?.(id) }
-        : {}),
       setDraft: (principal, clientId, sessionId, text) => {
         this.sessionStateEnvelope().execute(
           'sessions.setDraft',
@@ -2800,6 +2778,10 @@ export class SessionLifecycle {
 
   publicationMetrics(): SessionPublicationMetrics {
     return this.publication.metrics()
+  }
+
+  onClientReclaim(prior: ClientConn, next: ClientConn): void {
+    this.clientControl.reclaim(prior, next)
   }
 
   /**

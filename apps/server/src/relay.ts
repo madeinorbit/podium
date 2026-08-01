@@ -340,31 +340,6 @@ export class SessionRegistry {
       ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
       now: this.now,
     })
-    const hosts = new HostsService(
-      {
-        getSettings: () => this.store.settings.getSettings(),
-        clients: () => clients().values(),
-        machineName: (id) => machines.machineName(id),
-        sessions: () =>
-          [...liveSessions.values()].map((session) => ({
-            sessionId: session.sessionId,
-            machineId: session.machineId,
-            status: session.status,
-            resume: session.resume,
-            agentState: session.agentState,
-            lastActiveAt: session.lastActiveAt,
-            lastResumedAtMs: session.terminal.lastResumedAtMs,
-            lastInputAtMs: session.terminal.lastInputAtMs,
-            lastOutputAtMs: session.terminal.lastOutputAtMs,
-          })),
-        hibernateSession: (input) => sessionsSvc.hibernateSession(input),
-        hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
-        terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
-      },
-      this.bus,
-    )
     // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
     // and broadcasts triggered during load must find the publisher in place.
@@ -565,106 +540,6 @@ export class SessionRegistry {
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
     })
-    // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
-    const approvals = new ApprovalService({
-      store: this.store.approvals,
-      now: () => new Date().toISOString(),
-      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
-      clients: () => clients().values(),
-      sessionIssueId: (sessionId) => {
-        const s = sessionsSvc.listSessions().find((x) => x.sessionId === sessionId)
-        return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
-      },
-      issueInfo: (issueId) => {
-        const row = issues.getMeta(issueId)
-        if (!row) return null
-        const prefix = this.store.repos.prefixForPath(row.repoPath)
-        return {
-          seq: row.seq,
-          title: row.title,
-          displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
-        }
-      },
-      machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
-      notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
-      executeServerOp: (op, sessionId) => {
-        const caller = workflowCallerForCapability(sessionsSvc.capabilityForSession(sessionId))
-        if (op.kind === 'workflow-publish') {
-          // The approval broker's server-side ops enter by the SAME door every
-          // transport uses (POD-732) — the deleted `publish`/`assign` shims were
-          // its only other way in, and a server op that skipped the contract's
-          // parse would be the one caller whose input nobody validated.
-          const revision = workflows.execute(caller, 'publish', {
-            revisionId: op.revisionId,
-          })
-          return `published workflow revision ${revision.id}`
-        }
-        if (op.kind === 'workflow-set-default') {
-          const binding = workflows.execute(caller, 'assign', {
-            targetKind: op.targetKind,
-            targetId: op.targetId,
-            revisionId: op.revisionId,
-          })
-          return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
-        }
-        if (op.kind === 'automation-schedule') {
-          const existingSessionId =
-            op.target.kind === 'current'
-              ? sessionId
-              : op.target.kind === 'session'
-                ? op.target.sessionId
-                : null
-          const existing =
-            existingSessionId === null
-              ? null
-              : sessionsSvc
-                  .listSessions()
-                  .find((session) => session.sessionId === existingSessionId)
-          if (existingSessionId !== null && !existing) {
-            throw new Error(`unknown target session: ${existingSessionId}`)
-          }
-          const fresh = op.target.kind === 'fresh' ? op.target : null
-          const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
-            parentSessionOf: (candidate) =>
-              sessionSpawnerParentId(
-                sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
-                  ?.spawnedBy,
-              ),
-            onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
-          })
-          const scheduled = automations.create(
-            {
-              name: op.name,
-              scheduleKind: 'once',
-              cron: null,
-              runAt: op.runAt,
-              targetSessionId: existingSessionId,
-              repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
-              agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
-              model: fresh?.model ?? 'auto',
-              effort: fresh?.effort ?? 'auto',
-              prompt: op.prompt,
-              enabled: true,
-              sessionMode: existingSessionId === null ? 'fresh' : 'resume',
-            },
-            principal,
-          )
-          return `scheduled one-off automation ${scheduled.id} for ${scheduled.runAt}`
-        }
-
-        return null
-      },
-      logEvent: (kind, issueId, payload) => {
-        try {
-          this.store.events.appendEvent({
-            ts: new Date().toISOString(),
-            kind,
-            subject: issueId ?? 'approvals',
-            payload,
-          })
-        } catch {}
-      },
-    })
     // Advisory named lease locks [spec:SP-85d1]. Lazy closures: sessionsSvc and
     // issues are assigned below and only ever consulted per-operation.
     // POD-665: fan out the invalidation raw (imitating MachinesService.
@@ -712,7 +587,6 @@ export class SessionRegistry {
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
-      disconnectClient: (id) => this.clientGateway.detachClient(id),
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
@@ -721,7 +595,6 @@ export class SessionRegistry {
         : {}),
       machines,
       rpc,
-      hosts,
       conversations,
       issues: () => issues,
       issuesWire: () => publisher.currentIssuesList(),
@@ -731,9 +604,33 @@ export class SessionRegistry {
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
       onWorktreesChanged: broadcastWorktreesChanged,
-      approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
+    const hosts = new HostsService(
+      {
+        getSettings: () => this.store.settings.getSettings(),
+        clients: () => clients().values(),
+        machineName: (id) => machines.machineName(id),
+        sessions: () =>
+          [...liveSessions.values()].map((session) => ({
+            sessionId: session.sessionId,
+            machineId: session.machineId,
+            status: session.status,
+            resume: session.resume,
+            agentState: session.agentState,
+            lastActiveAt: session.lastActiveAt,
+            lastResumedAtMs: session.terminal.lastResumedAtMs,
+            lastInputAtMs: session.terminal.lastInputAtMs,
+            lastOutputAtMs: session.terminal.lastOutputAtMs,
+          })),
+        hibernateSession: (input) => sessionsSvc.hibernateSession(input),
+        hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
+        terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
+        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
+          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+      },
+      this.bus,
+    )
     const headless = sessionsSvc.headless
     this.bus.on('feed.published', ({ seq }) => {
       sessionsSvc.onFeedPublished(seq)
@@ -1216,6 +1113,106 @@ export class SessionRegistry {
         checkMachineUse(principal, machines.defaultMachine(), ownershipFromMachines(machines)) ===
         undefined,
       now: () => new Date(this.now()),
+    })
+    // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
+    const approvals = new ApprovalService({
+      store: this.store.approvals,
+      now: () => new Date().toISOString(),
+      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      clients: () => clients().values(),
+      sessionIssueId: (sessionId) => {
+        const s = sessionsSvc.listSessions().find((x) => x.sessionId === sessionId)
+        return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
+      },
+      issueInfo: (issueId) => {
+        const row = issues.getMeta(issueId)
+        if (!row) return null
+        const prefix = this.store.repos.prefixForPath(row.repoPath)
+        return {
+          seq: row.seq,
+          title: row.title,
+          displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
+        }
+      },
+      machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
+      notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
+      executeServerOp: (op, sessionId) => {
+        const caller = workflowCallerForCapability(sessionsSvc.capabilityForSession(sessionId))
+        if (op.kind === 'workflow-publish') {
+          // The approval broker's server-side ops enter by the SAME door every
+          // transport uses (POD-732) — the deleted `publish`/`assign` shims were
+          // its only other way in, and a server op that skipped the contract's
+          // parse would be the one caller whose input nobody validated.
+          const revision = workflows.execute(caller, 'publish', {
+            revisionId: op.revisionId,
+          })
+          return `published workflow revision ${revision.id}`
+        }
+        if (op.kind === 'workflow-set-default') {
+          const binding = workflows.execute(caller, 'assign', {
+            targetKind: op.targetKind,
+            targetId: op.targetId,
+            revisionId: op.revisionId,
+          })
+          return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
+        }
+        if (op.kind === 'automation-schedule') {
+          const existingSessionId =
+            op.target.kind === 'current'
+              ? sessionId
+              : op.target.kind === 'session'
+                ? op.target.sessionId
+                : null
+          const existing =
+            existingSessionId === null
+              ? null
+              : sessionsSvc
+                  .listSessions()
+                  .find((session) => session.sessionId === existingSessionId)
+          if (existingSessionId !== null && !existing) {
+            throw new Error(`unknown target session: ${existingSessionId}`)
+          }
+          const fresh = op.target.kind === 'fresh' ? op.target : null
+          const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
+            parentSessionOf: (candidate) =>
+              sessionSpawnerParentId(
+                sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
+                  ?.spawnedBy,
+              ),
+            onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
+          })
+          const scheduled = automations.create(
+            {
+              name: op.name,
+              scheduleKind: 'once',
+              cron: null,
+              runAt: op.runAt,
+              targetSessionId: existingSessionId,
+              repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
+              agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
+              model: fresh?.model ?? 'auto',
+              effort: fresh?.effort ?? 'auto',
+              prompt: op.prompt,
+              enabled: true,
+              sessionMode: existingSessionId === null ? 'fresh' : 'resume',
+            },
+            principal,
+          )
+          return `scheduled one-off automation ${scheduled.id} for ${scheduled.runAt}`
+        }
+
+        return null
+      },
+      logEvent: (kind, issueId, payload) => {
+        try {
+          this.store.events.appendEvent({
+            ts: new Date().toISOString(),
+            kind,
+            subject: issueId ?? 'approvals',
+            payload,
+          })
+        } catch {}
+      },
     })
     const issueCommands = new IssueCommandDispatcher({
       attachSession: (caller, input) => issueAttach.execute(caller, input),
@@ -1771,6 +1768,12 @@ export class SessionRegistry {
       ports: { sessions: sessionsSvc },
       feed: feedServing,
       presence,
+      bootstrap: (client) => {
+        if (!client.publication || client.publication.global) {
+          client.send({ type: 'approvalsChanged', pending: approvals.listPending() })
+          hosts.snapshotFor(client.send)
+        }
+      },
     })
     this.gateway = new DaemonMux({
       bus: this.bus,
