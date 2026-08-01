@@ -930,6 +930,9 @@ describe('SessionRegistry', () => {
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'reattach', sessionId: id, durableLabel: `podium-${id}` }),
     )
+    expect(daemon.findIndex((m) => m.type === 'reattach')).toBeLessThan(
+      daemon.findIndex((m) => m.type === 'sessionPriority'),
+    )
     // The daemon found the master alive → bind → the session comes back live and
     // the stale exit is cleared. Without the fix it would stay 'exited' forever.
     reg.modules.sessions.onDaemonMessageFrom('local', bind(id))

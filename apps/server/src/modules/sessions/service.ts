@@ -1005,12 +1005,6 @@ export class SessionsService {
     // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
     // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
     this.conversations().triggerLakeSweep(machineId)
-    // A freshly-(re)connected daemon knows no session's relay priority. Clear the
-    // delta cache so every current session re-sends as a change, then push the full
-    // map — otherwise a daemon restart would leave the scheduler at its default
-    // until the next viewState/attach happened to flip a session.
-    this.lastPriority.clear()
-    this.pushPriorities()
     // Archived survivors are never rebound — archive means stopped (POD-108).
     // Rows archived before archive learned to kill, or archived while this
     // machine's daemon was away, are still 'live'/'reconnecting' here; parking
@@ -1099,6 +1093,15 @@ export class SessionsService {
           }
         })
     }
+    // A freshly-(re)connected daemon knows no session's relay priority. Recovery
+    // controls MUST go first: daemon control transport is intentionally lossy under
+    // backpressure, and a full priority snapshot can contain hundreds of disposable
+    // frames. Sending that burst before reattach can fill the new socket and silently
+    // drop every essential survivor probe, leaving durable agents orphaned. Clear the
+    // delta cache and send the replayable priority snapshot only after reattachment
+    // has been handed to the socket.
+    this.lastPriority.clear()
+    this.pushPriorities()
     this.machines.broadcastMachines()
     this.bus.emit('machine.connected', { machineId })
   }
