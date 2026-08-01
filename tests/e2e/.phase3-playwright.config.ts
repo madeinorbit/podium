@@ -26,6 +26,7 @@ export default defineConfig({
         'bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
+      env: { PODIUM_PASSWORD: process.env.PODIUM_PASSWORD ?? '' },
       timeout: 180_000,
     },
   ],

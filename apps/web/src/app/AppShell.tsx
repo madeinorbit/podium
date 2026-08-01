@@ -120,6 +120,7 @@ export function AppShell(): JSX.Element {
             onFatalError={setAppError}
             createReplicaFn={kernel.assembly.createReplicaFn}
             feed={kernel.assembly.feed}
+            createOutboxFn={kernel.assembly.createOutboxFn}
           >
             <KernelHubAttach assembly={kernel.assembly} />
             {kernel.shadow ? (

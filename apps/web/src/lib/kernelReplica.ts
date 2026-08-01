@@ -28,9 +28,9 @@
  * `bootstrapping` with nothing coming.
  */
 
+import { type CreateEngineOutbox, openKernelEngineOutbox } from '@podium/client-core/engine'
 import {
   type Replica as ClientReplica,
-  createKernelOutboxStorage,
   createKernelReplica,
   createSideCache,
   FeedAuthorityClient,
@@ -47,7 +47,6 @@ import {
 import { Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { Trpc } from '@/app/trpc'
-import { outboxCommandFor } from '@podium/client-core/engine'
 
 /** The IndexedDB database the web client's kernel replica lives in. */
 export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
@@ -68,6 +67,8 @@ export interface KernelAssembly {
   readonly createReplicaFn: () => ClientReplica
   /** Handed to the engine; makes its hub advertise wire 2. */
   readonly feed: FeedSinkPort
+  /** Real kernel Outbox over this assembly's IndexedDB store. */
+  readonly createOutboxFn: CreateEngineOutbox
   /** The kernel Replica itself — the shadow harness classifies against it. */
   readonly kernel: KernelReplica
   readonly store: IndexedDbSyncStore
@@ -164,18 +165,14 @@ export async function openKernelAssembly(
   })
 
   const listeners = new Set<(event: ReplicaEvent) => void>()
-  const outbox = await createKernelOutboxStorage({
-    outbox: view.outbox,
-    resolveCommand: outboxCommandFor,
-    attribution: {
-      actor: { kind: 'user', userId: options.principal },
-      onBehalfOf: options.principal,
-    },
+  const createOutboxFn = await openKernelEngineOutbox({
+    store: view.outbox,
+    principal: options.principal,
+    api: trpc,
     onDegraded: (detail) => options.onDegraded?.(detail),
   })
   const facade = createKernelReplica({
     cache: view.cache,
-    outbox,
     side: createSideCache({
       storage: globalThis.localStorage,
       storageEventApi: globalThis.window,
@@ -213,6 +210,7 @@ export async function openKernelAssembly(
   return {
     createReplicaFn: () => facade,
     feed: sink,
+    createOutboxFn,
     kernel,
     store,
     attachHub: (attached) => {
