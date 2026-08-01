@@ -18,4 +18,7 @@ export * from './feed'
 export * from './feed/index'
 export * from './issue-views'
 export * from './kernel'
+export * from './legacy-wire-v1-binding'
+
+export * from './legacy-wire-v1-feed'
 export * from './replica'

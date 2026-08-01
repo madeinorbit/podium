@@ -1,49 +1,33 @@
 /**
- * The live persist seam (`onMetadataApplied`) against the healing ladder.
+ * The legacy feed projection binding against the healing ladder.
  *
  * `feed.test.ts` proves the ladder's decisions and `bootstrap.test.ts` proves
- * the outbox survives a discard. Neither proves the two are actually WIRED
- * together on the path the app runs — which is the failure that would ship: a
- * correct ladder nobody calls, an epoch bump silently welded onto the old
- * timeline, and every unit test green.
+ * the outbox survives a discard. These tests pin identity replacement and durable-outbox preservation at the Replica seam.
  */
 
-import type { MetadataAppliedState } from '../socket-transport'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
-import { COLD_CURSOR } from '../replica/feed'
-import { createReplica, memoryStorage } from '../replica/replica'
-import { createEngineHub } from './wiring'
+import { COLD_CURSOR } from './feed'
+import { applyLegacyMetadataState } from './legacy-wire-v1-binding'
+import type { LegacyMetadataAppliedState } from './legacy-wire-v1-feed'
+import { createReplica, memoryStorage } from './replica'
 
-/** Build the hub wiring over a real replica, capturing the persist hook. */
+/** Build the Replica binding over a real replica. */
 function setup() {
   const replica = createReplica({ storage: memoryStorage() })
-  let onMetadataApplied: ((state: MetadataAppliedState) => void) | undefined
-  createEngineHub({
-    wsClientUrl: 'ws://x',
-    // biome-ignore lint/suspicious/noExplicitAny: the wiring only reads sync.changesSince here
-    api: { sync: { changesSince: { query: vi.fn() } } } as any,
-    replica,
-    onFatalError: () => {},
-    createHub: (opts) => {
-      onMetadataApplied = opts.onMetadataApplied
-      // biome-ignore lint/suspicious/noExplicitAny: the returned hub is never used by these tests
-      return {} as any
-    },
-  })
   return {
     replica,
-    apply: (state: MetadataAppliedState) => onMetadataApplied?.(state),
+    apply: (state: LegacyMetadataAppliedState) => applyLegacyMetadataState(replica, state),
   }
 }
 
-/** The entity lists half of a MetadataAppliedState. Only `issues` varies here —
+/** The entity lists half of a LegacyMetadataAppliedState. Only `issues` varies here —
  *  the identity rules under test are kind-agnostic. */
 const lists = (
   issues: Array<{ id: string; title: string }>,
-): Omit<MetadataAppliedState, 'cursor'> => ({
+): Omit<LegacyMetadataAppliedState, 'cursor'> => ({
   sessions: [],
-  issues: issues as unknown as MetadataAppliedState['issues'],
+  issues: issues as unknown as LegacyMetadataAppliedState['issues'],
   issueProjections: [],
   issueDeps: [],
   repos: [],

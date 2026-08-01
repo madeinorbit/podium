@@ -35,13 +35,12 @@ import {
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
-  type SyncChangesSinceResultLenient,
   type TerminalOutcomeMessage as TerminalOutcomeFrame,
   TerminalOutcomeMessage,
   WIRE_VERSION,
 } from '@podium/protocol'
-import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
+import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
 
 export interface WebSocketLike {
@@ -101,73 +100,19 @@ export interface SocketHubOptions {
   viewport: ConnectionViewport
   makeSocket?: (url: string) => WebSocketLike
   onError?: (message: string, event?: unknown) => void
-  /**
-   * Metadata-oplog catch-up (docs/spec/oplog-read-path.md), typically wired to the
-   * `sync.changesSince` tRPC query. PROVIDING THIS OPTS THE HUB INTO DELTA MODE:
-   * the hello advertises CAP_METADATA_DELTA, the server stops sending this client
-   * full-list snapshot rebroadcasts, and the hub applies `metadataDelta` batches —
-   * healing every (re)connect and any detected seq gap through this callback.
-   * Omitted (tests, embedders): legacy snapshot behavior, byte-for-byte unchanged.
-   */
-  fetchChangesSince?: (cursor: number | null) => Promise<SyncChangesSinceResultLenient>
-  /**
-   * Resume-across-reloads (docs/spec/thin-client-replica.md §2.2): the cursor a
-   * persisted local replica left off at. When set, the FIRST metadata heal after
-   * connect calls `fetchChangesSince(initialCursor)` instead of `null`, so a warm
-   * reload downloads a delta instead of the world. The snapshot fallback (server
-   * compacted past the cursor) is unchanged — it full-replaces. Only meaningful
-   * together with `fetchChangesSince`; pair it with `seedMetadata()` so a delta
-   * result applies onto the replica's lists rather than empty ones.
-   */
-  initialCursor?: number | null
-  /**
-   * Opt into the NORMALIZED issue projection [POD-796]: the hello advertises
-   * CAP_ISSUES_NORMALIZED and the hub populates `issueProjections` from the
-   * feed's 'issueProjection' rows.
-   *
-   * DEFAULT FALSE, DELIBERATELY, and this is a safety interlock rather than
-   * caution. The cap does not mean "I can also read projections" — it means "I
-   * NO LONGER NEED IssueWire". The server's D7.2 bypass keys off exactly that:
-   * once every delta client offers this cap, a session change stops rebuilding
-   * issue wire payloads at all. So a consumer that offers the cap while still
-   * rendering from `issues` would ask the server to stop maintaining the very
-   * data its UI reads, and the issue list would silently freeze — a bug that
-   * looks like a caching problem and is really a broken promise.
-   *
-   * Set it only when the consumer reads `issueProjections` (and resolves members
-   * by indexing sessions on `issueId`). Today nothing in apps/web does, because
-   * the replica-side views still need `deps` and `prefix`, which the projection
-   * does not carry and nothing replica-side can supply — POD-822. Only meaningful
-   * alongside `fetchChangesSince`; there is no delta frame to carry the rows
-   * otherwise.
-   */
+  /** Opaque wire-v1 Replica adapter. Transport only drives lifecycle and forwards envelopes. */
+  legacyFeed?: LegacyFeedSinkPort
+  /** Advertise the normalized issue projection capability on the legacy wire. */
   issuesNormalized?: boolean
-  /**
-   * Fired after each APPLIED metadata batch (bootstrap/heal snapshot, heal delta,
-   * or live `metadataDelta`) with the hub's current lists + cursor — the web
-   * store persists these into the replica (data first, cursor after). The arrays
-   * are the hub's own (not copies): treat them as read-only.
-   */
-  onMetadataApplied?: (state: MetadataAppliedState) => void
   /**
    * WIRE v2 (POD-376): opt this hub into the FEED, and hand every frame to the
    * kernel Replica.
    *
    * PROVIDING THIS IS THE ADVERTISEMENT. `hello` gains `wireVersion`, so the
    * server resolves the identity adapter instead of the v1 translation, and
-   * this connection receives `feedBootstrap` / `feedDelta` / `feedRescope` /
-   * `feedResyncRequired` untranslated — which is what carries `(feedId, epoch,
-   * seq)`, the certified range, `minAvailableSeq`, and the `evict` op that v1
-   * cannot express at all.
+   * this connection receives every canonical feed envelope untranslated.
    *
-   * MUTUALLY EXCLUSIVE WITH {@link fetchChangesSince}, and refused at
-   * construction. The two are the SAME read served by two wire versions, and a
-   * hub given both would apply v1 lists and v2 frames onto one client — two
-   * definitions of "now" inside one connection, which is precisely the shape the
-   * serving-path cutover deleted on the server. POD-376's shadow comparison runs
-   * the two paths as two CONNECTIONS for exactly this reason; a hub that could
-   * hold both would have made the comparison vacuous, since one path would be
-   * feeding the other.
+   * Mutually exclusive with the legacy feed sink: one wire per connection.
    */
   feed?: FeedSinkPort
 }
@@ -182,14 +127,13 @@ export type FeedServerFrame = Extract<
 /**
  * Where v2 frames go. Implemented by the kernel Replica's client-side consumer
  * (`@podium/client-core/replica/feed`); the transport knows nothing about
- * replicas, cursors or storage.
+ * replicas, feed positions or storage.
  *
  * The two lifecycle calls are here rather than left to the embedder because the
  * transport is the only thing that knows when the socket is up: the kernel
  * Replica's `stale` posture — "visible, never blank" — is entered on
- * {@link disconnected} and resumed from the persisted cursor on
- * {@link connected}, and an embedder polling `hub.connected` would enter it late
- * and at a different moment than the frames stop.
+ * {@link disconnected} and resumed by the replica on {@link connected}; an embedder
+ * polling `hub.connected` would enter it late, at a different moment than frames stop.
  */
 export interface FeedSinkPort {
   /** The socket is open and `hello` has advertised the wire version. */
@@ -198,47 +142,6 @@ export interface FeedSinkPort {
   disconnected(): void
   /** One frame, in arrival order. Order IS the correctness property (ADR 2 D9). */
   frame(frame: FeedServerFrame): void
-}
-
-/** Snapshot of the hub's metadata state handed to `onMetadataApplied`. */
-export interface MetadataAppliedState {
-  cursor: number
-  sessions: SessionMeta[]
-  issues: IssueWire[]
-  /** The normalized issues [POD-796] — emitted unconditionally since POD-797
-   *  deleted the flag. Additive: an embedder that ignores it behaves exactly
-   *  as before. */
-  issueProjections: IssueProjection[]
-  /** The issue dependency EDGES [POD-822] — `issue_deps` as first-class rows.
-   *  A consumer of `issueProjections` needs these: the projection carries no
-   *  `deps` (an edge belongs to two issues, so it cannot be a field on either
-   *  without putting cross-entity work on the write path), and without them
-   *  `blocked` derives as `false` for every blocked issue. Same flag gate. */
-  issueDeps: IssueDepProjection[]
-  /** The logical repos [POD-822] — `(repoId, prefix)`. The `displayRef` join:
-   *  without them every issue reads `#13` instead of `POD-13`. Same flag gate. */
-  repos: RepoProjection[]
-  conversations: ConversationSummaryWire[]
-  automations: AutomationWire[]
-  automationRuns: AutomationRunWire[]
-  /**
-   * Feed identity as of the batch that was just applied (ADR 2 D1/D5), when the
-   * authority stamped it — see `CAP_SYNC_FEED_IDENTITY` in the hello.
-   *
-   * The embedder persists `(feedId, epoch, cursor)` as the replica's cursor
-   * TRIPLE: a bare `cursor` cannot distinguish "up to date" from "holding
-   * entities off a timeline that no longer exists". Absent against an authority
-   * that predates POD-792, which is not a mismatch — see `identityVerdict` in
-   * client-core's `replica/feed.ts`, which is where this is judged.
-   *
-   * NOT applied by the hub itself: the hub still heals on a bare seq (rungs 0/1
-   * only), and POD-796 moves the full ladder onto this path when it cuts the
-   * wire over. Publishing the identity now is what lets the replica hold the
-   * real triple in the meantime.
-   */
-  feedId?: string
-  epoch?: string
-  minAvailableSeq?: number
 }
 
 function utf8ToBase64(text: string): string {
@@ -401,7 +304,7 @@ type AnyHubEventHandler = (...payload: never[]) => void
 export class SocketHub {
   private readonly opts: SocketHubOptions
   private readonly makeSocket: (url: string) => WebSocketLike
-  private readonly legacyFeed: LegacyWireV1Feed | undefined
+  private readonly legacyFeed: LegacyFeedSinkPort | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private socket: WebSocketLike | undefined
   private connectedFlag = false
@@ -449,16 +352,9 @@ export class SocketHub {
   private readonly connections = new Map<SessionId, SessionConnection>()
   private readonly terminalAttachDenials = new Set<SessionId>()
   // Per-session structured transcript subscriptions. The hub is a thin
-  // delta-forwarder: it holds NO buffered items (ChatView owns history, seeded
-  // from a tRPC read). It tracks only `since` — the cursor of the newest item
-  // Per-session headless-activity registrations, keyed by the caller's callback
-  // so re-registering the same cb dedups to one delivery + one unsubscribe.
-  private readonly headlessSubs = new Map<
-    string,
-    Map<(e: HeadlessActivityEvent) => void, () => void>
-  >()
+  // delta-forwarder: it holds no buffered items, only the stream resume token.
+  // The token is transcript state, not feed state.
 
-  // forwarded so far — so a reconnect can resume the live stream from that point.
   // An entry exists while at least one observer is subscribed.
   private readonly transcripts = new Map<
     SessionId,
@@ -468,6 +364,11 @@ export class SocketHub {
       /** The entry's seam registration — released when the last observer leaves. */
       off: () => void
     }
+  >()
+  // Per-session headless-activity registrations, keyed by callback.
+  private readonly headlessSubs = new Map<
+    string,
+    Map<(e: HeadlessActivityEvent) => void, () => void>
   >()
   /** THE subscription seam: one handler Set per event kind (see HubEvents). */
   private readonly eventObservers = new Map<HubEventKind, Set<AnyHubEventHandler>>()
@@ -482,28 +383,20 @@ export class SocketHub {
   }
 
   constructor(opts: SocketHubOptions) {
-    if (opts.feed !== undefined && opts.fetchChangesSince !== undefined) {
-      throw new Error(
-        'SocketHub: `feed` (wire v2) and `fetchChangesSince` (wire v1 delta mode) are the same read ' +
-          'on two wire versions, and a hub given both would apply v1 lists and v2 frames onto one ' +
-          'client — two definitions of "now" inside one connection. Pick the version this connection ' +
-          'speaks; POD-376 runs the shadow comparison as two connections precisely so neither path ' +
-          'can be fed by the other.',
-      )
+    if (opts.feed !== undefined && opts.legacyFeed !== undefined) {
+      throw new Error('SocketHub accepts one feed sink per connection')
     }
     this.opts = opts
-    this.subscriptionRegistry = new ClientSubscriptionRegistry(opts.feed !== undefined)
+    this.subscriptionRegistry = new ClientSubscriptionRegistry(
+      opts.feed !== undefined || opts.legacyFeed !== undefined,
+    )
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
-    this.legacyFeed = opts.fetchChangesSince
-      ? new LegacyWireV1Feed({
-          fetchChangesSince: opts.fetchChangesSince,
-          initialCursor: opts.initialCursor,
-          isConnected: () => this.connectedFlag,
-          applyChanges: (changes) => this.applyChanges(changes),
-          replaceSnapshot: (snapshot) => this.replaceMetadataSnapshot(snapshot),
-          applied: (cursor, stamp) => this.emitMetadataApplied(cursor, stamp),
-        })
-      : undefined
+    this.legacyFeed = opts.legacyFeed
+    this.legacyFeed?.bind({
+      apply: (changes) => this.applyChanges(changes),
+      replace: (projection) => this.replaceMetadataSnapshot(projection),
+      snapshot: () => this.metadataProjection(),
+    })
   }
 
   get connected(): boolean {
@@ -545,19 +438,13 @@ export class SocketHub {
         type: 'hello',
         clientId: this.clientIdValue,
         viewport: { ...this.opts.viewport },
-        // Delta mode is negotiated per connection — advertise it only when the
-        // embedder wired a changesSince fetcher (see SocketHubOptions).
-        // CAP_SYNC_FEED_IDENTITY rides alongside it and is only meaningful with
-        // it (there is no frame to stamp otherwise): it asks the server to stamp
-        // `(feedId, epoch, minAvailableSeq)` onto this client's delta frames, so
-        // the cursor can be ADR 2 D1's triple rather than a bare seq. Without it
-        // a restored-from-backup authority is undetectable: `changesSince(500)`
-        // answers "up to date" over 100 phantom rows, forever.
+        // Legacy feed capability negotiation is keyed only by the presence of the
+        // opaque Replica sink. Transport never reads its position or stamp.
         // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
         // promises the server this client no longer needs IssueWire, which is
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
-        ...(this.opts.fetchChangesSince
+        ...(this.legacyFeed
           ? {
               caps: [
                 CAP_METADATA_DELTA,
@@ -573,13 +460,9 @@ export class SocketHub {
         // version it has nowhere to put.
         ...(this.opts.feed ? { wireVersion: WIRE_VERSION } : {}),
       })
-      // The replica resumes from its persisted cursor here — BEFORE the attaches
-      // and presence below, so the position is established at the same moment the
-      // server starts framing for this connection.
+      // Start both opaque feed sinks before restoring attaches and presence.
       this.opts.feed?.connected()
-      // Catch up on whatever the metadata stream did while we were away (or take
-      // the bootstrap snapshot on a first connect). The attach-time snapshots the
-      // server sends pre-hello already painted the UI; this establishes the cursor.
+      // The legacy adapter independently decides whether and how to catch up.
       this.legacyFeed?.connected()
       // Re-attach with a resume cursor: the view survived the drop, so ask the
       // server to catch us up from the last seq we rendered instead of wiping and
@@ -909,7 +792,19 @@ export class SocketHub {
     automations?: AutomationWire[]
     automationRuns?: AutomationRunWire[]
   }): void {
-    if (this.legacyFeed !== undefined && !this.legacyFeed.canSeed()) return
+    if (this.legacyFeed !== undefined) {
+      this.legacyFeed.seed({
+        sessions: seed.sessions,
+        issues: seed.issues,
+        issueProjections: seed.issueProjections ?? [],
+        issueDeps: seed.issueDeps ?? [],
+        repos: seed.repos ?? [],
+        conversations: seed.conversations,
+        automations: seed.automations ?? [],
+        automationRuns: seed.automationRuns ?? [],
+      })
+      return
+    }
     this.sessionList = seed.sessions
     this.issueList = seed.issues
     // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
@@ -1434,12 +1329,8 @@ export class SocketHub {
     this.connections.get(msg.sessionId)?._ingest(msg)
   }
 
-  private emitMetadataApplied(
-    cursor: number,
-    stamp: { feedId?: string; epoch?: string; minAvailableSeq?: number },
-  ): void {
-    this.opts.onMetadataApplied?.({
-      cursor,
+  private metadataProjection(): LegacyMetadataProjection {
+    return {
       sessions: this.sessionList,
       issues: this.issueList,
       issueProjections: this.issueProjectionList,
@@ -1448,21 +1339,18 @@ export class SocketHub {
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
-      ...stamp,
-    })
+    }
   }
 
-  private replaceMetadataSnapshot(
-    result: Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
-  ): void {
+  private replaceMetadataSnapshot(result: LegacyMetadataProjection): void {
     this.sessionList = result.sessions
     this.issueList = result.issues
-    this.issueProjectionList = result.issueProjections ?? []
-    this.issueDepList = result.issueDeps ?? []
-    this.repoList = result.repos ?? []
+    this.issueProjectionList = result.issueProjections
+    this.issueDepList = result.issueDeps
+    this.repoList = result.repos
     this.conversationList = result.conversations
-    this.automationList = result.automations ?? []
-    this.automationRunList = result.automationRuns ?? []
+    this.automationList = result.automations
+    this.automationRunList = result.automationRuns
     this.emit('sessions', this.sessionList)
     this.emit('issues', this.issueList)
     this.emit('issueProjections', this.issueProjectionList)
@@ -1477,8 +1365,7 @@ export class SocketHub {
    *  Exhaustive over the KNOWN entity kinds; an unknown kind (a NEWER server,
    *  [spec:SP-3fe2] #258) is ignored with a debug log — the old else-branch
    *  folded anything unrecognised into the conversation list, silently
-   *  corrupting it. The cursor still advances past ignored rows (the caller
-   *  advances by msg.seq/result.cursor), so this is NOT a gap and must not heal. */
+   *  corrupting it. Position advancement remains solely the Replica adapter's decision. */
   private applyChanges(changes: MetadataChangeLenient[]): void {
     const touched = new Set<MetadataChange['entity']>()
     for (const c of changes) {

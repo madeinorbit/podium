@@ -1,50 +1,63 @@
 import {
-  type MetadataChangeLenient,
   type MetadataDeltaMessageLenient,
   parseChangesSinceResult,
   type SyncChangesSinceResultLenient,
 } from '@podium/protocol'
+import type {
+  LegacyFeedSinkPort,
+  LegacyMetadataProjection,
+  LegacyMetadataProjectionPort,
+} from '../socket-transport/legacy-feed-port'
+
+export interface LegacyMetadataAppliedState extends LegacyMetadataProjection {
+  cursor: number
+  feedId?: string
+  epoch?: string
+  minAvailableSeq?: number
+}
 
 /**
  * Compatibility consumer for the retired wire-v1 metadata feed.
  *
- * This lives beside the Replica, not in transport: it owns the legacy seq
- * cursor, gap detection, catch-up and feed-identity stamp. SocketHub only hands
- * it envelopes and receives list updates through the callbacks below.
+ * This lives beside the Replica, not in socket transport: it owns the legacy
+ * position, gap detection, catch-up and feed-identity stamp. SocketHub hands it
+ * envelopes through an opaque port and receives only projection operations.
  */
 export interface LegacyWireV1FeedHooks {
   fetchChangesSince(cursor: number | null): Promise<SyncChangesSinceResultLenient>
   initialCursor?: number | null
-  isConnected(): boolean
-  applyChanges(changes: MetadataChangeLenient[]): void
-  replaceSnapshot(snapshot: Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>): void
-  applied(
-    cursor: number,
-    stamp: { feedId?: string; epoch?: string; minAvailableSeq?: number },
-  ): void
+  applied(state: LegacyMetadataAppliedState): void
 }
 
 const HEAL_RETRY_MS = 3_000
 
-export class LegacyWireV1Feed {
+export class LegacyWireV1Feed implements LegacyFeedSinkPort {
   private cursor: number | null = null
   private readonly stamp: { feedId?: string; epoch?: string; minAvailableSeq?: number } = {}
   private initialCursorSpent = false
   private pending: MetadataDeltaMessageLenient[] = []
   private healing = false
+  private connectedFlag = false
   private retryTimer: ReturnType<typeof setTimeout> | undefined
+  private projection: LegacyMetadataProjectionPort | undefined
 
   constructor(private readonly hooks: LegacyWireV1FeedHooks) {}
 
-  canSeed(): boolean {
-    return this.cursor === null
+  bind(projection: LegacyMetadataProjectionPort): void {
+    this.projection = projection
+  }
+
+  seed(projection: LegacyMetadataProjection): void {
+    if (this.cursor === null) this.target().replace(projection)
   }
 
   connected(): void {
+    this.connectedFlag = true
     this.heal()
   }
 
   disconnected(): void {
+    this.connectedFlag = false
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer)
     this.retryTimer = undefined
     this.pending = []
@@ -87,15 +100,15 @@ export class LegacyWireV1Feed {
         if (change.seq <= previous || change.seq > frame.seq) return false
         previous = change.seq
       }
-      if (fresh.length > 0) this.hooks.applyChanges(fresh)
+      if (fresh.length > 0) this.target().apply(fresh)
       this.cursor = frame.seq
       return true
     }
 
     const fresh = frame.changes.filter((change) => change.seq > cursor)
     if (fresh.length === 0) return true
-    if ((fresh[0] as MetadataChangeLenient).seq !== cursor + 1) return false
-    this.hooks.applyChanges(fresh)
+    if (fresh[0]?.seq !== cursor + 1) return false
+    this.target().apply(fresh)
     this.cursor = frame.seq
     return true
   }
@@ -129,11 +142,9 @@ export class LegacyWireV1Feed {
         this.healing = false
         this.noteStamp(result)
         if (result.kind === 'snapshot') {
-          this.hooks.replaceSnapshot(result)
+          this.target().replace(projectionOf(result))
         } else if (result.changes.length > 0) {
-          this.hooks.applyChanges(
-            result.changes.filter((change) => change.seq > (this.cursor ?? 0)),
-          )
+          this.target().apply(result.changes.filter((change) => change.seq > (this.cursor ?? 0)))
         }
         this.cursor = result.cursor
 
@@ -151,7 +162,7 @@ export class LegacyWireV1Feed {
       () => {
         this.healing = false
         this.pending = []
-        if (this.hooks.isConnected() && this.retryTimer === undefined) {
+        if (this.connectedFlag && this.retryTimer === undefined) {
           this.retryTimer = setTimeout(() => {
             this.retryTimer = undefined
             this.heal()
@@ -162,6 +173,28 @@ export class LegacyWireV1Feed {
   }
 
   private publishApplied(): void {
-    if (this.cursor !== null) this.hooks.applied(this.cursor, this.stamp)
+    if (this.cursor !== null) {
+      this.hooks.applied({ cursor: this.cursor, ...this.target().snapshot(), ...this.stamp })
+    }
+  }
+
+  private target(): LegacyMetadataProjectionPort {
+    if (this.projection === undefined) {
+      throw new Error('LegacyWireV1Feed must be bound to a projection port before use')
+    }
+    return this.projection
   }
 }
+
+const projectionOf = (
+  snapshot: Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
+): LegacyMetadataProjection => ({
+  sessions: snapshot.sessions,
+  issues: snapshot.issues,
+  issueProjections: snapshot.issueProjections ?? [],
+  issueDeps: snapshot.issueDeps ?? [],
+  repos: snapshot.repos ?? [],
+  conversations: snapshot.conversations,
+  automations: snapshot.automations ?? [],
+  automationRuns: snapshot.automationRuns ?? [],
+})
