@@ -978,7 +978,13 @@ describe('SessionRegistry', () => {
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
     reg.modules.sessions.killSession({ sessionId: s1 })
-    expect(daemon).toContainEqual({ type: 'kill', sessionId: s1, durableLabel: 'podium-' + s1 })
+    expect(daemon).toContainEqual({
+      type: 'sessionBindingRetire',
+      sessionId: s1,
+      transitionId: `retire:${s1}`,
+      retiredAt: expect.any(String),
+      durableLabel: `podium-${s1}`,
+    })
     expect(reg.modules.sessions.listSessions()).toHaveLength(0)
   })
 
@@ -1175,7 +1181,7 @@ describe('SessionRegistry', () => {
     )
   })
 
-  it('lets exact Codex identity evidence heal a stale sibling binding', () => {
+  it('lets exact Codex identity evidence heal a stale heuristic sibling projection', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const first = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
@@ -2890,7 +2896,7 @@ describe('hibernation', () => {
     const reg2 = new SessionRegistry(store)
     // biome-ignore lint/suspicious/noExplicitAny: inspect the rehydrated session
     const seeded = (reg2 as any).modules.sessions.sessions.get(sessionId)
-    expect(seeded.lastOutputAtMs).toBeGreaterThan(0)
+    expect(seeded.terminal.lastOutputAtMs).toBeGreaterThan(0)
   })
 
   it('hibernate kills the process, keeps the row, survives the agentExit echo', () => {

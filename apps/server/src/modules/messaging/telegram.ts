@@ -169,11 +169,17 @@ export class TelegramChannel implements ChannelAdapter {
     /** While true the poll loop idles — the settings telegram-setup flow owns
      *  getUpdates for its pairing window (concurrent polls 409). */
     private readonly paused: () => boolean = () => false,
+    /** Live fail-closed chat binding predicate; absent preserves the legacy configured chat. */
+    private readonly acceptChat?: (chatId: string) => boolean,
   ) {}
 
   private api(method: string): string {
     return `https://api.telegram.org/bot${this.config.botToken.trim()}/${method}`
   }
+  private accepts(chatId: string): boolean {
+    return this.acceptChat?.(chatId) ?? chatId === this.config.chatId.trim()
+  }
+
 
   private async call(method: string, body?: unknown, signal?: AbortSignal): Promise<TelegramApiBody> {
     const res = await fetch(this.api(method), {
@@ -218,7 +224,6 @@ export class TelegramChannel implements ChannelAdapter {
       if (this.stopped) return
       console.warn('[podium:messaging] telegram initial offset fetch failed:', err)
     }
-    const wantChatId = this.config.chatId.trim()
     while (!this.stopped) {
       if (this.paused()) {
         await sleep(3000)
@@ -237,7 +242,7 @@ export class TelegramChannel implements ChannelAdapter {
         const { messages, callbacks, lastUpdateId } = parseTelegramUpdates(body.result)
         if (lastUpdateId !== undefined) this.offset = lastUpdateId + 1
         for (const msg of messages) {
-          if (msg.chatId !== wantChatId) continue
+          if (!this.accepts(msg.chatId)) continue
           onMessage({
             source: {
               channel: this.channel,
@@ -249,7 +254,7 @@ export class TelegramChannel implements ChannelAdapter {
           })
         }
         for (const cb of callbacks) {
-          if (cb.chatId !== wantChatId) continue
+          if (!this.accepts(cb.chatId)) continue
           onMessage({
             source: {
               channel: this.channel,

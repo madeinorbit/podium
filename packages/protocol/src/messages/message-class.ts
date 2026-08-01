@@ -189,10 +189,12 @@ export const CONTROL_PLANE_CLASS = {
   agentObservationAck: 'control.command',
   agentObservationRebindAck: 'control.command',
   kill: 'control.command',
+  sessionBindingRetire: 'control.command',
   // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
   draftTarget: 'control.command',
   // Host channel, NOT the agent relay ([spec:SP-fccf], ADR 7 D2).
   sessionResumeRefAck: 'control.command',
+  sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
   sessionPriority: 'control.command',
   scanRequest: 'control.command',

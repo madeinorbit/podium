@@ -186,6 +186,7 @@ function harness(
   let clock = NOW
   let n = 0
   let issueN = 0
+  let authorized = true
   const ledger = new Ledger({
     repo: store.sync,
     now: () => clock.getTime(),
@@ -210,7 +211,7 @@ function harness(
     resumeAndSend,
     createIssue,
     liveSessionIds: () => new Set((opts.live ?? []).map(asSessionId)),
-    principalForOwner: () => TEST_PRINCIPAL,
+    principalForOwner: () => (authorized ? TEST_PRINCIPAL : undefined),
     mayUseDefaultMachine: () => true,
     now: () => clock,
     homeDir: () => '/home/tester',
@@ -225,6 +226,9 @@ function harness(
     createIssue,
     setNow: (d: Date) => {
       clock = d
+    },
+    revokeOwner: () => {
+      authorized = false
     },
   }
 }
@@ -432,7 +436,7 @@ describe('AutomationsService.tick — spawn', () => {
       defaultEffort: 'auto',
       type: 'automation',
       ownerUserId: FIRST_ADMIN_USER_ID,
-      createdByActor: 'system:automation',
+      createdByActor: `automation:${a.id}`,
       createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     })
     // The prompt is NEVER handed to createSession: initialPrompt is argv-only and
@@ -501,7 +505,7 @@ describe('AutomationsService.tick — spawn', () => {
       sessionId: null,
       outcome: 'error',
       detail: 'reserved',
-      actor: 'system:automation',
+      actor: `automation:${a.id}`,
       onBehalfOf: FIRST_ADMIN_USER_ID,
     })
     // nextRunAt still the original occurrence
@@ -523,6 +527,42 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.store.automations.get(a.id)?.nextRunAt).not.toBe(firedAt)
   })
 
+  it('re-authorizes a reserved occurrence on replay after its owner is revoked', () => {
+    const h = harness()
+    const a = daily(h)
+    const firedAt = iso(new Date(2026, 6, 15, 9, 0))
+    h.setNow(new Date(2026, 6, 15, 9, 0, 10))
+    const runId = automationOccurrenceRunId(a.id, firedAt)
+    h.store.automations.addRun({
+      id: runId,
+      automationId: a.id,
+      firedAt,
+      sessionId: null,
+      outcome: 'error',
+      detail: 'reserved',
+      actor: `automation:${a.id}`,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    })
+
+    // Revocation happens after durable reservation and before startup replay.
+    h.revokeOwner()
+    const result = h.service.applyObservedOccurrence({
+      automationId: a.id,
+      nextRunAt: firedAt,
+      enabled: true,
+      liveSessionIds: new Set(),
+      now: new Date(2026, 6, 15, 9, 0, 10),
+    })
+
+    expect(result).toBe('applied')
+    expect(h.createIssue).not.toHaveBeenCalled()
+    expect(h.createSession).not.toHaveBeenCalled()
+    expect(h.queueText).not.toHaveBeenCalled()
+    expect(h.store.automations.getRun(runId)).toMatchObject({
+      outcome: 'error',
+      detail: 'automation creator account is disabled or missing',
+    })
+  })
   it('resume mode reuses the previous successful session on later fires', () => {
     const h = harness()
     const a = h.service.create({

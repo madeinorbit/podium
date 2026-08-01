@@ -41,14 +41,16 @@ function harness(options: { owner?: typeof ALICE | null; status?: string } = {})
     agentKind: 'codex',
     resume: { kind: 'codex', value: 'resume-1' },
     queuedMessageCount: 0,
-    lastOutputAtMs: 0,
     agentState: { phase: 'idle' },
-    transcriptItems: () => [],
-    recordInputActivity: vi.fn(),
-    handleInput,
-    requestControl: vi.fn(),
-    handleResize: vi.fn(),
-    reconcileGeometry: vi.fn(),
+    terminal: {
+      lastOutputAtMs: 0,
+      transcriptItems: () => [],
+      recordInputActivity: vi.fn(),
+      handleInput,
+      requestControl: vi.fn(),
+      handleResize: vi.fn(),
+      reconcileGeometry: vi.fn(),
+    },
   } as unknown as Session
   const inbox = new SessionInbox({
     getSession: (id) => (id === SID ? session : undefined),

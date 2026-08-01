@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { LlmConfigError } from './llm'
+import { LlmConfigError } from './llm-error'
 
 /**
  * Reuse the local ChatGPT login that the Codex CLI maintains in

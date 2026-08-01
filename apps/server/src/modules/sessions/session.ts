@@ -2,7 +2,6 @@ import {
   type AccountId,
   type AgentKind,
   type AgentRuntimeState,
-  type Attribution,
   type ConversationId,
   type Geometry,
   type IssueId,
@@ -13,21 +12,16 @@ import {
   type SessionUserOverlay,
   type SessionOffer,
   type SessionOrigin,
-  type TranscriptItem,
   type WorkState,
 } from '@podium/model'
 import { FIRST_ADMIN_USER_ID, WorkState as WorkStateSchema } from '@podium/model'
 import type {
   ControlMessage,
-  MetadataChange,
-  ServerMessage,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import type { SessionRow } from '../../store'
-import { feedPrincipalOf } from '../../gateway/client-principal'
-import { perfPrincipal } from '../perf/principal'
-import { perf } from '../perf/registry'
+import { SessionTerminal, type SessionTerminalState } from './terminal'
 
 export type Send<T> = (msg: T) => void
 
@@ -64,7 +58,6 @@ export interface ClientPublicationAuthority extends PublicationAuthority {
  * forwarding shim: `Session` takes one as an argument, and every other consumer
  * imports it from the gateway too.
  */
-import type { ClientConn } from '../../gateway/client-registry'
 
 export interface SessionInit {
   sessionId: SessionId
@@ -136,37 +129,6 @@ export interface SessionInit {
   onUnreadRearm?: () => void
 }
 
-// Replay-on-attach: keep a bounded buffer of recent agent output so a freshly attached
-// or re-mounted client reconstructs the screen instead of starting blank. Redraw (a
-// SIGWINCH nudge) covers alt-screen TUIs that fully repaint; this covers normal-buffer
-// apps (shells, Ink) whose scrollback a redraw cannot recreate. Reset on a screen clear
-// or alt-screen transition keeps the buffer small and aligned to the current screen.
-const MAX_REPLAY_BYTES = 256 * 1024
-// Bounded recent-delta cache per session — the live window a late subscriber gets
-// to bridge the gap between its last on-disk read and the live tail. It is NOT the
-// source of truth (disk is): the chat view reads its history off disk via
-// sessions.transcriptRead, and this cache only carries forward items streamed since.
-// Generous on purpose so a freshly-subscribing client usually catches up whole, but
-// still bounded (each item is small; ~12k is a few MB per live session). Items older
-// than this window fall off — the client already has them from its disk read. Kept in
-// step with the tailer's MAX_INITIAL_ITEMS so a reattach delta and the cache match.
-const MAX_TRANSCRIPT_ITEMS = 12_000
-// How long after the last output frame a running shell command still reads as
-// "busy". A command keeps resetting it; once output goes quiet for this long the
-// shell is back at its prompt (idle). Long enough to bridge the gaps between a
-// command's output bursts.
-const SHELL_BUSY_WINDOW_MS = 4000
-
-/** Did a controller keystroke chunk (base64) submit a line — i.e. press Enter?
- *  CR/LF is the one signal that a shell *command was actually run*, as opposed to
- *  the prompt being drawn or keystrokes echoing. Gating busy on this is why a
- *  freshly-opened or sit-at-the-prompt shell reads idle instead of active. */
-function submitsCommandLine(base64: string): boolean {
-  const bytes = Buffer.from(base64, 'base64')
-  return bytes.includes(0x0d) || bytes.includes(0x0a)
-}
-// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
-const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
 export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handoffTarget'
@@ -204,16 +166,7 @@ export interface SessionDurableState {
   draftUpdatedAt: string | undefined
   offer: SessionOffer | undefined
   transcriptAvailable: boolean
-  geometry: Geometry
-  outputAtMs: number
-  inputAtMs: number
-  resumedAtMs: number
-  inputCount: number
-  outputCount: number
-  activityCount: number
-  activityDirty: boolean
-  shellBusy: boolean
-  shellCommandRunning: boolean
+  terminal: SessionTerminalState
 }
 
 export class Session {
@@ -321,48 +274,7 @@ export class Session {
   offer: SessionOffer | undefined = undefined
   /** True once a structured transcript has been seen — drives chat capability. */
   transcriptAvailable = false
-  geometry: Geometry
-  epoch = 0
-  controllerId: string | null = null
-  // Wall-clock ms of the last output frame (0 = none yet). Drives the "is a
-  // process producing output" signal — the shell busy flag and the hibernation
-  // guard that keeps a session with a running background agent awake.
-  private outputAtMs = 0
-  private inputAtMs = 0
-  private resumedAtMs = 0
-  private inputCount_ = 0
-  private outputCount_ = 0
-  private activityCount_ = 0
-  // Set when any of the three counters above advances; the registry's periodic
-  // flush persists dirty sessions and clears this. Keeps the hot path off the DB.
-  private activityDirty_ = false
-  // Debounced "writing to the PTY right now" flag, maintained for shells only —
-  // their activity signal, since they have no harness instrumentation.
-  private shellBusy = false
-  private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
-  // A shell command is "running" from when the controller submits a line (Enter)
-  // until its output goes quiet — NOT while the shell merely draws its prompt or
-  // echoes typed characters. Output frames only count toward `busy` while this is
-  // set, so opening a shell (which draws a prompt) no longer reads as active.
-  private shellCommandRunning = false
-  private readonly onActivity: (() => void) | undefined
-  // Server-assigned, monotonic per-session output sequence. The PTY bridge's own
-  // seq resets to 0 on every daemon reattach, so it cannot be a stable client
-  // cursor; the server owns the numbering instead. It survives daemon restarts
-  // (the Session object outlives the bridge) and only resets on a server restart.
-  // A stale-high browser cursor identifies that generation reset in attachClient.
-  private nextSeq = 0
-  private readonly toDaemon: Send<ControlMessage>
-  private readonly clients = new Map<string, ClientConn>()
-  // Recent agent output (base64 frames) for replay-on-attach; bounded by MAX_REPLAY_BYTES.
-  private readonly outputLog: { seq: number; data: string }[] = []
-  private outputLogBytes = 0
-  // Bounded recent-delta cache (chat view) + which clients want its stream.
-  // Holds the connection (not just the id): a chat-only client subscribes
-  // without ever attaching to the PTY. This is a gap-bridging window, not the
-  // transcript source of truth — disk is.
-  private transcript: TranscriptItem[] = []
-  private readonly transcriptSubscribers = new Map<string, ClientConn>()
+  readonly terminal: SessionTerminal
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
@@ -384,26 +296,30 @@ export class Session {
     this.refIssueId = init.refIssueId ?? null
     this.refLetter = init.refLetter ?? null
     this.refDraft = init.refDraft ?? null
-    this.geometry = { ...init.geometry }
-    this.toDaemon = init.toDaemon
+    this.terminal = new SessionTerminal({
+      sessionId: init.sessionId,
+      agentKind: init.agentKind,
+      geometry: init.geometry,
+      toDaemon: init.toDaemon,
+      inputCount: init.inputCount,
+      outputCount: init.outputCount,
+      activityCount: init.activityCount,
+      lastOutputAt: init.lastOutputAt,
+      lastInputAt: init.lastInputAt,
+      lastResumedAt: init.lastResumedAt,
+      onActivity: (at, changed) => {
+        this.lastActiveAt = at
+        if (changed) init.onActivity?.()
+      },
+      onTranscriptAvailable: () => {
+        this.transcriptAvailable = true
+      },
+    })
     this.machineId = init.machineId ?? '__local__'
     this.durableLabel = init.durableLabel ?? durableSessionLabel(init.sessionId)
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
     this.workingMsTotal = init.workingMsTotal
-    // A malformed stored ISO string parses to NaN, and Math.max(..., NaN) is NaN —
-    // which makes the session never hibernation-eligible (stuck awake forever). Fall
-    // back to 0 so a bad value behaves like "no activity yet".
-    const seedMs = (iso: string | null | undefined): number => {
-      const ms = iso ? Date.parse(iso) : 0
-      return Number.isNaN(ms) ? 0 : ms
-    }
-    this.outputAtMs = seedMs(init.lastOutputAt)
-    this.inputAtMs = seedMs(init.lastInputAt)
-    this.resumedAtMs = seedMs(init.lastResumedAt)
-    this.inputCount_ = init.inputCount ?? 0
-    this.outputCount_ = init.outputCount ?? 0
-    this.activityCount_ = init.activityCount ?? 0
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
     if (init.spawnFailure !== undefined) this.spawnFailure = init.spawnFailure
@@ -413,41 +329,7 @@ export class Session {
     this.stoppedAt = init.stoppedAt ?? undefined
     this.stopReason = init.stopReason ?? undefined
     if (init.workState) this.workState = init.workState
-    this.onActivity = init.onActivity
     this.onUnreadRearm = init.onUnreadRearm
-  }
-
-  get clientCount(): number {
-    return this.clients.size
-  }
-
-  /** Epoch ms of the last PTY output frame (0 = none). */
-  get lastOutputAtMs(): number {
-    return this.outputAtMs
-  }
-  /** Epoch ms of the last controller input — any keys/mouse/paste (0 = none). */
-  get lastInputAtMs(): number {
-    return this.inputAtMs
-  }
-  /** Epoch ms of the last resume/resurrect (0 = never). */
-  get lastResumedAtMs(): number {
-    return this.resumedAtMs
-  }
-  get inputCount(): number {
-    return this.inputCount_
-  }
-  get outputCount(): number {
-    return this.outputCount_
-  }
-  get activityCount(): number {
-    return this.activityCount_
-  }
-  get activityDirty(): boolean {
-    return this.activityDirty_
-  }
-
-  clearActivityDirty(): void {
-    this.activityDirty_ = false
   }
 
   /**
@@ -459,361 +341,12 @@ export class Session {
     this.stoppedAt = undefined
     this.stopReason = undefined
     this.spawnFailure = undefined
-    this.resumedAtMs = Date.now()
-    this.activityCount_ += 1
-    this.activityDirty_ = true
-  }
-
-  attachClient(client: ClientConn, sinceSeq?: number): void {
-    this.clients.set(client.id, client)
-    // First attacher takes the controller role. A non-rendering controller is
-    // harmless: the size operations are independently gated on per-session
-    // viewState (handleResize / requestControl below), so it can't move the PTY
-    // off a stale grid until it actually renders the session.
-    if (this.controllerId === null) this.controllerId = client.id
-    // Resume vs full replay. On a reconnect the client passes the last seq it
-    // rendered; if that point is still inside our bounded buffer, replay only the
-    // frames it missed and flag the attach `resumed` so it appends to the screen it
-    // kept (no flicker). A fresh mount (no sinceSeq) or a gap larger than the buffer
-    // falls back to a full replay, which the client clears the screen for. The
-    // `oldest - 1` floor lets a client that was exactly caught up resume with zero
-    // frames instead of needlessly wiping. A restarted server has an empty log or
-    // a new low sequence generation; a stale-high cursor in those cases keeps the
-    // browser's surviving xterm intact and appends every new-generation frame
-    // instead of clearing it [spec:SP-1a0b].
-    const oldest = this.outputLog[0]?.seq
-    const newest = this.outputLog.at(-1)?.seq
-    let frames = this.outputLog
-    let resumed = false
-    if (sinceSeq !== undefined) {
-      if (oldest === undefined || newest === undefined) {
-        resumed = true
-        frames = []
-      } else if (sinceSeq > newest) {
-        resumed = true
-        frames = this.outputLog
-      } else if (sinceSeq >= oldest - 1) {
-        resumed = true
-        frames = this.outputLog.filter((f) => f.seq > sinceSeq)
-      }
-    }
-    client.send({
-      type: 'attached',
-      sessionId: this.sessionId,
-      controllerId: this.controllerId,
-      geometry: { ...this.geometry },
-      epoch: this.epoch,
-      resumed,
-    })
-    // Replay timing [POD-701]: how long the buffered-output catch-up took and
-    // how many payload chars it pushed (string length ≈ bytes).
-    const t0 = performance.now()
-    let replayBytes = 0
-    for (const f of frames) {
-      replayBytes += f.data.length
-      client.send({
-        type: 'outputFrame',
-        sessionId: this.sessionId,
-        seq: f.seq,
-        epoch: this.epoch,
-        data: f.data,
-      })
-    }
-    perf.record(
-      'phase',
-      'attach.replay',
-      performance.now() - t0,
-      perfPrincipal(feedPrincipalOf(client.principal)),
-      replayBytes,
-    )
-  }
-
-  /**
-   * Hand the controller role from a stale (dropped/half-open) client to its
-   * reconnected self. Called during reconnect reclaim BEFORE the old client is
-   * evicted, so a blip doesn't demote the user to a muted spectator of their own
-   * session. No-op when the stale client wasn't the controller.
-   */
-  reassignController(fromId: string, toId: string): void {
-    if (this.controllerId === fromId) this.controllerId = toId
-  }
-
-  /**
-   * Subscribe a client to the live transcript stream and replay the recent-delta
-   * cache so it bridges the gap between the client's last on-disk read and the live
-   * tail. The client already loaded its history off disk (sessions.transcriptRead);
-   * `since` is the cursor of the newest item it holds, so we replay only the cached
-   * items AFTER it. If `since` isn't in the cache (the client read an older cursor,
-   * or the cache rolled past it) we replay the WHOLE cache and let the client's
-   * cursor-dedup drop overlaps — better an overlap than a gap. No reset: the client
-   * keeps its read history. An empty replay sends nothing.
-   */
-  subscribeTranscript(client: ClientConn, since?: string): void {
-    this.transcriptSubscribers.set(client.id, client)
-    let replay = this.transcript
-    if (since !== undefined) {
-      const idx = this.transcript.findIndex((it) => it.cursor === since)
-      // Found `since` in the cache → replay strictly after it. Not found → replay all.
-      replay = idx >= 0 ? this.transcript.slice(idx + 1) : this.transcript
-    }
-    if (replay.length > 0) {
-      client.send({ type: 'transcriptDelta', sessionId: this.sessionId, items: replay })
-    }
-  }
-
-  unsubscribeTranscript(clientId: string): void {
-    this.transcriptSubscribers.delete(clientId)
-  }
-
-  /** The cached recent transcript items (superagent + first-prompt title read this). */
-  transcriptItems(): TranscriptItem[] {
-    return this.transcript
-  }
-
-  /** Daemon pushed parsed transcript items (a live delta); update the bounded cache
-   *  and fan out to subscribers as a transcriptDelta. `reset` (tailer switched files)
-   *  clears the cache first; `tail` is the cursor of the last item, forwarded so a
-   *  subscriber can resume from it. Returns true the first time a transcript is
-   *  observed (the chat-capability transition), so the registry can broadcast meta. */
-  applyDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string }): boolean {
-    const becameAvailable =
-      !this.transcriptAvailable && (items.length > 0 || this.transcript.length > 0)
-    if (becameAvailable) this.transcriptAvailable = true
-    if (opts.reset) this.transcript = []
-    this.transcript = this.transcript.concat(items)
-    if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
-      this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
-    }
-    const delta: ServerMessage = {
-      type: 'transcriptDelta',
-      sessionId: this.sessionId,
-      items,
-      ...(opts.tail !== undefined ? { tail: opts.tail } : {}),
-      ...(opts.reset ? { reset: true } : {}),
-    }
-    for (const client of this.transcriptSubscribers.values()) client.send(delta)
-    return becameAvailable
-  }
-
-  detachClient(clientId: string): void {
-    const client = this.clients.get(clientId)
-    client?.viewports.delete(this.sessionId)
-    this.clients.delete(clientId)
-    this.transcriptSubscribers.delete(clientId)
-    if (this.controllerId === clientId) {
-      // Hand the role to any remaining client (or null when none are left). A
-      // non-rendering inheritor is harmless — the size operations are gated on
-      // per-session viewState, so geometry stays put until it renders the session.
-      this.controllerId = this.clients.keys().next().value ?? null
-      if (this.controllerId !== null) {
-        this.broadcast({
-          type: 'controllerChanged',
-          sessionId: this.sessionId,
-          controllerId: this.controllerId,
-          geometry: { ...this.geometry },
-        })
-      }
-    }
-  }
-
-  detachAll(): void {
-    for (const client of this.clients.values()) client.viewports.delete(this.sessionId)
-    this.clients.clear()
-    this.controllerId = null
-  }
-
-  handleInput(clientId: string, data: string, attribution?: Attribution): void {
-    if (clientId === this.controllerId) {
-      // Submitting a line at a shell prompt is what starts a command running —
-      // mark busy now (before any output) and let onFrame keep it lit while the
-      // command produces output. Prompt-draw and bare keystrokes never reach here
-      // as a CR/LF, so they no longer flip the shell to active.
-      if (this.agentKind === 'shell' && submitsCommandLine(data)) {
-        this.shellCommandRunning = true
-        this.markShellBusy()
-      }
-      this.recordInputActivity()
-      this.toDaemon({
-        type: 'input',
-        sessionId: this.sessionId,
-        data,
-        inputOrigin: 'human',
-        ...(attribution ? { attribution } : {}),
-      })
-    }
-  }
-
-  /** Every server-authorized PTY input path calls this before enqueueing bytes. */
-  recordInputActivity(at = Date.now()): void {
-    this.inputAtMs = at
-    this.inputCount_ += 1
-    this.activityCount_ += 1
-    this.activityDirty_ = true
-  }
-
-  /** Count one accepted live provider observation; bootstrap/replay never call this. */
-  recordObservationActivity(): void {
-    this.activityCount_ += 1
-    this.activityDirty_ = true
-  }
-
-  handleResize(clientId: string, cols: number, rows: number): void {
-    const client = this.clients.get(clientId)
-    if (client) client.viewports.set(this.sessionId, { cols, rows })
-    // Only apply a resize from a client that is actually RENDERING this session on
-    // screen (per-session viewState). A backgrounded tab/page reports an empty
-    // viewVisible, so its stale grid can never move the shared PTY.
-    if (clientId === this.controllerId && client?.viewVisible.has(this.sessionId)) {
-      this.setGeometry(cols, rows)
-      this.toDaemon({ type: 'resize', sessionId: this.sessionId, cols, rows })
-      // Tell every client the new authoritative size. Without this broadcast a
-      // client only has its own optimistic sendResize value, which requestControl's
-      // (stale) geometry broadcast clobbers back to the old grid — leaving the xterm
-      // snapped to 80x24 by onState even though the PTY was resized (quarter-size).
-      this.broadcast({ type: 'geometry', sessionId: this.sessionId, cols, rows })
-    }
-  }
-
-  /**
-   * Re-apply the controller's last-known viewport if it now renders this session.
-   * A foreground resize can reach {@link handleResize} BEFORE the client's
-   * viewState message lands — the panel's React effect sends the resize before the
-   * store's (ancestor) effect sends viewState, so child-before-parent effect order
-   * puts the resize first and the viewVisible gate drops it. Calling this when a
-   * viewState marks the session visible heals that dropped resize; without it the
-   * PTY stays stuck at the 80x24 default (the "quarter-size window" bug). No-op when
-   * the client isn't the controller, isn't rendering the session, or already matches.
-   */
-  reconcileGeometry(clientId: string): void {
-    const client = this.clients.get(clientId)
-    if (!client) return
-    if (clientId !== this.controllerId || !client.viewVisible.has(this.sessionId)) return
-    // Only an explicit resize for THIS session can heal the resize/viewState
-    // race. A hello/default viewport or another pane's last resize must not.
-    const viewport = client.viewports.get(this.sessionId)
-    if (!viewport) return
-    if (this.geometry.cols === viewport.cols && this.geometry.rows === viewport.rows) {
-      return
-    }
-    this.setGeometry(viewport.cols, viewport.rows)
-    this.toDaemon({
-      type: 'resize',
-      sessionId: this.sessionId,
-      cols: this.geometry.cols,
-      rows: this.geometry.rows,
-    })
-    this.broadcast({
-      type: 'geometry',
-      sessionId: this.sessionId,
-      cols: this.geometry.cols,
-      rows: this.geometry.rows,
-    })
-  }
-
-  requestControl(clientId: string): void {
-    const client = this.clients.get(clientId)
-    if (!client) return
-    // Re-claiming control you already hold is a no-op. Bumping the epoch here would make
-    // every client treat it as a takeover and view.clear() the screen — so a client that
-    // re-requests control on every reveal (becomeEligible on a tab switch / page refocus,
-    // where it's usually already the controller) would BLANK the terminal on each switch:
-    // a shell loses its scrollback, an alt-screen app flashes black until the agent
-    // redraws. Only a genuine controller CHANGE bumps the epoch.
-    if (this.controllerId === clientId) return
-    this.controllerId = clientId
-    this.epoch += 1
-    // Only snap geometry to the requester's viewport + resize the agent if the
-    // requester is actually rendering this session (per-session viewState). If not
-    // (e.g. a viewState update hasn't landed yet), transfer control without sizing;
-    // {@link reconcileGeometry} re-applies it when viewState lands (the panel's fit
-    // may also re-drive it through handleResize once viewVisible is populated).
-    const viewport = client.viewports.get(this.sessionId)
-    if (client.viewVisible.has(this.sessionId) && viewport) {
-      this.setGeometry(viewport.cols, viewport.rows)
-      this.toDaemon({
-        type: 'resize',
-        sessionId: this.sessionId,
-        cols: this.geometry.cols,
-        rows: this.geometry.rows,
-      })
-      this.toDaemon({ type: 'redraw', sessionId: this.sessionId })
-    }
-    this.broadcast({
-      type: 'controllerChanged',
-      sessionId: this.sessionId,
-      controllerId: clientId,
-      geometry: { ...this.geometry },
-    })
-    this.broadcast({
-      type: 'geometry',
-      sessionId: this.sessionId,
-      cols: this.geometry.cols,
-      rows: this.geometry.rows,
-    })
-  }
-
-  redraw(): void {
-    this.toDaemon({ type: 'redraw', sessionId: this.sessionId })
-  }
-
-  onFrame(data: string): void {
-    const seq = this.nextSeq++
-    this.bufferFrame(seq, data)
-    this.broadcast({ type: 'outputFrame', sessionId: this.sessionId, seq, epoch: this.epoch, data })
-    this.outputAtMs = Date.now()
-    this.outputCount_ += 1
-    this.activityDirty_ = true
-    // Shells have no harness instrumentation, so output is our only progress
-    // signal — but only *after* a command was submitted. Output that arrives
-    // while no command is running (the prompt redrawing, keystroke echo) must not
-    // light the shell up; that's the "active on open" bug. A running command's
-    // output keeps resetting the decay window below.
-    if (this.agentKind === 'shell' && this.shellCommandRunning) this.markShellBusy()
-  }
-
-  private markShellBusy(): void {
-    // A shell has no harness instrumentation, so a running command's output (and the
-    // Enter that started it) is its only activity signal — the event-time IS now (the
-    // frame just arrived). This is what lets shells participate in recency ordering
-    // instead of being frozen at spawn/bind time. Reattach produces no input/output
-    // unless a command is genuinely still running, so it can't restamp a quiet shell.
-    this.lastActiveAt = new Date().toISOString()
-    if (!this.shellBusy) {
-      this.shellBusy = true
-      this.onActivity?.()
-    }
-    if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
-    this.shellBusyTimer = setTimeout(() => {
-      // Output went quiet — the command finished and the shell is back at its
-      // prompt. Clear both flags so the next prompt-draw/echo stays idle until
-      // another line is submitted.
-      this.shellBusy = false
-      this.shellCommandRunning = false
-      this.onActivity?.()
-    }, SHELL_BUSY_WINDOW_MS)
-    this.shellBusyTimer.unref?.()
-  }
-
-  private bufferFrame(seq: number, data: string): void {
-    // A screen clear / alt-screen switch makes prior frames irrelevant: drop them so the
-    // buffer stays aligned to the current screen (and bounded for full-screen TUIs).
-    if (SCREEN_RESET.test(Buffer.from(data, 'base64').toString('latin1'))) {
-      this.outputLog.length = 0
-      this.outputLogBytes = 0
-    }
-    this.outputLog.push({ seq, data })
-    this.outputLogBytes += data.length
-    while (this.outputLogBytes > MAX_REPLAY_BYTES && this.outputLog.length > 1) {
-      const dropped = this.outputLog.shift()
-      if (dropped) this.outputLogBytes -= dropped.data.length
-    }
+    this.terminal.recordResumeActivity()
   }
 
   onExit(code: number): void {
     // The PTY is gone — no more output, so it can't be "busy".
-    if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
-    this.shellBusy = false
-    this.shellCommandRunning = false
+    this.terminal.stopOutput()
     // A hibernated session's process exit is the *expected* result of the
     // hibernate kill — don't let it overwrite the hibernated state.
     if (this.status === 'hibernated') return
@@ -829,7 +362,7 @@ export class Session {
     this.onUnreadRearm?.()
     // Preserve the final turn diagnosis; lifecycle status owns liveness while
     // the causal checkpoint remains inspectable [spec:SP-cdb2].
-    this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
+    this.terminal.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
   }
 
   /** A spawn that never started — surface as an exit so attached clients stop waiting. */
@@ -844,7 +377,7 @@ export class Session {
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
     this.onUnreadRearm?.()
     console.warn(`[podium] spawn failed for ${this.sessionId}: ${message}`)
-    this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
+    this.terminal.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
   }
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
@@ -948,7 +481,7 @@ export class Session {
       this.exitCode = undefined
     }
     // Adopt the daemon's geometry only if no controller has resized us yet.
-    if (this.controllerId === null) this.setGeometry(geometry.cols, geometry.rows)
+    this.terminal.adoptGeometryIfUncontrolled(geometry)
   }
 
   /**
@@ -1001,16 +534,7 @@ export class Session {
       draftUpdatedAt: this.draftUpdatedAt,
       offer: this.offer ? structuredClone(this.offer) : undefined,
       transcriptAvailable: this.transcriptAvailable,
-      geometry: { ...this.geometry },
-      outputAtMs: this.outputAtMs,
-      inputAtMs: this.inputAtMs,
-      resumedAtMs: this.resumedAtMs,
-      inputCount: this.inputCount_,
-      outputCount: this.outputCount_,
-      activityCount: this.activityCount_,
-      activityDirty: this.activityDirty_,
-      shellBusy: this.shellBusy,
-      shellCommandRunning: this.shellCommandRunning,
+      terminal: this.terminal.captureState(),
     }
   }
 
@@ -1050,16 +574,8 @@ export class Session {
     this.draftUpdatedAt = state.draftUpdatedAt
     this.offer = state.offer ? structuredClone(state.offer) : undefined
     this.transcriptAvailable = state.transcriptAvailable
-    if (!preserve.has('geometry')) this.geometry = { ...state.geometry }
-    this.outputAtMs = state.outputAtMs
-    this.inputAtMs = state.inputAtMs
-    this.resumedAtMs = state.resumedAtMs
-    this.inputCount_ = state.inputCount
-    this.outputCount_ = state.outputCount
-    this.activityCount_ = state.activityCount
-    this.activityDirty_ = state.activityDirty
-    this.shellBusy = state.shellBusy
-    this.shellCommandRunning = state.shellCommandRunning
+    this.terminal.setTranscriptAvailable(state.transcriptAvailable)
+    this.terminal.restoreState(state.terminal, preserve.has('geometry'))
   }
 
   toRow(): SessionRow {
@@ -1086,14 +602,14 @@ export class Session {
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
-      geometry: { ...this.geometry },
+      geometry: { ...this.terminal.geometry },
       ...(this.workingMsTotal !== undefined ? { workingMsTotal: this.workingMsTotal } : {}),
-      inputCount: this.inputCount_,
-      outputCount: this.outputCount_,
-      activityCount: this.activityCount_,
-      lastOutputAt: Session.msToIso(this.outputAtMs),
-      lastInputAt: Session.msToIso(this.inputAtMs),
-      lastResumedAt: Session.msToIso(this.resumedAtMs),
+      inputCount: this.terminal.inputCount,
+      outputCount: this.terminal.outputCount,
+      activityCount: this.terminal.activityCount,
+      lastOutputAt: Session.msToIso(this.terminal.lastOutputAtMs),
+      lastInputAt: Session.msToIso(this.terminal.lastInputAtMs),
+      lastResumedAt: Session.msToIso(this.terminal.lastResumedAtMs),
       spawnedBy: this.spawnedBy ?? null,
       machineId: this.machineId,
       headless: this.headless,
@@ -1107,15 +623,6 @@ export class Session {
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,
     }
-  }
-
-  /** Install an authoritative grid and enqueue its durable row update. Geometry
-   * changes are coalesced with activity writes so pane-drag resize bursts do not
-   * turn into a database write per SIGWINCH [spec:SP-1a0b]. */
-  private setGeometry(cols: number, rows: number): void {
-    if (this.geometry.cols === cols && this.geometry.rows === rows) return
-    this.geometry = { cols, rows }
-    this.activityDirty_ = true
   }
 
   private static msToIso(ms: number): string | null {
@@ -1151,15 +658,15 @@ export class Session {
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
       ...(this.spawnFailure ? { spawnFailure: this.spawnFailure } : {}),
       ...(this.agentState ? { agentState: this.agentState } : {}),
-      controllerId: this.controllerId,
-      geometry: { ...this.geometry },
-      epoch: this.epoch,
-      clientCount: this.clients.size,
+      controllerId: this.terminal.controllerId,
+      geometry: { ...this.terminal.geometry },
+      epoch: this.terminal.epoch,
+      clientCount: this.terminal.clientCount,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
       // Last human (controller) input — the offer-artifact freshness fallback
       // [POD-120] compares issue-artifact addedAt against this on the client.
-      ...(this.inputAtMs > 0 ? { lastInputAt: new Date(this.inputAtMs).toISOString() } : {}),
+      ...(this.terminal.lastInputAtMs > 0 ? { lastInputAt: new Date(this.terminal.lastInputAtMs).toISOString() } : {}),
       origin: this.origin,
       archived: this.archived,
       // Email-style read state (issue #124). unread = there is activity the operator
@@ -1177,7 +684,7 @@ export class Session {
       ...(this.workState ? { workState: this.workState } : {}),
       ...(this.resume ? { resumable: true, resume: this.resume } : {}),
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
-      ...(this.shellBusy ? { busy: true } : {}),
+      ...(this.terminal.busy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.observedModel ? { observedModel: this.observedModel } : {}),
       ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
@@ -1207,7 +714,4 @@ export class Session {
     return parsed.success ? parsed.data : undefined
   }
 
-  private broadcast(msg: ServerMessage): void {
-    for (const c of this.clients.values()) c.send(msg)
-  }
 }

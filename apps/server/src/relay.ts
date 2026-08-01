@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
-import type { AgentKind, SessionMeta } from '@podium/model'
+import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
@@ -15,6 +15,7 @@ import {
   MutationLedger,
   type VisibilityAnchorPort,
 } from '@podium/sync'
+import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
@@ -23,6 +24,7 @@ import {
   userCommandPrincipal,
 } from './command-principal'
 import { deviceGradeSoleOwner } from './device-grade-owner'
+import { REACTIONS, type ReactionDefinition } from './composition/reactions'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -66,9 +68,9 @@ import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
+import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
-import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
@@ -146,6 +148,8 @@ export interface RegistryModules {
   readToolkit: SessionReadToolkit
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441). */
   issueArtifacts: IssueArtifactStore
+  /** Total operational contract for every semantically asynchronous reaction. */
+  reactions: readonly ReactionDefinition[]
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
    *  exposed here so router procs reach it through the module seam. */
   perf: PerfRegistry
@@ -246,18 +250,14 @@ export class SessionRegistry {
     })
     const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
       isFeatureEnabled(id, currentSettings)
-    // Live entity maps are owned by modules/sessions; the pre-sessions modules
-    // reach them through these lazy closures (sessionsSvc is assigned below, and
-    // none of the closures can run before the constructor finishes wiring).
-    let sessionsSvc!: SessionLifecycle
+    // Delegation is resolved from durable session ownership on every apply. This
+    // lookup is available before feature construction and never snapshots rights.
     const principalForCapability = (capability: import('@podium/model').Capability) =>
       resolvePrincipal(capability, {
         parentSessionOf: (candidate) =>
-          sessionSpawnerParentId(
-            sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
-              ?.spawnedBy,
-          ),
-        onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
+          sessionSpawnerParentId(this.store.sessions.getSession(asSessionId(candidate))?.spawnedBy),
+        onBehalfOfFor: (candidate) =>
+          this.store.sessions.getSession(asSessionId(candidate))?.ownerUserId,
       })
     const workflowCallerForCapability = (
       capability: import('@podium/model').Capability,
@@ -277,16 +277,6 @@ export class SessionRegistry {
         ...(overrideScope ? { overrideScope: true } : {}),
       }
     }
-    // Unified messaging (#237) [spec:SP-34d7] — assigned after the store-backed
-    // graph exists; consumed only via lazy closures/per-dispatch calls below.
-    let messagesSvc!: MessageDeliveryService
-    let messageGate!: MessageGate
-    let readToolkit!: SessionReadToolkit
-    let conversations!: ConversationsService
-    let issues!: IssueService
-    let issueSessionLifecycle!: IssueSessionLifecycle
-    let workflows!: WorkflowService
-    let automations!: AutomationsService
     /**
      * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
      * honours a `mutationId` — the session session-state class, the session command
@@ -302,7 +292,7 @@ export class SessionRegistry {
      */
     const mutations = new MutationLedger(this.store.sync, this.now)
     const sessionInstructions = new SessionInstructionRegistry()
-    const liveSessions = () => sessionsSvc.sessions
+    const liveSessions = new Map<SessionId, Session>()
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
     // the gateway owns it (POD-390), and the mux below is what mutates it.
     const clientRegistry = new ClientRegistry()
@@ -310,13 +300,8 @@ export class SessionRegistry {
 
     const machines = new MachinesService({
       store: this.store,
+      bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
-      retargetPlaceholderSessions: (machineId) => {
-        for (const s of liveSessions().values()) {
-          if (s.machineId === LOCAL_PLACEHOLDER) s.machineId = machineId
-        }
-      },
-      sessionsChangedForMachine: (machineId) => sessionsSvc.sessionsChangedForMachine(machineId),
       clients: () => clients().values(),
     })
     const rpc = new DaemonRpcService({
@@ -327,7 +312,18 @@ export class SessionRegistry {
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       machineName: (id) => machines.machineName(id),
       onlineMachineIds: () => machines.onlineMachineIds(),
-      getSession: (sessionId) => liveSessions().get(sessionId),
+      getSession: (sessionId) => {
+        const session = liveSessions.get(sessionId)
+        return session
+          ? {
+              cwd: session.cwd,
+              machineId: session.machineId,
+              agentKind: session.agentKind,
+              resume: session.resume,
+              transcriptItems: () => session.terminal.transcriptItems(),
+            }
+          : undefined
+      },
       // Lazy: the conversations service is constructed after loadFromStore below.
       readTranscriptFromLake: (session, input) =>
         conversations.readTranscriptFromLake(session, input),
@@ -344,48 +340,23 @@ export class SessionRegistry {
       ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
       now: this.now,
     })
-    const notify = new NotifyService(
-      {
-        // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
-        // preferences, which no longer live on the instance blob — an unresolved
-        // read would see the model's defaults instead of the operator's choices.
-        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
-        // `IssueService.broadcastViewer` uses: this build's transport cannot name
-        // a person (one shared password), so the sole account is the only true
-        // answer, and POD-315/POD-1077 replace the argument rather than finding a
-        // hidden read.
-        getSettings: (ownerUserId = FIRST_ADMIN_USER_ID) =>
-          this.store.settings.getSettingsFor(ownerUserId),
-        // POD-419: out of the server-only keyed store, read at the moment of use.
-        telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
-        appendEvent: (e) => this.store.events.appendEvent(e),
-        now: () => this.now(),
-        clients: (ownerUserId) =>
-          [...clients().values()].filter(
-            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
-          ),
-        sessionInfo: (sessionId) => {
-          const s = liveSessions().get(sessionId)
-          return s ? noticeInfo(s) : undefined
-        },
-        sessionStates: () =>
-          [...liveSessions().values()].map((s) => ({
-            info: noticeInfo(s),
-            state: s.agentState,
-            ownerUserId: FIRST_ADMIN_USER_ID,
-          })),
-        notificationsEnabled: () => featureEnabled('notifications'),
-        ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
-      },
-      notificationPushers,
-      this.bus,
-    )
     const hosts = new HostsService(
       {
         getSettings: () => this.store.settings.getSettings(),
         clients: () => clients().values(),
         machineName: (id) => machines.machineName(id),
-        sessions: () => liveSessions().values(),
+        sessions: () =>
+          [...liveSessions.values()].map((session) => ({
+            sessionId: session.sessionId,
+            machineId: session.machineId,
+            status: session.status,
+            resume: session.resume,
+            agentState: session.agentState,
+            lastActiveAt: session.lastActiveAt,
+            lastResumedAtMs: session.terminal.lastResumedAtMs,
+            lastInputAtMs: session.terminal.lastInputAtMs,
+            lastOutputAtMs: session.terminal.lastOutputAtMs,
+          })),
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
@@ -440,15 +411,21 @@ export class SessionRegistry {
           return dep !== null && feedMayReadIssue(userId, dep.fromId)
         }
         if (ref.entity === 'session') {
-          const owner = sessionsSvc.sessionOwner(asSessionId(ref.entityId))
-          return owner?.owner === userId || owner?.grants.includes(userId) === true
+          const row = this.store.sessions.getSession(asSessionId(ref.entityId))
+          if (row?.ownerUserId === userId) return true
+          return this.store.grants
+            .listForResource('session', ref.entityId)
+            .some((edge) => edge.grantee === userId && edge.verb === 'read')
         }
         if (ref.entity === 'conversation') {
-          const session = sessionsSvc
-            .listSessions()
-            .find((candidate) => candidate.resume?.value === ref.entityId)
-          const owner = session ? sessionsSvc.sessionOwner(session.sessionId) : undefined
-          return owner?.owner === userId || owner?.grants.includes(userId) === true
+          const row = this.store.sessions
+            .loadSessions()
+            .find((candidate) => candidate.resumeValue === ref.entityId)
+          if (!row) return false
+          if (row.ownerUserId === userId) return true
+          return this.store.grants
+            .listForResource('session', row.id)
+            .some((edge) => edge.grantee === userId && edge.verb === 'read')
         }
         if (ref.entity === 'automation') {
           return this.store.automations.get(ref.entityId)?.ownerUserId === userId
@@ -466,19 +443,19 @@ export class SessionRegistry {
         if (ref.entity !== 'issue') return null
         const audience = this.store.grants.visibilityAudienceFor('issue', ref.entityId)
         if (audience.length === 0) return null
-        const issueSessions = sessionsSvc
-          .listSessions()
+        const issueSessions = this.store.sessions
+          .loadSessions()
           .filter((session) => session.issueId === ref.entityId)
         const subjects = [
           { entity: 'issue' as const, entityId: ref.entityId },
           { entity: 'issueProjection' as const, entityId: ref.entityId },
           ...issueSessions.map((session) => ({
             entity: 'session' as const,
-            entityId: session.sessionId,
+            entityId: session.id,
           })),
           ...issueSessions.flatMap((session) =>
-            session.resume
-              ? [{ entity: 'conversation' as const, entityId: session.resume.value }]
+            session.resumeValue
+              ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
               : [],
           ),
           ...(issues?.allDepProjections() ?? [])
@@ -526,6 +503,9 @@ export class SessionRegistry {
     // identity is PERSISTED (`readFeedIdentity`/`writeFeedIdentity`), because ADR
     // 2 D1 makes a re-minted epoch across a restart indistinguishable from a
     // restored backup to every replica holding a cursor.
+    const conversationDiagnostics: {
+      current: readonly import('@podium/model').ConversationDiagnosticWire[]
+    } = { current: [] }
     const subscriptions = new SubscriptionRegistry()
     const feedServing = new FeedServing({
       authority: ledger.authority,
@@ -542,7 +522,7 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
       subscriptions,
-      diagnostics: () => conversations?.diagnostics() ?? [],
+      diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({
       bus: this.bus,
@@ -551,7 +531,7 @@ export class SessionRegistry {
       // own ordered broadcast queue.
       authority: ledger.authority,
       serving: feedServing,
-      onPublished: (seq) => sessionsSvc.onFeedPublished(seq),
+      onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
     const publisher = new IssuePublisher({
       allWire: () => issues?.allWire(),
@@ -581,41 +561,6 @@ export class SessionRegistry {
         const depRows = issues?.allDepProjections()
         if (depRows) ledger.reconcile('issueDep', depRows)
       },
-    })
-    const issueCommands = new IssueCommandDispatcher({
-      issues: () => issues,
-      deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
-      restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
-      mutations,
-      listSessions: () => sessionsSvc.listSessions(),
-      repoPaths: () => this.store.repos.listRepoPaths(),
-      inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
-      // mailSend rides the unified substrate (#237) [spec:SP-34d7].
-      sendMessage: (from, input) => messagesSvc.send(from, input),
-      // Tray answer delivery (issue #53): the shared answer_question matching
-      // path, with text fallback — no live menu means the answer arrives as a
-      // normal chat message (resumeAndSend wakes a parked session).
-      answerSessionQuestion: async (sessionId, answer, caller) => {
-        const r = await deliverAnswerToSession(
-          {
-            getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
-            sessions: sessionsSvc,
-            rpc: {
-              readTranscript: (input) =>
-                rpc.readTranscript(input, { kind: 'system', id: 'issue-answer-delivery' }),
-            },
-          },
-          {
-            sessionId,
-            answer,
-            principal: sessionsSvc.inboxPrincipalForCapability(caller.capability),
-            textFallback: true,
-          },
-        )
-        return r.ok ? { ok: true, via: r.via } : r
-      },
-      // issue stop [spec:SP-9904]: park every member session + free worktree.
-      stopIssueSessions: (input) => sessionsSvc.stopIssue(input),
     })
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
@@ -722,6 +667,189 @@ export class SessionRegistry {
     })
     // Advisory named lease locks [spec:SP-85d1]. Lazy closures: sessionsSvc and
     // issues are assigned below and only ever consulted per-operation.
+    // POD-665: fan out the invalidation raw (imitating MachinesService.
+    // broadcastMachines) — no repo payload, just "go re-fetch" (see
+    // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
+    // Shared by every path that creates or destroys a worktree behind the
+    // clients' backs: issue start, and handoff import (POD-821).
+    const broadcastWorktreesChanged = (repoPath: string, machineId?: string): void => {
+      const msg: LiveServerMessage = {
+        type: 'worktreesChanged',
+        repoPath,
+        ...(machineId ? { machineId } : {}),
+      }
+      for (const c of clients().values()) c.send(msg)
+    }
+    const conversations = new ConversationsService(
+      {
+        store: this.store,
+        now: () => this.now(),
+        // Conversation writes commit through the write-seam ledger (#257):
+        // discovery/meta commits + list reconciles append durably at
+        // the write; the feed serves them (POD-1203 deleted the snapshot tail).
+        ledger,
+        // Scan diagnostics are not feed content and the v1 wire carried them
+        // inside `conversationsChanged`; the edge re-serves them to the wire
+        // versions that still need them (POD-1203).
+        onDiagnosticsChanged: (diagnostics) => {
+          conversationDiagnostics.current = diagnostics
+          feedServing.publishAdvisory('conversation-diagnostics')
+        },
+        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
+          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+      },
+      options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
+    )
+    // The sessions module (core lifecycle + data planes). Its issue-shaped deps
+    // are lazy closures — issues/conversations are assigned below, and are only
+    // ever invoked after construction completes.
+    const sessionsSvc = new SessionLifecycle({
+      store: this.store,
+      now: () => this.now(),
+      bus: this.bus,
+      authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
+      rejectQueuedMessage: (messageId, reason) => messagesSvc.rejectQueuedInput(messageId, reason),
+      sessions: liveSessions,
+      funnel,
+      clients: clientRegistry,
+      disconnectClient: (id) => this.clientGateway.detachClient(id),
+      // Session writes commit through the write-seam ledger at persist() (#256).
+      ledger,
+      ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
+      ...(options.publicationShadowCompare !== undefined
+        ? { publicationShadowCompare: options.publicationShadowCompare }
+        : {}),
+      machines,
+      rpc,
+      hosts,
+      conversations,
+      issues: () => issues,
+      issuesWire: () => publisher.currentIssuesList(),
+      issueProjectionsWire: () => (issues.allProjections() ?? []).map((row) => row.value),
+      issueDepsWire: () => (issues.allDepProjections() ?? []).map((row) => row.value),
+      issueReposWire: () => (issues.allRepoProjections() ?? []).map((row) => row.value),
+      automationsWire: () => automations.list(),
+      automationRunsWire: () => automations.allRuns(),
+      onWorktreesChanged: broadcastWorktreesChanged,
+      approvalsPending: () => approvals.listPending(),
+      instructionsForStart: (input) => sessionInstructions.prepare(input),
+    })
+    const headless = sessionsSvc.headless
+    this.bus.on('feed.published', ({ seq }) => {
+      sessionsSvc.onFeedPublished(seq)
+    })
+    this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
+    this.bus.on('machine.metadataChanged', ({ machineId }) => {
+      sessionsSvc.sessionsChangedForMachine(machineId)
+    })
+    this.bus.on('machine.rowsAdopted', ({ machineId }) => {
+      for (const session of sessionsSvc.sessions.values()) {
+        if (session.machineId === LOCAL_PLACEHOLDER) session.machineId = machineId
+      }
+      sessionsSvc.sessionsChangedForMachine(machineId)
+    })
+    // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
+    const notify = new NotifyService(
+      {
+        // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
+        // preferences, which no longer live on the instance blob — an unresolved
+        // read would see the model's defaults instead of the operator's choices.
+        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
+        // `IssueService.broadcastViewer` uses: this build's transport cannot name
+        // a person (one shared password), so the sole account is the only true
+        // answer, and POD-315/POD-1077 replace the argument rather than finding a
+        // hidden read.
+        getSettings: (ownerUserId = FIRST_ADMIN_USER_ID) =>
+          this.store.settings.getSettingsFor(ownerUserId),
+        // POD-419: out of the server-only keyed store, read at the moment of use.
+        telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
+        appendEvent: (e) => this.store.events.appendEvent(e),
+        now: () => this.now(),
+        clients: (ownerUserId) =>
+          [...clients().values()].filter(
+            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
+          ),
+        sessionInfo: (sessionId) => {
+          const s = sessionsSvc.sessions.get(sessionId)
+          return s ? noticeInfo(s) : undefined
+        },
+        sessionStates: () =>
+          [...sessionsSvc.sessions.values()].map((s) => ({
+            info: noticeInfo(s),
+            state: s.agentState,
+            ownerUserId: FIRST_ADMIN_USER_ID,
+          })),
+        notificationsEnabled: () => featureEnabled('notifications'),
+        ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
+      },
+      notificationPushers,
+      this.bus,
+    )
+    // releases its held locks and leaves every wait queue (the queue advances
+    // with a grant-notification mail). Best-effort — the lazy expiry sweep is
+    // the backstop if this listener ever misses a death.
+    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
+    // Boot: hydrate sessions (and reconcile the restored state against the
+    // write-seam ledger — boot reconciliation lives in the sessions module now).
+    sessionsSvc.loadFromStore()
+    // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
+    // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
+    // from the owning daemon at artifact-add time into <state-dir>/artifacts and
+    // serves them locally via /files/artifact (registered in server.ts).
+    const issueArtifacts = new IssueArtifactStore(join(stateDir(), 'artifacts'), {
+      readAsset: (i) => rpc.readAsset(i),
+      listDir: (i) => rpc.listDir(i),
+    })
+    const issues = new IssueService({
+      store: this.store,
+      artifacts: issueArtifacts,
+      listSessions: () => sessionsSvc.listSessions(),
+      // Resolved for the sole account (POD-1213): the issue service reads
+      // `roles.coding` — a personal preference — beside instance-tier git
+      // workflow policy. See the note on `NotifyService` above.
+      getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
+      spawnSession: (o) =>
+        sessionsSvc.createSession({
+          cwd: o.cwd,
+          agentKind: o.agentKind as AgentKind,
+          ...(o.issueId ? { issueId: o.issueId } : {}),
+          ...(o.model !== undefined ? { model: o.model } : {}),
+          ...(o.effort !== undefined ? { effort: o.effort } : {}),
+          ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
+          ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
+          ...(o.machineId ? { machineId: o.machineId } : {}),
+          ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
+        }),
+      repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
+      requireMachineForRepo: (machineId, repoPath) =>
+        machines.requireMachineForRepo(machineId, repoPath),
+      getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
+      setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
+      setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
+      // Closing an issue retires standing session offers (POD-290) so finished
+      // work cannot keep demanding a decision after the close flip.
+      clearSessionOffer: (sessionId) => sessionsSvc.clearOffer(sessionId),
+      onWorktreesChanged: broadcastWorktreesChanged,
+      // Every issue mutation commits through the write-seam ledger (#255) —
+      // change rows land in the same transaction as the row write — and fans
+      // by the publisher (which unions in hub-mirrored issues), so durable-
+      // before-fan-out holds by construction — there is NO raw-WS path out of
+      // the issue tracker anymore, and since POD-1203 no snapshot path either:
+      // the appended rows ARE what a client is served.
+      funnel,
+      ledger,
+      publishSpecs: publisher,
+      // Agent mail send-time nudge (issue #103): the sessions module subscribes
+      // and picks the live member session to poke — see modules/sessions.
+      onMailSent: (row) =>
+        this.bus.emit('issue.mailSent', {
+          seq: row.seq,
+          ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
+        }),
+    })
+    this.bus.on('session.listChanged', () => {
+      publisher.publishIssues(issues.allWire())
+    })
     const locks = new LockService({
       locks: this.store.locks,
       transact: (fn) => this.store.transact(fn),
@@ -733,7 +861,7 @@ export class SessionRegistry {
         // which are NOT session ids. The lookup is expected to MISS for those —
         // that miss is how the unknown-relay sentinel gets pruned from a queue
         // (see LockSessionKey's note). So the map is probed as a plain key.
-        const s = (liveSessions() as ReadonlyMap<string, { status: string }>).get(sessionId)
+        const s = (liveSessions as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'
       },
       // Grant/steal notifications ride agent mail; best-effort by contract
@@ -746,15 +874,119 @@ export class SessionRegistry {
       appendEvent: (e) => this.store.events.appendEvent(e),
     })
     const lockCommands = new LockCommandDispatcher({
-      locks: () => locks,
-      issues: () => issues,
+      locks,
+      issues,
     })
-    workflows = new WorkflowService(
+    // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
+    // stamped by each surface from its authenticated caller; issue-addressed
+    // sends dual-write the legacy issue_messages mirror so inbox/claim/pending
+    // keep working until those readers migrate.
+    // Principal-resolved at accept and apply time; queued rows retain attribution.
+    // producer: the delivery service gets its apply-time port and the gate gets
+    // its resolution-time ceiling, and MessageGate refuses at boot if they are
+    // not the same object. Today's ceiling is the single-user maximum, so this
+    // wiring changes no behaviour — what it changes is that the queued-send
+    // rejection path (ADR 3 D8 / Amendment 1 D16) is now LIVE end to end rather
+    // than only unit-tested against the handler, so POD-1075's real ceiling
+    // arrives at a composition root that already carries it.
+    const mail = principalMailPolicy({
+      principalForCapability,
+      principalForMessage: (message) => {
+        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
+        if (message.fromSession) {
+          try {
+            return principalForCapability(sessionsSvc.capabilityForSession(message.fromSession))
+          } catch {
+            return undefined
+          }
+        }
+        if (!message.attribution?.onBehalfOf) return undefined
+        const userId = asUserId(message.attribution?.onBehalfOf)
+        const role = this.store.users.roleOf(userId)
+        return role ? userCommandPrincipal(userId, role) : undefined
+      },
+      policyFor: (principal) => {
+        const userId = onBehalfOfUser(principal)
+        return {
+          ceiling: {
+            canSee: (ref) => {
+              if (principal.kind === 'system') return true
+              if (userId === null) return false
+              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
+              if (ref.kind === 'session') {
+                const owner = sessionsSvc.sessionOwner(asSessionId(ref.id))
+                return owner?.owner === userId || owner?.grants.includes(userId) === true
+              }
+              return false
+            },
+          },
+          machines: {
+            mayUse: (machineId) =>
+              principal.kind === 'system' ||
+              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
+            isReachable: (machineId) => machines.hasDaemon(machineId),
+          },
+        }
+      },
+    })
+    const messagesSvc = new MessageDeliveryService({
+      authorizeAtApply: mail.authorizeAtApply,
+      messages: this.store.messages,
+      notificationFacts: this.store.notificationFacts,
+      events: this.store.events,
+      issues: () => issues,
+      sessions: () => sessionsSvc,
+      mirrorIssueMail: (row) => funnel.run({ write: () => this.store.issues.addIssueMessage(row) }),
+      mirrorMarkIssueMailRead: (issueId, ids) =>
+        funnel.run({
+          write: () =>
+            this.store.issues.markIssueMessagesRead(
+              FIRST_ADMIN_USER_ID,
+              issueId,
+              ids,
+              new Date().toISOString(),
+            ),
+        }),
+      transact: (fn) => this.store.transact(fn),
+      // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake
+      // spawns a fresh agent on the target issue through the SAME machinery
+      // issue_start rides (createSession); the service then queues the message
+      // as the child's first prompt. Authz (gate.send write check) → spawn
+      // budget → cooldown all bite before this seam is reached.
+      spawnOnWake: makeSpawnOnWake({
+        issues: () => issues,
+        createSession: (o) => sessionsSvc.createSession(o),
+      }),
+      // Cross-machine provenance [POD-658]: name the sender's machine in the
+      // envelope note so the receiver knows to `podium workspace fetch`.
+      machineName: (id) => machines.listMachines().find((m) => m.id === id)?.name ?? id,
+      now: () => new Date(this.now()).toISOString(),
+    })
+    // Event-complete delivery eligibility [spec:SP-c29e]: every durable session
+    // or issue metadata transition lands here after commit. Session upserts cover
+    // bind/live, resume-ref, attachment/CWD and draft changes; issue upserts cover
+    // worktree/archive/target-resolution changes. The service coalesces by target.
+    this.bus.on('oplog.appended', ({ changes }) => {
+      for (const change of changes) {
+        if (change.entity === 'session') {
+          messagesSvc.onSessionEligibilityChanged(
+            // `EntityChangeSpec.id` is polymorphic by `entity` (an issue id for
+            // 'issue', a session id here), so the brand is recovered inside the
+            // discriminated branch — the same rule as MessageRow's `toId`.
+            asSessionId(change.id),
+            change.op === 'upsert' ? (change.value as SessionMeta) : undefined,
+          )
+        } else if (change.entity === 'issue') {
+          messagesSvc.onIssueEligibilityChanged(change.id)
+        }
+      }
+    })
+    const workflows = new WorkflowService(
       {
         store: this.store.workflows,
         now: () => new Date(this.now()).toISOString(),
         session: (sessionId) => {
-          const s = liveSessions().get(sessionId)
+          const s = liveSessions.get(sessionId)
           return s
             ? {
                 sessionId: s.sessionId,
@@ -878,6 +1110,149 @@ export class SessionRegistry {
         }
       },
     })
+    const messageGate = new MessageGate(
+      {
+        messages: () => messagesSvc,
+        issues: () => issues,
+        listSessions: () => sessionsSvc.listSessions(),
+        // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
+        // child is a FULL Podium session through the one spawn path; --new is the
+        // deliberate issue-create path (never automatic).
+        spawnSession: (o) =>
+          sessionsSvc.createSession({
+            ownerUserId: o.ownerUserId,
+            cwd: o.cwd,
+            agentKind: o.agentKind as AgentKind,
+            ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
+            ...(o.model !== undefined ? { model: o.model } : {}),
+            ...(o.effort !== undefined ? { effort: o.effort } : {}),
+            ...(o.issueId ? { issueId: o.issueId } : {}),
+            ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
+            ...(o.machineId ? { machineId: o.machineId } : {}),
+            // Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60].
+            ...(o.name ? { name: o.name } : {}),
+            ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
+            ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
+            ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
+          }),
+        resolveExecutionProfile: (input) => {
+          const { caller, ...profileInput } = input
+          return workflows.executionProfileForLaunch({
+            ...profileInput,
+            ...(caller
+              ? { caller: workflowCallerForCapability(caller.capability, caller.overrideScope) }
+              : {}),
+          })
+        },
+        createIssue: (o) => issues.create({ ...o, startNow: false }),
+        appendEvent: (e) => this.store.events.appendEvent(e),
+        now: () => new Date(this.now()).toISOString(),
+        // Parent-await consume-on-ack (POD-917/POD-923): clear the session-parent
+        // wake sticky when the parent observes the child settled, so a later
+        // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
+        retireNotificationFact: (factKey, target) => {
+          this.store.notificationFacts.retire(factKey, target, new Date(this.now()).toISOString())
+        },
+      },
+      mail.gateOptions,
+    )
+    const readToolkit = new SessionReadToolkit({
+      listSessions: () => sessionsSvc.listSessions(),
+      issues: () => issues,
+      messages: () => messagesSvc,
+      events: this.store.events,
+      // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
+      watermarks: this.store.readWatermarks,
+      repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
+      readTranscript: (input) =>
+        rpc.readTranscript(input, { kind: 'system', id: 'session-read-toolkit' }),
+      now: () => new Date(this.now()).toISOString(),
+    })
+
+    const issueSessionLifecycle = new IssueSessionLifecycle({
+      issues,
+      sessions: sessionsSvc,
+      ledger,
+    })
+    const issueAttach = new IssueAttachOrchestrator({
+      transact: (work) => this.store.transact(work),
+      attention: issues.attention,
+    })
+
+    // Scheduled automations (#470) [spec:SP-17db]. The spawn goes straight to
+    // SessionLifecycle.createSession with its own provenance tag (the tRPC
+    // `sessions.create` proc stamps spawnedBy 'user'), and the prompt rides the
+    // durable outbox — see AutomationsService.spawn for why not initialPrompt.
+    // A session still occupying the machine (anything but exited/hibernated)
+    // makes the next occurrence a skipped_overlap rather than a pile-up.
+    const automations = new AutomationsService({
+      store: this.store.automations,
+      ledger,
+      createSession: (o) => sessionsSvc.createSession(o),
+      queueText: (o) => sessionsSvc.queueText(o),
+      resumeAndSend: (o) => sessionsSvc.resumeAndSend(o),
+      createIssue: (o) => {
+        const issue = issues.create({
+          ...o,
+          startNow: false,
+          origin: 'agent',
+          audience: 'human',
+        })
+        issues.update(issue.id, { stage: 'in_progress' })
+        return { id: issue.id }
+      },
+      liveSessionIds: () =>
+        new Set(
+          sessionsSvc
+            .listSessions()
+            .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
+            .map((s) => s.sessionId),
+        ),
+      principalForOwner: (ownerUserId) => {
+        const role = this.store.users.roleOf(ownerUserId)
+        return role ? userCommandPrincipal(ownerUserId, role) : undefined
+      },
+      mayUseDefaultMachine: (principal) =>
+        checkMachineUse(principal, machines.defaultMachine(), ownershipFromMachines(machines)) ===
+        undefined,
+      now: () => new Date(this.now()),
+    })
+    const issueCommands = new IssueCommandDispatcher({
+      attachSession: (caller, input) => issueAttach.execute(caller, input),
+      issues,
+      deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
+      restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
+      mutations,
+      listSessions: () => sessionsSvc.listSessions(),
+      repoPaths: () => this.store.repos.listRepoPaths(),
+      inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
+      // mailSend rides the unified substrate (#237) [spec:SP-34d7].
+      sendMessage: (from, input) => messagesSvc.send(from, input),
+      // Tray answer delivery (issue #53): the shared answer_question matching
+      // path, with text fallback — no live menu means the answer arrives as a
+      // normal chat message (resumeAndSend wakes a parked session).
+      answerSessionQuestion: async (sessionId, answer, caller) => {
+        const r = await deliverAnswerToSession(
+          {
+            getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
+            sessions: sessionsSvc,
+            rpc: {
+              readTranscript: (input) =>
+                rpc.readTranscript(input, { kind: 'system', id: 'issue-answer-delivery' }),
+            },
+          },
+          {
+            sessionId,
+            answer,
+            principal: sessionsSvc.inboxPrincipalForCapability(caller.capability),
+            textFallback: true,
+          },
+        )
+        return r.ok ? { ok: true, via: r.via } : r
+      },
+      // issue stop [spec:SP-9904]: park every member session + free worktree.
+      stopIssueSessions: (input) => sessionsSvc.stopIssue(input),
+    })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -935,7 +1310,7 @@ export class SessionRegistry {
             throw new Error(`workspace.${proc} is only callable by a session (no actor bound)`)
           }
           if (proc === 'clean') {
-            return sessionsSvc.cleanWorkspacePeeks({
+            return sessionsSvc.workspace.cleanPeeks({
               callerSessionId: actorSessionId,
             })
           }
@@ -958,7 +1333,7 @@ export class SessionRegistry {
                 targetIssueId,
               )
             }
-            return sessionsSvc.fetchWorkspace({
+            return sessionsSvc.workspace.fetch({
               sourceSessionId: target.sessionId,
               callerSessionId: actorSessionId,
             })
@@ -1237,317 +1612,6 @@ export class SessionRegistry {
         }
       },
     })
-    const headless = new HeadlessService({
-      getSession: (sessionId) => liveSessions().get(sessionId),
-      registerSession: (session) => liveSessions().set(session.sessionId, session),
-      resolveMachine: (requested, cwd, agentKind) =>
-        machines.resolveMachineForAgent(requested, cwd, agentKind),
-      defaultMachine: () => machines.defaultMachine(),
-      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
-      nextRequestId: (prefix) => rpc.nextRequestId(prefix),
-      defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
-      persist: (session) => sessionsSvc.persist(session),
-      broadcastSessions: () => sessionsSvc.broadcastSessions(),
-      clients: () => clients().values(),
-    })
-    // POD-665: fan out the invalidation raw (imitating MachinesService.
-    // broadcastMachines) — no repo payload, just "go re-fetch" (see
-    // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
-    // Shared by every path that creates or destroys a worktree behind the
-    // clients' backs: issue start, and handoff import (POD-821).
-    const broadcastWorktreesChanged = (repoPath: string, machineId?: string): void => {
-      const msg: LiveServerMessage = {
-        type: 'worktreesChanged',
-        repoPath,
-        ...(machineId ? { machineId } : {}),
-      }
-      for (const c of clients().values()) c.send(msg)
-    }
-    // The sessions module (core lifecycle + data planes). Its issue-shaped deps
-    // are lazy closures — issues/conversations are assigned below, and are only
-    // ever invoked after construction completes.
-    sessionsSvc = new SessionLifecycle({
-      store: this.store,
-      now: () => this.now(),
-      bus: this.bus,
-      authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
-      rejectQueuedMessage: (messageId, reason) => messagesSvc.rejectQueuedInput(messageId, reason),
-      funnel,
-      clients: clientRegistry,
-      disconnectClient: (id) => this.clientGateway.detachClient(id),
-      // Session writes commit through the write-seam ledger at persist() (#256).
-      ledger,
-      ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
-      ...(options.publicationShadowCompare !== undefined
-        ? { publicationShadowCompare: options.publicationShadowCompare }
-        : {}),
-      machines,
-      rpc,
-      hosts,
-      headless,
-      conversations: () => conversations,
-      issues: () => issues,
-      publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
-      issuesWire: () => publisher.currentIssuesList(),
-      issueProjectionsWire: () => (issues.allProjections() ?? []).map((row) => row.value),
-      issueDepsWire: () => (issues.allDepProjections() ?? []).map((row) => row.value),
-      issueReposWire: () => (issues.allRepoProjections() ?? []).map((row) => row.value),
-      automationsWire: () => automations.list(),
-      automationRunsWire: () => automations.allRuns(),
-      onWorktreesChanged: broadcastWorktreesChanged,
-      approvalsPending: () => approvals.listPending(),
-      instructionsForStart: (input) => sessionInstructions.prepare(input),
-    })
-    this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
-    // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
-    // releases its held locks and leaves every wait queue (the queue advances
-    // with a grant-notification mail). Best-effort — the lazy expiry sweep is
-    // the backstop if this listener ever misses a death.
-    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
-    // Boot: hydrate sessions (and reconcile the restored state against the
-    // write-seam ledger — boot reconciliation lives in the sessions module now).
-    sessionsSvc.loadFromStore()
-    // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
-    conversations = new ConversationsService(
-      {
-        store: this.store,
-        now: () => this.now(),
-        // Conversation writes commit through the write-seam ledger (#257):
-        // discovery/meta commits + list reconciles append durably at
-        // the write; the feed serves them (POD-1203 deleted the snapshot tail).
-        ledger,
-        // Scan diagnostics are not feed content and the v1 wire carried them
-        // inside `conversationsChanged`; the edge re-serves them to the wire
-        // versions that still need them (POD-1203).
-        onDiagnosticsChanged: () => feedServing.publishAdvisory('conversation-diagnostics'),
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
-      },
-      options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
-    )
-    // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
-    // from the owning daemon at artifact-add time into <state-dir>/artifacts and
-    // serves them locally via /files/artifact (registered in server.ts).
-    const issueArtifacts = new IssueArtifactStore(join(stateDir(), 'artifacts'), {
-      readAsset: (i) => rpc.readAsset(i),
-      listDir: (i) => rpc.listDir(i),
-    })
-    issues = new IssueService({
-      store: this.store,
-      artifacts: issueArtifacts,
-      listSessions: () => sessionsSvc.listSessions(),
-      // Resolved for the sole account (POD-1213): the issue service reads
-      // `roles.coding` — a personal preference — beside instance-tier git
-      // workflow policy. See the note on `NotifyService` above.
-      getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
-      spawnSession: (o) =>
-        sessionsSvc.createSession({
-          cwd: o.cwd,
-          agentKind: o.agentKind as AgentKind,
-          ...(o.issueId ? { issueId: o.issueId } : {}),
-          ...(o.model !== undefined ? { model: o.model } : {}),
-          ...(o.effort !== undefined ? { effort: o.effort } : {}),
-          ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
-          ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
-          ...(o.machineId ? { machineId: o.machineId } : {}),
-          ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
-        }),
-      repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
-      requireMachineForRepo: (machineId, repoPath) =>
-        machines.requireMachineForRepo(machineId, repoPath),
-      getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
-      setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
-      setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
-      // Closing an issue retires standing session offers (POD-290) so finished
-      // work cannot keep demanding a decision after the close flip.
-      clearSessionOffer: (sessionId) => sessionsSvc.clearOffer(sessionId),
-      onWorktreesChanged: broadcastWorktreesChanged,
-      // Every issue mutation commits through the write-seam ledger (#255) —
-      // change rows land in the same transaction as the row write — and fans
-      // by the publisher (which unions in hub-mirrored issues), so durable-
-      // before-fan-out holds by construction — there is NO raw-WS path out of
-      // the issue tracker anymore, and since POD-1203 no snapshot path either:
-      // the appended rows ARE what a client is served.
-      funnel,
-      ledger,
-      publishSpecs: publisher,
-      // Agent mail send-time nudge (issue #103): the sessions module subscribes
-      // and picks the live member session to poke — see modules/sessions.
-      onMailSent: (row) =>
-        this.bus.emit('issue.mailSent', {
-          seq: row.seq,
-          ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
-        }),
-    })
-    // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
-    // stamped by each surface from its authenticated caller; issue-addressed
-    // sends dual-write the legacy issue_messages mirror so inbox/claim/pending
-    // keep working until those readers migrate.
-    // Principal-resolved at accept and apply time; queued rows retain attribution.
-    // producer: the delivery service gets its apply-time port and the gate gets
-    // its resolution-time ceiling, and MessageGate refuses at boot if they are
-    // not the same object. Today's ceiling is the single-user maximum, so this
-    // wiring changes no behaviour — what it changes is that the queued-send
-    // rejection path (ADR 3 D8 / Amendment 1 D16) is now LIVE end to end rather
-    // than only unit-tested against the handler, so POD-1075's real ceiling
-    // arrives at a composition root that already carries it.
-    const mail = principalMailPolicy({
-      principalForCapability,
-      principalForMessage: (message) => {
-        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
-        if (message.fromSession) {
-          try {
-            return principalForCapability(sessionsSvc.capabilityForSession(message.fromSession))
-          } catch {
-            return undefined
-          }
-        }
-        if (!message.attribution?.onBehalfOf) return undefined
-        const userId = asUserId(message.attribution?.onBehalfOf)
-        const role = this.store.users.roleOf(userId)
-        return role ? userCommandPrincipal(userId, role) : undefined
-      },
-      policyFor: (principal) => {
-        const userId = onBehalfOfUser(principal)
-        return {
-          ceiling: {
-            canSee: (ref) => {
-              if (principal.kind === 'system') return true
-              if (userId === null) return false
-              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
-              if (ref.kind === 'session') {
-                const owner = sessionsSvc.sessionOwner(asSessionId(ref.id))
-                return owner?.owner === userId || owner?.grants.includes(userId) === true
-              }
-              return false
-            },
-          },
-          machines: {
-            mayUse: (machineId) =>
-              principal.kind === 'system' ||
-              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
-            isReachable: (machineId) => machines.hasDaemon(machineId),
-          },
-        }
-      },
-    })
-    messagesSvc = new MessageDeliveryService({
-      authorizeAtApply: mail.authorizeAtApply,
-      messages: this.store.messages,
-      notificationFacts: this.store.notificationFacts,
-      events: this.store.events,
-      issues: () => issues,
-      sessions: () => sessionsSvc,
-      mirrorIssueMail: (row) => funnel.run({ write: () => this.store.issues.addIssueMessage(row) }),
-      mirrorMarkIssueMailRead: (issueId, ids) =>
-        funnel.run({
-          write: () =>
-            this.store.issues.markIssueMessagesRead(
-              FIRST_ADMIN_USER_ID,
-              issueId,
-              ids,
-              new Date().toISOString(),
-            ),
-        }),
-      transact: (fn) => this.store.transact(fn),
-      // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake
-      // spawns a fresh agent on the target issue through the SAME machinery
-      // issue_start rides (createSession); the service then queues the message
-      // as the child's first prompt. Authz (gate.send write check) → spawn
-      // budget → cooldown all bite before this seam is reached.
-      spawnOnWake: makeSpawnOnWake({
-        issues: () => issues,
-        createSession: (o) => sessionsSvc.createSession(o),
-      }),
-      // Cross-machine provenance [POD-658]: name the sender's machine in the
-      // envelope note so the receiver knows to `podium workspace fetch`.
-      machineName: (id) => machines.listMachines().find((m) => m.id === id)?.name ?? id,
-      now: () => new Date(this.now()).toISOString(),
-    })
-    // Event-complete delivery eligibility [spec:SP-c29e]: every durable session
-    // or issue metadata transition lands here after commit. Session upserts cover
-    // bind/live, resume-ref, attachment/CWD and draft changes; issue upserts cover
-    // worktree/archive/target-resolution changes. The service coalesces by target.
-    this.bus.on('oplog.appended', ({ changes }) => {
-      for (const change of changes) {
-        if (change.entity === 'session') {
-          messagesSvc.onSessionEligibilityChanged(
-            // `EntityChangeSpec.id` is polymorphic by `entity` (an issue id for
-            // 'issue', a session id here), so the brand is recovered inside the
-            // discriminated branch — the same rule as MessageRow's `toId`.
-            asSessionId(change.id),
-            change.op === 'upsert' ? (change.value as SessionMeta) : undefined,
-          )
-        } else if (change.entity === 'issue') {
-          messagesSvc.onIssueEligibilityChanged(change.id)
-        }
-      }
-    })
-    messageGate = new MessageGate(
-      {
-        messages: () => messagesSvc,
-        issues: () => issues,
-        listSessions: () => sessionsSvc.listSessions(),
-        // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
-        // child is a FULL Podium session through the one spawn path; --new is the
-        // deliberate issue-create path (never automatic).
-        spawnSession: (o) =>
-          sessionsSvc.createSession({
-            ownerUserId: o.ownerUserId,
-            cwd: o.cwd,
-            agentKind: o.agentKind as AgentKind,
-            ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
-            ...(o.model !== undefined ? { model: o.model } : {}),
-            ...(o.effort !== undefined ? { effort: o.effort } : {}),
-            ...(o.issueId ? { issueId: o.issueId } : {}),
-            ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
-            ...(o.machineId ? { machineId: o.machineId } : {}),
-            // Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60].
-            ...(o.name ? { name: o.name } : {}),
-            ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
-            ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
-            ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
-          }),
-        resolveExecutionProfile: (input) => {
-          const { caller, ...profileInput } = input
-          return workflows.executionProfileForLaunch({
-            ...profileInput,
-            ...(caller
-              ? { caller: workflowCallerForCapability(caller.capability, caller.overrideScope) }
-              : {}),
-          })
-        },
-        createIssue: (o) => issues.create({ ...o, startNow: false }),
-        appendEvent: (e) => this.store.events.appendEvent(e),
-        now: () => new Date(this.now()).toISOString(),
-        // Parent-await consume-on-ack (POD-917/POD-923): clear the session-parent
-        // wake sticky when the parent observes the child settled, so a later
-        // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
-        retireNotificationFact: (factKey, target) => {
-          this.store.notificationFacts.retire(factKey, target, new Date(this.now()).toISOString())
-        },
-      },
-      mail.gateOptions,
-    )
-    readToolkit = new SessionReadToolkit({
-      listSessions: () => sessionsSvc.listSessions(),
-      issues: () => issues,
-      messages: () => messagesSvc,
-      events: this.store.events,
-      // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
-      watermarks: this.store.readWatermarks,
-      repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
-      readTranscript: (input) =>
-        rpc.readTranscript(input, { kind: 'system', id: 'session-read-toolkit' }),
-      now: () => new Date(this.now()).toISOString(),
-    })
-
-    issueSessionLifecycle = new IssueSessionLifecycle({
-      issues,
-      sessions: sessionsSvc,
-      ledger,
-    })
-
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
@@ -1644,44 +1708,6 @@ export class SessionRegistry {
       },
     })
     this.issueAutoArchive = new IssueAutoArchive(issues)
-    // Scheduled automations (#470) [spec:SP-17db]. The spawn goes straight to
-    // SessionLifecycle.createSession with its own provenance tag (the tRPC
-    // `sessions.create` proc stamps spawnedBy 'user'), and the prompt rides the
-    // durable outbox — see AutomationsService.spawn for why not initialPrompt.
-    // A session still occupying the machine (anything but exited/hibernated)
-    // makes the next occurrence a skipped_overlap rather than a pile-up.
-    automations = new AutomationsService({
-      store: this.store.automations,
-      ledger,
-      createSession: (o) => sessionsSvc.createSession(o),
-      queueText: (o) => sessionsSvc.queueText(o),
-      resumeAndSend: (o) => sessionsSvc.resumeAndSend(o),
-      createIssue: (o) => {
-        const issue = issues.create({
-          ...o,
-          startNow: false,
-          origin: 'agent',
-          audience: 'human',
-        })
-        issues.update(issue.id, { stage: 'in_progress' })
-        return { id: issue.id }
-      },
-      liveSessionIds: () =>
-        new Set(
-          sessionsSvc
-            .listSessions()
-            .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
-            .map((s) => s.sessionId),
-        ),
-      principalForOwner: (ownerUserId) => {
-        const role = this.store.users.roleOf(ownerUserId)
-        return role ? userCommandPrincipal(ownerUserId, role) : undefined
-      },
-      mayUseDefaultMachine: (principal) =>
-        checkMachineUse(principal, machines.defaultMachine(), ownershipFromMachines(machines)) ===
-        undefined,
-      now: () => new Date(this.now()),
-    })
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()
@@ -1698,6 +1724,7 @@ export class SessionRegistry {
       hosts,
       settings,
       headless,
+      reactions: REACTIONS,
       notify,
       issues,
       issueSessionLifecycle,

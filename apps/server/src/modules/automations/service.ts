@@ -415,7 +415,7 @@ export class AutomationsService {
               sessionId: null,
               outcome,
               detail: decision.detail ?? null,
-              actor: 'system:automation',
+              actor: `automation:${automation.id}`,
               onBehalfOf: automation.ownerUserId,
             })
           } else {
@@ -457,7 +457,7 @@ export class AutomationsService {
             sessionId: null,
             outcome: 'error',
             detail: 'reserved',
-            actor: 'system:automation',
+            actor: `automation:${automation.id}`,
             onBehalfOf: automation.ownerUserId,
           })
           return this.deps.store.getRun(runId)!
@@ -618,7 +618,7 @@ export class AutomationsService {
       defaultEffort: automation.effort,
       type: 'automation',
       ownerUserId: automation.ownerUserId,
-      createdByActor: 'system:automation',
+      createdByActor: `automation:${automation.id}`,
       createdByOnBehalfOf: automation.ownerUserId,
     })
     const { sessionId } = this.deps.createSession({

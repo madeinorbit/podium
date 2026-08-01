@@ -76,13 +76,14 @@ async function spawn(
 }
 
 describe('SessionBinding transition vocabulary', () => {
-  it('is exactly the five lifecycle events, with adopt admitted ahead of POD-644', () => {
+  it('is exactly the six lifecycle events, including adopt and terminal retire', () => {
     expect(SESSION_BINDING_EVENTS).toEqual([
       'spawn',
       'reattach',
       'hook-repin',
       'headless-allocation',
       'adopt',
+      'retire',
     ])
   })
 
@@ -959,6 +960,118 @@ describe('SessionBinding transition vocabulary', () => {
     expect(await bindings.read(base.sessionId)).toBeNull()
   })
 
+  it('RECEIPT CONFLICT appends a durable marker, keeps evidence pending, and is idempotent', async () => {
+    const bindings = await store()
+    const before = await spawn(bindings, 'receipt-conflict', 'codex')
+    const observed = applied(
+      await bindings.transition({
+        event: 'hook-repin',
+        transitionId: 'repin:receipt-conflict',
+        sessionId: before.sessionId,
+        evidenceSource: 'hook-receipt',
+        value: 'thread-shared',
+        nativeKind: 'codex-thread',
+        observedAt: '2026-08-02T08:00:00.000Z',
+        pendingServerAck: { nativeKind: 'codex-thread', value: 'thread-shared' },
+      }),
+    )
+
+    const conflicted = await bindings.recordReceiptConflict({
+      sessionId: before.sessionId,
+      conflictId: 'conflict:shared',
+      value: 'thread-shared',
+      conflictingSessionIds: [asSessionId('sibling')],
+      observedAt: '2026-08-02T08:00:01.000Z',
+    })
+    expect(conflicted).toMatchObject({
+      state: 'conflicted',
+      conflictHistory: [
+        {
+          conflictId: 'conflict:shared',
+          channel: 'resume-ref',
+          value: 'thread-shared',
+          conflictingSessionIds: ['sibling'],
+          resolvedAt: null,
+        },
+      ],
+    })
+    expect(conflicted?.observations).toEqual(observed.observations)
+
+    await bindings.recordReceiptConflict({
+      sessionId: before.sessionId,
+      conflictId: 'conflict:shared',
+      value: 'thread-shared',
+      conflictingSessionIds: [asSessionId('sibling')],
+      observedAt: '2026-08-02T08:00:02.000Z',
+    })
+    const restarted = await BindingStore.open({ dir: bindings.dir })
+    const persisted = await restarted.read(before.sessionId)
+    expect(persisted?.conflictHistory).toHaveLength(1)
+    expect(
+      persisted?.observations.some((entry) => entry.pendingServerAck?.value === 'thread-shared'),
+    ).toBe(true)
+  })
+
+  it('RETIRE is terminal, idempotent, retains observations, and ends delegation', async () => {
+    const bindings = await store()
+    const before = await spawn(bindings, 'retire', 'claude-code', {
+      attemptId: 'attempt-retire',
+    })
+    const bound = applied(
+      await bindings.transition({
+        event: 'hook-repin',
+        transitionId: 'repin:retire',
+        sessionId: before.sessionId,
+        evidenceSource: 'hook-receipt',
+        value: 'native-retire',
+        nativeKind: 'claude-session',
+        observedAt: '2026-08-02T09:00:00.000Z',
+      }),
+    )
+    const retired = applied(
+      await bindings.transition({
+        event: 'retire',
+        transitionId: `retire:${before.sessionId}`,
+        sessionId: before.sessionId,
+        retiredAt: '2026-08-02T09:01:00.000Z',
+      }),
+    )
+
+    expect(retired).toMatchObject({
+      state: 'retired',
+      attemptId: null,
+      retiredAt: '2026-08-02T09:01:00.000Z',
+    })
+    expect(retired.observations).toEqual(bound.observations)
+    expect(retired.delegationHistory.at(-1)).toMatchObject({ retired: true })
+    expect(bindings.currentDelegation(retired)).toBeNull()
+
+    const repeated = await bindings.transition({
+      event: 'retire',
+      transitionId: `retire:${before.sessionId}`,
+      sessionId: before.sessionId,
+      retiredAt: '2026-08-02T09:01:00.000Z',
+    })
+    expect(repeated.status).toBe('unchanged')
+    expect(applied(repeated).transitionHistory.map((entry) => entry.event)).toEqual([
+      'spawn',
+      'hook-repin',
+      'retire',
+    ])
+
+    expect(
+      await bindings.transition({
+        event: 'reattach',
+        transitionId: 'reattach:after-retire',
+        sessionId: before.sessionId,
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user', userId: alice },
+        requestedGeneration: 2,
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'binding-retired' })
+  })
   it('is idempotent by transition id and never writes a rights snapshot', async () => {
     const bindings = await store()
     const first = await spawn(bindings, 'idempotent', 'opencode')
