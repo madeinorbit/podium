@@ -1,7 +1,8 @@
 # Phase-3 policy completion evidence
 
-**Run:** 2026-08-01  
-**Candidate:** `4bca542609d4278b14cb44c5fae58ac8d9a15f03` (`issue/1283-phase-3-policy-completion`)  
+**Run:** 2026-08-01
+**Candidate:** `2a2d52a8babd69f1d378709f0171082c0a885ae2` (`issue/1283-phase-3-policy-completion`)
+**Merged integration tip:** `0d4d15c4`
 **Verdict:** **PASS — the POD-424 production-policy refusals are closed.**
 
 This rerun targets the production registries, authenticated HTTP/MCP entry points, durable stores, scoped feed, and browser kernel Outbox. Policy doubles remain useful unit coverage, but no closure below relies on an injected principal or permissive port standing in for a missing production path.
@@ -47,7 +48,7 @@ Command:
 PODIUM_PASSWORD=phase3-owner-password npx playwright test browser/session-rename-skeleton.browser.e2e.ts --config .phase3-playwright.config.ts --project=chromium-desktop --grep "kernel Outbox dead-letter" --timeout=240000
 ```
 
-Result: **1 passed** in approximately 60 seconds. Review frames:
+Result: **1 passed** (34.9 seconds test time; 1.1 minutes including the production build and runtime startup). The run also caught and closed a merge-only bootstrap lifecycle bug: a fresh-world reconnect had been marking the replica disconnected and invalidating its in-flight bootstrap generation. `FeedSink` now preserves the walk across its own requested socket replacement while retaining the stale/cold transition for real drops. Review frames:
 
 1. `01-live-authorization-dead-letter.png` — live authorization refusal parked by the kernel Outbox.
 2. `02-edit-recovery-before-send.png` — edit recovery before the replacement send.
@@ -55,11 +56,11 @@ Result: **1 passed** in approximately 60 seconds. Review frames:
 
 ## Verification summary
 
-- Focused fleet, feed sink/protocol/composition coverage: **100 tests passed**.
-- Hub-role completeness plus regenerated protocol golden/feed schema: **129 tests passed**.
-- `bun run test`: Node **620 files / 9,149 passed / 19 skipped**; web **182 files / 1,456 passed**; mobile **4 files / 34 passed**; Bun SQLite **14 passed**.
-- `bun run typecheck`: all **26 packages** passed.
+- Production-policy affected suites: **252 tests passed** across session/message/gate/client/outbox coverage; message authorization characterization: **26 passed**; bootstrap/feed lifecycle and divergence matrix: **11 passed**.
+- `bun run test` on the candidate completed the Node lane with **626 files passed / 3 skipped**, **9,247 tests passed / 19 skipped**, and three fixed-deadline timeouts already tracked by POD-1308: two 20-second `issues.normalized-wire.test.ts` cases and the 180-second live-scale benchmark. There were no policy, ownership, transport, feed, or outbox assertion failures. Because the aggregate command stops after Node, the remaining lanes were then run directly on the same candidate: web **182 files / 1,456 passed**; mobile **4 files / 34 passed**; Bun SQLite **14 passed**.
+- `bun run typecheck -- --force`: all workspaces, **22/22 tasks passed, 0 cached**.
 - `bun run test:multi-instance`: independent-runtime isolation **1 passed / 25 assertions**; managed-account spawn **3 passed**; installer isolation **ALL OK**.
+- `bun run migration:check`: the regenerated single migration chain is valid; Phase-3 ownership precedes feed identity, dropped sync feed, and inbox attribution/delegation.
 - `git diff --check`: clean.
 
-The earlier aggregate-load timeout recorded as POD-1308 did not recur in the serialized final run and is not used to waive any gate result.
+The POD-1308 fixed-deadline failures are reported rather than waived. They are unrelated to the Phase-3 closure and reproduce as host-load deadlines without a failed product assertion; every changed production boundary has focused green coverage and the two-user browser path passes on the committed candidate.
