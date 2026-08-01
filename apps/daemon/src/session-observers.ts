@@ -179,7 +179,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const pendingBindingHooks = new Map<string, Map<string, unknown>>()
   const liveConfirmationStates = new Map<
     string,
-    { signature: string; sequence: number; emitted: number; lastEmittedAt: number }
+    {
+      signature: string
+      sequence: number
+      attempted: number
+      emitted: number
+      lastAttemptedAt: number
+      lastEmittedAt: number
+    }
   >()
 
   const liveConfirmationSignature = (
@@ -206,9 +213,39 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const prior = liveConfirmationStates.get(sessionId)
     return !(
       prior?.signature === signature &&
-      prior.emitted >= 2 &&
-      Date.now() - prior.lastEmittedAt < 60_000
+      prior.attempted >= 2 &&
+      Date.now() - prior.lastAttemptedAt < 60_000
     )
+  }
+
+  const recordLiveConfirmationAttempt = (
+    sessionId: string,
+    providerCursor: AgentObservation['providerCursor'],
+  ): void => {
+    const signature = liveConfirmationSignature(sessionId, providerCursor)
+    if (!signature) return
+    const prior = liveConfirmationStates.get(sessionId)
+    const state =
+      prior?.signature === signature
+        ? prior
+        : {
+            signature,
+            sequence: 0,
+            attempted: 0,
+            emitted: 0,
+            lastAttemptedAt: 0,
+            lastEmittedAt: 0,
+          }
+    const now = Date.now()
+    const attempted =
+      state.attempted >= 2 && now - state.lastAttemptedAt >= 60_000
+        ? 1
+        : state.attempted + 1
+    liveConfirmationStates.set(sessionId, {
+      ...state,
+      attempted,
+      lastAttemptedAt: now,
+    })
   }
 
   const emitLiveConfirmation = (
@@ -223,7 +260,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const state =
       prior?.signature === signature
         ? prior
-        : { signature, sequence: 0, emitted: 0, lastEmittedAt: 0 }
+        : {
+            signature,
+            sequence: 0,
+            attempted: 0,
+            emitted: 0,
+            lastAttemptedAt: 0,
+            lastEmittedAt: 0,
+          }
     const now = Date.now()
     if (state.emitted >= 2 && now - state.lastEmittedAt < 60_000) return
     const livePollSequence = state.sequence + 1
@@ -723,6 +767,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             // after the expensive work. Gate the capture itself so the proof rate
             // limit also bounds filesystem/syscall load across the session fleet.
             if (!isLiveConfirmationDue(msg.sessionId, cursor)) return
+            recordLiveConfirmationAttempt(msg.sessionId, cursor)
             const identity = parseClaudeTranscriptSegmentId(cursor.segmentId)
             if (!identity) return
             const capture = await captureTranscript(causal.transcriptPath, {
