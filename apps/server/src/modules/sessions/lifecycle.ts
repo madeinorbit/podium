@@ -33,7 +33,7 @@ import { sessionSpawnerParentId } from '../../steward'
 export type SessionWirePrincipal = SessionStatePrincipal
 
 import { randomUUID } from 'node:crypto'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import {
   harnessCapabilitiesFor,
@@ -46,7 +46,6 @@ import {
 import {
   computePriorities,
   FIRST_ADMIN_USER_ID,
-  repoNameFromOrigin,
   NO_SESSION_USER_STATE,
   type SessionUserOverlay,
 } from '@podium/model'
@@ -129,11 +128,6 @@ import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
-import {
-  transferHandoffPackage,
-  verifiedBundleBases,
-  verifiedCommonBundleBases,
-} from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
 import {
   inboxActorColumns,
@@ -146,6 +140,7 @@ import {
 } from './inbox'
 import { SessionClientControl } from './client-control'
 import { SessionDaemonProjection } from './daemon-projection'
+import { SessionWorkspace } from './workspace'
 import { SessionBindingReceipts } from './session-binding'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
@@ -385,6 +380,7 @@ export class SessionLifecycle {
   readonly publication: SessionPublicationCoordinator
   readonly clientControl: SessionClientControl
   readonly daemonProjection: SessionDaemonProjection
+  readonly workspace: SessionWorkspace
 
   // Server-only dirty generation [spec:SP-c29e]. It schedules projection work and
   // invalidates the legacy snapshot cache; ledger seq remains the sole durable and
@@ -477,6 +473,17 @@ export class SessionLifecycle {
       broadcastSessions: () => this.broadcastSessions(),
       broadcastToClients: (message) => this.broadcastToClients(message),
       adoptWorktree: (issueId, message) => this.adoptWorktree(issueId, message),
+    })
+
+    this.workspace = new SessionWorkspace({
+      store: this.store,
+      rpc: this.rpc,
+      machines: this.machines,
+      issues: () => this.issues(),
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      settingsViewer: () => this.settingsViewer(),
+      onWorktreesChanged: (repoPath, machineId) =>
+        this.deps.onWorktreesChanged(repoPath, machineId),
     })
 
     this.state = new SessionStateService({
@@ -2826,7 +2833,7 @@ export class SessionLifecycle {
       issueMeta: (issueId) => this.issues().getMeta(issueId) ?? undefined,
       rehomeIssue: (issueId, where) => this.issues().rehome(issueId, where),
       ensureTargetRepo: (sourceRepo, targetMachineId) =>
-        this.ensureTargetRepo(sourceRepo, targetMachineId),
+        this.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
       persist: (session) => this.persist(session),
       mutateSessionView: (sessionId, mutate) => {
         this.mutateSessionView(sessionId, mutate)
@@ -2847,219 +2854,6 @@ export class SessionLifecycle {
     return this.handoffCoordinator
   }
 
-  /** Clone and register a source repository on a target that does not have it yet. */
-  async prepareSessionTarget(input: {
-    agentKind?: AgentKind
-    cwd: string
-    machineId?: string
-    /** The calling principal's `use` decision per machine — see createSession. */
-    use?: MachineUseResolver
-  }): Promise<{ cwd: string; machineId?: string }> {
-    if (!input.machineId) return { cwd: input.cwd }
-    const parsed = AgentKind.safeParse(input.agentKind)
-    const agentKind = parsed.success
-      ? parsed.data
-      : resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').harness
-    // Validate connectivity, harness installation, and login before cloning.
-    this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
-    const sourceRepo = this.store.repos
-      .listRepos()
-      .filter((repo) => input.cwd === repo.path || input.cwd.startsWith(`${repo.path}/`))
-      .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo || sourceRepo.machineId === input.machineId) {
-      return { cwd: input.cwd, machineId: input.machineId }
-    }
-    const targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
-    const suffix = input.cwd.slice(sourceRepo.path.length).replace(/^\/+/, '')
-    return {
-      cwd: suffix ? join(targetRepo.path, suffix) : targetRepo.path,
-      machineId: input.machineId,
-    }
-  }
-
-  /** Clone and register a source repository on a target that does not have it yet. */
-  private async ensureTargetRepo(
-    sourceRepo: {
-      machineId: string
-      path: string
-      originUrl: string | null
-      repoId: string | null
-      prefix: string | null
-    },
-    targetMachineId: string,
-  ): Promise<{
-    machineId: string
-    path: string
-    originUrl: string | null
-    repoId: string | null
-    prefix: string | null
-  }> {
-    const existing = this.store.repos
-      .listRepos(targetMachineId)
-      .find((repo) => repo.repoId === sourceRepo.repoId)
-    if (existing) return existing
-    if (!sourceRepo.originUrl || !sourceRepo.repoId) {
-      throw new Error('target machine lacks this repository and the source has no clone URL')
-    }
-    const home = await this.rpc.browseDirs(undefined, {}, targetMachineId)
-    if (!home.listing) {
-      throw new Error(home.error ?? 'target machine did not report its home directory')
-    }
-    const repoName =
-      repoNameFromOrigin(sourceRepo.originUrl)?.replace(/[^a-zA-Z0-9._-]+/gu, '-') || 'repository'
-    const suffix = sourceRepo.repoId.replace(/[^a-zA-Z0-9]+/gu, '').slice(-8) || 'checkout'
-    const targetPath = join(home.listing.homePath, 'podium-repos', `${repoName}-${suffix}`)
-    const cloned = await this.rpc.repoOp(
-      'clone',
-      home.listing.homePath,
-      { originUrl: sourceRepo.originUrl, path: targetPath },
-      targetMachineId,
-    )
-    if (!cloned.ok) throw new Error(`could not clone repository on target: ${cloned.output}`)
-    this.store.repos.addRepo(
-      targetPath,
-      targetMachineId,
-      sourceRepo.originUrl,
-      sourceRepo.prefix ?? undefined,
-    )
-    const registered = this.store.repos
-      .listRepos(targetMachineId)
-      .find((repo) => repo.path === targetPath)
-    if (!registered || registered.repoId !== sourceRepo.repoId) {
-      throw new Error('cloned repository identity does not match the handoff source')
-    }
-    this.deps.onWorktreesChanged(targetPath, targetMachineId)
-    return registered
-  }
-
-  /**
-   * Lazy cross-machine workspace fetch [spec:SP-6d57]: materialize ANOTHER session's
-   * current working state (unpushed commits + dirty + untracked files) on the
-   * CALLER's machine as a detached read-only peek worktree. COPY semantics —
-   * unlike handoff, the source session is never killed, re-homed, or touched;
-   * nothing is published or persisted ahead of time (export → transfer → import
-   * all happen inside this one request, refs deleted before it returns).
-   */
-  async fetchWorkspace(input: { sourceSessionId: SessionId; callerSessionId: SessionId }): Promise<{
-    path: string
-    sameMachine: boolean
-    sourceMachine: string
-    branch: string
-    headSha: string
-    dirty: boolean
-  }> {
-    const source = this.sessions.get(input.sourceSessionId)
-    if (!source) throw new Error('unknown source session')
-    const caller = this.sessions.get(input.callerSessionId)
-    if (!caller) throw new Error('unknown calling session')
-    const sourceMachine = this.machines.listMachines().find((m) => m.id === source.machineId)
-    if (source.machineId === caller.machineId) {
-      return {
-        path: source.cwd,
-        sameMachine: true,
-        sourceMachine: sourceMachine?.name ?? source.machineId,
-        branch: '',
-        headSha: '',
-        dirty: false,
-      }
-    }
-    if (!sourceMachine?.online) throw new Error('source machine is offline')
-
-    const repos = this.store.repos.listRepos()
-    const sourceRepo = repos
-      .filter(
-        (repo) =>
-          repo.machineId === source.machineId &&
-          (source.cwd === repo.path || source.cwd.startsWith(`${repo.path}/`)),
-      )
-      .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
-    const fetcherRepo = repos.find(
-      (repo) => repo.machineId === caller.machineId && repo.repoId === sourceRepo.repoId,
-    )
-    if (!fetcherRepo) throw new Error('this machine does not have the source repository')
-
-    const issue = source.issueId ? this.issues().getMeta(source.issueId) : undefined
-    const branch = issue?.branch ?? basename(source.cwd)
-    const candidates = [
-      ...new Set(
-        [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
-          Boolean(ref),
-        ),
-      ),
-    ]
-    const sourceVerified = await Promise.all(
-      candidates.map((ref) =>
-        this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
-      ),
-    )
-    const sourceBaseShas = verifiedBundleBases(sourceVerified)
-    const fetcherVerified = await Promise.all(
-      sourceBaseShas.map((ref) =>
-        this.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
-      ),
-    )
-    const baseShas = verifiedCommonBundleBases(sourceVerified, fetcherVerified)
-    if (baseShas.length === 0)
-      throw new Error('no verified common bundle base with the source repository')
-
-    const fetchId = `ws-${randomUUID().slice(0, 13)}`
-    const exported = await this.rpc.workspaceExport(
-      {
-        fetchId,
-        cwd: source.cwd,
-        baseShas,
-        repoId: sourceRepo.repoId,
-        sourceMachineId: source.machineId,
-      },
-      source.machineId,
-    )
-    if (
-      !exported.ok ||
-      !exported.stagePath ||
-      exported.sizeBytes === undefined ||
-      !exported.manifest
-    )
-      throw new Error(exported.error ?? 'source failed to export its workspace')
-    await transferHandoffPackage({
-      rpc: this.rpc,
-      // A workspace-fetch subject, not a session — see HandoffTransferSubjectId.
-      sessionId: fetchId as `ws-${string}`,
-      sourceMachineId: source.machineId,
-      targetMachineId: caller.machineId,
-      sourceStagePath: exported.stagePath,
-      sizeBytes: exported.sizeBytes,
-    })
-    const imported = await this.rpc.workspaceImport(fetchId, fetcherRepo.path, caller.machineId)
-    if (!imported.ok || !imported.path)
-      throw new Error(imported.error ?? 'failed to materialize the fetched workspace')
-    return {
-      path: imported.path,
-      sameMachine: false,
-      sourceMachine: sourceMachine.name,
-      branch: exported.manifest.branch,
-      headSha: exported.manifest.headSha,
-      dirty: exported.manifest.snapshotSha !== null,
-    }
-  }
-
-  /** Remove every peek worktree fetch materialized in the caller's repo [POD-658]. */
-  async cleanWorkspacePeeks(input: { callerSessionId: SessionId }): Promise<{ removed: string[] }> {
-    const caller = this.sessions.get(input.callerSessionId)
-    if (!caller) throw new Error('unknown calling session')
-    const repo = this.store.repos
-      .listRepos()
-      .filter(
-        (r) =>
-          r.machineId === caller.machineId &&
-          (caller.cwd === r.path || caller.cwd.startsWith(`${r.path}/`)),
-      )
-      .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!repo) throw new Error('calling session is not inside a registered repository')
-    const result = await this.rpc.workspaceClean(repo.path, caller.machineId)
-    if (!result.ok) throw new Error(result.error ?? 'workspace clean failed')
-    return { removed: result.removed ?? [] }
-  }
 
   /**
    * Chat-compose path for a parked session: if it's live, just send; if it's
@@ -3106,7 +2900,7 @@ export class SessionLifecycle {
     // The common hibernate→wake path resolves synchronously, and the spawn
     // must too: queueText fire-and-forgets this call and its callers rely on
     // the spawn being on the wire before queueText returns [POD-197].
-    const ensured = this.ensureSessionWorktree(session)
+    const ensured = this.workspace.ensureSessionWorktree(session)
     if (ensured instanceof Promise) {
       return ensured.then((e) => this.finishResurrect(session, e, adoptedBinding))
     }
@@ -3169,53 +2963,6 @@ export class SessionLifecycle {
     return { ok: true }
   }
 
-  /**
-   * Ensure the session's cwd exists on disk before spawn. After stop frees the
-   * issue worktree it clears the path of record but keeps the branch; resume
-   * recreates via worktreeAddExisting [spec:SP-9904]. When worktreePath is
-   * still set we trust it (no probe — keeps unit tests daemon-free and avoids
-   * a 35s rpc timeout on the common hibernate→resurrect path). Returns a
-   * plain value on every path that needs no daemon work so resurrectSession
-   * can spawn synchronously [POD-197]; only the recreate path is async.
-   */
-  private ensureSessionWorktree(
-    session: Session,
-  ):
-    | { ok: boolean; reason?: string; cwd?: string }
-    | Promise<{ ok: boolean; reason?: string; cwd?: string }> {
-    const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
-    if (!issueId) return { ok: true, cwd: session.cwd }
-
-    const issue = this.issues().getMeta(issueId)
-    if (!issue) return { ok: true, cwd: session.cwd }
-
-    // Still recorded → use it (hibernate / normal park leaves the path).
-    if (issue.worktreePath) return { ok: true, cwd: issue.worktreePath }
-
-    // An issue can own a session without ever owning a dedicated worktree. In
-    // that valid shape both fields are null and the session's cwd (typically
-    // the repository root) remains the source of truth. A stopped issue
-    // worktree is distinguishable because stop keeps its branch [spec:SP-9904].
-    // Ordinary hibernation did not free a worktree; only stop/exit metadata
-    // authorizes reconstructing a missing branch-backed checkout.
-    if (!session.stopReason) return { ok: true, cwd: session.cwd }
-
-    if (!issue.branch) {
-      return { ok: true, cwd: session.cwd }
-    }
-    // Freed by stop (or cleared out-of-band): recreate from the kept branch.
-    return this.issues()
-      .ensureWorktree(issueId)
-      .then((recreated) => {
-        if (!recreated.ok || !recreated.worktreePath) {
-          return {
-            ok: false,
-            reason: recreated.output || 'failed to recreate worktree from branch',
-          }
-        }
-        return { ok: true, cwd: recreated.worktreePath }
-      })
-  }
 
   /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
    *  archive), reap its draft issue if the draft is now empty — draft, no

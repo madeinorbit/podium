@@ -953,7 +953,7 @@ export class SessionRegistry {
             throw new Error(`workspace.${proc} is only callable by a session (no actor bound)`)
           }
           if (proc === 'clean') {
-            return sessionsSvc.cleanWorkspacePeeks({
+            return sessionsSvc.workspace.cleanPeeks({
               callerSessionId: actorSessionId,
             })
           }
@@ -976,7 +976,7 @@ export class SessionRegistry {
                 targetIssueId,
               )
             }
-            return sessionsSvc.fetchWorkspace({
+            return sessionsSvc.workspace.fetch({
               sourceSessionId: target.sessionId,
               callerSessionId: actorSessionId,
             })
