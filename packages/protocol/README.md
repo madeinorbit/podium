@@ -4,5 +4,5 @@ The wire protocol shared by Podium's agent process wrapper and its browser termi
 client. Defines the message types that cross the network boundary: output frames, input
 events, resize, controller/spectator takeover, session lifecycle, and transcript.
 
-Published to npm. Both `@podium/agent-bridge` (Node) and `@podium/terminal-client`
+Published to npm. Both `@podium/harness` and `@podium/pty` (Node) plus `@podium/terminal-client`
 (browser) depend on it; they never depend on each other.

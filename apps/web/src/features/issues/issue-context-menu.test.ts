@@ -1,9 +1,4 @@
-import {
-  asIssueId,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   contextMenuTargets,
@@ -40,12 +35,16 @@ const handoffMachines = [
   { id: asIssueId('source'), online: true, inventory: { agents: [handoffAgent()] } },
   { id: asIssueId('target'), online: true, inventory: { agents: [handoffAgent('unknown')] } },
 ]
-const makeSession = (over: Partial<SessionMetaInput> & Pick<SessionMetaInput, 'sessionId'>): SessionMeta =>
+const makeSession = (
+  over: Partial<SessionMetaInput> & Pick<SessionMetaInput, 'sessionId'>,
+): SessionMeta =>
   ({
     status: 'live',
     agentKind: 'codex',
     cwd: '/a/.worktrees/x',
     machineId: 'source',
+    harnessHandoff:
+      over.harnessHandoff ?? ['claude-code', 'codex'].includes(over.agentKind ?? 'codex'),
     createdAt: 't',
     updatedAt: 't',
     unread: false,
@@ -140,11 +139,18 @@ describe('issueMenuEligibility', () => {
 
   it('supports bulk restore only when every selected issue is deleted', () => {
     const deleted = makeIssue({ id: asIssueId('gone'), deletedAt: '2026-07-13T10:00:00.000Z' })
-    expect(issueMenuEligibility([deleted, { ...deleted, id: asIssueId('also-gone') }]).canRestore).toBe(true)
-    expect(issueMenuEligibility([deleted, makeIssue({ id: asIssueId('live') })]).canRestore).toBe(false)
+    expect(
+      issueMenuEligibility([deleted, { ...deleted, id: asIssueId('also-gone') }]).canRestore,
+    ).toBe(true)
+    expect(issueMenuEligibility([deleted, makeIssue({ id: asIssueId('live') })]).canRestore).toBe(
+      false,
+    )
   })
   it('keeps only bulk-capable actions on a multi-selection', () => {
-    const e = issueMenuEligibility([makeIssue({ id: asIssueId('a') }), makeIssue({ id: asIssueId('b') })])
+    const e = issueMenuEligibility([
+      makeIssue({ id: asIssueId('a') }),
+      makeIssue({ id: asIssueId('b') }),
+    ])
     expect(e.canSetStage).toBe(true)
     expect(e.canSetPriority).toBe(true)
     expect(e.canSetLabels).toBe(true)
@@ -174,13 +180,19 @@ describe('isIssueClosed', () => {
 
 describe('contextMenuTargets', () => {
   it('right-click inside the selection keeps it and targets all selected', () => {
-    const r = contextMenuTargets({ focusId: asIssueId('a'), selected: [asIssueId('a'), asIssueId('b'), asIssueId('c')] }, asIssueId('b'))
+    const r = contextMenuTargets(
+      { focusId: asIssueId('a'), selected: [asIssueId('a'), asIssueId('b'), asIssueId('c')] },
+      asIssueId('b'),
+    )
     expect(r.keyState).toEqual({ focusId: 'b', selected: ['a', 'b', 'c'] })
     expect(r.targetIds).toEqual(['a', 'b', 'c'])
   })
 
   it('right-click on an unselected issue re-focuses it and drops the selection', () => {
-    const r = contextMenuTargets({ focusId: asIssueId('a'), selected: [asIssueId('a'), asIssueId('b')] }, asIssueId('z'))
+    const r = contextMenuTargets(
+      { focusId: asIssueId('a'), selected: [asIssueId('a'), asIssueId('b')] },
+      asIssueId('z'),
+    )
     expect(r.keyState).toEqual({ focusId: 'z', selected: [] })
     expect(r.targetIds).toEqual(['z'])
   })
@@ -256,7 +268,11 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     const issue = makeIssue({
       memberSessionIds: ['s1'],
     })
-    const live = makeSession({ sessionId: asSessionId('s1'), agentKind: 'codex', cwd: '/a/.worktrees/x' })
+    const live = makeSession({
+      sessionId: asSessionId('s1'),
+      agentKind: 'codex',
+      cwd: '/a/.worktrees/x',
+    })
     const result = resolveIssueHandoffSession(issue, [live], handoffRepos, handoffMachines)
     expect(result?.session).toBe(live)
   })
@@ -320,10 +336,13 @@ describe('issueHandoffAvailability (POD-850)', () => {
 
   it('treats an UNKNOWN harness as not handoff-eligible without throwing (POD-1105)', () => {
     // agentKind comes off the wire, so it can name a harness this build has never
-    // heard of. Eligibility now reads the capability table; an unknown id must
+    // heard of. Eligibility now reads the manifest projection; an unknown id must
     // answer "not eligible" — the same thing the `claude-code || codex` pair of
     // comparisons returned — rather than throwing on a missing row.
-    const future = makeSession({ sessionId: asSessionId('f1'), agentKind: 'future-harness' as never })
+    const future = makeSession({
+      sessionId: asSessionId('f1'),
+      agentKind: 'future-harness' as never,
+    })
     expect(() =>
       issueHandoffAvailability(issueWith(['f1']), [future], handoffRepos, handoffMachines),
     ).not.toThrow()

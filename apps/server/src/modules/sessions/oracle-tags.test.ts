@@ -164,7 +164,7 @@ describe('oracle tag ratchet', () => {
     //   - POD-642: handoff now single-flights duplicate dispatch;
     //   - POD-1076: session `readAt` is stored per user, so the characterization
     //     that measured it as one instance-wide value is now a pinned
-    //     must-not-change about the unscoped FEED (oracle-presence.test.ts).
+    //     must-not-change about the unscoped FEED (oracle-session-state.test.ts).
     // This list is what is still PENDING; a landed issue left in it would keep
     // asserting that its characterization has not been replaced yet.
     expect([...named].sort()).toEqual(['POD-1073', 'POD-1075', 'POD-1079'])

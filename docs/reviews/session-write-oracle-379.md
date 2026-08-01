@@ -10,7 +10,7 @@ behaviour-preserving instead of merely compiling.
 | File | Covers |
 |---|---|
 | `apps/server/src/modules/sessions/oracle-support.ts` | Fixtures, the two tag helpers, predicate waiting |
-| `…/oracle-presence.test.ts` | rename · archive · read/unread · workState · issue attachment · snoozes · pins · tab order · drafts |
+| `…/oracle-session-state.test.ts` | rename · archive · read/unread · workState · issue attachment · snoozes · pins · tab order · drafts |
 | `…/oracle-commands.test.ts` | create · resume · hibernate · resurrect · kill · stop · continue · sendText · resumeAndSend · answerAskUserQuestion |
 | `…/oracle-authz.test.ts` | the agent-capability path: relay allowlist (and the two session writes that ARE relay-allowed, `continue` and `stop`), scope gate, issueless targets, payload-identity inertness |
 | `…/oracle-errors.test.ts` | not-found shape per write; unreachable-machine shape for create, resume, both send paths and handoff |
@@ -69,7 +69,7 @@ The will-change classes, all five represented and enforced by the ratchet:
    cutover that merges the two lists would silently GRANT agents the seance. That is a policy
    change, not a refactor, and it is pinned as such.
 
-Also worth stating plainly: **the presence writes have no agent path at all.** They are operator-only
+Also worth stating plainly: **the session-state writes have no agent path at all.** They are operator-only
 by ABSENCE from `RELAY_ALLOWED`, not by a check. A uniform command plane must reproduce that absence
 deliberately.
 

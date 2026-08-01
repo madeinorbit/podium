@@ -4,13 +4,7 @@
  * deletion preserves them; explicit internal purge removes them.
  */
 
-import {
-  type AccountId,
-  AgentKind,
-  asSessionId,
-  type IssueId,
-  type SessionId,
-} from '@podium/model'
+import { type AccountId, AgentKind, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import type {
   OfferMap,
@@ -455,6 +449,19 @@ export class SessionsRepository {
     this.db
       .prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?')
       .run(userId, sessionId.trim())
+  }
+
+  hasAnySnooze(sessionId: SessionId): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 AS present FROM snoozes WHERE session_id = ? LIMIT 1')
+        .get(sessionId.trim()) !== undefined
+    )
+  }
+
+  /** Clear every viewer's independent snooze after a shared session event. */
+  clearAllSnoozes(sessionId: SessionId): void {
+    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(sessionId.trim())
   }
 
   // ---- agent action offers [spec:SP-c7f1] ----

@@ -7,7 +7,7 @@ xterm.js rendering, a mobile auxiliary-key toolbar, an explicit touch/scroll pol
 spectator rendering, and a separate transcript surface. See
 `docs/mobile-web-agent-cli-challenges.md` for the constraints this package answers.
 
-Published to npm. Depends only on `@podium/protocol`. Pairs with `@podium/agent-bridge`
+Published to npm. Depends only on `@podium/protocol`. Pairs with `@podium/harness`, `@podium/pty`
 on the server side, but never imports it.
 
 Intended runtime dependencies (added when implementation begins): `@xterm/xterm` and

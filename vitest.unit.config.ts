@@ -46,7 +46,7 @@ export default defineConfig({
       'packages/pty/src/tmux.test.ts',
       // Drives the real `claude` binary (self-skips without PODIUM_REAL_CLI=1);
       // the agent-smoke lane owns it.
-      'packages/agent-bridge/test/harness-smoke/**',
+      'packages/pty/test/harness-smoke/**',
       // Boots a real daemon and spawns PTY-backed fixture agents per test.
       'apps/daemon/src/daemon.test.ts',
       // Spawn real child processes (bun install/typecheck; memory sampling).

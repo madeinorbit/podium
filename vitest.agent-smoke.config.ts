@@ -4,7 +4,7 @@ import { realAgentSmokeTests } from './vitest.smoke-requirements'
 
 const agentSmokeTests = [
   ...realAgentSmokeTests,
-  'packages/agent-bridge/test/harness-smoke/claude-smoke.test.ts',
+  'packages/pty/test/harness-smoke/claude-smoke.test.ts',
   'apps/daemon/src/codex-hooks.test.ts',
   'packages/harness/src/opencode/cli.test.ts',
   'packages/harness/src/cursor/cli.test.ts',

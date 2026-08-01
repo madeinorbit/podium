@@ -1,18 +1,18 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { IssueWire } from '@podium/model'
 import {
-  SOLE_USER_ID,
+  type AgentPhase,
+  type AgentRuntimeState,
   asSessionId,
   FIRST_ADMIN_USER_ID,
   resolveTelegramPrincipal,
-  type AgentPhase,
-  type AgentRuntimeState,
   type SessionId,
+  SOLE_USER_ID,
 } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import type { IssueWire } from '@podium/model'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
 import { SessionRegistry } from './relay'
@@ -2288,7 +2288,10 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
 
-    const p = reg.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 50 })
+    const p = reg.modules.rpc.readTranscript(
+      { sessionId, direction: 'before', limit: 50 },
+      { kind: 'user', id: 'reader-a' },
+    )
     const req = daemon.find((m) => m.type === 'transcriptRead') as
       | { requestId: string; direction: string; limit: number; sessionId: string }
       | undefined
@@ -2322,12 +2325,15 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
       conversationId: 'conv-1',
     })
 
-    const p = reg.modules.rpc.readTranscript({
-      sessionId,
-      anchor: 'c42',
-      direction: 'after',
-      limit: 200,
-    })
+    const p = reg.modules.rpc.readTranscript(
+      {
+        sessionId,
+        anchor: 'c42',
+        direction: 'after',
+        limit: 200,
+      },
+      { kind: 'user', id: 'reader-b' },
+    )
     const req = daemon.find((m) => m.type === 'transcriptRead') as
       | {
           requestId: string
@@ -2363,11 +2369,10 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     await expect(
-      reg.modules.rpc.readTranscript({
-        sessionId: asSessionId('nope'),
-        direction: 'before',
-        limit: 10,
-      }),
+      reg.modules.rpc.readTranscript(
+        { sessionId: asSessionId('nope'), direction: 'before', limit: 10 },
+        { kind: 'user', id: 'reader-c' },
+      ),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
   })
@@ -3475,7 +3480,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     const after = reg.modules.sessions.listSessions()[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
@@ -3499,7 +3504,7 @@ describe('SessionRegistry read state (#124)', () => {
     reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
 
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     const pushed = c.sent.filter(
@@ -3519,13 +3524,13 @@ describe('SessionRegistry read state (#124)', () => {
       cwd: '/p',
     })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
     const c = sink()
     reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
-    reg.modules.sessions.markSessionUnread(sessionId)
+    reg.modules.sessions.markSessionUnread(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     const after = reg.modules.sessions.listSessions()[0]

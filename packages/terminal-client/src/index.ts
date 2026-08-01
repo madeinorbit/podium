@@ -5,7 +5,11 @@ export * from './connection'
 export * from './dom-viewport'
 export * from './echo-latency'
 export * from './keys'
-export { extractClaudePromptDraft, extractCodexPromptDraft } from '@podium/composer'
+export {
+  composerDriverFor,
+  extractClaudePromptDraft,
+  extractCodexPromptDraft,
+} from '@podium/composer'
 export * from './ref-hover-tooltip'
 export * from './ref-link-provider'
 export * from './ref-underline-overlay'

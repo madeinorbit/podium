@@ -112,7 +112,7 @@ describe('stripComments', () => {
   })
 
   it('does not desync on a nested template inside an interpolation', () => {
-    // Verbatim shape of packages/agent-bridge/src/tmux.ts:11 (shellQuote).
+    // Verbatim shape of packages/pty/src/tmux.ts:11 (shellQuote).
     const src = ["const q = `'${s.replace(/'/g, `'\\''`)}'`", '// gone', 'const after = 1'].join(
       '\n',
     )
@@ -260,7 +260,7 @@ describe('inventory checks', () => {
       // A true redeclaration (the drift risk).
       'packages/runtime/src/settings.ts': `export const HarnessAgent = z.enum(['codex'])`,
       // An alias re-using the canonical enum is the GOOD pattern, not debt.
-      'packages/agent-bridge/src/discovery/types.ts': `export type AgentKind = HarnessAgent`,
+      'packages/harness/src/discovery/types.ts': `export type AgentKind = HarnessAgent`,
     })
     const sites = CHECKS.find((c) => c.id === 'agent-kind-enums')?.collect(ctx) ?? []
     expect(sites.map((s) => s.file)).toEqual(['packages/runtime/src/settings.ts'])
@@ -370,6 +370,8 @@ describe('inventory checks', () => {
         'export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {}',
       // No `export` — drifts identically, still debt.
       'apps/server/src/private.ts': 'const RESUME: Record<HarnessAgent, string> = {}',
+      'packages/harness/src/registry.ts':
+        'export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {}',
       // Same shape, different concern: a UI icon map is not a harness capability.
       'apps/web/src/lib/WorkerLabel.tsx': 'const KIND_ICON: Record<AgentKind, IconComponent> = {}',
     })
@@ -382,7 +384,7 @@ describe('inventory checks', () => {
 
   it('sync/async twins match only a blocking fn that HAS an async twin', () => {
     const ctx = ctxOf({
-      'packages/agent-bridge/src/tmux.ts': [
+      'packages/pty/src/tmux.ts': [
         'export function tmuxHasSession(l) {}',
         'export async function tmuxHasSessionAsync(l) {}',
         // No twin — a lone sync function is not this item.
@@ -613,17 +615,25 @@ describe('CLI exit codes', () => {
   // Each case launches two full-tree audit processes; the full node lane can
   // saturate the 20s default.
   const fullLaneAuditTimeout = 40_000
-  it('gates a phase whose items are still alive, and clears one that reached zero', () => {
-    expect(run(['--phase', 'POD-1251'])).toBe(1)
-    expect(run(['--phase', 'POD-308'])).toBe(0)
-  }, fullLaneAuditTimeout)
+  it(
+    'gates a phase whose items are still alive, and clears one that reached zero',
+    () => {
+      expect(run(['--phase', 'POD-1251'])).toBe(1)
+      expect(run(['--phase', 'POD-308'])).toBe(0)
+    },
+    fullLaneAuditTimeout,
+  )
 
-  it('an output flag cannot disable the gate', () => {
-    // `--phase X --json` exited 0 with 119 live sites before this was fixed:
-    // the format must never decide whether the gate holds.
-    expect(run(['--phase', 'POD-314', '--json'])).toBe(1)
-    expect(run(['--phase', 'POD-314', '--sites'])).toBe(1)
-  }, fullLaneAuditTimeout)
+  it(
+    'an output flag cannot disable the gate',
+    () => {
+      // `--phase X --json` exited 0 with 119 live sites before this was fixed:
+      // the format must never decide whether the gate holds.
+      expect(run(['--phase', 'POD-314', '--json'])).toBe(1)
+      expect(run(['--phase', 'POD-314', '--sites'])).toBe(1)
+    },
+    fullLaneAuditTimeout,
+  )
 
   it('an output flag cannot swallow the baseline write', () => {
     // `--json --update-baseline` used to exit 0 having written NOTHING: --json
@@ -821,6 +831,11 @@ describe('against the live repo', () => {
       'representation-registry-rot',
       'capability-snapshots',
       'instance-partitions',
+      // POD-398 folded every static row into the canonical per-CLI manifests.
+      // The fixture test above remains the detector anchor: it proves both a
+      // protocol export and a module-private server table are still counted,
+      // while the canonical manifest registry itself is deliberately excluded.
+      'capability-tables',
       // POD-383 deleted `superagent.send`, so ONE procedure now forwards to
       // `sendTurn` and N-1 is zero — the item's target state. It is safe to
       // exempt here, and only here, because this detector carries its OWN

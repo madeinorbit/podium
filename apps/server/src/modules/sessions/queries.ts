@@ -21,8 +21,8 @@
 
 import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
-import { defineQuery } from '../query-table'
 import type { FamilyState } from '../derived-family'
+import { defineQuery } from '../query-table'
 
 const q = defineQuery<FamilyState>()
 
@@ -40,7 +40,7 @@ export const SESSION_QUERIES = {
       direction: z.enum(['before', 'after']),
       limit: z.number().int().positive().max(2000),
     }),
-    (s, input) => s.modules.rpc.readTranscript(input),
+    (s, input) => s.modules.rpc.readTranscript(input, { kind: 'user', id: s.caller.userId }),
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
    *  issue stage/todos, last commits, files touched, unacked count — NO
@@ -61,9 +61,8 @@ export const SESSION_QUERIES = {
   /** Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
-  recap: q(
-    z.object({ sessionId: SessionIdField, since: z.string().optional() }),
-    (s, input) => s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator'),
+  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), (s, input) =>
+    s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator'),
   ),
 } as const
 
@@ -72,9 +71,8 @@ export const SYNC_QUERIES = {
    *  bootstrap snapshot; a valid cursor = the changes after it; a
    *  compacted/future cursor falls back to snapshot. The client heals every WS
    *  (re)connect through this. */
-  changesSince: q(
-    z.object({ cursor: z.number().int().nonnegative().nullable() }),
-    (s, input) => s.modules.sessions.syncChangesSince(input.cursor, s.publicationAuthority),
+  changesSince: q(z.object({ cursor: z.number().int().nonnegative().nullable() }), (s, input) =>
+    s.modules.sessions.syncChangesSince(input.cursor, s.publicationAuthority),
   ),
   /**
    * WIRE v2 CATCH-UP (POD-376) — rung 1 of the kernel Replica's D7 ladder.
@@ -122,13 +120,13 @@ const noInput = z.object({}).passthrough().optional()
 
 /** PER-USER STATE (POD-380): each list is the CALLER's, not the instance's. */
 export const PIN_QUERIES = {
-  list: q(noInput, (s) => s.store.sessions.listPins(s.caller.userId)),
+  list: q(noInput, (s) => s.modules.sessions.state.listPins(s.caller.sessionState)),
 } as const
 
 export const SNOOZE_QUERIES = {
-  list: q(noInput, (s) => s.store.sessions.listSnoozes(s.caller.userId)),
+  list: q(noInput, (s) => s.modules.sessions.state.listSnoozes(s.caller.sessionState)),
 } as const
 
 export const TAB_QUERIES = {
-  listOrders: q(noInput, (s) => s.store.sessions.listTabOrders(s.caller.userId)),
+  listOrders: q(noInput, (s) => s.modules.sessions.state.listTabOrders(s.caller.sessionState)),
 } as const

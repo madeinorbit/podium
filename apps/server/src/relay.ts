@@ -1,20 +1,20 @@
-import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { AgentKind, SessionMeta } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
+import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
+import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
+import { FeedIdentityRegistry, Ledger, MutationLedger } from '@podium/sync'
 import { deviceGradeSoleOwner } from './device-grade-owner'
+import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
-import { FeedServing } from './gateway/feed-serving'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
-import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
-import { FeedIdentityRegistry, Ledger, MutationLedger } from '@podium/sync'
-import { getFeatureStates, isFeatureEnabled } from './features'
+import { FeedServing } from './gateway/feed-serving'
 import { checkIssueAccess } from './issue-authz'
-import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
@@ -40,7 +40,6 @@ import { mailPolicy } from './modules/messages/handlers/context'
 import {
   DELIVERY_RETRY_BACKSTOP_MS,
   MessageDeliveryService,
-  senderFromCapability,
 } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { TelegramNoticePort } from './modules/messaging/types'
@@ -250,7 +249,7 @@ export class SessionRegistry {
     let automations!: AutomationsService
     /**
      * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
-     * honours a `mutationId` — the session presence class, the session command
+     * honours a `mutationId` — the session session-state class, the session command
      * plane and the issue registry — dedupes through THIS object. It replaces
      * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
      * chance to forget (POD-379's idempotency oracle exists because of it) and
@@ -461,7 +460,10 @@ export class SessionRegistry {
           {
             getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
             sessions: sessionsSvc,
-            rpc,
+            rpc: {
+              readTranscript: (input) =>
+                rpc.readTranscript(input, { kind: 'system', id: 'issue-answer-delivery' }),
+            },
           },
           {
             sessionId,
@@ -1312,7 +1314,8 @@ export class SessionRegistry {
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,
       repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
-      readTranscript: (input) => rpc.readTranscript(input),
+      readTranscript: (input) =>
+        rpc.readTranscript(input, { kind: 'system', id: 'session-read-toolkit' }),
       now: () => new Date(this.now()).toISOString(),
     })
 

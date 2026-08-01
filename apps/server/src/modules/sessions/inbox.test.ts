@@ -1,9 +1,9 @@
 import {
+  type Attribution,
   actorAgent,
   asAgentIdentityId,
   asSessionId,
   asUserId,
-  type Attribution,
   type SessionId,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
@@ -82,6 +82,7 @@ function harness(options: { owner?: typeof ALICE | null; status?: string } = {})
     now: () => Date.now(),
     persist: vi.fn(),
     broadcast: vi.fn(),
+    needsSubmitVerification: (agentKind) => agentKind === 'claude-code',
     prepareSend: vi.fn(),
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     resurrect: async () => ({ ok: true }),

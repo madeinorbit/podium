@@ -73,3 +73,51 @@ binary over the merged tree.
 There are no down migrations here, and migrations apply by name. Verify against
 `drizzle-manifest.generated.ts` — that file, not the directory listing, is what
 runs in tests.
+
+---
+
+## UPDATE 2026-08-01 05:05 — the surface doubled, and a rename/modify trap appeared
+
+Re-measured at integration `008fb9e1`, POD-1283 `8ebfed9a`:
+
+    POD-1283 touched              200 files  (was 183)
+    integration touched since     165 files  (was 115)
+    OVERLAP                        24 files  (was 12)
+
+New in the overlap since 03:05: `relay.ts`, `router.ts`, `server.ts`,
+`queries.ts`, `superagent/service.ts`, `superagent/tools.ts`, `oracle-support.ts`,
+`oracle-errors.test.ts`, `oracle-presence.test.ts`, `router.test.ts`,
+`superagent-headless.test.ts`, `relay.conversation-registry.test.ts`.
+
+### THE TRAP: oracle-presence.test.ts is a MODIFY/DELETE across two branches
+
+- **POD-393 DELETES it.** It renamed the concept presence -> session-state, so
+  `oracle-presence.test.ts` becomes `oracle-session-state.test.ts`. Verified
+  faithful at the time: 23 tests -> 23 tests, 8 exports -> 8 exports.
+- **POD-1283 MODIFIES it**, as part of the policy work.
+
+Git will raise a modify/delete conflict, and **the natural resolution — accept the
+delete — silently discards POD-1283's edits.** Nothing reports that. It is the
+same shape as the two defects this run that existed in neither branch alone.
+
+**Whichever of the two lands second, the edits must be carried BY HAND into
+`oracle-session-state.test.ts`.** Do not resolve this conflict by choosing a side.
+Concretely: before resolving, capture POD-1283's diff for that file
+
+    git diff <merge-base> issue/1283-phase-3-policy-completion -- \
+      apps/server/src/modules/sessions/oracle-presence.test.ts
+
+and re-apply each hunk to the renamed file, then confirm the test count did not
+drop. The same check that validated POD-393's rename (count the `it(`/`test(`
+calls on both sides) is what proves nothing was lost here.
+
+The same caution applies in weaker form to `oracle-support.ts` and
+`oracle-errors.test.ts`, which POD-393 also touched during the rename.
+
+### Suggested landing ORDER
+
+Land POD-393 and POD-394 (the extractions) BEFORE POD-1283 if they are ready
+first, because their changes are structural and mostly additive, and POD-1283's
+are semantic edits that are easier to re-apply onto a settled structure than the
+reverse. But do not delay POD-1283 for them — it is the phase blocker, and a
+hand-carried rename is a known, bounded cost.

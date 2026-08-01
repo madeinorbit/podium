@@ -29,7 +29,7 @@
  *     verbatim across this move; the on-behalf-of half is POD-1075's to add.
  *
  * ── EXTENDED (POD-380) ──────────────────────────────────────────────────────
- * `IssueScope` now carries the two §3.1.1/§3.3 members the presence-class session
+ * `IssueScope` now carries the two §3.1.1/§3.3 members the session-state session
  * writes need — `owned` (owner-or-grant) and `self` (per-user state) — and
  * {@link authorize}'s target widened to {@link AuthTarget} so one function decides
  * for issues, owned entities and per-user rows. This follows invariant 2
@@ -340,9 +340,7 @@ export function authorize(
       // The ONE thing a self scope may write: its own row. Not another user's row,
       // and not a shared entity — a `self` principal that could rename a session
       // would be an owner-or-grant capability wearing the wrong name.
-      return issue.kind === 'per-user-row' && issue.userId === scope.userId
-        ? 'allow'
-        : 'forbidden'
+      return issue.kind === 'per-user-row' && issue.userId === scope.userId ? 'allow' : 'forbidden'
     }
     default:
       return assertUnreachable(scope)

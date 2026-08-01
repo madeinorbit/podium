@@ -1,5 +1,5 @@
 /**
- * PRESENCE-CLASS SESSION COMMAND CONTRACTS (POD-380, under POD-312).
+ * DURABLE SESSION-STATE SESSION COMMAND CONTRACTS (POD-380, under POD-312).
  *
  * The pure-state session writes — rename · setArchived · markRead / markUnread ·
  * setWorkState · setIssueId · snoozes.set / snoozes.clear · pins.set ·
@@ -100,7 +100,7 @@ const rename: CommandDef = {
   redaction: { fields: [], note: 'a session name is a label the owner chose to display' },
   conflict: 'field-LWW',
   decision:
-    'nameSource is resolved from the principal’s on-behalf-of human (§3.1.3 A3), not from the transport being the operator cookie. Relay exposure stays OFF: POD-379 pins that presence writes have no agent path, and that absence is reproduced here as an explicit exposure decision rather than inherited from an allowlist.',
+    'nameSource is resolved from the principal’s on-behalf-of human (§3.1.3 A3), not from the transport being the operator cookie. Relay exposure stays OFF: POD-379 pins that session-state writes have no agent path, and that absence is reproduced here as an explicit exposure decision rather than inherited from an allowlist.',
 }
 
 const setArchivedInput = z.object({ sessionId: SessionIdField, archived: z.boolean(), mutationId })
@@ -113,7 +113,9 @@ const setArchived: CommandDef = {
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [] },
-  conflict: 'field-LWW',
+  conflict: 'exp-rev',
+  decision:
+    'Archived is a shared session-owned fact: parking the process is true for every authorized viewer. It therefore follows the session owner and grants and uses the matrix’s exp-rev class, never a viewer row.',
 }
 
 const setWorkStateInput = z.object({
@@ -130,7 +132,9 @@ const setWorkState: CommandDef = {
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [] },
-  conflict: 'field-LWW',
+  conflict: 'exp-rev',
+  decision:
+    'WorkState describes the shared work, not one viewer’s opinion: a done session is done for everyone who may see it. It inherits session ownership and grants and uses exp-rev.',
 }
 
 /**
@@ -343,8 +347,8 @@ const sessionDraft: CommandDef = {
 // The tables
 // ---------------------------------------------------------------------------
 
-/** `sessions.*` presence-class writes. */
-export const sessionPresenceCommands = defineCommands('sessions', {
+/** `sessions.*` session-state writes. */
+export const sessionStateCommands = defineCommands('sessions', {
   rename,
   setArchived,
   markRead,
@@ -373,7 +377,7 @@ export const tabCommands = defineCommands('tabs', { setOrder: tabsSetOrder })
  * and useless for a tRPC procedure: a router built on the widened field infers
  * `any` for every client call site, so the web client silently stops type-checking
  * its own arguments. POD-381's `sessionCommandPlaneInputs` exists for exactly this
- * reason; this is the presence class's half of it, added by POD-382 when the router
+ * reason; this is the session-state class's half of it, added by POD-382 when the router
  * became a derivation over these tables.
  *
  * The defs above reference these same INSTANCES, and
@@ -381,7 +385,7 @@ export const tabCommands = defineCommands('tabs', { setOrder: tabsSetOrder })
  * for a fresh `z.object({...})` with the same keys is byte-identical on the wire
  * and passes every value assertion, so only instance identity sees the drift.
  */
-export const sessionPresenceInputs = {
+export const sessionStateInputs = {
   'sessions.rename': renameInput,
   'sessions.setArchived': setArchivedInput,
   'sessions.setWorkState': setWorkStateInput,
@@ -398,26 +402,26 @@ export const sessionPresenceInputs = {
 } as const
 
 /**
- * THE canonical presence-class contract list, dotted wire names — one place a
+ * THE canonical session-state contract list, dotted wire names — one place a
  * gate, an audit or a transport can ask "is this proc migrated?".
  */
-export const PRESENCE_COMMAND_TABLES = [
-  sessionPresenceCommands,
+export const SESSION_STATE_COMMAND_TABLES = [
+  sessionStateCommands,
   snoozeCommands,
   pinCommands,
   tabCommands,
 ] as const
 
-/** Every `namespace.key` in the presence class. */
-export function presenceCommandNames(): string[] {
-  return PRESENCE_COMMAND_TABLES.flatMap((table) =>
+/** Every `namespace.key` in the session-state class. */
+export function sessionStateCommandNames(): string[] {
+  return SESSION_STATE_COMMAND_TABLES.flatMap((table) =>
     Object.keys(table.defs).map((key) => `${table.namespace}.${key}`),
   )
 }
 
 /** Look one contract up by its dotted name; undefined when unmigrated. */
-export function presenceCommand(name: string): CommandDef | undefined {
-  for (const table of PRESENCE_COMMAND_TABLES) {
+export function sessionStateCommand(name: string): CommandDef | undefined {
+  for (const table of SESSION_STATE_COMMAND_TABLES) {
     const [namespace, key] = [table.namespace, name.slice(table.namespace.length + 1)]
     if (name.startsWith(`${namespace}.`) && Object.hasOwn(table.defs, key)) {
       return (table.defs as Record<string, CommandDef>)[key]

@@ -5,7 +5,7 @@
  * and pruneAwaiting implements retirement rule (a) (see overlay.ts header).
  */
 
-import { presenceCommand, presenceCommandNames } from '@podium/commands'
+import { sessionStateCommand, sessionStateCommandNames } from '@podium/commands'
 import type { IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
 
 import { describe, expect, it, vi } from 'vitest'
@@ -308,9 +308,9 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW + AWAITING_TRUTH_TTL_MS - 1)).toBe(
       awaiting,
     )
-    expect(
-      pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW + AWAITING_TRUTH_TTL_MS + 1),
-    ).toEqual([])
+    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW + AWAITING_TRUTH_TTL_MS + 1)).toEqual(
+      [],
+    )
   })
 
   it('only the OLDEST awaiting entry per row may use the moved-past escape (#263 finding 3)', () => {
@@ -397,8 +397,8 @@ describe('pruneAwaiting (retirement rule (a))', () => {
 
 describe('the presence contracts and their optimistic reducers', () => {
   it('every OFFLINE-ELIGIBLE presence contract maps to an outbox kind that reduces', () => {
-    const eligible = presenceCommandNames().filter(
-      (name) => presenceCommand(name)?.offline === 'eligible',
+    const eligible = sessionStateCommandNames().filter(
+      (name) => sessionStateCommand(name)?.offline === 'eligible',
     )
     // Totality: a new offline-eligible contract with no reducer would queue a write
     // that paints nothing, which reads to the user as the click not registering.
@@ -427,7 +427,7 @@ describe('the presence contracts and their optimistic reducers', () => {
 
   it('the DIRECT-ONLY presence contracts are deliberately absent from the map', () => {
     for (const name of ['pins.set', 'tabs.setOrder', 'sessions.setIssueId', 'sessions.setDraft']) {
-      expect(presenceCommand(name)?.offline).not.toBe('eligible')
+      expect(sessionStateCommand(name)?.offline).not.toBe('eligible')
       expect(Object.hasOwn(PRESENCE_REDUCER_KINDS, name), name).toBe(false)
     }
   })

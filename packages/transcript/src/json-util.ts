@@ -1,6 +1,6 @@
 /**
  * Small pure JSON-shape helpers shared by the per-agent transcript parsers.
- * Moved from @podium/agent-bridge's discovery/jsonl.ts (which re-exports them
+ * Moved from @podium/harness's discovery/jsonl.ts (which re-exports them
  * for its own consumers) so the parsers carry no dependency on discovery.
  */
 

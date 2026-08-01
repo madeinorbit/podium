@@ -10,7 +10,14 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { ActorRef, AgentRuntimeState, Attribution, SessionId, UserId } from '@podium/model'
+import type {
+  ActorRef,
+  AgentKind,
+  AgentRuntimeState,
+  Attribution,
+  SessionId,
+  UserId,
+} from '@podium/model'
 import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asUserId } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
@@ -149,6 +156,7 @@ export interface SessionInboxDeps {
   now(): number
   persist(session: Session, options?: { cancelTerminalCandidate?: boolean }): void
   broadcast(): void
+  needsSubmitVerification(agentKind: AgentKind): boolean
   prepareSend(sessionId: SessionId, attribution: Attribution, kind: 'text' | 'answer'): void
   ownerOf(sessionId: SessionId): UserId | null | undefined
   resurrect(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
@@ -431,7 +439,7 @@ export class SessionInbox {
       () => this.sendInput(session, '\r', input.inputOrigin ?? 'controller', principal.attribution),
       SUBMIT_CR_DELAY_MS,
     ).unref?.()
-    if (session.agentKind === 'claude-code') {
+    if (this.deps.needsSubmitVerification(session.agentKind)) {
       this.scheduleSubmitVerify(input.sessionId, baseline, principal.attribution, 1)
     }
     return { ok: true }

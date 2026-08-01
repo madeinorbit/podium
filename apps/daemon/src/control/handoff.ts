@@ -1,5 +1,6 @@
 import { sep } from 'node:path'
 import { asMachineId, type SessionId } from '@podium/model'
+import { harnessSupportsHandoff } from '@podium/harness'
 import type { ControlMessage } from '@podium/protocol'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import {
@@ -62,7 +63,7 @@ async function exportPackage(
 ): Promise<void> {
   let claimed = false
   try {
-    if (msg.agentKind !== 'claude-code' && msg.agentKind !== 'codex')
+    if (!harnessSupportsHandoff(msg.agentKind))
       throw new Error('unsupported handoff harness')
     if (!msg.binding) {
       ctx.send({

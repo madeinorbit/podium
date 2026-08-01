@@ -496,10 +496,10 @@ code moves. Four children:
   see the oracle-status paragraph below for the measured green.*
 - POD-296 — architecture manifest lint: layer/platform/role/feature constraints, WARN
   mode, phase-mapped allowlist. *Done — integrated at ca361327: the tag-derived matrix lives in
-  `scripts/architecture-manifest.ts`, today's 50 known violations (48 under the manifest
-  rules + 2 legacy `agent-bridge-consumers` → POD-740; re-derive with
-  `bun run lint:boundaries` → "50 allowlisted, 0 new", `bun run lint:architecture` →
-  "48 allowlisted, 0 new") are frozen with
+  `scripts/architecture-manifest.ts`, today’s 6 known violations (2 under the manifest
+  rules + 4 legacy `agent-host-consumers` → POD-740; re-derive with
+  `bun run lint:boundaries` → "6 allowlisted, 0 new", `bun run lint:architecture` →
+  "2 allowlisted, 0 new") are frozen with
   per-(rule, file) counts in `scripts/boundary-allowlist.ts` and mapped to the phase that
   removes each, and the ratchet runs as its OWN blocking CI step. Its layer/tag
   table + the rule → legacy-rule retirement map POD-335 needs live as a subsection here,
@@ -588,7 +588,7 @@ bundles biome + `lint:boundaries` into one step marked `continue-on-error: true`
 biome backlog burns down, POD-30). That flag makes the BOUNDARY guardrail non-blocking too,
 so an architectural violation reports green — diagnosed in POD-744. This is not
 hypothetical: `bun run lint:boundaries` **exits 1 on current main** (two
-`agent-bridge-consumers` violations, `apps/server/src/accounts.ts` and `relay.ts`;
+`agent-host-consumers` violations, `apps/server/src/accounts.ts` and `relay.ts`;
 verified 2026-07-16 at c577009d), tracked open as POD-740.
 
 The lesson for Phase 0: **shipping a lint is not the same as the lint being able to fail a
@@ -619,11 +619,10 @@ same commit.**
 | `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |
 | `packages/sync` | L2 kernel | neutral | oplog, upstream-sync | → one sync kernel (Phase 2 POD-305/306); retagged `neutral` at POD-307 — Authority/Ledger/mirror are node-only, the Replica/Outbox roles and the ADR 6 client storage adapters are browser-safe, and one bit cannot say both. Browser-safe consumers are held to the declared entrypoints by check-boundaries rule 12 |
 | `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
-| `packages/agent-bridge` | L2 kernel | node-only | (none) | **EMPTY SHELL.** POD-396 extracted the PTY half to `packages/pty`, POD-397 the harness half to `packages/harness`; feature ownership is exclusive so both tags MOVED. Awaiting deletion by POD-399 |
 | `packages/pty` | L2 kernel | node-only | pty-port, durable-host | **landed POD-396** (5.3a) from agent-bridge (ADR 8 D4). Harness-AGNOSTIC: `HARNESS_ADAPTER_HOME` is now `packages/harness`, so the axiom APPLIES here and a harness comparison inside pty is a violation |
 | `packages/harness` | L2 kernel | node-only | harness-adapters | **landed POD-397** (5.3b): one `AgentManifest` per CLI (launch/exec/headless/state/discovery/transcript) over `Record<BuiltinHarnessKind, AgentManifest>`; the home for harness variance and `HARNESS_ADAPTER_HOME` for the axiom. Principal-free (`harness-principal-free` lint) |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
-| `packages/composer` | L2 kernel | browser-safe | composer-driver, prompt-draft | appeared on main after POD-296; the harness composer port (pure, protocol-only) — folds into `packages/harness` with agent-bridge (Phase 5 POD-325) |
+| `packages/composer` | L2 kernel | browser-safe | composer-driver, prompt-draft | appeared on main after POD-296; the harness composer port (pure, protocol-only) — folds into `packages/harness` (Phase 5 POD-325) |
 | `packages/client-core` | L3 feature | browser-safe | viewmodels | → client engine split (Phase 6 POD-331) |
 | `packages/terminal-client-react` | L3 feature | browser-safe | terminal-react | — |
 | `apps/cli` | L4 app | node-only | cli-surface | — |
@@ -636,7 +635,7 @@ same commit.**
 | `scripts` | L5 compose | node-only | build, lint, compose | composes apps; nothing may import it |
 
 **Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
-`sync → runtime`; `telemetry → runtime`; `agent-bridge → runtime`; `agent-bridge → transcript`;
+`sync → runtime`; `telemetry → runtime`;
 `pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache); `harness → runtime`; `harness → transcript`; `terminal-client → composer`; `commands → protocol` (POD-728: contracts name the frames they are exposed on).
 
 **Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
@@ -645,17 +644,17 @@ browser-safe nor node-only. The workspace-granular tag cannot see subpaths: lega
 8a covers `@podium/runtime` only, which is why the identical hole in `@podium/telemetry`
 is filed as POD-745 rather than papered over.
 
-**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 50 known
-violations with per-(rule, file) COUNTS, each mapped to the issue that removes it: 46
+**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 6 known
+violations with per-(rule, file) COUNTS, each mapped to the issue that removes it: zero
 harness-branching → Phase 5 (POD-292/POD-325), 2 `apps/desktop → scripts` → Phase 7
-(POD-294), 2 legacy `agent-bridge-consumers` → POD-740. Allowlisted-and-within-count
+(POD-294), 4 legacy `agent-host-consumers` → POD-740. Allowlisted-and-within-count
 warns; anything new — or one more in an already-listed file — fails. Slack fails too: a
 count left above reality leaves slots that can be refilled silently, so "the list can
 only shrink" is only true if not shrinking it stops the build. Phases shrink their own
-entries (§5); POD-335 flips to error level with the list empty.
+entries (§5). The harness axiom is already error-level with no entries; POD-335 finishes the remaining rules.
 
 **One allowlist, both rule families.** The legacy eight run through the same ratchet, so
-POD-740's two `apps/server → @podium/agent-bridge` imports are grandfathered rather than
+POD-740’s four `apps/server → @podium/harness` imports are grandfathered rather than
 failing `lint:boundaries` on every branch — while a NEW legacy violation still fails.
 The two families are applied to their own violations separately (`partitionAllowlist`):
 one shared pass would have each declaring the other's entries stale.
@@ -694,7 +693,7 @@ zero divergence required.
 #### POD-351 as-built — the walking skeleton
 
 **What moved.** Exactly one command. `sessions.rename` runs on the target path in
-production config; the other ten presence commands are untouched on the presence
+production config; the other ten session-state commands are untouched on the session-state
 envelope.
 
 *Re-pointed after POD-382 landed the 3.2 cutover.* This issue originally joined the
@@ -704,10 +703,10 @@ DERIVED from the contract tables by `modules/sessions/trpc.ts`, and
 `scripts/audit-session-commands.ts` fails the build if a `.mutation(` for a session
 appears in `router.ts` at all. So rename now arrives through that derived surface as
 its own manifest source, `walking-skeleton`, built by `renameProcedure()`. It stays
-in `TRPC_PRESENCE_NAMES` and keeps its presence contract — that contract is still
+in `TRPC_SESSION_STATE_NAMES` and keeps its session-state contract — that contract is still
 what declares its exposure and policy, and the both-directions exposure cross-check
 must keep covering it — while the manifest records that a DIFFERENT envelope runs it.
-Declaring a fourth source rather than special-casing inside `presenceProcedure` is
+Declaring a fourth source rather than special-casing inside `sessionStateProcedure` is
 what keeps "which commands are on which envelope" readable in the manifest, so a
 second command migrating later is a row that changes rather than a condition somebody
 has to find. The contract and the reducer were unchanged by the move, which is the
@@ -721,8 +720,8 @@ silently disable a shipped command. `MIGRATED_COMMANDS` is asserted to be exactl
 `['sessions.rename']`, so a list that grew would fail a test rather than pass a review.
 
 **The pairing, since the obvious one no longer exists.** POD-380 deleted the
-hand-written rename procedure. LEGACY is therefore `PresenceRegistry` (POD-380's
-envelope, the protocol `CommandDef`, a `PresencePrincipal`, `undefined` on success);
+hand-written rename procedure. LEGACY is therefore `SessionStateRegistry` (POD-380's
+envelope, the protocol `CommandDef`, a `SessionStatePrincipal`, `undefined` on success);
 TARGET is `modules/sessions/rename-target-path.ts` (the `@podium/commands` ADR 3
 contract, the real `CommandPrincipal` with its delegation chain resolved live, the
 contract's accept/reject outcome union). Both share the composition root's one
@@ -1089,7 +1088,7 @@ strings, invisible to every schema and count assertion.
   column applies one principal's marker to every reader — a property of a table with no
   user in its key, not of the command. With the key in place these four match their
   session twins, two of which are POD-379's `markRead`/`markUnread`.
-- **POD-1076 leaves the `willChange` corpus.** `oracle-presence.test.ts`'s
+- **POD-1076 leaves the `willChange` corpus.** `oracle-session-state.test.ts`'s
   characterization becomes a pinned must-not-change about the FEED (the unscoped
   broadcast serves one viewer to every DEVICE of one person), and POD-1076 is removed
   from `SUPERSEDING_ISSUES` — a landed issue left in that list keeps asserting that a
@@ -2250,6 +2249,19 @@ POD-387/POD-317, and consumed by both — building it twice is a gate-blocking d
 god-object audit items zero; module graph doc committed; session/issue/memory e2e green;
 live redeploy keeps sessions; multi-instance isolation suite green through the
 decomposition. `podium issue tree 291`.
+
+#### LEDGER ENTRY - POD-393 (4.3b durable session state): viewer, session and document stay distinct
+
+**Topology and vocabulary.** The extracted boundary is `modules/sessions/session-state/SessionStateService`, with the command envelope named `SessionStateRegistry` and the POD-392 oracle named `oracle-session-state.test.ts`. "Presence" is reserved for POD-1078's ephemeral identity-carrying rooms on the stream plane: live connections only, no durable rows, tombstones, funnel or oplog.
+
+**Field classification.** `readAt`, snooze, pins and tab order are settled per-user state and every session-scoped read/write resolves the calling principal's HUMAN `userId`; an agent carries its actor session separately and writes the on-behalf-of human's row. Sidebar/tab/pane layout remains client-local with no server row, while personal preferences already live behind the principal-scoped settings module and `user_preferences` store. Reaching into either sibling would share protected state merely to co-locate a taxonomy, so the modules share the `(userId, entityId)` contract instead.
+
+**The three explicit decisions routed to POD-1070.** `archived` is session-owned because archiving parks the session process and is therefore one fact for every authorized viewer. `workState` is session-owned because it describes the shared work; a done session is not done only for one viewer. The priority input is viewer-scoped and ephemeral (`viewState` per live client), while the value sent to the daemon is the strongest derived aggregate and its last-sent cache is transient; there is no durable priority-push flag to own or share.
+
+**Conflict-class accounting.** `readAt`, snooze, pins and tab order have left ADR 1 D3's field-LWW carve-out: their per-user keys make them single-writer. Personal preferences had already left through their own keyed store. `archived` and `workState` are shared session facts at the matrix's `exp-rev` class. The composer draft alone stays a shared document on today's whole-body field-LWW path because making it per-user would delete collaboration; it carries materialized text, authority revision, origin and a bounded history tail so the reserved `op-stream` implementation can replace the write algorithm without a table migration. This issue does not implement that op stream.
+
+**Closed default and cohesion review.** Invisible and nonexistent sessions collapse to the same absent/no-op result for session-scoped per-user reads and writes; this is POD-393's default-closed application of readiness 3.1.1, not a product-wide existence-policy decision, and POD-1070 may revisit it. The state service is 600-plus lines, a review signal accepted here because one owner must hold the mutually coupled overlay cache, draft document/timers and priority dedupe cache; splitting those protected maps back across lifecycle/inbox siblings would recreate the god-object coupling. Siblings receive callbacks through explicit ports and cannot access those maps.
+
 
 #### LEDGER ENTRY — POD-1079 (4.11 machine ownership and grants): which half shipped
 

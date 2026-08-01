@@ -1,6 +1,5 @@
 import type {
   AccountId,
-  ActorRef,
   AgentRuntimeState,
   Attribution,
   AutomationRunWire,
@@ -18,7 +17,6 @@ import {
   AgentKind,
   actorSystem,
   actorUser,
-  asIssueId,
   asSessionId,
   asUserId,
   type UserId,
@@ -39,11 +37,20 @@ import { sessionSpawnerParentId } from '../../steward'
  * `fields/README.md` rule 2, a redacted arm can be added to the union rather than
  * overloading `null`.
  */
-export type SessionWirePrincipal = ActorRef
+export type SessionWirePrincipal = SessionStatePrincipal
 
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
+import {
+  harnessCapabilitiesFor,
+  harnessNeedsSubmitVerification,
+  harnessObservationProvider,
+  harnessRequiresExclusiveInteractiveResume,
+  harnessSupportsEffort,
+  harnessSupportsInitialPrompt,
+  harnessUsesPromptTitleFallback,
+} from '../../harness-manifest'
 import {
   computePriorities,
   FIRST_ADMIN_USER_ID,
@@ -54,12 +61,9 @@ import {
 import type { MachinePrincipal } from '@podium/protocol'
 import {
   asDelegationRef,
-  AGENT_CAPABILITIES,
   type AgentInstruction,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
-  agentSupportsEffort,
-  agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -72,8 +76,6 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type ObservationInputOrigin,
-  type ObservationProvider,
   type RepoProjection,
   type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
@@ -83,7 +85,7 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
+import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../command-principal'
@@ -111,7 +113,6 @@ import type {
   SessionStore,
   TerminalCandidateFacts,
 } from '../../store'
-import type { StoredDraftDoc } from '../../store/sessions'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -130,7 +131,6 @@ import { perfPrincipal } from '../perf/principal'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
-import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
 import { machineUseGateForCapability } from './handoff/access'
 import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
@@ -152,7 +152,7 @@ import {
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
-import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
+import { SessionStateRegistry, soleHumanSessionStateWsPrincipal } from './session-state/registry'
 import {
   createViewKey,
   type PreparedPublication,
@@ -165,20 +165,15 @@ import {
   type PublishWorkerMetrics,
 } from './publish-worker-client'
 import {
-  type ClientPublicationAuthority,
   type PublicationAuthority,
-  type Send,
   Session,
   type SessionDurableState,
   type SessionVolatileField,
 } from './session'
+import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 
-function observationProviderFor(kind: AgentKind): ObservationProvider | undefined {
-  if (kind === 'claude-code' || kind === 'codex' || kind === 'grok') return kind
-  return undefined
-}
 /**
  * Idempotency records outlive any sane replay horizon, then get pruned. ADR 2 D11
  * owns this number and this is its prune site.
@@ -269,7 +264,7 @@ interface SessionsServiceDeps {
    *
    * Optional so the ~40 test fixtures that build a bare service literal keep
    * compiling; absent means a private ledger over the same store, which is
-   * behaviourally identical for the synchronous presence writes that reach it and
+   * behaviourally identical for the synchronous session-state writes that reach it and
    * is the only path that can be reached without the composition root.
    */
   mutations?: MutationLedgerPort
@@ -386,6 +381,8 @@ export class SessionsService {
   private readonly rpc: DaemonRpcService
   private readonly hosts: HostsService
   private readonly headless: HeadlessService
+  /** Durable viewer/shared-surface state, isolated behind explicit ports. */
+  readonly state: SessionStateService
   /** Backend auto-continue loop — re-arms retryable errored agents. */
   private readonly autoContinue: AutoContinueController
   /** Attributed inbound text, answers, FIFO queueing and controller gating. */
@@ -401,41 +398,11 @@ export class SessionsService {
     ids: readonly string[]
   }
   private readonly publicationWorker: PublishWorkerClient
+  private readonly titleDebouncers = new Map<string, ReturnType<typeof makeTitleDebouncer>>()
 
   private readonly publicationShadowCompare: boolean
   private publicationShadowComparisons = 0
   private publicationShadowMismatches = 0
-  /**
-   * In-progress composer/prompt text per session. The live value lives here (read
-   * by attachClient to replay on connect); it is also debounced to the store so it
-   * survives a server restart and a full web reload with no other client holding it
-   * (issue #34). Hydrated from the store at boot in loadFromStore().
-   */
-  private draftBySession = new Map<SessionId, string>()
-  /** Per-session title debouncers — drop transient spinner titles, coalesce bursts. */
-  private readonly titleDebouncers = new Map<string, ReturnType<typeof makeTitleDebouncer>>()
-  // Pending debounced draft persists, keyed by sessionId — one timer per session
-  // coalesces a burst of keystrokes into a single SQLite write.
-  private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
-  // Draft Sync v2 (POD-859): the versioned authoritative draft docs, keyed by
-  // session. Populated + emitted only when the `draftSync` flag is on — a parallel
-  // path to the legacy `draftBySession` above, which stays byte-for-byte when off.
-  private draftDocs = new Map<string, DraftDoc>()
-  private readonly draftDocWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  // Pending "inject this chat draft into native" timers (phase 4). A chat edit
-  // schedules injection one lease window later (inject on pause); a fresh chat edit
-  // resets it; a native edit cancels it.
-  private readonly draftInjectTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  // Cached draftSync flag (reviewer fix 7): read on the per-keystroke setSessionDraft
-  // path, so avoid an uncached getSettings() each time. Seeded at boot, refreshed on
-  // settings.changed.
-  private draftSyncEnabledCached = false
-  // Per-session window during which the server is typing an outgoing message into the
-  // PTY (reviewer fix 5). While set, an inbound nativeDraft is ignored so the
-  // message-in-flight isn't republished as a draft.
-  private readonly draftSendSuppressUntil = new Map<string, number>()
-  private static readonly DRAFT_SEND_SUPPRESS_MS = 1_000
   // Server-only dirty generation [spec:SP-c29e]. It schedules projection work and
   // invalidates the legacy snapshot cache; ledger seq remains the sole durable and
   // client-visible ordering/catch-up primitive. Every successful persisted or
@@ -466,10 +433,6 @@ export class SessionsService {
   // Interim until POD-308 deletes the snapshot fan-out.
   private issueProjectionGeneration = 0
   private lastIssueProjectionGeneration = -1
-  // Last per-session output-relay priority pushed to the daemon. pushPriorities
-  // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
-  // churn must not re-flood the daemon with the whole map every time).
-  private readonly lastPriority = new Map<SessionId, number>()
   /** Pending remote browser-open requests, parked here when no client is connected. */
   private readonly pendingOpenUrls = new Map<string, SessionOpenUrlMessage>()
   /** Resolution actors derived from the authenticated browser transport. */
@@ -493,6 +456,33 @@ export class SessionsService {
     this.funnel = deps.funnel
     this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.publicationShadowCompare = deps.publicationShadowCompare ?? false
+    this.state = new SessionStateService({
+      store: this.store,
+      now: () => this.now(),
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      sessionIds: () => this.sessions.keys(),
+      clients: () => this.clients.values(),
+      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
+      persistSession: (sessionId, additionalWrite) => {
+        const session = this.sessions.get(sessionId)
+        if (session) this.persist(session, additionalWrite)
+      },
+      mutateSession: (sessionId, mutate) => {
+        this.mutateSessionMeta(sessionId, (session) => mutate(session))
+      },
+      broadcastSessions: () => this.broadcastSessions(),
+      broadcastToClients: (message, options) => this.broadcastToClients(message, options),
+      deliverToClient: (clientId, message) => {
+        const client = this.clients.get(clientId)
+        if (client) this.clients.deliver(client, message)
+      },
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+      onArchived: (sessionId) => {
+        this.issues().onSessionRemovedOrArchived(sessionId)
+        this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
+        this.parkArchivedSession(sessionId)
+      },
+    })
     this.inbox = new SessionInbox({
       getSession: (sessionId) => this.sessions.get(sessionId),
       queue: {
@@ -562,6 +552,7 @@ export class SessionsService {
             : undefined,
         ),
       broadcast: () => this.broadcastSessions(),
+      needsSubmitVerification: harnessNeedsSubmitVerification,
       prepareSend: (sessionId, attribution, kind) =>
         this.prepareInboxSend(sessionId, attribution, kind),
       ownerOf: (sessionId) => this.sessionOwner(sessionId)?.owner,
@@ -590,7 +581,7 @@ export class SessionsService {
     this.bus.on('settings.changed', ({ previous, next }) => {
       // Keep the cached draftSync flag current (POD-859). Resolved through the
       // canonical experiments system (channel/config/user) [spec:SP-f4b9].
-      this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', next)
+      this.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
       const wasEnabled = previous.autoContinue.enabled
       const nowEnabled = next.autoContinue.enabled
       if (nowEnabled === wasEnabled) return
@@ -628,13 +619,8 @@ export class SessionsService {
   ): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
-    if (this.viewerIsSnoozed(sessionId)) this.clearSnooze(this.broadcastViewer(), sessionId)
-    if (this.draftSyncEnabled()) {
-      this.draftSendSuppressUntil.set(
-        sessionId,
-        Date.now() + SessionsService.DRAFT_SEND_SUPPRESS_MS,
-      )
-    }
+    this.state.clearAllSnoozes(sessionId)
+    this.state.suppressNativeDraft(sessionId)
     if (session.offer !== undefined) this.clearOffer(sessionId)
     this.store.events.appendEvent({
       ts: new Date(this.now()).toISOString(),
@@ -738,7 +724,7 @@ export class SessionsService {
    * sent. Shells and non-causal adapters intentionally have no lease.
    */
   private fenceObservation(session: Session): ObservationLeaseRecord | undefined {
-    const provider = observationProviderFor(session.agentKind)
+    const provider = harnessObservationProvider(session.agentKind)
     if (!provider) return undefined
     const lease = this.store.observationCheckpoints.advanceGeneration(
       session.sessionId,
@@ -987,14 +973,18 @@ export class SessionsService {
    * caller passes it, because there is no policy to apply yet — a reader is not
    * meant to infer from that that the seam is unused.
    */
-  private sessionWire(session: Session, _forPrincipal?: SessionWirePrincipal): SessionMeta {
+  private sessionWire(session: Session, forPrincipal?: SessionWirePrincipal): SessionMeta {
+    const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
+    const viewer = forPrincipal ?? this.defaultStatePrincipal()
     return this.stampRef(session, {
-      // PER-USER STATE (POD-1076): `readAt` and `snoozedUntil` are facts about a
-      // reader, so the projection is given one. `_forPrincipal` is the seam that
-      // will carry the real principal when POD-1077 scopes the feed; until then
-      // the broadcast serves one named viewer.
-      ...session.toMeta(this.viewerOverlay(session.sessionId)),
+      ...session.toMeta(this.state.overlay(viewer.userId, session.sessionId)),
       machineName: this.machines.machineName(session.machineId),
+      ...(harnessCapabilities
+        ? {
+            harnessHandoff: harnessCapabilities.handoff,
+            harnessPromptModeHints: harnessCapabilities.promptModeHints,
+          }
+        : {}),
     })
   }
 
@@ -1005,8 +995,16 @@ export class SessionsService {
    * fails CLOSED rather than resolving to an operator identity (readiness
    * §3.1.6 S4). POD-1077 replaces the body with the request's principal.
    */
-  private broadcastViewer(): string {
+  private broadcastViewer(): UserId {
     return FIRST_ADMIN_USER_ID
+  }
+
+  private statePrincipalForTrustedUser(userId: UserId): SessionStatePrincipal {
+    return { userId, capability: OPERATOR, onBehalfOf: userId, humanDirect: true }
+  }
+
+  private defaultStatePrincipal(): SessionStatePrincipal {
+    return this.statePrincipalForTrustedUser(FIRST_ADMIN_USER_ID)
   }
 
   /**
@@ -1018,70 +1016,12 @@ export class SessionsService {
    * projection could read by accident — which is exactly what the ratchet counted
    * before this issue.
    */
-  private viewerReadAt: Record<string, string | null> | null = null
-  private viewerSnoozes: Record<string, string | null> | null = null
-
   private viewerOverlay(sessionId: SessionId): SessionUserOverlay {
-    this.viewerReadAt ??= this.store.sessions.listReadAt(this.broadcastViewer())
-    this.viewerSnoozes ??= this.store.sessions.listSnoozes(this.broadcastViewer())
-    return {
-      readAt: this.viewerReadAt[sessionId] ?? null,
-      // `undefined` = no snooze row; `null` = until-next-message. Two different
-      // facts, and collapsing them un-snoozes every open-ended snooze.
-      snoozedUntil: sessionId in this.viewerSnoozes ? this.viewerSnoozes[sessionId] : undefined,
-    }
+    return this.state.overlay(this.broadcastViewer(), sessionId)
   }
 
-  /** True iff the broadcast viewer has a snooze row for this session. */
-  private viewerIsSnoozed(sessionId: SessionId): boolean {
-    return this.viewerOverlay(sessionId).snoozedUntil !== undefined
-  }
-
-  /** Drop the cached overlay so the next projection re-reads it. Called by every
-   *  per-user write below, and on boot. */
   private invalidateViewerOverlay(): void {
-    this.viewerReadAt = null
-    this.viewerSnoozes = null
-  }
-
-  /**
-   * Persist a PER-USER write on the same write-seam ledger as every session
-   * mutation, so the change reaches the replica instead of only the broadcast.
-   *
-   * THE CACHE IS INVALIDATED TWICE, and both are load-bearing.
-   *
-   * BEFORE `changes` is built (inside `write`, after the row is written): the
-   * payload comes from `sessionWire`, which reads the overlay cache. Skip this
-   * and the change carries the PRE-change value, the ledger's byte-dedup drops it
-   * as unchanged, and the durable write silently stops being transactional with
-   * its own change record — the write still lands, the replica never hears.
-   *
-   * AFTER the commit attempt, in a `finally`: that first re-read happens INSIDE
-   * the span, so it caches a value the append can still roll back. Without the
-   * second invalidation a failed append leaves the projection serving a snooze
-   * that is not in the database — the live/durable divergence the rollback exists
-   * to prevent, reintroduced one layer up.
-   */
-  private persistPerUserState(sessionId: SessionId, write: () => void): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      try {
-        write()
-      } finally {
-        this.invalidateViewerOverlay()
-      }
-      this.broadcastSessions()
-      return
-    }
-    try {
-      this.persist(session, () => {
-        write()
-        this.invalidateViewerOverlay()
-      })
-    } finally {
-      this.invalidateViewerOverlay()
-    }
-    this.broadcastSessions()
+    this.state.invalidateAllOverlays()
   }
 
   /**
@@ -1252,15 +1192,12 @@ export class SessionsService {
 
   private installStoredSession(
     session: Session,
-    draftTimes: Record<string, string>,
-    drafts: Record<string, string>,
     offers: Record<
       string,
       { message: string; actions: { label: string; prompt: string }[]; createdAt: string }
     >,
   ): void {
     this.sessions.set(session.sessionId, session)
-    if (session.sessionId in draftTimes) session.draftUpdatedAt = draftTimes[session.sessionId]
     // Offer replay [spec:SP-c7f1] with boot reconciliation: user input AFTER the
     // offer was posted means the conversation moved past it while we were down —
     // drop it instead of resurrecting a dead suggestion. (Live continuations are
@@ -1274,9 +1211,7 @@ export class SessionsService {
         session.offer = offer
       }
     }
-    if (session.sessionId in drafts) {
-      this.draftBySession.set(session.sessionId, drafts[session.sessionId] ?? '')
-    }
+    this.state.installSession(session.sessionId)
     if (session.resume?.value) {
       session.conversationPodiumId = this.store.conversations.conversationPodiumId(
         session.machineId,
@@ -1292,44 +1227,16 @@ export class SessionsService {
       this.observationLeases.set(lease.sessionId, lease)
     }
 
-    // Seed the cached draftSync flag (POD-859) before any keystroke arrives.
-    // Resolved through the canonical experiments system [spec:SP-f4b9].
-    this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', this.store.settings.getSettings())
-    const drafts = this.store.sessions.loadDrafts()
-    // Drafts historically replay independently of session-row existence. Keep
-    // that contract for crash/orphan recovery; active rows additionally receive
-    // their draft timestamp and runtime metadata below.
-    // `Object.entries` types its keys `string` regardless of the Record's key type,
-    // so the brand is re-applied per entry (POD-362) rather than cast on the map.
-    for (const [sessionId, text] of Object.entries(drafts) as [SessionId, string][]) {
-      this.draftBySession.set(sessionId, text)
-    }
-    // Versioned draft docs (POD-859) — seeded alongside the legacy map so the
-    // flag-on path resumes with the persisted rev/origin/history after a restart.
-    for (const [sessionId, d] of Object.entries(this.store.sessions.loadDraftDocs()) as [
-      SessionId,
-      StoredDraftDoc,
-    ][]) {
-      this.draftDocs.set(sessionId, {
-        sessionId,
-        text: d.text,
-        rev: d.rev,
-        origin: d.origin ?? 'seed',
-        editedAt: d.updatedAt,
-        history: d.history,
-      })
-    }
-    const draftTimes = this.store.sessions.loadDraftTimes()
-    // No snooze/read SEED any more (POD-1076). Both are per-user rows read at
-    // PROJECTION time via `viewerOverlay`, so boot has nothing to copy onto the
-    // session objects — which is the whole point: a seeded field is an
-    // instance-wide singleton however per-user the table behind it is.
-    this.invalidateViewerOverlay()
+    // Shared draft documents hydrate here; viewer rows remain lazy per principal.
+    this.state.setDraftSyncEnabled(
+      isFeatureEnabled('draft-sync', this.store.settings.getSettings()),
+    )
+    this.state.loadFromStore()
     const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
     for (const r of this.store.sessions.loadSessions()) {
       const session = this.sessionFromStoredRow(r, 'boot')
       if (!session) continue
-      this.installStoredSession(session, draftTimes, drafts, offers)
+      this.installStoredSession(session, offers)
       const checkpoint = this.observationLeases.get(r.id)?.checkpoint
       if (checkpoint) {
         session.applyObservationCheckpoint(checkpoint)
@@ -1423,7 +1330,7 @@ export class SessionsService {
     // delta cache so every current session re-sends as a change, then push the full
     // map — otherwise a daemon restart would leave the scheduler at its default
     // until the next viewState/attach happened to flip a session.
-    this.lastPriority.clear()
+    this.state.resetPriorities()
     this.pushPriorities()
     // Archived survivors are never rebound — archive means stopped (POD-108).
     // Rows archived before archive learned to kill, or archived while this
@@ -1575,14 +1482,7 @@ export class SessionsService {
    * lastPriority) so a viewState/attach churn never re-floods the whole map.
    */
   private pushPriorities(): void {
-    const priorities = computePriorities([...this.clients.values()], this.sessions.keys())
-    for (const [sessionId, priority] of priorities) {
-      if (this.lastPriority.get(sessionId) === priority) continue
-      this.lastPriority.set(sessionId, priority)
-      // Route the priority to the daemon that actually runs this session (multi-machine).
-      const machineId = this.sessions.get(sessionId)?.machineId ?? LOCAL_PLACEHOLDER
-      this.toMachine(machineId, { type: 'sessionPriority', sessionId, priority })
-    }
+    this.state.pushPriorities()
   }
 
   // ---- tRPC control plane ----
@@ -1590,9 +1490,10 @@ export class SessionsService {
     // Was a character-for-character copy of sessionWire()'s body; now the one
     // mapper, so the "must agree byte-for-byte" invariant in its doc comment is
     // structural instead of hand-maintained (POD-366).
-    const local: SessionMeta[] = [...this.sessions.values()].map((s) =>
-      this.sessionWire(s, forPrincipal),
-    )
+    const principal = forPrincipal ?? this.defaultStatePrincipal()
+    const local: SessionMeta[] = [...this.sessions.values()]
+      .filter((session) => this.state.canReadSession(principal, session.sessionId))
+      .map((session) => this.sessionWire(session, principal))
     return local
   }
 
@@ -1626,25 +1527,23 @@ export class SessionsService {
     sessionId: SessionId
     until: string | null
   }): void {
-    this.persistPerUserState(sessionId, () =>
-      this.store.sessions.setSnooze(userId, sessionId, until),
-    )
+    this.state.setSnooze(this.statePrincipalForTrustedUser(asUserId(userId)), sessionId, until)
   }
 
   clearSnooze(userId: string, sessionId: SessionId): void {
-    this.persistPerUserState(sessionId, () => this.store.sessions.clearSnooze(userId, sessionId))
+    this.state.clearSnooze(this.statePrincipalForTrustedUser(asUserId(userId)), sessionId)
   }
 
   /**
    * OWNER + GRANTS of a session, for the owner-or-grant policy (POD-380).
    *
-   * `undefined` means the session does not exist — which the presence envelope
+   * `undefined` means the session does not exist — which the session-state envelope
    * treats identically to a denial (§3.1.5's consistent-error rule).
    *
-   * Until POD-1075 adds real accounts there is no `owner` column, so every
-   * existing session belongs to the one identity the product has had. This is the
-   * ONE place that transitional answer is given, so POD-1075 changes it here
-   * rather than in eleven handlers.
+   * Session rows still have no `owner` column, so existing sessions use
+   * the instance's first-admin identity as a transitional owner. This is the ONE place
+   * that answer is given; POD-1070 ownership work replaces it here rather than
+   * in eleven handlers.
    */
   sessionOwner(sessionId: SessionId): { owner: UserId | null; grants: string[] } | undefined {
     if (!this.sessions.has(sessionId)) return undefined
@@ -1658,7 +1557,7 @@ export class SessionsService {
    * op-stream reservation enforces today (§3.3/§4).
    */
   draftRevision(sessionId: SessionId): number | undefined {
-    return this.draftDocs.get(sessionId)?.rev
+    return this.state.draftRevision(sessionId)
   }
 
   /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
@@ -1811,7 +1710,7 @@ export class SessionsService {
       ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    const useArgv = taskPrompt !== undefined && agentSupportsInitialPrompt(agentKind)
+    const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
     const machineId = this.machines.resolveMachineForAgent(
       input.machineId,
       input.cwd,
@@ -2051,268 +1950,33 @@ export class SessionsService {
     })
   }
   setSessionDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void {
-    if (this.draftSyncEnabled()) {
-      // Versioned path (POD-859): a legacy `setSessionDraft` (or the spawn seed) is
-      // an unconditional edit — it bases off the current rev, so it is never
-      // rejected. Origin is the sending client, or 'seed' for a server-side seed.
-      const cur = this.draftDocs.get(input.sessionId) ?? emptyDraftDoc(input.sessionId)
-      this.applyVersionedEdit(
-        input.sessionId,
-        { baseRev: cur.rev, text: input.text, origin: fromClientId ?? 'seed' },
-        fromClientId,
-      )
-      return
-    }
-    const previousDraft = this.draftBySession.get(input.sessionId)
-    if (input.text) this.draftBySession.set(input.sessionId, input.text)
-    else this.draftBySession.delete(input.sessionId)
-    // Mirror the draft's last-edit time onto the session so the sidebar can show
-    // DRAFT and lift it in the attention ordering. The DRAFT tag / lift only
-    // appears or disappears when a draft starts or is cleared, so rebroadcast the
-    // session list on that PRESENCE change only — never per keystroke.
-    const session = this.sessions.get(input.sessionId)
-    const presenceChanged = session && (session.draftUpdatedAt !== undefined) !== !!input.text
-    if (session) session.draftUpdatedAt = input.text ? new Date().toISOString() : undefined
-    // The DRAFT tag flip is wire-visible meta backed by an off-row table —
-    // commit it at the same presence granularity the broadcast below uses
-    // (never per keystroke) so delta clients see the lift too [#256].
-    if (presenceChanged && session) {
-      try {
-        this.persist(session)
-      } catch (err) {
-        if (previousDraft === undefined) this.draftBySession.delete(input.sessionId)
-        else this.draftBySession.set(input.sessionId, previousDraft)
-        throw err
-      }
-    }
-    // Keep the existing live cross-client sync: push to every OTHER client (the
-    // directional guard skips the originator so its own keystrokes don't echo back).
-    this.broadcastToClients(
-      { type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text },
-      { ...(fromClientId !== undefined ? { exceptClientId: fromClientId } : {}) },
-    )
-    this.persistDraft(input.sessionId, input.text)
-    if (presenceChanged) this.broadcastSessions()
+    this.state.setDraft(input, fromClientId)
   }
-
-  /**
-   * Debounced draft persistence. Keystrokes coalesce per session into one SQLite
-   * write after a short idle gap, so typing never hammers the synchronous DB.
-   * An empty draft (the composer cleared on send) is flushed immediately and any
-   * pending timer cancelled, so a stale draft can't outlive the message that was
-   * sent — even if the server restarts in the debounce window.
-   */
-  private persistDraft(sessionId: SessionId, text: string): void {
-    const existing = this.draftWriteTimers.get(sessionId)
-    if (existing) {
-      clearTimeout(existing)
-      this.draftWriteTimers.delete(sessionId)
-    }
-    if (!text) {
-      this.writeDraft(sessionId, '')
-      return
-    }
-    const timer = setTimeout(() => {
-      this.draftWriteTimers.delete(sessionId)
-      // Write the latest value rather than the captured one: a write that lands
-      // after further edits (or a kill) should reflect the current in-memory state.
-      this.writeDraft(sessionId, this.draftBySession.get(sessionId) ?? '')
-    }, SessionsService.DRAFT_WRITE_DEBOUNCE_MS)
-    timer.unref?.()
-    this.draftWriteTimers.set(sessionId, timer)
-  }
-
-  private writeDraft(sessionId: SessionId, text: string): void {
-    try {
-      this.store.sessions.setDraft(sessionId, text)
-    } catch (e) {
-      console.warn(`[podium] failed to persist draft for ${sessionId}:`, e)
-    }
-  }
-
-  // ---- versioned drafts (POD-859, Draft Sync v2) ----
 
   private draftSyncEnabled(): boolean {
-    return this.draftSyncEnabledCached
+    return this.state.draftSyncEnabled()
   }
 
-  /**
-   * The presence-class command envelope, built lazily (POD-380).
-   *
-   * Lazy because the registry takes `this`: constructing it in the constructor
-   * would hand out a half-initialised service. The import is safe in this direction
-   * — presence-registry imports `SessionsService` as a TYPE only, so there is no
-   * runtime cycle.
-   */
-  private presenceRegistry: PresenceRegistry | undefined
-  private presenceEnvelope(): PresenceRegistry {
-    this.presenceRegistry ??= new PresenceRegistry({
+  /** Durable session-state command envelope, built lazily over the module port. */
+  private sessionStateRegistry: SessionStateRegistry | undefined
+  private sessionStateEnvelope(): SessionStateRegistry {
+    this.sessionStateRegistry ??= new SessionStateRegistry({
       sessions: this,
-      store: this.store,
-      now: () => this.now(),
+      state: this.state,
+
       mutations: this.mutations,
     })
-    return this.presenceRegistry
+    return this.sessionStateRegistry
   }
 
-  /**
-   * The framework's idempotency ledger — the composition root's instance when it
-   * supplied one, else a private one over the same durable table (see
-   * {@link SessionsServiceDeps.mutations}). Assigned in the constructor body, not
-   * as a field initializer: `this.store` is not set until then.
-   */
   private readonly mutations: MutationLedgerPort
 
-  /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
-   *  send `setSessionDraft` are handled by that method's flag gate. */
   private handleDraftEdit(input: DraftEditMessage, fromClientId: string): void {
-    if (!this.draftSyncEnabled()) {
-      this.setSessionDraft({ sessionId: input.sessionId, text: input.text }, fromClientId)
-      return
-    }
-    this.applyVersionedEdit(
-      input.sessionId,
-      { baseRev: input.baseRev, text: input.text, origin: fromClientId },
-      fromClientId,
-    )
+    this.state.handleDraftEdit(input, fromClientId)
   }
 
-  /**
-   * Apply an edit to a session's versioned draft doc (the server is the single
-   * sequencer). Accepted edits broadcast the new doc to every OTHER client and
-   * persist (debounced); a rejected stale edit replies to the sender alone with the
-   * authoritative doc so it rebases. See draft-doc.ts and design §1/§3.
-   */
-  private applyVersionedEdit(
-    sessionId: SessionId,
-    edit: { baseRev: number; text: string; origin: string },
-    fromClientId?: string,
-  ): void {
-    const cur = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
-    const at = new Date().toISOString()
-    const result = applyDraftEdit(cur, {
-      baseRev: edit.baseRev,
-      text: edit.text,
-      origin: edit.origin,
-      at,
-    })
-    if (result.status === 'rejected') {
-      if (fromClientId) {
-        const origin = this.clients.get(fromClientId)
-        if (origin) this.clients.deliver(origin, this.draftDocWire(result.doc))
-      }
-      return
-    }
-    if (!result.changed) return
-    const doc = result.doc
-    this.draftDocs.set(sessionId, doc)
-    const session = this.sessions.get(sessionId)
-    const presenceChanged = session && (session.draftUpdatedAt !== undefined) !== !!doc.text
-    if (session) session.draftUpdatedAt = doc.text ? doc.editedAt : undefined
-    if (presenceChanged && session) {
-      // Persist the session row so the DRAFT-tag meta delta reaches delta clients;
-      // best-effort (the versioned edit is already in memory + about to broadcast).
-      try {
-        this.persist(session)
-      } catch (err) {
-        console.warn(`[podium] failed to persist DRAFT tag for ${sessionId}:`, err)
-      }
-    }
-    this.broadcastToClients(this.draftDocWire(doc), {
-      ...(fromClientId !== undefined ? { exceptClientId: fromClientId } : {}),
-    })
-    this.persistDraftDoc(sessionId, doc)
-    if (presenceChanged) this.broadcastSessions()
-    // Drive the change into the native composer. A native-origin edit already IS
-    // native, so cancel any pending injection; a chat/seed edit schedules one for a
-    // lease window later (reset by each new chat edit → inject when the user pauses).
-    if (doc.origin === 'native') this.cancelDraftInject(sessionId)
-    else this.scheduleDraftInject(sessionId)
-  }
-
-  private draftDocWire(doc: DraftDoc): LiveServerMessage {
-    return {
-      type: 'sessionDraftChanged',
-      sessionId: doc.sessionId,
-      text: doc.text,
-      rev: doc.rev,
-      origin: doc.origin,
-      editedAt: doc.editedAt,
-    }
-  }
-
-  /** Debounced persistence of a versioned doc — mirrors {@link persistDraft} but
-   *  writes the full doc (rev/origin/history). An empty draft flushes immediately. */
-  private persistDraftDoc(sessionId: SessionId, doc: DraftDoc): void {
-    const existing = this.draftDocWriteTimers.get(sessionId)
-    if (existing) {
-      clearTimeout(existing)
-      this.draftDocWriteTimers.delete(sessionId)
-    }
-    if (!doc.text) {
-      this.writeDraftDoc(doc)
-      return
-    }
-    const timer = setTimeout(() => {
-      this.draftDocWriteTimers.delete(sessionId)
-      this.writeDraftDoc(this.draftDocs.get(sessionId) ?? doc)
-    }, SessionsService.DRAFT_WRITE_DEBOUNCE_MS)
-    timer.unref?.()
-    this.draftDocWriteTimers.set(sessionId, timer)
-  }
-
-  private writeDraftDoc(doc: DraftDoc): void {
-    try {
-      this.store.sessions.setDraftDoc(doc.sessionId, {
-        text: doc.text,
-        updatedAt: doc.editedAt,
-        rev: doc.rev,
-        origin: doc.origin,
-        history: doc.history,
-      })
-    } catch (e) {
-      console.warn(`[podium] failed to persist versioned draft for ${doc.sessionId}:`, e)
-    }
-  }
-
-  /** Schedule (or reset) native injection of the current chat draft, one lease
-   *  window from now — so we inject the settled text, not every keystroke. */
-  private scheduleDraftInject(sessionId: SessionId): void {
-    const existing = this.draftInjectTimers.get(sessionId)
-    if (existing) clearTimeout(existing)
-    const timer = setTimeout(() => {
-      this.draftInjectTimers.delete(sessionId)
-      const doc = this.draftDocs.get(sessionId)
-      const session = this.sessions.get(sessionId)
-      if (!doc || !session) return
-      if (doc.origin === 'native') return
-      this.toMachine(session.machineId, { type: 'draftTarget', sessionId, text: doc.text })
-    }, DEFAULT_LEASE_MS)
-    timer.unref?.()
-    this.draftInjectTimers.set(sessionId, timer)
-  }
-
-  private cancelDraftInject(sessionId: SessionId): void {
-    const t = this.draftInjectTimers.get(sessionId)
-    if (t) {
-      clearTimeout(t)
-      this.draftInjectTimers.delete(sessionId)
-    }
-  }
-
-  /**
-   * Catchup on (re)bind (design §6): seed the native composer with the persisted
-   * chat draft ONLY when that draft is newer than the session's last activity — i.e.
-   * chat edited it while the session was down. Otherwise the live native composer's
-   * own scrape wins. The daemon injects only if native differs and is stable.
-   */
   private maybeCatchupInject(sessionId: SessionId, machineId: string): void {
-    if (!this.draftSyncEnabled()) return
-    const doc = this.draftDocs.get(sessionId)
-    if (!doc || !doc.text) return
-    const lastLive = this.sessions.get(sessionId)?.lastActiveAt
-    if (lastLive && doc.editedAt <= lastLive) return
-    this.toMachine(machineId, { type: 'draftTarget', sessionId, text: doc.text })
+    this.state.maybeCatchupInject(sessionId, machineId)
   }
 
   queueText(input: InboxSendInput & { mutationId?: string }): {
@@ -2329,13 +1993,13 @@ export class SessionsService {
    * `withMutation(mutationId, proc, fn)` lived here and every session write, plus
    * the whole issue registry through an injected reference to it, wrapped itself in
    * it. It is now `@podium/sync`'s `MutationLedger` — one implementation, called by
-   * the command envelopes (`PresenceRegistry.execute`, `dispatchSessionCommand`,
+   * the command envelopes (`SessionStateRegistry.execute`, `dispatchSessionCommand`,
    * `IssueCommandCtx.withMutation`) AFTER they authorize, never by a handler.
    *
    * Deliberately not re-exposed as a delegating method: a method here is a seam a
    * new write can wrap itself in, which is exactly the per-proc shape POD-312 set
    * out to delete. The service holds {@link SessionsService.mutations} privately
-   * for the presence envelope it builds and offers no public wrapper.
+   * for the session-state envelope it builds and offers no public wrapper.
    */
 
   /**
@@ -2414,15 +2078,7 @@ export class SessionsService {
   }
 
   setArchived({ sessionId, archived }: { sessionId: SessionId; archived: boolean }): void {
-    this.mutateSessionMeta(sessionId, (session) => {
-      session.archived = archived
-    })
-    // Archiving can leave its draft issue with no living sessions — reap it.
-    if (archived) {
-      this.issues().onSessionRemovedOrArchived(sessionId)
-      this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
-      this.parkArchivedSession(sessionId)
-    }
+    this.state.setArchived(sessionId, archived)
   }
 
   /**
@@ -2506,28 +2162,16 @@ export class SessionsService {
    *  `(userId, sessionId)` row (POD-1076), then broadcast. The derived `unread`
    *  flips to false immediately (readAt is now the latest timestamp) and re-arms
    *  on the next activity. No-op for an unknown session. */
-  markSessionRead(sessionId: SessionId): void {
-    if (!this.sessions.has(sessionId)) return
-    // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
-    // lexical unread compare both require it (this.now() is epoch ms).
-    this.persistPerUserState(sessionId, () =>
-      this.store.sessions.markSessionRead(
-        this.broadcastViewer(),
-        sessionId,
-        new Date(this.now()).toISOString(),
-      ),
-    )
+  markSessionRead(userId: string, sessionId: SessionId): void {
+    this.state.markRead(this.statePrincipalForTrustedUser(asUserId(userId)), sessionId)
   }
 
   /** Mark this session UNREAD again (issue #138, the email-style inverse of
    *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
    *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
    *  never touches yours. No-op for an unknown session. */
-  markSessionUnread(sessionId: SessionId): void {
-    if (!this.sessions.has(sessionId)) return
-    this.persistPerUserState(sessionId, () =>
-      this.store.sessions.markSessionUnread(this.broadcastViewer(), sessionId),
-    )
+  markSessionUnread(userId: string, sessionId: SessionId): void {
+    this.state.markUnread(this.statePrincipalForTrustedUser(asUserId(userId)), sessionId)
   }
 
   /**
@@ -2540,8 +2184,7 @@ export class SessionsService {
    * readers rather than an accident of there being one.
    */
   private rearmUnread(sessionId: SessionId): void {
-    this.store.sessions.clearAllReadAt(sessionId)
-    this.invalidateViewerOverlay()
+    this.state.rearmUnreadForAll(sessionId)
   }
 
   /** Set (or clear with null) a session's explicit issue attachment. */
@@ -2567,9 +2210,7 @@ export class SessionsService {
     sessionId: SessionId
     workState: WorkState | null
   }): void {
-    this.mutateSessionMeta(sessionId, (session) => {
-      session.workState = workState ?? undefined
-    })
+    this.state.setWorkState(sessionId, workState)
   }
 
   /**
@@ -3556,11 +3197,10 @@ export class SessionsService {
           value: this.sessionWire(session),
         })),
       apply: (changes, ledgerCursor) => {
-        const drafts = this.store.sessions.loadDrafts()
-        const draftTimes = this.store.sessions.loadDraftTimes()
+        this.state.loadFromStore()
         const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
         for (const { session } of restored) {
-          this.installStoredSession(session, draftTimes, drafts, offers)
+          this.installStoredSession(session, offers)
         }
         // Restored sessions may carry per-user rows; the overlay is read fresh.
         this.invalidateViewerOverlay()
@@ -3585,23 +3225,9 @@ export class SessionsService {
     this.autoContinue.onSessionGone(sessionId)
     session?.detachAll()
     this.sessions.delete(sessionId)
-    this.draftBySession.delete(sessionId)
-    this.draftDocs.delete(sessionId)
-    this.lastPriority.delete(sessionId)
+    this.state.removeSession(sessionId)
     this.titleDebouncers.get(sessionId)?.dispose()
     this.titleDebouncers.delete(sessionId)
-    const draftTimer = this.draftWriteTimers.get(sessionId)
-    if (draftTimer) {
-      clearTimeout(draftTimer)
-      this.draftWriteTimers.delete(sessionId)
-    }
-    const draftDocTimer = this.draftDocWriteTimers.get(sessionId)
-    if (draftDocTimer) {
-      clearTimeout(draftDocTimer)
-      this.draftDocWriteTimers.delete(sessionId)
-    }
-    this.cancelDraftInject(sessionId)
-    this.draftSendSuppressUntil.delete(sessionId)
     for (const c of this.clients.values()) c.attached.delete(sessionId)
     this.pendingVolatileSessions.delete(sessionId)
     this.capturedSessionStates.delete(sessionId)
@@ -3868,12 +3494,12 @@ export class SessionsService {
     const subagentModel = coding.subagentModel
     return {
       ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),
-      ...(subagentModel !== 'auto' && AGENT_CAPABILITIES[agentKind].subagentModelEnv
+      ...(subagentModel !== 'auto' && harnessCapabilitiesFor(agentKind)?.subagentModelEnv
         ? { subagentModel }
         : {}),
       // Cursor + shell have no effort flag; agentLaunchCommand also drops it, but
       // gating here keeps the spawn message clean (capability lookup, #158).
-      ...(effort !== 'auto' && agentSupportsEffort(agentKind) ? { effort } : {}),
+      ...(effort !== 'auto' && harnessSupportsEffort(agentKind) ? { effort } : {}),
       // Per-session CLI theme seeding rides every (re)spawn so a resurrected
       // session keeps the configured behaviour too [spec:SP-a04d].
       ...(agentKind !== 'shell' ? { seedCliTheme: coding.seedCliTheme } : {}),
@@ -3930,17 +3556,15 @@ export class SessionsService {
     // session-only. Sending the global issue/conversation feeds would re-embed
     // hidden SessionMeta values and defeat the worker boundary.
     if (!publication || publication.global) {
-      if (this.draftSyncEnabled()) {
-        // Versioned replay (POD-859): send the full doc (rev/origin/editedAt) so the
-        // attaching client starts from the authoritative rev. Skip cleared docs.
-        for (const doc of this.draftDocs.values()) {
-          if (doc.text) send(this.draftDocWire(doc))
-        }
-      } else {
-        for (const [sessionId, text] of this.draftBySession) {
-          send({ type: 'sessionDraftChanged', sessionId, text })
-        }
-      }
+      this.state.replayDrafts(
+        {
+          userId: client.principal.user,
+          capability: OPERATOR,
+          humanDirect: true,
+          clientId: client.id,
+        },
+        send,
+      )
       send({ type: 'machinesChanged', machines: this.machines.listMachines() })
       send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
       this.hosts.snapshotFor(send)
@@ -4372,10 +3996,14 @@ export class SessionsService {
         // directly. The WIRE message is untouched — the envelope adapts it to the
         // contract's `edit` union, which is what lets a splice op join later without
         // a wire change.
-        this.presenceEnvelope().execute(
+        this.sessionStateEnvelope().execute(
           'sessions.setDraft',
           { sessionId: msg.sessionId, edit: { kind: 'replace', text: msg.text } },
-          soleHumanWsPrincipal(OPERATOR, id),
+          {
+            ...soleHumanSessionStateWsPrincipal(OPERATOR, id),
+            userId: principal.user,
+            onBehalfOf: principal.user,
+          },
           'ws',
         )
         break
@@ -4503,17 +4131,7 @@ export class SessionsService {
         // The daemon's composer engine scraped the native composer (POD-859).
         // Sequence it as an origin='native' versioned edit and broadcast. Skip a
         // message the server is currently typing OUT (reviewer fix 5).
-        if (this.draftSyncEnabled()) {
-          const suppressUntil = this.draftSendSuppressUntil.get(msg.sessionId) ?? 0
-          if (Date.now() >= suppressUntil) {
-            const cur = this.draftDocs.get(msg.sessionId) ?? emptyDraftDoc(msg.sessionId)
-            this.applyVersionedEdit(
-              msg.sessionId,
-              { baseRev: cur.rev, text: msg.text, origin: 'native' },
-              undefined,
-            )
-          }
-        }
+        this.state.handleNativeDraft(msg.sessionId, msg.text)
         break
       }
       case 'agentFrame':
@@ -4594,7 +4212,7 @@ export class SessionsService {
         const lease =
           this.observationLeases.get(msg.sessionId) ??
           this.store.observationCheckpoints.get(msg.sessionId)
-        const expectedProvider = observationProviderFor(session.agentKind)
+        const expectedProvider = harnessObservationProvider(session.agentKind)
         const sessionBindingCompatible =
           session.resume === undefined ||
           (session.resume.kind === msg.resumeKind &&
@@ -4800,12 +4418,8 @@ export class SessionsService {
           next,
           observation,
         })
-        if (
-          this.viewerIsSnoozed(session.sessionId) &&
-          SessionsService.isAttentionPhase(prev) &&
-          !SessionsService.isAttentionPhase(next)
-        ) {
-          this.clearSnooze(this.broadcastViewer(), session.sessionId)
+        if (SessionsService.isAttentionPhase(prev) && !SessionsService.isAttentionPhase(next)) {
+          this.state.clearAllSnoozes(session.sessionId)
         }
         if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
           this.issues().onSessionAttention(session.sessionId)
@@ -4874,12 +4488,8 @@ export class SessionsService {
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
         this.inbox.stateChanged({ sessionId: msg.sessionId, prev, next })
-        if (
-          this.viewerIsSnoozed(msg.sessionId) &&
-          SessionsService.isAttentionPhase(prev) &&
-          !SessionsService.isAttentionPhase(next)
-        ) {
-          this.clearSnooze(this.broadcastViewer(), msg.sessionId)
+        if (SessionsService.isAttentionPhase(prev) && !SessionsService.isAttentionPhase(next)) {
+          this.state.clearAllSnoozes(msg.sessionId)
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
@@ -5001,12 +4611,12 @@ export class SessionsService {
         // overwrite an established binding. Exact native-hook or legacy-marker
         // evidence wins and clears stale siblings so the invariant heals in place.
         const conflicts =
-          session.agentKind === 'codex' && !session.headless
+          harnessRequiresExclusiveInteractiveResume(session.agentKind) && !session.headless
             ? [...this.sessions.values()].filter(
                 (other) =>
                   other.sessionId !== session.sessionId &&
                   !other.headless &&
-                  other.agentKind === 'codex' &&
+                  harnessRequiresExclusiveInteractiveResume(other.agentKind) &&
                   other.resume?.kind === msg.resume.kind &&
                   other.resume.value === msg.resume.value,
               )
@@ -5114,7 +4724,7 @@ export class SessionsService {
         // or this fallback), name the session from the first user prompt so it
         // doesn't sit on the cwd/"Claude Code" placeholder for the long stretch
         // before Claude generates its own title.
-        if (session && session.agentKind === 'claude-code' && !session.titleLocked) {
+        if (session && harnessUsesPromptTitleFallback(session.agentKind) && !session.titleLocked) {
           const firstUser = session.transcriptItems().find(
             (it) =>
               it.role === 'user' &&

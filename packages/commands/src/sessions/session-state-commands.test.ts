@@ -1,6 +1,6 @@
 /**
- * Tests for the presence-class contracts (POD-380) and the four facets they
- * carry. The load-bearing ones are the TOTALITY tests: a new presence contract
+ * Tests for the session-state contracts (POD-380) and the four facets they
+ * carry. The load-bearing ones are the TOTALITY tests: a new session-state contract
  * that forgets `policy`, `exposure`, `offline` or `redaction` fails here rather
  * than being served with an implicit default.
  */
@@ -11,22 +11,22 @@ import { z } from 'zod'
 import { type CommandDef, commandExposure, isExposedOn } from '../framework'
 import {
   pinCommands,
-  PRESENCE_COMMAND_TABLES,
-  presenceCommand,
-  presenceCommandNames,
-  sessionPresenceCommands,
-} from './presence-commands'
+  SESSION_STATE_COMMAND_TABLES,
+  sessionStateCommand,
+  sessionStateCommandNames,
+  sessionStateCommands,
+} from './session-state-commands'
 
-/** Every presence contract, paired with its dotted name. */
-const contracts = presenceCommandNames().map((name) => {
-  const def = presenceCommand(name)
-  if (!def) throw new Error(`presenceCommand(${name}) returned undefined`)
+/** Every session-state contract, paired with its dotted name. */
+const contracts = sessionStateCommandNames().map((name) => {
+  const def = sessionStateCommand(name)
+  if (!def) throw new Error(`sessionStateCommand(${name}) returned undefined`)
   return { name, def }
 })
 
-describe('the presence-class inventory', () => {
+describe('the session-state inventory', () => {
   it('covers exactly the eleven writes POD-380 migrates', () => {
-    expect(presenceCommandNames().sort()).toEqual(
+    expect(sessionStateCommandNames().sort()).toEqual(
       [
         'pins.set',
         'sessions.markRead',
@@ -43,18 +43,18 @@ describe('the presence-class inventory', () => {
     )
   })
 
-  it('presenceCommand resolves a real name and refuses a near-miss', () => {
-    expect(presenceCommand('sessions.rename')).toBe(sessionPresenceCommands.defs.rename)
+  it('sessionStateCommand resolves a real name and refuses a near-miss', () => {
+    expect(sessionStateCommand('sessions.rename')).toBe(sessionStateCommands.defs.rename)
     // Not a prototype walk, and not a fuzzy match: an unmigrated proc is undefined,
     // which is what a cutover audit reads to tell migrated from hand-written.
-    expect(presenceCommand('sessions.sendText')).toBeUndefined()
-    expect(presenceCommand('sessions.toString')).toBeUndefined()
-    expect(presenceCommand('sessions')).toBeUndefined()
-    expect(presenceCommand('pins.setOrder')).toBeUndefined()
+    expect(sessionStateCommand('sessions.sendText')).toBeUndefined()
+    expect(sessionStateCommand('sessions.toString')).toBeUndefined()
+    expect(sessionStateCommand('sessions')).toBeUndefined()
+    expect(sessionStateCommand('pins.setOrder')).toBeUndefined()
   })
 })
 
-describe('the four facets are present on every presence contract', () => {
+describe('the four facets are present on every session-state contract', () => {
   it.each(contracts)('$name declares policy / exposure / offline / redaction', ({ def }) => {
     expect(def.policy).toBeDefined()
     expect(def.exposure).toBeDefined()
@@ -85,15 +85,15 @@ describe('exposure is DEFAULT-CLOSED, and that is the only default', () => {
   it('a classified contract is served on the declared transport and refused on the others — the gate discriminates', () => {
     // The counterfactual the default-closed claim needs: prove the gate can say
     // YES, or "everything is refused" would pass against a gate stuck at false.
-    const rename = sessionPresenceCommands.defs.rename
+    const rename = sessionStateCommands.defs.rename
     expect(isExposedOn(rename, 'trpc')).toBe(true)
     expect(isExposedOn(rename, 'relay')).toBe(false)
     expect(isExposedOn(rename, 'cli')).toBe(false)
     expect(isExposedOn(rename, 'mcp')).toBe(false)
   })
 
-  it('NO presence contract is exposed on the relay — the absence POD-379 pinned is now a declaration', () => {
-    // POD-379: "the presence-class writes have NO agent path at all. They are
+  it('NO session-state contract is exposed on the relay — the absence POD-379 pinned is now a declaration', () => {
+    // POD-379: "the session-state writes have NO agent path at all. They are
     // operator-only by ABSENCE from the relay allowlist, not by a check. A
     // migration that routes them through a uniform command plane must reproduce
     // the absence deliberately." This test IS the deliberate reproduction.
@@ -121,18 +121,18 @@ describe('the visibility-class split (§3.1.1 / §3.3)', () => {
   ]
 
   it('splits the inventory exhaustively — every contract is in exactly one class', () => {
-    expect([...perUserState, ...ownedSession].sort()).toEqual(presenceCommandNames().sort())
+    expect([...perUserState, ...ownedSession].sort()).toEqual(sessionStateCommandNames().sort())
   })
 
   it.each(perUserState)('%s is self-scoped per-user state, single-writer', (name) => {
-    const def = presenceCommand(name)
+    const def = sessionStateCommand(name)
     expect(def?.policy).toEqual({ resource: 'per-user-state', scope: 'self', action: 'write' })
     // The point of the re-key: the conflict class collapses (§3.3).
     expect(def?.conflict).toBe('single-writer')
   })
 
   it.each(ownedSession)('%s writes the session under owner-or-grant', (name) => {
-    const def = presenceCommand(name)
+    const def = sessionStateCommand(name)
     expect(def?.policy?.resource).toBe('session')
     expect(def?.policy?.scope).toBe('owner-or-grant')
   })
@@ -142,7 +142,7 @@ describe('the visibility-class split (§3.1.1 / §3.3)', () => {
     // back to owner-or-grant would become shareable, which is the bug this
     // classification exists to prevent.
     for (const name of perUserState) {
-      expect(presenceCommand(name)?.policy?.scope).not.toBe('owner-or-grant')
+      expect(sessionStateCommand(name)?.policy?.scope).not.toBe('owner-or-grant')
     }
   })
 })
@@ -167,7 +167,7 @@ describe('offline classes match POD-379’s outbox oracle exactly', () => {
 
   it('pins and tab order are the deliberate exclusions, not oversights — each records why', () => {
     for (const name of ['pins.set', 'tabs.setOrder']) {
-      const def = presenceCommand(name)
+      const def = sessionStateCommand(name)
       expect(def?.offline).toBe('direct-only')
       expect(def?.decision).toContain('POD-379')
     }
@@ -176,12 +176,12 @@ describe('offline classes match POD-379’s outbox oracle exactly', () => {
 
 describe('redaction', () => {
   it('the composer draft redacts its edit — unsent user prose never reaches a log', () => {
-    const draft = sessionPresenceCommands.defs.setDraft
+    const draft = sessionStateCommands.defs.setDraft
     expect(draft.redaction?.fields).toEqual(['edit'])
     expect(draft.redaction?.note).toBeTruthy()
   })
 
-  it('every other presence contract declares an EMPTY redaction set, not an absent one', () => {
+  it('every other session-state contract declares an EMPTY redaction set, not an absent one', () => {
     for (const { name, def } of contracts) {
       if (name === 'sessions.setDraft') continue
       expect(def.redaction?.fields, name).toEqual([])
@@ -190,7 +190,7 @@ describe('redaction', () => {
 })
 
 describe('the composer draft reserves op-stream without building it (§4)', () => {
-  const draft = sessionPresenceCommands.defs.setDraft
+  const draft = sessionStateCommands.defs.setDraft
   const parse = (input: unknown) => draft.input.safeParse(input)
 
   it('declares the op-stream conflict class, and the draft is a DECLARED member of the reserved set', () => {
@@ -242,7 +242,7 @@ function unwrapNullable(field: z.ZodTypeAny): z.ZodTypeAny {
 /** The `workState` field of the setWorkState contract, non-optional so a shape
  *  change surfaces here rather than as a skipped assertion. */
 function workStateField(): z.ZodTypeAny {
-  const shape = (sessionPresenceCommands.defs.setWorkState.input as z.ZodObject<z.ZodRawShape>).shape
+  const shape = (sessionStateCommands.defs.setWorkState.input as z.ZodObject<z.ZodRawShape>).shape
   const field = shape.workState
   if (!field) throw new Error('setWorkState contract has no workState field')
   return field
@@ -250,7 +250,7 @@ function workStateField(): z.ZodTypeAny {
 
 describe('input schemas preserve the shipped router validation', () => {
   it('rename keeps the 120-character bound', () => {
-    const rename = sessionPresenceCommands.defs.rename
+    const rename = sessionStateCommands.defs.rename
     expect(rename.input.safeParse({ sessionId: asSessionId('s'), name: 'x'.repeat(120) }).success).toBe(true)
     expect(rename.input.safeParse({ sessionId: asSessionId('s'), name: 'x'.repeat(121) }).success).toBe(false)
   })
@@ -261,7 +261,7 @@ describe('input schemas preserve the shipped router validation', () => {
       expect(Object.hasOwn(shape, 'mutationId'), `${name} must accept a mutationId`).toBe(true)
     }
     expect(
-      sessionPresenceCommands.defs.markRead.input.safeParse({
+      sessionStateCommands.defs.markRead.input.safeParse({
         sessionId: asSessionId('s'),
         mutationId: 'm'.repeat(129),
       }).success,
@@ -282,7 +282,7 @@ describe('input schemas preserve the shipped router validation', () => {
   })
 
   it('every table namespace matches the tRPC router it replaces', () => {
-    expect(PRESENCE_COMMAND_TABLES.map((t) => t.namespace)).toEqual([
+    expect(SESSION_STATE_COMMAND_TABLES.map((t) => t.namespace)).toEqual([
       'sessions',
       'snoozes',
       'pins',

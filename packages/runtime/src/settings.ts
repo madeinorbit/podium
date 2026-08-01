@@ -102,27 +102,6 @@ export {
 }
 
 /**
- * The one capability matrix (issue #84): which harness CLIs can mount Podium's
- * HTTP MCP server (orchestrator tools + per-thread identity headers, issue #67)
- * on a one-shot headless invocation. Superagent turns route through the full
- * harness when support is 'full'; anything else runs the api tool-loop fallback
- * with a visible notice — never a silent, tool-less harness.
- *
- * - claude-code: `--mcp-config <file>` + `--allowedTools` (long-standing).
- * - codex: `codex exec -c mcp_servers.<name>.url=… -c mcp_servers.<name>.http_headers={…}`
- *   — verified against codex-cli 0.142.5: custom headers arrive on every MCP
- *   request (streamable HTTP client), turn completes.
- * - grok / opencode / cursor: no per-invocation MCP mounting today.
- */
-export const HARNESS_MCP_SUPPORT: Record<HarnessAgent, 'full' | 'none'> = {
-  'claude-code': 'full',
-  codex: 'full',
-  grok: 'none',
-  opencode: 'none',
-  cursor: 'none',
-}
-
-/**
  * The stored PREFERENCE for "which harness does a generic new-agent action
  * start" — `'auto'` plus the closed builtin set. A saved setting, not an
  * availability answer.
@@ -362,17 +341,24 @@ export const DEFAULT_SETTINGS: PodiumSettings = PodiumSettings.parse({})
  * — chat-only and prone to hanging, so it was folded onto the ChatGPT Responses
  * API. That stays true for the workLlm (a pure completion consumer). The
  * SUPERAGENT codex harness is back (issue #84): it now mounts Podium's MCP
- * tools per-invocation (see HARNESS_MCP_SUPPORT), so a saved codex-harness
+ * tools per-invocation (declared by its harness manifest), so a saved codex-harness
  * superagent choice is honored, not migrated away.
  */
-function migrateCodexHarness(b: LlmBackend): LlmBackend {
-  if (b.kind !== 'harness' || b.harnessAgent !== 'codex') return b
-  return {
-    ...b,
+const LEGACY_HARNESS_MIGRATIONS: Partial<
+  Record<HarnessAgent, (backend: LlmBackend) => LlmBackend>
+> = {
+  codex: (backend) => ({
+    ...backend,
     kind: 'api',
     provider: 'codex',
-    model: b.harnessModel && b.harnessModel !== 'auto' ? b.harnessModel : 'gpt-5.5',
-  }
+    model:
+      backend.harnessModel && backend.harnessModel !== 'auto' ? backend.harnessModel : 'gpt-5.5',
+  }),
+}
+
+function migrateCodexHarness(b: LlmBackend): LlmBackend {
+  if (b.kind !== 'harness') return b
+  return LEGACY_HARNESS_MIGRATIONS[b.harnessAgent]?.(b) ?? b
 }
 
 /** Legacy → unified: derive a RoleBackend from an old LlmBackend. A harness
@@ -478,6 +464,10 @@ const DEFAULT_ACCOUNT: Record<RoleName, AccountId> = {
   background: managedAccountId('openrouter'),
 }
 
+const BACKGROUND_API_PROVIDERS: Partial<Record<HarnessAgent, ApiProvider>> = {
+  codex: 'codex',
+}
+
 /** Decode a synthetic account id into an execution plan for a role. A native
  *  superagent account always means that harness. Background Codex remains the
  *  one special case: that one-shot consumer uses the ChatGPT Responses API. */
@@ -488,8 +478,9 @@ function decodeAccount(
   if (accountId.startsWith(HARNESS_ACCOUNT)) {
     const raw = accountId.slice(HARNESS_ACCOUNT.length)
     const harness = HarnessAgent.safeParse(raw).success ? (raw as HarnessAgent) : 'claude-code'
-    if (harness === 'codex' && role === 'background') {
-      return { execution: 'api', harness, provider: 'codex' }
+    const backgroundProvider = BACKGROUND_API_PROVIDERS[harness]
+    if (role === 'background' && backgroundProvider) {
+      return { execution: 'api', harness, provider: backgroundProvider }
     }
     return { execution: 'harness', harness }
   }

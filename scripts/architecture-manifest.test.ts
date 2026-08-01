@@ -3,21 +3,21 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  AWAITING_DELETION,
-  MANIFEST,
-  MANIFEST_RULES,
-  SAME_LAYER_ALLOWED,
+  type AllowlistEntry,
   applyAllowlist,
+  applyManifestPolicy,
   checkManifestEdge,
   checkManifestRole,
   duplicateFeatureOwners,
   findHarnessBranching,
+  type ImportRef,
   loadHarnessLiterals,
+  MANIFEST,
+  MANIFEST_RULES,
   partitionAllowlist,
+  SAME_LAYER_ALLOWED,
   stripComments,
   tagsFor,
-  type AllowlistEntry,
-  type ImportRef,
   type WorkspaceTags,
 } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
@@ -52,24 +52,8 @@ describe('MANIFEST coverage', () => {
     expect(duplicateFeatureOwners()).toEqual([])
   })
 
-  it('gives every workspace at least one feature, except declared empty shells', () => {
-    const featureless = Object.entries(MANIFEST)
-      .filter(([, tags]) => tags.features.length === 0)
-      .map(([w]) => w)
-    expect(featureless.filter((w) => !AWAITING_DELETION.has(w))).toEqual([])
-  })
-
-  // The counterfactual for the exemption above: an entry in AWAITING_DELETION must
-  // correspond to a real, tagged, genuinely featureless workspace. Otherwise the
-  // set could be used to excuse a package that owns nothing by accident — the
-  // allowlist-that-launders-debt shape this manifest exists to prevent.
-  it('only exempts workspaces that are tagged and really own nothing', () => {
-    for (const [workspace, issue] of AWAITING_DELETION) {
-      const tags = tagsFor(workspace)
-      expect(tags, `${workspace} is exempt but not in MANIFEST`).not.toBeNull()
-      expect(tags?.features, `${workspace} is exempt but owns features`).toEqual([])
-      expect(issue, `${workspace} exemption must name the deleting issue`).toMatch(/^POD-\d+$/)
-    }
+  it('gives every workspace at least one feature', () => {
+    expect(Object.entries(MANIFEST).filter(([, tags]) => tags.features.length === 0)).toEqual([])
   })
 
   it('declares same-layer edges only between tagged workspaces on the SAME layer', () => {
@@ -532,7 +516,7 @@ describe('findHarnessBranching', () => {
   // which CLI it is driving — that is the whole point of the split.
   it('DOES flag branching in the pty half, which is no longer the home', () => {
     expect(
-      find('packages/agent-bridge/src/session.ts', `if (kind === 'codex') return codexThing`),
+      find('packages/pty/src/session.ts', `if (kind === 'codex') return codexThing`),
     ).toHaveLength(1)
   })
 
@@ -731,6 +715,36 @@ describe('applyAllowlist', () => {
   })
 })
 
+describe('error-level manifest policy', () => {
+  it('rejects harness branching even when an allowlist entry tries to permit it', () => {
+    const violation = {
+      rule: 'harness-branching',
+      file: 'outside.ts',
+      specifier: 'codex',
+      message: 'branch',
+    }
+    const result = applyManifestPolicy(
+      [violation],
+      [
+        {
+          rule: 'harness-branching',
+          file: 'outside.ts',
+          count: 1,
+          phase: 'POD-399',
+          note: 'forbidden',
+        },
+      ],
+    )
+    expect(result.warnings).toEqual([])
+    expect(result.errors).toEqual([violation])
+    expect(result.stale[0]).toContain('is forbidden')
+  })
+
+  it('has no harness-branching exceptions in the real allowlist', () => {
+    expect(BOUNDARY_ALLOWLIST.filter((entry) => entry.rule === 'harness-branching')).toEqual([])
+  })
+})
+
 describe('MANIFEST_RULES drift', () => {
   // MANIFEST_RULES is hand-maintained, so a future rule id can be forgotten.
   // That does not misroute silently — the manifest pass errors on a violation
@@ -770,7 +784,7 @@ describe('MANIFEST_RULES drift', () => {
     // its grandfathered entries would be checked against manifest violations and
     // read as dead.
     for (const legacy of [
-      'agent-bridge-consumers',
+      'agent-host-consumers',
       'no-app-to-app',
       'leaf-package',
       'packages-no-apps',
@@ -809,10 +823,10 @@ describe('partitionAllowlist', () => {
     const [manifest, legacy] = partitionAllowlist([
       { rule: 'harness-branching', file: 'a.ts', count: 1, phase: 'POD-292', note: 'n' },
       { rule: 'manifest-layer', file: 'b.ts', count: 1, phase: 'POD-294', note: 'n' },
-      { rule: 'agent-bridge-consumers', file: 'c.ts', count: 1, phase: 'POD-740', note: 'n' },
+      { rule: 'agent-host-consumers', file: 'c.ts', count: 1, phase: 'POD-740', note: 'n' },
     ])
     expect(manifest.map((e) => e.rule)).toEqual(['harness-branching', 'manifest-layer'])
-    expect(legacy.map((e) => e.rule)).toEqual(['agent-bridge-consumers'])
+    expect(legacy.map((e) => e.rule)).toEqual(['agent-host-consumers'])
   })
 
   it('partitions the REAL allowlist with no entry lost or duplicated', () => {
@@ -825,7 +839,7 @@ describe('partitionAllowlist', () => {
   it('applies each family to its own violations without cross-family staleness', () => {
     const all = [
       { rule: 'harness-branching', file: 'a.ts', count: 1, phase: 'POD-292', note: 'n' },
-      { rule: 'agent-bridge-consumers', file: 'c.ts', count: 1, phase: 'POD-740', note: 'n' },
+      { rule: 'agent-host-consumers', file: 'c.ts', count: 1, phase: 'POD-740', note: 'n' },
     ]
     const [m, l] = partitionAllowlist(all)
     const manifestOnly = applyAllowlist(

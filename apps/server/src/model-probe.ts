@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile)
  *                          Anthropic API key if the user runs API-based Claude, else
  *                          the Claude Code OAuth token (subscription; no separate key)
  *
- * Kept in apps/server (rather than @podium/agent-bridge) so the server needs no new
+ * Kept in apps/server (rather than @podium/harness) so the server needs no new
  * package dependency — the CLIs resolve via PATH and the claude call is a raw fetch.
  * The lists are network-backed (~2s warm, ~7s cold), so the ModelCatalog caches them
  * stale-while-revalidate rather than probing on every open. Every source degrades to

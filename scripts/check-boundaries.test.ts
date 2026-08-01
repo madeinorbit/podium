@@ -26,7 +26,7 @@ describe('extractImports', () => {
       `import { a } from '@podium/runtime'`,
       `import type { AppRouter } from '@podium/server'`,
       `import '@podium/protocol'`,
-      `export { b } from '@podium/agent-bridge'`,
+      `export { b } from '@podium/harness'`,
       `const m = await import('@podium/terminal-client')`,
       `const n = require('@podium/client-core')`,
     ].join('\n')
@@ -35,7 +35,7 @@ describe('extractImports', () => {
       '@podium/runtime',
       '@podium/server',
       '@podium/protocol',
-      '@podium/agent-bridge',
+      '@podium/harness',
       '@podium/terminal-client',
       '@podium/client-core',
     ])
@@ -43,16 +43,16 @@ describe('extractImports', () => {
   })
 
   it('handles multiline import clauses', () => {
-    const src = `import {\n  fileChainSource,\n  fileIdFor,\n} from '@podium/agent-bridge'`
-    expect(extractImports(src)).toEqual([{ specifier: '@podium/agent-bridge', typeOnly: false }])
+    const src = `import {\n  fileChainSource,\n  fileIdFor,\n} from '@podium/harness'`
+    expect(extractImports(src)).toEqual([{ specifier: '@podium/harness', typeOnly: false }])
   })
 
   it('ignores specifiers that only appear in comments', () => {
     // Mirrors apps/server/src/model-probe.ts and apps/web/src/derive.ts, which
-    // mention agent-bridge in prose only.
+    // mention harness in prose only.
     const src = [
-      `// Kept in apps/server (rather than @podium/agent-bridge) so ...`,
-      `/* see '@podium/agent-bridge' agentLaunchCommand */`,
+      `// Kept in apps/server (rather than @podium/harness) so ...`,
+      `/* see '@podium/harness' agentLaunchCommand */`,
       `import { z } from 'zod'`,
     ].join('\n')
     expect(extractImports(src)).toEqual([{ specifier: 'zod', typeOnly: false }])
@@ -128,25 +128,25 @@ describe('checkFile rules', () => {
     expect(v).toEqual([])
   })
 
-  it('allows agent-bridge imports from daemon, scripts and its own tests', () => {
+  it('allows harness imports from daemon, scripts and its own tests', () => {
     for (const file of [
       'apps/daemon/src/daemon.ts',
       'scripts/daemon.ts',
-      'packages/agent-bridge/test/pty-behavior/abduco.bun.test.ts',
+      'packages/harness/test/pty-behavior/abduco.bun.test.ts',
     ]) {
-      expect(checkFile(file, `import { x } from '@podium/agent-bridge'`)).toEqual([])
+      expect(checkFile(file, `import { x } from '@podium/harness'`)).toEqual([])
     }
   })
 
-  it('rejects agent-bridge importers in apps/server (Phase 3 removed the grandfathers)', () => {
+  it('rejects harness importers in apps/server (Phase 3 removed the grandfathers)', () => {
     for (const file of [
       'apps/server/src/relay.ts',
       'apps/server/src/transcript-indexer.ts',
       'apps/server/src/modules/conversations/service.ts',
     ]) {
-      const v = checkFile(file, `import { fileChainSource } from '@podium/agent-bridge'`)
+      const v = checkFile(file, `import { fileChainSource } from '@podium/harness'`)
       expect(v).toHaveLength(1)
-      expect(v[0].rule).toBe('agent-bridge-consumers')
+      expect(v[0].rule).toBe('agent-host-consumers')
     }
   })
 
@@ -192,27 +192,27 @@ describe('checkFile rules', () => {
     expect(core[0].rule).toBe('restricted-package-deps')
     const bridge = checkFile(
       'packages/transcript/src/file-chain.ts',
-      `import { locateClaudeSessionFile } from '@podium/agent-bridge'`,
+      `import { locateClaudeSessionFile } from '@podium/harness'`,
     )
     expect(bridge.map((v) => v.rule)).toContain('restricted-package-deps')
   })
 
-  it('rejects new agent-bridge importers (not grandfathered)', () => {
+  it('rejects new harness importers (not grandfathered)', () => {
     const v = checkFile(
       'apps/server/src/model-probe.ts',
-      `import { agentLaunchCommand } from '@podium/agent-bridge'`,
+      `import { agentLaunchCommand } from '@podium/harness'`,
     )
     expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('agent-bridge-consumers')
-    const web = checkFile('apps/web/src/derive.ts', `import { x } from '@podium/agent-bridge'`)
+    expect(v[0].rule).toBe('agent-host-consumers')
+    const web = checkFile('apps/web/src/derive.ts', `import { x } from '@podium/harness'`)
     expect(web).toHaveLength(1)
-    expect(web[0].rule).toBe('agent-bridge-consumers')
+    expect(web[0].rule).toBe('agent-host-consumers')
   })
 
-  it('rejects subpath imports of agent-bridge too', () => {
-    const v = checkFile('apps/web/src/x.ts', `import { y } from '@podium/agent-bridge/pty'`)
+  it('rejects subpath imports of harness too', () => {
+    const v = checkFile('apps/web/src/x.ts', `import { y } from '@podium/harness/pty'`)
     expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('agent-bridge-consumers')
+    expect(v[0].rule).toBe('agent-host-consumers')
   })
 
   it('forbids apps/cli from importing server or daemon code (the CLI boundary)', () => {
@@ -232,7 +232,7 @@ describe('checkFile rules', () => {
   it('keeps the issue-client seam free of app/IO deps', () => {
     const v = checkFile(
       'packages/issue-client/src/commands.ts',
-      `import { x } from '@podium/agent-bridge'`,
+      `import { x } from '@podium/harness'`,
     )
     expect(v.map((f) => f.rule)).toContain('restricted-package-deps')
     expect(
@@ -536,15 +536,12 @@ describe('checkPrincipalFree', () => {
     ).toHaveLength(1)
   })
 
-  it('does NOT flag AgentCapabilities — that is the harness capability descriptor', () => {
+  it('does NOT flag HarnessCapabilities — that is the software capability descriptor', () => {
     // The two senses of "capability" collide exactly here. A rule that flagged
     // this would be uselessly noisy AND would teach the next contributor that the
-    // harness capability table is an authorization concept, which it is not.
+    // harness capability descriptor is an authorization concept, which it is not.
     expect(
-      checkPrincipalFree(HARNESS, `import type { AgentCapabilities } from '@podium/protocol'`),
-    ).toEqual([])
-    expect(
-      checkPrincipalFree(HARNESS, `import { AGENT_CAPABILITIES } from '@podium/protocol'`),
+      checkPrincipalFree(HARNESS, `import type { HarnessCapabilities } from './manifest.js'`),
     ).toEqual([])
   })
 
@@ -555,18 +552,24 @@ describe('checkPrincipalFree', () => {
 
   it('applies only to the principal-free workspaces', () => {
     expect(
+      checkPrincipalFree(
+        'packages/transcript/src/slice.ts',
+        `import type { UserId } from '@podium/model'`,
+      ),
+    ).toHaveLength(1)
+    expect(
       checkPrincipalFree('apps/server/src/x.ts', `import type { UserId } from '@podium/protocol'`),
     ).toEqual([])
     // The pty half is guarded too, until POD-399 deletes it.
     expect(
       checkPrincipalFree(
-        'packages/agent-bridge/src/session.ts',
+        'packages/harness/src/session.ts',
         `import type { UserId } from '@podium/protocol'`,
       ),
     ).toHaveLength(1)
   })
 
-  it('passes clean against the REAL packages/harness tree', () => {
+  it('passes clean against the REAL harness and transcript trees', () => {
     // The claim the acceptance criterion actually makes. Walks the shipped source
     // rather than a fixture, so reintroducing a principal import fails here.
     const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -578,7 +581,7 @@ describe('checkPrincipalFree', () => {
             ? [`${dir}/${e.name}`]
             : [],
       )
-    const files = walk('packages/harness/src')
+    const files = [...walk('packages/harness/src'), ...walk('packages/transcript/src')]
     expect(files.length).toBeGreaterThan(50)
     const violations = files.flatMap((f) =>
       checkPrincipalFree(f, readFileSync(join(repoRoot, f), 'utf8')),

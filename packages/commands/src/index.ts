@@ -311,7 +311,7 @@ export {
   sessionHandoffInput,
   sessionHandoffOutput,
 } from './sessions/handoff'
-export * from './sessions/presence-commands'
+export * from './sessions/session-state-commands'
 export {
   RENAME_REJECTIONS,
   type SessionRenameInput,

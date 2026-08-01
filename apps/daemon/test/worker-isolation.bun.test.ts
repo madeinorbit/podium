@@ -8,7 +8,7 @@
 // RUNNER: this file MUST run under Bun, the same runtime the live daemon uses:
 //   bun test --conditions=@podium/source apps/daemon/test/worker-isolation.bun.test.ts
 // The `--conditions=@podium/source` flag is REQUIRED: the spawned worker resolves
-// `@podium/agent-bridge` from source (mirroring the live daemon's launch, which
+// `@podium/harness` from source (mirroring the live daemon's launch, which
 // runs with `--conditions=@podium/source`); without it that import fails to resolve.
 // Node-based vitest cannot spawn the `.ts` worker (inside the spawned Worker the
 // bare `./discovery-jobs` import has no TS loader, so the worker exits 1). The

@@ -1,5 +1,5 @@
 /**
- * ORACLE — presence-class session writes (POD-379 for POD-312 / POD-380).
+ * ORACLE — session-state session writes (POD-379 for POD-312 / POD-380).
  *
  * rename · setArchived · markRead / markUnread · setWorkState · setIssueId ·
  * snoozes · pins · tab order · composer drafts.
@@ -12,13 +12,7 @@
 import { SOLE_USER_ID } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  disposeOracles,
-  MUST_NOT_CHANGE,
-  makeOracle,
-  provisional,
-  waitFor,
-} from './oracle-support'
+import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
 
 afterEach(() => disposeOracles())
 
@@ -87,7 +81,7 @@ describe('oracle: rename (the curated name slot)', () => {
 })
 
 describe('oracle: setArchived', () => {
-  it(`${provisional('readiness-3.3', 'archived is not yet classified as session-owned or per-user')}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
+  it(`${MUST_NOT_CHANGE}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame('local', {
@@ -115,7 +109,7 @@ describe('oracle: setArchived', () => {
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
   })
 
-  it(`${provisional('readiness-3.3', 'archived is not yet classified as session-owned or per-user')}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
+  it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame('local', {
@@ -135,7 +129,7 @@ describe('oracle: setArchived', () => {
     expect(o.daemon.filter((m) => m.type === 'spawn')).toHaveLength(spawnsAfterArchive)
   })
 
-  it(`${provisional('readiness-3.3', 'archived is not yet classified as session-owned or per-user')}: archiving an already-parked session does not re-kill it`, async () => {
+  it(`${MUST_NOT_CHANGE}: archiving an already-parked session does not re-kill it`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame('local', {
@@ -216,7 +210,7 @@ describe('oracle: read state', () => {
 })
 
 describe('oracle: setWorkState', () => {
-  it(`${provisional('readiness-3.3', 'workState is not yet classified as session-owned or per-user')}: setWorkState persists the value and clearing it with null removes the field from the wire`, async () => {
+  it(`${MUST_NOT_CHANGE}: setWorkState persists the value and clearing it with null removes the field from the wire`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
@@ -346,17 +340,20 @@ describe('oracle: tab order', () => {
   // RESOLVED by POD-380 (was: will-change POD-1076 "tab order becomes per-user").
   it(`${MUST_NOT_CHANGE}: tab order is keyed (userId, worktree) — the writer sees it and another user's slice does not`, async () => {
     const o = makeOracle()
+    const a = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })).sessionId
+    const b = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/b' })).sessionId
 
-    const after = await o.call.tabs.setOrder({ worktree: '/w', sessionIds: ['b', 'a'] })
+    const after = await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [b, a] })
 
-    expect(after).toEqual({ '/w': ['b', 'a'] })
-    expect(await o.call.tabs.listOrders()).toEqual({ '/w': ['b', 'a'] })
+    expect(after).toEqual({ '/w': [b, a] })
+    expect(await o.call.tabs.listOrders()).toEqual({ '/w': [b, a] })
     expect(o.store.sessions.listTabOrders('user:somebody-else')).toEqual({})
   })
 
   it(`${MUST_NOT_CHANGE}: an empty sessionIds array DELETES the saved order rather than storing an empty one`, async () => {
     const o = makeOracle()
-    await o.call.tabs.setOrder({ worktree: '/w', sessionIds: ['a'] })
+    const a = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })).sessionId
+    await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [a] })
 
     expect(await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [] })).toEqual({})
   })
@@ -397,7 +394,7 @@ describe('oracle: composer drafts', () => {
     expect(o.store.sessions.loadDrafts()[sessionId]).toBeUndefined()
   })
 
-  it(`${provisional('readiness-4', 'draft presence is retained while the document conflict class remains reserved')}: the DRAFT presence flip is broadcast once per start/clear, never per keystroke`, async () => {
+  it(`${provisional('readiness-4', 'draft nonempty state is retained while the document conflict class remains reserved')}: the DRAFT marker flip is broadcast once per start/clear, never per keystroke`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const svc = o.reg.modules.sessions
@@ -407,7 +404,7 @@ describe('oracle: composer drafts', () => {
       () =>
         lastSessions(o.client)?.sessions.find((s) => s.sessionId === sessionId)?.draftUpdatedAt !==
         undefined,
-      'the DRAFT presence flip to reach the client',
+      'the DRAFT marker flip to reach the client',
     )
     const broadcastsAfterFirstKeystroke = o.client.filter(
       (m) => m.type === 'sessionsChanged',

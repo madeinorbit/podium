@@ -1,4 +1,3 @@
-import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import {
@@ -42,23 +41,24 @@ export function SessionsSection({
             })
           }
         />
-        {AGENT_CAPABILITIES[codingHarness].subagentModelEnv && (
-          <Row label="Model for subagents">
-            <ModelPicker
-              variant="field"
-              agentKind={codingHarness}
-              value={settings.roles.coding.subagentModel}
-              onChange={(subagentModel) =>
-                patch({
-                  roles: {
-                    ...settings.roles,
-                    coding: { ...settings.roles.coding, subagentModel },
-                  },
-                })
-              }
-            />
-          </Row>
-        )}
+        <Row
+          label="Model for subagents"
+          description="Applied when the selected harness supports a native subagent-model override."
+        >
+          <ModelPicker
+            variant="field"
+            agentKind={codingHarness}
+            value={settings.roles.coding.subagentModel}
+            onChange={(subagentModel) =>
+              patch({
+                roles: {
+                  ...settings.roles,
+                  coding: { ...settings.roles.coding, subagentModel },
+                },
+              })
+            }
+          />
+        </Row>
         <Row
           label="Subagents"
           description="Built-in subagents share the harness and are the best choice today. Podium-coordinated subagents (for cross-harness work) are coming soon."

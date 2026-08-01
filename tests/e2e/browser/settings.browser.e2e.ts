@@ -116,10 +116,15 @@ test('new sessions allows effort with automatic model selection', async ({ page 
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const section = newSessionsSection(page)
-  await expect(section.getByRole('button', { name: 'Model' })).toContainText('Auto')
+  await expect(section.getByRole('button', { name: 'Model' }).first()).toContainText('Auto')
   const effort = section.getByRole('button', { name: 'Effort' })
   await expect(effort).toBeVisible()
-  await expect(section.getByText('Model for subagents')).toHaveCount(0)
+  await expect(section.getByText('Model for subagents')).toBeVisible()
+  await expect(
+    section.getByText(
+      'Applied when the selected harness supports a native subagent-model override.',
+    ),
+  ).toBeVisible()
   await effort.click()
   await page.getByRole('menuitem', { name: 'Extra high' }).click()
   await page.getByRole('button', { name: 'Save' }).click()

@@ -62,7 +62,7 @@ export const SUPERSEDING_ISSUES = [
   'POD-1079',
   // POD-1076 HAS LANDED and is deliberately NOT listed any more. It superseded one
   // characterization — session `readAt` as a single instance-wide value — by
-  // re-keying the marker onto `(userId, sessionId)`. `oracle-presence.test.ts` now
+  // re-keying the marker onto `(userId, sessionId)`. `oracle-session-state.test.ts` now
   // pins the RESIDUAL as must-not-change: the storage is per user, and the still-
   // unscoped feed serves one viewer to every DEVICE of that person (POD-1077 scopes
   // the feed; the row already has an owner, so nothing about it changes then).
@@ -93,6 +93,7 @@ export const PROVISIONAL_REFERENCES = [
   'readiness-3.3',
   'readiness-4',
   'POD-393',
+  'POD-1070',
 ] as const
 
 export type ProvisionalReference = (typeof PROVISIONAL_REFERENCES)[number]

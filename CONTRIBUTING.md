@@ -100,7 +100,7 @@ while normal package consumers still resolve the published `dist` output.
 
 ## Releasing the libraries
 
-Public libraries (`@podium/protocol`, `@podium/agent-bridge`, `@podium/terminal-client`)
+Public libraries (`@podium/protocol`, `@podium/harness`, `@podium/pty`, `@podium/terminal-client`)
 are versioned with Changesets:
 
 ```bash

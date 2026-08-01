@@ -6,7 +6,7 @@
  *
  *  1. No app→app imports. Grandfathered allowance: `apps/web` may import from
  *     `@podium/server` **type-only** (the `AppRouter` type for the tRPC client).
- *  2. `@podium/agent-bridge`, `@podium/pty` and `@podium/harness` may only be
+ *  2. `@podium/harness`, `@podium/pty` and `@podium/harness` may only be
  *     imported by `apps/daemon`, `scripts/`, and their own packages (including
  *     their tests); agent-bridge may also reach pty and harness. Importing any of
  *     them means driving real agent processes / PTYs, which is a host capability.
@@ -100,6 +100,7 @@ import { fileURLToPath } from 'node:url'
 import { isCompositionRoot, ROLE_RANK, serverRoleOf } from '../apps/server/src/roles'
 import {
   applyAllowlist,
+  applyManifestPolicy,
   checkManifestEdge,
   checkManifestRole,
   clauseIsTypeOnly,
@@ -129,17 +130,6 @@ export { clauseIsTypeOnly, extractImports, stripComments, workspaceOf }
 // ---------------------------------------------------------------------------
 
 /**
- * Empty since Phase 3 extracted transcript parsing into `@podium/transcript`
- * (apps/server now imports that instead of agent-bridge). Kept so the stale-
- * entry warning machinery stays exercised. Do NOT add entries — fix the
- * dependency instead.
- *
- * NOTE: `apps/server/src/model-probe.ts` and `apps/web/src/derive.ts` mention
- * agent-bridge only in comments — a real import appearing there fails the check.
- */
-const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([])
-
-/**
  * Rule 2's targets: the packages that drive real agent PROCESSES, and who may
  * import each. The machine host (apps/daemon) and the build/compose tier
  * (scripts/) may; nothing else may — servers read transcripts through
@@ -152,14 +142,8 @@ const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([])
  * POD-397's `packages/harness` is registered the same way.
  */
 const AGENT_HOST_CONSUMERS: Record<string, ReadonlySet<string>> = {
-  'packages/agent-bridge': new Set(['apps/daemon', 'scripts', 'packages/agent-bridge']),
-  'packages/pty': new Set(['apps/daemon', 'scripts', 'packages/pty', 'packages/agent-bridge']),
-  'packages/harness': new Set([
-    'apps/daemon',
-    'scripts',
-    'packages/harness',
-    'packages/agent-bridge',
-  ]),
+  'packages/pty': new Set(['apps/daemon', 'scripts', 'packages/pty']),
+  'packages/harness': new Set(['apps/daemon', 'scripts', 'packages/harness']),
 }
 
 /**
@@ -575,15 +559,15 @@ export function checkRuntimeBarrelPurity(repoRoot: string): Violation[] {
  * They describe SOFTWARE and drive PROCESSES; they never answer "who is acting,
  * and for whom".
  */
-const PRINCIPAL_FREE_WORKSPACES: readonly string[] = ['packages/harness', 'packages/agent-bridge']
+const PRINCIPAL_FREE_WORKSPACES: readonly string[] = ['packages/harness', 'packages/transcript']
 
 /**
  * Identifiers that carry a principal, an authorization decision, or a visibility
  * class. Matched as whole words in a workspace's IMPORT CLAUSES only — this is a
  * "what did you pull in" rule, not a full taint analysis.
  *
- * DELIBERATELY EXCLUDES `AgentCapabilities` / `AGENT_CAPABILITIES`. That is the
- * harness CAPABILITY DESCRIPTOR ("does this CLI support an argv prompt?") and has
+ * DELIBERATELY EXCLUDES `HarnessCapabilities`. That is the harness CAPABILITY
+ * DESCRIPTOR ("does this CLI support an argv prompt?") and has
  * nothing to do with an authorization capability. The two senses of the word
  * collide exactly here, which is why the exclusion is written down rather than
  * left to whoever next reads a failure.
@@ -609,8 +593,8 @@ const PRINCIPAL_IDENTIFIERS: readonly string[] = [
 const PRINCIPAL_RE = new RegExp(`\\b(${PRINCIPAL_IDENTIFIERS.join('|')})\\b`)
 
 /**
- * Rule: packages/harness (and the pty half until POD-399 deletes it) must not
- * import a principal, user, grant or visibility type.
+ * Rule: packages/harness, packages/transcript (and the pty half until POD-399
+ * deletes it) must not import a principal, user, grant or visibility type.
  *
  * WHY IT IS A LINT rather than a review note: the pressure to break this is
  * ordinary and arrives one call site at a time — someone threads a `currentUser`
@@ -1141,11 +1125,10 @@ export function checkFile(
     const hostAllowed = AGENT_HOST_CONSUMERS[to]
     if (hostAllowed) {
       if (hostAllowed.has(from)) continue
-      if (GRANDFATHERED_AGENT_BRIDGE.has(file)) continue
       violations.push({
         file,
         specifier: ref.specifier,
-        rule: 'agent-bridge-consumers',
+        rule: 'agent-host-consumers',
         message: `${file}: '${ref.specifier}' may only be imported by ${[...hostAllowed].sort().join(', ')}, or its own tests (Phase 3 extracts @podium/transcript for the grandfathered server cases)`,
       })
     }
@@ -1227,12 +1210,10 @@ function* walk(dir: string): Generator<string> {
 
 export function runCheck(repoRoot: string): {
   violations: Violation[]
-  staleGrandfathers: string[]
   manifest: Violation[]
 } {
   const violations: Violation[] = []
   const manifest: Violation[] = []
-  const agentBridgeImporters = new Set<string>()
   const workspaces = new Set<string>()
   const modelExportNames = loadModelExportNames(repoRoot)
   const harnessLiterals = loadHarnessLiterals(repoRoot)
@@ -1244,8 +1225,6 @@ export function runCheck(repoRoot: string): {
       violations.push(...checkFile(file, source, modelExportNames))
       violations.push(...checkPrincipalFree(file, source))
       manifest.push(...checkManifestFile(file, source, harnessLiterals))
-      if (extractImports(source).some((r) => r.specifier.startsWith('@podium/agent-bridge')))
-        agentBridgeImporters.add(file)
     }
   }
   violations.push(...checkRuntimeBarrelPurity(repoRoot))
@@ -1253,10 +1232,7 @@ export function runCheck(repoRoot: string): {
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
   manifest.push(...checkSyncBrowserGraphAll(repoRoot))
-  const staleGrandfathers = [...GRANDFATHERED_AGENT_BRIDGE].filter(
-    (f) => !agentBridgeImporters.has(f),
-  )
-  return { violations, staleGrandfathers, manifest }
+  return { violations, manifest }
 }
 
 function main(): void {
@@ -1264,7 +1240,7 @@ function main(): void {
   // code from the ratchet only (new/over-count manifest violations), ignoring
   // the legacy rules entirely. That is what makes the ratchet blockable in CI
   // today: `bun run lint` is `continue-on-error: true` because it is already red
-  // — ~249 biome errors (podium #30) plus the agent-bridge-consumers failures
+  // — ~249 biome errors (podium #30) plus the agent-host-consumers failures
   // (POD-740) — so a ratchet wired only into `bun run lint` would report a NEW
   // violation and CI would sail straight past it. This mode is green as of the
   // committed allowlist, so `lint:architecture` blocks on its own while the
@@ -1272,12 +1248,25 @@ function main(): void {
   const manifestOnly = process.argv.includes('--manifest-only')
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const start = performance.now()
-  const { violations, staleGrandfathers, manifest } = runCheck(repoRoot)
+  const { violations, manifest } = runCheck(repoRoot)
+  if (process.argv.includes('--probe')) {
+    const probeSource = readFileSync(
+      join(repoRoot, 'scripts/fixtures/harness-axiom-probe.ts.txt'),
+      'utf8',
+    )
+    manifest.push(
+      ...checkManifestFile(
+        'packages/pty/src/__harness-axiom-probe.ts',
+        probeSource,
+        loadHarnessLiterals(repoRoot),
+      ),
+    )
+  }
   // ONE allowlist, but the two rule families must be applied to their OWN
   // violations: applyAllowlist calls any entry with no matching violation stale,
   // so a shared pass would have each family declaring the other's entries dead.
   const [manifestAllowed, legacyAllowed] = partitionAllowlist(BOUNDARY_ALLOWLIST)
-  const { warnings, errors, stale } = applyAllowlist(manifest, manifestAllowed)
+  const { warnings, errors, stale } = applyManifestPolicy(manifest, manifestAllowed)
   // The legacy rules run through the SAME ratchet (POD-740): their two known
   // violations are grandfathered in the one phase-mapped allowlist, so
   // lint:boundaries is green while a NEW legacy violation still fails. Before
@@ -1286,13 +1275,6 @@ function main(): void {
   // guardrail everyone has learned to ignore is not a guardrail.
   const legacy = applyAllowlist(violations, legacyAllowed)
   const ms = Math.round(performance.now() - start)
-  if (!manifestOnly) {
-    for (const f of staleGrandfathers) {
-      console.warn(
-        `warning: grandfathered agent-bridge entry '${f}' no longer imports it — remove it from GRANDFATHERED_AGENT_BRIDGE in scripts/check-boundaries.ts`,
-      )
-    }
-  }
 
   // Architecture manifest — WARN mode (POD-296). Allowlisted violations are
   // known debt, each mapped to the phase that removes it; they report but do
