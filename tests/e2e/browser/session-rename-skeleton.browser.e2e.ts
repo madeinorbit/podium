@@ -404,6 +404,26 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     })
     const grant = { id: issue.id, grantee: member, verb: 'write' }
     await rpc(ownerContext.request, 'issues.share', grant)
+    const machines = await rpc<Array<{ id: string }>>(
+      ownerContext.request,
+      'machines.list',
+      undefined,
+      'get',
+    )
+    const machineId = machines[0]?.id
+    if (!machineId) throw new Error('harness registered no machine')
+    await rpc(ownerContext.request, 'machines.share', {
+      id: machineId,
+      grantee: member,
+      verb: 'use',
+    })
+    await expect
+      .poll(async () =>
+        (await rpc<Array<{ id: string }>>(memberContext.request, 'machines.list', undefined, 'get'))
+          .map((machine) => machine.id)
+          .includes(machineId),
+      )
+      .toBe(true)
     await rpc(ownerContext.request, 'issues.start', { id: issue.id, agentKind: 'claude' })
     await rpc(ownerContext.request, 'issues.addSession', { id: issue.id, agentKind: 'claude' })
 

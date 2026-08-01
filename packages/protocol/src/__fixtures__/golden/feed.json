@@ -319,34 +319,136 @@
         "changes": [
           {
             "seq": 3,
-            "entity": "conversation",
+            "entity": "issueProjection",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "path": "changes[0].value.path",
-              "podiumId": "changes[0].value.podiumId",
-              "agentKind": "grok",
+              "repoId": "changes[0].value.repoId",
+              "seq": 3,
               "title": "changes[0].value.title",
-              "name": "changes[0].value.name",
-              "summary": "changes[0].value.summary",
-              "projectPath": "changes[0].value.projectPath",
-              "parentConversationId": "changes[0].value.parentConversationId",
-              "statusHint": "changes[0].value.statusHint",
+              "brief": "changes[0].value.brief",
+              "design": "changes[0].value.design",
+              "acceptance": "changes[0].value.acceptance",
+              "activityNotes": "changes[0].value.activityNotes",
+              "notesUpdatedAt": "changes[0].value.notesUpdatedAt",
+              "dependencyNote": "changes[0].value.dependencyNote",
+              "suggestedReason": "changes[0].value.suggestedReason",
+              "description": {
+                "value": "changes[0].value.description.value",
+                "revision": 3,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.description.opsTail[0]"
+                  }
+                ]
+              },
+              "notes": {
+                "value": "changes[0].value.notes.value",
+                "revision": 3,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.notes.opsTail[0]"
+                  }
+                ]
+              },
+              "stage": "planning",
+              "suggestedStage": "planning",
+              "closedReason": "changes[0].value.closedReason",
+              "closedAt": "changes[0].value.closedAt",
+              "deferUntil": "changes[0].value.deferUntil",
+              "archived": true,
+              "deletedAt": "changes[0].value.deletedAt",
+              "lastLifecycleActor": {
+                "actor": {
+                  "kind": "machine",
+                  "id": "changes[0].value.lastLifecycleActor.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.lastLifecycleActor.onBehalfOf"
+              },
+              "priority": 3,
+              "type": "feature",
+              "assignee": "changes[0].value.assignee",
+              "labels": ["changes[0].value.labels[0]"],
+              "estimateMin": 3,
+              "color": "fuchsia",
+              "sortKey": "changes[0].value.sortKey",
+              "dueAt": "changes[0].value.dueAt",
+              "parentId": "changes[0].value.parentId",
+              "supersededBy": "changes[0].value.supersededBy",
+              "duplicateOf": "changes[0].value.duplicateOf",
+              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
+              "worktreePath": "changes[0].value.worktreePath",
+              "branch": "changes[0].value.branch",
+              "parentBranch": "changes[0].value.parentBranch",
+              "machineId": "changes[0].value.machineId",
+              "defaultAgent": "changes[0].value.defaultAgent",
+              "defaultModel": "changes[0].value.defaultModel",
+              "defaultEffort": "changes[0].value.defaultEffort",
+              "needsHuman": true,
+              "asked": {
+                "question": "changes[0].value.asked.question",
+                "options": ["changes[0].value.asked.options[0]"],
+                "at": "changes[0].value.asked.at",
+                "by": "changes[0].value.asked.by",
+                "attribution": {
+                  "actor": {
+                    "kind": "machine",
+                    "id": "changes[0].value.asked.attribution.actor.id"
+                  },
+                  "onBehalfOf": "changes[0].value.asked.attribution.onBehalfOf"
+                }
+              },
+              "panel": {
+                "todos": [
+                  {
+                    "text": "changes[0].value.panel.todos[0].text",
+                    "done": true
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "path": "changes[0].value.panel.artifacts[0].path",
+                    "title": "changes[0].value.panel.artifacts[0].title",
+                    "addedAt": "changes[0].value.panel.artifacts[0].addedAt",
+                    "artifactId": "changes[0].value.panel.artifacts[0].artifactId",
+                    "entry": "changes[0].value.panel.artifacts[0].entry",
+                    "files": [
+                      {
+                        "path": "changes[0].value.panel.artifacts[0].files[0].path",
+                        "size": 3
+                      }
+                    ]
+                  }
+                ],
+                "deferred": [
+                  {
+                    "text": "changes[0].value.panel.deferred[0].text",
+                    "addedAt": "changes[0].value.panel.deferred[0].addedAt"
+                  }
+                ]
+              },
+              "intentOrigin": "agent",
+              "audience": "agent",
+              "isDraftVessel": true,
+              "coordinatorSessionId": "changes[0].value.coordinatorSessionId",
+              "startedBySession": "changes[0].value.startedBySession",
+              "createdBy": {
+                "actor": {
+                  "kind": "machine",
+                  "id": "changes[0].value.createdBy.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.createdBy.onBehalfOf"
+              },
+              "linearId": "changes[0].value.linearId",
+              "linearIdentifier": "changes[0].value.linearIdentifier",
+              "linearUrl": "changes[0].value.linearUrl",
+              "prUrl": "changes[0].value.prUrl",
+              "revision": 3,
+              "owner": "changes[0].value.owner",
+              "visibility": "owned-compute",
               "createdAt": "changes[0].value.createdAt",
-              "updatedAt": "changes[0].value.updatedAt",
-              "messageCount": 3,
-              "sizeBytes": 3,
-              "git": {
-                "branch": "changes[0].value.git.branch",
-                "sha": "changes[0].value.git.sha",
-                "originUrl": "changes[0].value.git.originUrl"
-              },
-              "resume": {
-                "kind": "changes[0].value.resume.kind",
-                "value": "changes[0].value.resume.value"
-              },
-              "providerId": "changes[0].value.providerId"
+              "updatedAt": "changes[0].value.updatedAt"
             }
           }
         ],
@@ -355,7 +457,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"grok\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":3,\"sizeBytes\":3,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"last\":true}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":3,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"changes[0].value.notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":true,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"changes[0].value.assignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":3}]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":3,\"owner\":\"changes[0].value.owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}],\"last\":true}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -370,13 +472,124 @@
         "changes": [
           {
             "seq": 4,
+            "entity": "issueDep",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "fromId": "changes[0].value.fromId",
+              "toId": "changes[0].value.toId",
+              "type": "changes[0].value.type"
+            }
+          }
+        ],
+        "last": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}],\"last\":false}"
+    },
+    {
+      "schema": "FeedBootstrapMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "feedBootstrap",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 5,
+        "seq": 5,
+        "minAvailableSeq": 5,
+        "changes": [
+          {
+            "seq": 5,
+            "entity": "repo",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "prefix": "changes[0].value.prefix"
+            }
+          }
+        ],
+        "last": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\"}}],\"last\":true}"
+    },
+    {
+      "schema": "FeedBootstrapMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "feedBootstrap",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 6,
+        "seq": 6,
+        "minAvailableSeq": 6,
+        "changes": [
+          {
+            "seq": 6,
+            "entity": "conversation",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "path": "changes[0].value.path",
+              "podiumId": "changes[0].value.podiumId",
+              "agentKind": "shell",
+              "title": "changes[0].value.title",
+              "name": "changes[0].value.name",
+              "summary": "changes[0].value.summary",
+              "projectPath": "changes[0].value.projectPath",
+              "parentConversationId": "changes[0].value.parentConversationId",
+              "statusHint": "changes[0].value.statusHint",
+              "createdAt": "changes[0].value.createdAt",
+              "updatedAt": "changes[0].value.updatedAt",
+              "messageCount": 6,
+              "sizeBytes": 6,
+              "git": {
+                "branch": "changes[0].value.git.branch",
+                "sha": "changes[0].value.git.sha",
+                "originUrl": "changes[0].value.git.originUrl"
+              },
+              "resume": {
+                "kind": "changes[0].value.resume.kind",
+                "value": "changes[0].value.resume.value"
+              },
+              "providerId": "changes[0].value.providerId"
+            }
+          }
+        ],
+        "last": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":6,\"sizeBytes\":6,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"last\":false}"
+    },
+    {
+      "schema": "FeedBootstrapMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "feedBootstrap",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 7,
+        "seq": 7,
+        "minAvailableSeq": 7,
+        "changes": [
+          {
+            "seq": 7,
             "entity": "automation",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
               "name": "changes[0].value.name",
-              "enabled": false,
+              "enabled": true,
               "repoPath": "changes[0].value.repoPath",
               "scheduleKind": "once",
               "cron": "changes[0].value.cron",
@@ -393,26 +606,26 @@
             }
           }
         ],
-        "last": false
+        "last": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}],\"last\":false}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":true,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}],\"last\":true}"
     },
     {
       "schema": "FeedBootstrapMessage",
-      "variant": "full/arm4",
+      "variant": "full/arm7",
       "wire": {
         "type": "feedBootstrap",
         "feedId": "feedId",
         "epoch": "epoch",
-        "fromSeq": 5,
-        "seq": 5,
-        "minAvailableSeq": 5,
+        "fromSeq": 8,
+        "seq": 8,
+        "minAvailableSeq": 8,
         "changes": [
           {
-            "seq": 5,
+            "seq": 8,
             "entity": "automationRun",
             "entityId": "changes[0].entityId",
             "op": "evict",
@@ -426,12 +639,12 @@
             }
           }
         ],
-        "last": true
+        "last": false
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"automationRun\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"automationId\":\"changes[0].value.automationId\",\"firedAt\":\"changes[0].value.firedAt\",\"sessionId\":\"changes[0].value.sessionId\",\"outcome\":\"error\",\"detail\":\"changes[0].value.detail\"}}],\"last\":true}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automationRun\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"automationId\":\"changes[0].value.automationId\",\"firedAt\":\"changes[0].value.firedAt\",\"sessionId\":\"changes[0].value.sessionId\",\"outcome\":\"error\",\"detail\":\"changes[0].value.detail\"}}],\"last\":false}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -687,6 +900,90 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":true}"
+    },
+    {
+      "schema": "FeedBootstrapMessageLenient",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "feedBootstrap",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 6,
+        "seq": 6,
+        "minAvailableSeq": 6,
+        "changes": [
+          {
+            "seq": 6,
+            "entity": "changes[0].entity",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "unknownFixture": "changes[0].value"
+            }
+          }
+        ],
+        "last": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":false}"
+    },
+    {
+      "schema": "FeedBootstrapMessageLenient",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "feedBootstrap",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 7,
+        "seq": 7,
+        "minAvailableSeq": 7,
+        "changes": [
+          {
+            "seq": 7,
+            "entity": "changes[0].entity",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "unknownFixture": "changes[0].value"
+            }
+          }
+        ],
+        "last": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":true}"
+    },
+    {
+      "schema": "FeedBootstrapMessageLenient",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "feedBootstrap",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 8,
+        "seq": 8,
+        "minAvailableSeq": 8,
+        "changes": [
+          {
+            "seq": 8,
+            "entity": "changes[0].entity",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "unknownFixture": "changes[0].value"
+            }
+          }
+        ],
+        "last": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}],\"last\":false}"
     },
     {
       "schema": "FeedChange",
@@ -971,6 +1268,186 @@
       "variant": "full/arm2",
       "wire": {
         "seq": 3,
+        "entity": "issueProjection",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "id": "value.id",
+          "repoId": "value.repoId",
+          "seq": 3,
+          "title": "value.title",
+          "brief": "value.brief",
+          "design": "value.design",
+          "acceptance": "value.acceptance",
+          "activityNotes": "value.activityNotes",
+          "notesUpdatedAt": "value.notesUpdatedAt",
+          "dependencyNote": "value.dependencyNote",
+          "suggestedReason": "value.suggestedReason",
+          "description": {
+            "value": "value.description.value",
+            "revision": 3,
+            "opsTail": [
+              {
+                "unknownFixture": "value.description.opsTail[0]"
+              }
+            ]
+          },
+          "notes": {
+            "value": "value.notes.value",
+            "revision": 3,
+            "opsTail": [
+              {
+                "unknownFixture": "value.notes.opsTail[0]"
+              }
+            ]
+          },
+          "stage": "planning",
+          "suggestedStage": "planning",
+          "closedReason": "value.closedReason",
+          "closedAt": "value.closedAt",
+          "deferUntil": "value.deferUntil",
+          "archived": true,
+          "deletedAt": "value.deletedAt",
+          "lastLifecycleActor": {
+            "actor": {
+              "kind": "machine",
+              "id": "value.lastLifecycleActor.actor.id"
+            },
+            "onBehalfOf": "value.lastLifecycleActor.onBehalfOf"
+          },
+          "priority": 3,
+          "type": "feature",
+          "assignee": "value.assignee",
+          "labels": ["value.labels[0]"],
+          "estimateMin": 3,
+          "color": "fuchsia",
+          "sortKey": "value.sortKey",
+          "dueAt": "value.dueAt",
+          "parentId": "value.parentId",
+          "supersededBy": "value.supersededBy",
+          "duplicateOf": "value.duplicateOf",
+          "blockedByNotes": ["value.blockedByNotes[0]"],
+          "worktreePath": "value.worktreePath",
+          "branch": "value.branch",
+          "parentBranch": "value.parentBranch",
+          "machineId": "value.machineId",
+          "defaultAgent": "value.defaultAgent",
+          "defaultModel": "value.defaultModel",
+          "defaultEffort": "value.defaultEffort",
+          "needsHuman": true,
+          "asked": {
+            "question": "value.asked.question",
+            "options": ["value.asked.options[0]"],
+            "at": "value.asked.at",
+            "by": "value.asked.by",
+            "attribution": {
+              "actor": {
+                "kind": "machine",
+                "id": "value.asked.attribution.actor.id"
+              },
+              "onBehalfOf": "value.asked.attribution.onBehalfOf"
+            }
+          },
+          "panel": {
+            "todos": [
+              {
+                "text": "value.panel.todos[0].text",
+                "done": true
+              }
+            ],
+            "artifacts": [
+              {
+                "path": "value.panel.artifacts[0].path",
+                "title": "value.panel.artifacts[0].title",
+                "addedAt": "value.panel.artifacts[0].addedAt",
+                "artifactId": "value.panel.artifacts[0].artifactId",
+                "entry": "value.panel.artifacts[0].entry",
+                "files": [
+                  {
+                    "path": "value.panel.artifacts[0].files[0].path",
+                    "size": 3
+                  }
+                ]
+              }
+            ],
+            "deferred": [
+              {
+                "text": "value.panel.deferred[0].text",
+                "addedAt": "value.panel.deferred[0].addedAt"
+              }
+            ]
+          },
+          "intentOrigin": "agent",
+          "audience": "agent",
+          "isDraftVessel": true,
+          "coordinatorSessionId": "value.coordinatorSessionId",
+          "startedBySession": "value.startedBySession",
+          "createdBy": {
+            "actor": {
+              "kind": "machine",
+              "id": "value.createdBy.actor.id"
+            },
+            "onBehalfOf": "value.createdBy.onBehalfOf"
+          },
+          "linearId": "value.linearId",
+          "linearIdentifier": "value.linearIdentifier",
+          "linearUrl": "value.linearUrl",
+          "prUrl": "value.prUrl",
+          "revision": 3,
+          "owner": "value.owner",
+          "visibility": "owned-compute",
+          "createdAt": "value.createdAt",
+          "updatedAt": "value.updatedAt"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":3,\"entity\":\"issueProjection\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"seq\":3,\"title\":\"value.title\",\"brief\":\"value.brief\",\"design\":\"value.design\",\"acceptance\":\"value.acceptance\",\"activityNotes\":\"value.activityNotes\",\"notesUpdatedAt\":\"value.notesUpdatedAt\",\"dependencyNote\":\"value.dependencyNote\",\"suggestedReason\":\"value.suggestedReason\",\"description\":{\"value\":\"value.description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"value.notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"value.notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"value.closedReason\",\"closedAt\":\"value.closedAt\",\"deferUntil\":\"value.deferUntil\",\"archived\":true,\"deletedAt\":\"value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"value.lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"value.assignee\",\"labels\":[\"value.labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"value.sortKey\",\"dueAt\":\"value.dueAt\",\"parentId\":\"value.parentId\",\"supersededBy\":\"value.supersededBy\",\"duplicateOf\":\"value.duplicateOf\",\"blockedByNotes\":[\"value.blockedByNotes[0]\"],\"worktreePath\":\"value.worktreePath\",\"branch\":\"value.branch\",\"parentBranch\":\"value.parentBranch\",\"machineId\":\"value.machineId\",\"defaultAgent\":\"value.defaultAgent\",\"defaultModel\":\"value.defaultModel\",\"defaultEffort\":\"value.defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"value.asked.question\",\"options\":[\"value.asked.options[0]\"],\"at\":\"value.asked.at\",\"by\":\"value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"value.asked.attribution.actor.id\"},\"onBehalfOf\":\"value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"value.panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"value.panel.artifacts[0].path\",\"title\":\"value.panel.artifacts[0].title\",\"addedAt\":\"value.panel.artifacts[0].addedAt\",\"artifactId\":\"value.panel.artifacts[0].artifactId\",\"entry\":\"value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"value.panel.artifacts[0].files[0].path\",\"size\":3}]}],\"deferred\":[{\"text\":\"value.panel.deferred[0].text\",\"addedAt\":\"value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"value.coordinatorSessionId\",\"startedBySession\":\"value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"linearId\":\"value.linearId\",\"linearIdentifier\":\"value.linearIdentifier\",\"linearUrl\":\"value.linearUrl\",\"prUrl\":\"value.prUrl\",\"revision\":3,\"owner\":\"value.owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\"}}"
+    },
+    {
+      "schema": "FeedChange",
+      "variant": "full/arm3",
+      "wire": {
+        "seq": 4,
+        "entity": "issueDep",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "id": "value.id",
+          "fromId": "value.fromId",
+          "toId": "value.toId",
+          "type": "value.type"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":4,\"entity\":\"issueDep\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"fromId\":\"value.fromId\",\"toId\":\"value.toId\",\"type\":\"value.type\"}}"
+    },
+    {
+      "schema": "FeedChange",
+      "variant": "full/arm4",
+      "wire": {
+        "seq": 5,
+        "entity": "repo",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "id": "value.id",
+          "prefix": "value.prefix"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\"}}"
+    },
+    {
+      "schema": "FeedChange",
+      "variant": "full/arm5",
+      "wire": {
+        "seq": 6,
         "entity": "conversation",
         "entityId": "entityId",
         "op": "evict",
@@ -978,7 +1455,7 @@
           "id": "value.id",
           "path": "value.path",
           "podiumId": "value.podiumId",
-          "agentKind": "grok",
+          "agentKind": "shell",
           "title": "value.title",
           "name": "value.name",
           "summary": "value.summary",
@@ -987,8 +1464,8 @@
           "statusHint": "value.statusHint",
           "createdAt": "value.createdAt",
           "updatedAt": "value.updatedAt",
-          "messageCount": 3,
-          "sizeBytes": 3,
+          "messageCount": 6,
+          "sizeBytes": 6,
           "git": {
             "branch": "value.git.branch",
             "sha": "value.git.sha",
@@ -1004,20 +1481,20 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":3,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"grok\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":3,\"sizeBytes\":3,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
+      "encoded": "{\"seq\":6,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":6,\"sizeBytes\":6,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
     },
     {
       "schema": "FeedChange",
-      "variant": "full/arm3",
+      "variant": "full/arm6",
       "wire": {
-        "seq": 4,
+        "seq": 7,
         "entity": "automation",
         "entityId": "entityId",
         "op": "evict",
         "value": {
           "id": "value.id",
           "name": "value.name",
-          "enabled": false,
+          "enabled": true,
           "repoPath": "value.repoPath",
           "scheduleKind": "once",
           "cron": "value.cron",
@@ -1036,13 +1513,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":4,\"entity\":\"automation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"name\":\"value.name\",\"enabled\":false,\"repoPath\":\"value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"value.cron\",\"runAt\":\"value.runAt\",\"targetSessionId\":\"value.targetSessionId\",\"agentKind\":\"value.agentKind\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"prompt\":\"value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"value.nextRunAt\",\"lastRunAt\":\"value.lastRunAt\",\"createdAt\":\"value.createdAt\"}}"
+      "encoded": "{\"seq\":7,\"entity\":\"automation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"name\":\"value.name\",\"enabled\":true,\"repoPath\":\"value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"value.cron\",\"runAt\":\"value.runAt\",\"targetSessionId\":\"value.targetSessionId\",\"agentKind\":\"value.agentKind\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"prompt\":\"value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"value.nextRunAt\",\"lastRunAt\":\"value.lastRunAt\",\"createdAt\":\"value.createdAt\"}}"
     },
     {
       "schema": "FeedChange",
-      "variant": "full/arm4",
+      "variant": "full/arm7",
       "wire": {
-        "seq": 5,
+        "seq": 8,
         "entity": "automationRun",
         "entityId": "entityId",
         "op": "evict",
@@ -1058,7 +1535,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":5,\"entity\":\"automationRun\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"automationId\":\"value.automationId\",\"firedAt\":\"value.firedAt\",\"sessionId\":\"value.sessionId\",\"outcome\":\"error\",\"detail\":\"value.detail\"}}"
+      "encoded": "{\"seq\":8,\"entity\":\"automationRun\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"automationId\":\"value.automationId\",\"firedAt\":\"value.firedAt\",\"sessionId\":\"value.sessionId\",\"outcome\":\"error\",\"detail\":\"value.detail\"}}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -1257,6 +1734,57 @@
       "encoded": "{\"seq\":5,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
     },
     {
+      "schema": "FeedChangeLenient",
+      "variant": "full/arm5",
+      "wire": {
+        "seq": 6,
+        "entity": "entity",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":6,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "FeedChangeLenient",
+      "variant": "full/arm6",
+      "wire": {
+        "seq": 7,
+        "entity": "entity",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":7,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "FeedChangeLenient",
+      "variant": "full/arm7",
+      "wire": {
+        "seq": 8,
+        "entity": "entity",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":8,\"entity\":\"entity\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
       "schema": "FeedChangesSinceReply",
       "variant": "minimal",
       "wire": {
@@ -1446,6 +1974,42 @@
       "encoded": "{\"kind\":\"bootstrap-required\",\"reason\":\"reason\"}"
     },
     {
+      "schema": "FeedChangesSinceReply",
+      "variant": "full/arm5",
+      "wire": {
+        "kind": "bootstrap-required",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"bootstrap-required\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "FeedChangesSinceReply",
+      "variant": "full/arm6",
+      "wire": {
+        "kind": "bootstrap-required",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"bootstrap-required\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "FeedChangesSinceReply",
+      "variant": "full/arm7",
+      "wire": {
+        "kind": "bootstrap-required",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"bootstrap-required\",\"reason\":\"reason\"}"
+    },
+    {
       "schema": "FeedChangesSinceReplyLenient",
       "variant": "minimal",
       "wire": {
@@ -1625,6 +2189,42 @@
     {
       "schema": "FeedChangesSinceReplyLenient",
       "variant": "full/arm4",
+      "wire": {
+        "kind": "bootstrap-required",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"bootstrap-required\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "FeedChangesSinceReplyLenient",
+      "variant": "full/arm5",
+      "wire": {
+        "kind": "bootstrap-required",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"bootstrap-required\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "FeedChangesSinceReplyLenient",
+      "variant": "full/arm6",
+      "wire": {
+        "kind": "bootstrap-required",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"bootstrap-required\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "FeedChangesSinceReplyLenient",
+      "variant": "full/arm7",
       "wire": {
         "kind": "bootstrap-required",
         "reason": "reason"
@@ -1974,6 +2574,216 @@
         "changes": [
           {
             "seq": 3,
+            "entity": "issueProjection",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "repoId": "changes[0].value.repoId",
+              "seq": 3,
+              "title": "changes[0].value.title",
+              "brief": "changes[0].value.brief",
+              "design": "changes[0].value.design",
+              "acceptance": "changes[0].value.acceptance",
+              "activityNotes": "changes[0].value.activityNotes",
+              "notesUpdatedAt": "changes[0].value.notesUpdatedAt",
+              "dependencyNote": "changes[0].value.dependencyNote",
+              "suggestedReason": "changes[0].value.suggestedReason",
+              "description": {
+                "value": "changes[0].value.description.value",
+                "revision": 3,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.description.opsTail[0]"
+                  }
+                ]
+              },
+              "notes": {
+                "value": "changes[0].value.notes.value",
+                "revision": 3,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.notes.opsTail[0]"
+                  }
+                ]
+              },
+              "stage": "planning",
+              "suggestedStage": "planning",
+              "closedReason": "changes[0].value.closedReason",
+              "closedAt": "changes[0].value.closedAt",
+              "deferUntil": "changes[0].value.deferUntil",
+              "archived": true,
+              "deletedAt": "changes[0].value.deletedAt",
+              "lastLifecycleActor": {
+                "actor": {
+                  "kind": "machine",
+                  "id": "changes[0].value.lastLifecycleActor.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.lastLifecycleActor.onBehalfOf"
+              },
+              "priority": 3,
+              "type": "feature",
+              "assignee": "changes[0].value.assignee",
+              "labels": ["changes[0].value.labels[0]"],
+              "estimateMin": 3,
+              "color": "fuchsia",
+              "sortKey": "changes[0].value.sortKey",
+              "dueAt": "changes[0].value.dueAt",
+              "parentId": "changes[0].value.parentId",
+              "supersededBy": "changes[0].value.supersededBy",
+              "duplicateOf": "changes[0].value.duplicateOf",
+              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
+              "worktreePath": "changes[0].value.worktreePath",
+              "branch": "changes[0].value.branch",
+              "parentBranch": "changes[0].value.parentBranch",
+              "machineId": "changes[0].value.machineId",
+              "defaultAgent": "changes[0].value.defaultAgent",
+              "defaultModel": "changes[0].value.defaultModel",
+              "defaultEffort": "changes[0].value.defaultEffort",
+              "needsHuman": true,
+              "asked": {
+                "question": "changes[0].value.asked.question",
+                "options": ["changes[0].value.asked.options[0]"],
+                "at": "changes[0].value.asked.at",
+                "by": "changes[0].value.asked.by",
+                "attribution": {
+                  "actor": {
+                    "kind": "machine",
+                    "id": "changes[0].value.asked.attribution.actor.id"
+                  },
+                  "onBehalfOf": "changes[0].value.asked.attribution.onBehalfOf"
+                }
+              },
+              "panel": {
+                "todos": [
+                  {
+                    "text": "changes[0].value.panel.todos[0].text",
+                    "done": true
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "path": "changes[0].value.panel.artifacts[0].path",
+                    "title": "changes[0].value.panel.artifacts[0].title",
+                    "addedAt": "changes[0].value.panel.artifacts[0].addedAt",
+                    "artifactId": "changes[0].value.panel.artifacts[0].artifactId",
+                    "entry": "changes[0].value.panel.artifacts[0].entry",
+                    "files": [
+                      {
+                        "path": "changes[0].value.panel.artifacts[0].files[0].path",
+                        "size": 3
+                      }
+                    ]
+                  }
+                ],
+                "deferred": [
+                  {
+                    "text": "changes[0].value.panel.deferred[0].text",
+                    "addedAt": "changes[0].value.panel.deferred[0].addedAt"
+                  }
+                ]
+              },
+              "intentOrigin": "agent",
+              "audience": "agent",
+              "isDraftVessel": true,
+              "coordinatorSessionId": "changes[0].value.coordinatorSessionId",
+              "startedBySession": "changes[0].value.startedBySession",
+              "createdBy": {
+                "actor": {
+                  "kind": "machine",
+                  "id": "changes[0].value.createdBy.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.createdBy.onBehalfOf"
+              },
+              "linearId": "changes[0].value.linearId",
+              "linearIdentifier": "changes[0].value.linearIdentifier",
+              "linearUrl": "changes[0].value.linearUrl",
+              "prUrl": "changes[0].value.prUrl",
+              "revision": 3,
+              "owner": "changes[0].value.owner",
+              "visibility": "owned-compute",
+              "createdAt": "changes[0].value.createdAt",
+              "updatedAt": "changes[0].value.updatedAt"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":3,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"changes[0].value.notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":true,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"changes[0].value.assignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":3}]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":3,\"owner\":\"changes[0].value.owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}]}"
+    },
+    {
+      "schema": "FeedDeltaMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 4,
+        "seq": 4,
+        "minAvailableSeq": 4,
+        "changes": [
+          {
+            "seq": 4,
+            "entity": "issueDep",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "fromId": "changes[0].value.fromId",
+              "toId": "changes[0].value.toId",
+              "type": "changes[0].value.type"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}]}"
+    },
+    {
+      "schema": "FeedDeltaMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 5,
+        "seq": 5,
+        "minAvailableSeq": 5,
+        "changes": [
+          {
+            "seq": 5,
+            "entity": "repo",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "prefix": "changes[0].value.prefix"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\"}}]}"
+    },
+    {
+      "schema": "FeedDeltaMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 6,
+        "seq": 6,
+        "minAvailableSeq": 6,
+        "changes": [
+          {
+            "seq": 6,
             "entity": "conversation",
             "entityId": "changes[0].entityId",
             "op": "evict",
@@ -1981,7 +2791,7 @@
               "id": "changes[0].value.id",
               "path": "changes[0].value.path",
               "podiumId": "changes[0].value.podiumId",
-              "agentKind": "grok",
+              "agentKind": "shell",
               "title": "changes[0].value.title",
               "name": "changes[0].value.name",
               "summary": "changes[0].value.summary",
@@ -1990,8 +2800,8 @@
               "statusHint": "changes[0].value.statusHint",
               "createdAt": "changes[0].value.createdAt",
               "updatedAt": "changes[0].value.updatedAt",
-              "messageCount": 3,
-              "sizeBytes": 3,
+              "messageCount": 6,
+              "sizeBytes": 6,
               "git": {
                 "branch": "changes[0].value.git.branch",
                 "sha": "changes[0].value.git.sha",
@@ -2009,28 +2819,28 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"grok\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":3,\"sizeBytes\":3,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":6,\"sizeBytes\":6,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
-      "variant": "full/arm3",
+      "variant": "full/arm6",
       "wire": {
         "type": "feedDelta",
         "feedId": "feedId",
         "epoch": "epoch",
-        "fromSeq": 4,
-        "seq": 4,
-        "minAvailableSeq": 4,
+        "fromSeq": 7,
+        "seq": 7,
+        "minAvailableSeq": 7,
         "changes": [
           {
-            "seq": 4,
+            "seq": 7,
             "entity": "automation",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
               "name": "changes[0].value.name",
-              "enabled": false,
+              "enabled": true,
               "repoPath": "changes[0].value.repoPath",
               "scheduleKind": "once",
               "cron": "changes[0].value.cron",
@@ -2051,21 +2861,21 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":true,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
-      "variant": "full/arm4",
+      "variant": "full/arm7",
       "wire": {
         "type": "feedDelta",
         "feedId": "feedId",
         "epoch": "epoch",
-        "fromSeq": 5,
-        "seq": 5,
-        "minAvailableSeq": 5,
+        "fromSeq": 8,
+        "seq": 8,
+        "minAvailableSeq": 8,
         "changes": [
           {
-            "seq": 5,
+            "seq": 8,
             "entity": "automationRun",
             "entityId": "changes[0].entityId",
             "op": "evict",
@@ -2083,7 +2893,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"automationRun\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"automationId\":\"changes[0].value.automationId\",\"firedAt\":\"changes[0].value.firedAt\",\"sessionId\":\"changes[0].value.sessionId\",\"outcome\":\"error\",\"detail\":\"changes[0].value.detail\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automationRun\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"automationId\":\"changes[0].value.automationId\",\"firedAt\":\"changes[0].value.firedAt\",\"sessionId\":\"changes[0].value.sessionId\",\"outcome\":\"error\",\"detail\":\"changes[0].value.detail\"}}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",
@@ -2333,6 +3143,87 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+    },
+    {
+      "schema": "FeedDeltaMessageLenient",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 6,
+        "seq": 6,
+        "minAvailableSeq": 6,
+        "changes": [
+          {
+            "seq": 6,
+            "entity": "changes[0].entity",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "unknownFixture": "changes[0].value"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+    },
+    {
+      "schema": "FeedDeltaMessageLenient",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 7,
+        "seq": 7,
+        "minAvailableSeq": 7,
+        "changes": [
+          {
+            "seq": 7,
+            "entity": "changes[0].entity",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "unknownFixture": "changes[0].value"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
+    },
+    {
+      "schema": "FeedDeltaMessageLenient",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 8,
+        "seq": 8,
+        "minAvailableSeq": 8,
+        "changes": [
+          {
+            "seq": 8,
+            "entity": "changes[0].entity",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "unknownFixture": "changes[0].value"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"changes[0].entity\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"unknownFixture\":\"changes[0].value\"}}]}"
     },
     {
       "schema": "FeedRescopeMessage",

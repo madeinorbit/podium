@@ -109,6 +109,7 @@ import { z } from 'zod'
 import type {
   AttributionPolicy,
   CommandContract,
+  CommandPolicy,
   DeliveryPolicy,
   RedactionPolicy,
   TransportTag,
