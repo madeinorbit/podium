@@ -252,7 +252,6 @@ export class SessionRegistry {
     // Live entity maps are owned by modules/sessions; the pre-sessions modules
     // reach them through these lazy closures (sessionsSvc is assigned below, and
     // none of the closures can run before the constructor finishes wiring).
-    let sessionsSvc!: SessionLifecycle
     const principalForCapability = (capability: import('@podium/model').Capability) =>
       resolvePrincipal(capability, {
         parentSessionOf: (candidate) =>
@@ -280,16 +279,6 @@ export class SessionRegistry {
         ...(overrideScope ? { overrideScope: true } : {}),
       }
     }
-    // Unified messaging (#237) [spec:SP-34d7] — assigned after the store-backed
-    // graph exists; consumed only via lazy closures/per-dispatch calls below.
-    let messagesSvc!: MessageDeliveryService
-    let messageGate!: MessageGate
-    let readToolkit!: SessionReadToolkit
-    let conversations!: ConversationsService
-    let issues!: IssueService
-    let issueSessionLifecycle!: IssueSessionLifecycle
-    let workflows!: WorkflowService
-    let automations!: AutomationsService
     /**
      * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
      * honours a `mutationId` — the session session-state class, the session command
@@ -774,7 +763,7 @@ export class SessionRegistry {
       locks: () => locks,
       issues: () => issues,
     })
-    workflows = new WorkflowService(
+    const workflows = new WorkflowService(
       {
         store: this.store.workflows,
         now: () => new Date(this.now()).toISOString(),
@@ -1291,7 +1280,7 @@ export class SessionRegistry {
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
-    sessionsSvc = new SessionLifecycle({
+    const sessionsSvc = new SessionLifecycle({
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
@@ -1333,7 +1322,7 @@ export class SessionRegistry {
     // write-seam ledger — boot reconciliation lives in the sessions module now).
     sessionsSvc.loadFromStore()
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
-    conversations = new ConversationsService(
+    const conversations = new ConversationsService(
       {
         store: this.store,
         now: () => this.now(),
@@ -1456,7 +1445,7 @@ export class SessionRegistry {
         }
       },
     })
-    messagesSvc = new MessageDeliveryService({
+    const messagesSvc = new MessageDeliveryService({
       authorizeAtApply: mail.authorizeAtApply,
       messages: this.store.messages,
       notificationFacts: this.store.notificationFacts,
@@ -1508,7 +1497,7 @@ export class SessionRegistry {
         }
       }
     })
-    messageGate = new MessageGate(
+    const messageGate = new MessageGate(
       {
         messages: () => messagesSvc,
         issues: () => issues,
@@ -1554,7 +1543,7 @@ export class SessionRegistry {
       },
       mail.gateOptions,
     )
-    readToolkit = new SessionReadToolkit({
+    const readToolkit = new SessionReadToolkit({
       listSessions: () => sessionsSvc.listSessions(),
       issues: () => issues,
       messages: () => messagesSvc,
@@ -1567,7 +1556,7 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
 
-    issueSessionLifecycle = new IssueSessionLifecycle({
+    const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
       ledger,
@@ -1675,7 +1664,7 @@ export class SessionRegistry {
     // durable outbox — see AutomationsService.spawn for why not initialPrompt.
     // A session still occupying the machine (anything but exited/hibernated)
     // makes the next occurrence a skipped_overlap rather than a pile-up.
-    automations = new AutomationsService({
+    const automations = new AutomationsService({
       store: this.store.automations,
       ledger,
       createSession: (o) => sessionsSvc.createSession(o),
