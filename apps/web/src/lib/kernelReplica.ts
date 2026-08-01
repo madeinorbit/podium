@@ -39,13 +39,13 @@ import {
   type ReplicaMode,
   resolveReplicaMode,
 } from '@podium/client-core/replica'
+import type { FeedSinkPort, SocketHub } from '@podium/client-core/transport'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   decideLegacyAdoption,
   type LegacyIdentityEvidence,
 } from '@podium/sync/adapters/legacy-replica'
 import { Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
-import type { FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { Trpc } from '@/app/trpc'
 
 /** The IndexedDB database the web client's kernel replica lives in. */

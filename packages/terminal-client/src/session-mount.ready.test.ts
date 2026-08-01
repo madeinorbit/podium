@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
+
+import type { SessionCallbacks, SocketHub } from '@podium/client-core/transport'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionCallbacks, SocketHub } from './connection'
 import { codexInputReady, mountSession } from './session-mount'
 
 // happy-dom has no ResizeObserver; DomViewportSource needs one to construct.
@@ -44,7 +45,11 @@ describe('session-mount onReady', () => {
     withResizeObserver()
     const { hub, attached } = fakeHub()
     const onReady = vi.fn()
-    const mounted = mountSession(document.createElement('div'), { hub, sessionId: asSessionId('s1'), onReady })
+    const mounted = mountSession(document.createElement('div'), {
+      hub,
+      sessionId: asSessionId('s1'),
+      onReady,
+    })
 
     expect(onReady).not.toHaveBeenCalled()
     attached() // server confirms the PTY is bound — usable even with an empty buffer
@@ -59,7 +64,11 @@ describe('session-mount onReady', () => {
     withResizeObserver()
     const { hub, frame } = fakeHub()
     const onReady = vi.fn()
-    const mounted = mountSession(document.createElement('div'), { hub, sessionId: asSessionId('s1'), onReady })
+    const mounted = mountSession(document.createElement('div'), {
+      hub,
+      sessionId: asSessionId('s1'),
+      onReady,
+    })
 
     frame('') // empty replay is not "ready"
     expect(onReady).not.toHaveBeenCalled()

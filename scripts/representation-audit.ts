@@ -462,7 +462,7 @@ export const NOT_A_REPRESENTATION: readonly {
       ['packages/model/src/entities/machine.ts', 'GitRepositoryWire'],
       ['packages/client-core/src/spawn-agent.ts', 'SpawnTarget'],
       ['apps/server/src/store/types.ts', 'TerminalCandidateFacts'],
-      ['packages/terminal-client/src/connection.ts', 'ConnectionState'],
+      ['packages/client-core/src/transport/socket-hub.ts', 'ConnectionState'],
     ] as const
   ).map(([file, symbol]) => ({
     file,

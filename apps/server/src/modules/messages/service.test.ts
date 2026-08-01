@@ -286,14 +286,13 @@ describe('MessagesRepository (store CRUD)', () => {
       injectedAt: null,
       deadLetteredAt: null,
       ackedBy: null,
-      actorUser: null,
-      onBehalfOf: null,
       hop: 0,
       clampedFrom: null,
       remindedAt: null,
       factKey: null,
       factTarget: null,
       expectsResponse: false,
+      delegationRef: null,
     }
     store.messages.addMessage(m)
     expect(store.messages.getMessage('msg_1')).toEqual(m)
@@ -1286,8 +1285,6 @@ describe('containment brakes [spec:SP-34d7]', () => {
       deliveredAt: null,
       deliveredTo: null,
       ackedBy: null,
-      actorUser: null,
-      onBehalfOf: null,
       hop: HOP_LIMIT,
       clampedFrom: null,
       remindedAt: null,
@@ -1622,8 +1619,6 @@ describe('acks', () => {
       deliveredAt: 't1',
       deliveredTo: asSessionId('s1'),
       ackedBy: null,
-      actorUser: null,
-      onBehalfOf: null,
       hop: 0,
       clampedFrom: null,
       remindedAt: null,
@@ -2344,6 +2339,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     role: 'worker',
     scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
     actorSessionId: asSessionId('sX'),
+    onBehalfOf: FIRST_ADMIN_USER_ID,
   }
 
   it('a subtree-scoped peer sending to ANOTHER issue needs --outside-scope', async () => {
@@ -2390,7 +2386,12 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     // ...and the peek never consumed anything (pure read).
     expect(peek[0]?.status).toBe('queued')
     // The operator's peek is unrestricted.
-    const operatorCap: Capability = { role: 'admin', scope: { kind: 'all' } }
+    const operatorCap: Capability = {
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorUser: FIRST_ADMIN_USER_ID,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    }
     const all = (await gate.dispatch(operatorCap, undefined, 'inbox', {
       issue: ISSUE.id,
     })) as unknown[]
@@ -2783,8 +2784,6 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       injectedAt: null,
       deadLetteredAt: null,
       ackedBy: null,
-      actorUser: null,
-      onBehalfOf: null,
       hop: 0,
       clampedFrom: null,
       remindedAt: null,

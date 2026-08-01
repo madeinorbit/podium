@@ -16,8 +16,6 @@ ALTER TABLE `issues` ADD `created_by_actor` text DEFAULT 'user:sole' NOT NULL;--
 ALTER TABLE `issues` ADD `created_by_on_behalf_of` text;--> statement-breakpoint
 ALTER TABLE `issues` ADD `actor` text;--> statement-breakpoint
 ALTER TABLE `issues` ADD `on_behalf_of` text;--> statement-breakpoint
-ALTER TABLE `messages` ADD `actor_user` text;--> statement-breakpoint
-ALTER TABLE `messages` ADD `on_behalf_of` text;--> statement-breakpoint
 ALTER TABLE `sessions` ADD `owner_user_id` text DEFAULT 'user:sole' NOT NULL;--> statement-breakpoint
 ALTER TABLE `superagent_messages` ADD `owner_user_id` text DEFAULT 'user:sole' NOT NULL;--> statement-breakpoint
 ALTER TABLE `superagent_pending_turns` ADD `owner_user_id` text DEFAULT 'user:sole' NOT NULL;--> statement-breakpoint

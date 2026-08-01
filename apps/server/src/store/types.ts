@@ -5,6 +5,7 @@
 
 import type {
   AccountId,
+  Attribution,
   Geometry,
   IssueColorSlot,
   IssueId,
@@ -477,8 +478,10 @@ export interface MessageRow {
   fromName?: string | null
   /** Sender's issue at send time (agent senders). */
   fromIssue: IssueId | null
-  actorUser?: string | null
-  onBehalfOf?: string | null
+  /** Transport-stamped attribution pair. Undefined only on pre-migration rows. */
+  attribution?: Attribution
+  /** Opaque delegation reference for live apply-time re-authorization. */
+  delegationRef?: string | null
   toKind: MessageToKind
   /** DELIBERATELY UNBRANDED (POD-362): which id space this holds is decided by
    *  `toKind` — an IssueId for 'issue', a SessionId for 'session', neither for

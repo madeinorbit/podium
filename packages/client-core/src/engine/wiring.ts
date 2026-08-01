@@ -13,7 +13,6 @@ import {
   type OutboxCommand,
   type RetrySatisfaction,
 } from '@podium/sync/outbox'
-import { type FeedSinkPort, SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import {
   Outbox,
@@ -25,6 +24,7 @@ import {
 import { reasonSummary } from '../outbox-recovery-copy'
 import { advanceCursor, identityVerdict } from '../replica/feed'
 import type { Replica } from '../replica/replica'
+import { type FeedSinkPort, SocketHub } from '../transport'
 import type { StoreNotices } from './types'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md

@@ -20,7 +20,7 @@
  */
 
 import type { ContractInput, mailAskContract } from '@podium/commands'
-import { senderFromCapability, senderFromPrincipal } from '../service'
+import { senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
 
 export async function askHandler(
@@ -30,18 +30,13 @@ export async function askHandler(
   const { caller, deps, access } = ctx
   access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
   const svc = deps.messages()
-  const r = svc.send(
-    caller.principal
-      ? senderFromPrincipal(caller.capability, caller.principal)
-      : senderFromCapability(caller.capability),
-    {
-      to: { kind: 'session', id: input.sessionId },
-      body: input.question,
-      kind: 'question',
-      urgency: 'next-turn',
-      lifecycle: 'wake',
-    },
-  )
+  const r = svc.send(senderFromPrincipal(caller.principal), {
+    to: { kind: 'session', id: input.sessionId },
+    body: input.question,
+    kind: 'question',
+    urgency: 'next-turn',
+    lifecycle: 'wake',
+  })
   const sleep = deps.sleep ?? undefined
   const ack = await svc.awaitAck(r.message.id, {
     timeoutMs: (input.timeoutSeconds ?? 30) * 1000,

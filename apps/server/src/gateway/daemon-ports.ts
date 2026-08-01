@@ -26,6 +26,19 @@ export type DaemonFrame<T extends DaemonMessage['type']> = Extract<DaemonMessage
 export type ControlSend = (msg: ControlMessage) => void
 
 /**
+ * Outbound session-inbox leg of the daemon gateway.
+ *
+ * This is transport only: the caller has already authorized the command at the
+ * command boundary, and a durable queued input is authorized again immediately
+ * before this port is called. The port deliberately carries neither a
+ * capability nor an authorization result, so it cannot cache either one (ADR 3
+ * D8/D16; POD-394).
+ */
+export interface SessionInputGatewayPort {
+  sendInput(machineId: string, message: Extract<ControlMessage, { type: 'input' }>): void
+}
+
+/**
  * SESSIONS. Lifecycle, inbox and presence stay here; the socket does not. The
  * two lifecycle hooks are what `attachDaemon`/`detachDaemon` used to do inline,
  * minus the machine bookkeeping and the bus emits the gateway now orchestrates.

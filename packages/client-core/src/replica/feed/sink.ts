@@ -17,7 +17,7 @@
  */
 
 import type { Replica as KernelReplica } from '@podium/sync/replica'
-import type { FeedServerFrame, FeedSinkPort } from '@podium/terminal-client'
+import type { FeedServerFrame, FeedSinkPort } from '../../transport'
 import type { PushedBootstrapSource } from './bootstrap-source'
 import { toBootstrapChunk, toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
 
@@ -57,14 +57,19 @@ export class FeedSink implements FeedSinkPort {
   /**
    * The socket ended.
    *
-   * A self-requested replacement keeps its bootstrap walk alive across the expected
-   * close. Any other close resets the source and moves the Replica to `stale` —
-   * visible, never blank. The source consumes the one replacement marker so a
-   * second drop before the world arrives is treated as a real disconnection.
+   * The Replica goes `stale` — visible, never blank — and any bootstrap walk in
+   * flight is failed rather than left waiting on a connection that is gone. The
+   * order matters: the source is reset FIRST, so the walk's rejection is observed
+   * by a replica that has not yet been told to abandon it, which is what routes
+   * the failure through `bootstrap-failed` instead of a stray unhandled rejection.
    */
   disconnected(): void {
-    const replacement = this.deps.bootstraps.reset('socket closed')
-    if (!replacement) this.deps.replica.disconnect()
+    const requestedByBootstrap = this.deps.bootstraps.reset('socket closed')
+    // A bootstrap obtains a fresh world by deliberately replacing the socket.
+    // That close belongs to the in-flight walk: disconnecting the Replica would
+    // increment its generation and discard the world the replacement socket is
+    // about to deliver. Real drops still transition to stale/cold as before.
+    if (!requestedByBootstrap) this.deps.replica.disconnect()
   }
 
   frame(frame: FeedServerFrame): void {

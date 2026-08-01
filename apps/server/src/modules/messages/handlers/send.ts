@@ -6,7 +6,7 @@
 
 import { type ContractInput, type mailSendContract, UNADDRESSABLE } from '@podium/commands'
 import { checkIssueAccess } from '../../../issue-authz'
-import { senderFromCapability, senderFromPrincipal } from '../service'
+import { senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
 
 export async function sendHandler(
@@ -57,9 +57,7 @@ export async function sendHandler(
   // the CLI surface alone. See {@link MailDeliveryMode}.
   const { sleep, awaitPollMs } = deps
   const nowIso = deps.now
-  const from = caller.principal
-    ? senderFromPrincipal(caller.capability, caller.principal)
-    : senderFromCapability(caller.capability)
+  const from = senderFromPrincipal(caller.principal)
   const payload = {
     to,
     body: input.body,

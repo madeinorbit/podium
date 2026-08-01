@@ -22,6 +22,7 @@
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
+import { sessionSpawnerParentId } from '../../steward'
 import type { Capability } from '../../issue-authz'
 import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
@@ -224,16 +225,20 @@ export class MessageGate {
     deliveryMode?: MailDeliveryMode,
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
+    const sessions = this.deps.listSessions()
     const principal =
       this.principalForCapability?.(capability) ??
-      (capability.onBehalfOf !== undefined
-        ? resolvePrincipal(capability, { parentSessionOf: () => undefined })
-        : undefined)
-    const policy = principal && this.policyFor ? this.policyFor(principal) : undefined
+      resolvePrincipal(capability, {
+        parentSessionOf: (sessionId) =>
+          sessionSpawnerParentId(
+            sessions.find((session) => session.sessionId === sessionId)?.spawnedBy,
+          ),
+      })
+    const policy = this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
     const caller = {
       capability,
-      ...(principal ? { principal } : {}),
+      principal,
       ...(overrideScope ? { overrideScope: true } : {}),
     }
     const ctx: MailHandlerContext = {

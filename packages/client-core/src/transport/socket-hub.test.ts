@@ -1,7 +1,7 @@
 import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SocketHub, type WebSocketLike } from './connection'
+import { SocketHub, type WebSocketLike } from './socket-hub'
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = []
@@ -130,7 +130,11 @@ describe('SocketHub', () => {
     hub.subscribeHeadless(asSessionId('sB'), (e) => seenB.push(e))
     hub.connect()
     sock.open()
-    sock.recv({ type: 'headlessActivity', sessionId: asSessionId('sA'), event: { kind: 'turn-start' } })
+    sock.recv({
+      type: 'headlessActivity',
+      sessionId: asSessionId('sA'),
+      event: { kind: 'turn-start' },
+    })
     sock.recv({
       type: 'headlessActivity',
       sessionId: asSessionId('sA'),
@@ -145,7 +149,11 @@ describe('SocketHub', () => {
     expect(seenB).toEqual([{ kind: 'status', status: 'tool', label: 'Bash' }])
     // Unsubscribe stops delivery; other sessions unaffected.
     unsubA()
-    sock.recv({ type: 'headlessActivity', sessionId: asSessionId('sA'), event: { kind: 'turn-end' } })
+    sock.recv({
+      type: 'headlessActivity',
+      sessionId: asSessionId('sA'),
+      event: { kind: 'turn-end' },
+    })
     expect(seenA).toHaveLength(2)
   })
 
@@ -154,7 +162,11 @@ describe('SocketHub', () => {
     hub.connect()
     sock.open()
     expect(() =>
-      sock.recv({ type: 'headlessActivity', sessionId: asSessionId('ghost'), event: { kind: 'turn-start' } }),
+      sock.recv({
+        type: 'headlessActivity',
+        sessionId: asSessionId('ghost'),
+        event: { kind: 'turn-start' },
+      }),
     ).not.toThrow()
   })
 
@@ -277,8 +289,20 @@ describe('SocketHub', () => {
     const f2: string[] = []
     hub.attach(asSessionId('s1'), { onFrame: (t) => f1.push(t) })
     hub.attach(asSessionId('s2'), { onFrame: (t) => f2.push(t) })
-    sock.recv({ type: 'outputFrame', sessionId: asSessionId('s1'), seq: 0, epoch: 0, data: b64('one') })
-    sock.recv({ type: 'outputFrame', sessionId: asSessionId('s2'), seq: 0, epoch: 0, data: b64('two') })
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 0,
+      epoch: 0,
+      data: b64('one'),
+    })
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s2'),
+      seq: 0,
+      epoch: 0,
+      data: b64('two'),
+    })
     expect(f1).toEqual(['one'])
     expect(f2).toEqual(['two'])
   })
@@ -288,7 +312,13 @@ describe('SocketHub', () => {
     hub.connect()
     sock.open()
     expect(() =>
-      sock.recv({ type: 'outputFrame', sessionId: asSessionId('ghost'), seq: 0, epoch: 0, data: b64('x') }),
+      sock.recv({
+        type: 'outputFrame',
+        sessionId: asSessionId('ghost'),
+        seq: 0,
+        epoch: 0,
+        data: b64('x'),
+      }),
     ).not.toThrow()
   })
 
@@ -390,7 +420,13 @@ describe('SessionConnection (hub-backed)', () => {
     sock.open()
     const frames: string[] = []
     const conn = hub.attach(asSessionId('s1'), { onFrame: (t) => frames.push(t) })
-    sock.recv({ type: 'outputFrame', sessionId: asSessionId('s1'), seq: 5, epoch: 2, data: b64('hello') })
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 5,
+      epoch: 2,
+      data: b64('hello'),
+    })
     expect(frames).toEqual(['hello'])
     expect(conn.state()).toMatchObject({ lastSeq: 5, epoch: 2 })
   })
@@ -410,7 +446,9 @@ describe('SessionConnection (hub-backed)', () => {
     sock.open()
     const states: string[] = []
     hub.attach(asSessionId('s1'), { onState: (s) => states.push(s.role) })
-    expect(() => sock.recv({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 })).not.toThrow()
+    expect(() =>
+      sock.recv({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 }),
+    ).not.toThrow()
     expect(states.length).toBeGreaterThan(0)
   })
 
@@ -424,7 +462,13 @@ describe('SessionConnection (hub-backed)', () => {
     hub.attach(asSessionId('s1'), { onFrame: (t) => frames.push(t) })
     const after = sock.parsed().filter((m) => m.type === 'attach' && m.sessionId === 's1').length
     expect(after).toBe(before) // no duplicate attach
-    sock.recv({ type: 'outputFrame', sessionId: asSessionId('s1'), seq: 0, epoch: 0, data: btoa('hi') })
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 0,
+      epoch: 0,
+      data: btoa('hi'),
+    })
     expect(frames).toEqual(['hi'])
   })
 })
@@ -667,7 +711,13 @@ describe('resume + offline input queue', () => {
     hub.connect()
     sockets[0]?.open()
     hub.attach(asSessionId('s1'))
-    sockets[0]?.recv({ type: 'outputFrame', sessionId: asSessionId('s1'), seq: 4, epoch: 0, data: b64('x') })
+    sockets[0]?.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 4,
+      epoch: 0,
+      data: b64('x'),
+    })
     sockets[0]?.close()
     vi.advanceTimersByTime(30_000)
     sockets[1]?.open()
@@ -794,8 +844,18 @@ describe('transcript delta forwarding', () => {
     hub.subscribeTranscript(asSessionId('s1'), undefined, (items, meta) => {
       calls.push({ ids: items.map((i) => i.id), reset: meta.reset })
     })
-    sock.recv({ type: 'transcriptDelta', sessionId: asSessionId('s1'), items: [item('a', 'c1')], tail: 'c1' })
-    sock.recv({ type: 'transcriptDelta', sessionId: asSessionId('s1'), items: [item('b', 'c2')], tail: 'c2' })
+    sock.recv({
+      type: 'transcriptDelta',
+      sessionId: asSessionId('s1'),
+      items: [item('a', 'c1')],
+      tail: 'c1',
+    })
+    sock.recv({
+      type: 'transcriptDelta',
+      sessionId: asSessionId('s1'),
+      items: [item('b', 'c2')],
+      tail: 'c2',
+    })
     // Each frame forwards ONLY its own delta items (no accumulation in the hub).
     expect(calls).toEqual([
       { ids: ['a'], reset: false },
@@ -809,7 +869,12 @@ describe('transcript delta forwarding', () => {
     sock.open()
     const resets: boolean[] = []
     hub.subscribeTranscript(asSessionId('s1'), undefined, (_items, meta) => resets.push(meta.reset))
-    sock.recv({ type: 'transcriptDelta', sessionId: asSessionId('s1'), items: [item('a', 'c1')], reset: true })
+    sock.recv({
+      type: 'transcriptDelta',
+      sessionId: asSessionId('s1'),
+      items: [item('a', 'c1')],
+      reset: true,
+    })
     expect(resets).toEqual([true])
   })
 
@@ -855,7 +920,11 @@ describe('transcript delta forwarding', () => {
     expect(sock.parsed()).toContainEqual({ type: 'transcriptUnsubscribe', sessionId: 's1' })
     // A late delta for the dropped session is a no-op (no throw).
     expect(() =>
-      sock.recv({ type: 'transcriptDelta', sessionId: asSessionId('s1'), items: [item('a', 'c1')] }),
+      sock.recv({
+        type: 'transcriptDelta',
+        sessionId: asSessionId('s1'),
+        items: [item('a', 'c1')],
+      }),
     ).not.toThrow()
   })
 })
@@ -944,7 +1013,10 @@ describe('view state', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    hub.setViewState([asSessionId('s1'), asSessionId('s2')], asSessionId('s1'), { s1: 'native', s2: 'chat' })
+    hub.setViewState([asSessionId('s1'), asSessionId('s2')], asSessionId('s1'), {
+      s1: 'native',
+      s2: 'chat',
+    })
     expect(sock.parsed()).toContainEqual({
       type: 'viewState',
       visible: ['s1', 's2'],

@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IssueWire } from '@podium/model'
 import {
+  actorAgent,
+  asAgentIdentityId,
   type AgentPhase,
   type AgentRuntimeState,
   asSessionId,
@@ -906,6 +908,10 @@ describe('SessionRegistry', () => {
       sessionId: s1,
       data: 'eA==',
       inputOrigin: 'human',
+      attribution: {
+        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
     })
   })
 
@@ -3115,6 +3121,10 @@ describe('reconnect identity (hello reclaim)', () => {
       sessionId: s1,
       data: 'eA==',
       inputOrigin: 'human',
+      attribution: {
+        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
     })
 
     // The socket goes half-open; a new socket connects and re-presents idA in hello,
@@ -3132,6 +3142,10 @@ describe('reconnect identity (hello reclaim)', () => {
       sessionId: s1,
       data: 'eQ==',
       inputOrigin: 'human',
+      attribution: {
+        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
     })
     // ...and the stale A is gone: its messages are dropped, not honored.
     reg.clientGateway.routeClientFrame(idA, { type: 'input', sessionId: s1, data: 'eg==' })
@@ -4007,8 +4021,11 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       const sent = registry.modules.messages.send(
         {
           kind: 'superagent',
-          actorUser: FIRST_ADMIN_USER_ID,
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          attribution: {
+            actor: actorAgent(asAgentIdentityId('superagent')),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+          delegationRef: 'superagent',
         },
         { to: { kind: 'issue', id: issue.id }, body: 'deliver after bind' },
       )

@@ -1,4 +1,14 @@
-import type { AgentKind, AgentRuntimeState, ConversationSummaryWire, HostMetricsWire, IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
+import type {
+  AgentKind,
+  AgentRuntimeState,
+  ConversationSummaryWire,
+  HostMetricsWire,
+  IssueWire,
+  SessionId,
+  SessionMeta,
+  TranscriptItem,
+  UserId,
+} from '@podium/model'
 import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
 
 /**
@@ -19,6 +29,8 @@ export interface EventMap {
   'session.stateChanged': {
     sessionId: SessionId
     prev: AgentRuntimeState | undefined
+    /** Owning human for per-user attention routing; absent events fail closed. */
+    ownerUserId?: UserId
     next: AgentRuntimeState
     /** Present only for a v1 accepted causal live transition [spec:SP-cdb2]. */
     observation?: AgentObservation

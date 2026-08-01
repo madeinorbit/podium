@@ -140,6 +140,7 @@ export interface IssueCommandDeps {
   answerSessionQuestion?(
     sessionId: SessionId,
     answer: string,
+    caller: IssueCaller,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
   /** Stop every session on an issue and free its worktree (keep branch)
    *  [spec:SP-9904]. Injected from SessionsService; optional in bare tests. */
@@ -1097,7 +1098,11 @@ const defs = {
           message: 'answer delivery is not wired on this node',
         })
       }
-      const r = await ctx.deps.answerSessionQuestion(issue.humanQuestionAskedBy, input.answer)
+      const r = await ctx.deps.answerSessionQuestion(
+        issue.humanQuestionAskedBy,
+        input.answer,
+        ctx.caller,
+      )
       if (!r.ok) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',

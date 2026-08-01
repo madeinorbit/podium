@@ -37,8 +37,8 @@ import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
 
 export interface MailCaller {
-  principal?: CommandPrincipal
   capability: Capability
+  principal: CommandPrincipal
   overrideScope?: boolean
 }
 

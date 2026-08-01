@@ -29,7 +29,7 @@ import {
   type UiState,
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import type { ServerConfig } from '@podium/client-core/transport'
+import type { ServerConfig, SocketHub } from '@podium/client-core/transport'
 import type { PinState } from '@podium/client-core/viewmodels'
 import type {
   AgentKind,
@@ -60,7 +60,6 @@ import {
   type OutboxAttribution,
   type OutboxCommand,
 } from '@podium/sync/outbox'
-import type { SocketHub } from '@podium/terminal-client'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
 import {

@@ -605,6 +605,7 @@ describe('agent await (bounded, never hangs)', () => {
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
       actorSessionId: asSessionId('sStranger'),
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     }
     await expect(
       gate.dispatch(stranger, undefined, 'awaitAgent', {
@@ -1004,6 +1005,7 @@ describe('mail dismiss — recipient-only clear', () => {
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(ISSUE.id) },
       actorSessionId: asSessionId('sRecipient'),
+      onBehalfOf: FIRST_ADMIN_USER_ID,
     }
     const wire = (await gate.dispatch(recipient, undefined, 'dismiss', {
       id: sent.message.id,

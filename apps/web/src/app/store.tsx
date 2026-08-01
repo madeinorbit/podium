@@ -19,7 +19,7 @@ import {
   useIssueViewModels,
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
-import type { FeedSinkPort } from '@podium/terminal-client'
+import type { FeedSinkPort } from '@podium/client-core/transport'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'

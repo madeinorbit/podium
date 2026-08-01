@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "ce4c31f2-2989-4764-bcd2-f5818fce69eb",
+  "id": "566c709e-b64e-4a02-8223-75e0b429707c",
   "prevIds": [
-    "1828f1be-eeec-4032-9728-f2aedd4a60c5"
+    "31eb4538-8f17-4a93-b90b-c98e4a9f4c80"
   ],
   "ddl": [
     {
@@ -275,10 +275,6 @@
       "entityType": "tables"
     },
     {
-      "name": "sync_feed",
-      "entityType": "tables"
-    },
-    {
       "type": "text",
       "notNull": false,
       "autoincrement": false,
@@ -424,6 +420,26 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "approval_requests"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "approval_requests"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "decided_at",
       "entityType": "columns",
       "table": "approval_requests"
@@ -445,6 +461,26 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "automation_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'system:automation-migration'",
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "automation_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "on_behalf_of",
       "entityType": "columns",
       "table": "automation_runs"
     },
@@ -505,6 +541,36 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_actor",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_on_behalf_of",
       "entityType": "columns",
       "table": "automations"
     },
@@ -1102,6 +1168,16 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "execution_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "resource_kind",
@@ -1250,6 +1326,26 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -1380,6 +1476,26 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issue_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "issue_messages"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": "'unread'",
@@ -1485,6 +1601,46 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'personal'",
+      "generated": null,
+      "name": "visibility",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_actor",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by_on_behalf_of",
       "entityType": "columns",
       "table": "issues"
     },
@@ -1955,6 +2111,26 @@
       "default": null,
       "generated": null,
       "name": "created_at",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
       "entityType": "columns",
       "table": "issues"
     },
@@ -2475,6 +2651,46 @@
       "default": null,
       "generated": null,
       "name": "from_issue",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_kind",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delegation_ref",
       "entityType": "columns",
       "table": "messages"
     },
@@ -3052,6 +3268,76 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'system'",
+      "generated": null,
+      "name": "principal_kind",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'legacy-session-inbox'",
+      "generated": null,
+      "name": "principal_ref",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delegation_ref",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'system'",
+      "generated": null,
+      "name": "actor_kind",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'legacy-session-inbox'",
+      "generated": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_message_id",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "reader",
@@ -3535,6 +3821,16 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -4272,6 +4568,16 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "role",
@@ -4340,6 +4646,16 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -4404,6 +4720,36 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "input_id",
       "entityType": "columns",
       "table": "superagent_queued_inputs"
@@ -4454,7 +4800,37 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "superagent_threads"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "superagent_threads"
     },
@@ -4929,6 +5305,16 @@
       "table": "workflow_bindings"
     },
     {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "workflow_bindings"
+    },
+    {
       "type": "integer",
       "notNull": false,
       "autoincrement": true,
@@ -5370,6 +5756,16 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "workflow_runs"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -5475,6 +5871,16 @@
       "default": null,
       "generated": null,
       "name": "updated_at",
+      "entityType": "columns",
+      "table": "workflows"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "workflows"
     },
@@ -5647,36 +6053,6 @@
       "name": "minted_at",
       "entityType": "columns",
       "table": "feed_identity"
-    },
-    {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "sync_feed"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "feed_id",
-      "entityType": "columns",
-      "table": "sync_feed"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "epoch",
-      "entityType": "columns",
-      "table": "sync_feed"
     },
     {
       "columns": [
@@ -6543,15 +6919,6 @@
       "nameExplicit": false,
       "name": "feed_identity_pk",
       "table": "feed_identity",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "sync_feed_pk",
-      "table": "sync_feed",
       "entityType": "pks"
     },
     {
@@ -7448,6 +7815,18 @@
       "table": "messages"
     },
     {
+      "value": "principal_kind IN ('user','agent','system')",
+      "name": "queued_messages_principal_kind",
+      "entityType": "checks",
+      "table": "queued_messages"
+    },
+    {
+      "value": "actor_kind IN ('user','agent','system')",
+      "name": "queued_messages_actor_kind",
+      "entityType": "checks",
+      "table": "queued_messages"
+    },
+    {
       "value": "stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')",
       "name": "sessions_stop_reason_check",
       "entityType": "checks",
@@ -7548,12 +7927,6 @@
       "name": "feed_identity_singleton",
       "entityType": "checks",
       "table": "feed_identity"
-    },
-    {
-      "value": "id = 1",
-      "name": "sync_feed_check_1",
-      "entityType": "checks",
-      "table": "sync_feed"
     }
   ],
   "renames": []
