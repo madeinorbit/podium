@@ -1,6 +1,5 @@
 import type {
   ArtifactId,
-  IssueColorSlot,
   IssueId,
   IssueTree,
   IssueTreeNode,
@@ -9,7 +8,7 @@ import type {
   SessionId,
   SessionMeta,
 } from '@podium/model'
-import type { MetadataChange, RepoOp, ServerMessage } from '@podium/protocol'
+import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'

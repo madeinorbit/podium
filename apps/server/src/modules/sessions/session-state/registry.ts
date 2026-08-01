@@ -58,7 +58,7 @@ import {
 
 import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../../command-principal'
-import type { SessionsService } from '../service'
+import type { SessionLifecycle } from '../lifecycle'
 import { type SessionStatePrincipal, SessionStateService } from './service'
 export type { SessionStatePrincipal } from './service'
 
@@ -131,7 +131,12 @@ export function soleHumanSessionStateWsPrincipal(
 const DENIED = Symbol('session-state-write-denied')
 
 /** Outcome of the envelope's checks, for the tests and for the audit trail. */
-export type SessionStateOutcome = 'applied' | 'replayed' | 'denied' | 'not-exposed' | 'invalid-input'
+export type SessionStateOutcome =
+  | 'applied'
+  | 'replayed'
+  | 'denied'
+  | 'not-exposed'
+  | 'invalid-input'
 
 export interface SessionStateResult {
   outcome: SessionStateOutcome
@@ -141,7 +146,7 @@ export interface SessionStateResult {
 
 export interface SessionStateDeps {
   sessions: Pick<
-    SessionsService,
+    SessionLifecycle,
     'renameSession' | 'setAgentName' | 'setSessionIssueId' | 'sessionOwner'
   >
   state: SessionStateService
@@ -152,7 +157,7 @@ export interface SessionStateDeps {
    * This envelope used to hold its own copy of check-run-record over
    * `store.sync`. Two copies over one durable table is how a replay applies
    * twice, and the copy here was the second of three; the third was
-   * `SessionsService.withMutation`, which this issue deleted.
+   * `SessionLifecycle.withMutation`, which this issue deleted.
    */
   mutations: MutationLedgerPort
 }
@@ -284,10 +289,7 @@ const REGISTRATIONS: Record<string, Registration> = {
   'sessions.setWorkState': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      deps.state.setWorkState(
-        sessionIdOf(input.sessionId),
-        (input.workState ?? null) as never,
-      )
+      deps.state.setWorkState(sessionIdOf(input.sessionId), (input.workState ?? null) as never)
     },
   },
   'sessions.setIssueId': {
@@ -334,12 +336,7 @@ const REGISTRATIONS: Record<string, Registration> = {
   'pins.set': {
     target: ownPerUserRow,
     handler: (input, principal, deps) => {
-      return deps.state.setPin(
-        principal,
-        input.kind as never,
-        str(input.id),
-        input.pinned === true,
-      )
+      return deps.state.setPin(principal, input.kind as never, str(input.id), input.pinned === true)
     },
   },
   'tabs.setOrder': {

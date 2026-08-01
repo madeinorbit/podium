@@ -1,6 +1,6 @@
 import type { SessionMeta } from '@podium/model'
 import type { MetadataChange, MetadataDeltaMessage, ServerMessage } from '@podium/protocol'
-import type { SessionProjectionEvent } from './service.js'
+import type { SessionProjectionEvent } from './lifecycle.js'
 
 /** Stable identity for publications whose authorization and wire shape are equal. */
 export type ViewKey = string & { readonly __viewKey: unique symbol }

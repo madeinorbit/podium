@@ -443,7 +443,7 @@ describe('queueText (durable outbox sends)', () => {
 /**
  * FRAMEWORK IDEMPOTENCY as the REGISTRY exposes it (POD-382).
  *
- * These cases were written against `SessionsService.withMutation` and now run
+ * These cases were written against `SessionLifecycle.withMutation` and now run
  * against `modules.mutations` — `@podium/sync`'s `MutationLedger`, the one
  * implementation — over the SAME durable table. Renamed rather than duplicated:
  * a case left wearing the old name would claim a wrapper that no longer exists.

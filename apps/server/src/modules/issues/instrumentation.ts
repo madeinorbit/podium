@@ -8,7 +8,7 @@
 let builds = 0
 let membershipScans = 0
 
-/** Called by {@link IssueServiceCore.toWire} — the one increment site. */
+/** Called by {@link IssueStore.toWire} — the one increment site. */
 export function countIssueWireBuild(): void {
   builds++
 }

@@ -615,17 +615,25 @@ describe('CLI exit codes', () => {
   // Each case launches two full-tree audit processes; the full node lane can
   // saturate the 20s default.
   const fullLaneAuditTimeout = 40_000
-  it('gates a phase whose items are still alive, and clears one that reached zero', () => {
-    expect(run(['--phase', 'POD-1251'])).toBe(1)
-    expect(run(['--phase', 'POD-308'])).toBe(0)
-  }, fullLaneAuditTimeout)
+  it(
+    'gates a phase whose items are still alive, and clears one that reached zero',
+    () => {
+      expect(run(['--phase', 'POD-1251'])).toBe(1)
+      expect(run(['--phase', 'POD-308'])).toBe(0)
+    },
+    fullLaneAuditTimeout,
+  )
 
-  it('an output flag cannot disable the gate', () => {
-    // `--phase X --json` exited 0 with 119 live sites before this was fixed:
-    // the format must never decide whether the gate holds.
-    expect(run(['--phase', 'POD-1251', '--json'])).toBe(1)
-    expect(run(['--phase', 'POD-1251', '--sites'])).toBe(1)
-  }, fullLaneAuditTimeout)
+  it(
+    'an output flag cannot disable the gate',
+    () => {
+      // `--phase X --json` exited 0 with 119 live sites before this was fixed:
+      // the format must never decide whether the gate holds.
+      expect(run(['--phase', 'POD-1251', '--json'])).toBe(1)
+      expect(run(['--phase', 'POD-1251', '--sites'])).toBe(1)
+    },
+    fullLaneAuditTimeout,
+  )
 
   it('an output flag cannot swallow the baseline write', () => {
     // `--json --update-baseline` used to exit 0 having written NOTHING: --json
@@ -787,12 +795,12 @@ describe('publish-computed-fanout: the anchor behind its ZERO_BY_DESIGN exemptio
     const sites = check?.collect(
       ctxOf({
         'apps/server/src/modules/funnel.ts': 'publishComputed(snapshot) {}',
-        'apps/server/src/modules/sessions/service.ts': 'fanOutSnapshot(snapshot) {}',
+        'apps/server/src/modules/sessions/lifecycle.ts': 'fanOutSnapshot(snapshot) {}',
       }),
     )
     expect(sites?.map((s) => s.file).sort()).toEqual([
       'apps/server/src/modules/funnel.ts',
-      'apps/server/src/modules/sessions/service.ts',
+      'apps/server/src/modules/sessions/lifecycle.ts',
     ])
   })
 })

@@ -33,7 +33,10 @@ function storeWith(
   const settings = store.settings.getSettings()
   store.settings.setSettings({
     ...settings,
-    roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: asAccountId(accountId) } },
+    roles: {
+      ...settings.roles,
+      coding: { ...settings.roles.coding, accountId: asAccountId(accountId) },
+    },
   })
   return store
 }
@@ -59,7 +62,7 @@ function makeRegistry(store: SessionStore): { reg: SessionRegistry; daemon: Cont
 
 const spawns = (daemon: ControlMessage[]) => daemon.filter((m) => m.type === 'spawn')
 
-/** The frame for a fresh create (call site 1: SessionsService.spawn). */
+/** The frame for a fresh create (call site 1: SessionLifecycle.spawn). */
 function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = 'claude-code') {
   const { reg, daemon } = makeRegistry(store)
   reg.modules.sessions.createSession({ agentKind, cwd: '/proj' })
@@ -68,7 +71,7 @@ function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = '
   return frame as Extract<ControlMessage, { type: 'spawn' }>
 }
 
-/** The frame for a wake (call site 2: SessionsService.resurrectSession). */
+/** The frame for a wake (call site 2: SessionLifecycle.resurrectSession). */
 async function resurrectFrame(store: SessionStore) {
   const { reg, daemon } = makeRegistry(store)
   const { sessionId } = await reg.modules.sessions.resumeSession({

@@ -37,7 +37,11 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FeedAuthorityClient, FeedSink, PushedBootstrapSource } from '@podium/client-core/replica/feed'
+import {
+  FeedAuthorityClient,
+  FeedSink,
+  PushedBootstrapSource,
+} from '@podium/client-core/replica/feed'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
 import { Replica } from '@podium/sync/replica'
@@ -226,7 +230,9 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
   it('offline write window → reconnect → both clients converge on the authority slice', async () => {
     const a = await openClient('converge-a')
     const b = await openClient('converge-b')
-    await until(() => a.framesSeen.includes('feedBootstrap') && b.framesSeen.includes('feedBootstrap'))
+    await until(
+      () => a.framesSeen.includes('feedBootstrap') && b.framesSeen.includes('feedBootstrap'),
+    )
     await a.replica.settled()
     await b.replica.settled()
 
@@ -240,7 +246,11 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     expect(a.keys()).toEqual(heldWhileOffline)
 
     // The world moves without A.
-    await trpc.issues.create.mutate({ repoPath: '/repo', title: 'while a was away', startNow: false })
+    await trpc.issues.create.mutate({
+      repoPath: '/repo',
+      title: 'while a was away',
+      startNow: false,
+    })
     await until(() => b.keys().length > heldWhileOffline.length, 8000)
 
     // A COMES BACK. It resumes from its persisted cursor rather than re-reading
@@ -265,6 +275,6 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     // the dark — and would report `undefined`, which the resolver reads as
     // permissive, so the absence has to be caught here rather than downstream.
     const probe = (await (await fetch(`${baseUrl}/version`)).json()) as { feedScoping?: string }
-    expect(probe.feedScoping).toBe('device-unscoped')
+    expect(probe.feedScoping).toBe('per-principal')
   })
 })

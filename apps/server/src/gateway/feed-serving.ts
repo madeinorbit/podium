@@ -9,7 +9,7 @@
  * family and the version-adapter registry at the wire, the Authority's scoped
  * feed and `FeedPublisher` at the kernel. This module is the composition that
  * joins them, and joining them is what lets the SECOND serving path —
- * `funnel.publishComputed` and `SessionsService.fanOutSnapshot`, thirteen call
+ * `funnel.publishComputed` and `SessionLifecycle.fanOutSnapshot`, thirteen call
  * sites across five features, each rebuilding its own full list — be deleted
  * outright rather than kept "for legacy clients". Legacy clients still receive
  * `sessionsChanged` / `issuesChanged` / …; they are now a TRANSLATION of this

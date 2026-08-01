@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { WriteFunnel } from '../apps/server/src/modules/funnel'
-import { SessionsService } from '../apps/server/src/modules/sessions/service'
+import { SessionLifecycle } from '../apps/server/src/modules/sessions/lifecycle'
 import { feedTestPlumbing } from '../apps/server/src/gateway/feed-test-plumbing'
 import { outcomesOf, PROBES, runChecks } from './audit-serving-path'
 import { readFileSync } from 'node:fs'
@@ -31,19 +31,19 @@ describe('the shipped objects have one serving tail', () => {
     // caught here even if it is written in a way the text scanner does not match
     // (assigned, mixed in, defined via `Object.defineProperty`).
     expect(WriteFunnel.prototype).not.toHaveProperty('publishComputed')
-    expect(SessionsService.prototype).not.toHaveProperty('fanOutSnapshot')
+    expect(SessionLifecycle.prototype).not.toHaveProperty('fanOutSnapshot')
     // …and the delta half, which moved rather than vanished: a `sendMetadataDelta`
     // still on this object would mean the framing question is answered in two
     // places.
-    expect(SessionsService.prototype).not.toHaveProperty('sendMetadataDelta')
+    expect(SessionLifecycle.prototype).not.toHaveProperty('sendMetadataDelta')
   })
 
   it('the methods the cutover put in their place ARE there', () => {
     // The paired half. Without it, the absences above are equally satisfied by a
     // sessions service with no delivery at all — POD-732's empty router, which
     // "satisfies every absence claim perfectly".
-    expect(SessionsService.prototype).toHaveProperty('deliverEntityMessage')
-    expect(SessionsService.prototype).toHaveProperty('onFeedPublished')
+    expect(SessionLifecycle.prototype).toHaveProperty('deliverEntityMessage')
+    expect(SessionLifecycle.prototype).toHaveProperty('onFeedPublished')
   })
 
   it('a REAL edge serves a v1 peer from the feed, with no list builder in reach', () => {

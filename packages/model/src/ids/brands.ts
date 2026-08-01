@@ -30,7 +30,7 @@
  * change what parses** (POD-361's contract, and ADR 4's wire-transparency rule).
  * Every id field in `entities/` was a bare `z.string()`, so it accepts the empty
  * string today — and at least one producer relies on it:
- * `apps/server/src/modules/sessions/service.ts` builds
+ * `apps/server/src/modules/sessions/lifecycle.ts` builds
  * `{ kind: 'resume', conversationId: r.conversationId ?? '' }`. Flipping that
  * field to the `.min(1)` schema would make a payload that parses today FAIL to
  * parse, which is a behaviour change wearing a type change's clothes.

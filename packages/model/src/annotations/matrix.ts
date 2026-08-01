@@ -449,7 +449,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     id: ROW.sessionIdentity,
     section: 'sessions',
     title: 'Session identity (`sessionId`, birth display ref / letters)',
-    sites: ['apps/server/src/modules/sessions/service.ts (`randomUUID()`)', '`issue_ref_letters`'],
+    sites: ['apps/server/src/modules/sessions/lifecycle.ts (`randomUUID()`)', '`issue_ref_letters`'],
     home: 'server',
     idMinting: 'Server UUID; ref letter server-allocated per issue. Daemons do NOT coin the registry id — a documented inversion, kept so a daemon cannot bypass the Authority.',
     writers: ['operator', 'agent-session', 'system'],

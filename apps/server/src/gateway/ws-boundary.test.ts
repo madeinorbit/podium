@@ -69,7 +69,8 @@ describe('the WS boundary', () => {
     // walker pointed at the wrong directory returns an empty list and every
     // assertion below passes vacuously.
     expect(files.length).toBeGreaterThan(100)
-    expect(files.some((f) => f.endsWith('modules/sessions/service.ts'))).toBe(true)
+    expect(files.some((f) => f.endsWith('modules/sessions/lifecycle.ts'))).toBe(true)
+    expect(files.some((f) => f.endsWith('modules/sessions/service.ts'))).toBe(false)
     expect(files.filter((f) => IMPORTS_WS.test(readFileSync(f, 'utf8'))).length).toBeGreaterThan(0)
   })
 
@@ -105,9 +106,11 @@ describe('the WS boundary', () => {
     // here, 23 -> 24, and this pins the fix).
     expect(files.map((f) => relative(SERVER_SRC, f))).not.toContain('wsServer.ts')
     const reexporters = files
-      .filter((f) => /export\s*\{[^}]*\}\s*from\s*['"]\.\/gateway\/ws-(server|send)['"]/.test(
-        readFileSync(f, 'utf8'),
-      ))
+      .filter((f) =>
+        /export\s*\{[^}]*\}\s*from\s*['"]\.\/gateway\/ws-(server|send)['"]/.test(
+          readFileSync(f, 'utf8'),
+        ),
+      )
       .map((f) => relative(SERVER_SRC, f))
     expect(reexporters).toEqual([])
   })
@@ -129,7 +132,7 @@ describe('the WS boundary', () => {
   it('does not reach a socket from the sessions service, transitively', () => {
     // Walk the sessions service's own relative-import closure. `ws` reaching it
     // through five hops of re-export would defeat the text audit above.
-    const seen = closureOf(join(SERVER_SRC, 'modules/sessions/service.ts'))
+    const seen = closureOf(join(SERVER_SRC, 'modules/sessions/lifecycle.ts'))
     // The closure must be real, not an empty walk that trivially passes.
     expect(seen.size).toBeGreaterThan(10)
   })

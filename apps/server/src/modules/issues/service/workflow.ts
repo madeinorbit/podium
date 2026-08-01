@@ -3,7 +3,6 @@ import {
   DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueWire,
-  type OrphanIssue,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
@@ -17,15 +16,46 @@ import { completeForRole } from '../../../llm-roles'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { issueRefsPattern, probeGitState } from '../git-state'
-import { IssueServiceMail } from './mail'
+import type { IssueAttentionModule } from './attention'
+import type { IssueStore } from './core'
+import type { IssueCrudModule } from './crud'
+import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 
 /**
- * IssueService layer 5 — git workflow + assistant (issue #190 split): worktree
+ * Git-workflow capability: worktree
  * start/cleanup, PR/merge actions, epic integration (#70), extra sessions,
  * Linear search and the LLM activity digest.
  */
-export abstract class IssueServiceWorkflow extends IssueServiceMail {
+export class IssueGitWorkflowModule {
+  constructor(
+    readonly store: IssueStore,
+    private readonly crud: () => Pick<IssueCrudModule, 'update' | 'create' | 'close' | 'defer'>,
+    private readonly commentsMail: () => Pick<IssueCommentsMailModule, 'addComment'>,
+    private readonly attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
+  ) {
+    // Capability methods are also handed to lifecycle ports as callbacks. Keep
+    // the module as the receiver so its per-instance timers and git-attribution
+    // maps can never fall through to undefined or leak into module-global state.
+    this.rehome = this.rehome.bind(this)
+    this.start = this.start.bind(this)
+    this.createAndMaybeStart = this.createAndMaybeStart.bind(this)
+    this.action = this.action.bind(this)
+    this.freeWorktreeKeepBranch = this.freeWorktreeKeepBranch.bind(this)
+    this.ensureWorktree = this.ensureWorktree.bind(this)
+    this.cleanup = this.cleanup.bind(this)
+    this.integrate = this.integrate.bind(this)
+    this.addSession = this.addSession.bind(this)
+    this.addShell = this.addShell.bind(this)
+    this.linearSearch = this.linearSearch.bind(this)
+    this.onSessionAttention = this.onSessionAttention.bind(this)
+    this.onSessionActivity = this.onSessionActivity.bind(this)
+    this.recordSessionGitActivity = this.recordSessionGitActivity.bind(this)
+    this.onSessionTurnEnd = this.onSessionTurnEnd.bind(this)
+    this.onSessionRemovedOrArchived = this.onSessionRemovedOrArchived.bind(this)
+    this.refreshGitState = this.refreshGitState.bind(this)
+    this.refreshAssistant = this.refreshAssistant.bind(this)
+  }
   /**
    * Move an issue's home to another machine after its session was handed off
    * ([spec:SP-3f7a], POD-824). The target worktree is where the work now lives,
@@ -49,14 +79,14 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     id: string,
     to: { machineId: string; repoPath: string; worktreePath: string },
   ): IssueWire | null {
-    const row = this.rows.get(this.resolveRef(id))
+    const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) return null
-    const repos = this.d.store.repos
+    const repos = this.store.d.store.repos
     const from = row.repoId ?? repos.resolveRepoIdForPath(row.repoPath)
     const target = repos.resolveRepoIdForPath(to.repoPath)
     if (!target || (from && from !== target)) return null
     row.repoPath = to.repoPath
-    return this.update(id, { machineId: to.machineId, worktreePath: to.worktreePath })
+    return this.crud().update(id, { machineId: to.machineId, worktreePath: to.worktreePath })
   }
 
   private worktreePathFor(repoPath: string, branch: string): string {
@@ -66,7 +96,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   }
 
   private modelSelectionFor(row: IssueRow, agentKind: string): { model: string; effort: string } {
-    const settings = this.d.getSettings()
+    const settings = this.store.d.getSettings()
     const coding = resolveRole(settings, 'coding')
     const usesIssueProfile = agentKind === row.defaultAgent
     return {
@@ -97,8 +127,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         machine: string
       }>
   > {
-    const row = this.rowOrThrow(id)
-    if (row.worktreePath) return this.toWire(row) // already started
+    const row = this.store.rowOrThrow(id)
+    if (row.worktreePath) return this.store.toWire(row) // already started
     if (agentKind && agentKind !== row.defaultAgent) {
       row.defaultAgent = agentKind
       row.defaultModel = 'auto'
@@ -107,16 +137,16 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const selection = this.modelSelectionFor(row, row.defaultAgent)
     // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
     // branch, stage) [spec:SP-cc60] — the issue's stored defaults are the selection.
-    assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
+    assertModelSelectionValid(this.store.d.store.settings.getModelCatalog(), {
       agentKind: row.defaultAgent,
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
-    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
-    const branch = this.slug(row.seq, row.title)
+    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    const branch = this.store.slug(row.seq, row.title)
     const path = this.worktreePathFor(row.repoPath, branch)
-    const res = await this.d.repoOp(
+    const res = await this.store.d.repoOp(
       'worktreeAdd',
       row.repoPath,
       { path, branch, startPoint: row.parentBranch },
@@ -125,12 +155,12 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
     // POD-665: the daemon just created this worktree out from under connected
     // clients — nudge them to re-fetch repos rather than sit invisible until reload.
-    this.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+    this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     // Starting a CLOSED issue is an explicit reopen (#24): clear the closed
     // markers so the issue doesn't get a live worktree while staying
     // derived-closed (invisible to ready/open). Emitted as issue.reopened so
     // the closed-predicate flip is observable like every other reopen path.
-    const wasClosed = this.isClosed(row)
+    const wasClosed = this.store.isClosed(row)
     if (wasClosed) {
       row.closedReason = null
       row.closedAt = null
@@ -140,7 +170,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       // work picked back up must not carry a stale fold into its next close.
       // PER-USER (POD-1076): clears the broadcast viewer's fold, which is what
       // this cleared when the stamp was a column.
-      this.writeIssueUserState(row.id, { tuckedAt: null })
+      this.store.writeIssueUserState(row.id, { tuckedAt: null })
     }
     row.branch = branch
     row.worktreePath = path
@@ -150,22 +180,22 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     // named rather than hidden: adjudicating whether the column holds a UserId or
     // an actor TAG is POD-1075's (accounts) call, not this sweep's.
     row.assignee = asUserId(`agent:${row.defaultAgent}`)
-    const wire = this.persistRow(row)
+    const wire = this.store.persistRow(row)
     if (wasClosed) {
-      this.broadcastList() // reopen flip: dependents' blocked/ready changed (#22)
-      this.emitEvent('issue.reopened', row.id, {
+      this.store.broadcastList() // reopen flip: dependents' blocked/ready changed (#22)
+      this.store.emitEvent('issue.reopened', row.id, {
         seq: row.seq,
         ...(row.parentId ? { parentId: row.parentId } : {}),
       })
     }
-    this.emitEvent('issue.started', row.id, {
+    this.store.emitEvent('issue.started', row.id, {
       seq: row.seq,
       branch: row.branch,
       worktreePath: row.worktreePath,
     })
     // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
     const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
-    const spawned = this.d.spawnSession({
+    const spawned = this.store.d.spawnSession({
       cwd: path,
       issueId: row.id,
       agentKind: row.defaultAgent,
@@ -201,7 +231,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     input: CreateIssueInput,
     opts?: { spawnedBy?: string },
   ): Promise<IssueWire> {
-    const created = this.create(input)
+    const created = this.crud().create(input)
     return input.startNow ? this.start(created.id, undefined, opts) : created
   }
 
@@ -209,15 +239,17 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     id: string,
     kind: 'rebase' | 'pr' | 'merge',
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     if (!row.worktreePath || !row.branch) throw new Error('issue not started')
-    const gw = this.d.getSettings().gitWorkflow
+    const gw = this.store.d.getSettings().gitWorkflow
     if (kind === 'rebase') {
-      const r = await this.d.repoOp('rebase', row.worktreePath, { parentBranch: row.parentBranch })
-      return { ...r, issue: this.toWire(row) }
+      const r = await this.store.d.repoOp('rebase', row.worktreePath, {
+        parentBranch: row.parentBranch,
+      })
+      return { ...r, issue: this.store.toWire(row) }
     }
     if (kind === 'pr') {
-      const r = await this.d.repoOp('prCreate', row.worktreePath, {
+      const r = await this.store.d.repoOp('prCreate', row.worktreePath, {
         branch: row.branch,
         parentBranch: row.parentBranch,
       })
@@ -225,12 +257,14 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         const url = r.output.match(/https?:\/\/\S+/)?.[0]
         if (url) row.prUrl = url
       }
-      return { ...r, issue: this.persistRow(row) }
+      return { ...r, issue: this.store.persistRow(row) }
     }
     // merge
     if (gw.autoRebaseBeforeMerge) {
-      const rb = await this.d.repoOp('rebase', row.worktreePath, { parentBranch: row.parentBranch })
-      if (!rb.ok) return { ...rb, issue: this.toWire(row) }
+      const rb = await this.store.d.repoOp('rebase', row.worktreePath, {
+        parentBranch: row.parentBranch,
+      })
+      if (!rb.ok) return { ...rb, issue: this.store.toWire(row) }
     }
     // mergeFfOnly runs on the repo root (parent-branch checkout), NOT the worktree.
     // The daemon's `git merge --ff-only <branch>` merges into whatever branch the repo
@@ -238,20 +272,20 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     // repo root is the LIVE deployment-source checkout and switching its branch can
     // crash-loop the backend. Instead, GUARD: only merge if the root is already on the
     // parent branch; otherwise fail clearly without merging.
-    const st = await this.d.repoOp('status', row.repoPath)
+    const st = await this.store.d.repoOp('status', row.repoPath)
     const current = this.parseCurrentBranch(st.output)
     if (current !== row.parentBranch) {
       return {
         ok: false,
         output: `repo root at ${row.repoPath} is on '${current}', not the parent branch '${row.parentBranch}'. Check out ${row.parentBranch} there before merging.`,
-        issue: this.toWire(row),
+        issue: this.store.toWire(row),
       }
     }
-    const r = await this.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
+    const r = await this.store.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
     if (r.ok) {
-      return { ...r, issue: this.close(id, 'done') }
+      return { ...r, issue: this.crud().close(id, 'done') }
     }
-    return { ...r, issue: this.toWire(row) }
+    return { ...r, issue: this.store.toWire(row) }
   }
 
   /**
@@ -266,13 +300,13 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     id: string,
     opts?: { force?: boolean },
   ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     const refuse = (
       output: string,
     ): { ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean } => ({
       ok: false,
       output,
-      issue: this.toWire(row),
+      issue: this.store.toWire(row),
       worktreeFreed: false,
     })
     if (!row.worktreePath) {
@@ -281,7 +315,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         output: row.branch
           ? `no worktree on disk; branch '${row.branch}' kept`
           : 'no worktree/branch recorded',
-        issue: this.toWire(row),
+        issue: this.store.toWire(row),
         worktreeFreed: false,
       }
     }
@@ -293,16 +327,16 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const machineId = row.machineId ?? undefined
     // Always route git ops to the issue's machine — a remote-owned worktree must
     // not be inspected/removed against the hub's local path [spec:SP-9904].
-    const st = await this.d.repoOp('status', worktreePath, undefined, machineId)
+    const st = await this.store.d.repoOp('status', worktreePath, undefined, machineId)
     // Already gone on disk — clear the path of record, keep the branch.
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       row.worktreePath = null
-      this.persistRow(row)
-      this.d.onWorktreesChanged?.(row.repoPath, machineId)
+      this.store.persistRow(row)
+      this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
       return {
         ok: true,
         output: `worktree already gone at ${worktreePath}; branch '${branch}' kept`,
-        issue: this.toWire(row),
+        issue: this.store.toWire(row),
         worktreeFreed: true,
       }
     }
@@ -315,7 +349,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         `refusing free: worktree has unsaved changes (re-run with --force to discard the working copy; branch is kept either way):\n${dirty.join('\n')}`,
       )
     }
-    const wr = await this.d.repoOp(
+    const wr = await this.store.d.repoOp(
       'worktreeRemove',
       row.repoPath,
       {
@@ -326,14 +360,14 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     )
     if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
     row.worktreePath = null
-    this.persistRow(row)
-    this.d.onWorktreesChanged?.(row.repoPath, machineId)
-    const issue = this.addComment(
+    this.store.persistRow(row)
+    this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
+    const issue = this.commentsMail().addComment(
       row.id,
       'system:stop',
       `stop: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
     )
-    this.emitEvent('issue.worktree_freed', row.id, {
+    this.store.emitEvent('issue.worktree_freed', row.id, {
       seq: row.seq,
       worktreePath,
       branch,
@@ -355,16 +389,16 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   async ensureWorktree(
     id: string,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     const machineId = row.machineId ?? undefined
     if (row.worktreePath) {
-      const st = await this.d.repoOp('status', row.worktreePath, undefined, machineId)
+      const st = await this.store.d.repoOp('status', row.worktreePath, undefined, machineId)
       if (st.ok) {
         return {
           ok: true,
           output: 'worktree already present',
           worktreePath: row.worktreePath,
-          issue: this.toWire(row),
+          issue: this.store.toWire(row),
         }
       }
       // Path recorded but missing — fall through to recreate at the same path
@@ -374,7 +408,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
           ok: false,
           output: `cannot inspect worktree: ${st.output}`,
           worktreePath: row.worktreePath,
-          issue: this.toWire(row),
+          issue: this.store.toWire(row),
         }
       }
     }
@@ -383,12 +417,12 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         ok: false,
         output: 'no branch recorded — cannot recreate worktree',
         worktreePath: null,
-        issue: this.toWire(row),
+        issue: this.store.toWire(row),
       }
     }
     const path = row.worktreePath ?? this.worktreePathFor(row.repoPath, row.branch)
-    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
-    const res = await this.d.repoOp(
+    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    const res = await this.store.d.repoOp(
       'worktreeAddExisting',
       row.repoPath,
       { path, branch: row.branch },
@@ -399,17 +433,17 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         ok: false,
         output: `worktree recreate failed: ${res.output}`,
         worktreePath: null,
-        issue: this.toWire(row),
+        issue: this.store.toWire(row),
       }
     }
     row.worktreePath = path
-    this.persistRow(row)
-    this.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+    this.store.persistRow(row)
+    this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     return {
       ok: true,
       output: `recreated worktree ${path} from branch '${row.branch}'`,
       worktreePath: path,
-      issue: this.toWire(row),
+      issue: this.store.toWire(row),
     }
   }
 
@@ -422,14 +456,14 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
    * with the root as cwd but only ever name the issue's worktree/branch.
    */
   async cleanup(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
       output,
-      issue: this.toWire(row),
+      issue: this.store.toWire(row),
     })
     // (a) only closed issues are cleanable.
-    if (!this.isClosed(row)) {
+    if (!this.store.isClosed(row)) {
       return refuse(`refusing cleanup: issue #${row.seq} is still open (close it first)`)
     }
     // (b) nothing recorded → nothing to do. Branch-only state (worktree already
@@ -441,7 +475,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     if (!row.worktreePath && row.branch) {
       // Retry path after a partial cleanup: re-verify ancestry, then delete.
       const branch = row.branch
-      const merged = await this.d.repoOp('isMergedInto', row.repoPath, {
+      const merged = await this.store.d.repoOp('isMergedInto', row.repoPath, {
         branch,
         parentBranch: row.parentBranch,
       })
@@ -450,16 +484,16 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
           `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
         )
       }
-      const bd = await this.d.repoOp('branchDelete', row.repoPath, { branch })
+      const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch })
       if (!bd.ok) return refuse(this.branchDeleteRefusal(branch, row.parentBranch, bd.output))
       row.branch = null
-      this.persistRow(row)
-      const issue = this.addComment(
+      this.store.persistRow(row)
+      const issue = this.commentsMail().addComment(
         row.id,
         'system:cleanup',
         `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
       )
-      this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
+      this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
       return { ok: true, output: `deleted branch ${branch}`, issue }
     }
     if (!row.branch) {
@@ -474,17 +508,17 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     //     `git -C <missing>` fails "cannot change to '<p>': No such file or
     //     directory". EACCES ("Permission denied") or "not a working tree"
     //     (files still on disk) must REFUSE, not clear a live worktree's columns.
-    const st = await this.d.repoOp('status', worktreePath)
+    const st = await this.store.d.repoOp('status', worktreePath)
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       row.worktreePath = null
       row.branch = null
-      this.persistRow(row)
-      const issue = this.addComment(
+      this.store.persistRow(row)
+      const issue = this.commentsMail().addComment(
         row.id,
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${branch})`,
       )
-      this.emitEvent('issue.cleaned', row.id, {
+      this.store.emitEvent('issue.cleaned', row.id, {
         seq: row.seq,
         worktreePath,
         branch,
@@ -501,7 +535,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     // (d) branch must be fully merged into the parent branch. Read-only ancestry
     //     check against the repo ROOT's ref database — exit 1 (not an ancestor)
     //     and any error both refuse.
-    const merged = await this.d.repoOp('isMergedInto', row.repoPath, {
+    const merged = await this.store.d.repoOp('isMergedInto', row.repoPath, {
       branch,
       parentBranch: row.parentBranch,
     })
@@ -516,15 +550,15 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       return refuse(`refusing cleanup: worktree has uncommitted changes:\n${dirty.join('\n')}`)
     }
     // Remove the worktree (non-forcing; git may still refuse and we surface it).
-    const wr = await this.d.repoOp('worktreeRemove', row.repoPath, { path: worktreePath })
+    const wr = await this.store.d.repoOp('worktreeRemove', row.repoPath, { path: worktreePath })
     if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
     row.worktreePath = null
-    this.persistRow(row) // columns reflect reality even if branch delete refuses below
+    this.store.persistRow(row) // columns reflect reality even if branch delete refuses below
     // Delete the branch (-d only; git refuses unmerged as a belt-and-braces guard).
-    const bd = await this.d.repoOp('branchDelete', row.repoPath, { branch })
+    const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch })
     if (!bd.ok) {
       const why = this.branchDeleteRefusal(branch, row.parentBranch, bd.output)
-      const issue = this.addComment(
+      const issue = this.commentsMail().addComment(
         row.id,
         'system:cleanup',
         `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
@@ -536,13 +570,13 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       }
     }
     row.branch = null
-    this.persistRow(row)
-    const issue = this.addComment(
+    this.store.persistRow(row)
+    const issue = this.commentsMail().addComment(
       row.id,
       'system:cleanup',
       `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
     )
-    this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
+    this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
     return { ok: true, output: `removed ${worktreePath}; deleted branch ${branch}`, issue }
   }
 
@@ -569,14 +603,14 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
    * an issue.integration event {epicSeq, integrated, blockedAt?} per run.
    */
   async integrate(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
     // in the SAME integration worktree. Re-entry refuses cleanly with zero repoOps.
     if (this.integratingEpics.has(row.id)) {
       return {
         ok: false,
         output: `integration already running for #${row.seq}`,
-        issue: this.toWire(row),
+        issue: this.store.toWire(row),
       }
     }
     this.integratingEpics.add(row.id)
@@ -595,15 +629,15 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
       output,
-      issue: this.toWire(row),
+      issue: this.store.toWire(row),
     })
     // Preconditions: the target must have children, ≥1 of them closed with a branch.
-    const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
+    const children = [...this.store.rows.values()].filter((r) => r.parentId === row.id)
     if (children.length === 0) {
       return refuse(`refusing integrate: #${row.seq} has no children`)
     }
     const closed = children.filter(
-      (c): c is IssueRow & { branch: string } => this.isClosed(c) && !!c.branch,
+      (c): c is IssueRow & { branch: string } => this.store.isClosed(c) && !!c.branch,
     )
     if (closed.length === 0) {
       return refuse(
@@ -612,13 +646,13 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     }
     const ordered = this.topoOrderChildren(closed)
     // Branch/worktree names share the `<seq>-<slug>` stem with issue branches.
-    const stem = this.slug(row.seq, row.title).replace(/^issue\//, '')
+    const stem = this.store.slug(row.seq, row.title).replace(/^issue\//, '')
     const intBranch = `integrate/${stem}`
     const worktree = `${row.repoPath}/.worktrees/integrate-${stem}`
     // Reset-or-create the integration worktree at the parentBranch tip.
-    const st = await this.d.repoOp('status', worktree)
+    const st = await this.store.d.repoOp('status', worktree)
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
-      const add = await this.d.repoOp('worktreeAddReset', row.repoPath, {
+      const add = await this.store.d.repoOp('worktreeAddReset', row.repoPath, {
         path: worktree,
         branch: intBranch,
         startPoint: row.parentBranch,
@@ -631,8 +665,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       // rebaseAbort errored), the worktree is stuck mid-rebase and checkoutReset
       // would refuse with a raw git error. A defensive abort first (result ignored
       // — "no rebase in progress" is the normal healthy outcome) un-wedges it.
-      await this.d.repoOp('rebaseAbort', worktree)
-      const reset = await this.d.repoOp('checkoutReset', worktree, {
+      await this.store.d.repoOp('rebaseAbort', worktree)
+      const reset = await this.store.d.repoOp('checkoutReset', worktree, {
         branch: intBranch,
         startPoint: row.parentBranch,
       })
@@ -643,14 +677,14 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     let blockedAt: number | undefined
     let blockedWhy = ''
     for (const child of ordered) {
-      const ff = await this.d.repoOp('mergeFfOnly', worktree, { branch: child.branch })
+      const ff = await this.store.d.repoOp('mergeFfOnly', worktree, { branch: child.branch })
       if (ff.ok) {
         integrated.push(child.seq)
         continue
       }
       // Not ff: rebase a TEMP copy of the child branch onto the integration head.
       const temp = `integrate-tmp/${child.seq}`
-      const co = await this.d.repoOp('checkoutReset', worktree, {
+      const co = await this.store.d.repoOp('checkoutReset', worktree, {
         branch: temp,
         startPoint: child.branch,
       })
@@ -659,20 +693,20 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         blockedWhy = this.gitSummary(co.output)
         break
       }
-      const rb = await this.d.repoOp('rebase', worktree, { parentBranch: intBranch })
+      const rb = await this.store.d.repoOp('rebase', worktree, { parentBranch: intBranch })
       if (!rb.ok) {
         // Conflict: abort cleanly, return to the last good integration head, drop
         // the temp ref. Never commits conflict markers (rebase stopped mid-way).
-        await this.d.repoOp('rebaseAbort', worktree)
-        await this.d.repoOp('checkout', worktree, { branch: intBranch })
-        await this.d.repoOp('branchDeleteForce', worktree, { branch: temp })
+        await this.store.d.repoOp('rebaseAbort', worktree)
+        await this.store.d.repoOp('checkout', worktree, { branch: intBranch })
+        await this.store.d.repoOp('branchDeleteForce', worktree, { branch: temp })
         blockedAt = child.seq
         blockedWhy = this.gitSummary(rb.output)
         break
       }
-      await this.d.repoOp('checkout', worktree, { branch: intBranch })
-      const mg = await this.d.repoOp('mergeFfOnly', worktree, { branch: temp })
-      await this.d.repoOp('branchDeleteForce', worktree, { branch: temp })
+      await this.store.d.repoOp('checkout', worktree, { branch: intBranch })
+      const mg = await this.store.d.repoOp('mergeFfOnly', worktree, { branch: temp })
+      await this.store.d.repoOp('branchDeleteForce', worktree, { branch: temp })
       if (!mg.ok) {
         blockedAt = child.seq
         blockedWhy = this.gitSummary(mg.output)
@@ -687,20 +721,20 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         : `integrate: rebuilt '${intBranch}' from '${row.parentBranch}'; integrated ${landed}; integration blocked at #${blockedAt}: ${blockedWhy}`
     // Comment dedup: rebuild runs are idempotent, so an unchanged outcome must not
     // spam a new comment — skip when the latest integrate comment is identical.
-    const prior = this.d.store.issues
+    const prior = this.store.d.store.issues
       .listIssueComments(row.id)
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
-    if (prior?.body !== summary) this.addComment(row.id, 'system:integrate', summary)
+    if (prior?.body !== summary) this.commentsMail().addComment(row.id, 'system:integrate', summary)
     if (blockedAt != null) {
-      this.setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
+      this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
     }
-    this.emitEvent('issue.integration', row.id, {
+    this.store.emitEvent('issue.integration', row.id, {
       epicSeq: row.seq,
       integrated,
       ...(blockedAt != null ? { blockedAt } : {}),
     })
-    return { ok: blockedAt == null, output: summary, issue: this.toWire(row) }
+    return { ok: blockedAt == null, output: summary, issue: this.store.toWire(row) }
   }
 
   /** Topological order over blocks-deps AMONG the given children (a dep on an issue
@@ -712,7 +746,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const indeg = new Map(children.map((c) => [c.id, 0]))
     const dependents = new Map<IssueId, IssueId[]>() // blocker id -> ids it unblocks
     for (const c of children) {
-      for (const d of this.d.store.issues.listIssueDeps(c.id)) {
+      for (const d of this.store.d.store.issues.listIssueDeps(c.id)) {
         if (d.type !== 'blocks' || !inSet.has(d.toId)) continue
         indeg.set(c.id, (indeg.get(c.id) ?? 0) + 1)
         dependents.set(d.toId, [...(dependents.get(d.toId) ?? []), c.id])
@@ -776,20 +810,20 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     agentKind?: string,
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
   ): IssueWire {
-    const row = this.rowOrThrow(id)
+    const row = this.store.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
     const kind = agentKind ?? row.defaultAgent
     const selection = this.modelSelectionFor(row, kind)
     // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
     // session carries no model (addShell), so validation is a no-op there.
-    assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
+    assertModelSelectionValid(this.store.d.store.settings.getModelCatalog(), {
       agentKind: kind,
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
-    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
-    this.d.spawnSession({
+    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    this.store.d.spawnSession({
       cwd: row.worktreePath,
       issueId: row.id,
       agentKind: kind,
@@ -800,7 +834,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
-    return this.toWire(row)
+    return this.store.toWire(row)
   }
   addShell(id: string, opts?: { spawnedBy?: string }): IssueWire {
     return this.addSession(id, 'shell', opts)
@@ -808,9 +842,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
 
   async linearSearch(query: string): Promise<LinearIssue[]> {
     // POD-419: the material is in the server-only keyed store, not the blob.
-    const key = this.d.store.secrets.get('integrations.linearApiKey')
+    const key = this.store.d.store.secrets.get('integrations.linearApiKey')
     if (!key) return []
-    const search = this.d.linearSearch ?? searchIssues
+    const search = this.store.d.linearSearch ?? searchIssues
     return search(key, query)
   }
 
@@ -819,21 +853,22 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
    *  so they resurface exactly when there's something new (the issue mirror of a
    *  session's `snoozedUntil: null` snooze). */
   onSessionAttention(sessionId: SessionId): void {
-    const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
+    const sess = this.store.d.listSessions().find((s) => s.sessionId === sessionId)
     if (!sess) return
-    for (const row of [...this.rows.values()]) {
+    for (const row of [...this.store.rows.values()]) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
-      if (sessionsForIssue(row.worktreePath, [sess], row.id).length > 0) this.defer(row.id, null)
+      if (sessionsForIssue(row.worktreePath, [sess], row.id).length > 0)
+        this.crud().defer(row.id, null)
     }
   }
 
   private assistantTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   onSessionActivity(sessionId: SessionId): void {
-    if (!this.d.getSettings().issues?.assistantEnabled) return
-    const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
+    if (!this.store.d.getSettings().issues?.assistantEnabled) return
+    const sess = this.store.d.listSessions().find((s) => s.sessionId === sessionId)
     if (!sess) return
-    const row = [...this.rows.values()].find(
+    const row = [...this.store.rows.values()].find(
       (r) =>
         r.worktreePath &&
         (sess.cwd === r.worktreePath || sess.cwd.startsWith(`${r.worktreePath}/`)),
@@ -885,7 +920,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     // of leaving the UI blank until the next full turn ends.
     const resolved = this.issueForSession(sessionId)
     if (!resolved) return
-    if (activity.commits?.length || !this.gitStates.has(resolved.row.id)) {
+    if (activity.commits?.length || !this.store.gitStates.has(resolved.row.id)) {
       void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
     }
   }
@@ -912,15 +947,15 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the
    *  commit-message marker logIssueCommits greps for. */
   private issueRef(row: IssueRow): string {
-    const prefix = this.d.store.repos.prefixForPath(row.repoPath)
+    const prefix = this.store.d.store.repos.prefixForPath(row.repoPath)
     return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
   }
 
   /** The issue a session works: explicit attachment or worktree membership. */
   private issueForSession(sessionId: SessionId): { row: IssueRow; sess: SessionMeta } | null {
-    const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
+    const sess = this.store.d.listSessions().find((s) => s.sessionId === sessionId)
     if (!sess) return null
-    const row = [...this.rows.values()].find(
+    const row = [...this.store.rows.values()].find(
       (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,
     )
     return row ? { row, sess } : null
@@ -953,8 +988,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         changed = (await this.probeGitStateOnce(id, refresh.fallbackCwd)) || changed
       } while (refresh.rerun)
       if (changed) {
-        const current = this.rows.get(id)
-        if (current && !current.deletedAt) this.broadcastIssue(current)
+        const current = this.store.rows.get(id)
+        if (current && !current.deletedAt) this.store.broadcastIssue(current)
       }
     })().finally(() => {
       if (this.gitRefreshes.get(id) === refresh) this.gitRefreshes.delete(id)
@@ -965,18 +1000,18 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
 
   /** Run one coalesced probe and retain its issue's final state for publication. */
   private async probeGitStateOnce(id: string, fallbackCwd?: string): Promise<boolean> {
-    const row = this.rows.get(id)
+    const row = this.store.rows.get(id)
     if (!row || row.deletedAt) return false
     const shared = row.worktreePath === null
     const cwd = row.worktreePath ?? fallbackCwd
     if (!cwd) return false
     try {
-      const members = sessionsForIssue(row.worktreePath, this.d.listSessions(), row.id)
+      const members = sessionsForIssue(row.worktreePath, this.store.d.listSessions(), row.id)
       const attribution = this.gitAttributionFor(members)
       const state = await probeGitState(
         {
           repoOp: (op, opCwd, args, machineId) =>
-            this.d.repoOp(op as never, opCwd, args, machineId),
+            this.store.d.repoOp(op as never, opCwd, args, machineId),
         },
         {
           cwd,
@@ -990,9 +1025,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
           // in-memory ledger is empty or the commits predate capture.
           refsPattern: issueRefsPattern(this.issueRef(row)),
         },
-        this.now(),
+        this.store.now(),
       )
-      this.gitStates.set(id, state)
+      this.store.gitStates.set(id, state)
       return true
     } catch {
       // Probe failure leaves the last completed state intact.
@@ -1022,21 +1057,24 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   }
 
   async refreshAssistant(id: string): Promise<IssueWire> {
-    const row = this.rowOrThrow(id)
-    if (!row.worktreePath) return this.toWire(row)
-    const settings = this.d.getSettings()
-    const members = sessionsForIssue(row.worktreePath, this.d.listSessions(), row.id).map((s) => ({
-      agentKind: s.agentKind,
-      phase: s.agentState?.phase ?? 'shell',
-      tail: '',
-    }))
+    const row = this.store.rowOrThrow(id)
+    if (!row.worktreePath) return this.store.toWire(row)
+    const settings = this.store.d.getSettings()
+    const members = sessionsForIssue(row.worktreePath, this.store.d.listSessions(), row.id).map(
+      (s) => ({
+        agentKind: s.agentKind,
+        phase: s.agentState?.phase ?? 'shell',
+        tail: '',
+      }),
+    )
     const [status, log] = await Promise.all([
-      this.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
-      this.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
+      this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
+      this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
-    const others = [...this.rows.values()]
+    const others = [...this.store.rows.values()]
       .filter(
-        (r) => r.id !== row.id && this.inRepoScope(r, row.repoPath) && !r.archived && !r.deletedAt,
+        (r) =>
+          r.id !== row.id && this.store.inRepoScope(r, row.repoPath) && !r.archived && !r.deletedAt,
       )
       .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
     const ctx = {
@@ -1061,8 +1099,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
           settings,
           // POD-419: the provider's key, resolved at the moment of use out of
           // the server-only store — `settings.apiKeys` no longer carries any.
-          apiKey: (provider) => this.d.store.secrets.apiKeyFor(provider),
-          llm: this.d.llm,
+          apiKey: (provider) => this.store.d.store.secrets.apiKeyFor(provider),
+          llm: this.store.d.llm,
         },
         { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
       )
@@ -1070,15 +1108,15 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     } catch {
       result = null
     }
-    if (!result) return this.toWire(row) // leave prior state intact on any LLM/parse failure
+    if (!result) return this.store.toWire(row) // leave prior state intact on any LLM/parse failure
     row.activityNotes = result.activityNotes || row.activityNotes
-    row.notesUpdatedAt = this.now()
+    row.notesUpdatedAt = this.store.now()
     row.blockedBy = result.blockedBy
     row.dependencyNote = result.dependencyNote || null
     // Trust the model's stage when valid and different from current; else clear the suggestion.
     const digestStage = result.suggestedStage
     row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return this.persistRow(row)
+    return this.store.persistRow(row)
   }
 }

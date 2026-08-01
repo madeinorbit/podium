@@ -68,7 +68,7 @@ import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/c
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
-import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
+import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
@@ -118,7 +118,7 @@ interface SessionRegistryOptions {
 export interface RegistryModules {
   bus: EventBus
   funnel: WriteFunnel
-  sessions: SessionsService
+  sessions: SessionLifecycle
   machines: MachinesService
   rpc: DaemonRpcService
   conversations: ConversationsService
@@ -249,7 +249,7 @@ export class SessionRegistry {
     // Live entity maps are owned by modules/sessions; the pre-sessions modules
     // reach them through these lazy closures (sessionsSvc is assigned below, and
     // none of the closures can run before the constructor finishes wiring).
-    let sessionsSvc!: SessionsService
+    let sessionsSvc!: SessionLifecycle
     const principalForCapability = (capability: import('@podium/model').Capability) =>
       resolvePrincipal(capability, {
         parentSessionOf: (candidate) =>
@@ -291,7 +291,7 @@ export class SessionRegistry {
      * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
      * honours a `mutationId` — the session session-state class, the session command
      * plane and the issue registry — dedupes through THIS object. It replaces
-     * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
+     * `SessionLifecycle.withMutation`, whose per-proc wrapper form was a per-proc
      * chance to forget (POD-379's idempotency oracle exists because of it) and
      * which made the issue family reach the session service for a property that
      * belongs to neither.
@@ -1266,7 +1266,7 @@ export class SessionRegistry {
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
-    sessionsSvc = new SessionsService({
+    sessionsSvc = new SessionLifecycle({
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
@@ -1645,7 +1645,7 @@ export class SessionRegistry {
     })
     this.issueAutoArchive = new IssueAutoArchive(issues)
     // Scheduled automations (#470) [spec:SP-17db]. The spawn goes straight to
-    // SessionsService.createSession with its own provenance tag (the tRPC
+    // SessionLifecycle.createSession with its own provenance tag (the tRPC
     // `sessions.create` proc stamps spawnedBy 'user'), and the prompt rides the
     // durable outbox — see AutomationsService.spawn for why not initialPrompt.
     // A session still occupying the machine (anything but exited/hibernated)
@@ -1774,7 +1774,7 @@ export class SessionRegistry {
    * the agent can pick a name that isn't a duplicate of its neighbours'.
    */
   private sessionTitlePrime(
-    sessionsSvc: SessionsService,
+    sessionsSvc: SessionLifecycle,
     issues: IssueService,
     actorSessionId: string,
   ): string {

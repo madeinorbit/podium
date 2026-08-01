@@ -258,7 +258,7 @@ describe('AC1 · the session surface is derived, in both directions', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2 · framework idempotency is the single implementation', () => {
-  it('SessionsService has no withMutation, on the instance OR its prototype', () => {
+  it('SessionLifecycle has no withMutation, on the instance OR its prototype', () => {
     // Protection by ABSENCE plus a prototype-shape assertion: a `withMutation`
     // re-added as a delegating method would be one edit from a second per-proc
     // wrapper, and an `in` check alone would miss a prototype method.

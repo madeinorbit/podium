@@ -1,7 +1,7 @@
 import type { IssueWire } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import type { IssueService } from './issues/service'
-import type { SessionsService } from './sessions/service'
+import type { SessionLifecycle } from './sessions/lifecycle'
 
 export interface DeleteIssueResult {
   issue: IssueWire
@@ -17,7 +17,7 @@ export class IssueSessionLifecycle {
   constructor(
     private readonly deps: {
       issues: IssueService
-      sessions: SessionsService
+      sessions: SessionLifecycle
       ledger: Pick<Ledger, 'commit'>
     },
   ) {}
