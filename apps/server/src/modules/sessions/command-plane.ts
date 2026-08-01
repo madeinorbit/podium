@@ -53,6 +53,7 @@ import {
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
+import { inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
 import {
   assertMayCommandSession,
@@ -61,8 +62,6 @@ import {
   type SessionAccessDeps,
   type SessionTargetRow,
 } from './session-access'
-
-import { inboxPrincipalFromCommand } from './inbox'
 // ---------------------------------------------------------------------------
 // Execution context
 // ---------------------------------------------------------------------------
@@ -78,7 +77,7 @@ export type SessionCommandServices = Pick<
   SessionLifecycle,
   | 'createSession'
   | 'resumeSession'
-  | 'prepareSessionTarget'
+  | 'workspace'
   | 'killSession'
   | 'hibernateSession'
   | 'resurrectSession'
@@ -440,7 +439,7 @@ export const SESSION_COMMAND_HANDLERS = {
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
     if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-    const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
+    const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
     const ownership = createdOwnership(
       ctx.principal,
       rest.issueId ? { id: rest.issueId, owner: ctx.deps.issueOwner(rest.issueId) } : undefined,

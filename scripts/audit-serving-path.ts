@@ -73,7 +73,7 @@ const FULL_LIST_MESSAGES = [
 const FULL_LIST_ALLOWED = [
   ADAPTER_FILE,
   'apps/server/src/modules/sessions/publish-worker-actor.ts',
-  'apps/server/src/modules/sessions/lifecycle.ts',
+  'apps/server/src/modules/sessions/publication/coordinator.ts',
 ]
 
 /**

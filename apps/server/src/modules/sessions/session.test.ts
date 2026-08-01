@@ -86,8 +86,8 @@ describe('Session', () => {
   it('first attached client becomes controller and gets an attached snapshot', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.attachClient(a)
-    expect(s.controllerId).toBe('a')
+    s.terminal.attachClient(a)
+    expect(s.terminal.controllerId).toBe('a')
     expect(a.sent).toContainEqual({
       type: 'attached',
       sessionId: asSessionId('s1'),
@@ -102,9 +102,9 @@ describe('Session', () => {
     const s = makeSession()
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a)
-    s.attachClient(b)
-    expect(s.controllerId).toBe('a')
+    s.terminal.attachClient(a)
+    s.terminal.attachClient(b)
+    expect(s.terminal.controllerId).toBe('a')
     expect(b.sent.at(-1)).toMatchObject({ type: 'attached', controllerId: 'a' })
   })
 
@@ -113,11 +113,11 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a)
-    s.attachClient(b)
-    s.handleInput('b', 'eA==')
+    s.terminal.attachClient(a)
+    s.terminal.attachClient(b)
+    s.terminal.handleInput('b', 'eA==')
     expect(toDaemon).not.toHaveBeenCalled()
-    s.handleInput('a', 'eA==')
+    s.terminal.handleInput('a', 'eA==')
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'input',
       sessionId: asSessionId('s1'),
@@ -138,18 +138,18 @@ describe('Session', () => {
       toDaemon: vi.fn(),
     })
     const a = makeClient('a')
-    s.attachClient(a) // becomes controller
+    s.terminal.attachClient(a) // becomes controller
     // The shell drawing its prompt (output with no command submitted) is idle.
-    s.onFrame('cHJvbXB0') // "prompt"
+    s.terminal.onFrame('cHJvbXB0') // "prompt"
     expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBeUndefined()
     // A keystroke that isn't Enter (and its echo) also stays idle.
-    s.handleInput('a', Buffer.from('l').toString('base64'))
-    s.onFrame('bA==') // echoed "l"
+    s.terminal.handleInput('a', Buffer.from('l').toString('base64'))
+    s.terminal.onFrame('bA==') // echoed "l"
     expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBeUndefined()
     // Submitting a line (Enter) starts a command → busy, even before output.
-    s.handleInput('a', Buffer.from('s\r').toString('base64'))
+    s.terminal.handleInput('a', Buffer.from('s\r').toString('base64'))
     expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBe(true)
-    s.onFrame('b3V0cHV0') // command output keeps it busy
+    s.terminal.onFrame('b3V0cHV0') // command output keeps it busy
     expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBe(true)
   })
 
@@ -158,30 +158,25 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a)
-    s.attachClient(b)
+    s.terminal.attachClient(a)
+    s.terminal.attachClient(b)
     a.viewVisible = new Set([asSessionId('s1')]) // controller is rendering the session
-    s.handleResize('b', 100, 30)
-    expect(s.geometry).toEqual(geo)
+    s.terminal.handleResize('b', 100, 30)
+    expect(s.terminal.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalled()
-    s.handleResize('a', 120, 40)
-    expect(s.geometry).toEqual({ cols: 120, rows: 40 })
-    expect(toDaemon).toHaveBeenCalledWith({
-      type: 'resize',
-      sessionId: asSessionId('s1'),
-      cols: 120,
-      rows: 40,
-    })
+    s.terminal.handleResize('a', 120, 40)
+    expect(s.terminal.geometry).toEqual({ cols: 120, rows: 40 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 120, rows: 40 })
   })
 
   it('ignores a resize from a controller that isn’t rendering the session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
-    s.attachClient(a) // controller
+    s.terminal.attachClient(a) // controller
     a.viewVisible = new Set() // not rendering s1 (e.g. a backgrounded tab)
-    s.handleResize('a', 200, 50)
-    expect(s.geometry).toEqual(geo) // unchanged — its stale grid can't move the PTY
+    s.terminal.handleResize('a', 200, 50)
+    expect(s.terminal.geometry).toEqual(geo) // unchanged — its stale grid can't move the PTY
     expect(toDaemon).not.toHaveBeenCalledWith({
       type: 'resize',
       sessionId: asSessionId('s1'),
@@ -194,17 +189,12 @@ describe('Session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
-    s.attachClient(a) // controller
+    s.terminal.attachClient(a) // controller
     a.viewVisible = new Set([asSessionId('s1')]) // rendering s1 on screen
-    s.handleResize('a', 200, 50)
-    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(s.activityDirty).toBe(true)
-    expect(toDaemon).toHaveBeenCalledWith({
-      type: 'resize',
-      sessionId: asSessionId('s1'),
-      cols: 200,
-      rows: 50,
-    })
+    s.terminal.handleResize('a', 200, 50)
+    expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(s.terminal.activityDirty).toBe(true)
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
   })
 
   it('broadcasts the applied geometry to all clients so the size is not lost (quarter-size fix)', () => {
@@ -215,12 +205,12 @@ describe('Session', () => {
     const s = makeSession()
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a) // controller
-    s.attachClient(b) // spectator (e.g. another device)
+    s.terminal.attachClient(a) // controller
+    s.terminal.attachClient(b) // spectator (e.g. another device)
     a.viewVisible = new Set([asSessionId('s1')])
     a.sent.length = 0
     b.sent.length = 0
-    s.handleResize('a', 200, 50)
+    s.terminal.handleResize('a', 200, 50)
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
         type: 'geometry',
@@ -234,18 +224,13 @@ describe('Session', () => {
   it('reconcileGeometry broadcasts the healed geometry to clients', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.attachClient(a)
+    s.terminal.attachClient(a)
     a.viewports.set('s1', { cols: 200, rows: 50 }) // resize arrived before viewState
     a.viewVisible = new Set([asSessionId('s1')]) // viewState now confirms it renders s1
     a.sent.length = 0
-    s.reconcileGeometry('a')
-    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(a.sent).toContainEqual({
-      type: 'geometry',
-      sessionId: asSessionId('s1'),
-      cols: 200,
-      rows: 50,
-    })
+    s.terminal.reconcileGeometry('a')
+    expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(a.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
   })
 
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
@@ -253,20 +238,15 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a)
-    s.attachClient(b)
+    s.terminal.attachClient(a)
+    s.terminal.attachClient(b)
     b.viewVisible = new Set([asSessionId('s1')]) // requester is rendering the session → snap-resizes
-    s.handleResize('b', 50, 60)
-    s.requestControl('b')
-    expect(s.controllerId).toBe('b')
-    expect(s.epoch).toBe(1)
-    expect(s.geometry).toEqual({ cols: 50, rows: 60 })
-    expect(toDaemon).toHaveBeenCalledWith({
-      type: 'resize',
-      sessionId: asSessionId('s1'),
-      cols: 50,
-      rows: 60,
-    })
+    s.terminal.handleResize('b', 50, 60)
+    s.terminal.requestControl('b')
+    expect(s.terminal.controllerId).toBe('b')
+    expect(s.terminal.epoch).toBe(1)
+    expect(s.terminal.geometry).toEqual({ cols: 50, rows: 60 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 50, rows: 60 })
     expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
@@ -288,15 +268,15 @@ describe('Session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
-    s.attachClient(a) // a is the controller
+    s.terminal.attachClient(a) // a is the controller
     a.viewVisible = new Set([asSessionId('s1')])
-    const epoch0 = s.epoch
+    const epoch0 = s.terminal.epoch
     a.sent.length = 0
     toDaemon.mockClear()
-    s.requestControl('a') // re-claim control it already holds (e.g. becomeEligible on reveal)
+    s.terminal.requestControl('a') // re-claim control it already holds (e.g. becomeEligible on reveal)
     // No epoch bump → clients don't view.clear(); no takeover broadcasts; no agent redraw.
-    expect(s.epoch).toBe(epoch0)
-    expect(s.controllerId).toBe('a')
+    expect(s.terminal.epoch).toBe(epoch0)
+    expect(s.terminal.controllerId).toBe('a')
     expect(a.sent).not.toContainEqual(expect.objectContaining({ type: 'controllerChanged' }))
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
   })
@@ -306,18 +286,18 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a)
-    s.attachClient(b)
+    s.terminal.attachClient(a)
+    s.terminal.attachClient(b)
     b.viewports.set('s1', { cols: 50, rows: 60 }) // a stale viewport we must NOT snap to
     b.viewVisible = new Set() // requester isn't rendering s1 yet (viewState not landed)
     toDaemon.mockClear()
-    s.requestControl('b')
+    s.terminal.requestControl('b')
     // Control STILL transfers — a non-rendering controller is harmless (it can't
     // resize until handleResize sees it in viewVisible).
-    expect(s.controllerId).toBe('b')
-    expect(s.epoch).toBe(1)
+    expect(s.terminal.controllerId).toBe('b')
+    expect(s.terminal.epoch).toBe(1)
     // …but the agent is NOT sized to the requester's possibly-stale viewport.
-    expect(s.geometry).toEqual(geo)
+    expect(s.terminal.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
   })
@@ -332,22 +312,17 @@ describe('Session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
-    s.attachClient(a) // controller; viewVisible still empty (viewState not landed yet)
-    s.requestControl('a')
-    s.handleResize('a', 200, 50) // the fitted size — dropped by the viewVisible gate
-    expect(s.geometry).toEqual(geo) // confirmed gated out (still default)
+    s.terminal.attachClient(a) // controller; viewVisible still empty (viewState not landed yet)
+    s.terminal.requestControl('a')
+    s.terminal.handleResize('a', 200, 50) // the fitted size — dropped by the viewVisible gate
+    expect(s.terminal.geometry).toEqual(geo) // confirmed gated out (still default)
     toDaemon.mockClear()
     // viewState arrives: the client now declares it renders s1 on screen.
     a.viewVisible = new Set([asSessionId('s1')])
-    s.reconcileGeometry('a')
+    s.terminal.reconcileGeometry('a')
     // The dropped fitted size is now applied — not lost.
-    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(toDaemon).toHaveBeenCalledWith({
-      type: 'resize',
-      sessionId: asSessionId('s1'),
-      cols: 200,
-      rows: 50,
-    })
+    expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
   })
 
   it('reconcileGeometry is a no-op when the client is not the controller or not rendering', () => {
@@ -355,26 +330,26 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a) // controller
-    s.attachClient(b) // spectator
+    s.terminal.attachClient(a) // controller
+    s.terminal.attachClient(b) // spectator
     b.viewports.set('s1', { cols: 200, rows: 50 })
     b.viewVisible = new Set([asSessionId('s1')])
     toDaemon.mockClear()
-    s.reconcileGeometry('b') // not the controller → nothing
-    expect(s.geometry).toEqual(geo)
+    s.terminal.reconcileGeometry('b') // not the controller → nothing
+    expect(s.terminal.geometry).toEqual(geo)
     a.viewports.set('s1', { cols: 200, rows: 50 })
     a.viewVisible = new Set() // controller but not rendering → nothing
-    s.reconcileGeometry('a')
-    expect(s.geometry).toEqual(geo)
+    s.terminal.reconcileGeometry('a')
+    expect(s.terminal.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
   })
 
   it('broadcasts frames to attached clients with a server-assigned monotonic seq', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.attachClient(a)
-    s.onFrame('ZGF0YQ==')
-    s.onFrame('ZGF0Yg==')
+    s.terminal.attachClient(a)
+    s.terminal.onFrame('ZGF0YQ==')
+    s.terminal.onFrame('ZGF0Yg==')
     const frames = a.sent.filter((m) => m.type === 'outputFrame')
     // The Session numbers frames itself (0,1,…), ignoring the bridge's own seq, so
     // the client's resume cursor stays stable across daemon reattaches.
@@ -386,11 +361,11 @@ describe('Session', () => {
 
   it('resumes from a cursor: replays only newer frames and marks the attach resumed', () => {
     const s = makeSession()
-    s.onFrame('YQ==') // seq 0
-    s.onFrame('Yg==') // seq 1
-    s.onFrame('Yw==') // seq 2
+    s.terminal.onFrame('YQ==') // seq 0
+    s.terminal.onFrame('Yg==') // seq 1
+    s.terminal.onFrame('Yw==') // seq 2
     const a = makeClient('a')
-    s.attachClient(a, 1) // client last rendered seq 1
+    s.terminal.attachClient(a, 1) // client last rendered seq 1
     const attached = a.sent.find((m) => m.type === 'attached')
     expect(attached).toMatchObject({ type: 'attached', resumed: true })
     const frames = a.sent.filter((m) => m.type === 'outputFrame')
@@ -401,21 +376,21 @@ describe('Session', () => {
 
   it('a caught-up client resumes with zero frames (no needless wipe)', () => {
     const s = makeSession()
-    s.onFrame('YQ==') // seq 0
+    s.terminal.onFrame('YQ==') // seq 0
     const a = makeClient('a')
-    s.attachClient(a, 0)
+    s.terminal.attachClient(a, 0)
     expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
   })
 
   it('preserves the surviving screen and replays the new generation after a server restart', () => {
     const s = makeSession()
-    s.onFrame('YQ==') // seq 0
-    s.onFrame('Yg==') // seq 1
+    s.terminal.onFrame('YQ==') // seq 0
+    s.terminal.onFrame('Yg==') // seq 1
     const a = makeClient('a')
     // Cursor 99 came from the prior server generation; the restarted server's new
     // sequence is only at 1. Keep xterm intact and append this generation repaint.
-    s.attachClient(a, 99)
+    s.terminal.attachClient(a, 99)
     expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(2)
   })
@@ -423,7 +398,7 @@ describe('Session', () => {
   it('preserves the surviving screen when a restarted server has no frames yet', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.attachClient(a, 99)
+    s.terminal.attachClient(a, 99)
     expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
   })
@@ -431,20 +406,20 @@ describe('Session', () => {
   it('still clears for a same-generation cursor older than the replay window', () => {
     const s = makeSession()
     const largeFrame = 'eA=='.repeat(70_000)
-    s.onFrame(largeFrame) // seq 0, evicted by later frames
-    s.onFrame(largeFrame) // seq 1, evicted by seq 2
-    s.onFrame(largeFrame) // seq 2
+    s.terminal.onFrame(largeFrame) // seq 0, evicted by later frames
+    s.terminal.onFrame(largeFrame) // seq 1, evicted by seq 2
+    s.terminal.onFrame(largeFrame) // seq 2
     const a = makeClient('a')
-    s.attachClient(a, 0)
+    s.terminal.attachClient(a, 0)
     expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
   })
 
   it('a fresh attach (no cursor) is a full replay', () => {
     const s = makeSession()
-    s.onFrame('YQ==')
+    s.terminal.onFrame('YQ==')
     const a = makeClient('a')
-    s.attachClient(a)
+    s.terminal.attachClient(a)
     expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
   })
@@ -452,25 +427,25 @@ describe('Session', () => {
   it('reassignController moves the role from a stale client to its reconnected self', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.attachClient(a)
-    expect(s.controllerId).toBe('a')
-    s.reassignController('a', 'a2')
-    expect(s.controllerId).toBe('a2')
+    s.terminal.attachClient(a)
+    expect(s.terminal.controllerId).toBe('a')
+    s.terminal.reassignController('a', 'a2')
+    expect(s.terminal.controllerId).toBe('a2')
     // No-op when the named client isn't the controller.
-    s.reassignController('ghost', 'x')
-    expect(s.controllerId).toBe('a2')
+    s.terminal.reassignController('ghost', 'x')
+    expect(s.terminal.controllerId).toBe('a2')
   })
 
   it('reassigns controller when the controller detaches', () => {
     const s = makeSession()
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a)
-    s.attachClient(b)
+    s.terminal.attachClient(a)
+    s.terminal.attachClient(b)
     a.viewports.set('s1', { cols: 100, rows: 30 })
     a.viewports.set('other-session', { cols: 40, rows: 12 })
-    s.detachClient('a')
-    expect(s.controllerId).toBe('b')
+    s.terminal.detachClient('a')
+    expect(s.terminal.controllerId).toBe('b')
     expect(a.viewports.has('s1')).toBe(false)
     expect(a.viewports.has('other-session')).toBe(true)
     expect(b.sent).toContainEqual(
@@ -482,34 +457,34 @@ describe('Session', () => {
     const s = makeSession()
     const a = makeClient('a')
     const b = makeClient('b')
-    s.attachClient(a) // a is the initial controller
-    s.attachClient(b)
+    s.terminal.attachClient(a) // a is the initial controller
+    s.terminal.attachClient(b)
     b.viewVisible = new Set([asSessionId('s1')]) // b renders the session → snap to its viewport on takeover
     b.viewports.set('s1', { cols: 33, rows: 21 })
-    s.requestControl('b') // genuine takeover (b was NOT the controller)
-    expect(s.geometry).toEqual({ cols: 33, rows: 21 })
+    s.terminal.requestControl('b') // genuine takeover (b was NOT the controller)
+    expect(s.terminal.geometry).toEqual({ cols: 33, rows: 21 })
   })
 
   it('never reconciles another session viewport into this session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
-    s.attachClient(a)
+    s.terminal.attachClient(a)
     a.viewVisible = new Set([asSessionId('s1')])
     // Another split/warm pane measured a small grid, but s1 has not sent a
     // resize. The old single ClientConn.viewport applied this value to s1.
     a.viewports.set('other-session', { cols: 40, rows: 12 })
 
-    s.reconcileGeometry('a')
+    s.terminal.reconcileGeometry('a')
 
-    expect(s.geometry).toEqual(geo)
+    expect(s.terminal.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
   })
 
   it('marks exited and broadcasts agentExit', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.attachClient(a)
+    s.terminal.attachClient(a)
     s.onExit(0)
     expect(s.status).toBe('exited')
     expect(a.sent).toContainEqual({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 })
@@ -661,8 +636,8 @@ describe('Session', () => {
       geometry: geo,
       toDaemon: vi.fn(),
     })
-    s.attachClient(makeClient('a'))
-    s.handleInput('a', Buffer.from('ls\r').toString('base64'))
+    s.terminal.attachClient(makeClient('a'))
+    s.terminal.handleInput('a', Buffer.from('ls\r').toString('base64'))
     expect(s.lastActiveAt > CREATED).toBe(true)
   })
 
@@ -718,11 +693,11 @@ describe('Session transcript cache (recent-delta window)', () => {
   it('applyDelta appends, fans out a transcriptDelta, and flips availability once', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.subscribeTranscript(a)
+    s.terminal.subscribeTranscript(a)
     // Empty subscribe → no replay frame.
     expect(a.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
 
-    const became = s.applyDelta([item('u1', 'c1')], { tail: 'c1' })
+    const became = s.terminal.applyDelta([item('u1', 'c1')], { tail: 'c1' })
     expect(became).toBe(true) // first transcript observed → chat capability flips on
     expect(a.sent.at(-1)).toEqual({
       type: 'transcriptDelta',
@@ -730,19 +705,19 @@ describe('Session transcript cache (recent-delta window)', () => {
       items: [item('u1', 'c1')],
       tail: 'c1',
     })
-    expect(s.transcriptItems()).toEqual([item('u1', 'c1')])
+    expect(s.terminal.transcriptItems()).toEqual([item('u1', 'c1')])
     // A second delta no longer flips availability.
-    expect(s.applyDelta([item('u2', 'c2')], {})).toBe(false)
-    expect(s.transcriptItems()).toEqual([item('u1', 'c1'), item('u2', 'c2')])
+    expect(s.terminal.applyDelta([item('u2', 'c2')], {})).toBe(false)
+    expect(s.terminal.transcriptItems()).toEqual([item('u1', 'c1'), item('u2', 'c2')])
   })
 
   it('applyDelta({reset}) clears the cache and fans out reset:true', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.subscribeTranscript(a)
-    s.applyDelta([item('u1', 'c1')], {})
-    s.applyDelta([item('u2', 'c2')], { reset: true, tail: 'c2' })
-    expect(s.transcriptItems()).toEqual([item('u2', 'c2')])
+    s.terminal.subscribeTranscript(a)
+    s.terminal.applyDelta([item('u1', 'c1')], {})
+    s.terminal.applyDelta([item('u2', 'c2')], { reset: true, tail: 'c2' })
+    expect(s.terminal.transcriptItems()).toEqual([item('u2', 'c2')])
     expect(a.sent.at(-1)).toEqual({
       type: 'transcriptDelta',
       sessionId: asSessionId('s1'),
@@ -754,10 +729,10 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('subscribeTranscript(since) replays only items after since; whole cache when unknown; nothing when caught up', () => {
     const s = makeSession()
-    s.applyDelta([item('a', 'c1'), item('b', 'c2'), item('c', 'c3')], { tail: 'c3' })
+    s.terminal.applyDelta([item('a', 'c1'), item('b', 'c2'), item('c', 'c3')], { tail: 'c3' })
 
     const known = makeClient('k')
-    s.subscribeTranscript(known, 'c1')
+    s.terminal.subscribeTranscript(known, 'c1')
     expect(known.sent).toEqual([
       {
         type: 'transcriptDelta',
@@ -767,7 +742,7 @@ describe('Session transcript cache (recent-delta window)', () => {
     ])
 
     const stale = makeClient('s')
-    s.subscribeTranscript(stale, 'older')
+    s.terminal.subscribeTranscript(stale, 'older')
     expect(stale.sent).toEqual([
       {
         type: 'transcriptDelta',
@@ -777,18 +752,18 @@ describe('Session transcript cache (recent-delta window)', () => {
     ])
 
     const caught = makeClient('c')
-    s.subscribeTranscript(caught, 'c3')
+    s.terminal.subscribeTranscript(caught, 'c3')
     expect(caught.sent).toEqual([])
   })
 
   it('handleInput from the controller bumps lastInputAt and marks dirty', () => {
     const s = makeSession()
     // First attach makes this client the controller (see attachClient).
-    s.attachClient(makeClient('c'))
-    expect(s.lastInputAtMs).toBe(0)
-    s.handleInput('c', Buffer.from('x').toString('base64'))
-    expect(s.lastInputAtMs).toBeGreaterThan(0)
-    expect(s.activityDirty).toBe(true)
+    s.terminal.attachClient(makeClient('c'))
+    expect(s.terminal.lastInputAtMs).toBe(0)
+    s.terminal.handleInput('c', Buffer.from('x').toString('base64'))
+    expect(s.terminal.lastInputAtMs).toBeGreaterThan(0)
+    expect(s.terminal.activityDirty).toBe(true)
   })
 
   it('markResumed bumps lastResumedAt and marks dirty without touching lastActiveAt', () => {
@@ -804,8 +779,8 @@ describe('Session transcript cache (recent-delta window)', () => {
       lastActiveAt: '2026-06-01T00:00:00.000Z',
     })
     s.markResumed()
-    expect(s.lastResumedAtMs).toBeGreaterThan(0)
-    expect(s.activityDirty).toBe(true)
+    expect(s.terminal.lastResumedAtMs).toBeGreaterThan(0)
+    expect(s.terminal.activityDirty).toBe(true)
     expect(s.lastActiveAt).toBe('2026-06-01T00:00:00.000Z') // recency untouched
   })
 
@@ -830,10 +805,10 @@ describe('Session transcript cache (recent-delta window)', () => {
       toDaemon: vi.fn(),
       lastInputAt: '2026-06-29T02:00:00.000Z',
     })
-    expect(s.lastInputAtMs).toBe(Date.parse('2026-06-29T02:00:00.000Z'))
-    expect(s.clearActivityDirty).toBeTypeOf('function')
-    s.clearActivityDirty()
-    expect(s.activityDirty).toBe(false)
+    expect(s.terminal.lastInputAtMs).toBe(Date.parse('2026-06-29T02:00:00.000Z'))
+    expect(s.terminal.clearActivityDirty).toBeTypeOf('function')
+    s.terminal.clearActivityDirty()
+    expect(s.terminal.activityDirty).toBe(false)
   })
 
   it('seeds a malformed activity ISO as 0 (never NaN — would freeze hibernation)', () => {
@@ -852,9 +827,9 @@ describe('Session transcript cache (recent-delta window)', () => {
     })
     // A NaN seed would make Math.max(..., NaN) === NaN and keep the session
     // awake forever; the guard must fall back to 0 instead.
-    expect(s.lastOutputAtMs).toBe(0)
-    expect(s.lastInputAtMs).toBe(0)
-    expect(s.lastResumedAtMs).toBe(0)
+    expect(s.terminal.lastOutputAtMs).toBe(0)
+    expect(s.terminal.lastInputAtMs).toBe(0)
+    expect(s.terminal.lastResumedAtMs).toBe(0)
     // 0 serializes back to null, so a bad value doesn't poison the persisted row.
     expect(s.toRow().lastOutputAt).toBeNull()
     expect(s.toRow().lastInputAt).toBeNull()

@@ -506,7 +506,7 @@ describe('session handoff orchestration', () => {
 
   it('clones and remaps the cwd before creating a new session on a fresh target', async () => {
     const { reg, target, store } = await handoffRegistry({ targetHasRepo: false })
-    const prepared = await reg.modules.sessions.prepareSessionTarget({
+    const prepared = await reg.modules.sessions.workspace.prepareTarget({
       agentKind: 'claude-code',
       cwd: '/source/repo',
       machineId: 'm2',

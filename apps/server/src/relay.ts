@@ -66,9 +66,9 @@ import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
+import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
-import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
@@ -327,7 +327,18 @@ export class SessionRegistry {
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       machineName: (id) => machines.machineName(id),
       onlineMachineIds: () => machines.onlineMachineIds(),
-      getSession: (sessionId) => liveSessions().get(sessionId),
+      getSession: (sessionId) => {
+        const session = liveSessions().get(sessionId)
+        return session
+          ? {
+              cwd: session.cwd,
+              machineId: session.machineId,
+              agentKind: session.agentKind,
+              resume: session.resume,
+              transcriptItems: () => session.terminal.transcriptItems(),
+            }
+          : undefined
+      },
       // Lazy: the conversations service is constructed after loadFromStore below.
       readTranscriptFromLake: (session, input) =>
         conversations.readTranscriptFromLake(session, input),
@@ -385,7 +396,18 @@ export class SessionRegistry {
         getSettings: () => this.store.settings.getSettings(),
         clients: () => clients().values(),
         machineName: (id) => machines.machineName(id),
-        sessions: () => liveSessions().values(),
+        sessions: () =>
+          [...liveSessions().values()].map((session) => ({
+            sessionId: session.sessionId,
+            machineId: session.machineId,
+            status: session.status,
+            resume: session.resume,
+            agentState: session.agentState,
+            lastActiveAt: session.lastActiveAt,
+            lastResumedAtMs: session.terminal.lastResumedAtMs,
+            lastInputAtMs: session.terminal.lastInputAtMs,
+            lastOutputAtMs: session.terminal.lastOutputAtMs,
+          })),
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
@@ -935,7 +957,7 @@ export class SessionRegistry {
             throw new Error(`workspace.${proc} is only callable by a session (no actor bound)`)
           }
           if (proc === 'clean') {
-            return sessionsSvc.cleanWorkspacePeeks({
+            return sessionsSvc.workspace.cleanPeeks({
               callerSessionId: actorSessionId,
             })
           }
@@ -958,7 +980,7 @@ export class SessionRegistry {
                 targetIssueId,
               )
             }
-            return sessionsSvc.fetchWorkspace({
+            return sessionsSvc.workspace.fetch({
               sourceSessionId: target.sessionId,
               callerSessionId: actorSessionId,
             })
