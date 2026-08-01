@@ -636,7 +636,7 @@ same commit.**
 
 **Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
 `sync → runtime`; `telemetry → runtime`;
-`pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache); `harness → runtime`; `harness → transcript`; `terminal-client → composer`; `commands → protocol` (POD-728: contracts name the frames they are exposed on).
+`pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache); `harness → runtime`; `harness → transcript`; `terminal-client → composer`; `terminal-client-react → client-core` (POD-400: React hooks bind the client-core transport port); `commands → protocol` (POD-728: contracts name the frames they are exposed on).
 
 **Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
 barrel with node-only concerns behind explicit subpaths, so neither is honestly

@@ -172,6 +172,7 @@
         "@fontsource-variable/geist-mono": "^5.2.8",
         "@podium/client-core": "workspace:*",
         "@podium/commands": "workspace:*",
+        "@podium/composer": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
@@ -223,7 +224,6 @@
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
-        "@podium/terminal-client": "workspace:*",
         "@tanstack/db": "^0.6.16",
         "@tanstack/db-sqlite-persistence-core": "^0.2.8",
         "@tanstack/react-db": "^0.1.94",
@@ -378,6 +378,7 @@
       "name": "@podium/terminal-client",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/client-core": "workspace:*",
         "@podium/composer": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
@@ -396,6 +397,7 @@
       "name": "@podium/terminal-client-react",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/client-core": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/terminal-client": "workspace:*",
       },

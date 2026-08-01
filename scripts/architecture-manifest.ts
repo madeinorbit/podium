@@ -361,8 +361,11 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // the half that actually uses them (POD-397).
   'packages/harness -> packages/runtime',
   'packages/harness -> packages/transcript',
-  // L2: terminal-client's prompt-extract is now a re-export of the shared,
-  // pure composer rather than a second copy of the extractors.
+  // L3: the React adapter binds hooks to client-core's transport port; it owns no
+  // socket protocol state of its own.
+  'packages/terminal-client-react -> packages/client-core',
+  // L2: terminal-client's DOM readiness check uses the shared,
+  // pure composer extractor rather than carrying a second copy.
   'packages/terminal-client -> packages/composer',
 ])
 

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
+
+import type { SessionConnection } from '@podium/client-core/transport'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionConnection } from './connection'
 import { mountKeyToolbar } from './toolbar'
 
 // mountKeyToolbar only touches conn when a byte-sending key is tapped; the Paste

@@ -1,5 +1,5 @@
+import type { SocketHub } from '@podium/client-core/transport'
 import type { ReplicaEvent } from '@podium/sync/replica'
-import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { type ShadowReport, startShadowComparison } from './runner'

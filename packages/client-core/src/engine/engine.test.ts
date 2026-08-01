@@ -9,7 +9,6 @@
  * no DOM, no network.
  */
 
-import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import type {
   GitRepositoryWire,
   HostMetricsWire,
@@ -19,11 +18,12 @@ import type {
   SessionMeta,
   SessionMetaInput,
 } from '@podium/model'
-import type { SocketHub } from '@podium/terminal-client'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { RouterWindow } from '../router'
+import type { SocketHub } from '../transport'
 import { createEngine } from './engine'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -1067,7 +1067,11 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     expect(st.fileTabs).toEqual([
       {
         id: 'file:a:iss_1:abc123:index.html',
-        scope: { kind: 'artifact', issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123') },
+        scope: {
+          kind: 'artifact',
+          issueId: asIssueId('iss_1'),
+          artifactId: asArtifactId('abc123'),
+        },
         path: 'index.html',
         worktreePath: '/wt',
         issueId: asIssueId('iss_1'),
@@ -1075,9 +1079,11 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     ])
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
     // Re-opening the same artifact reuses the tab.
-    engine
-      .getSnapshot()
-      .openArtifact({ issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' })
+    engine.getSnapshot().openArtifact({
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc123'),
+      path: 'index.html',
+    })
     expect(engine.getSnapshot().fileTabs).toHaveLength(1)
     engine.dispose()
   })
@@ -1111,7 +1117,11 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.getSnapshot().openArtifact({ issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'doc.md' })
+    engine.getSnapshot().openArtifact({
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc123'),
+      path: 'doc.md',
+    })
     await settle()
     const st = engine.getSnapshot()
     expect(st.view).toBe('workspace')
@@ -1171,9 +1181,15 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     }
     const { engine } = makeEngine({ api })
     engine.start()
-    const scope = { kind: 'artifact', issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123') } as const
+    const scope = {
+      kind: 'artifact',
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc123'),
+    } as const
     await engine.getSnapshot().readFileScoped(scope, 'index.html')
-    expect(reads).toEqual([{ issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' }])
+    expect(reads).toEqual([
+      { issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' },
+    ])
     // Immutable snapshot: the write API is never called.
     await expect(
       engine.getSnapshot().writeFileScoped({ scope, path: 'index.html', content: 'x' }),
@@ -1209,7 +1225,10 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     engine.start()
     await settle()
     engine.replica.applySnapshot('sessions', [
-      { ...session('s1', '/tmp/known-repo/.worktrees/wt1'), issueId: asIssueId('iss_own') } as SessionMeta,
+      {
+        ...session('s1', '/tmp/known-repo/.worktrees/wt1'),
+        issueId: asIssueId('iss_own'),
+      } as SessionMeta,
     ])
     await settle()
     engine.getSnapshot().setSelectedIssueId(asIssueId('iss_other'))

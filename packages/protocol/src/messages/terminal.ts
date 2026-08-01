@@ -9,6 +9,7 @@ import {
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
+import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField } from './feed'
 
 const positiveInt = z.number().int().positive()
@@ -200,6 +201,7 @@ export const AttachedMessage = z.object({
   type: z.literal('attached'),
   sessionId: SessionIdField,
   controllerId: z.string().nullable(),
+  controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
   epoch: z.number().int().nonnegative(),
   // True when the following frames are an incremental catch-up from the client's
@@ -208,6 +210,13 @@ export const AttachedMessage = z.object({
   // server omits it; the client treats that as a full replay and clears).
   resumed: z.boolean().optional(),
 })
+export const TerminalOutcomeMessage = z.object({
+  type: z.literal('terminalOutcome'),
+  sessionId: SessionIdField,
+  outcome: z.enum(['unauthorized', 'unreachable']),
+})
+export type TerminalOutcomeMessage = z.infer<typeof TerminalOutcomeMessage>
+
 export const OutputFrameMessage = z.object({
   type: z.literal('outputFrame'),
   sessionId: SessionIdField,
@@ -219,6 +228,7 @@ export const ControllerChangedMessage = z.object({
   type: z.literal('controllerChanged'),
   sessionId: SessionIdField,
   controllerId: z.string().nullable(),
+  controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
 })
 // Server's authoritative PTY size, per session — lets spectators letterbox.

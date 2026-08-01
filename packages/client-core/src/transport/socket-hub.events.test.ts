@@ -6,7 +6,7 @@ import {
   type ServerMessage,
 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { type SessionScopedServerMessage, SocketHub, type WebSocketLike } from './connection'
+import { type SessionScopedServerMessage, SocketHub, type WebSocketLike } from './socket-hub'
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = []
@@ -159,6 +159,21 @@ describe('SocketHub subscription seam (on/emit)', () => {
     sock.recv({ type: 'sessionDraftChanged', sessionId: asSessionId('s1'), text: 'draft…' })
     expect(legacy).toEqual([['s1', 'draft…']])
     expect(seam).toEqual([['s1', 'draft…']])
+  })
+
+  it('keeps approval-broker and durable automation-run flows on typed transport events', () => {
+    const { sock, hub } = setup()
+    const approvals: unknown[] = []
+    const runs: unknown[] = []
+    hub.on('approvals', (pending) => approvals.push(pending))
+    hub.on('automationRuns', (items) => runs.push(items))
+    hub.connect()
+    sock.open()
+    sock.recv({ type: 'approvalsChanged', pending: [] })
+    sock.recv({ type: 'automationRunsChanged', automationRuns: [] })
+    expect(approvals).toEqual([[]])
+    expect(runs).toEqual([[]])
+    hub.dispose()
   })
 
   it('unsubscribe actually unsubscribes (seam and wrapper), and is idempotent', () => {
