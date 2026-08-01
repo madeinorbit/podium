@@ -1,8 +1,8 @@
 # SessionBinding: identity taxonomy on two axes
 
-Status: **in review — revision 2** (addresses the 6 blockers of the 2026-07-30 review)
-Gate: **autonomous reviewer approval** recorded in §14. Human sign-off gates are
-suspended for this fan-out; this doc must not block on a signature nobody will give.
+Status: **approved** (autonomous review complete; downstream gate released 2026-07-30)
+Gate: **passed** — approval is recorded in §14. Human sign-off gates were suspended for
+this fan-out; the autonomous review and steward acceptance are the durable gate record.
 Issue: POD-414 (5.1a) · Epic: POD-323 (5.1 SessionBinding) · Programme: POD-279 Phase 5
 Date: 2026-07-30
 
@@ -1057,8 +1057,11 @@ Each row names the failure mode, the clause answering it, and what to attack.
 - [ ] No `instance_id`; SP-15aa namespace not repartitioned (P13).
 - [ ] Nothing in §8/§12 forces a retrofit of the shipped spool (S4).
 
-**Approval record.** _Pending reviewer._ Record reviewer, session and date here on approval;
-that record unblocks POD-415, POD-416, POD-417, POD-644 and POD-737.
+**Approval record.** POD-414-B performed the autonomous review on 2026-07-30 and raised
+six blockers. Revision 2 (`c62cd97c`) plus the inventory correction (`79002737`) and
+survivor-assertion follow-up (`1ecc871c`) addressed them; the POD-279 steward accepted
+the corrected design and released POD-415 on 2026-07-30 before implementation began.
+That release unblocked POD-415, POD-416, POD-417, POD-644 and POD-737.
 
 ---
 
