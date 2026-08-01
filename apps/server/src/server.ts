@@ -284,13 +284,15 @@ export async function startServer(
   // until a bot token + chat id are set; settings.changed re-arms it live.
   messaging = new MessagingService({
     bus: registry.modules.bus,
-    // Resolved for the sole account (POD-1213): the messaging bridge routes on
-    // `notifications.telegramChatId`, which is now a PER-USER outbound address.
-    // Spelled out rather than defaulted — this build's transport cannot name a
-    // person, so the sole account is the only true answer, and POD-315 replaces
-    // the argument.
-    getSettings: () => store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
-    // POD-419: the bot token is server-only material; the chat id stays routing.
+    // Outbound routing is derived from the authenticated binding table, never
+    // from one ambient operator/global chat id. Zero or ambiguous routes fail closed.
+    routing: {
+      chatIdForUser: (userId) => {
+        const routes = store.telegramBindings.listForUser(userId)
+        return routes.length === 1 ? routes[0]?.chatId : undefined
+      },
+      // POD-419: the bot token is server-only material; the chat id stays routing.
+    },
     telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
     issues: registry.modules.issues,

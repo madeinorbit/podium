@@ -120,8 +120,17 @@ function assertNotProposedForAgent(
 }
 
 export interface IssueCommandDeps {
-  /** Lazy — the composed tracker is assigned late in the composition root. */
-  issues(): IssueTrackerCapabilities
+  /** Fully constructed tracker; command dispatch is activated after features. */
+  issues: IssueTrackerCapabilities
+  /**
+   * Atomic issue/session attach workflow. The L3 application orchestrator owns
+   * the shared transaction and carries this transport-derived caller unchanged
+   * through both feature ports.
+   */
+  attachSession(
+    caller: IssueCaller,
+    input: Parameters<IssueAttentionCapability['attachSession']>[0],
+  ): ReturnType<IssueAttentionCapability['attachSession']>
   /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
   deleteIssue(id: string): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
@@ -324,25 +333,25 @@ export class IssueCommandCtx {
   ) {}
 
   get crud(): IssueCrudCapability {
-    return this.deps.issues().crud
+    return this.deps.issues.crud
   }
   get hierarchy(): IssueHierarchyCapability {
-    return this.deps.issues().hierarchy
+    return this.deps.issues.hierarchy
   }
   get commentsMail(): IssueCommentsMailCapability {
-    return this.deps.issues().commentsMail
+    return this.deps.issues.commentsMail
   }
   get attention(): IssueAttentionCapability {
-    return this.deps.issues().attention
+    return this.deps.issues.attention
   }
   get gitWorkflow(): IssueGitWorkflowCapability {
-    return this.deps.issues().gitWorkflow
+    return this.deps.issues.gitWorkflow
   }
   get reports(): IssueReportsCapability {
-    return this.deps.issues().reports
+    return this.deps.issues.reports
   }
   get access(): IssueCommandAccess {
-    return commandAccess(this.deps.issues())
+    return commandAccess(this.deps.issues)
   }
 
   private readerUser(): string {
@@ -901,7 +910,7 @@ const defs = {
         assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
       }
       const { newSubissue, newSpinoff, ...rest } = input
-      return ctx.attention.attachSession({
+      return ctx.deps.attachSession(ctx.caller, {
         ...rest,
         ...(newSubissue ? { newSubissue: { title: newSubissue.title, origin } } : {}),
         ...(newSpinoff ? { newSpinoff: { title: newSpinoff.title, origin } } : {}),
@@ -1530,7 +1539,7 @@ export class IssueCommandDispatcher {
     if (envelope.expectedRevision == null) return
     const ref = def.target?.((input ?? {}) as Record<string, unknown>)
     if (ref == null) return
-    const issue = this.deps.issues().reports.get(ref)
+    const issue = this.deps.issues.reports.get(ref)
     if (!issue) return
     enforceExpectedRevision({
       command: `issues.${name}`,
@@ -1575,7 +1584,7 @@ export class IssueCommandDispatcher {
       proc
     ] as AnyIssueCommandDef
     return Promise.resolve().then(() => {
-      guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues()), proc, def, rawInput)
+      guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
       const input: unknown = def.input.parse(rawInput)
       return this.run(effectiveCaller, proc, def, input)
     })

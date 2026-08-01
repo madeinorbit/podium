@@ -269,23 +269,16 @@ function makeHarness(
   const topics = makeTopicsStore()
   const getSuperagentThread = vi.fn((threadId: string) => {
     if (threadId.startsWith('btw_')) {
-      return { originSessionId: threadId.slice(4), podiumSessionId: null }
+      return { ownerUserId: BOUND_USER, originSessionId: threadId.slice(4), podiumSessionId: null }
     }
-    return { podiumSessionId: 'pod_concierge' }
+    return { ownerUserId: BOUND_USER, podiumSessionId: 'pod_concierge' }
   })
   const readTranscript = vi.fn(async () => ({
     items: opts.transcriptItems ?? sampleTranscript,
   }))
   const service = new MessagingService({
     bus,
-    getSettings: () =>
-      ({
-        notifications: {
-          web: true,
-          ntfyTopic: '',
-          telegramChatId: '42',
-        },
-      }) as never,
+    routing: { chatIdForUser: () => '42' },
     // POD-419: the token comes from the server-only keyed store, not the blob.
     telegramBotToken: () => 'tok',
     superagent: {
@@ -595,6 +588,7 @@ describe('MessagingService', () => {
       const { sessionId, threadRef } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -608,6 +602,7 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: agentState('idle'),
         next: agentState('compacting'),
       })
@@ -622,6 +617,7 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -646,12 +642,14 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
       const countWhileWorking = h.typingCalls.length
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: agentState('working'),
         next: agentState(phase),
       })
@@ -667,6 +665,7 @@ describe('MessagingService', () => {
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -683,6 +682,7 @@ describe('MessagingService', () => {
       })
       h.bus.emit('session.stateChanged', {
         sessionId: asSessionId('s_unbound'),
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -710,6 +710,7 @@ describe('MessagingService', () => {
       // Ambient working signal for the same topic — must share the lease.
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -737,6 +738,7 @@ describe('MessagingService', () => {
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
       h.bus.emit('session.stateChanged', {
         sessionId,
+        ownerUserId: BOUND_USER,
         prev: undefined,
         next: agentState('working'),
       })
@@ -1146,14 +1148,7 @@ describe('MessagingService', () => {
     }
     const service = new MessagingService({
       bus,
-      getSettings: () =>
-        ({
-          notifications: {
-            web: true,
-            ntfyTopic: '',
-            telegramChatId: '42',
-          },
-        }) as never,
+      routing: { chatIdForUser: () => '42' },
       telegramBotToken: () => 'tok',
       superagent: {
         sendTurn: vi.fn(() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),

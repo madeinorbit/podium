@@ -1,4 +1,3 @@
-
 import { type CommandDef, defineCommands, type LockCommandName } from '@podium/commands'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -50,10 +49,9 @@ function def<K extends LockCommandKind, In extends z.ZodTypeAny, Out>(
 }
 
 export interface LockCommandDeps {
-  /** Lazy — LockService is assigned late in the composition root. */
-  locks(): LockService
-  /** Issue seq lookup for holder labels (`issue:#<seq>`). Lazy for the same reason. */
-  issues(): IssueService
+  locks: LockService
+  /** Issue seq lookup for holder labels (`issue:#<seq>`). */
+  issues: IssueService
 }
 
 /** Per-call execution context: caller identity + the LockService. */
@@ -64,7 +62,7 @@ export class LockCommandCtx {
   ) {}
 
   get locks(): LockService {
-    return this.deps.locks()
+    return this.deps.locks
   }
 
   /**
@@ -83,7 +81,7 @@ export class LockCommandCtx {
     const issueId = cap.scope.kind === 'subtree' ? cap.scope.rootId : null
     let label = 'operator'
     if (issueId) {
-      const me = this.deps.issues().getMeta(issueId)
+      const me = this.deps.issues.getMeta(issueId)
       label = me ? `issue:#${me.seq}` : `session:${sessionId ?? '?'}`
     } else if (sessionId) {
       label = `session:${sessionId}`

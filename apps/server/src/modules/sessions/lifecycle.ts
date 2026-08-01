@@ -98,7 +98,7 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import type { HeadlessService } from '../superagent/headless'
+import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
@@ -235,6 +235,9 @@ interface SessionLifecycleDeps {
    * client-plane mirror of the daemon mux's in-process peer form.
    */
   clients?: ClientRegistry
+  /** Shared live-session registry, constructed before every reader. Lifecycle
+   * remains its sole mutation owner. */
+  sessions?: Map<SessionId, Session>
   /**
    * Evict a client connection through the GATEWAY (registry removal + the sweep),
    * for the one place a feature initiates a disconnect: the reconnect reclaim,
@@ -249,16 +252,9 @@ interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
-  headless: HeadlessService
-  /** Lazy: the conversations service is constructed after this one (post-load slot). */
-  conversations(): ConversationsService
+  conversations: ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
   issues(): IssueService
-  /** Full issue-list reconcile through the publisher — the derived-ripple path
-   *  (closing an issue flips its dependents' wire rows with no write on them).
-   *  Its rows are appended at the write seam and served from the feed; there is
-   *  no snapshot tail behind it any more (POD-1203). */
-  publishIssues(sessions: SessionMeta[]): void
   /** The issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
   /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
@@ -317,7 +313,7 @@ export interface SessionSpawnResult {
 export class SessionLifecycle {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
-  readonly sessions = new Map<SessionId, Session>()
+  readonly sessions: Map<SessionId, Session>
   /**
    * THE CLIENT CONNECTION SET — OWNED BY THE GATEWAY (POD-390).
    *
@@ -338,7 +334,7 @@ export class SessionLifecycle {
   private readonly machines: MachinesService
   private readonly rpc: DaemonRpcService
   private readonly hosts: HostsService
-  private readonly headless: HeadlessService
+  readonly headless: HeadlessService
   /** Durable viewer/shared-surface state, isolated behind explicit ports. */
   readonly state: SessionStateService
   /** Backend auto-continue loop — re-arms retryable errored agents. */
@@ -383,6 +379,7 @@ export class SessionLifecycle {
 
   constructor(private readonly deps: SessionLifecycleDeps) {
     this.store = deps.store
+    this.sessions = deps.sessions ?? new Map()
     this.now = deps.now
     this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
     this.clients = deps.clients ?? new ClientRegistry()
@@ -390,7 +387,6 @@ export class SessionLifecycle {
     this.machines = deps.machines
     this.rpc = deps.rpc
     this.hosts = deps.hosts
-    this.headless = deps.headless
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
     const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
@@ -423,7 +419,7 @@ export class SessionLifecycle {
       issueGeneration: () => this.issueProjectionGeneration,
       listSessions: () => this.listSessions(),
       schedulePublication: (options) => this.publication.schedule(options),
-      publishIssues: (sessions) => this.deps.publishIssues(sessions),
+      publishIssues: (sessions) => this.bus.emit('session.listChanged', { sessions }),
       flushDeltas: () => this.funnel.flushDeltas(),
     })
     this.browserOpen = new BrowserOpenGateway({
@@ -512,6 +508,19 @@ export class SessionLifecycle {
       listSessions: () => this.view.list(),
       now: () => this.now(),
       appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+    })
+    this.headless = new HeadlessService({
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      registerSession: (session) => this.sessions.set(session.sessionId, session),
+      resolveMachine: (requested, cwd, agentKind) =>
+        this.machines.resolveMachineForAgent(requested, cwd, agentKind),
+      defaultMachine: () => this.machines.defaultMachine(),
+      toMachine: (machineId, message) => this.machines.toMachine(machineId, message),
+      nextRequestId: (prefix) => this.rpc.nextRequestId(prefix),
+      defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
+      persist: (session) => this.persist(session),
+      broadcastSessions: () => this.broadcastSessions(),
+      clients: () => this.clients.values(),
     })
     this.inbox = new SessionInbox({
       getSession: (sessionId) => this.sessions.get(sessionId),
@@ -814,7 +823,7 @@ export class SessionLifecycle {
   }
 
   private conversations(): ConversationsService {
-    return this.deps.conversations()
+    return this.deps.conversations
   }
   /**
    * Allocate and durably store the observer lease before its control message is

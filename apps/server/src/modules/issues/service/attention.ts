@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
-import { attributionOf, type SystemCommandPrincipal } from '../../../command-principal'
+import {
+  attributionOf,
+  onBehalfOfUser,
+  type CommandPrincipal,
+  type SystemCommandPrincipal,
+} from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { IssueStore } from './core'
@@ -88,6 +93,7 @@ export class IssueAttentionModule {
     newSubissue?: { title: string; origin: 'human' | 'agent' }
     newSpinoff?: { title: string; origin: 'human' | 'agent' }
     confirmRehome?: boolean
+    principal?: Exclude<CommandPrincipal, { kind: 'system' }>
   }): IssueWire {
     const { getSessionIssueId, setSessionIssueId } = this.store.deps
     if (!getSessionIssueId || !setSessionIssueId) {
@@ -133,6 +139,13 @@ export class IssueAttentionModule {
         // piece of work, so it is human-audience (visible on the board) even when
         // an agent created it (#198). The "agent cuts a human-facing issue" case.
         audience: 'human',
+        ...(opts.principal
+          ? {
+              ownerUserId: onBehalfOfUser(opts.principal) ?? undefined,
+              createdByActor: attributionOf(opts.principal).actor,
+              createdByOnBehalfOf: attributionOf(opts.principal).onBehalfOf,
+            }
+          : {}),
       })
       if (opts.newSpinoff) this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
       target = this.store.rowOrThrow(wire.id)
@@ -159,6 +172,7 @@ export class IssueAttentionModule {
       seq: target.seq,
       sessionId: opts.sessionId,
       ...(prevId ? { from: prevId } : {}),
+      ...(opts.principal ? { attribution: attributionOf(opts.principal) } : {}),
     })
     // Clean up the abandoned draft vessel it came from, if now completely empty.
     if (prevId) this.deleteIfEmptyDraft(prevId)
