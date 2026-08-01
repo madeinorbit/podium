@@ -26,11 +26,9 @@
  * WHAT IS NOT COVERED HERE, AND WHY
  * ---------------------------------------------------------------------------
  *
- * THE SECOND-ACCOUNT CHECK. `CLIENT_PRINCIPAL_GRADE` is still `device` — one
- * shared password — so two browsers here are the same principal by construction
- * and the transport cannot name two people (basis §5, and POD-351's spec records
- * the same gap for the write path). Producing a second user would mean faking the
- * thing under test. It is recorded as blocked, not as a passing box.
+ * CROSS-PRINCIPAL ISOLATION. This runtime case drives one authenticated principal;
+ * the storage suites separately plant a foreign cursor, collection and cross-tab
+ * event because a second browser in this auth-disabled harness is the same user.
  *
  * THE WRITE PATH. The rename below still drains through the client Outbox over
  * tRPC: this issue moved the READ model, and the kernel Outbox needs command

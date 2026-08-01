@@ -45,6 +45,28 @@ describe('principal replica storage', () => {
     expect(memory.keys().some((key) => key.startsWith(bob.keyPrefix))).toBe(true)
   })
 
+  it('degrades safely when the active marker cannot be persisted', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const namespace = preparePrincipalNamespace({
+      storage: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('quota exceeded')
+        },
+        removeItem: () => {},
+      },
+      enumerateKeys: () => [],
+      basePrefix: 'podium.replica',
+      principal: 'alice',
+    })
+
+    expect(namespace.keyPrefix).toBe(principalKeyPrefix('podium.replica', 'alice'))
+    expect(namespace.durable).toBe(false)
+    expect(namespace.knownPrincipals).toEqual([])
+    expect(warning).toHaveBeenCalledOnce()
+    warning.mockRestore()
+  })
+
   it('sign-out erases only the acting namespace and leaves the raw theme', () => {
     const memory = keyedStorage()
     memory.api.setItem('podium.theme.preset', 'superade')

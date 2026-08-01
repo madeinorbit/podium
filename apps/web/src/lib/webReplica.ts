@@ -153,10 +153,14 @@ export function createWebReplica(options: CreateWebReplicaOptions = {}): Replica
   // POD-1239's "byte-for-byte what it was" still holds. An injected store gets
   // NEITHER of the other two by default; see the options doc for why.
   const replica = createReplica({
-    storage,
+    ...(namespace.durable
+      ? {
+          storage,
+          storageEventApi: options.storageEventApi ?? (injected ? undefined : window),
+          enumerateKeys,
+        }
+      : {}),
     keyPrefix: namespace.keyPrefix,
-    storageEventApi: options.storageEventApi ?? (injected ? undefined : window),
-    enumerateKeys,
   })
 
   if (!adoption.adopt) {

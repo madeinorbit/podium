@@ -46,6 +46,7 @@ export interface PrincipalNamespaceInit {
 
 export interface PrincipalNamespace {
   readonly keyPrefix: string
+  readonly durable: boolean
   readonly knownPrincipals: readonly string[]
   readonly evictedPrincipals: readonly string[]
   /** Fail-closed sign-out policy: erase every key below this principal root. */
@@ -63,10 +64,9 @@ export function principalKeyPrefix(basePrefix: string, principal: string): strin
  * Record an authenticated principal, apply bounded retention, and return the
  * only prefix that composition roots may hand to persistence adapters.
  *
- * Marker persistence is loud. Namespaced entity writes can still proceed if the
- * marker is later evicted, but silently failing to record it would disable the
- * retention bound and identity evidence on precisely the quota path this policy
- * exists to control.
+ * Marker persistence failure is loud but nonfatal: the replica's persistence
+ * probe then degrades the principal slice to memory, so no retained data exists
+ * to cross a sign-in boundary. Existing durable namespaces are still bounded.
  */
 export function preparePrincipalNamespace(init: PrincipalNamespaceInit): PrincipalNamespace {
   const policy = init.policy ?? DEFAULT_PRINCIPAL_NAMESPACE_POLICY
@@ -78,19 +78,32 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
   const now = (init.now ?? Date.now)()
   const keyPrefix = principalKeyPrefix(init.basePrefix, init.principal)
   const markerKey = `${keyPrefix}${MARKER_SUFFIX}`
-  init.storage.setItem(
-    markerKey,
-    JSON.stringify({ principal: init.principal, lastUsedAt: now } satisfies NamespaceMarker),
-  )
+  let durable = true
+  try {
+    init.storage.setItem(
+      markerKey,
+      JSON.stringify({ principal: init.principal, lastUsedAt: now } satisfies NamespaceMarker),
+    )
+  } catch (error) {
+    durable = false
+    console.warn(
+      '[podium] principal namespace marker is not durable; using storage fallback',
+      error,
+    )
+  }
 
   const markers = readMarkers(init)
-  // The just-written active marker is authoritative even if an unusual storage
-  // enumerator has not reflected it yet.
-  markers.set(keyPrefix, {
-    keyPrefix,
-    principal: init.principal,
-    lastUsedAt: now,
-  })
+  if (!durable && markers.get(keyPrefix)?.principal === init.principal) durable = true
+  // A successfully written active marker is authoritative even if an unusual
+  // storage enumerator has not reflected it yet. A failed first write confers no
+  // durable identity evidence and cannot authorize persistent adapters.
+  if (durable) {
+    markers.set(keyPrefix, {
+      keyPrefix,
+      principal: init.principal,
+      lastUsedAt: now,
+    })
+  }
 
   const stale = [...markers.values()]
     .filter(
@@ -120,6 +133,7 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
 
   return {
     keyPrefix,
+    durable,
     knownPrincipals: [...new Set(survivors)],
     evictedPrincipals: [...new Set(evictedPrincipals)],
     erase: () => eraseRoot(init.storage, safeKeys(init.enumerateKeys), keyPrefix),

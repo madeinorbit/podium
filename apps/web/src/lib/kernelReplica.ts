@@ -111,6 +111,10 @@ export async function openKernelAssembly(
     basePrefix: KERNEL_SIDE_CACHE_PREFIX,
     principal: options.principal,
   })
+  if (!namespace.durable) {
+    store.close()
+    throw new Error('principal namespace marker is unavailable')
+  }
   // Apply the same bounded-retention decision to transactional regions before
   // the acting slice is read.
   for (const stalePrincipal of namespace.evictedPrincipals) {

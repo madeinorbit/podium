@@ -348,6 +348,9 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     principal,
     now: deps.now,
   })
+  if (!namespace.durable) {
+    deps.onDegraded('Offline entity storage is unavailable; this session will stay in memory.')
+  }
   for (const stalePrincipal of namespace.evictedPrincipals) {
     await store.erasePrincipal(stalePrincipal)
   }
@@ -365,11 +368,15 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     transact: store.unitOfWork.transact,
     resolveCommand: resolveMobileCommand,
     attribution,
-    evidence: deps.evidence ?? {
-      kind: 'multi-user',
-      signedInAs: principal,
-      identitiesEverSignedIn: namespace.knownPrincipals,
-    },
+    evidence:
+      deps.evidence ??
+      (namespace.durable
+        ? {
+            kind: 'multi-user',
+            signedInAs: principal,
+            identitiesEverSignedIn: namespace.knownPrincipals,
+          }
+        : { kind: 'unknown' }),
     now: deps.now ?? Date.now,
   })
 
@@ -382,7 +389,10 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
 
   return {
     replica: withDurableOutbox(
-      createReplica({ storage: deps.storage, keyPrefix: namespace.keyPrefix }),
+      createReplica({
+        ...(namespace.durable ? { storage: deps.storage } : {}),
+        keyPrefix: namespace.keyPrefix,
+      }),
       outboxes,
     ),
     outcome,
