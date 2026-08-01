@@ -496,11 +496,40 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
   })
 }
 
+function stopSessionProcess(
+  ctx: DaemonContext,
+  msg: { sessionId: SessionId; durableLabel?: string },
+): void {
+  const session = ctx.bridges.get(msg.sessionId)
+  ctx.observers.clearSession(msg.sessionId)
+  if (session) {
+    session.dispose()
+    ctx.bridges.delete(msg.sessionId)
+    ctx.outputScheduler.remove(msg.sessionId)
+  }
+  // Reap the durable host unconditionally — NOT only when a bridge exists.
+  // Generic kill is process policy (hibernate, stop, handoff); retirement is a
+  // separate server-authored binding transition.
+  if (ctx.backend !== 'none') {
+    const durableLabel =
+      msg.durableLabel ??
+      ctx.durableLabels.get(msg.sessionId) ??
+      ctx.durableLabelFor(msg.sessionId)
+    void (async () => {
+      await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+    })()
+  }
+  ctx.durableLabels.delete(msg.sessionId)
+  removeSessionUploads(msg.sessionId)
+  removeSessionInstructions(ctx, msg.sessionId)
+}
 export const sessionHandlers: Pick<
   ControlHandlers,
   | 'spawn'
   | 'reattach'
   | 'kill'
+  | 'sessionBindingRetire'
+  | 'sessionResumeRefConflict'
   | 'input'
   | 'resize'
   | 'redraw'
@@ -518,33 +547,42 @@ export const sessionHandlers: Pick<
   reattach: (ctx, msg) => {
     void handleReattach(ctx, msg)
   },
+
   kill: (ctx, msg) => {
-    const session = ctx.bridges.get(msg.sessionId)
-    ctx.observers.clearSession(msg.sessionId)
-    if (session) {
-      session.dispose()
-      ctx.bridges.delete(msg.sessionId)
-      ctx.outputScheduler.remove(msg.sessionId)
-    }
-    // Reap the durable host unconditionally — NOT only when a bridge exists.
-    // After a daemon restart a session can be live server-side with no local
-    // bridge (attachDaemon only re-binds 'reconnecting' sessions); if kill
-    // skipped the reap there, hibernate/kill would leave the abduco/tmux
-    // master (and its agent) running. Both reapers are cheap no-ops when the
-    // label isn't theirs. The async reapers keep burst kills (superagent,
-    // auto-hibernation) from stalling every other session.
-    if (ctx.backend !== 'none') {
-      const durableLabel =
-        msg.durableLabel ??
-        ctx.durableLabels.get(msg.sessionId) ??
-        ctx.durableLabelFor(msg.sessionId)
-      void (async () => {
-        await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
-      })()
-    }
-    ctx.durableLabels.delete(msg.sessionId)
-    removeSessionUploads(msg.sessionId)
-    removeSessionInstructions(ctx, msg.sessionId)
+    stopSessionProcess(ctx, msg)
+  },
+  sessionBindingRetire: (ctx, msg) => {
+    void ctx.sessionBinding
+      .transition({
+        event: 'retire',
+        transitionId: msg.transitionId,
+        sessionId: msg.sessionId,
+        retiredAt: msg.retiredAt,
+      })
+      .then((outcome) => {
+        const failure = bindingFailureMessage(outcome)
+        if (failure) {
+          console.warn(`[podium] could not retire binding ${msg.sessionId}: ${failure}`)
+        }
+        stopSessionProcess(ctx, msg)
+      })
+      .catch((err) => {
+        console.warn(`[podium] could not retire binding ${msg.sessionId}:`, err)
+        stopSessionProcess(ctx, msg)
+      })
+  },
+  sessionResumeRefConflict: (ctx, msg) => {
+    void ctx.sessionBinding
+      .recordReceiptConflict({
+        sessionId: msg.sessionId,
+        conflictId: msg.conflictId,
+        resume: msg.resume,
+        conflictingSessionIds: msg.conflictingSessionIds,
+        observedAt: msg.observedAt,
+      })
+      .catch((err) =>
+        console.warn('[podium] could not record native identity conflict:', err),
+      )
   },
   input: (ctx, msg) => {
     const input = Buffer.from(msg.data, 'base64').toString('utf8')
@@ -574,8 +612,8 @@ export const sessionHandlers: Pick<
     ctx.observers.onProviderRebindAck(msg)
   },
   sessionResumeRefAck: (ctx, msg) => {
-    void ctx.bindingStore
-      .acknowledgePendingReceipt(msg.ownerId, msg.sessionId, msg.resume)
+    void ctx.sessionBinding
+      .acknowledgeReceipt(msg.ownerId, msg.sessionId, msg.resume)
       .catch((err) => console.warn('[podium] could not acknowledge Codex identity receipt:', err))
   },
   sessionPriority: (ctx, msg) => {

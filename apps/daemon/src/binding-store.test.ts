@@ -221,7 +221,12 @@ describe('BindingStore records', () => {
       store.currentDelegation(requiredBinding(await store.read(bobSession)))?.parentBindingId,
     ).toBe(aliceSession)
 
-    await store.retire(aliceSession, '2026-07-31T11:00:00.000Z')
+    await store.transition({
+      event: 'retire',
+      transitionId: `retire:${aliceSession}`,
+      sessionId: aliceSession,
+      retiredAt: '2026-07-31T11:00:00.000Z',
+    })
     expect(store.currentDelegation(requiredBinding(await store.read(aliceSession)))).toBeNull()
     expect(await store.bindingsForOwner(alice)).toEqual([])
   })

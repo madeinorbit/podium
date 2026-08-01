@@ -31,6 +31,17 @@ export const SessionResumeRefAckMessage = z.object({
   ownerId: UserIdField.optional(),
 })
 
+/** Server verdict for an exact native-id collision. Both host observations
+ * remain durable and pending; this frame records the visible conflict only. */
+export const SessionResumeRefConflictMessage = z.object({
+  type: z.literal('sessionResumeRefConflict'),
+  sessionId: SessionIdField,
+  resume: ResumeRef,
+  conflictId: z.string().min(1),
+  conflictingSessionIds: z.array(SessionIdField).min(1),
+  observedAt: z.string().min(1),
+})
+
 // ---- Browser client -> server: terminal control frames ----
 /** Client capability: the client consumes `metadataDelta` streams, so the server
  *  must stop sending it the full-list snapshot rebroadcasts (it still gets the
@@ -398,6 +409,15 @@ export const ReattachMessage = z.object({
 export const KillMessage = z.object({
   type: z.literal('kill'),
   sessionId: SessionIdField,
+  durableLabel: z.string().optional(),
+})
+/** Terminal Session deletion. Unlike `kill`, this ends the binding delegation
+ * after the server has durably tombstoned the Session row. */
+export const SessionBindingRetireMessage = z.object({
+  type: z.literal('sessionBindingRetire'),
+  sessionId: SessionIdField,
+  transitionId: z.string().min(1),
+  retiredAt: z.string().min(1),
   durableLabel: z.string().optional(),
 })
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,

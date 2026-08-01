@@ -13,6 +13,7 @@ interface SessionOwnership {
 
 export interface SessionBindingReceiptsDeps {
   store: SessionStore
+  now(): number
   sessions(): Iterable<Session>
   session(sessionId: SessionId): Session | undefined
   sessionOwner(sessionId: SessionId): SessionOwnership | undefined
@@ -47,6 +48,7 @@ export class SessionBindingReceipts {
         ? [...this.deps.sessions()].filter(
             (other) =>
               other.sessionId !== session.sessionId &&
+              ['starting', 'live', 'reconnecting'].includes(other.status) &&
               !other.headless &&
               harnessRequiresExclusiveInteractiveResume(other.agentKind) &&
               other.resume?.kind === message.resume.kind &&
@@ -60,12 +62,27 @@ export class SessionBindingReceipts {
         )
         return
       }
-      for (const conflict of conflicts) {
-        conflict.resume = undefined
-        conflict.conversationPodiumId = undefined
-        this.deps.persist(conflict)
+      const participants = [session, ...conflicts].sort((a, b) =>
+        a.sessionId.localeCompare(b.sessionId),
+      )
+      const participantIds = participants.map((participant) => participant.sessionId)
+      const conflictId =
+        `resume-conflict:${message.resume.kind}:${message.resume.value}:${participantIds.join(',')}`
+      const observedAt = new Date(this.deps.now()).toISOString()
+      for (const participant of participants) {
+        this.deps.toMachine(participant.machineId, {
+          type: 'sessionResumeRefConflict',
+          sessionId: participant.sessionId,
+          resume: message.resume,
+          conflictId,
+          conflictingSessionIds: participantIds.filter((id) => id !== participant.sessionId),
+          observedAt,
+        })
       }
-      this.deps.broadcastSessions()
+      console.warn(
+        `[podium] exact native identity conflict ${message.resume.value} across ${participantIds.join(', ')}`,
+      )
+      return
     }
 
     if (
