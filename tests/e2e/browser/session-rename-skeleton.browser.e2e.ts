@@ -180,9 +180,17 @@ async function renameViaUi(page: Page, sessionId: string, to: string): Promise<v
 async function renameViaSidebar(page: Page, sessionId: string, to: string): Promise<void> {
   const row = sidebar(page).locator(`[data-session="${sessionId}"]`)
   await row.waitFor({ state: 'visible', timeout: 45_000 })
-  await row.getByRole('button').first().dblclick()
   const editor = row.locator('input[type="text"]').first()
-  await editor.waitFor({ state: 'visible', timeout: 10_000 })
+  const primary = row.locator(':scope > button[data-pressable]')
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await primary.dblclick()
+    const opened = await editor
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false)
+    if (opened) break
+    if (attempt === 1) throw new Error(`sidebar rename editor never opened for ${sessionId}`)
+  }
   await editor.fill(to)
   await editor.press('Enter')
 }
@@ -343,7 +351,6 @@ test.describe('session.rename on the target path, end to end', () => {
 test('kernel Outbox dead-letter retry, edit, and discard after a live apply refusal', async ({
   browser,
   context: ownerContext,
-  page: ownerPage,
 }) => {
   test.skip(!OWNER_PASSWORD, 'requires PODIUM_PASSWORD so two production principals can log in')
   if (!OWNER_PASSWORD) return
@@ -389,52 +396,59 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
         sameSite: 'Lax',
       },
     ])
-    const issue = await rpc<{ id: string }>(memberContext.request, 'issues.create', {
+    const memberPage = await memberContext.newPage()
+    const issue = await rpc<{ id: string }>(ownerContext.request, 'issues.create', {
       repoPath,
       title: `Phase 3 outbox ${Date.now()}`,
       startNow: false,
     })
-    const grant = { id: issue.id, grantee: owner, verb: 'write' }
-    await rpc(memberContext.request, 'issues.share', grant)
+    const grant = { id: issue.id, grantee: member, verb: 'write' }
+    await rpc(ownerContext.request, 'issues.share', grant)
     await rpc(ownerContext.request, 'issues.start', { id: issue.id, agentKind: 'claude' })
+    await rpc(ownerContext.request, 'issues.addSession', { id: issue.id, agentKind: 'claude' })
 
     let sessionId: string | undefined
     await expect
       .poll(async () => {
         const sessions = await rpc<Array<{ sessionId: string; issueId?: string }>>(
-          ownerContext.request,
+          memberContext.request,
           'sessions.list',
           undefined,
           'get',
         )
-        sessionId = sessions.find((session) => session.issueId === issue.id)?.sessionId
-        return sessionId
+        const issueSessions = sessions.filter((session) => session.issueId === issue.id)
+        sessionId = issueSessions[0]?.sessionId
+        return issueSessions.length >= 2 ? sessionId : undefined
       })
       .not.toBeUndefined()
     if (!sessionId) throw new Error('shared issue agent did not appear for grantee')
 
-    const ownerSlice = await rpc<{
+    const memberSlice = await rpc<{
       rows: Array<{ entity: string; entityId: string }>
-    }>(ownerContext.request, 'sync.feedSlice', undefined, 'get')
-    expect(ownerSlice.rows).toEqual(
+    }>(memberContext.request, 'sync.feedSlice', undefined, 'get')
+    expect(memberSlice.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ entity: 'issue', entityId: issue.id }),
         expect.objectContaining({ entity: 'session', entityId: sessionId }),
       ]),
     )
 
-    await openBareApp(ownerPage)
-    await expect.poll(() => ownerPage.evaluate(() => globalThis.__podiumReplicaPath)).toBe('kernel')
+    await openBareApp(memberPage)
+    await expect.poll(() => memberPage.evaluate(() => globalThis.__podiumReplicaPath)).toBe('kernel')
     await expect
-      .poll(() => kernelEntityKeys(ownerPage), { timeout: 30_000 })
+      .poll(() => kernelEntityKeys(memberPage), { timeout: 30_000 })
       .toEqual(
-        expect.arrayContaining([`${owner}:issue:${issue.id}`, `${owner}:session:${sessionId}`]),
+        expect.arrayContaining([`${member}:issue:${issue.id}`, `${member}:session:${sessionId}`]),
       )
-    await expectConverged(ownerPage, 'Phase 3 outbox')
-    const chip = ownerPage.getByTestId('outbox-recovery-chip')
+    await expectConverged(memberPage, 'Phase 3 outbox')
+    await memberPage
+      .locator('[data-issue-row="' + issue.id + '"]')
+      .getByRole('button', { name: /^Expand / })
+      .click()
+    const chip = memberPage.getByTestId('outbox-recovery-chip')
 
     const restore = async (): Promise<void> => {
-      await rpc(memberContext.request, 'issues.share', grant)
+      await rpc(ownerContext.request, 'issues.share', grant)
     }
     const serverName = async (): Promise<string | undefined> => {
       const sessions = await rpc<Array<{ sessionId: string; name?: string }>>(
@@ -447,17 +461,17 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     }
     const parkRevokedGrant = async (name: string): Promise<void> => {
       const renameTransport = '**/trpc/sessions.rename*'
-      await ownerPage.route(renameTransport, (route) => route.abort('internetdisconnected'))
-      await renameViaSidebar(ownerPage, sessionId, name)
-      await expect(sidebar(ownerPage).locator('[data-session="' + sessionId + '"]')).toContainText(
+      await memberPage.route(renameTransport, (route) => route.abort('internetdisconnected'))
+      await renameViaSidebar(memberPage, sessionId, name)
+      await expect(sidebar(memberPage).locator('[data-session="' + sessionId + '"]')).toContainText(
         name,
       )
-      await expect.poll(() => kernelOutboxStates(ownerPage)).toContain('queued')
-      await rpc(memberContext.request, 'issues.unshare', grant)
-      await ownerPage.unroute(renameTransport)
-      await ownerPage.evaluate(() => window.dispatchEvent(new Event('online')))
+      await expect.poll(() => kernelOutboxStates(memberPage)).toContain('queued')
+      await rpc(ownerContext.request, 'issues.unshare', grant)
+      await memberPage.unroute(renameTransport)
+      await memberPage.evaluate(() => window.dispatchEvent(new Event('online')))
       await expect
-        .poll(() => kernelOutboxStates(ownerPage), { timeout: 60_000 })
+        .poll(() => kernelOutboxStates(memberPage), { timeout: 60_000 })
         .toContain('dead-letter')
       await expect(chip).toBeVisible({ timeout: 60_000 })
     }
@@ -465,10 +479,10 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     const retried = `phase3-retry-${Date.now()}`
     await parkRevokedGrant(retried)
     await chip.click()
-    await expect(ownerPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
-    await phase3Shot(ownerPage, '01-live-authorization-dead-letter')
+    await expect(memberPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await phase3Shot(memberPage, '01-live-authorization-dead-letter')
     await restore()
-    await ownerPage.getByTestId('outbox-retry').click()
+    await memberPage.getByTestId('outbox-retry').click()
     await expect(chip).toBeHidden({ timeout: 30_000 })
     await expect.poll(serverName).toBe(retried)
 
@@ -476,20 +490,20 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     const edited = `phase3-edit-recovered-${Date.now()}`
     await parkRevokedGrant(originalEdit)
     await chip.click()
-    await expect(ownerPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
-    await ownerPage.getByRole('button', { name: 'Edit', exact: true }).click()
-    await ownerPage.getByRole('textbox', { name: 'Your text' }).fill(edited)
-    await phase3Shot(ownerPage, '02-edit-recovery-before-send')
+    await expect(memberPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await memberPage.getByRole('button', { name: 'Edit', exact: true }).click()
+    await memberPage.getByRole('textbox', { name: 'Your text' }).fill(edited)
+    await phase3Shot(memberPage, '02-edit-recovery-before-send')
     await restore()
-    await ownerPage.getByRole('button', { name: 'Save and send', exact: true }).click()
+    await memberPage.getByRole('button', { name: 'Save and send', exact: true }).click()
     await expect(chip).toBeHidden({ timeout: 30_000 })
     await expect.poll(serverName).toBe(edited)
 
     const discarded = `phase3-discard-${Date.now()}`
     await parkRevokedGrant(discarded)
     await chip.click()
-    await phase3Shot(ownerPage, '03-discard-recovery-before-cancel')
-    await ownerPage.getByRole('button', { name: 'Discard', exact: true }).click()
+    await phase3Shot(memberPage, '03-discard-recovery-before-cancel')
+    await memberPage.getByRole('button', { name: 'Discard', exact: true }).click()
     await expect(chip).toBeHidden({ timeout: 30_000 })
     expect(await serverName()).not.toBe(discarded)
   } finally {
