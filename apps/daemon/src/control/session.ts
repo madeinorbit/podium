@@ -1,8 +1,7 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import { agentStateProviderFor, type LaunchFile } from '@podium/harness'
+import { agentStateProviderFor, harnessCapabilitiesFor, type LaunchFile } from '@podium/harness'
 import { type AgentKind, asMachineId, type SessionId } from '@podium/model'
-import { AGENT_CAPABILITIES } from '@podium/protocol'
 import {
   type AgentSession,
   abducoHasSession,
@@ -123,7 +122,7 @@ export function wireBridge(
   // frame-rate), which would clobber the real title the codex observer derives
   // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
   // title, so forward it for them.
-  if (AGENT_CAPABILITIES[agentKind].oscTitle) {
+  if (harnessCapabilitiesFor(agentKind)?.oscTitle ?? true) {
     session.onTitle((title) => ctx.send({ type: 'title', sessionId, title }))
   }
   session.onExit((code) => {

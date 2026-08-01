@@ -1,14 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { AGENT_CAPABILITIES } from '@podium/protocol'
-import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
+import { claudeRecordToItems } from '@podium/transcript'
 import { claudeCodeStateProvider } from '../agent-state/claude-code.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
 import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
+  fileTranscript,
   isSet,
   supported,
   type TranscriptSourceInput,
@@ -32,7 +32,21 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
 
 export const claudeCodeManifest: AgentManifest = {
   kind: 'claude-code',
-  capabilities: AGENT_CAPABILITIES['claude-code'],
+  displayName: 'Claude',
+  capabilities: {
+    argvPrompt: true,
+    effortFlag: 'effort',
+    systemPromptFlag: true,
+    quota: true,
+    cloud: true,
+    composerScrape: true,
+    oscTitle: true,
+    subagentModelEnv: true,
+    promptModeHints: true,
+    handoff: true,
+    mcp: 'full',
+    hookInstall: 'settings-args',
+  },
   resumeKind: 'claude-session',
 
   inventory: {
@@ -164,14 +178,7 @@ export const claudeCodeManifest: AgentManifest = {
 
   discovery: createClaudeCodeConversationProvider(),
 
-  transcript: supported({
-    storage: 'file-chain',
-    chainPaths: supported(chainPaths),
-    async sourceFor(input) {
-      const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
-      return fileChainSource(chain, recordToItemsForKind('claude-code'))
-    },
-  }),
+  transcript: supported(fileTranscript(chainPaths, claudeRecordToItems)),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every
   // other claude.ai/console.anthropic.com URL the CLI opens (artifacts, docs,

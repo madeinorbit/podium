@@ -62,6 +62,14 @@ export interface ScanReposResult {
   diagnostics: GitDiscoveryDiagnosticWire[]
 }
 
+/** Identity of the server-side reader requesting personal transcript content.
+ * Authorization belongs at this boundary; the daemon and @podium/transcript run
+ * as system-side readers and never receive or interpret this value. */
+export type TranscriptReader =
+  | { kind: 'user'; id: string }
+  | { kind: 'agent'; id: string }
+  | { kind: 'system'; id: string }
+
 /** One machine's directory listing, or why it couldn't be read (POD-814). */
 export interface BrowseDirsResult {
   listing?: DirectoryListingWire
@@ -662,12 +670,18 @@ export class DaemonRpcService {
    * buffer. Resolves an empty, hasMore:false page when the session is unknown or no
    * daemon answers.
    */
-  async readTranscript(input: {
-    sessionId: SessionId
-    anchor?: string
-    direction: 'before' | 'after'
-    limit: number
-  }): Promise<TranscriptSlice> {
+  async readTranscript(
+    input: {
+      sessionId: SessionId
+      anchor?: string
+      direction: 'before' | 'after'
+      limit: number
+    },
+    reader: TranscriptReader,
+  ): Promise<TranscriptSlice> {
+    // Required even before scoped session reads land: callers cannot accidentally
+    // bake in an ambient operator. POD-1077 installs the visibility decision here.
+    void reader
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { items: [], hasMore: false }
     // Leg timing [POD-701]: transcriptRead.daemon / transcriptRead.lake record

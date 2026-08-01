@@ -1,10 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
-import { claudeRecordToItems } from './claude'
-import { codexRecordToItems } from './codex'
-import { cursorRecordToItems } from './cursor'
 import { decodeCursor, encodeCursor } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
-import { grokRecordToItems } from './grok'
 import { type OpencodeMessagePartRow, opencodePartToItems } from './opencode'
 import { readTranscriptSlice, readTranscriptSliceCached, type SliceResult } from './slice'
 
@@ -34,6 +30,11 @@ export interface TranscriptSource {
     cached?: boolean
   }): Promise<SliceResult>
 }
+
+/** Pure parser from one harness-native record to neutral transcript items. The
+ * implementations live in this package; selection belongs to the harness
+ * manifest so adding a CLI never mutates a second registry here. */
+export type TranscriptRecordMapper = (record: unknown) => TranscriptItem[]
 
 // ---------------------------------------------------------------------------
 // File-chain source — the file-based harnesses (claude/codex/grok/cursor).
@@ -169,35 +170,4 @@ function findOpencodeAnchorIndex(items: TranscriptItem[], anchor: string): numbe
       c.sub === want.sub
     )
   })
-}
-
-// ---------------------------------------------------------------------------
-// Per-kind record mapper.
-// ---------------------------------------------------------------------------
-
-/** The per-kind record→items mapper registry. Seeded with the built-in
- *  harnesses; `registerTranscriptRecordMapper` is the extension seam a new
- *  harness's adapter uses to plug its parser in (this package stays a
- *  near-leaf — implementations register from outside, it imports nothing). */
-const RECORD_MAPPERS: Record<string, (r: unknown) => TranscriptItem[]> = {
-  'claude-code': claudeRecordToItems,
-  codex: codexRecordToItems,
-  cursor: cursorRecordToItems,
-  grok: grokRecordToItems,
-}
-
-/** Register (or override) the record→items mapper for an agent kind. */
-export function registerTranscriptRecordMapper(
-  agentKind: string,
-  mapper: (r: unknown) => TranscriptItem[],
-): void {
-  RECORD_MAPPERS[agentKind] = mapper
-}
-
-/** Per-harness record→items mapper, mirroring the daemon's `resolveTranscriptSource`.
- *  Exported for the server's lake-fallback read (docs/spec/search-v1.md §2.2): the
- *  lake file is the native JSONL byte-verbatim, so the same mapper applies.
- *  Unknown kinds fall back to the claude mapper (historical behavior). */
-export function recordToItemsForKind(agentKind: string): (r: unknown) => TranscriptItem[] {
-  return RECORD_MAPPERS[agentKind] ?? claudeRecordToItems
 }

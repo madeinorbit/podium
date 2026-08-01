@@ -575,15 +575,19 @@ export function checkRuntimeBarrelPurity(repoRoot: string): Violation[] {
  * They describe SOFTWARE and drive PROCESSES; they never answer "who is acting,
  * and for whom".
  */
-const PRINCIPAL_FREE_WORKSPACES: readonly string[] = ['packages/harness', 'packages/agent-bridge']
+const PRINCIPAL_FREE_WORKSPACES: readonly string[] = [
+  'packages/harness',
+  'packages/transcript',
+  'packages/agent-bridge',
+]
 
 /**
  * Identifiers that carry a principal, an authorization decision, or a visibility
  * class. Matched as whole words in a workspace's IMPORT CLAUSES only — this is a
  * "what did you pull in" rule, not a full taint analysis.
  *
- * DELIBERATELY EXCLUDES `AgentCapabilities` / `AGENT_CAPABILITIES`. That is the
- * harness CAPABILITY DESCRIPTOR ("does this CLI support an argv prompt?") and has
+ * DELIBERATELY EXCLUDES `HarnessCapabilities`. That is the harness CAPABILITY
+ * DESCRIPTOR ("does this CLI support an argv prompt?") and has
  * nothing to do with an authorization capability. The two senses of the word
  * collide exactly here, which is why the exclusion is written down rather than
  * left to whoever next reads a failure.
@@ -609,8 +613,8 @@ const PRINCIPAL_IDENTIFIERS: readonly string[] = [
 const PRINCIPAL_RE = new RegExp(`\\b(${PRINCIPAL_IDENTIFIERS.join('|')})\\b`)
 
 /**
- * Rule: packages/harness (and the pty half until POD-399 deletes it) must not
- * import a principal, user, grant or visibility type.
+ * Rule: packages/harness, packages/transcript (and the pty half until POD-399
+ * deletes it) must not import a principal, user, grant or visibility type.
  *
  * WHY IT IS A LINT rather than a review note: the pressure to break this is
  * ordinary and arrives one call site at a time — someone threads a `currentUser`

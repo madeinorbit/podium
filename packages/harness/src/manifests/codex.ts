@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { AGENT_CAPABILITIES } from '@podium/protocol'
-import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
+import { codexRecordToItems } from '@podium/transcript'
 import {
   codexStateProvider,
   findCodexRolloutPath,
@@ -12,6 +11,7 @@ import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  fileTranscript,
   type HarnessObservationLease,
   isSet,
   supported,
@@ -136,7 +136,21 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
 
 export const codexManifest: AgentManifest = {
   kind: 'codex',
-  capabilities: AGENT_CAPABILITIES.codex,
+  displayName: 'Codex',
+  capabilities: {
+    argvPrompt: true,
+    effortFlag: 'codex-config',
+    systemPromptFlag: false,
+    quota: true,
+    cloud: true,
+    composerScrape: true,
+    oscTitle: false,
+    subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: true,
+    mcp: 'full',
+    hookInstall: 'global-env',
+  },
   resumeKind: 'codex-thread',
 
   inventory: {
@@ -443,14 +457,7 @@ export const codexManifest: AgentManifest = {
 
   discovery: createCodexConversationProvider(),
 
-  transcript: supported({
-    storage: 'file-chain',
-    chainPaths: supported(chainPaths),
-    async sourceFor(input) {
-      const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
-      return fileChainSource(chain, recordToItemsForKind('codex'))
-    },
-  }),
+  transcript: supported(fileTranscript(chainPaths, codexRecordToItems)),
 
   // Codex login goes through auth.openai.com (loopback redirect to :1455);
   // chatgpt.com / platform.openai.com opens are plain links. Unknown hosts

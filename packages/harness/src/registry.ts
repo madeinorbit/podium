@@ -1,7 +1,8 @@
 import type { AgentKind, HarnessAgent } from '@podium/model'
 import { type BuiltinHarnessKind, isBuiltinHarnessKind } from '@podium/protocol'
+import type { TranscriptRecordMapper } from '@podium/transcript'
 import type { AgentStateProvider } from './agent-state/types.js'
-import { type AgentManifest, declaredValue } from './manifest.js'
+import { type AgentManifest, declaredValue, type HarnessCapabilities } from './manifest.js'
 import { claudeCodeManifest } from './manifests/claude-code.js'
 import { codexManifest } from './manifests/codex.js'
 import { cursorManifest } from './manifests/cursor.js'
@@ -39,6 +40,56 @@ export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {
  */
 export function manifestFor(kind: AgentKind | string): AgentManifest | undefined {
   return isBuiltinHarnessKind(kind) ? AGENT_MANIFESTS[kind] : undefined
+}
+
+/** Static feature declarations for a known harness. Unknown ids and `shell`
+ * degrade to no special capabilities rather than borrowing another CLI's row. */
+export function harnessCapabilitiesFor(kind: AgentKind | string): HarnessCapabilities | undefined {
+  return manifestFor(kind)?.capabilities
+}
+
+export function harnessSupportsInitialPrompt(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.argvPrompt ?? false
+}
+
+export function harnessSupportsEffort(kind: AgentKind | string): boolean {
+  return (harnessCapabilitiesFor(kind)?.effortFlag ?? 'none') !== 'none'
+}
+
+export function harnessSupportsCloud(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.cloud ?? false
+}
+
+export function harnessShowsPromptModeHints(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.promptModeHints ?? false
+}
+
+export function harnessSupportsHandoff(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.handoff ?? false
+}
+
+export function harnessSupportsMcp(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.mcp === 'full'
+}
+
+export function harnessDisplayName(kind: AgentKind | string): string {
+  return manifestFor(kind)?.displayName ?? kind
+}
+
+export function harnessResumeKind(kind: HarnessAgent): string
+export function harnessResumeKind(kind: AgentKind | string): string | undefined
+export function harnessResumeKind(kind: AgentKind | string): string | undefined {
+  return manifestFor(kind)?.resumeKind
+}
+
+/** The native-record mapper declared by this CLI's manifest. SQLite-backed,
+ * unknown, and shell sessions have no JSONL mapper. */
+export function transcriptRecordMapperFor(
+  kind: AgentKind | string,
+): TranscriptRecordMapper | undefined {
+  const declaredTranscript = manifestFor(kind)?.transcript
+  const transcript = declaredTranscript ? declaredValue(declaredTranscript) : undefined
+  return transcript ? declaredValue(transcript.recordToItems) : undefined
 }
 
 /** @deprecated Renamed to {@link manifestFor}. Kept so POD-398/399 can retire the

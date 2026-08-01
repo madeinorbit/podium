@@ -1,8 +1,7 @@
-import type { SessionId } from '@podium/model'
 import { randomUUID } from '@podium/client-core/id'
 import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { agentShowsPromptModeHints } from '@podium/protocol'
+import type { SessionId } from '@podium/model'
 import {
   extractClaudePromptDraft,
   extractCodexPromptDraft,
@@ -1055,7 +1054,7 @@ export function AgentPanel({
               style={{ backgroundColor: termBg }}
             >
               <div className="border-t issue-hairline-35" aria-hidden="true" />
-              {session && agentShowsPromptModeHints(session.agentKind) && (
+              {session?.harnessPromptModeHints === true && (
                 <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] text-[9.5px] text-text-dim">
                   <span>(shift+tab to cycle modes)</span>
                   <span className="ml-auto">? for shortcuts</span>

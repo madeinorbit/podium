@@ -1,5 +1,4 @@
 import { join } from 'node:path'
-import { AGENT_CAPABILITIES } from '@podium/protocol'
 import {
   type OpencodeMessagePartRow,
   sliceItemsByAnchor,
@@ -45,7 +44,21 @@ export function opencodeDbSource(input: { sessionId: string; homeDir?: string })
 
 export const opencodeManifest: AgentManifest = {
   kind: 'opencode',
-  capabilities: AGENT_CAPABILITIES.opencode,
+  displayName: 'opencode',
+  capabilities: {
+    argvPrompt: false,
+    effortFlag: 'variant',
+    systemPromptFlag: false,
+    quota: false,
+    cloud: false,
+    composerScrape: false,
+    oscTitle: true,
+    subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: false,
+    mcp: 'none',
+    hookInstall: 'none',
+  },
   resumeKind: 'opencode-session',
 
   inventory: {
@@ -148,6 +161,7 @@ export const opencodeManifest: AgentManifest = {
     // SQLite-backed — no file chain; the DB adapter serves the same cursor
     // contract as the chain reader.
     storage: 'sqlite',
+    recordToItems: unsupported('opencode maps typed SQLite rows rather than native JSONL records'),
     chainPaths: unsupported('opencode stores transcripts in SQLite — there are no files to chain'),
     async sourceFor(input) {
       // No resume value → nothing to read; hand back an inert empty source so

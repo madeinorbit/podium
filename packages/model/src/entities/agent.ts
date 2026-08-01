@@ -8,10 +8,9 @@
  * names verbatim, so every existing import site keeps working.
  *
  * This file is the IDENTITY half of harness identity. The BEHAVIOUR half —
- * per-kind capability flags, launch commands, manifests — deliberately stays out
- * of L0: it lives in `@podium/protocol`'s capability table and in
- * `@podium/harness`'s `AgentManifest` registry, which is what the architecture
- * manifest's harness axiom enforces.
+ * per-kind capability flags and launch commands — deliberately stays out of L0:
+ * it lives in `@podium/harness`'s `AgentManifest` registry, which is what the
+ * architecture manifest's harness axiom enforces.
  *
  * ## Open on the wire, closed in-repo
  *

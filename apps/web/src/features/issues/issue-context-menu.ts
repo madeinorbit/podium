@@ -7,7 +7,6 @@ import {
   type IssueId,
   type SessionMeta,
 } from '@podium/model'
-import { agentSupportsHandoff } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 import type { IssuesKeyState } from './issues-keys'
 
@@ -51,9 +50,9 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
   const memberIds = issue.memberSessionIds ?? []
   const agents = memberIds
     .map((id) => byId.get(id))
-    // Handoff eligibility is a harness CAPABILITY, read from the one declarative
-    // table, not a pair of literals re-listed here (POD-1105).
-    .filter((s): s is SessionMeta => s !== undefined && agentSupportsHandoff(s.agentKind))
+    // The server projects this from the owning AgentManifest; old/unknown peers
+    // default closed rather than making the browser carry a second capability table.
+    .filter((s): s is SessionMeta => s !== undefined && s.harnessHandoff === true)
   if (agents.length === 0) return { blocker: 'no-agent-session' }
   if (agents.length > 1) return { blocker: 'multiple-sessions' }
   const session = agents[0] as SessionMeta

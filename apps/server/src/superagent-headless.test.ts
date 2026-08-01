@@ -4,6 +4,7 @@
 // resume value, and "open in terminal" takes a one-writer lock.
 
 import { asThreadId } from '@podium/model'
+import { harnessResumeKind } from './harness-manifest'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -11,7 +12,6 @@ import {
   buildHandoffSeed,
   explicitlyRequestsExpandedResponse,
   NORMAL_RESPONSE_WORD_LIMIT,
-  RESUME_KIND,
   SuperagentService,
   superagentResponseContract,
   TURN_FAILED_MARKER,
@@ -179,7 +179,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     const meta = h.registry.modules.sessions
       .listSessions()
       .find((s) => s.sessionId === podiumSessionId)
-    expect(meta?.resume).toMatchObject({ kind: RESUME_KIND['claude-code'], value: 'h1' })
+    expect(meta?.resume).toMatchObject({ kind: harnessResumeKind('claude-code'), value: 'h1' })
     // ...and the NEXT turn RESUMES rather than silently starting a new conversation.
     await h.sa.sendTurn({ threadId: asThreadId('global'), text: 'again' })
     expect(h.turnReqs[1]?.resumeValue).toBe('h1')
@@ -535,7 +535,7 @@ describe('openInTerminal + one-writer lock', () => {
     expect(h.spawns[0]).toMatchObject({
       sessionId,
       agentKind: 'claude-code',
-      resume: { kind: RESUME_KIND['claude-code'], value: 'h1' },
+      resume: { kind: harnessResumeKind('claude-code'), value: 'h1' },
     })
     const meta = h.registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     expect(meta?.headless).toBeUndefined() // a normal PTY session

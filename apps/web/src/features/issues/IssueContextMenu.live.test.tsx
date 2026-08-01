@@ -65,6 +65,8 @@ const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'
     cwd: '/Users/mw/Source/other/podium/.worktrees/issue-779',
     machineId: MAC,
     status: 'live',
+    harnessHandoff:
+      over.harnessHandoff ?? ['claude-code', 'codex'].includes(over.agentKind ?? 'claude-code'),
     createdAt: 't',
     updatedAt: 't',
     unread: false,
@@ -131,7 +133,9 @@ describe('IssueContextMenu handoff (POD-850)', () => {
       repoWire(LUD, '/home/mgw/src/other/podium', []),
     ]
     state.machines = [machine(MAC), machine(LUD)]
-    state.sessions = [session({ sessionId: asSessionId('agent'), cwd: '/home/mgw/src/other/podium' })]
+    state.sessions = [
+      session({ sessionId: asSessionId('agent'), cwd: '/home/mgw/src/other/podium' }),
+    ]
     open(makeIssue({ worktreePath: null, memberSessionIds: ['agent'] }))
     const item = handoffItem()
     expect((item as HTMLButtonElement).disabled).toBe(true)

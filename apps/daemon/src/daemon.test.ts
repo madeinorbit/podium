@@ -8,7 +8,7 @@ import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { DaemonHandshakeReply } from '@podium/protocol'
-import { type DaemonMessage, encode as protocolEncode, parseDaemonMessage } from '@podium/protocol'
+import { type DaemonMessage, parseDaemonMessage, encode as protocolEncode } from '@podium/protocol'
 import {
   abducoHasSession,
   isAbducoAvailable,
@@ -2519,7 +2519,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
     expect(older?.hasMore).toBe(false)
   })
 
-  it('serves an opencode transcriptRead from the DB store', async () => {
+  it('serves and pages an opencode transcriptRead from the SQLite store', async () => {
     const home = trackTmp('podium-trx-oc-home-')
     const sid = 'oc-ses-read'
     seedOpencodeDb(home, asSessionId(sid), ['o0', 'o1', 'o2'])
@@ -2536,7 +2536,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       cwd: '/repo/oc',
       resume: { kind: 'opencode-session', value: sid },
       direction: 'before',
-      limit: 10,
+      limit: 2,
     })
     await waitFor(() =>
       srv.received.some((m) => m.type === 'transcriptReadResult' && m.requestId === 'r-oc'),
@@ -2545,8 +2545,30 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       (m): m is Extract<DaemonMessage, { type: 'transcriptReadResult' }> =>
         m.type === 'transcriptReadResult' && m.requestId === 'r-oc',
     )
-    expect(res?.items.map((i) => i.text)).toEqual(['o0', 'o1', 'o2'])
+    expect(res?.items.map((i) => i.text)).toEqual(['o1', 'o2'])
+    expect(res?.hasMore).toBe(true)
     expect(res?.items.every((i) => i.cursor?.startsWith('') ?? false)).toBe(true)
+
+    srv.send({
+      type: 'transcriptRead',
+      requestId: 'r-oc-older',
+      sessionId: 's-oc',
+      agentKind: 'opencode',
+      cwd: '/repo/oc',
+      resume: { kind: 'opencode-session', value: sid },
+      anchor: res?.head,
+      direction: 'before',
+      limit: 2,
+    })
+    await waitFor(() =>
+      srv.received.some((m) => m.type === 'transcriptReadResult' && m.requestId === 'r-oc-older'),
+    )
+    const older = srv.received.find(
+      (m): m is Extract<DaemonMessage, { type: 'transcriptReadResult' }> =>
+        m.type === 'transcriptReadResult' && m.requestId === 'r-oc-older',
+    )
+    expect(older?.items.map((i) => i.text)).toEqual(['o0'])
+    expect(older?.hasMore).toBe(false)
   })
 
   it('a live claude file tail emits transcriptDelta (with a tail cursor), not transcriptAppend', async () => {

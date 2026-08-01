@@ -68,6 +68,13 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     phase: 'POD-740',
     note: 'Imports ISSUE_SYSTEM_POINTER/SPEC_SYSTEM_POINTER from @podium/harness (was @podium/agent-bridge before the POD-397 split; same single import, same rule, same count). POD-740 moves those constants somewhere apps/server may legally reach.',
   },
+  {
+    rule: 'agent-bridge-consumers',
+    file: 'apps/server/src/harness-manifest.ts',
+    count: 1,
+    phase: 'POD-740',
+    note: 'Narrow static projection introduced by POD-398: capability metadata, resume labels and pure transcript mapper selection flow from the canonical per-CLI manifests without exposing process-driving APIs to server consumers. POD-740 moves this projection to an allowed browser-safe package.',
+  },
   // A third case of the SAME debt, found red on issue/279-integration (POD-1105).
   // Not new debt: this ledger was authored 2026-07-16 and the import landed
   // 2026-07-18 (ae03d500, "Establish causal session reattachment"), so it is an
@@ -137,7 +144,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     file: 'apps/web/src/features/terminal/AgentPanel.tsx',
     count: 2,
     phase: P5,
-    note: "Per-CLI composer scraping (claude box vs codex dim line) — capability knowledge that POD-325 folds into the manifest, or that could read @podium/composer's driver registry (see POD-1105's deferred note). The two claude-only display branches that were also counted here are gone: the prompt-mode hint row now asks AGENT_CAPABILITIES.promptModeHints, and the brand dot is a table lookup.",
+    note: "Per-CLI composer scraping (claude box vs codex dim line) — capability knowledge that POD-325 folds into the manifest, or that could read @podium/composer's driver registry (see POD-1105's deferred note). The two claude-only display branches that were also counted here are gone: the prompt-mode hint row now reads the server's manifest projection, and the brand dot is a table lookup.",
   },
   {
     rule: 'harness-branching',
