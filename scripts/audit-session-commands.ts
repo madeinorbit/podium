@@ -294,7 +294,7 @@ const ROUTER = 'apps/server/src/router.ts'
  * `contract-table-missing` finding, and `--probe` exercises that arm.
  */
 const CONTRACT_TABLES = [
-  'packages/commands/src/sessions/presence-commands.ts',
+  'packages/commands/src/sessions/session-state-commands.ts',
   'packages/commands/src/sessions/command-plane.ts',
 ]
 const SERVICE = 'apps/server/src/modules/sessions/service.ts'
@@ -481,7 +481,9 @@ function main(): void {
     process.exit(2)
   }
   if (wants('--probe')) {
-    console.log('session-surface audit: all 6 checks found their planted fixtures, and both non-firing probes stayed silent')
+    console.log(
+      'session-surface audit: all 6 checks found their planted fixtures, and both non-firing probes stayed silent',
+    )
     return
   }
 

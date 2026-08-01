@@ -33,7 +33,7 @@
  */
 
 import { z } from 'zod'
-import { sessionPresenceCommands } from './presence-commands'
+import { sessionStateCommands } from './session-state-commands'
 import type { CommandContract, OptimisticReducer } from '../contract'
 
 /**
@@ -65,7 +65,7 @@ import type { CommandContract, OptimisticReducer } from '../contract'
  * is stripped by this schema and is inert — `rename.test.ts` asserts the strip
  * against the parsed output rather than trusting the absence of a field.
  */
-export const sessionRenameInput = sessionPresenceCommands.defs.rename.input
+export const sessionRenameInput = sessionStateCommands.defs.rename.input
 export type SessionRenameInput = z.infer<typeof sessionRenameInput>
 
 /**
@@ -138,7 +138,11 @@ type AuthoredKind = 'user' | 'agent-session' | undefined
 
 const authoredKind = (authored: unknown): AuthoredKind => {
   const actor = (authored as { actor?: { kind?: unknown } } | undefined)?.actor
-  return actor?.kind === 'agent-session' ? 'agent-session' : actor?.kind === 'user' ? 'user' : undefined
+  return actor?.kind === 'agent-session'
+    ? 'agent-session'
+    : actor?.kind === 'user'
+      ? 'user'
+      : undefined
 }
 
 /**
@@ -205,7 +209,11 @@ export const sessionRenameReducer: OptimisticReducer<SessionRenameInput> = ({
   const clean = input.name.trim()
   return {
     kind: 'value',
-    value: { ...(base ?? {}), name: clean, ...(clean ? { nameSource: 'user' } : { nameSource: undefined }) },
+    value: {
+      ...(base ?? {}),
+      name: clean,
+      ...(clean ? { nameSource: 'user' } : { nameSource: undefined }),
+    },
   }
 }
 
@@ -246,7 +254,7 @@ export const sessionRenameContract: CommandContract<
   // class below is offline-eligible.
   //
   // `relay` is deliberately ABSENT, and its absence is a decision rather than an
-  // omission: POD-379 pins that the presence writes have no agent path today. An
+  // omission: POD-379 pins that the session-state writes have no agent path today. An
   // agent renames through `sessions.title`, which is a different command with its
   // own contract. Adding `relay` here would give every delegated agent a second,
   // unaudited route to the same field.

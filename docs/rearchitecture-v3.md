@@ -693,7 +693,7 @@ zero divergence required.
 #### POD-351 as-built — the walking skeleton
 
 **What moved.** Exactly one command. `sessions.rename` runs on the target path in
-production config; the other ten presence commands are untouched on the presence
+production config; the other ten session-state commands are untouched on the session-state
 envelope.
 
 *Re-pointed after POD-382 landed the 3.2 cutover.* This issue originally joined the
@@ -703,10 +703,10 @@ DERIVED from the contract tables by `modules/sessions/trpc.ts`, and
 `scripts/audit-session-commands.ts` fails the build if a `.mutation(` for a session
 appears in `router.ts` at all. So rename now arrives through that derived surface as
 its own manifest source, `walking-skeleton`, built by `renameProcedure()`. It stays
-in `TRPC_PRESENCE_NAMES` and keeps its presence contract — that contract is still
+in `TRPC_SESSION_STATE_NAMES` and keeps its session-state contract — that contract is still
 what declares its exposure and policy, and the both-directions exposure cross-check
 must keep covering it — while the manifest records that a DIFFERENT envelope runs it.
-Declaring a fourth source rather than special-casing inside `presenceProcedure` is
+Declaring a fourth source rather than special-casing inside `sessionStateProcedure` is
 what keeps "which commands are on which envelope" readable in the manifest, so a
 second command migrating later is a row that changes rather than a condition somebody
 has to find. The contract and the reducer were unchanged by the move, which is the
@@ -720,8 +720,8 @@ silently disable a shipped command. `MIGRATED_COMMANDS` is asserted to be exactl
 `['sessions.rename']`, so a list that grew would fail a test rather than pass a review.
 
 **The pairing, since the obvious one no longer exists.** POD-380 deleted the
-hand-written rename procedure. LEGACY is therefore `PresenceRegistry` (POD-380's
-envelope, the protocol `CommandDef`, a `PresencePrincipal`, `undefined` on success);
+hand-written rename procedure. LEGACY is therefore `SessionStateRegistry` (POD-380's
+envelope, the protocol `CommandDef`, a `SessionStatePrincipal`, `undefined` on success);
 TARGET is `modules/sessions/rename-target-path.ts` (the `@podium/commands` ADR 3
 contract, the real `CommandPrincipal` with its delegation chain resolved live, the
 contract's accept/reject outcome union). Both share the composition root's one
@@ -1088,7 +1088,7 @@ strings, invisible to every schema and count assertion.
   column applies one principal's marker to every reader — a property of a table with no
   user in its key, not of the command. With the key in place these four match their
   session twins, two of which are POD-379's `markRead`/`markUnread`.
-- **POD-1076 leaves the `willChange` corpus.** `oracle-presence.test.ts`'s
+- **POD-1076 leaves the `willChange` corpus.** `oracle-session-state.test.ts`'s
   characterization becomes a pinned must-not-change about the FEED (the unscoped
   broadcast serves one viewer to every DEVICE of one person), and POD-1076 is removed
   from `SUPERSEDING_ISSUES` — a landed issue left in that list keeps asserting that a
@@ -2249,6 +2249,19 @@ POD-387/POD-317, and consumed by both — building it twice is a gate-blocking d
 god-object audit items zero; module graph doc committed; session/issue/memory e2e green;
 live redeploy keeps sessions; multi-instance isolation suite green through the
 decomposition. `podium issue tree 291`.
+
+#### LEDGER ENTRY - POD-393 (4.3b durable session state): viewer, session and document stay distinct
+
+**Topology and vocabulary.** The extracted boundary is `modules/sessions/session-state/SessionStateService`, with the command envelope named `SessionStateRegistry` and the POD-392 oracle named `oracle-session-state.test.ts`. "Presence" is reserved for POD-1078's ephemeral identity-carrying rooms on the stream plane: live connections only, no durable rows, tombstones, funnel or oplog.
+
+**Field classification.** `readAt`, snooze, pins and tab order are settled per-user state and every session-scoped read/write resolves the calling principal's HUMAN `userId`; an agent carries its actor session separately and writes the on-behalf-of human's row. Sidebar/tab/pane layout remains client-local with no server row, while personal preferences already live behind the principal-scoped settings module and `user_preferences` store. Reaching into either sibling would share protected state merely to co-locate a taxonomy, so the modules share the `(userId, entityId)` contract instead.
+
+**The three explicit decisions routed to POD-1070.** `archived` is session-owned because archiving parks the session process and is therefore one fact for every authorized viewer. `workState` is session-owned because it describes the shared work; a done session is not done only for one viewer. The priority input is viewer-scoped and ephemeral (`viewState` per live client), while the value sent to the daemon is the strongest derived aggregate and its last-sent cache is transient; there is no durable priority-push flag to own or share.
+
+**Conflict-class accounting.** `readAt`, snooze, pins and tab order have left ADR 1 D3's field-LWW carve-out: their per-user keys make them single-writer. Personal preferences had already left through their own keyed store. `archived` and `workState` are shared session facts at the matrix's `exp-rev` class. The composer draft alone stays a shared document on today's whole-body field-LWW path because making it per-user would delete collaboration; it carries materialized text, authority revision, origin and a bounded history tail so the reserved `op-stream` implementation can replace the write algorithm without a table migration. This issue does not implement that op stream.
+
+**Closed default and cohesion review.** Invisible and nonexistent sessions collapse to the same absent/no-op result for session-scoped per-user reads and writes; this is POD-393's default-closed application of readiness 3.1.1, not a product-wide existence-policy decision, and POD-1070 may revisit it. The state service is 600-plus lines, a review signal accepted here because one owner must hold the mutually coupled overlay cache, draft document/timers and priority dedupe cache; splitting those protected maps back across lifecycle/inbox siblings would recreate the god-object coupling. Siblings receive callbacks through explicit ports and cannot access those maps.
+
 
 #### LEDGER ENTRY — POD-1079 (4.11 machine ownership and grants): which half shipped
 

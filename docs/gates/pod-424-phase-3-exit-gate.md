@@ -93,7 +93,7 @@ green after restoration unless the clean tree is itself red and named as such.
 
 | # | Production mutation | Original → mutant SHA-256 prefix | Instrument and refusal |
 |---|---|---|---|
-| M1 | Removed `rename.visibility` from `sessions/presence-commands.ts` | `1900ea15` → `7fe25759` | `audit-session-commands` exit 1; exactly one `visibility-totality` at `rename`. |
+| M1 | Removed `rename.visibility` from `sessions/session-state-commands.ts` | `1900ea15` → `7fe25759` | `audit-session-commands` exit 1; exactly one `visibility-totality` at `rename`. |
 | M2a | Removed `rename.exposure` from the same real contract | `1900ea15` → `3bd53adc` | **DETECTOR STAYED GREEN.** The script answered visibility while claiming total classification. |
 | M2b | Repeated M2a after the small detector repair in this gate | same hashes | exit 1; exactly one `exposure-totality` at `rename`. The local probe now reports 6 checks, not the stale 5. |
 | M3 | Widened `commandVisibility({})` fallback from `personal` to `deployment-substrate` | `1d7b5712` → `a9c0e40b` | Direct execution of the actual helper changed `{visibility:"personal"}` to `deployment-substrate`; assertion exit 1. |

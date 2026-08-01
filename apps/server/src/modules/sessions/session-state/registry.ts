@@ -1,5 +1,5 @@
 /**
- * PRESENCE-CLASS HANDLERS + THE FRAMEWORK ENVELOPE (POD-380, under POD-312).
+ * DURABLE SESSION-STATE HANDLERS + THE FRAMEWORK ENVELOPE (POD-380, under POD-312).
  *
  * The L3 half of the split: contracts live in `@podium/protocol`
  * (`session-commands.ts`) and carry policy / exposure / offline / redaction; this
@@ -11,9 +11,9 @@
  * `sessionsSvc.withMutation(input.mutationId, 'sessions.rename', …)`. Eleven
  * procedures, eleven chances to forget — POD-379's idempotency oracle exists
  * because omitting the wrapper on ONE route is a real, silent regression class.
- * {@link PresenceRegistry.execute} does it ONCE, for every contract, ahead of the
+ * {@link SessionStateRegistry.execute} does it ONCE, for every contract, ahead of the
  * handler, using the same durable mechanism (`store.sync.getAppliedMutation` /
- * `recordAppliedMutation`). A new presence command cannot opt out: there is no
+ * `recordAppliedMutation`). A new session-state command cannot opt out: there is no
  * per-handler seam to omit it from.
  *
  * The envelope also owns, in this order:
@@ -37,16 +37,17 @@
  *
  * Writing to a session the principal cannot see must fail IDENTICALLY to writing
  * to a session that does not exist. POD-379 pins today's not-found shape for the
- * presence writes: a SILENT NO-OP (no throw, no row, no reason). So a denial here
+ * session-state writes: a SILENT NO-OP (no throw, no row, no reason). So a denial here
  * is the same silent no-op — see {@link DENIED}. That is what keeps the command
  * surface from being an existence oracle, and it is why these handlers do not
  * throw a "forbidden" error the way an issue command does.
  */
 
-import { type CommandDef, isExposedOn, presenceCommand } from '@podium/commands'
+import { type CommandDef, isExposedOn, sessionStateCommand } from '@podium/commands'
 import {
   asIssueId,
   asSessionId,
+  asUserId,
   type AuthTarget,
   authorize,
   type Capability,
@@ -57,15 +58,16 @@ import {
 } from '@podium/model'
 
 import type { MutationLedgerPort } from '@podium/sync'
-import type { SessionStore } from '../../store'
-import type { SessionsService } from './service'
+import type { SessionsService } from '../service'
+import { type SessionStatePrincipal, SessionStateService } from './service'
+export type { SessionStatePrincipal } from './service'
 
 /**
  * The transport a call arrived on. Checked against the contract's declared
  * exposure, so "which transports serve this command" is a contract fact rather
  * than a per-transport allowlist that can drift from it.
  */
-export type PresenceTransport = 'trpc' | 'relay' | 'cli' | 'mcp' | 'ws'
+export type SessionStateTransport = 'trpc' | 'relay' | 'cli' | 'mcp' | 'ws'
 
 /**
  * WHO is calling — the transport principal (ADR 3 D7: never read from payload).
@@ -80,27 +82,6 @@ export type PresenceTransport = 'trpc' | 'relay' | 'cli' | 'mcp' | 'ws'
  * into `userId`: "which agent did this" and "which human was it for" are two
  * questions, and `nameSource` is the shipped feature that depends on the answer.
  */
-export interface PresencePrincipal {
-  userId: string
-  capability: Capability
-  /** The acting agent session, when an agent is acting. Absent for a human. */
-  actorSessionId?: string
-  /** The human this call is made FOR. Equals `userId` for a human caller. */
-  onBehalfOf?: string
-  /** True when the human is acting directly — decides `nameSource` (see below). */
-  humanDirect: boolean
-  /**
-   * The DEVICE half of §3.2's `(user, device, capability)` principal: the attached
-   * client this call arrived on, when there is one.
-   *
-   * Load-bearing for the composer draft, not bookkeeping: a draft edit fans out to
-   * every OTHER attached client and deliberately does NOT echo to its author
-   * (POD-379 pins both). Without the author's client id the handler cannot suppress
-   * that echo, and the author's own composer would fight its own keystrokes.
-   */
-  clientId?: string
-}
-
 /**
  * The sole principal until POD-1075 mints real accounts: the cookie-authed human,
  * unconstrained (`OPERATOR`), acting as {@link SOLE_USER_ID}.
@@ -108,11 +89,11 @@ export interface PresencePrincipal {
  * A FUNCTION, not a constant, so a caller cannot mutate the shared object — and
  * so every call site that will need a real principal is one grep away.
  */
-export function soleHumanPrincipal(capability: Capability): PresencePrincipal {
+export function soleHumanSessionStatePrincipal(capability: Capability): SessionStatePrincipal {
   return {
-    userId: SOLE_USER_ID,
+    userId: asUserId(SOLE_USER_ID),
     capability,
-    onBehalfOf: SOLE_USER_ID,
+    onBehalfOf: asUserId(SOLE_USER_ID),
     humanDirect: capabilityAttribution(capability).actor === null,
   }
 }
@@ -122,26 +103,31 @@ export function soleHumanPrincipal(capability: Capability): PresencePrincipal {
  * (both are the one shared password today) but carrying the attached client's id,
  * which the draft handler needs.
  */
-export function soleHumanWsPrincipal(capability: Capability, clientId: string): PresencePrincipal {
-  return { ...soleHumanPrincipal(capability), clientId }
+export function soleHumanSessionStateWsPrincipal(
+  capability: Capability,
+  clientId: string,
+): SessionStatePrincipal {
+  return { ...soleHumanSessionStatePrincipal(capability), clientId }
 }
 
-/** What a refused presence write returns: nothing. See the §3.1.5 note above. */
-const DENIED = Symbol('presence-write-denied')
+/** What a refused session-state write returns: nothing. See the §3.1.5 note above. */
+const DENIED = Symbol('session-state-write-denied')
 
 /** Outcome of the envelope's checks, for the tests and for the audit trail. */
-export type PresenceOutcome = 'applied' | 'replayed' | 'denied' | 'not-exposed' | 'invalid-input'
+export type SessionStateOutcome = 'applied' | 'replayed' | 'denied' | 'not-exposed' | 'invalid-input'
 
-export interface PresenceResult {
-  outcome: PresenceOutcome
+export interface SessionStateResult {
+  outcome: SessionStateOutcome
   /** The handler's return value; undefined for every refusal (§3.1.5). */
   value?: unknown
 }
 
-export interface PresenceDeps {
-  sessions: SessionsService
-  store: SessionStore
-  now: () => number
+export interface SessionStateDeps {
+  sessions: Pick<
+    SessionsService,
+    'renameSession' | 'setAgentName' | 'setSessionIssueId' | 'sessionOwner'
+  >
+  state: SessionStateService
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382) — `@podium/sync`'s `MutationLedger`, the ONE
    * implementation, injected rather than re-implemented here.
@@ -159,10 +145,10 @@ export interface PresenceDeps {
  * principal that has ALREADY been authorized — a handler never re-checks policy,
  * because a second check is a second place for the two to disagree.
  */
-type PresenceHandler = (
+type SessionStateHandler = (
   input: Record<string, unknown>,
-  principal: PresencePrincipal,
-  deps: PresenceDeps,
+  principal: SessionStatePrincipal,
+  deps: SessionStateDeps,
 ) => unknown
 
 /**
@@ -173,12 +159,12 @@ type PresenceHandler = (
  */
 type TargetResolver = (
   input: Record<string, unknown>,
-  principal: PresencePrincipal,
-  deps: PresenceDeps,
+  principal: SessionStatePrincipal,
+  deps: SessionStateDeps,
 ) => AuthTarget | undefined
 
 interface Registration {
-  handler: PresenceHandler
+  handler: SessionStateHandler
   target: TargetResolver
 }
 
@@ -215,6 +201,24 @@ const ownPerUserRow: TargetResolver = (_input, principal) => ({
   userId: principal.userId,
 })
 
+const ownPerUserSessionRow: TargetResolver = (input, principal, deps) => {
+  const sessionId = typeof input.sessionId === 'string' ? asSessionId(input.sessionId) : undefined
+  if (!sessionId || !deps.state.canReadSession(principal, sessionId)) return undefined
+  return { kind: 'per-user-row', userId: principal.userId }
+}
+
+const ownPerUserTabOrder: TargetResolver = (input, principal, deps) => {
+  if (!Array.isArray(input.sessionIds)) return undefined
+  if (
+    input.sessionIds.some(
+      (id) => typeof id !== 'string' || !deps.state.canReadSession(principal, asSessionId(id)),
+    )
+  ) {
+    return undefined
+  }
+  return { kind: 'per-user-row', userId: principal.userId }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -226,7 +230,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
  * id is recovered from this registry's `Record<string, unknown>` input.
  *
  * Not a POD-361 adapter cast, and not a trust-the-caller cast either:
- * `PresenceRegistry.execute` has ALREADY run the contract's zod schema over
+ * `SessionStateRegistry.execute` has ALREADY run the contract's zod schema over
  * `input` before a handler sees it (see the file header). The `Record<string,
  * unknown>` erasure is the registry's deliberate design — one parse for every
  * contract — so the brand cannot be carried in through the parameter type and is
@@ -257,20 +261,16 @@ const REGISTRATIONS: Record<string, Registration> = {
   'sessions.setArchived': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      deps.sessions.setArchived({
-        sessionId: sessionIdOf(input.sessionId),
-        archived: input.archived === true,
-      })
+      deps.state.setArchived(sessionIdOf(input.sessionId), input.archived === true)
     },
   },
   'sessions.setWorkState': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      deps.sessions.setWorkState({
-        sessionId: sessionIdOf(input.sessionId),
-        // Parsed by the contract, so this is a narrowing not a validation.
-        workState: (input.workState ?? null) as never,
-      })
+      deps.state.setWorkState(
+        sessionIdOf(input.sessionId),
+        (input.workState ?? null) as never,
+      )
     },
   },
   'sessions.setIssueId': {
@@ -285,56 +285,54 @@ const REGISTRATIONS: Record<string, Registration> = {
     // packages/model/src/user-state/session-state.ts for why that move waits on
     // POD-1077's scoped feed) — but the POLICY is already self-scoped, so the
     // move is storage-only and needs no contract or wire change.
-    target: ownPerUserRow,
-    handler: (input, _principal, deps) => {
-      deps.sessions.markSessionRead(sessionIdOf(input.sessionId))
+    target: ownPerUserSessionRow,
+    handler: (input, principal, deps) => {
+      deps.state.markRead(principal, sessionIdOf(input.sessionId))
     },
   },
   'sessions.markUnread': {
-    target: ownPerUserRow,
-    handler: (input, _principal, deps) => {
-      deps.sessions.markSessionUnread(sessionIdOf(input.sessionId))
+    target: ownPerUserSessionRow,
+    handler: (input, principal, deps) => {
+      deps.state.markUnread(principal, sessionIdOf(input.sessionId))
     },
   },
   'snoozes.set': {
-    target: ownPerUserRow,
+    target: ownPerUserSessionRow,
     handler: (input, principal, deps) => {
-      deps.sessions.setSnooze({
-        userId: principal.userId,
-        sessionId: sessionIdOf(input.sessionId),
-        until: typeof input.until === 'string' ? input.until : null,
-      })
-      return deps.store.sessions.listSnoozes(principal.userId)
+      deps.state.setSnooze(
+        principal,
+        sessionIdOf(input.sessionId),
+        typeof input.until === 'string' ? input.until : null,
+      )
+      return deps.state.listSnoozes(principal)
     },
   },
   'snoozes.clear': {
-    target: ownPerUserRow,
+    target: ownPerUserSessionRow,
     handler: (input, principal, deps) => {
-      deps.sessions.clearSnooze(principal.userId, sessionIdOf(input.sessionId))
-      return deps.store.sessions.listSnoozes(principal.userId)
+      deps.state.clearSnooze(principal, sessionIdOf(input.sessionId))
+      return deps.state.listSnoozes(principal)
     },
   },
   'pins.set': {
     target: ownPerUserRow,
     handler: (input, principal, deps) => {
-      deps.store.sessions.setPin(
-        principal.userId,
+      return deps.state.setPin(
+        principal,
         input.kind as never,
         str(input.id),
         input.pinned === true,
       )
-      return deps.store.sessions.listPins(principal.userId)
     },
   },
   'tabs.setOrder': {
-    target: ownPerUserRow,
+    target: ownPerUserTabOrder,
     handler: (input, principal, deps) => {
-      deps.store.sessions.setTabOrder(
-        principal.userId,
+      return deps.state.setTabOrder(
+        principal,
         str(input.worktree),
         (input.sessionIds ?? []) as string[],
       )
-      return deps.store.sessions.listTabOrders(principal.userId)
     },
   },
   'sessions.setDraft': {
@@ -347,13 +345,13 @@ const REGISTRATIONS: Record<string, Registration> = {
       // write, byte-for-byte.
       const baseRevision = typeof input.baseRevision === 'number' ? input.baseRevision : undefined
       if (baseRevision !== undefined) {
-        const current = deps.sessions.draftRevision(sessionIdOf(input.sessionId))
+        const current = deps.state.draftRevision(sessionIdOf(input.sessionId))
         if (current !== undefined && current !== baseRevision) {
           return { ok: false, reason: 'stale-revision', revision: current }
         }
       }
-      // `clientId` is what suppresses the echo to the author (see PresencePrincipal).
-      deps.sessions.setSessionDraft(
+      // `clientId` is what suppresses the echo to the author (see SessionStatePrincipal).
+      deps.state.setDraft(
         { sessionId: sessionIdOf(input.sessionId), text: edit.text },
         principal.clientId,
       )
@@ -366,8 +364,8 @@ const REGISTRATIONS: Record<string, Registration> = {
 // The envelope
 // ---------------------------------------------------------------------------
 
-export class PresenceRegistry {
-  constructor(private readonly deps: PresenceDeps) {}
+export class SessionStateRegistry {
+  constructor(private readonly deps: SessionStateDeps) {}
 
   /** Every migrated command name — what a cutover audit reads. */
   static names(): string[] {
@@ -375,17 +373,17 @@ export class PresenceRegistry {
   }
 
   /**
-   * Run one presence command through the whole envelope. Never throws for a
+   * Run one session-state command through the whole envelope. Never throws for a
    * refusal: see the §3.1.5 note in the file header — a denial and a not-found are
    * the same silent no-op, so a caller cannot tell them apart.
    */
   execute(
     name: string,
     rawInput: unknown,
-    principal: PresencePrincipal,
-    transport: PresenceTransport = 'trpc',
-  ): PresenceResult {
-    const contract = presenceCommand(name)
+    principal: SessionStatePrincipal,
+    transport: SessionStateTransport = 'trpc',
+  ): SessionStateResult {
+    const contract = sessionStateCommand(name)
     const registration = REGISTRATIONS[name]
     // Own-prototype lookup only: `REGISTRATIONS['toString']` must not resolve.
     if (!contract || !Object.hasOwn(REGISTRATIONS, name) || !registration) {
@@ -421,8 +419,11 @@ export class PresenceRegistry {
     contract: CommandDef,
     registration: Registration,
     input: Record<string, unknown>,
-    principal: PresencePrincipal,
+    principal: SessionStatePrincipal,
   ): typeof DENIED | 'allow' {
+    if (principal.onBehalfOf !== undefined && principal.onBehalfOf !== principal.userId) {
+      return DENIED
+    }
     const policy = contract.policy
     // A contract with no declared policy is refused, not waved through: the
     // default-closed rule applies to policy exactly as it does to exposure.

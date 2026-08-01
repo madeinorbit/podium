@@ -611,13 +611,13 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     title: 'Session `readAt` (moved out of the labels group by Amendment 1 D10)',
     sites: ['`session_user_state` — keyed `(user_id, session_id)` (POD-1076; it was a SINGLETON `sessions.read_at` column until then)'],
     conflictNote:
-      'Read state is a fact about a READER. Keyed `(userId, sessionId)` it is single-writer by construction; today it is one instance-wide column, which asserts that exactly one person exists.',
+      'Read state is a fact about a READER. Keyed `(userId, sessionId)` it is single-writer by construction; POD-1076 removed the former instance-wide column and POD-393 routes reads and writes through the calling human principal.',
   }),
   perUserState({
     id: ROW.snooze,
     section: 'sessions',
     title: 'Snooze (`snoozes` / `snoozedUntil`)',
-    sites: ['`snoozes` (keyed `session_id` today)', 'packages/model/src/predicates/snooze.ts', 'THE ONE MEMBER STILL KEYED ON THE ENTITY ALONE: POD-1076 re-keyed readAt / pins / tab order and left this one, so a snooze is still instance-wide.'],
+    sites: ['`snoozes` — keyed `(user_id, session_id)`', 'packages/model/src/predicates/snooze.ts', 'apps/server/src/modules/sessions/session-state/service.ts'],
     conflictNote:
       '"Stop bothering ME until Tuesday" is not a property of the session. Because the stored and wire values stay the strings they already are, the move is a RE-KEY, not a re-representation (model README invariant 2).',
   }),

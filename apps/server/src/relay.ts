@@ -250,7 +250,7 @@ export class SessionRegistry {
     let automations!: AutomationsService
     /**
      * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
-     * honours a `mutationId` — the session presence class, the session command
+     * honours a `mutationId` — the session session-state class, the session command
      * plane and the issue registry — dedupes through THIS object. It replaces
      * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
      * chance to forget (POD-379's idempotency oracle exists because of it) and

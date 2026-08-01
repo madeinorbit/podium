@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { sessionPresenceCommands } from './presence-commands'
+import { sessionStateCommands } from './session-state-commands'
 import { classificationErrors } from '../contract'
 import {
   RENAME_REJECTIONS,
@@ -22,11 +22,7 @@ import {
 const agent = { onBehalfOf: 'user-mike', actor: { kind: 'agent-session', sessionId: 'sess-9' } }
 const human = { onBehalfOf: 'user-mike', actor: { kind: 'user', userId: 'user-mike' } }
 
-const reduce = (
-  local: unknown,
-  name: string,
-  authored?: { onBehalfOf: string; actor: unknown },
-) =>
+const reduce = (local: unknown, name: string, authored?: { onBehalfOf: string; actor: unknown }) =>
   sessionRenameReducer({
     input: { sessionId: 's1', name },
     local,
@@ -83,14 +79,14 @@ describe('the contract is total and default-closed', () => {
 })
 
 describe('the input schema IS the shipped instance, not a lookalike', () => {
-  it('is the same object as the presence contract’s input', () => {
+  it('is the same object as the session-state contract’s input', () => {
     // THE assertion this file exists for. Branding and composition are
     // compile-time, so a restatement — z.object({ sessionId: z.string(), name:
     // z.string().max(120), mutationId }) — would parse identically, encode
     // identically, and pass every golden fixture and every differential test in
     // this repo. Only object identity sees the fork.
-    expect(sessionRenameInput).toBe(sessionPresenceCommands.defs.rename.input)
-    expect(sessionRenameContract.input).toBe(sessionPresenceCommands.defs.rename.input)
+    expect(sessionRenameInput).toBe(sessionStateCommands.defs.rename.input)
+    expect(sessionRenameContract.input).toBe(sessionStateCommands.defs.rename.input)
   })
 
   it('is the reason the shadow comparison measures HANDLERS and not schemas', () => {
@@ -99,7 +95,7 @@ describe('the input schema IS the shipped instance, not a lookalike', () => {
     // false signal is unrepresentable rather than merely unobserved.
     const input = { sessionId: 's1', name: 'x' }
     expect(sessionRenameInput.parse(input)).toEqual(
-      sessionPresenceCommands.defs.rename.input.parse(input),
+      sessionStateCommands.defs.rename.input.parse(input),
     )
   })
 })
@@ -197,8 +193,14 @@ describe('the reducer derives nameSource from the actor half of the pair', () =>
     expect(sessionRenameInput.safeParse({ sessionId: 's1', name: 'a'.repeat(121) }).success).toBe(
       false,
     )
-    expect(reduce({}, at, agent)).toEqual({ kind: 'value', value: { name: at, nameSource: 'agent' } })
-    expect(reduce({}, at, human)).toEqual({ kind: 'value', value: { name: at, nameSource: 'user' } })
+    expect(reduce({}, at, agent)).toEqual({
+      kind: 'value',
+      value: { name: at, nameSource: 'agent' },
+    })
+    expect(reduce({}, at, human)).toEqual({
+      kind: 'value',
+      value: { name: at, nameSource: 'user' },
+    })
   })
 })
 

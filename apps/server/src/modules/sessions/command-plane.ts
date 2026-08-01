@@ -605,7 +605,7 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
   // `use` and owner checks, so a replay whose grant was revoked is refused by
   // those gates on the way in rather than served out of the dedup cache (ADR 3 D8
   // / readiness §3.1.3 A1). The ledger is entered before the handler and the
-  // handler is what re-authorizes, which is the same order the presence envelope
+  // handler is what re-authorizes, which is the same order the session-state envelope
   // states explicitly.
   //
   // A command whose input carries no `mutationId` passes through unchanged — the

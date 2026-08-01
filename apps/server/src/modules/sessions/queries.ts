@@ -120,13 +120,13 @@ const noInput = z.object({}).passthrough().optional()
 
 /** PER-USER STATE (POD-380): each list is the CALLER's, not the instance's. */
 export const PIN_QUERIES = {
-  list: q(noInput, (s) => s.store.sessions.listPins(s.caller.userId)),
+  list: q(noInput, (s) => s.modules.sessions.state.listPins(s.caller.sessionState)),
 } as const
 
 export const SNOOZE_QUERIES = {
-  list: q(noInput, (s) => s.store.sessions.listSnoozes(s.caller.userId)),
+  list: q(noInput, (s) => s.modules.sessions.state.listSnoozes(s.caller.sessionState)),
 } as const
 
 export const TAB_QUERIES = {
-  listOrders: q(noInput, (s) => s.store.sessions.listTabOrders(s.caller.userId)),
+  listOrders: q(noInput, (s) => s.modules.sessions.state.listTabOrders(s.caller.sessionState)),
 } as const

@@ -3468,7 +3468,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     const after = reg.modules.sessions.listSessions()[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
@@ -3492,7 +3492,7 @@ describe('SessionRegistry read state (#124)', () => {
     reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
 
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     const pushed = c.sent.filter(
@@ -3512,13 +3512,13 @@ describe('SessionRegistry read state (#124)', () => {
       cwd: '/p',
     })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
-    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
     expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
     const c = sink()
     reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
-    reg.modules.sessions.markSessionUnread(sessionId)
+    reg.modules.sessions.markSessionUnread(SOLE_USER_ID, sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     const after = reg.modules.sessions.listSessions()[0]

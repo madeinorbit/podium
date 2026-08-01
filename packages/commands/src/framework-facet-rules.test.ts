@@ -92,7 +92,7 @@ describe('the contract-table scan itself', () => {
       expect.arrayContaining([
         'pinCommands',
         'sessionCommandPlane',
-        'sessionPresenceCommands',
+        'sessionStateCommands',
         'snoozeCommands',
         'tabCommands',
       ]),
@@ -140,8 +140,10 @@ describe('ADR 3 Amendment 1 D18.3 — machineVerb `use` implies not offline-elig
       // would silently pre-authorize whoever next uses that name.
       expect(found, `${name} is exempted but not declared anywhere`).toBeDefined()
       expect(found?.def.offline).toBe('eligible')
-      expect(found?.def.decision, `${name} must argue its exception in its own decision record`)
-        .toBeDefined()
+      expect(
+        found?.def.decision,
+        `${name} must argue its exception in its own decision record`,
+      ).toBeDefined()
       expect(why.length).toBeGreaterThan(20)
     }
   })
