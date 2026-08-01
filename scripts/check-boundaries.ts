@@ -1249,6 +1249,17 @@ function main(): void {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const start = performance.now()
   const { violations, manifest } = runCheck(repoRoot)
+  if (process.argv.includes('--probe')) {
+    const equality = ['=', '=', '='].join('')
+    const probeSource = `const agentKind = input.agentKind\nif (agentKind ${equality} 'codex') return`
+    manifest.push(
+      ...checkManifestFile(
+        'packages/pty/src/__harness-axiom-probe.ts',
+        probeSource,
+        loadHarnessLiterals(repoRoot),
+      ),
+    )
+  }
   // ONE allowlist, but the two rule families must be applied to their OWN
   // violations: applyAllowlist calls any entry with no matching violation stale,
   // so a shared pass would have each family declaring the other's entries dead.
