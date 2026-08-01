@@ -474,17 +474,87 @@
     },
     {
       "schema": "InputMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "input",
         "sessionId": "sessionId",
         "data": "data",
-        "inputOrigin": "human"
+        "inputOrigin": "human",
+        "attribution": {
+          "actor": {
+            "kind": "user",
+            "id": "attribution.actor.id"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"input\",\"sessionId\":\"sessionId\",\"data\":\"data\",\"inputOrigin\":\"human\"}"
+      "encoded": "{\"type\":\"input\",\"sessionId\":\"sessionId\",\"data\":\"data\",\"inputOrigin\":\"human\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"attribution.actor.id\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
+    },
+    {
+      "schema": "InputMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "input",
+        "sessionId": "sessionId",
+        "data": "data",
+        "inputOrigin": "controller",
+        "attribution": {
+          "actor": {
+            "kind": "agent",
+            "id": "attribution.actor.id"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"input\",\"sessionId\":\"sessionId\",\"data\":\"data\",\"inputOrigin\":\"controller\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"attribution.actor.id\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
+    },
+    {
+      "schema": "InputMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "input",
+        "sessionId": "sessionId",
+        "data": "data",
+        "inputOrigin": "steward",
+        "attribution": {
+          "actor": {
+            "kind": "machine",
+            "id": "attribution.actor.id"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"input\",\"sessionId\":\"sessionId\",\"data\":\"data\",\"inputOrigin\":\"steward\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"attribution.actor.id\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
+    },
+    {
+      "schema": "InputMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "input",
+        "sessionId": "sessionId",
+        "data": "data",
+        "inputOrigin": "mail",
+        "attribution": {
+          "actor": {
+            "kind": "system",
+            "job": "attribution.actor.job"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"input\",\"sessionId\":\"sessionId\",\"data\":\"data\",\"inputOrigin\":\"mail\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"attribution.actor.job\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
     },
     {
       "schema": "KillMessage",

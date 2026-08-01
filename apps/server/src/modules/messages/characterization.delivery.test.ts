@@ -26,7 +26,7 @@
  * poll seam.
  */
 
-import { asSessionId } from '@podium/model'
+import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { mailHarness, OPERATOR, phaseState } from './characterization-support'
 import {
@@ -264,7 +264,19 @@ describe('characterization: urgency x target state (D3)', () => {
     // ONLY the interrupt is pushed, and via interruptText (ESC first, so an open
     // question menu is visibly cancelled before the text lands).
     expect(h.pushes).toEqual([
-      { fn: 'interruptText', sessionId: asSessionId('sBusy'), text: 'c', inputOrigin: 'mail' },
+      {
+        fn: 'interruptText',
+        sessionId: asSessionId('sBusy'),
+        text: 'c',
+        inputOrigin: 'mail',
+        sourceMessageId: expect.stringMatching(/^msg_/),
+        principal: {
+          kind: 'user',
+          principalRef: SOLE_USER_ID,
+          delegation: null,
+          attribution: { actor: { kind: 'user', id: SOLE_USER_ID }, onBehalfOf: SOLE_USER_ID },
+        },
+      },
     ])
     expect(int.disposition).toBe('delivered')
   })
@@ -320,7 +332,19 @@ describe('characterization: urgency x target state (D3)', () => {
     // queueText resurrects a parked session; the row rides the durable queue.
     expect(wake.disposition).toBe('queued')
     expect(h.pushes).toEqual([
-      { fn: 'queueText', sessionId: asSessionId('s1'), text: 'now', inputOrigin: 'mail' },
+      {
+        fn: 'queueText',
+        sessionId: asSessionId('s1'),
+        text: 'now',
+        inputOrigin: 'mail',
+        sourceMessageId: expect.stringMatching(/^msg_/),
+        principal: {
+          kind: 'user',
+          principalRef: SOLE_USER_ID,
+          delegation: null,
+          attribution: { actor: { kind: 'user', id: SOLE_USER_ID }, onBehalfOf: SOLE_USER_ID },
+        },
+      },
     ])
   })
 
