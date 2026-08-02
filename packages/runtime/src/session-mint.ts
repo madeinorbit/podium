@@ -16,15 +16,23 @@
  * interim break-glass. So this grants no capability that filesystem access did not already
  * confer; it makes the existing one explicit, labelled and revocable.
  *
+ * AGENT SCOPE DOES NOT SURVIVE THIS (POD-1402 / ADR 3 D14). A constrained agent session
+ * runs as the same OS user with the same state-dir access, so it can mint and then call
+ * `/trpc` as the operator (`PODIUM_SESSION_TOKEN=… env -u PODIUM_AGENT_RELAY …`). That is
+ * accepted: agent/operator relay scope is accident prevention on the default path, not
+ * adversarial containment of a co-resident process. Refusing mint when relay env vars are
+ * set would only catch accidents and is bypassable with `env -u`; requiring the instance
+ * password would not stop a DB INSERT. Do not design features that assume otherwise.
+ *
  * WHERE THE ARGUMENT STOPS. It holds because Podium is single-operator today: one person
  * owns the host, the state dir and everything in the database. Under the multi-user
- * direction (POD-1067) "can read the state dir" stops implying "owner of everything" —
+ * direction (POD-1067) "can write the state dir" stops implying "owner of everything" —
  * a second user's process on the same host would mint a credential carrying the FIRST
  * user's authority. Whoever takes multi-user on must revisit this: the mint needs to be
  * bound to an identity, not to a file mode. Deliberately not solved here.
  *
- * The mint is NOT automatic. `podium auth mint-session` is an explicit operator act, so a
- * credential only ever exists because someone asked for one.
+ * The mint is NOT automatic. `podium auth mint-session` is an explicit act, so a
+ * credential only ever exists because some process on the host asked for one.
  */
 
 import { createHash, randomBytes } from 'node:crypto'

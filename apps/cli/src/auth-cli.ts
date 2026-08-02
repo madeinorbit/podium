@@ -41,8 +41,15 @@ export const AUTH_USAGE = [
   `      Revoke one class of session. Default '${BREAK_GLASS_LABEL}' — browser logins`,
   "      ('login') and node⇄hub tokens ('upstream') are left alone.",
   '',
-  'Minting requires write access to this instance’s podium.db, which already implies',
-  'ownership of everything in it. PODIUM_STATE_DIR selects a non-default instance.',
+  'Trust (single-operator host — ADR 3 D14 / POD-1402):',
+  '  Minting requires write access to this instance’s podium.db, which already',
+  '  implies ownership of everything in it. Any process that can write the state',
+  '  dir — including a constrained agent session on the same OS user — can mint',
+  '  and then call /trpc as the operator. Agent/operator relay scope is accident',
+  '  prevention on the default path, not containment of a co-resident adversarial',
+  '  agent. Do not build features that assume otherwise until multi-user isolation',
+  '  (POD-1067+) reopens the mint trust root.',
+  '  PODIUM_STATE_DIR selects a non-default instance.',
 ].join('\n')
 
 export interface AuthCliIo {

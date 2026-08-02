@@ -65,7 +65,11 @@ await context.addCookies([{ name: 'podium_session', value: TOKEN, url: 'http://l
 ```
 
 Minting needs write access to the instance's `podium.db`, which already implies ownership
-of everything in it; `PODIUM_STATE_DIR` selects a non-default instance. Sessions are
+of everything in it; `PODIUM_STATE_DIR` selects a non-default instance. **Trust model
+(ADR 3 D14 / POD-1402):** this is deliberate. Agents run as the operator's OS user, so a
+constrained agent can mint the same way and shed its relay identity for a direct `/trpc`
+call. Agent/operator scope is accident prevention on the default path, not containment of
+a co-resident adversarial agent — do not build on a stronger assumption. Sessions are
 labelled, so clean up after yourself without signing the operator's browsers out:
 
 ```sh
