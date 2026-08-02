@@ -12,6 +12,7 @@
  */
 
 import type { TransportTag } from '@podium/commands'
+import { MachineIdField } from '@podium/model'
 import { z } from 'zod'
 import type { ModelState } from './registry'
 
@@ -29,8 +30,12 @@ const query = <In extends z.ZodTypeAny, Out>(
 ): ModelQuery<In, Out> => ({ input, exposure: SERVED_ON, run })
 
 /** Optional machineId — absent means the server's default/host machine, matching
- *  the shipped client that still calls with no input. */
-const catalogInput = z.object({ machineId: z.string().optional() }).passthrough().optional()
+ *  the shipped client that still calls with no input. Branded as MachineIdField
+ *  so the catalog query does not re-create POD-1361 unbranded-field debt. */
+const catalogInput = z
+  .object({ machineId: MachineIdField.optional() })
+  .passthrough()
+  .optional()
 
 export const MODEL_QUERIES = {
   catalog: query(catalogInput, (state, input) =>

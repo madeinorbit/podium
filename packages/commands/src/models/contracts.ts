@@ -22,6 +22,7 @@
  * `resource: 'machine'`.
  */
 
+import { MachineIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -39,10 +40,11 @@ const SERVED_ON: readonly TransportTag[] = ['trpc']
  * `machineId` absent means the server's default / host machine, kept so a shipped
  * client that still calls with no input keeps working. The whole input is optional
  * for the same reason: the procedure previously accepted anything via
- * `.passthrough().optional()`.
+ * `.passthrough().optional()`. Branded as `MachineIdField` so machine-keying the
+ * catalog does not re-create POD-1361 unbranded-field debt.
  */
 export const modelsRefreshInput = z
-  .object({ machineId: z.string().optional() })
+  .object({ machineId: MachineIdField.optional() })
   .passthrough()
   .optional()
 
