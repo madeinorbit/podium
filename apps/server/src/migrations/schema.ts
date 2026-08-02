@@ -754,6 +754,24 @@ export const messageWakeCooldowns = sqliteTable('message_wake_cooldowns', {
   attemptedAt: text('attempted_at').notNull(),
 })
 
+/** Per-READER receipts [POD-1379] [spec:SP-b11e]: one row per (message, session that has seen
+ *  it). `messages.status` stays the DELIVERY ledger (one pipeline per message);
+ *  this table is the per-session "already in my context" ledger, so several
+ *  agents on one issue each get the shared mailbox exactly once and no agent's
+ *  read consumes a peer's unread status. */
+export const messageReads = sqliteTable(
+  'message_reads',
+  {
+    messageId: text('message_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    readAt: text('read_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.messageId, table.sessionId], name: 'message_reads_pk' }),
+    index('idx_message_reads_session').on(table.sessionId),
+  ],
+)
+
 /** Durable janitor lease/fence and command idempotency [spec:SP-c29e]. */
 export const maintenanceLeases = sqliteTable('maintenance_leases', {
   name: text().primaryKey(),

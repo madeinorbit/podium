@@ -524,7 +524,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
   }
 
-  prime(opts: { repoPath?: string; boundIssueId?: string | null }): string {
+  prime(opts: { repoPath?: string; boundIssueId?: string | null; sessionId?: string }): string {
     const rules = [
       // Human-facing ids (#474): agents must name issues/sessions by their nice id.
       // Bare `#N` never linkifies in the UI — only the `PREFIX-seq` grammar does
@@ -591,7 +591,14 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         // delivered-as-transcript-turn (and any dual-written twin the substrate
         // already accounts for). Helper lives next to mailPending to avoid a
         // circular import through the inheritance chain.
-        const unreadMail = countContextAwarePendingMail(this.deps.store, me.id).unread
+        // Per-READER count [POD-1379]: a fresh/resumed agent is told about the
+        // mail IT has not seen, not about whatever a peer on the issue left.
+        const unreadMail = countContextAwarePendingMail(
+          this.deps.store,
+          me.id,
+          undefined,
+          opts.sessionId,
+        ).unread
         return [
           `You are working on ${this.niceRef(me)}: ${me.title}`,
           me.stage === 'backlog'

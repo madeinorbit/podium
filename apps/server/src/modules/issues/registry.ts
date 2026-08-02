@@ -446,6 +446,10 @@ const defs = {
           ctx.caller.capability.scope.kind === 'subtree'
             ? ctx.caller.capability.scope.rootId
             : null,
+        // Per-reader mail count [POD-1379]; server-stamped, never from input.
+        ...(ctx.caller.capability.actorSessionId
+          ? { sessionId: ctx.caller.capability.actorSessionId }
+          : {}),
       }),
   }),
   ready: def({
@@ -1638,7 +1642,15 @@ const defs = {
       const markRead =
         ctx.caller.capability.scope.kind === 'subtree' &&
         ctx.issues.resolveRef(id) === ctx.caller.capability.scope.rootId
-      return ctx.issues.mailInbox(id, { markRead })
+      // WHICH session is reading [POD-1379]: the mailbox is shared by every
+      // agent on the issue, so the read is consumed per reader. Server-stamped
+      // from the caller (mailIdentity pattern); client input never contributes.
+      return ctx.issues.mailInbox(id, {
+        markRead,
+        ...(ctx.caller.capability.actorSessionId
+          ? { sessionId: ctx.caller.capability.actorSessionId }
+          : {}),
+      })
     },
   }),
   // Write, scoped to the caller's own subtree; the target issue lives behind the
@@ -1666,14 +1678,26 @@ const defs = {
         })
       }
       checkIssueAccess(ctx.caller, ctx.issues, 'mailClaim', 'write', msg.issueId)
-      return ctx.issues.mailClaim(input.messageId, ctx.mailIdentity())
+      return ctx.issues.mailClaim(input.messageId, ctx.mailIdentity(), {
+        // Claiming proves this reader has the message [POD-1379].
+        ...(ctx.caller.capability.actorSessionId
+          ? { sessionId: ctx.caller.capability.actorSessionId }
+          : {}),
+      })
     },
   }),
   mailPending: def({
     kind: 'query',
     input: z.object({ id: z.string().optional() }).optional(),
     action: 'read',
-    handler: (ctx, input) => ctx.issues.mailPending(ctx.mailOwnIssue(input?.id)),
+    handler: (ctx, input) =>
+      ctx.issues.mailPending(ctx.mailOwnIssue(input?.id), {
+        // The stop-hook nag is per READER [POD-1379]: each session on the issue
+        // is told once, and none of them can clear a peer's count.
+        ...(ctx.caller.capability.actorSessionId
+          ? { sessionId: ctx.caller.capability.actorSessionId }
+          : {}),
+      }),
   }),
 
   // ---- event subscriptions (event-subscriptions design, Phase B). Local-only

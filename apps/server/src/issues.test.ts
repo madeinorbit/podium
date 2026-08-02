@@ -3122,6 +3122,161 @@ describe('IssueService agent mail (#103)', () => {
     svc.mailInbox(a.id)
     expect(svc.mailPending(a.id)).toMatchObject({ unread: 0 })
   })
+
+  // ---- PER-SESSION read state [POD-1379] ----
+  // The mailbox is per ISSUE; the READ state must not be. Several agents work
+  // one issue: one agent's inbox read must not consume a peer's unread status
+  // (the message is not merely hidden — its unread status was destroyed for
+  // everyone), and no session may be nagged about a message it sent itself.
+
+  /** Dual-written mail (substrate row + legacy mirror), as a real send lands it. */
+  function seedIssueMail(
+    store: SessionStore,
+    issueId: string,
+    id: string,
+    over: Partial<ReturnType<typeof substrateRow>> = {},
+  ) {
+    const row = { ...substrateRow(issueId, id, 'queued'), ...over }
+    store.issues.addIssueMessage({
+      id,
+      issueId,
+      fromAuthor: 'agent',
+      body: row.body,
+      createdAt: row.createdAt,
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(row)
+    return row
+  }
+
+  it('never nags a session about a message it sent itself', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_from_a', { fromSession: 'sA' })
+    // Same notion of self the delivery side uses (attemptDelivery excludes
+    // message.fromSession from the members it can target) [POD-1365].
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+  })
+
+  it("a peer's inbox read leaves the other session's pending count intact", () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_for_b', { fromSession: 'sSender' })
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    // The MUTATING surface: session A opens the shared mailbox.
+    svc.mailInbox(a.id, { sessionId: 'sA' })
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+  })
+
+  it('the observed POD-1342 repro: A sends for B, is not nagged, and B keeps its mail', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_handoff', { fromSession: 'sA' })
+    // A is never nagged about its own send…
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    // …and even when it opens the inbox anyway, B's handoff survives.
+    const seenByA = svc.mailInbox(a.id, { sessionId: 'sA' })
+    expect(seenByA.map((m) => m.body)).toEqual(['body-msg_handoff'])
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    const seenByB = svc.mailInbox(a.id, { sessionId: 'sB' })
+    expect(seenByB[0]).toMatchObject({ wasUnread: true })
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(0)
+  })
+
+  it('nags each session exactly once: a second read of my own inbox is quiet', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_once', { fromSession: 'sSender' })
+    expect(svc.mailInbox(a.id, { sessionId: 'sB' })[0]).toMatchObject({ wasUnread: true })
+    expect(svc.mailInbox(a.id, { sessionId: 'sB' })[0]).toMatchObject({ wasUnread: false })
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(0)
+  })
+
+  it('claiming retires the message for the claimer only — peers still get it once', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_claimed', { fromSession: 'sSender' })
+    // Claim is the OPT-IN "I will act on this" signal; delivery must not depend
+    // on it, so it retires the claimer's nag and nobody else's.
+    expect(svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: 'sA' }).claimed).toBe(true)
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+  })
+
+  it('a session that starts after mail was consumed does not inherit the backlog', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_history', { fromSession: 'sSender' })
+    svc.mailInbox(a.id, { sessionId: 'sOld' })
+    store.sessions.upsertSession({
+      id: 'sNew',
+      agentKind: 'claude-code',
+      cwd: '/r',
+      title: 'fresh agent',
+      name: null,
+      archived: false,
+      workState: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'live',
+      exitCode: null,
+      durableLabel: 'podium-sNew',
+      // Started AFTER the message was sent and consumed.
+      createdAt: '2026-06-30T01:00:00.000Z',
+      lastActiveAt: '2026-06-30T01:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      spawnedBy: null,
+      machineId: 'm1',
+      headless: false,
+      issueId: a.id,
+      readAt: null,
+    })
+    expect(svc.mailPending(a.id, { sessionId: 'sNew' }).unread).toBe(0)
+  })
+
+  it('still HOLDS undelivered mail for a session that starts later', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    // Nobody was live when it was sent: it is still queued, so the next session
+    // to arrive must be told about it even though it predates that session.
+    seedIssueMail(store, a.id, 'msg_held', { fromSession: 'sSender' })
+    store.sessions.upsertSession({
+      id: 'sLate',
+      agentKind: 'claude-code',
+      cwd: '/r',
+      title: 'late agent',
+      name: null,
+      archived: false,
+      workState: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'live',
+      exitCode: null,
+      durableLabel: 'podium-sLate',
+      createdAt: '2026-06-30T01:00:00.000Z',
+      lastActiveAt: '2026-06-30T01:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      spawnedBy: null,
+      machineId: 'm1',
+      headless: false,
+      issueId: a.id,
+      readAt: null,
+    })
+    expect(svc.mailPending(a.id, { sessionId: 'sLate' }).unread).toBe(1)
+  })
 })
 
 describe('IssueService surfaces daemon argv-hardening rejections (issue #81)', () => {

@@ -262,6 +262,99 @@ export class MessagesRepository {
     return r.n
   }
 
+  // ---- PER-READER state [POD-1379] [spec:SP-b11e] ----
+  // `messages.status` is the DELIVERY ledger: one pipeline per message (queued →
+  // pushed → delivered/read → terminal), shared by every session on the issue.
+  // It cannot answer "has THIS session seen it", and an issue mailbox is read by
+  // every agent working the issue — so consuming it on one agent's read
+  // destroyed the unread status for all of them. `message_reads` is the
+  // per-reader ledger the nag counts instead; the delivery ledger is untouched.
+
+  /** Record that `sessionId` has now seen `messageId` (idempotent). */
+  recordRead(messageId: string, sessionId: string, readAt: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO message_reads (message_id, session_id, read_at) VALUES (?, ?, ?)
+         ON CONFLICT (message_id, session_id) DO NOTHING`,
+      )
+      .run(messageId, sessionId, readAt)
+  }
+
+  /** Which of `messageIds` this session has already seen. */
+  readReceipts(sessionId: string, messageIds: string[]): Set<string> {
+    if (messageIds.length === 0) return new Set()
+    const rows = this.db
+      .prepare(
+        `SELECT message_id FROM message_reads
+         WHERE session_id = ? AND message_id IN (${messageIds.map(() => '?').join(',')})`,
+      )
+      .all(sessionId, ...(messageIds as never[])) as { message_id: string }[]
+    return new Set(rows.map((r) => r.message_id))
+  }
+
+  /** Which of `messageIds` this session SENT — never its own unread mail
+   *  [POD-1379], the same notion of self delivery already applies. */
+  selfSentIds(sessionId: string, messageIds: string[]): Set<string> {
+    if (messageIds.length === 0) return new Set()
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM messages
+         WHERE from_session = ? AND id IN (${messageIds.map(() => '?').join(',')})`,
+      )
+      .all(sessionId, ...(messageIds as never[])) as { id: string }[]
+    return new Set(rows.map((r) => r.id))
+  }
+
+  /**
+   * Pending-for-ONE-READER predicate. A row still nags `sessionId` when it is
+   * non-terminal, the session did not send it, and the session has no receipt
+   * for it. The last clause bounds history: a session is only responsible for
+   * mail that arrived while it existed — EXCEPT a still-`queued` row, which
+   * nobody has consumed, so it is exactly the held handoff a newly-arrived
+   * session must be told about. A session row that is gone (tests, pre-substrate
+   * ids) falls back to the message's own timestamp, i.e. counts.
+   */
+  private static readonly PENDING_FOR_SESSION = `
+    to_kind = 'issue' AND to_id = ?
+    AND status IN ('queued','delivered','read')
+    AND (from_session IS NULL OR from_session <> ?)
+    AND NOT EXISTS (
+      SELECT 1 FROM message_reads r WHERE r.message_id = messages.id AND r.session_id = ?
+    )
+    AND (
+      status = 'queued'
+      OR created_at >= COALESCE((SELECT created_at FROM sessions WHERE id = ?), created_at)
+    )`
+
+  countPendingForSession(issueId: string, sessionId: string): number {
+    const r = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM messages
+         WHERE ${MessagesRepository.PENDING_FOR_SESSION}`,
+      )
+      .get(issueId, sessionId, sessionId, sessionId) as { n: number }
+    return r.n
+  }
+
+  listPendingSendersForSession(issueId: string, sessionId: string): PendingMessageSender[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT from_kind, from_issue, from_session FROM messages
+         WHERE ${MessagesRepository.PENDING_FOR_SESSION}
+         ORDER BY from_kind ASC, from_issue ASC, from_session ASC`,
+      )
+      .all(issueId, sessionId, sessionId, sessionId) as {
+      from_kind: MessageRow['fromKind']
+      from_issue: string | null
+      from_session: string | null
+    }[]
+    return rows.map((row) => ({
+      fromKind: row.from_kind,
+      fromIssue: row.from_issue,
+      fromSession: row.from_session,
+    }))
+  }
+
   /** True if a message FROM `fromIssue` reached `to` at/after `sinceIso` — the
    *  steward's "already-communicated" arbiter check [POD-913, design §07b/§10]:
    *  before firing an automated fact to a target, has the producer already told
@@ -307,6 +400,9 @@ export class MessagesRepository {
          WHERE id = ? AND status = 'queued'`,
       )
       .run(deliveredAt, deliveredTo, id)
+    // The echo proves it is in THAT session's context [POD-1379] — receipt it,
+    // or the per-reader nag keeps asking the session to read what it just saw.
+    if (deliveredTo) this.recordRead(id, deliveredTo, deliveredAt)
     return r.changes === 1
   }
 
@@ -320,6 +416,10 @@ export class MessagesRepository {
          WHERE id = ? AND status IN ('queued','delivered')`,
       )
       .run(readAt, deliveredTo, id)
+    // The PULL proves this reader has it [POD-1379]. Recorded even when the
+    // guarded UPDATE lost (a peer consumed the shared row first): the receipt is
+    // about THIS reader, not about who moved the shared delivery ledger.
+    if (deliveredTo) this.recordRead(id, deliveredTo, readAt)
     return r.changes === 1
   }
 

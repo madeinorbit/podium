@@ -2156,6 +2156,37 @@ describe('readInbox (podium mail inbox)', () => {
     svc.readInbox([{ kind: 'issue', id: ISSUE.id }], {})
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('queued')
   })
+
+  it("a peer's consuming read leaves the other members of the issue still pending [POD-1379]", () => {
+    const { svc, store } = harness([]) // no live member → the issue send stays queued
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'for whoever picks this up' },
+    )
+    // s1 opens the SHARED issue mailbox — the mutating path.
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('read')
+    expect(store.messages.countPendingForSession(ISSUE.id, 's1')).toBe(0)
+    // …and s2, who never saw it, still has it. The old issue-wide ledger
+    // destroyed its unread status here.
+    expect(store.messages.countPendingForSession(ISSUE.id, 's2')).toBe(1)
+    // The sender is never nagged about its own message [POD-1365 parity].
+    expect(store.messages.countPendingForSession(ISSUE.id, 'sX')).toBe(0)
+    // s2 reads it in turn, and is then quiet.
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's2' })
+    expect(store.messages.countPendingForSession(ISSUE.id, 's2')).toBe(0)
+  })
+
+  it('a transcript echo retires the nag for the session that saw it, not for its peers', () => {
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'pushed to the coordinator' },
+    )
+    store.messages.markDelivered(r.message.id, 's1', '2026-07-01T00:00:00.000Z')
+    expect(store.messages.countPendingForSession(ISSUE.id, 's1')).toBe(0)
+    expect(store.messages.countPendingForSession(ISSUE.id, 's2')).toBe(1)
+  })
 })
 
 // ---- review round 1 (#237): substrate sanitizer, sweep cooldown key,

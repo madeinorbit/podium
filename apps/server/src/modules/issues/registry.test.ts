@@ -437,3 +437,50 @@ describe('issue spawn provenance', () => {
     }
   })
 })
+
+/**
+ * The mailbox is per ISSUE, the read state is per READING SESSION [POD-1379].
+ * Dispatched through the real registry so the wire path is under test too: the
+ * reader is server-stamped from the caller's capability (actorSessionId), never
+ * passed by the client.
+ */
+describe('issue mail read state is per reading session [POD-1379]', () => {
+  it('a peer read leaves the other agent on the issue still pending, and no self-nag', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({ repoPath: '/r', title: 'Shared', startNow: false })
+      const agent = (sessionId: string) =>
+        ({
+          capability: {
+            role: 'worker' as const,
+            scope: { kind: 'subtree' as const, rootId: issue.id },
+            actorSessionId: sessionId,
+          },
+        }) as const
+      const pending = async (sessionId: string) =>
+        (await registry.issueCommands.dispatch(agent(sessionId), 'issues', 'mailPending', {})) as {
+          unread: number
+        }
+
+      // Session A mails ITS OWN issue, meaning it for session B (the POD-1342 move).
+      await registry.issueCommands.dispatch(agent('sA'), 'issues', 'mailSend', {
+        id: issue.id,
+        body: 'handing this to you',
+      })
+      expect((await pending('sA')).unread).toBe(0)
+      expect((await pending('sB')).unread).toBe(1)
+
+      // A opens the shared mailbox anyway — B's handoff must survive it.
+      await registry.issueCommands.dispatch(agent('sA'), 'issues', 'mailInbox', { id: issue.id })
+      expect((await pending('sB')).unread).toBe(1)
+
+      const inboxB = (await registry.issueCommands.dispatch(agent('sB'), 'issues', 'mailInbox', {
+        id: issue.id,
+      })) as Array<{ body: string; wasUnread: boolean }>
+      expect(inboxB).toMatchObject([{ body: 'handing this to you', wasUnread: true }])
+      expect((await pending('sB')).unread).toBe(0)
+    } finally {
+      registry.dispose()
+    }
+  })
+})
