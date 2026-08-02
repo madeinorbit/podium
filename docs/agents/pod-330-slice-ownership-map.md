@@ -131,12 +131,21 @@ const viewFor = (worktree: WorktreeNavView | WorktreeView): WorktreeView => {
 }
 ```
 
-Every field the function actually reads — `path`, `name`, `worktrees`, `machines`, `repoId` — is on
-the plain `RepoView` (verified against `viewmodels/types.ts`), and `RepoNavView` is structurally
-assignable to it, so **retyping the parameter `RepoView` removes machines' type dependency on
-worklist and no call site changes.** That is what breaks the cycle. Whether `viewFor` survives as a
-runtime strip is then a separate, minor question, decided at the cut and reported — not the thing
-the seam turns on.
+Every field the function actually reads — `path`, `name`, `worktrees`, `machines`, `repoId` — is
+available without the nav decoration, so retyping the parameter removes machines' type dependency
+on worklist. That is what breaks the cycle.
+
+**Correction, from doing it.** The pre-cut version of this section claimed `RepoNavView` was
+structurally assignable to `RepoView`, so the retype would need no call-site changes. That was
+wrong, and the compiler said so: `RepoView.machines` is **required** while `RepoNavView.machines`
+is **optional**, so the assignment fails in both directions. Checking that the fields were present
+is not the same as checking assignability, and I had only done the first.
+
+The fix is better than the original plan anyway: the parameter is now `SpawnRepoTarget`, a type
+that names exactly what spawn placement needs (`path`, `name`, `worktrees`, optional `machines`,
+optional `repoId`). `RepoView` and `RepoNavView` both satisfy it, neither is imported by the
+machines slice, and no call site changed. Naming the real contract beats borrowing whichever
+existing type looked closest.
 
 > **A helper whose first act is to undo its own parameter type is the seam telling you which side
 > owns it.**
