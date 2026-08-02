@@ -10,6 +10,8 @@ import { isAddressInUseError, PortInUseError, startServer } from './server'
 // synchronously out of startServer's Promise executor — surfacing as a swallowed
 // "uncaughtException (surviving)" and a hung/never-resolving startServer. startServer
 // must instead REJECT with a typed, port-carrying error so callers can react cleanly.
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('startServer port-in-use handling', () => {
   const dirs: string[] = []
   let held: Awaited<ReturnType<typeof startServer>> | undefined
@@ -18,7 +20,7 @@ describe('startServer port-in-use handling', () => {
     if (held) await held.close()
     held = undefined
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
   })
 
   function useFreshStateDir(tag: string): void {

@@ -55,6 +55,8 @@ import { startServer } from '../../apps/server/src/server'
 
 const FEED_TYPES = new Set(['feedDelta', 'feedBootstrap', 'feedRescope', 'feedResyncRequired'])
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
@@ -76,7 +78,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     for (const s of sockets) s.close()
     await server.close()
     rmSync(stateDir, { recursive: true, force: true })
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
   })
 
   const until = async (pred: () => boolean, ms = 5000): Promise<void> => {

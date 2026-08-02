@@ -22,7 +22,7 @@ beforeEach(() => {
   process.env.PODIUM_STATE_DIR = dir
 })
 afterEach(() => {
-  delete process.env.PODIUM_STATE_DIR
+  process.env.PODIUM_STATE_DIR = priorStateDir
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -49,6 +49,8 @@ function fakeKill(
     if (signal === 'SIGTERM' || signal === 'SIGKILL') alive.delete(pid)
   }
 }
+
+const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('pidfile read/write', () => {
   it('recognizes the janitor as an independently managed sibling', () => {

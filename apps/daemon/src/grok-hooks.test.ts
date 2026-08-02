@@ -127,7 +127,7 @@ describe('ensurePodiumGrokHooks', () => {
     }
     expect(inspected.hooks).toContainEqual(
       expect.objectContaining({
-        event: 'PreToolUse',
+        event: 'pre_tool_use',
         target: PODIUM_GROK_HOOK_COMMAND,
         source: expect.objectContaining({ path: join(grokHome, 'hooks') }),
       }),

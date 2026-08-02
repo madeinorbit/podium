@@ -43,6 +43,8 @@ import { loginTestClient } from '../test-support/client-auth'
 
 const CLIENT_PASSWORD = 'wire-window-client-password'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('the wire window, over real sockets', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
@@ -74,7 +76,7 @@ describe('the wire window, over real sockets', () => {
 
   afterAll(async () => {
     await handle?.close()
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     if (originalPassword === undefined) delete process.env.PODIUM_PASSWORD
     else process.env.PODIUM_PASSWORD = originalPassword
     rmSync(stateDir, { recursive: true, force: true })
