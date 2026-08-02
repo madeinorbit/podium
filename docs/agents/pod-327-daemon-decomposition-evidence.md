@@ -44,6 +44,9 @@ smoke passed with `codex-cli 0.146.0`.
 ## Verification
 
 - Focused daemon/protocol/router run: 10 files passed, 233 tests passed, 1 skipped.
+- The rebased handshake/authorization contract run passed 8/8 files and 111/111 tests across the
+  daemon dialer, gateway acceptor, shared conformance/strategy suites, payload-inert identity, and
+  local-host `use` refusal.
 - The authorization-state mutant (`auth-failed` → `blocked`) made the exact connection suite fail
   1 of 6 tests with `blocked` versus `unauthorized`; after restoration, 1 file / 6 tests passed.
 - The configured integration lane passed 40/40 files: 287 tests passed and 6 skipped. Its separate
@@ -59,6 +62,9 @@ smoke passed with `codex-cli 0.146.0`.
   reactions ledger is current at 25 reactions.
 - The Codex guard suite passed 10 tests and skipped 1 in one file; the installed binary reported
   `codex-cli 0.146.0` and took the real-binary arm.
+- The production diff moves the existing `FIRST_ADMIN_USER_ID` legacy-binding migration input
+  from `daemon.ts` to `host-runtime.ts`; it adds no production occurrence and never supplies a
+  transport principal. New explicit uses are confined to authenticated/owned test fixtures.
 - `bun scripts/render-systemd.ts --check`: passed.
 - Changed issue-local source files pass scoped Biome checks.
 
@@ -67,7 +73,8 @@ smoke passed with `codex-cli 0.146.0`.
 - The integration oracle is green. The separate load acceptance still needs one low-contention
   run at its unchanged thresholds; a host-starved timing sample is not promoted to green.
 - `bun run lint:boundaries` still reports the unrelated POD-1321 daemon-lifecycle import and dead
-  allowlist entry. POD-1321 received issue mail with the current output.
+  allowlist entry, with no POD-327 path in the output. POD-1321 received issue mail with the
+  current output.
 - The 48-hour unattended paired-VPS soak has not run. The authoritative steps and pass criteria
   are in the POD-327 section of `docs/rearchitecture-v3.md`. POD-327, POD-426, and POD-292 must
   remain open until the gate evidence is attached and accepted.
