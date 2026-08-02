@@ -112,6 +112,7 @@ import {
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionObservationLeases } from './observation-leases'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import {
@@ -312,6 +313,8 @@ export class SessionLifecycle {
   private readonly observationLeases = new SessionObservationLeases()
   /** Terminal-proof reasoning over the lease book (POD-1396). */
   private readonly terminalProof: SessionTerminalProof
+  /** Daemon presence reconciliation for one machine (POD-1396). */
+  private readonly machineReconciler: SessionMachineReconciler
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -382,6 +385,21 @@ export class SessionLifecycle {
         this.store.messages.pendingForSessionProof(sessionId, atIso),
       isDraining: (sessionId) => this.inbox.isDraining(sessionId),
       autoContinueActive: (sessionId) => this.autoContinue.isActive(sessionId),
+    })
+    this.machineReconciler = new SessionMachineReconciler({
+      sessions: () => this.sessions.values(),
+      drainInbox: (sessionId) => this.inbox.drain(sessionId),
+      triggerLakeSweep: (machineId) => this.deps.memory.triggerLakeSweep(machineId),
+      resetPriorities: () => this.state.resetPriorities(),
+      pushPriorities: () => this.pushPriorities(),
+      parkArchivedSession: (sessionId) => this.parkArchivedSession(sessionId),
+      reattachMessage: (session, machineId) => this.reattachMessageFor(session, machineId),
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+      viewTiers: (sessionIds) => computePriorities([...this.clients.values()], sessionIds),
+      rebindHeadless: (session) => this.rebindHeadless(session),
+      markVolatileSessionDirty: (sessionId, fields) =>
+        this.repository.markVolatileSessionDirty(sessionId, fields),
+      broadcastSessions: () => this.broadcastSessions(),
     })
     const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.publication = new SessionPublicationCoordinator({
@@ -855,75 +873,27 @@ export class SessionLifecycle {
   }
 
   /**
-   * A machine's daemon became reachable — the SESSION half of what `attachDaemon`
-   * used to do inline. The socket registration, the placeholder adoption, the
-   * queued-control flush, the machine broadcast and the `machine.connected` bus
-   * emit are the gateway's (`gateway/daemon-mux.ts`); everything below is session
-   * orchestration and stays here, in its original order.
-   *
-   * `principal` is the transport-resolved MACHINE principal (ADR 3 D7). Every
-   * write these steps make is a daemon-class observation attributed to that
-   * machine — never to a person, and with no on-behalf-of (ADR 1's daemon writer
-   * class; `docs/multi-user-readiness.md` §3.1.6 S5).
+   * A machine's daemon became reachable / went away — the SESSION half of
+   * attach/detach. Delegated to {@link SessionMachineReconciler}; the gateway
+   * (`gateway/daemon-mux.ts`) owns the transport half and calls these.
    */
   onMachineAttached(principal: MachinePrincipal): void {
-    const machineId = principal.machine
-    // Re-arm queued-send delivery for this machine's sessions: their earlier drain
-    // attempts parked while the daemon was away (single-flight + liveness wait make
-    // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
-    for (const s of this.sessions.values()) {
-      if (s.machineId === machineId && s.queuedMessageCount > 0) {
-        this.inbox.drain(s.sessionId)
-      }
-    }
-    // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
-    // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
-    this.deps.memory.triggerLakeSweep(machineId)
-    // A freshly-(re)connected daemon knows no session's relay priority. Clear the
-    // delta cache so every current session re-sends as a change, then push the full
-    // map — otherwise a daemon restart would leave the scheduler at its default
-    // until the next viewState/attach happened to flip a session.
-    this.state.resetPriorities()
-    this.pushPriorities()
-    // Archived survivors are never rebound — archive means stopped (POD-108).
-    // Rows archived before archive learned to kill, or archived while this
-    // machine's daemon was away, are still 'live'/'reconnecting' here; parking
-    // them sends the kill now that a daemon can receive it (the daemon reaps the
-    // durable host by label even without a bridge). Must run BEFORE the probe
-    // fan-out below so an archived 'reconnecting' row is parked, not reattached.
-    for (const s of this.sessions.values()) {
-      if (s.machineId === machineId && !s.headless && s.archived) {
-        this.parkArchivedSession(s.sessionId)
-      }
-    }
-    // Re-bind survivor sessions ON THIS MACHINE: ask its daemon to reattach to their
-    // live durable host. 'reconnecting' = was live/starting at boot. 'exited' (not
-    // archived) is also probed because a row can be wrongly 'exited': its attach
-    // client died on a daemon restart while the master + agent survived in their
-    // scope (pre-fix orphans, or any residual race). The daemon reattaches a live
-    // master (→ a bind → markLive) or replies reattachFailed (→ it stays exited).
-    // The durable host, not the persisted row, is the source of truth for liveness.
-    // View-priority first, then most-recently-used: the daemon gates its spawn
-    // fan-out, so the order we send in decides who reattaches soonest. A session
-    // some connected client is focused on / rendering (viewState is
-    // server-authoritative — the same tiers the output scheduler uses) must come
-    // back typable before the long unwatched tail (POD-612); within a tier,
-    // lastActiveAt is an ISO string, so a reverse lexical sort is newest-first.
-    const probes = [...this.sessions.values()].filter(
-      (s) =>
-        s.machineId === machineId &&
-        !s.headless &&
-        (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)),
-    )
-    const viewTiers = computePriorities(
-      [...this.clients.values()],
-      probes.map((s) => s.sessionId),
-    )
-    probes.sort(
-      (a, b) =>
-        (viewTiers.get(a.sessionId) ?? 3) - (viewTiers.get(b.sessionId) ?? 3) ||
-        (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
-    )
+    this.machineReconciler.onAttached(principal)
+  }
+
+  onMachineDetached(principal: MachinePrincipal): void {
+    this.machineReconciler.onDetached(principal)
+  }
+
+  /**
+   * The reattach control message for one survivor session.
+   *
+   * `recoveryMachineAccess` was computed ONCE per attach before this moved, and
+   * is computed per session here. Identical result: the decision depends only on
+   * `machineId` and the machines ownership snapshot, and the caller's loop is
+   * synchronous, so nothing can change between iterations.
+   */
+  private reattachMessageFor(session: Session, machineId: string): ControlMessage {
     const recoveryMachineAccess =
       machineUseDecision(
         systemPrincipal('session-rebind'),
@@ -932,96 +902,72 @@ export class SessionLifecycle {
       ) === 'granted'
         ? 'allowed'
         : 'denied'
-    for (const s of probes) {
-      const observationLease = this.terminalProof.fence(s)
-      const requestedGeneration = observationLease?.observationGeneration ?? 1
-      this.toMachine(machineId, {
-        type: 'reattach',
-        sessionId: s.sessionId,
-        durableLabel: s.durableLabel,
-        agentKind: s.agentKind,
-        cwd: s.cwd,
-        geometry: s.terminal.geometry,
-        binding: {
-          transitionId: `reattach:${s.sessionId}:${requestedGeneration}`,
-          machineAccess: recoveryMachineAccess,
-          sessionAccess: 'allowed',
-          principal: { kind: 'system' },
-        },
-        ...(observationLease
-          ? {
-              observationGeneration: observationLease.observationGeneration,
-              observationBindingVersion: observationLease.bindingVersion,
-              observationProviderSessionId: observationLease.providerSessionId,
-              ...(observationLease.checkpoint
-                ? { observationCheckpoint: observationLease.checkpoint }
-                : {}),
-            }
-          : {}),
-        ...(s.resume ? { resume: s.resume } : {}),
-        ...(this.rpc.transcriptPathHint(
-          { kind: 'system', id: 'session-attach' },
-          { id: s.sessionId, machineId: s.machineId, ...(s.resume ? { resume: s.resume } : {}) },
-        ) ?? {}),
-        // Spawn-time floor for observer-based harnesses (codex): lets a reattached
-        // observer discover a lazily-created rollout it never saw before the restart.
-        ...(Number.isFinite(Date.parse(s.createdAt))
-          ? { createdAtMs: Date.parse(s.createdAt) }
-          : {}),
-        ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      })
-    }
-    // Headless sessions have no PTY to reattach; instead re-establish their
-    // daemon-side transcript tails (fire-and-forget — re-issued on every daemon
-    // connect, so a missed bind self-heals on the next attach).
-    for (const s of this.sessions.values()) {
-      if (s.machineId !== machineId || !s.headless || !s.resume?.value) continue
-      void this.headless
-        .headlessBind({
-          sessionId: s.sessionId,
-          agentKind: s.agentKind,
-          cwd: s.cwd,
-          resumeValue: s.resume.value,
-        })
-        .then((r) => {
-          if (!r.ok) {
-            console.warn(
-              `[podium] headless bind failed for ${s.sessionId}: ${r.error ?? 'unknown'}`,
-            )
+    const observationLease = this.terminalProof.fence(session)
+    const requestedGeneration = observationLease?.observationGeneration ?? 1
+    return {
+      type: 'reattach',
+      sessionId: session.sessionId,
+      durableLabel: session.durableLabel,
+      agentKind: session.agentKind,
+      cwd: session.cwd,
+      geometry: session.terminal.geometry,
+      binding: {
+        transitionId: `reattach:${session.sessionId}:${requestedGeneration}`,
+        machineAccess: recoveryMachineAccess,
+        sessionAccess: 'allowed',
+        principal: { kind: 'system' },
+      },
+      ...(observationLease
+        ? {
+            observationGeneration: observationLease.observationGeneration,
+            observationBindingVersion: observationLease.bindingVersion,
+            observationProviderSessionId: observationLease.providerSessionId,
+            ...(observationLease.checkpoint
+              ? { observationCheckpoint: observationLease.checkpoint }
+              : {}),
           }
-        })
-    }
+        : {}),
+      ...(session.resume ? { resume: session.resume } : {}),
+      ...(this.rpc.transcriptPathHint(
+        { kind: 'system', id: 'session-attach' },
+        {
+          id: session.sessionId,
+          machineId: session.machineId,
+          ...(session.resume ? { resume: session.resume } : {}),
+        },
+      ) ?? {}),
+      // Spawn-time floor for observer-based harnesses (codex): lets a reattached
+      // observer discover a lazily-created rollout it never saw before the restart.
+      ...(Number.isFinite(Date.parse(session.createdAt))
+        ? { createdAtMs: Date.parse(session.createdAt) }
+        : {}),
+      ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
+    } as ControlMessage
   }
 
   /**
-   * That machine's daemon went away — the SESSION half of `detachDaemon`. The
-   * superseded-socket guard, the `machine.disconnected` emit and the machine
-   * broadcast are the gateway's; this runs only once the gateway has decided the
-   * detach is real, in the same position it occupied before.
+   * Re-establish a headless session's daemon-side transcript tail.
+   *
+   * DELIBERATELY NOT AWAITED, exactly as before the move. It is re-issued on
+   * every daemon connect, so a missed bind self-heals on the next attach; making
+   * it awaited here would serialise the rebind loop behind daemon round-trips.
    */
-  onMachineDetached(principal: MachinePrincipal): void {
-    const machineId = principal.machine
-    // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
-    // restart/crash; durable masters survive in their own scopes). Drop only THIS
-    // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
-    // re-binds them — attachDaemon only probes 'reconnecting'/'exited'. Sessions on
-    // OTHER machines are untouched. Without this a daemon-only restart leaves sessions
-    // 'live' but unattached: the server never re-asks and they orphan until a server
-    // restart. (In the old single-process world the daemon never restarted alone, so
-    // this gap couldn't surface.)
-    const changed: Session[] = []
-    for (const s of this.sessions.values()) {
-      if (s.machineId !== machineId) continue
-      // Headless sessions stay 'live' across daemon restarts — no PTY bridge to
-      // lose; their tails re-establish via headlessBind on the next attach.
-      if (s.headless) continue
-      if (s.markReconnecting()) changed.push(s)
-    }
-    if (changed.length > 0) {
-      for (const session of changed)
-        this.repository.markVolatileSessionDirty(session.sessionId, ['status'])
-      this.broadcastSessions()
-    }
+  private rebindHeadless(session: Session): void {
+    if (!session.resume?.value) return
+    void this.headless
+      .headlessBind({
+        sessionId: session.sessionId,
+        agentKind: session.agentKind,
+        cwd: session.cwd,
+        resumeValue: session.resume.value,
+      })
+      .then((r) => {
+        if (!r.ok) {
+          console.warn(
+            `[podium] headless bind failed for ${session.sessionId}: ${r.error ?? 'unknown'}`,
+          )
+        }
+      })
   }
 
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
