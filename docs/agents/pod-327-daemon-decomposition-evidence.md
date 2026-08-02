@@ -113,7 +113,9 @@ smoke passed with `codex-cli 0.146.0`.
   24.91 / 31.47 / 41.30, reached 103.44 / 69.03 / 53.57 mid-run, and ended at
   60.81 / 73.98 / 63.26. Its unit process was killed with exit 143 after 486 seconds, before a
   final Test Files/Tests census. It had emitted one timing-shaped rearchitecture-audit failure
-  taking 45.459 seconds; this is interrupted/contended evidence, not a functional verdict.
+  taking 45.459 seconds; this is interrupted/contended evidence, not a functional verdict. The
+  exact case then passed in isolation (1 file, 1 test passed, 73 skipped) while load fell from
+  70.57 / 65.92 / 62.02 to 65.81 / 65.21 / 61.93.
 - The repaired oracle's configured integration suite passed 40/40 files with 289 tests passed and
   6 skipped. Its chained acceptance failed 1/1 at 29.1407 ms under the severe-load portion and
   does not replace the valid quiet regression measurement. E2E passed 8/8 files and 31/31 tests.
