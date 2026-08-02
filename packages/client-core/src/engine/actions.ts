@@ -8,6 +8,7 @@
  * single-operator placement.
  */
 
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AgentKind,
   IssueId,
@@ -107,7 +108,7 @@ type ActionState = {
   superThreadId: string
   superOpen: boolean
   dockTab: DockTab
-  superRefreshKey: number
+  superThreads: SuperThreadView[]
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
@@ -146,6 +147,11 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     issueId: IssueId
   }
   setSessionDraft(sessionId: SessionId, text: string): void
+  /** Re-read the signed-in user's superagent threads. A NAMED refresh, replacing
+   *  the `superRefreshKey` counter the view used to watch: a counter says only
+   *  "something changed", so every bump refetched everything and a forgotten
+   *  bump was a silently stale list (POD-330, audit item zero). */
+  refreshSuperThreads(): Promise<void>
 }
 
 function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean): PinState {
@@ -216,7 +222,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     startBtw: async (sessionId) => {
       rt.apply({ superThreadId: `btw_${sessionId}`, superOpen: true })
       await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
-      rt.apply({ superRefreshKey: rt.state().superRefreshKey + 1 })
+      await rt.refreshSuperThreads().catch(() => {})
     },
     tldrSession: async (sessionId, answerText) => {
       const threadId = `btw_${sessionId}`
@@ -226,7 +232,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
         : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."
       await api.superagent.sendTurn.mutate({ threadId, text: prompt }).catch(() => {})
-      rt.apply({ superRefreshKey: rt.state().superRefreshKey + 1 })
+      await rt.refreshSuperThreads().catch(() => {})
     },
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
     setSelectedWorktree: (selectedWorktree) => rt.apply({ selectedWorktree }),

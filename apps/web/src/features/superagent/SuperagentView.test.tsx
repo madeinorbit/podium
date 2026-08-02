@@ -85,7 +85,11 @@ vi.mock('@/app/store', () => {
     sessions: [...storeSessions, ...embeddedSessions()],
     issues: normalizedIssues(),
     selectedIssueId: storeSelectedIssueId,
-    superRefreshKey: 0,
+    // POD-330: the thread list is STORE state now, not a view-local mirror
+    // refetched off a `superRefreshKey` bump.
+    superThreads: superagentThreads,
+    superThreadId: 'global',
+    refreshSuperThreads: async () => {},
     uiState,
     setPane,
     setSelectedWorktree,
@@ -99,6 +103,7 @@ vi.mock('@/app/store', () => {
     useStore,
     useReplicaIssues: normalizedIssues,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useSlice: (def: { derive: (s: unknown) => unknown }) => def.derive(useStore() as never),
   }
 })
 vi.mock('@/lib/hooks/use-is-mobile', () => ({

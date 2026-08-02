@@ -6,6 +6,7 @@
  * client).
  */
 
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AgentKind,
   ArtifactId,
@@ -132,8 +133,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   dockTab: DockTab
   setDockTab: (tab: DockTab) => void
   setSuperOpen: (open: boolean) => void
-  /** Bumped when a btw thread finishes seeding, so the superagent view refetches. */
-  superRefreshKey: number
+  /** The signed-in user's superagent threads (POD-330, audit item zero). The
+   *  view reads these instead of holding its own mirror; anything that changes
+   *  them calls {@link Store.refreshSuperThreads} rather than bumping a key. */
+  superThreads: SuperThreadView[]
+  /** Re-read the thread list. Named for what it does, unlike the refresh COUNTER
+   *  it replaces: a counter can only say "something, somewhere, changed". */
+  refreshSuperThreads: () => Promise<void>
   /** Open (or re-open) a btw superagent thread seeded from a chat session's transcript. */
   startBtw: (sessionId: SessionId) => Promise<void>
   /** Open the session's btw thread and ask the superagent for a concise tl;dr of

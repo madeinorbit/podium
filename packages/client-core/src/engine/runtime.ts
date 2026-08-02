@@ -511,6 +511,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.boot.refreshRepos(),
         this.boot.refreshPins(),
         this.boot.refreshTabOrders(),
+        // The superagent column is the desktop shell's centre and its thread
+        // list used to be fetched by the view itself. It is store state now, so
+        // it loads with the rest of the boot fan-out.
+        this.boot.refreshSuperThreads(),
       ]).catch(() => {})
     }
 
@@ -821,6 +825,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.adoptSessionDraft(sessionId, text)
         this.hub.sendSessionDraft(sessionId, text)
       },
+      refreshSuperThreads: () => this.boot.refreshSuperThreads(),
     })
   }
 
@@ -833,6 +838,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       httpOrigin: this.httpOrigin,
       getUserFocus: () => this.getUserFocus(),
       refreshRepos: () => this.boot.refreshRepos(),
+      refreshSuperThreads: () => this.boot.refreshSuperThreads(),
       ...actions,
     } as EngineStatics<TApi>
   }

@@ -262,6 +262,26 @@ cache that must be told is a cache that one day will not be.
 Presence does not come through here. It is stream-plane, ephemeral and blank offline (POD-1078), so
 it gets its own publisher and is deliberately not expressible as a `SliceDefinition`.
 
+## 4d. Audit item zero — what a refresh KEY was hiding
+
+The superagent view kept a shadow mirror: its own `SuperThread` interface, its own `useState` copy
+of the list, its own tRPC fetch, and a `superRefreshKey` counter that actions bumped from the other
+side of the app to make it refetch. Four mechanisms where the store already had one of each.
+
+**The counter is the part worth naming.** A refresh key is a subscription written by hand, badly:
+it can say only *something, somewhere, changed*, so every bump refetches everything, and a bump
+nobody remembered to add is a view that silently shows a stale list with no error and no warning.
+`refreshSuperThreads()` says what it does; the store publishes the result; the view reads a slice.
+
+Per-user privacy (doc §3.1.6 S2) is structural rather than checked: the authority scopes
+`listThreads` to the caller, and the slice exposes no lookup that takes a bare id and goes looking,
+so there is nothing here that could address another user's thread.
+
+Scope note, because the criterion's parenthetical is easy to misread: the rearch audit item
+literally named `superagent-shadow-types` counts declarations in `apps/mobile/src/client/trpc.ts`
+and carries `phase: 'POD-332'`. It is NOT this issue's to zero. What POD-330 owed — and deleted —
+is the WEB mirror the criterion describes in prose.
+
 ## 4c. LEDGER — what the phase shipped for cross-boundary edges (§3.1.2)
 
 The acceptance criterion asks for the shipped choice to be *recorded here, not baked into a slice

@@ -37,7 +37,7 @@ function harness() {
     superThreadId: 'global',
     superOpen: false,
     dockTab: 'chat' as const,
-    superRefreshKey: 0,
+    superThreads: [],
     paletteOpen: false,
     selectedWorktree: null,
     selectedIssueId: null,
@@ -64,6 +64,7 @@ function harness() {
     pending.push(entry)
     return entry
   })
+  const refreshSuperThreads = vi.fn(async () => {})
   const router = {
     current: () => ({
       view: 'tasks',
@@ -75,7 +76,10 @@ function harness() {
     navigate: (route: unknown) => navigated.push(route),
   } as unknown as Router
   const runtime = {
-    api: { layout: { get: { query: async () => ({}) } } } as unknown as PodiumClientApi,
+    api: {
+      layout: { get: { query: async () => ({}) } },
+      superagent: { startBtw: { mutate: vi.fn(async () => ({})) } },
+    } as unknown as PodiumClientApi,
     hub: {} as SocketHub,
     outbox: {
       enqueue,
@@ -94,9 +98,11 @@ function harness() {
     recordRecentFile: vi.fn(),
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
     setSessionDraft: vi.fn(),
+    refreshSuperThreads,
   } as unknown as EngineActionRuntime<PodiumClientApi>
   return {
     actions: createEngineActions(runtime),
+    refreshSuperThreads,
     enqueue,
     pending,
     awaiting,
@@ -245,5 +251,18 @@ describe('engine action ownership boundary', () => {
         expect.arrayContaining(['actor', 'owner', 'ownerId', 'origin']),
       )
     }
+  })
+})
+
+describe('superagent thread refresh (POD-330, audit item zero)', () => {
+  it('re-reads the thread list after seeding a btw thread, instead of bumping a key', async () => {
+    // The seeding mutation MINTS a thread. Before POD-330 the action bumped a
+    // `superRefreshKey` counter and the view watched it; now the action names
+    // what it wants. A missing refresh here is a view that shows a thread list
+    // without the thread the user just created — silent, and only visible on
+    // the next unrelated refresh.
+    const { actions, refreshSuperThreads } = harness()
+    await actions.startBtw(asSessionId('sess-btw'))
+    expect(refreshSuperThreads).toHaveBeenCalledTimes(1)
   })
 })
