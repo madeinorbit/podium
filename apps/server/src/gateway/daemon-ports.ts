@@ -141,7 +141,7 @@ export interface DaemonFeaturePorts {
   sessions: SessionsDaemonPort
   machines: MachinesDaemonPort
   hosts: HostsDaemonPort
-  conversations: () => ConversationsDaemonPort
+  conversations: ConversationsDaemonPort
   rpc: RpcDaemonPort
   headless: HeadlessDaemonPort
   approvals: ApprovalsDaemonPort

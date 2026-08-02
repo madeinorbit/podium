@@ -26,7 +26,7 @@ import type { MailHandlerContext } from './context'
 /** The shared read: resolve, gate on `mayView`, project. */
 function viewable(ctx: MailHandlerContext, id: string): MessageWire {
   const { caller, deps, access } = ctx
-  const m = deps.messages().message(id)
+  const m = deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
   if (!access.mayView(caller.capability, m)) {
     throw new Error('not allowed to view a message you neither sent nor received')
@@ -58,7 +58,7 @@ export function dismissHandler(
   input: ContractInput<typeof mailDismissContract>,
 ): MessageWire {
   const { caller, deps, access } = ctx
-  const svc = deps.messages()
+  const svc = deps.messages
   const message = svc.message(input.id)
   if (!message) throw new Error(`unknown message ${input.id}`)
   if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, message)) {

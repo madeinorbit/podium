@@ -297,7 +297,6 @@ export class SessionRegistry {
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
     // the gateway owns it (POD-390), and the mux below is what mutates it.
     const clientRegistry = new ClientRegistry()
-    const clients = () => clientRegistry
 
     const issueAccess = new DurableIssueAccessIndex(
       this.store.issues,
@@ -308,7 +307,7 @@ export class SessionRegistry {
       store: this.store,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
-      clients: () => clients().values(),
+      clients: () => clientRegistry.values(),
     })
     const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
@@ -538,8 +537,9 @@ export class SessionRegistry {
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
     })
-    // Advisory named lease locks [spec:SP-85d1]. Lazy closures: sessionsSvc and
-    // issues are assigned below and only ever consulted per-operation.
+    // Advisory named lease locks [spec:SP-85d1]. Worktree invalidation is an
+    // event callback into the already-constructed gateway registry, not a
+    // deferred service dependency.
     // POD-665: fan out the invalidation raw (imitating MachinesService.
     // broadcastMachines) — no repo payload, just "go re-fetch" (see
     // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
@@ -551,7 +551,7 @@ export class SessionRegistry {
         repoPath,
         ...(machineId ? { machineId } : {}),
       }
-      for (const c of clients().values()) c.send(msg)
+      for (const c of clientRegistry.values()) c.send(msg)
     }
     const conversations = new ConversationsService(
       {
@@ -702,7 +702,7 @@ export class SessionRegistry {
     const hosts = new HostsService(
       {
         getSettings: () => this.store.settings.getSettings(),
-        clients: () => clients().values(),
+        clients: () => clientRegistry.values(),
         machineName: (id) => machines.machineName(id),
         sessions: () =>
           [...liveSessions.values()].map((session) => ({
@@ -759,7 +759,7 @@ export class SessionRegistry {
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
         clients: (ownerUserId) =>
-          [...clients().values()].filter(
+          [...clientRegistry.values()].filter(
             (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
           ),
         sessionInfo: (sessionId) => {
@@ -951,8 +951,8 @@ export class SessionRegistry {
       messages: this.store.messages,
       notificationFacts: this.store.notificationFacts,
       events: this.store.events,
-      issues: () => issues,
-      sessions: () => sessionsSvc,
+      issues,
+      sessions: sessionsSvc,
       mirrorIssueMail: (row) => funnel.run({ write: () => this.store.issues.addIssueMessage(row) }),
       mirrorMarkIssueMailRead: (issueId, ids) =>
         funnel.run({
@@ -971,7 +971,7 @@ export class SessionRegistry {
       // as the child's first prompt. Authz (gate.send write check) → spawn
       // budget → cooldown all bite before this seam is reached.
       spawnOnWake: makeSpawnOnWake({
-        issues: () => issues,
+        issues,
         createSession: (o) => sessionsSvc.createSession(o),
       }),
       // Cross-machine provenance [POD-658]: name the sender's machine in the
@@ -1132,8 +1132,8 @@ export class SessionRegistry {
     })
     const messageGate = new MessageGate(
       {
-        messages: () => messagesSvc,
-        issues: () => issues,
+        messages: messagesSvc,
+        issues,
         listSessions: () => sessionsSvc.listSessions(),
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
         // child is a FULL Podium session through the one spawn path; --new is the
@@ -1178,8 +1178,8 @@ export class SessionRegistry {
     )
     const readToolkit = new SessionReadToolkit({
       listSessions: () => sessionsSvc.listSessions(),
-      issues: () => issues,
-      messages: () => messagesSvc,
+      issues,
+      messages: messagesSvc,
       events: this.store.events,
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,
@@ -1237,7 +1237,7 @@ export class SessionRegistry {
       store: this.store.approvals,
       now: () => new Date().toISOString(),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
-      clients: () => clients().values(),
+      clients: () => clientRegistry.values(),
       sessionIssueId: (sessionId) => {
         const s = sessionsSvc.listSessions().find((x) => x.sessionId === sessionId)
         return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
@@ -1900,10 +1900,10 @@ export class SessionRegistry {
         sessions: sessionsSvc,
         machines,
         hosts,
-        conversations: () => conversations,
+        conversations,
         rpc,
         headless,
-        approvals: { onExecResult: (msg) => approvals.onExecResult(msg) },
+        approvals,
         agentRelay: { run: (machineId, msg) => void agentRelayGate.run(machineId, msg) },
       },
     })

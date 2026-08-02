@@ -241,8 +241,8 @@ export interface MessageDeliveryDeps {
   messages: MessagesRepository
   notificationFacts: NotificationFactsRepository
   events: EventsRepository
-  issues(): IssueService
-  sessions(): {
+  issues: IssueService
+  sessions: {
     listSessions(): SessionMeta[]
     sendText(input: InboxDeliveryInput): {
       ok: boolean
@@ -523,8 +523,7 @@ export class MessageDeliveryService {
   ): void {
     const session =
       changed ??
-      this.deps
-        .sessions()
+      this.deps.sessions
         .listSessions()
         .find((candidate) => candidate.sessionId === sessionId)
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
@@ -555,7 +554,7 @@ export class MessageDeliveryService {
    * queue their principals plus both old/new issues. */
   onIssueEligibilityChanged(issueId: string): void {
     this.queueDeliveryTarget({ kind: 'issue', id: issueId })
-    for (const session of this.deps.sessions().listSessions()) {
+    for (const session of this.deps.sessions.listSessions()) {
       const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
       const nextIssueId = this.issueForSession(session)
       if (
@@ -571,7 +570,7 @@ export class MessageDeliveryService {
   /** Begin a bounded startup walk. Each page schedules the next macrotask so
    * every durable principal is enumerated without one unbounded boot turn. */
   reconcileQueued(): void {
-    const sessions = this.deps.sessions().listSessions()
+    const sessions = this.deps.sessions.listSessions()
     if (this.deps.messages.countQueued() === 0) {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
@@ -672,7 +671,7 @@ export class MessageDeliveryService {
     }
 
     if (selected.size === 0) return
-    const all = this.deps.sessions().listSessions()
+    const all = this.deps.sessions.listSessions()
     const nowMs = this.nowMs()
     const handled = new Set<string>()
     for (const group of preferredGroups.values()) {
@@ -818,7 +817,7 @@ export class MessageDeliveryService {
    * always holds the effective values and `clamped_from` the requested ones.
    */
   send(from: MessageSender, input: MessageSendInput): MessageSendResult {
-    const issues = this.deps.issues()
+    const issues = this.deps.issues
     // Resolve an issue recipient ref (#N / seq / id) to the canonical id up
     // front so the stored to_id is stable.
     const toId =
@@ -831,8 +830,7 @@ export class MessageDeliveryService {
 
     const targetSession =
       input.to.kind === 'session'
-        ? this.deps
-            .sessions()
+        ? this.deps.sessions
             .listSessions()
             .find((s) => s.sessionId === toId)
         : undefined
@@ -1059,7 +1057,7 @@ export class MessageDeliveryService {
       // view). Its "delivery" is the operator reading their inbox, not a black hole.
       return { ok: true, queued: true, disposition: 'queued' }
     }
-    const sessions = this.deps.sessions()
+    const sessions = this.deps.sessions
     const all = allSessions ?? sessions.listSessions()
 
     let target: SessionMeta | undefined
@@ -1079,7 +1077,7 @@ export class MessageDeliveryService {
         return this.deadLetter(message, 'session no longer exists', { notifySender })
       }
     } else {
-      const issue = this.deps.issues().get(message.toId ?? '')
+      const issue = this.deps.issues.get(message.toId ?? '')
       if (!issue) return this.deadLetter(message, 'issue no longer exists', { notifySender })
       // A closed-and-archived issue is GONE — no future session will prime on it,
       // so holding is a black hole. Dead-letter it [POD-834 §05]. A merely open
@@ -1205,7 +1203,7 @@ export class MessageDeliveryService {
     sessionId: SessionId,
     okDisposition: SendDisposition,
   ): DeliveryOutcome {
-    const sessions = this.deps.sessions()
+    const sessions = this.deps.sessions
     const principal = this.inboxPrincipal(message)
     const text = this.renderFor(message, sessionId)
     const input = {
@@ -1473,7 +1471,7 @@ export class MessageDeliveryService {
       return
     }
 
-    const all = this.deps.sessions().listSessions()
+    const all = this.deps.sessions.listSessions()
     const nowMs = this.nowMs()
     for (const message of page) {
       if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
@@ -1501,7 +1499,7 @@ export class MessageDeliveryService {
    *  issue-addressed rows past one coalesce into a single pointer
    *  ("N messages from X, Y — run 'podium issue mail inbox'"). */
   private deliverBatch(session: SessionMeta, batch: MessageRow[]): void {
-    const sessions = this.deps.sessions()
+    const sessions = this.deps.sessions
     // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): the idle drain pulls this
     // session's issue-pending rows, which can include a note it sent to its own
     // issue while another member was busy — never deliver those back to the
@@ -1582,8 +1580,7 @@ export class MessageDeliveryService {
     if (original.fromKind === 'agent') {
       if (
         original.fromSession &&
-        this.deps
-          .sessions()
+        this.deps.sessions
           .listSessions()
           .some((s) => s.sessionId === original.fromSession)
       ) {
@@ -1605,7 +1602,7 @@ export class MessageDeliveryService {
    *  a legacy `issue:#N` sender ref (#463) as well as `#N` / `iss_…`; an
    *  ambiguous or unknown ref returns null instead of throwing. */
   private resolveIssueIdSafe(ref: string): string | null {
-    const issues = this.deps.issues()
+    const issues = this.deps.issues
     const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
     try {
       const id = issues.resolveRef(bare)
@@ -1991,7 +1988,7 @@ export class MessageDeliveryService {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {
-      return this.deps.issues().issueForCwd(s.cwd) ?? null
+      return this.deps.issues.issueForCwd(s.cwd) ?? null
     } catch {
       return null
     }
@@ -2092,8 +2089,7 @@ export class MessageDeliveryService {
   private wakeKeyOfRow(m: MessageRow): string {
     const target =
       m.toKind === 'session'
-        ? this.deps
-            .sessions()
+        ? this.deps.sessions
             .listSessions()
             .find((s) => s.sessionId === m.toId)
         : undefined
@@ -2196,7 +2192,7 @@ export class MessageDeliveryService {
    *  zero storage. */
   private crossMachineNote(message: MessageRow, receiverSessionId?: string): string | undefined {
     if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
-    const sessions = this.deps.sessions().listSessions()
+    const sessions = this.deps.sessions.listSessions()
     const senderMachine = sessions.find((s) => s.sessionId === message.fromSession)?.machineId
     const receiverMachine = sessions.find((s) => s.sessionId === receiverSessionId)?.machineId
     if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined
@@ -2210,7 +2206,7 @@ export class MessageDeliveryService {
         // Nice-id form (#474): `issue:POD-13` — clickable in the web transcript
         // and the reference form agents are told to use; `#seq` only before a
         // repo prefix exists (niceRef's own fallback).
-        const issues = this.deps.issues()
+        const issues = this.deps.issues
         const issue = issues.getMeta(message.fromIssue)
         return issue ? `issue:${issues.niceRef(issue)}` : message.fromIssue
       }
@@ -2224,7 +2220,7 @@ export class MessageDeliveryService {
 
   private toLabel(message: MessageRow): string {
     if (message.toKind === 'issue') {
-      const issues = this.deps.issues()
+      const issues = this.deps.issues
       const issue = issues.getMeta(message.toId ?? '')
       return issue ? `your issue ${issues.niceRef(issue)}` : `your issue ${message.toId}`
     }
@@ -2546,7 +2542,7 @@ export class MessageDeliveryService {
         return from.name ?? 'system'
       case 'agent': {
         if (from.issueId) {
-          const issue = this.deps.issues().getMeta(from.issueId)
+          const issue = this.deps.issues.getMeta(from.issueId)
           if (issue) return `issue:#${issue.seq}`
         }
         return from.sessionId ? `session:${from.sessionId}` : 'agent'

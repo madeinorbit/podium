@@ -92,8 +92,8 @@ function harness(opts?: {
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
-    issues: () => fakeIssues(),
-    sessions: () => ({
+    issues: fakeIssues(),
+    sessions: {
       listSessions: () => sessions,
       sendText: (i) => {
         sent.push({ fn: 'sendText', ...i })
@@ -107,7 +107,7 @@ function harness(opts?: {
         sent.push({ fn: 'interruptText', ...i })
         return { ok: true, queued: true }
       },
-    }),
+    },
     now: opts?.now ?? (() => new Date().toISOString()),
   })
   const defaultRetire: MessageGateDeps['retireNotificationFact'] = (factKey, target) => {
@@ -115,8 +115,8 @@ function harness(opts?: {
     store.notificationFacts.retire(factKey, target, opts?.now?.() ?? new Date().toISOString())
   }
   const gate = new MessageGate({
-    messages: () => svc,
-    issues: () => issues,
+    messages: svc,
+    issues,
     listSessions: () => sessions,
     spawnSession:
       opts?.spawnSession ??

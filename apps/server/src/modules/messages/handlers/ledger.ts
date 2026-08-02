@@ -33,7 +33,7 @@ export function ledgerHandler(
     const resolved = access.resolveIssueAddress(input.issueId)
     if (resolved.kind !== 'issue') return []
   }
-  const rows = deps.messages().ledger(input)
+  const rows = deps.messages.ledger(input)
   // A member sees the delivery ledger for traffic they sent or received — the
   // "why did my wake not fire" question the view exists to answer, answerable
   // entirely from their own rows. Same `mayView` predicate the show/status

@@ -69,7 +69,7 @@ describe('makeSpawnOnWake', () => {
   it('spawns on the issue worktree via createSession with issue defaults + parent provenance', () => {
     const calls: Record<string, unknown>[] = []
     const seam = makeSpawnOnWake({
-      issues: () => fakeIssues({ machineId: 'm1' } as Partial<typeof ISSUE>),
+      issues: fakeIssues({ machineId: 'm1' } as Partial<typeof ISSUE>),
       createSession: (i) => {
         calls.push(i)
         return { sessionId: asSessionId('child1') }
@@ -92,7 +92,7 @@ describe('makeSpawnOnWake', () => {
   it('falls back to the repo root for an unstarted issue; never starts the issue itself', () => {
     const calls: Record<string, unknown>[] = []
     const seam = makeSpawnOnWake({
-      issues: () => fakeIssues({ worktreePath: null } as unknown as Partial<typeof ISSUE>),
+      issues: fakeIssues({ worktreePath: null } as unknown as Partial<typeof ISSUE>),
       createSession: (i) => {
         calls.push(i)
         return { sessionId: asSessionId('c') }
@@ -104,7 +104,7 @@ describe('makeSpawnOnWake', () => {
 
   it('fails soft on a missing/unknown issue and on a throwing spawn', () => {
     const seam = makeSpawnOnWake({
-      issues: () => fakeIssues(),
+      issues: fakeIssues(),
       createSession: () => {
         throw new Error('daemon offline')
       },
@@ -135,8 +135,8 @@ describe('wake → spawn → first prompt (service integration)', () => {
       messages: store.messages,
       notificationFacts: store.notificationFacts,
       events: store.events,
-      issues: () => fakeIssues(),
-      sessions: () => ({
+      issues: fakeIssues(),
+      sessions: {
         listSessions: () => sessions,
         sendText: () => ({ ok: true }),
         queueText: (i) => {
@@ -147,9 +147,9 @@ describe('wake → spawn → first prompt (service integration)', () => {
           interrupted.push(i)
           return { ok: true, queued: true }
         },
-      }),
+      },
       spawnOnWake: makeSpawnOnWake({
-        issues: () => fakeIssues(),
+        issues: fakeIssues(),
         createSession: (i) => {
           // The real createSession registers the session; mirror that so
           // follow-up sends resolve the child.
