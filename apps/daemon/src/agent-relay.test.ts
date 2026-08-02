@@ -153,35 +153,43 @@ describe('agent relay server', () => {
     }
   })
 
-  it('POST /session/<sessionId>/open captures the raw URL without entering the command relay', async () => {
-    const opened: Array<{ sessionId: string; url: string }> = []
-    let relayCalls = 0
-    const srv = await startAgentRelayServer({
-      port: 0,
-      openUrl: (sessionId, url) => {
-        opened.push({ sessionId, url })
-        return { ok: true }
-      },
-      relay: async () => {
-        relayCalls++
-        return { ok: true }
-      },
-    })
-    try {
-      const url =
-        'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback'
-      const response = await fetch(`${srv.endpointFor('sOpen')}/open`, {
-        method: 'POST',
-        headers: { 'content-type': 'text/plain' },
-        body: url,
+  // The prefix and the optional `/open` group are orthogonal in the regex, so
+  // they cannot break independently — but the live case worth asserting rather
+  // than inferring is the LEGACY one: a session spawned before a rename has the
+  // old prefix baked into its env, so its browser shim POSTs `/agent/<sid>/open`
+  // after the redeploy that lands the rename.
+  it.each(['issue', 'agent', 'session'])(
+    'POST /%s/<sessionId>/open captures the raw URL without entering the command relay',
+    async (prefix) => {
+      const opened: Array<{ sessionId: string; url: string }> = []
+      let relayCalls = 0
+      const srv = await startAgentRelayServer({
+        port: 0,
+        openUrl: (sessionId, url) => {
+          opened.push({ sessionId, url })
+          return { ok: true }
+        },
+        relay: async () => {
+          relayCalls++
+          return { ok: true }
+        },
       })
-      expect(response.status).toBe(202)
-      expect(opened).toEqual([{ sessionId: 'sOpen', url }])
-      expect(relayCalls).toBe(0)
-    } finally {
-      await srv.close()
-    }
-  })
+      try {
+        const url =
+          'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback'
+        const response = await fetch(`http://127.0.0.1:${srv.port}/${prefix}/sOpen/open`, {
+          method: 'POST',
+          headers: { 'content-type': 'text/plain' },
+          body: url,
+        })
+        expect(response.status).toBe(202)
+        expect(opened).toEqual([{ sessionId: 'sOpen', url }])
+        expect(relayCalls).toBe(0)
+      } finally {
+        await srv.close()
+      }
+    },
+  )
 
   it('rejects a non-POST or bad path with 404', async () => {
     const srv = await startAgentRelayServer({ port: 0, relay: async () => ({ ok: true }) })

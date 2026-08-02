@@ -75,11 +75,11 @@ Application code stays **vertical by feature**. Planes are **boundary port contr
 
 **Decision.** Two non-overlapping host-edge channels:
 
-1. **Agent command relay** ([spec:SP-b85a]) — daemon injects loopback HTTP `PODIUM_AGENT_RELAY` → `/agent/<sessionId>`; carries the agent CLI/MCP command surface (issues, messages, sessions, specs, workflows, locks, approvals, agent spawn/await, worktree reporting). On the peer wire this is **only** `agentRelayRequest` (daemon→server) and `agentRelayResult` (server→daemon), both control · command.
+1. **Agent command relay** ([spec:SP-b85a]) — daemon injects a loopback HTTP endpoint at `/session/<sessionId>`, carried by `PODIUM_SESSION_RELAY` (every session kind, `shell` included) and additionally by `PODIUM_AGENT_RELAY` for harness kinds only, per the identity split in the env-variable table below. The path names the *session*, not an agent, precisely because holding `PODIUM_AGENT_RELAY` — not reaching the endpoint — is what asserts delegate-agent identity. The legacy `/agent/<sessionId>` and `/issue/<sessionId>` paths stay accepted so sessions spawned before each rename survive the daemon redeploy that lands it; only `/session/` is ever emitted. It carries the agent CLI/MCP command surface (issues, messages, sessions, specs, workflows, locks, approvals, agent spawn/await, worktree reporting). On the peer wire this is **only** `agentRelayRequest` (daemon→server) and `agentRelayResult` (server→daemon), both control · command.
 
 2. **Host↔server traffic** — daemon- or host-owned side channels that must **not** share the agent-relay HTTP surface or its session-identity inheritance: native harness hooks (instance-scoped `/hooks` / hook socket per [spec:SP-15aa]), browser-open family ([spec:SP-a43e]), resume-ref + `sessionResumeRefAck` ([spec:SP-fccf]), inventory probes, PTY/agent-frame streams, host-initiated file/transcript bulk.
 
-**Rule (binding for new work):** never route a new host callback through `PODIUM_AGENT_RELAY` for convenience. New host features get typed frames (or a dedicated host HTTP path under instance isolation) and a plane classification in this inventory (amend this ADR).
+**Rule (binding for new work):** never route a new host callback through the agent command relay for convenience. New host features get typed frames (or a dedicated host HTTP path under instance isolation) and a plane classification in this inventory (amend this ADR).
 
 **Rationale.** Independently re-derived in [spec:SP-fccf] (“Hook transport and receipts … remain separate from the agent command relay”) and [spec:SP-a43e] (browser-open is daemon→server→client, not an agent-relay RPC). The relay bakes session identity into the URL path; host callbacks are not “the agent speaking CLI.” Collapsing them re-homes identity, confuses authz, and breaks `PODIUM_NO_RELAY` hermetic tests.
 
@@ -296,7 +296,7 @@ Framing + role-specific auth strategy modules are ADR 5 / POD-317.
 | Bulk over HTTP | B | `sessions.transcriptRead`, large `files.read`, `GET /files/asset`, `GET /files/artifact/...` |
 | Auth / ops | C/h or ops | `/auth/*`, `/setup/*`, `/health`, `/version` |
 | MCP | C/c | `POST /mcp` |
-| Agent relay HTTP | C/c | Daemon loopback `/agent/<sid>` only — **not** browser |
+| Agent relay HTTP | C/c | Daemon loopback `/session/<sid>` only (legacy `/agent/`, `/issue/` still accepted) — **not** browser |
 
 `features.state` is control-plane query (not stream). `MutationEnvelope` / `MutationResult` (`mutations.ts`) are control · command (+ entity side-effects); not yet live as a WS frame type.
 
@@ -405,7 +405,7 @@ Matches current `message-class.ts`: open/result `live`; callback/dismiss `comman
 
 ```
 Agent process
-  └─ HTTP loopback PODIUM_AGENT_RELAY /agent/<sid>
+  └─ HTTP loopback PODIUM_SESSION_RELAY /session/<sid>
         └─ daemon ──agentRelayRequest──► server command registry
               ▲                              │
               └──── agentRelayResult ────────┘
