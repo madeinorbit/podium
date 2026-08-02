@@ -9,6 +9,8 @@ import {
   type AuditResult,
   baselineOf,
   CHECKS,
+  DAEMON_COMPOSITION_ROOT,
+  DAEMON_COMPOSITION_ROOT_MAX_LINES,
   diffBaseline,
   grep,
   grepDistinctLiterals,
@@ -475,6 +477,26 @@ describe('inventory checks', () => {
     expect(countOf(ctx, 'composition-root-forward-refs')).toBe(1)
   })
 
+  it('oversized daemon root refuses line 301 and errors when its anchor disappears', () => {
+    const source = (lines: number) =>
+      `${Array.from({ length: lines }, (_, i) => `const x${i} = 0`).join('\n')}\n`
+    expect(
+      countOf(
+        ctxOf({ [DAEMON_COMPOSITION_ROOT]: source(DAEMON_COMPOSITION_ROOT_MAX_LINES) }),
+        'oversized-daemon-composition-root',
+      ),
+    ).toBe(0)
+    expect(
+      countOf(
+        ctxOf({ [DAEMON_COMPOSITION_ROOT]: source(DAEMON_COMPOSITION_ROOT_MAX_LINES + 1) }),
+        'oversized-daemon-composition-root',
+      ),
+    ).toBe(1)
+    expect(() =>
+      CHECKS.find((check) => check.id === 'oversized-daemon-composition-root')?.collect(ctxOf({})),
+    ).toThrow(/was not scanned; the zero is unmeasured/)
+  })
+
   it('state-dir-defs ignores the canonical home', () => {
     const ctx = ctxOf({
       'packages/runtime/src/config.ts': 'export function stateDir(): string {}',
@@ -892,6 +914,10 @@ describe('against the live repo', () => {
       // anchored by the planted definite-assignment control test above and scans
       // both production composition roots, so zero here is the delivered state.
       'composition-root-forward-refs',
+      // POD-327 reduced daemon.ts from 833 lines to a composition root. The
+      // detector throws if that file is no longer scanned, and the planted
+      // 300/301-line boundary test above proves both verdicts.
+      'oversized-daemon-composition-root',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
