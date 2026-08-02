@@ -31,7 +31,7 @@
  * requesting principal, and this module needs no change when it does.
  */
 
-import { harnessCapabilitiesFor, harnessSupportsEffort } from '@podium/harness'
+import { harnessCapabilitiesFor, harnessSupportsEffort } from '../../harness-manifest'
 import type { AgentKind, UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { SessionStore } from '../../store'
