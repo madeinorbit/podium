@@ -22,7 +22,7 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipFromMachines } from '../../machine-access'
-import { machinesForPrincipal, sessionCommandServices } from './command-ctx'
+import { machinesForPrincipal, sessionCommandServices, usableRepos } from './command-ctx'
 import {
   bindingPrincipalFor,
   createdOwnership,
@@ -285,6 +285,25 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
     // the use-decision when that schema carries it.
     expect(offered.find((m) => m.id === 'mine')?.use).toBe('granted')
     expect(offered.find((m) => m.id === 'shared')?.use).toBe('denied')
+
+    /**
+     * POD-1386 — `podium machine list` joins each machine's registered checkouts
+     * onto this projection, because an enumeration without them cannot answer
+     * "which machine can take this work". Repo rows are stored UNSCOPED, so the
+     * join is where the disclosure decision is taken, and the cut is `use`, not
+     * `see`: a checkout path answers "what can I run on your hardware, and as
+     * whom", the same question `inventory` answers.
+     *
+     * All three cases in one list on purpose. Against a fixture with only a usable
+     * machine, a join that filtered NOTHING would pass — the see-only row is what
+     * makes this able to fail.
+     */
+    const repos = usableRepos(offered, [
+      { machineId: 'mine', path: '/home/me/src/podium' },
+      { machineId: 'shared', path: '/home/colleague/src/podium' },
+      { machineId: 'theirs', path: '/home/colleague/src/secret' },
+    ])
+    expect(repos).toEqual([{ machineId: 'mine', path: '/home/me/src/podium' }])
   })
 })
 
