@@ -110,7 +110,11 @@ reapHarnessSessions(PORT)
 // abduco masters parked under /tmp/podium-e2e-<other-port> that no same-port run
 // will ever revisit) — POD-107.
 reapStaleHarnessDirs()
-const { stateDir } = applyHarnessEnv(PORT)
+const { stateDir } = applyHarnessEnv(PORT, {
+  // Only the dedicated login/runtime proof opts into client auth. The ordinary
+  // browser lane must not inherit the operator deployment's password.
+  preserveClientPassword: process.env.PODIUM_E2E_AUTH === '1',
+})
 
 // A scratch repo WITH a linked worktree, at a deterministic per-port path so specs
 // can compute it (tmpdir()/zz-podium-e2e-repo-<PORT>; the zz- prefix keeps it

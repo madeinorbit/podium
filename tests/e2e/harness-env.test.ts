@@ -13,6 +13,7 @@ import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  applyHarnessEnv,
   applyRealAgentCodexEnv,
   harnessEnv,
   harnessPidFile,
@@ -20,6 +21,47 @@ import {
   reapStaleHarnessDirs,
   stopHarnessProcess,
 } from './harness-env'
+
+describe('applyHarnessEnv client authentication isolation', () => {
+  const PORT = 9913
+  const keys = [
+    'ABDUCO_SOCKET_DIR',
+    'TMUX_TMPDIR',
+    'PODIUM_STATE_DIR',
+    'PODIUM_PASSWORD',
+    'PODIUM_WEB_DIR',
+  ] as const
+  const original = new Map<string, string | undefined>()
+
+  beforeEach(() => {
+    for (const key of keys) original.set(key, process.env[key])
+  })
+
+  afterEach(() => {
+    for (const key of keys) {
+      const value = original.get(key)
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(harnessEnv(PORT).base, { recursive: true, force: true })
+  })
+
+  it('drops an inherited deployment password from an ordinary isolated harness', () => {
+    process.env.PODIUM_PASSWORD = 'operator-deployment-secret'
+
+    applyHarnessEnv(PORT)
+
+    expect(process.env.PODIUM_PASSWORD).toBeUndefined()
+  })
+
+  it('preserves a password only for an explicit authentication proof', () => {
+    process.env.PODIUM_PASSWORD = 'test-owned-password'
+
+    applyHarnessEnv(PORT, { preserveClientPassword: true })
+
+    expect(process.env.PODIUM_PASSWORD).toBe('test-owned-password')
+  })
+})
 
 describe('applyRealAgentCodexEnv', () => {
   const PORT = 9912

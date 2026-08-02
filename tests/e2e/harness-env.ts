@@ -407,8 +407,21 @@ export function reapStaleHarnessDirs(now: number = Date.now()): number[] {
   return reaped
 }
 
+export interface ApplyHarnessEnvOptions {
+  /**
+   * Preserve an explicitly supplied client password for the small set of specs
+   * that exercise login itself. Ordinary harnesses are open, isolated instances:
+   * inheriting the operator's deployment password would enable auth without
+   * giving their fresh browser context a matching authenticated session.
+   */
+  preserveClientPassword?: boolean
+}
+
 /** Create the isolation dirs and point this process's env at them. */
-export function applyHarnessEnv(port: number): ReturnType<typeof harnessEnv> {
+export function applyHarnessEnv(
+  port: number,
+  options: ApplyHarnessEnvOptions = {},
+): ReturnType<typeof harnessEnv> {
   const dirs = harnessEnv(port)
   for (const d of [dirs.stateDir, dirs.abducoSocketDir, dirs.tmuxTmpDir]) {
     mkdirSync(d, { recursive: true, mode: 0o700 })
@@ -417,6 +430,11 @@ export function applyHarnessEnv(port: number): ReturnType<typeof harnessEnv> {
   process.env.ABDUCO_SOCKET_DIR = dirs.abducoSocketDir
   process.env.TMUX_TMPDIR = dirs.tmuxTmpDir
   process.env.PODIUM_STATE_DIR = dirs.stateDir
+  // PODIUM_PASSWORD is a deployment input, not ambient test identity. A browser
+  // harness started from an authenticated Podium session otherwise writes the
+  // operator's password into its fresh state root, then correctly refuses the
+  // cookie-less Chromium context before the app can open its private replica.
+  if (!options.preserveClientPassword) delete process.env.PODIUM_PASSWORD
   // When the harness itself runs inside a Podium-launched shell (agents in a
   // Podium session), the parent exports PODIUM_WEB_DIR pointing at the
   // INSTALLED web bundle. Inheriting it would make the e2e server serve that
