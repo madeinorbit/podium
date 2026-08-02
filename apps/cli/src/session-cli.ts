@@ -1,5 +1,6 @@
-import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { makeOperatorIssueClient } from './operator-client'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
 type SessionProc = { mutate(input: Record<string, unknown>): Promise<SessionResult> }
@@ -426,7 +427,9 @@ export async function sessionCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(`http://localhost:${resolvePort()}`)) as unknown as SessionControlClient
+    : makeOperatorIssueClient(
+        `http://localhost:${resolvePort()}`,
+      )) as unknown as SessionControlClient
   try {
     console.log(await runSessionCli(argv, client, { hasRelay: Boolean(relay) }))
   } catch (error) {

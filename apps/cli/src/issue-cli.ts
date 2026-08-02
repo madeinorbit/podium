@@ -1,11 +1,7 @@
-import {
-  ISSUE_COMMANDS,
-  type IssueTrpc,
-  makeIssueClient,
-  makeRelayIssueClient,
-} from '@podium/issue-client'
+import { ISSUE_COMMANDS, type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import type { z } from 'zod'
+import { makeOperatorIssueClient } from './operator-client'
 
 /** Kebab-case flag → camelCase key, so `--outside-scope` becomes `outsideScope`. */
 const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
@@ -251,7 +247,7 @@ export async function issueCliMain(argv: string[]): Promise<void> {
     )
   const client = relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(`http://localhost:${resolvePort()}`)
+    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)
   try {
     console.log(await runIssueCli(argv, client, { defaultAuthor: relay ? 'agent' : 'operator' }))
   } catch (err) {

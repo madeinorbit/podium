@@ -16,9 +16,10 @@
  * (curated name slot); distinct from `--new "title"` which names the ISSUE.
  */
 
-import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { MailCliError, parseMailArgs } from './mail-cli'
+import { makeOperatorIssueClient } from './operator-client'
 import { renderStatus, type StatusWire } from './session-cli'
 
 type Proc = { mutate(input?: unknown): Promise<unknown> }
@@ -212,7 +213,7 @@ export async function agentCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(`http://localhost:${resolvePort()}`)) as unknown as AgentClient
+    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)) as unknown as AgentClient
   try {
     console.log(await runAgentCli(argv, client))
   } catch (error) {

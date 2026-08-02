@@ -47,6 +47,36 @@ to mirror non-anomalous events to the console; anomalies warn automatically. Und
 - **Live URL**: use the tailscale HTTPS URL with `ignoreHTTPSErrors: true`. `localhost:55556` is the raw web, but same-origin WS routing is wired through `:55555` — prefer it.
 - **Ad-hoc Playwright script** (outside the repo): import from `@playwright/test` (bun nests `playwright-core`, so it's not a top-level package). For a script in `/tmp`, symlink `node_modules`: `ln -sfn <repo>/node_modules /tmp/x/node_modules`. Chromium is cached in `~/.cache/ms-playwright` (`npx playwright install chromium` if not).
 
+## Authenticating against a password-protected instance
+
+The live instance has a password, and `auth.json` stores only a scrypt hash — there is no
+plaintext anywhere on the host, so you cannot "just log in" as an agent. Mint a session
+instead (POD-1376):
+
+```sh
+podium auth mint-session                 # caches it; podium CLI calls now carry it
+podium auth mint-session --print-only --ttl 10m   # prints only, for a browser context
+```
+
+The printed value is the `podium_session` cookie. For Playwright:
+
+```js
+await context.addCookies([{ name: 'podium_session', value: TOKEN, url: 'http://localhost:18787' }])
+```
+
+Minting needs write access to the instance's `podium.db`, which already implies ownership
+of everything in it; `PODIUM_STATE_DIR` selects a non-default instance. Sessions are
+labelled, so clean up after yourself without signing the operator's browsers out:
+
+```sh
+podium auth sessions          # label, token hash, expiry
+podium auth revoke-sessions   # drops the 'break-glass' class only
+```
+
+If a `podium` command ever fails with `HTTP 401 unauthorized`, that is this — mint a
+session. (Before POD-1376 the same failure surfaced as "Unable to transform response from
+server", which named a serialization problem for what was always an auth failure.)
+
 ## Navigating the UI (current shadcn/Base-UI DOM)
 
 The app lands on **Tasks**. To get into a workspace and a session:

@@ -66,7 +66,8 @@ export async function runWorkspaceCli(
   try {
     if (command === 'clean') {
       const body = await relay(opts.relayEndpoint, 'clean', {}, doFetch)
-      if (!body.ok) return { text: `podium workspace: ${body.error ?? 'clean failed'}`, exitCode: 1 }
+      if (!body.ok)
+        return { text: `podium workspace: ${body.error ?? 'clean failed'}`, exitCode: 1 }
       const removed = (body.result as { removed?: string[] } | undefined)?.removed ?? []
       return {
         text: removed.length
@@ -76,7 +77,8 @@ export async function runWorkspaceCli(
       }
     }
     const ref = rest.find((a) => !a.startsWith('--'))
-    if (!ref) return { text: 'podium workspace fetch: an issue or session ref is required', exitCode: 1 }
+    if (!ref)
+      return { text: 'podium workspace fetch: an issue or session ref is required', exitCode: 1 }
     const body = await relay(opts.relayEndpoint, 'fetch', { ref }, doFetch)
     if (!body.ok) return { text: `podium workspace: ${body.error ?? 'fetch failed'}`, exitCode: 1 }
     const r = body.result as FetchResult

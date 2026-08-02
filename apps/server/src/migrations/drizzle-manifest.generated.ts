@@ -33,6 +33,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260724134702_session-spawn-failure", sql: "ALTER TABLE `sessions` ADD `spawn_failure` text;" },
   { name: "20260725002157_issue-tucked-at", sql: "ALTER TABLE `issues` ADD `tucked_at` text;" },
   { name: "20260802103350_per-session-message-reads", sql: "CREATE TABLE `message_reads` (\n\t`message_id` text NOT NULL,\n\t`session_id` text NOT NULL,\n\t`read_at` text NOT NULL,\n\tCONSTRAINT `message_reads_pk` PRIMARY KEY(`message_id`, `session_id`)\n);\n--> statement-breakpoint\nCREATE INDEX `idx_message_reads_session` ON `message_reads` (`session_id`);\n" },
+  { name: "20260802111446_label-client-sessions", sql: "ALTER TABLE `client_sessions` ADD `label` text DEFAULT 'login' NOT NULL;" },
 ]
 
 /**

@@ -1,11 +1,14 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { clientAuthGuard, hashToken, registerAuthRoute } from './auth-route'
 import { setPassword } from './auth-store'
 import { SessionStore } from './store'
+
+const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
 
 let dir: string
 let store: SessionStore
@@ -239,12 +242,77 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'fresh-token'
     // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
-    store.auth.createClientSession(hashToken(token), new Date(nowMs + 30 * DAY - HOUR).toISOString())
+    store.auth.createClientSession(
+      hashToken(token),
+      new Date(nowMs + 30 * DAY - HOUR).toISOString(),
+    )
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('set-cookie')).toBeNull()
+  })
+})
+
+// POD-1376. `podium auth mint-session` writes the client_sessions row from OUTSIDE
+// apps/server (the CLI may not import it), so the mint SQL lives in @podium/runtime and
+// the two could drift apart silently — a mint that "succeeds" against a table shape the
+// guard no longer reads would hand the operator a token that is refused on every call.
+// This is the oracle for that: mint the way the CLI does, authenticate the way the server
+// does, against one real on-disk database.
+describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () => {
+  let mintDir: string
+  let mintStore: SessionStore
+
+  beforeEach(() => {
+    mintDir = mkdtempSync(join(tmpdir(), 'podium-mint-'))
+    mintStore = new SessionStore(join(mintDir, 'podium.db'))
+  })
+  afterEach(() => {
+    mintStore.close()
+    rmSync(mintDir, { recursive: true, force: true })
+  })
+
+  function guarded() {
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store: mintStore.auth, authDir: mintDir }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    return app
+  }
+
+  test('a runtime-minted token authenticates against a password-protected surface', async () => {
+    await setPassword('hunter2', mintDir)
+    expect((await guarded().request('/trpc/ping')).status).toBe(401)
+
+    const minted = mintBreakGlassSession({ stateDir: mintDir })
+    const res = await guarded().request('/trpc/ping', {
+      headers: { cookie: `podium_session=${minted.token}` },
+    })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('pong')
+  })
+
+  test('the minted row carries the break-glass label so it is revocable on its own', async () => {
+    await setPassword('hunter2', mintDir)
+    const minted = mintBreakGlassSession({ stateDir: mintDir })
+    mintStore.auth.createClientSession(hashToken('a-browser-login'), FAR_FUTURE)
+
+    expect(mintStore.auth.deleteClientSessionsByLabel(BREAK_GLASS_LABEL)).toBe(1)
+
+    expect(
+      (
+        await guarded().request('/trpc/ping', {
+          headers: { cookie: `podium_session=${minted.token}` },
+        })
+      ).status,
+    ).toBe(401)
+    expect(
+      (
+        await guarded().request('/trpc/ping', {
+          headers: { cookie: 'podium_session=a-browser-login' },
+        })
+      ).status,
+    ).toBe(200)
   })
 })
 

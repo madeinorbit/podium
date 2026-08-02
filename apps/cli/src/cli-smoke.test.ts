@@ -20,18 +20,21 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium CLI real-binary smoke', () => {
-  for (const verb of ['mail', 'offer', 'agent', 'session', 'quota']) {
-    it(`${verb} --help renders without a server`, () => {
-      const out = execFileSync('bun', [cliEntry, verb, '--help'], { encoding: 'utf8' })
-      expect(out).toContain(verb)
-      expect(out.length).toBeGreaterThan(20)
-    })
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
+  'podium CLI real-binary smoke',
+  () => {
+    for (const verb of ['mail', 'offer', 'agent', 'session', 'quota', 'auth']) {
+      it(`${verb} --help renders without a server`, () => {
+        const out = execFileSync('bun', [cliEntry, verb, '--help'], { encoding: 'utf8' })
+        expect(out).toContain(verb)
+        expect(out.length).toBeGreaterThan(20)
+      })
 
-    it(`${verb} fails fast on an unknown subcommand`, () => {
-      expect(() =>
-        execFileSync('bun', [cliEntry, verb, 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
-      ).toThrow()
-    })
-  }
-})
+      it(`${verb} fails fast on an unknown subcommand`, () => {
+        expect(() =>
+          execFileSync('bun', [cliEntry, verb, 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
+        ).toThrow()
+      })
+    }
+  },
+)

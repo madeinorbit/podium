@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { authCliMain } from '../../cli/src/auth-cli'
 import { runIssueCli } from '../../cli/src/issue-cli'
+import { makeOperatorIssueClient } from '../../cli/src/operator-client'
+import { setPassword } from './auth-store'
 import { makeIssueClient } from './issue-client'
 import { startServer } from './server'
 
@@ -82,8 +85,17 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     const seq = /created #(\d+)/.exec(
       await runIssueCli(
         [
-          'create', '--repoPath', '/repo', '--title', 'Model routing',
-          '--agent', 'codex', '--model', 'gpt-5.2-codex', '--effort', 'high',
+          'create',
+          '--repoPath',
+          '/repo',
+          '--title',
+          'Model routing',
+          '--agent',
+          'codex',
+          '--model',
+          'gpt-5.2-codex',
+          '--effort',
+          'high',
         ],
         client,
       ),
@@ -119,5 +131,68 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     )?.[1]
     if (twin !== s) return // seq counters diverged; ambiguity can't be staged — skip
     await expect(runIssueCli(['show', s], client)).rejects.toThrow(/ambiguous issue ref/)
+  })
+})
+
+/**
+ * POD-1376. The operator path on a PASSWORD-PROTECTED instance, end to end: the real
+ * server with its real auth guard, the real `podium auth` command, and the real
+ * `podium issue` client-selection helper.
+ *
+ * Before this, `podium issue <anything>` on such an instance failed on every call — reads
+ * and writes alike — with "Unable to transform response from server", because the guard's
+ * 401 body is not a tRPC envelope. Both halves of the fix are asserted here: the error now
+ * names the auth failure, and a minted credential makes the same call work.
+ */
+describe('podium issue CLI ↔ password-protected server (e2e)', () => {
+  let stateDir: string
+  let server: Awaited<ReturnType<typeof startServer>>
+  let baseUrl: string
+
+  beforeAll(async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'podium-issue-auth-e2e-'))
+    process.env.PODIUM_STATE_DIR = stateDir
+    server = await startServer({ port: 0 })
+    baseUrl = `http://127.0.0.1:${server.port}`
+    await setPassword('hunter2', stateDir)
+  })
+  afterAll(async () => {
+    await server.close()
+    rmSync(stateDir, { recursive: true, force: true })
+    delete process.env.PODIUM_STATE_DIR
+  })
+
+  it('reports an uncredentialed call as an auth failure, not a transform error', async () => {
+    const client = makeOperatorIssueClient(baseUrl)
+    const call = runIssueCli(['stats', '--repoPath', '/repo'], client)
+    await expect(call).rejects.toThrow(/HTTP 401/)
+    await expect(call).rejects.toThrow(/podium auth mint-session/)
+    await expect(call).rejects.not.toThrow(/transform/i)
+  })
+
+  it('works once `podium auth mint-session` has run — reads AND writes', async () => {
+    const printed: string[] = []
+    await authCliMain(['mint-session'], {
+      print: (line) => printed.push(line),
+      printErr: () => {},
+    })
+    expect(printed).toHaveLength(1)
+
+    // A FRESH client, exactly as the next `podium issue` invocation would build one:
+    // nothing is passed between the two commands but the cached credential.
+    const client = makeOperatorIssueClient(baseUrl)
+    const created = await runIssueCli(
+      ['create', '--repoPath', '/repo', '--title', 'Promote the proposed lane'],
+      client,
+    )
+    expect(created).toMatch(/created #\d+/)
+    expect(await runIssueCli(['stats', '--repoPath', '/repo'], client)).toMatch(/open|total|1/)
+  })
+
+  it('stops working again once the break-glass class is revoked', async () => {
+    await authCliMain(['revoke-sessions'], { print: () => {}, printErr: () => {} })
+    await expect(
+      runIssueCli(['stats', '--repoPath', '/repo'], makeOperatorIssueClient(baseUrl)),
+    ).rejects.toThrow(/HTTP 401/)
   })
 })

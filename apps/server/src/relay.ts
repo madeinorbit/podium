@@ -90,7 +90,9 @@ export function mintUpstreamTokenInto(
   // 10 years ≈ non-expiring, while keeping the ordinary expiry machinery (and
   // revocation via deleteClientSession) intact.
   const expiresAt = new Date(nowMs + 10 * 365 * 24 * 60 * 60 * 1000).toISOString()
-  auth.createClientSession(sha256(token), expiresAt)
+  // Labelled so "revoke the break-glass sessions" (or the browser logins) can't cut every
+  // node off its hub by accident — POD-1376.
+  auth.createClientSession(sha256(token), expiresAt, 'upstream')
   return token
 }
 
@@ -314,7 +316,7 @@ export class SessionRegistry {
             info: noticeInfo(s),
             state: s.agentState,
           })),
-        notificationsEnabled: () => featureEnabled("notifications"),
+        notificationsEnabled: () => featureEnabled('notifications'),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,

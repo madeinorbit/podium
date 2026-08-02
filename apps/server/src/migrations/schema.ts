@@ -263,10 +263,16 @@ export const offers = sqliteTable('offers', {
   createdAt: text('created_at').notNull(),
 })
 
+/** Human-client login sessions. `label` records WHY a row exists (POD-1376):
+ *  'login' = a browser sign-in, 'upstream' = a node⇄hub provisioning token,
+ *  'break-glass' = a session minted from local state-dir access by
+ *  `podium auth mint-session`. Without it the three are indistinguishable and
+ *  revoking one class signs every device out too. */
 export const clientSessions = sqliteTable('client_sessions', {
   tokenHash: text('token_hash').primaryKey(),
   createdAt: text('created_at').notNull(),
   expiresAt: text('expires_at').notNull(),
+  label: text().notNull().default('login'),
 })
 
 /** The feed's identity (ADR 2 D1) — the `(feedId, epoch)` half of a replica's

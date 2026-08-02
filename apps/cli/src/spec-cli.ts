@@ -1,9 +1,4 @@
-import {
-  type IssueTrpc,
-  makeIssueClient,
-  makeRelayIssueClient,
-  SPEC_COMMANDS,
-} from '@podium/issue-client'
+import { type IssueTrpc, makeRelayIssueClient, SPEC_COMMANDS } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
   IssueCliError,
@@ -12,6 +7,7 @@ import {
   renderArgIssues,
   stripGlobalFlags,
 } from './issue-cli'
+import { makeOperatorIssueClient } from './operator-client'
 
 /**
  * `podium spec` — agent/operator CLI over the living project spec (pspec v1).
@@ -82,7 +78,7 @@ export async function specCliMain(argv: string[]): Promise<void> {
   const relay = resolveAgentRelay()
   const client = relay
     ? makeRelayIssueClient(relay)
-    : makeIssueClient(`http://localhost:${resolvePort()}`)
+    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)
   try {
     console.log(await runSpecCli(argv, client))
   } catch (err) {
