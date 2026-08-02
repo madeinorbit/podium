@@ -41,11 +41,13 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
+  type RoomRef,
   type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
   type SessionOpenUrlMessage,
   type SyncChangesSinceResult,
+  type SubscriptionRegistry,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
@@ -230,6 +232,8 @@ interface SessionLifecycleDeps {
    * client-plane mirror of the daemon mux's in-process peer form.
    */
   clients?: ClientRegistry
+  /** The gateway's ONE routing registry, shared by the feed and room stream. */
+  subscriptions: SubscriptionRegistry
   /** Shared live-session registry, constructed before every reader. Lifecycle
    * remains its sole mutation owner. */
   sessions?: Map<SessionId, Session>
@@ -390,6 +394,7 @@ export class SessionLifecycle {
     this.browserOpen = new BrowserOpenGateway({
       now: () => this.now(),
       clients: this.clients,
+      subscriptions: this.deps.subscriptions,
       session: (sessionId) => this.sessions.get(sessionId),
       sessionOwner: (sessionId) => this.sessionOwner(sessionId),
       toMachine: (machineId, message) => this.toMachine(machineId, message),
@@ -2796,6 +2801,11 @@ export class SessionLifecycle {
    */
   onClientAttached(principal: ClientPrincipal, client: ClientConn): void {
     this.clientControl.onAttached(principal, client)
+  }
+
+  /** Feature-owned consequence of a successful stream-room join. */
+  onRoomJoined(client: ClientConn, room: RoomRef): void {
+    if (room.kind === 'session') this.browserOpen.replayPending(client)
   }
 
   /** Authorization/view invalidation seam: the main authority changed one client world. */

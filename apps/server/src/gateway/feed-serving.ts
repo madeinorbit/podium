@@ -74,6 +74,7 @@ import {
   type Principal,
   principalRoutingKeyFromId,
   type RoutingKey,
+  type SubscriberId,
   type SubscriptionRegistry,
   type UpgradeRequired,
 } from '@podium/protocol'
@@ -127,6 +128,8 @@ export interface FeedServingDeps {
    * at all. See `legacy-wire-v1-adapter.ts`.
    */
   diagnostics(): ConversationDiagnosticWire[]
+  /** Rights moved: revalidate ephemeral rooms held by these same subscribers. */
+  onVisibilityChanged?(subscriberIds: readonly SubscriberId[]): void
 }
 
 export class FeedServing {
@@ -353,7 +356,11 @@ export class FeedServing {
     // `@podium/protocol` is the map a recorded baseline resolves through.
     const t0 = performance.now()
     const key = principalRoutingKeyFromId(principalIdOf(principal))
-    const targets = this.deps.subscriptions.subscribers(key).map((sub) => String(sub.subscriberId))
+    const subscribers = this.deps.subscriptions.subscribers(key)
+    const targets = subscribers.map((sub) => String(sub.subscriberId))
+    if (delivery.kind === 'rescope' || delivery.changes.some((change) => change.op === 'evict')) {
+      this.deps.onVisibilityChanged?.(subscribers.map((sub) => sub.subscriberId))
+    }
     this.publisher.publishTo(targets, principal, delivery)
     const tFramed = performance.now()
     perf.record('phase', 'feedPublish.frame', tFramed - t0, perfKey)

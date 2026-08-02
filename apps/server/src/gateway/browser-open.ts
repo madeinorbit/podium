@@ -5,7 +5,9 @@ import type {
   ControlMessage,
   SessionOpenUrlMessage,
   SessionOpenUrlResultMessage,
+  SubscriptionRegistry,
 } from '@podium/protocol'
+import { asSubscriberId, roomRoutingKey } from '@podium/protocol'
 import type { ClientConn, ClientRegistry } from './client-registry'
 
 interface BrowserOpenSession {
@@ -20,6 +22,7 @@ interface BrowserOpenOwnership {
 export interface BrowserOpenGatewayDeps {
   now(): number
   clients: ClientRegistry
+  subscriptions: SubscriptionRegistry
   session(sessionId: SessionId): BrowserOpenSession | undefined
   sessionOwner(sessionId: SessionId): BrowserOpenOwnership | undefined
   toMachine(machineId: string, message: ControlMessage): void
@@ -54,7 +57,7 @@ export class BrowserOpenGateway {
 
   replayPending(client: ClientConn): void {
     for (const request of this.pending.values()) {
-      if (this.clientMaySeeSession(client, request.sessionId)) client.send(request)
+      if (this.clientInSessionRoom(client, request.sessionId)) client.send(request)
     }
   }
 
@@ -70,11 +73,9 @@ export class BrowserOpenGateway {
     timer.unref?.()
     this.expiryTimers.set(requestKey, timer)
 
-    const clients = this.recipients(request.sessionId)
-    const focused = clients.filter((client) => client.focused === request.sessionId)
-    const visible = clients.filter((client) => client.viewVisible.has(request.sessionId))
-    const recipients = focused.length > 0 ? focused : visible.length > 0 ? visible : clients
-    for (const client of recipients) this.deps.clients.deliver(client, request)
+    for (const client of this.recipients(request.sessionId)) {
+      this.deps.clients.deliver(client, request)
+    }
   }
 
   onOpenUrlResult(machineId: string, message: SessionOpenUrlResultMessage): void {
@@ -102,6 +103,7 @@ export class BrowserOpenGateway {
       !request ||
       !session ||
       request.expiresAt <= this.deps.now() ||
+      !this.clientInSessionRoom(client, message.sessionId) ||
       !this.clientMaySeeSession(client, message.sessionId)
     ) {
       this.deps.clients.deliver(client, {
@@ -128,7 +130,11 @@ export class BrowserOpenGateway {
     message: Extract<ClientMessage, { type: 'sessionOpenUrlDismiss' }>,
   ): void {
     const requestKey = this.key(message.sessionId, message.requestId)
-    if (!this.pending.has(requestKey) || !this.clientMaySeeSession(client, message.sessionId))
+    if (
+      !this.pending.has(requestKey) ||
+      !this.clientInSessionRoom(client, message.sessionId) ||
+      !this.clientMaySeeSession(client, message.sessionId)
+    )
       return
     const session = this.deps.session(message.sessionId)
     const resolvedBy = this.resolutionActor(client)
@@ -202,8 +208,18 @@ export class BrowserOpenGateway {
   }
 
   private recipients(sessionId: SessionId): ClientConn[] {
-    return [...this.deps.clients.values()].filter((client) =>
-      this.clientMaySeeSession(client, sessionId),
+    return this.deps.subscriptions
+      .subscribers(roomRoutingKey({ kind: 'session', id: sessionId }))
+      .flatMap((subscription) => {
+        const client = this.deps.clients.get(String(subscription.subscriberId))
+        return client === undefined ? [] : [client]
+      })
+  }
+
+  private clientInSessionRoom(client: ClientConn, sessionId: SessionId): boolean {
+    return this.deps.subscriptions.has(
+      roomRoutingKey({ kind: 'session', id: sessionId }),
+      asSubscriberId(client.id),
     )
   }
 

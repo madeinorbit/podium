@@ -128,9 +128,119 @@ untouched and proving it would be wasted effort.
 | **POD-769** Ledger: unproven detector = unproven guard | Grep of `docs/rearchitecture-v3.md` for "three costumes", "unproven detector", "non-event" returns nothing. The doctrine join is unwritten. |
 | **POD-1122** scripts/ has no typecheck gate | Turbo runs typecheck in 23 packages; `scripts/` is not a workspace package and appears in none of them. Still the fail-open shape it describes. (Note: this issue's brief has a large paste of raw turbo output embedded mid-sentence — worth cleaning when someone picks it up.) |
 | **POD-1343** Worktree runtime resolution | Same defect *class* as POD-1305 but a distinct instance (gate worktree with `node_modules/@podium` absent after a clean install, vs POD-1305's symlink sharing). Deliberately **not** closed as a duplicate — the two have different fixes and closing on similarity is exactly the error this audit exists to avoid. A `related` link is the right relationship; it is left for whoever works POD-1305 to decide. |
-| **POD-1273, 1279, 1280, 1157, 1241, 1251, 1281, 1305, 1328, 803, 809, 1316, 326, 1081** | All read and confirmed to describe work not present on the tree. No action beyond reparenting and gate wiring. |
+| **POD-1157** composer PTY smoke fails | Read, not re-measured — a runtime PTY failure on this host; see §2d for why running it was declined. |
+| **POD-1281** live upgrade rehearsal | Cannot be agent-verified by construction: it is a human gate whose whole content is an operator executing a runbook and attaching evidence. |
+| **POD-326, POD-1081** Phase 5 leaves | Not started. POD-326 is blocked on POD-325; POD-1081 is a scope/design issue with no code yet. Same exemption as the Phase 6/7 leaves. |
+| **POD-803, 809, 1241, 1251, 1273, 1279, 1305, 1316** | **Now individually measured — see §2d.** These were originally folded into a single row claiming more than had been done. |
 
-### 2c. Corrected rather than closed — POD-1280
+### 2b-note. Correction: the last row of §2b originally overclaimed (now discharged in §2d)
+
+**Added 2026-08-02 08:30 UTC, after a reader asked whether POD-1328 still reproduces.**
+
+That row first read *"All read and confirmed to describe work not present on the tree."* For
+several of its entries — POD-1328 most clearly — the honest description is **read, not
+re-measured**. I read the brief and reparented the issue; I did not run `podium status` and did not
+look at the probe. "Confirmed" was the wrong word and it is the exact failure this audit exists to
+catch, committed by the audit itself: a verdict phrased more strongly than the evidence behind it.
+
+The corrected wording stands above. What follows is the measurement that should have been there.
+
+**POD-1328 — measured 2026-08-02 08:29 UTC on ludovico, live instance:**
+
+```
+$ podium status
+Podium — mode: server
+  ● server  up :18787  (health)          <- reports UP, correctly
+$ curl -s -o /dev/null -w "%{http_code}" http://localhost:18787/health
+200
+$ ss -ltnp | grep 18787
+LISTEN 127.0.0.1:18787  users:(("bun",pid=3097780,fd=21))
+```
+
+**The headline symptom does not reproduce.** `podium status` agrees with the health endpoint.
+
+**That is not a fix, and POD-1328 must not be closed on it.** The original was a point-in-time
+measurement at 07:05 UTC on integration `0c2ec962`; this is one contradicting reading roughly 85
+minutes later. A probe that disagrees with reality intermittently is precisely the class where a
+single green is a non-event — the same rule the ledger states for detectors and guards (§4 of
+`docs/rearchitecture-v3.md`, and POD-769). Retiring this issue needs the probe read, not re-run.
+
+**The issue's SECOND observation is confirmed live and ongoing, and is the more dangerous half.**
+POD-1328 reported `~/.podium/config.json` rewritten at 06:43:31 UTC with a features block whose
+flag names match a test fixture, and deliberately declined to name the writer. As of 08:29 UTC:
+
+```
+$ TZ=UTC stat -c '%y' ~/.podium/config.json
+2026-08-02 08:14:31 UTC                  <- rewritten ~15 min ago, DURING this audit session
+$ cat ~/.podium/config.json
+{ "mode": "server", "features": { "sample-experiment": true, "other": false } }
+```
+
+The fixture is still in the **live** host config, and `ps` shows unit lanes running concurrently
+out of the POD-402 and POD-1329 worktrees. So a test lane is still writing live host state, and
+the live server is currently running with an experimental feature flag a test switched on.
+
+**The writer was unidentified at the time of writing. It has since been found — and the earlier
+elimination of it was wrong.** Found by POD-1329, confirmed independently here against
+`issue/279-integration`:
+
+`packages/runtime/src/config.test.ts` has **two** `describe` blocks:
+
+| | line | isolation |
+|---|---|---|
+| `describe('podium config')` | 24 | `beforeEach` at 26-28 with `mkdtempSync` + `process.env.PODIUM_STATE_DIR` — **isolated** |
+| `describe('layered resolvers (#251): env → config.json → default')` | 123 | **no `beforeEach`, no `mkdtempSync`, no `PODIUM_STATE_DIR` — not isolated at all** |
+
+and inside the second one, at line 170:
+
+```ts
+it('PodiumConfig accepts features record and round-trips via save/load', () => {
+  saveConfig({ mode: 'server', features: { 'sample-experiment': true, other: false } })
+```
+
+That is byte-for-byte the contents found in the live `~/.podium/config.json`. With no state-dir
+override in scope, `saveConfig` writes the real host config. The test does this on **every unit
+run on this box**.
+
+**Why this hid for so long, and it is the lesson rather than the bug:** the original reporter
+grepped the file, saw `mkdtempSync` and `PODIUM_STATE_DIR`, and exonerated it. Both symbols *are*
+in the file — in the first describe. **Partial isolation is indistinguishable from full isolation
+at that grep.** One of two blocks protected reads exactly like two of two. This is the same shape
+as the audit's own overclaimed row above and as the "unproven detector = unproven guard" doctrine
+POD-769 exists to write down: a mechanism that is N-1 of N still looks like it works.
+
+The corollary matters for POD-1328 specifically: a "periodic writer on an 11-15 minute cadence"
+was a pattern fitted to the observer's own sampling interval. There is no periodicity — there are
+unit runs.
+
+**Why this matters beyond one bug:** a test lane that mutates live host state is how a
+verification run fabricates its own incident. If the status probe reads this config, the
+contamination is a live candidate cause for the down-while-up reading itself — which would make
+the two halves of POD-1328 one defect, not two observations.
+
+### 2d. The deferred verification pass, completed
+
+**Added 2026-08-02 08:45 UTC.** The eight issues folded into the overclaimed row were measured
+against `issue/279-integration`. Doing it properly overturned what a shallower check concluded on
+three of them, in three different ways — which is the argument for having done it rather than
+handing it on.
+
+| Issue | Verdict | Evidence |
+|---|---|---|
+| **POD-803** Replica byte-identity skip never matches | **OPEN — and the surrounding code was rewritten without fixing it** | `replica.ts:1482` `upsertRows` no longer does `JSON.stringify(col.get(key))`; it calls `jsonRowsEqual` (defined at 228). But `jsonRowsEqual` compares **key counts** (`aKeys.length !== bKeys.length`) and strips nothing. `packages/client-core/package.json:105` still pins `@tanstack/db ^0.6.16` — the exact version the reporter verified `$synced/$origin/$key/$collectionId` enumerable on — and `replica.ts:69` still calls `createCollection` from it. The implementation changed; the blindness did not. The proposed fix (compare on a `$`-stripped projection) is still unimplemented. |
+| **POD-809** Offline cold start hits fatal connect page | **OPEN** | `apps/web/src/app/AppShell.tsx` still renders `<AppErrorPage title="Podium could not connect" …>` whenever `appError` is set, with `onFatalError={setAppError}` wired at line 120. The fatal path is intact. |
+| **POD-1241** Mobile wire cutover to v2 feed | **OPEN — the code names this issue as its owner** | `apps/mobile/src/client/MobileClientProvider.tsx:309-314` carries the comment "*v2 feed handlers as deliberately empty — and `createKernelReplica`'s facade REFUSES … (KernelReplica + FeedAuthorityClient) is POD-1241's scope*". Mobile calls `createReplica({…})` at 392; web builds `new KernelReplica({ authority: new FeedAuthorityClient({…}) })` at `apps/web/src/lib/kernelReplica.ts:185-187`. |
+| **POD-1279** Two lint gates are red on integration | **OPEN** | `biome.json` contains no `.design` exclusion — only `"ignoreUnknown": true`. The gate is still unreadable for the reason the issue gives. |
+| **POD-1305** Worktrees share one node_modules | **OPEN — and this audit's own worktree is an instance** | `ls -ld node_modules` in the POD-1345 worktree: *No such file or directory* — the "second, worse variant" the issue describes, where imports resolve to the MAIN checkout. POD-402's worktree has a real directory, so that one was repaired individually. The tooling still produces the hole. |
+| **POD-1316** Wire-window integration test times out | **Code present; runtime deliberately not re-measured** | The case exists at `wire-window.integration.test.ts:107`. Whether it still times out is a runtime property, and running an integration test on the box hosting the live instance with six agents active is not a measurement worth its risk. Stated as a limit, not dressed up as a verdict. |
+| **POD-1251** Compose the remaining change-row restatements | **Detector present; count deliberately not re-measured** | `scripts/change-row-audit.ts` exists. Running it *here* would resolve `@podium/*` to the main checkout (see POD-1305 above) and report a count for the wrong tree — the precise confound POD-1305 documents. Needs a properly installed worktree. |
+| **POD-1273** Land the catch-up merge | **Substantively landed; one stranded commit whose effect is already present** | The branch tip `dd41d742` is **not** an ancestor of integration (integration is 206 ahead, branch 1 ahead). That commit is POD-1278's "remove orphaned diff3 markers". But `docs/rearchitecture-v3.md` on integration contains **zero** diff3 markers — the fix arrived by another route. Not closed: POD-1273 has a live session and acceptance criteria (clean tree, gates green) not measured here. |
+
+**Three lessons, each a different instrument answering the wrong question:**
+
+1. **POD-803 — a rewrite can preserve the defect it looks like it fixed.** `JSON.stringify(...)` → `jsonRowsEqual(...)` reads as a repair. It is a different implementation of the same blindness. Checking that the *named* problem is gone is not checking that the *behaviour* is fixed.
+2. **POD-1241 — absence of a filename is not absence of the concept.** The first grep looked for the feed handlers in `apps/mobile/**/connection.ts`, as the issue described, and found nothing. That reads as "cutover done". The handlers had **moved** into `MobileClientProvider.tsx`. Before concluding something is gone, ask where it was put.
+3. **POD-1273 — ancestry is not the oracle; the tree is.** `git merge-base --is-ancestor` said not-merged. The file said merged. Same family as comparing diffstats across bases instead of final blobs.
 
 POD-1280 said POD-387's prose claims **seven** handoff frames where ADR 7 D7 says **eight**, and
 asked for the prose to be corrected to eight. **Both numbers are wrong.**
