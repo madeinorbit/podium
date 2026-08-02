@@ -50,6 +50,12 @@ god-object audit greener and the design worse.
 out).** `createSession` (173) and `spawn` (157). One job: turn a create request
 into a live session and its daemon spawn frame.
 
+`spawn` has TWO callers — `createSession` (L1224) and `resumeSession` (L1373) —
+so it becomes a public method of the new module and `resumeSession` calls into
+it. The union of both port lists is 15 members; broad, but shallow (19 total
+`this.` references across spawn's 157 lines), so it is a wide seam rather than a
+deep one.
+
 *Measured coupling — this is the port list, not a guess.* `spawn` touches 12
 lifecycle members, `createSession` 8:
 
@@ -67,11 +73,24 @@ requires reaching into another module's internals, which is what makes this a
 seam rather than a tangle.
 
 *Hazard:* `settingsViewer()` has five callers and returns `FIRST_ADMIN_USER_ID`.
-It must **stay in lifecycle** and be passed as a port. Moving it would relocate
-an ambient-principal site, and the production count (77) must not change. Verify
-with `grep -rn FIRST_ADMIN_USER_ID apps packages --include=*.ts | grep -v test`
-before and after. POD-1408 exists because that concept has at least three
-spellings, so grep the constant, not the idea.
+It must **stay in lifecycle** and be passed as a port.
+
+But note it is **not the only ambient site in the moving code** — `lifecycle.ts`
+holds four, and three sit in methods that move:
+
+```
+L1217  createSession   ownerUserId ?? FIRST_ADMIN_USER_ID   -> moves with session-start
+L1373  resumeSession   ownerUserId ?? FIRST_ADMIN_USER_ID   -> moves with session-revival
+L2433  spawn           ownerUserId ?? FIRST_ADMIN_USER_ID   -> moves with session-start
+L2535  settingsViewer  the one that must stay
+```
+
+**Do not verify this with the old grep.** Use `bun run audit:ambient-principals`
+and read the USAGE DELTA, which must be exactly **0** across a pure move. The raw
+line count will rise by one per new module that needs the import — that is an
+artefact of the file boundary, not a finding. Baseline is 41 usage sites; the 77
+that circulated was a line grep that was wrong three separate ways (see the
+census header).
 
 *Hazard:* `createSession` calls `spawn`. Keep them in the SAME module — splitting
 them puts a call across a new boundary for no gain, and `spawn` is not
