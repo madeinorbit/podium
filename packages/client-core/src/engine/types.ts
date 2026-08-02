@@ -82,6 +82,11 @@ export interface UserFocus {
 export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   hub: SocketHub
   trpc: TApi
+  /** A coarse (minute-granularity) clock, republished as part of the snapshot
+   *  so PUBLISHED SLICES that are functions of time re-derive when time moves.
+   *  See {@link EngineState.coarseNow} for why it must live here rather than in
+   *  a component-local interval. */
+  coarseNow: number
   /** Local replica (docs/spec/thin-client-replica.md): the ONE entity read
    *  path (sessions/issues/conversations) + offline transcript windows. When
    *  durable storage is unusable (private mode) the same collections run in

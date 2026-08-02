@@ -33,7 +33,7 @@ import type {
 } from 'react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
 import {
@@ -81,12 +81,12 @@ import {
   sessionsForIssueNav,
   sessionsForWorktree,
   sessionsNeedChildRows,
-  sidebarSections,
   spawnTargetForRepo,
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
-  unifiedWorkList,
+  type WorklistSlice,
+  worklistSlice,
 } from '@/lib/derive'
 import { relativeTime } from '@/lib/home'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
@@ -100,7 +100,6 @@ import {
 } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
-import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { planReorderKeys } from './reorder'
@@ -230,31 +229,24 @@ function flashLineage(issueId: string): void {
  * The pieces are exported separately because the collapsed rail shares their
  * hooks and row behavior.
  */
-export interface SidebarDerivation {
-  sections: SidebarSections
-  allWorktreePaths: string[]
-  work: UnifiedWorkRow[]
-  now: number
-}
+/**
+ * The worklist derivation, as READ rather than as COMPUTED (POD-331).
+ *
+ * This used to be a `useMemo` over `(repos, sessions, pins, issues, now)` whose
+ * result every consumer had to be HANDED as a `derivationOverride` prop — and
+ * whose absence, in any consumer that did not receive it, silently bought a
+ * second execution of the identical derivation on a private clock. It is now a
+ * read of the published `worklistSlice`: one derivation per snapshot however
+ * many surfaces are looking, and one clock (`Store.coarseNow`) so two surfaces
+ * cannot disagree about when "now" is.
+ *
+ * The type alias stays so the override-taking signatures below keep reading the
+ * same way; the shape is the slice's.
+ */
+export type SidebarDerivation = WorklistSlice
 
 export function useSidebarDerivation(): SidebarDerivation {
-  const { repos, sessions, pins, issues } = useStoreSelector(
-    (s) => ({ repos: s.repos, sessions: s.sessions, pins: s.pins, issues: s.issues }),
-    shallowEqual,
-  )
-  const now = useNow(60_000)
-  return useMemo(() => {
-    const sections = sidebarSections(repos, sessions, pins, now, issues)
-    const allWorktreePaths = [...sections.pinnedRepos, ...sections.repos].flatMap((repo) =>
-      repo.worktrees.map((worktree) => worktree.path),
-    )
-    return {
-      sections,
-      allWorktreePaths,
-      work: unifiedWorkList(sections, issues, sessions, allWorktreePaths, now),
-      now,
-    }
-  }, [repos, sessions, pins, issues, now])
+  return useSlice(worklistSlice)
 }
 
 export function SidebarUnified(): JSX.Element {
@@ -326,7 +318,7 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const now = useNow(60_000)
+  const published = useSlice(worklistSlice)
   // The user's persisted default agent ('auto' resolves against session history).
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   useEffect(() => {
@@ -342,7 +334,11 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     }
   }, [trpc])
 
-  const sections = sectionsOverride ?? sidebarSections(repos, sessions, pins, now, issues)
+  // The fallback is a READ of the published slice, not a second derivation
+  // (POD-331). It used to be `sidebarSections(repos, sessions, pins, now, issues)`
+  // on a private `useNow` clock, which is how a consumer that missed the prop
+  // ended up deriving the worklist again against a different "now".
+  const sections = sectionsOverride ?? published.sections
   const { byRepo } = lastUsedMaps(sections, sessions)
   const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
   // <Repo> on the button = the repo of the most recent session activity.
@@ -941,15 +937,16 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const fallbackNow = useNow(60_000)
-  const now = derivationOverride?.now ?? fallbackNow
-  const sections =
-    derivationOverride?.sections ?? sidebarSections(repos, sessions, pins, now, issues)
+  // Same as useDefaultSpawn: the fallback READS the published slice (POD-331)
+  // instead of re-deriving the whole worklist on a private clock. The rail is
+  // the consumer this mattered for — it renders without the sidebar's prop, so
+  // before this it was running its own `sidebarSections` + `unifiedWorkList`.
+  const published = useSlice(worklistSlice)
+  const now = derivationOverride?.now ?? published.now
+  const sections = derivationOverride?.sections ?? published.sections
   const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
-  const allWorktreePaths =
-    derivationOverride?.allWorktreePaths ?? repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
-  const work =
-    derivationOverride?.work ?? unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
+  const allWorktreePaths = derivationOverride?.allWorktreePaths ?? published.allWorktreePaths
+  const work = derivationOverride?.work ?? published.work
 
   // Switch-latency trace [POD-701]: a gesture that changes the focused SESSION
   // starts a trace at t0. Skipped for no-op switches (target already in pane A)

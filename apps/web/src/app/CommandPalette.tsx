@@ -14,10 +14,10 @@ import {
   type RepoNavView,
   reposToViews,
   resolveDefaultAgent,
-  sidebarSections,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
   spawnTargetForRepo,
+  worklistSlice,
 } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
@@ -32,7 +32,7 @@ import {
   type PaletteGroupId,
 } from './command-palette'
 import type { SpawnTarget } from './spawn-agent'
-import { useReplicaIssues, useStoreSelector } from './store'
+import { useReplicaIssues, useSlice, useStoreSelector } from './store'
 
 const GROUP_LABELS: Record<PaletteGroupId, string> = {
   navigate: 'Navigate',
@@ -182,10 +182,15 @@ function PaletteDialog({
   // sidebar "New <Agent> in <Repo>" button's default (the most recently active
   // repo's primary worktree) — both offered when they differ.
   const defaultAgent: AgentKind = resolveDefaultAgent(agentSetting, sessions)
+  // THE SECOND CONSUMER (POD-331). This used to call `sidebarSections` itself,
+  // with a bare `Date.now()` that only advanced when the unrelated memo deps
+  // below changed — so the palette and the sidebar derived the same worklist
+  // twice, against two different clocks. It now reads the published slice: one
+  // derivation per snapshot, shared, on the store's coarse clock.
+  const sections = useSlice(worklistSlice).sections
   const spawnTargets = useMemo((): SpawnTarget[] => {
     const worktrees = reposToViews(repos).flatMap((r) => r.worktrees)
     const current = worktrees.find((w) => w.path === selectedWorktree)
-    const sections = sidebarSections(repos, sessions, pins, Date.now(), issues)
     const { byRepo } = lastUsedMaps(sections, sessions)
     const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
     const defaultRepo = repoNavs.reduce<RepoNavView | undefined>(
@@ -198,7 +203,10 @@ function PaletteDialog({
     if (current) out.push(current)
     if (primary && primary.path !== current?.path) out.push(primary)
     return out
-  }, [repos, sessions, pins, issues, selectedWorktree])
+    // `pins` and `issues` are gone from the dep list because they are no longer
+    // read here — they were inputs to the local `sidebarSections` call, and are
+    // now inputs to the published slice, which `sections` tracks for us.
+  }, [repos, sessions, sections, selectedWorktree])
 
   /** Close the palette, then run — optimistic close; errors toast downstream. */
   const execute = (run: () => void | Promise<void>): void => {

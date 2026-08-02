@@ -30,8 +30,33 @@ import { SidebarUnified } from '../features/worklist/SidebarUnified'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-/** Real executions of the two worklist derivations, counted by wrapping them. */
+/**
+ * Real executions of the two worklist derivations, counted by wrapping the
+ * barrel exports.
+ *
+ * WHAT THIS COUNTER CAN AND CANNOT SEE, and why there are now two of them.
+ * Wrapping `@podium/client-core/viewmodels` catches a COMPONENT that calls
+ * `sidebarSections` for itself, because components import it through the
+ * barrel. It does NOT catch the published slice, which calls the same function
+ * through a package-internal relative import — so once a surface is ported,
+ * this counter goes to zero for that surface, and zero passes every ceiling.
+ *
+ * That is the "probe reports a flattering figure" shape POD-330 hit once
+ * already, and it was caught here the same way: the can-say-NO guard
+ * (`toBeGreaterThan`) failed rather than the ceiling passing. So the port did
+ * not get to keep this counter's silence as evidence — it had to bring the
+ * mechanism's OWN counter, below.
+ */
 const derivations = { sidebarSections: 0, unifiedWorkList: 0 }
+
+/** The publisher's own derivation counts (`SliceDerivationCounts`), which
+ *  `publish.ts` exposes for exactly this probe. Set by the store mock. */
+const sliceCounts = vi.hoisted(() => ({
+  read: (): Record<string, number> => ({}),
+}))
+
+/** How many times the published `worklist` slice actually derived. */
+const worklistDerivations = (): number => sliceCounts.read().worklist ?? 0
 
 vi.mock('@podium/client-core/viewmodels', async () => {
   const real =
@@ -121,9 +146,36 @@ function issue(id: string, title: string) {
  *  like to a consumer that memoizes on identity. */
 let publishNonce = 0
 
+/**
+ * THE SNAPSHOT MUST BE STABLE BETWEEN PUBLISHES, or this probe measures a lie.
+ *
+ * The publisher's cache key is snapshot IDENTITY (`slices/publish.ts`). A
+ * `storeSnapshot()` that minted a fresh object on every read — which is what
+ * this file did while every consumer derived for itself — would miss the cache
+ * on every single read, so the published slice would appear to derive once per
+ * consumer per render and the port would measure as no improvement at all.
+ *
+ * The real store publishes ONE object per change and hands the same one to
+ * every reader within that change. This mirrors that: a new object per
+ * simulated publish, the same object for every read in between.
+ */
+let currentSnapshot: ReturnType<typeof buildSnapshot> | null = null
+let builtForNonce = -1
 function storeSnapshot() {
+  if (currentSnapshot === null || builtForNonce !== publishNonce) {
+    currentSnapshot = buildSnapshot()
+    builtForNonce = publishNonce
+  }
+  return currentSnapshot
+}
+
+function buildSnapshot() {
   void publishNonce
   return {
+    // The coarse clock (POD-331) is part of the snapshot, so a time-dependent
+    // slice re-derives when time moves. Pinned here: this probe measures
+    // derivations per PUBLISH, and a wall clock would add unrelated ticks.
+    coarseNow: Date.parse('2026-07-06T12:00:00.000Z'),
     uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [
@@ -171,12 +223,24 @@ function storeSnapshot() {
   }
 }
 
-vi.mock('@/app/store', () => {
+vi.mock('@/app/store', async () => {
+  // THE REAL PUBLISHER, not a stand-in. A hand-written `useSlice` that just
+  // called `def.derive(snapshot)` would count one derivation per consumer and
+  // report the port as having changed nothing; a hand-written one that cached
+  // forever would report a flattering zero. Using the shipped mechanism over
+  // the mocked snapshot is what makes the number evidence about the mechanism.
+  const { createSlicePublisher } =
+    await vi.importActual<typeof import('@podium/client-core/viewmodels')>(
+      '@podium/client-core/viewmodels',
+    )
+  const publisher = createSlicePublisher(() => storeSnapshot())
+  sliceCounts.read = () => publisher.derivations() as Record<string, number>
   const useStore = () => storeSnapshot()
   return {
     useStore,
     useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useSlice: (def: Parameters<typeof publisher.read>[0]) => publisher.read(def),
   }
 })
 vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => null }))
@@ -223,32 +287,38 @@ describe('POD-330 render-count probe — worklist', () => {
     )
 
     act(() => root.render(tree()))
-    const atMount = { ...derivations }
+    const atMount = { ...derivations, worklist: worklistDerivations() }
 
     for (let i = 0; i < PUBLISHES; i++) {
       publishNonce++
       act(() => root.render(tree()))
     }
 
-    // The probe must be able to say NO. If the derivations never ran, the
+    // The probe must be able to say NO. If the derivation never ran, the
     // numbers below are meaningless and a passing assertion is a false green.
-    expect(derivations.sidebarSections).toBeGreaterThan(atMount.sidebarSections)
+    // This now guards the PUBLISHED slice: the old barrel counter goes to zero
+    // once a surface is ported (see `derivations` above), and zero is exactly
+    // the reading that would sail past every ceiling.
+    expect(worklistDerivations()).toBeGreaterThan(atMount.worklist)
 
     const perPublishCommits = commits / PUBLISHES
-    const perPublishSections = (derivations.sidebarSections - atMount.sidebarSections) / PUBLISHES
-    const perPublishWorkList = (derivations.unifiedWorkList - atMount.unifiedWorkList) / PUBLISHES
+    const perPublishWorklist = (worklistDerivations() - atMount.worklist) / PUBLISHES
+    const perPublishDirect = (derivations.sidebarSections - atMount.sidebarSections) / PUBLISHES
 
     // Printed on every run so the numbers are readable, not merely asserted.
     console.log(
       `[POD-330 worklist] per publish: commits=${perPublishCommits} ` +
-        `sidebarSections=${perPublishSections} unifiedWorkList=${perPublishWorkList} ` +
-        `(mount: sections=${atMount.sidebarSections} workList=${atMount.unifiedWorkList})`,
+        `worklistSlice=${perPublishWorklist} directSidebarSections=${perPublishDirect}`,
     )
 
     // BOUNDS RECORDED ON THE UNCUT TREE. The split must not raise them.
     expect(perPublishCommits).toBeLessThanOrEqual(BASELINE.worklist.commitsPerPublish)
-    expect(perPublishSections).toBeLessThanOrEqual(BASELINE.worklist.sidebarSectionsPerPublish)
-    expect(perPublishWorkList).toBeLessThanOrEqual(BASELINE.worklist.unifiedWorkListPerPublish)
+    // One derivation per publish — and, since the slice calls `sidebarSections`
+    // exactly once, this is the same quantity the uncut tree measured as 1.
+    expect(perPublishWorklist).toBeLessThanOrEqual(BASELINE.worklist.sidebarSectionsPerPublish)
+    // NOBODY DERIVES LOCALLY ANY MORE. This zero is only meaningful next to the
+    // can-say-NO guard above, which proves the work still happens somewhere.
+    expect(perPublishDirect).toBe(0)
   })
 })
 
@@ -287,7 +357,7 @@ describe('POD-331 render-count probe — worklist with a second consumer', () =>
     )
 
     act(() => root.render(tree()))
-    const atMount = { ...derivations }
+    const atMount = { ...derivations, worklist: worklistDerivations() }
 
     for (let i = 0; i < PUBLISHES; i++) {
       publishNonce++
@@ -296,20 +366,21 @@ describe('POD-331 render-count probe — worklist with a second consumer', () =>
 
     // Same can-say-NO guard as above: numbers from a derivation that never ran
     // are not a measurement, and zero passes every ceiling.
-    expect(derivations.sidebarSections).toBeGreaterThan(atMount.sidebarSections)
+    expect(worklistDerivations()).toBeGreaterThan(atMount.worklist)
 
     const perPublishCommits = commits / PUBLISHES
-    const perPublishSections = (derivations.sidebarSections - atMount.sidebarSections) / PUBLISHES
-    const perPublishWorkList = (derivations.unifiedWorkList - atMount.unifiedWorkList) / PUBLISHES
+    const perPublishWorklist = (worklistDerivations() - atMount.worklist) / PUBLISHES
+    const perPublishDirect = (derivations.sidebarSections - atMount.sidebarSections) / PUBLISHES
 
     console.log(
       `[POD-331 two-consumer] per publish: commits=${perPublishCommits} ` +
-        `sidebarSections=${perPublishSections} unifiedWorkList=${perPublishWorkList} ` +
-        `(mount: sections=${atMount.sidebarSections} workList=${atMount.unifiedWorkList})`,
+        `worklistSlice=${perPublishWorklist} directSidebarSections=${perPublishDirect}`,
     )
 
-    expect(perPublishSections).toBeLessThanOrEqual(BASELINE.twoConsumer.sidebarSectionsPerPublish)
-    expect(perPublishWorkList).toBeLessThanOrEqual(BASELINE.twoConsumer.unifiedWorkListPerPublish)
+    // THE WHOLE POINT: two independent consumers, ONE derivation per publish.
+    // The unported tree measured 2 here (see BASELINE.twoConsumer).
+    expect(perPublishWorklist).toBeLessThanOrEqual(1)
+    expect(perPublishDirect).toBe(0)
   })
 })
 

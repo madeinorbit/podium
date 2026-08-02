@@ -95,6 +95,27 @@ export interface EngineState {
   outboxSize: number
   outboxDeadLetters: OutboxDeadLetterEntry[]
   recoverOutbox: Store['recoverOutbox']
+  /**
+   * A COARSE CLOCK, in the snapshot on purpose (POD-331).
+   *
+   * Some published derivations are functions of time as well as of rows: a
+   * snooze lapses, a session goes stale, recency reorders. `sidebarSections`
+   * takes `now` for exactly that reason and feeds it to `isSnoozed` and
+   * `compareRecency`.
+   *
+   * The slice publisher keys on SNAPSHOT IDENTITY and nothing else, which is
+   * the property that makes it correct across evict and rescope
+   * (`slices/publish.ts`). A derivation that read the clock out of band would
+   * therefore be memoized against a clock that had moved: on a quiet system
+   * with no publishes, an overnight snooze would never lapse on screen. The
+   * fix is not to weaken the cache key — it is to admit that the clock is part
+   * of the world these views render, so a new minute is a new snapshot.
+   *
+   * Minute granularity, one interval per RUNTIME. It replaces N per-component
+   * `useNow` intervals that each ticked on their own phase, so two surfaces
+   * could disagree about what time it was; now they cannot.
+   */
+  coarseNow: number
 }
 
 /** The store fields that are NOT state: action methods and constant handles,
@@ -190,6 +211,9 @@ export interface EngineStateSeed {
   readonly automationRuns: AutomationRunWire[]
   readonly outboxDeadLetters: OutboxDeadLetterEntry[]
   readonly recoverOutbox: Store['recoverOutbox']
+  /** Seed for the coarse clock (see {@link EngineState.coarseNow}). Injected
+   *  rather than read here so a test can pin it. */
+  readonly now: number
 }
 
 /**
@@ -257,5 +281,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     outboxSize: 0,
     outboxDeadLetters: seed.outboxDeadLetters,
     recoverOutbox: seed.recoverOutbox,
+    coarseNow: seed.now,
   }
 }

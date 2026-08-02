@@ -161,6 +161,13 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   spawnConfirmGraceMs?: number
 }
 
+/**
+ * Coarse-clock period (POD-331). Minute granularity, matching the `useNow(60_000)`
+ * the sidebar surfaces used to each run privately — snoozes lapse on screen
+ * without a server round-trip, and nothing here needs finer resolution.
+ */
+export const COARSE_CLOCK_MS = 60_000
+
 export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The one principal this runtime serves. Read-only for its whole lifetime. */
   readonly principal: ClientPrincipal
@@ -338,6 +345,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // already restored its durable recovery home, so the first Store snapshot
       // must expose it without waiting for start() or a queue notification.
       outboxDeadLetters: this.outbox.deadLetters(),
+      now: Date.now(),
       recoverOutbox: {
         // Every one of these repaints through the outbox subscription, because
         // recovery changes queue membership and queue membership IS overlay
@@ -384,6 +392,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const cur = this.router.current()
     if (cur !== this.prevRoute) this.onRouteChanged(cur)
     offs.push(this.replicatedLayout.subscribe(() => this.syncReplicatedUi()))
+
+    // THE COARSE CLOCK (POD-331). See EngineState.coarseNow: published slices
+    // that are functions of time as well as of rows need the clock to be part
+    // of the snapshot, or the publisher memoizes them against a clock that has
+    // moved and a snooze never lapses on a quiet system.
+    //
+    // It goes through apply() like every other state change, so it publishes
+    // exactly one fresh snapshot per tick and runs the reaction table — where
+    // no reaction is keyed on `coarseNow`, so a tick fires none of them.
+    const clock = setInterval(() => this.apply({ coarseNow: Date.now() }), COARSE_CLOCK_MS)
+    offs.push(() => clearInterval(clock))
 
     // Outbox → snapshot; attach re-arms drain triggers after a dispose. Queue
     // membership IS overlay membership (#263), so any enqueue/drop repaints
