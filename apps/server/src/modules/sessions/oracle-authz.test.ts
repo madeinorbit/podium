@@ -37,6 +37,41 @@ const AGENT_ONLY = willChange(
 )
 const NO_USER_PRINCIPAL = willChange('POD-1075', 'one shared password ⇒ OPERATOR admin/all')
 
+/**
+ * THE THREE WAYS A RELAYED CALL CAN END, and why telling them apart is the point
+ * (POD-1386).
+ *
+ * Two of them answer `ok: false`, and a test that asserts only "the agent could
+ * not do this" cannot tell them apart:
+ *
+ *  - `gate-refused` — RELAY_ALLOWED has no entry. A POLICY decision: this command
+ *    is deliberately out of an agent's reach.
+ *  - `absent-from-dispatch` — the allowlist LET IT THROUGH and no dispatch arm
+ *    answered. That is a MISCONFIGURATION wearing a refusal's clothes: the
+ *    command is meant to be reachable and silently is not.
+ *  - `dispatched` — a handler ran. Whether it then succeeded or refused for a
+ *    domain reason is the handler's business, not the relay's.
+ *
+ * This distinction is not hypothetical. Adding `sessions.handoff` to the
+ * allowlist without its dispatch arm moved it from `gate-refused` straight to
+ * `absent-from-dispatch`, and the ONLY thing that noticed was an exact-string
+ * assertion — had these tests matched loosely on "not permitted", or merely on
+ * `ok === false`, a command believed to be exposed would have been dead on
+ * arrival with a green suite. Classifying makes the difference impossible to
+ * express by accident.
+ */
+type RelayOutcome = 'gate-refused' | 'absent-from-dispatch' | 'dispatched'
+
+function classifyRelay(
+  reply: { ok: boolean; error?: string },
+  router: string,
+  proc: string,
+): RelayOutcome {
+  if (reply.error === `${router}.${proc} is not permitted via relay`) return 'gate-refused'
+  if (reply.error === `no such procedure: ${router}.${proc}`) return 'absent-from-dispatch'
+  return 'dispatched'
+}
+
 /** An oracle with two issues and one agent session living inside issue A. */
 async function twoIssueOracle() {
   const o = makeOracle()
@@ -137,10 +172,9 @@ describe('oracle: the lifecycle commands an agent cannot reach', () => {
     'kill',
     'hibernate',
     'resurrect',
-    'handoff',
     'answerAskUserQuestion',
   ]) {
-    it(`${AGENT_ONLY}: sessions.${proc} is refused via the relay — an agent can never spawn, kill or move a session`, async () => {
+    it(`${AGENT_ONLY}: sessions.${proc} is refused via the relay — an agent can never spawn or kill a session`, async () => {
       const { o, agentSessionId } = await twoIssueOracle()
 
       const reply = await o.relay({
@@ -152,9 +186,73 @@ describe('oracle: the lifecycle commands an agent cannot reach', () => {
       })
 
       expect(reply.ok).toBe(false)
+      // The POLICY answer, named as such: no allowlist entry exists.
+      expect(classifyRelay(reply, 'sessions', proc)).toBe('gate-refused')
       expect(reply.error).toBe(`sessions.${proc} is not permitted via relay`)
     })
   }
+})
+
+/**
+ * POD-1386 moved `sessions.handoff` from operator-only to agent-reachable, so it
+ * left the list above. These pin the move itself rather than its consequences:
+ * that it is now DISPATCHED, and that the other two endings remain expressible
+ * and observable — an instrument that cannot say all three cannot say any of them
+ * with meaning.
+ */
+describe('oracle: how a relayed call ends — refused by the gate, lost before dispatch, or handled', () => {
+  it(`${AGENT_ONLY}: sessions.handoff REACHES its handler — allowlisted and dispatched`, async () => {
+    const { o, agentSessionId } = await twoIssueOracle()
+
+    const reply = await o.relay({
+      requestId: 'handoff-dispatched',
+      sessionId: agentSessionId,
+      router: 'sessions',
+      proc: 'handoff',
+      input: { sessionId: agentSessionId, machineId: 'no-such-machine' },
+    })
+
+    // It refuses — the target machine does not exist — but it refuses as the
+    // HANDLER, which is the whole distinction. Before the dispatch arm landed
+    // this same call answered `no such procedure`, also ok:false, and the CLI
+    // built on it could never have worked.
+    expect(classifyRelay(reply, 'sessions', 'handoff')).toBe('dispatched')
+    expect(reply.ok).toBe(false)
+    expect(reply.error).not.toBe('sessions.handoff is not permitted via relay')
+    expect(reply.error).not.toBe('no such procedure: sessions.handoff')
+  })
+
+  it(`${AGENT_ONLY}: the gate-refused ending is still reachable and still distinct`, async () => {
+    const { o, agentSessionId } = await twoIssueOracle()
+    const reply = await o.relay({
+      requestId: 'ending-gate-refused',
+      sessionId: agentSessionId,
+      router: 'sessions',
+      proc: 'kill',
+      input: { sessionId: agentSessionId },
+    })
+    expect(classifyRelay(reply, 'sessions', 'kill')).toBe('gate-refused')
+  })
+
+  it(`${AGENT_ONLY}: the absent-from-dispatch ending is reachable, and it is NOT a refusal`, async () => {
+    // `specs` is allowlisted wholesale (`null` = any proc), so an unknown proc on
+    // it passes the gate and finds no arm. That is exactly the shape a mis-wired
+    // allowlist entry takes, which is why the classifier must name it rather than
+    // fold it in with the policy refusal above.
+    const { o, agentSessionId } = await twoIssueOracle()
+    const reply = await o.relay({
+      requestId: 'ending-absent-dispatch',
+      sessionId: agentSessionId,
+      router: 'specs',
+      proc: 'definitelyNotAProc',
+      input: {},
+    })
+    expect(classifyRelay(reply, 'specs', 'definitelyNotAProc')).toBe('absent-from-dispatch')
+    expect(reply.ok).toBe(false)
+    // Both endings answer ok:false. Only the classification separates them, and
+    // the point of separating them is that one is a decision and one is a bug.
+    expect(classifyRelay(reply, 'specs', 'definitelyNotAProc')).not.toBe('gate-refused')
+  })
 })
 
 describe('oracle: continue and stop ARE reachable by an agent, under different gates', () => {
