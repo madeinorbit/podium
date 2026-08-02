@@ -23,9 +23,14 @@ const ISSUE = {
 }
 const SENDER_ISSUE = { ...ISSUE, id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 
-function fakeIssues(created: Record<string, unknown>[] = []) {
+function fakeIssues(
+  created: Record<string, unknown>[] = [],
+  /** Per-test overrides on the primary issue — e.g. homing it on a machine
+   *  (POD-1386). Applied to a COPY so one test cannot leak into the next. */
+  issueOverrides: Record<string, unknown> = {},
+) {
   const byId = new Map<string, Record<string, unknown>>([
-    [ISSUE.id, ISSUE],
+    [ISSUE.id, { ...ISSUE, ...issueOverrides }],
     [SENDER_ISSUE.id, SENDER_ISSUE],
   ])
   return {
@@ -80,12 +85,15 @@ function harness(opts?: {
   retireNotificationFact?: MessageGateDeps['retireNotificationFact']
   /** When true, omit retireNotificationFact entirely (optional-safe path). */
   omitRetireNotificationFact?: boolean
+  /** Fields to override on the primary issue — `machineId`/`worktreePath` for the
+   *  cross-machine spawn refusal (POD-1386). */
+  issueOverrides?: Record<string, unknown>
 }) {
   const store = opts?.store ?? new SessionStore(':memory:')
   const sessions = opts?.sessions ?? []
   const spawns: Record<string, unknown>[] = []
   const created: Record<string, unknown>[] = []
-  const issues = fakeIssues(created)
+  const issues = fakeIssues(created, opts?.issueOverrides ?? {})
   const sent: { fn: string; sessionId: SessionId; text: string }[] = []
   const retired: { factKey: string; target: string }[] = []
   const svc = new MessageDeliveryService({
@@ -225,6 +233,83 @@ describe('agent spawn (gate)', () => {
       machineId: 'machine-review',
       accountId: 'native:codex',
       executionProfileId: 'prof_review',
+    })
+  })
+
+  /**
+   * POD-1386 — a delegate shares its issue's worktree, and a worktree lives on
+   * exactly ONE machine. Only an execution profile can name a machine
+   * independently of the issue, so it is the only way to reach this state.
+   */
+  describe('cross-machine spawn', () => {
+    const profileOn = (machineId: string): MessageGateDeps['resolveExecutionProfile'] => () => ({
+      id: 'prof_x',
+      accountId: 'native:claude-code',
+      machineId,
+      harness: 'claude-code',
+      model: 'auto',
+      effort: 'auto',
+    })
+
+    it('refuses to spawn a delegate on a machine other than the issue’s home', async () => {
+      const { gate, spawns } = harness({
+        issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
+        resolveExecutionProfile: profileOn('machine-elsewhere'),
+      })
+      await expect(
+        gate.dispatch(PARENT, true, 'spawnAgent', {
+          issue: ISSUE.id,
+          prompt: 'go',
+          executionProfileId: 'prof_x',
+        }),
+      ).rejects.toThrow(/would create a second checkout of the same branch/u)
+      // The refusal is the point: nothing was spawned. The silent alternative
+      // returns an agent id and a session row, and the divergence only surfaces
+      // later as work that cannot be merged.
+      expect(spawns).toHaveLength(0)
+    })
+
+    it('names handoff, because that is the operation that would make it legal', async () => {
+      const { gate } = harness({
+        issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
+        resolveExecutionProfile: profileOn('machine-elsewhere'),
+      })
+      await expect(
+        gate.dispatch(PARENT, true, 'spawnAgent', {
+          issue: ISSUE.id,
+          prompt: 'go',
+          executionProfileId: 'prof_x',
+        }),
+      ).rejects.toThrow(/podium session handoff/u)
+    })
+
+    it('allows a profile that names the issue’s OWN machine', async () => {
+      const { gate, spawns } = harness({
+        issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
+        resolveExecutionProfile: profileOn('machine-home'),
+      })
+      await gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: ISSUE.id,
+        prompt: 'go',
+        executionProfileId: 'prof_x',
+      })
+      expect(spawns).toHaveLength(1)
+      expect(spawns[0]).toMatchObject({ machineId: 'machine-home' })
+    })
+
+    it('allows a machine-pinned profile on an issue with no worktree yet', async () => {
+      // Nothing to diverge from: starting on a pinned machine is a legitimate way
+      // to HOME an issue, so the guard keys on the worktree, not on the pin.
+      const { gate, spawns } = harness({
+        issueOverrides: { machineId: 'machine-home', worktreePath: null },
+        resolveExecutionProfile: profileOn('machine-elsewhere'),
+      })
+      await gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: ISSUE.id,
+        prompt: 'go',
+        executionProfileId: 'prof_x',
+      })
+      expect(spawns).toHaveLength(1)
     })
   })
 
