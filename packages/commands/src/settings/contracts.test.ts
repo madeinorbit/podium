@@ -97,15 +97,10 @@ describe('each contract reads its classification off the SHIPPED matrix row', ()
       }
     })
 
-    it(`${name}: is not exposed on the outbox`, () => {
-      expect(contract.exposure).not.toContain('outbox')
-    })
-
     it(`${name}: names only transports something actually dispatches`, () => {
-      // `relay.ts` has no `settings` arm and there is no `podium settings` CLI
-      // verb or MCP tool — a declared transport nothing serves is POD-385's
-      // defect, so the whole family is trpc-only until one exists.
-      expect(contract.exposure).toEqual(['trpc'])
+      expect(contract.exposure).toEqual(
+        name === 'settings.updatePersonal' ? ['trpc', 'outbox'] : ['trpc'],
+      )
     })
   }
 })

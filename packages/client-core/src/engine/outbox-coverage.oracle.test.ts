@@ -21,8 +21,8 @@
  * rows live, not whether the write queues offline.
  */
 
-import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { createOutbox, type OutboxEntry, type OutboxStorage } from '../outbox'
@@ -70,6 +70,7 @@ function recordingApi() {
     snoozes: { set: proc('snoozes.set'), clear: proc('snoozes.clear') },
     pins: { set: proc('pins.set') },
     tabs: { setOrder: proc('tabs.setOrder') },
+    settings: { updatePersonal: proc('settings.updatePersonal') },
     issues: {
       markRead: proc('issues.markRead'),
       markUnread: proc('issues.markUnread'),
@@ -117,6 +118,13 @@ async function drainFully(outbox: { size(): number; drain(): Promise<void> }): P
 
 /** The covered set, as the engine enqueues it (engine.ts session/issue actions). */
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
+  { kind: 'pinSet', input: { kind: 'panel', id: 's1', pinned: true }, path: 'pins.set' },
+  { kind: 'tabSetOrder', input: { worktree: '/w', sessionIds: ['s1'] }, path: 'tabs.setOrder' },
+  {
+    kind: 'settingsUpdatePersonal',
+    input: { values: { 'sidebar.repoSort': 'name' } },
+    path: 'settings.updatePersonal',
+  },
   { kind: 'rename', input: { sessionId: 's1', name: 'n' }, path: 'sessions.rename' },
   { kind: 'setArchived', input: { sessionId: 's1', archived: true }, path: 'sessions.setArchived' },
   {
@@ -139,7 +147,7 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
 ]
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: eight SESSION writes and three issue writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: eight session writes, three issue writes, and three replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {
@@ -169,14 +177,14 @@ describe('oracle: the offline-queued write set', () => {
     outbox.dispose()
   })
 
-  it(`${MUST_NOT_CHANGE}: pins, tab order, sendText, ask and uploadImage are NOT offline-capable — an entry for them is never sent, and PARKS for recovery rather than being dropped`, async () => {
+  it(`${MUST_NOT_CHANGE}: sendText, ask and uploadImage are NOT offline-capable — an entry for them is never sent, and PARKS for recovery rather than being dropped`, async () => {
     const { outbox, calls, poisoned, errors } = makeOutbox()
 
     // The full direct-only exclusion set. `ask` and `uploadImage` are here so
     // that ADDING an executor for either to createEngineOutbox — which would
     // make a seance or an image upload survive an offline gap, a real behaviour
     // change — turns this oracle red instead of passing silently.
-    for (const uncovered of ['pinSet', 'tabSetOrder', 'sendText', 'ask', 'uploadImage']) {
+    for (const uncovered of ['sendText', 'ask', 'uploadImage']) {
       // Deliberately outside OutboxKinds: this is the assertion that the kind
       // has no executor, i.e. that the write stays direct-to-server.
       outbox.enqueue(
@@ -189,15 +197,9 @@ describe('oracle: the offline-queued write set', () => {
     await drainFully(outbox)
 
     expect(calls).toEqual([])
-    expect(poisoned.map((e) => e.kind)).toEqual([
-      'pinSet',
-      'tabSetOrder',
-      'sendText',
-      'ask',
-      'uploadImage',
-    ])
+    expect(poisoned.map((e) => e.kind)).toEqual(['sendText', 'ask', 'uploadImage'])
     // The user is TOLD, per kind — a refused write is never silent.
-    expect(errors).toHaveLength(5)
+    expect(errors).toHaveLength(3)
     // DELIBERATE CHANGE OF DISPOSAL (POD-316). The oracle's intent — these kinds
     // never reach the server — is unchanged and still asserted above
     // (`calls` is empty). What changed is what happens to the entry afterwards:
@@ -206,8 +208,6 @@ describe('oracle: the offline-queued write set', () => {
     // future edit quietly restoring the drop while the name above still reads
     // "never sent".
     expect(outbox.deadLetters().map((d) => d.entry.kind)).toEqual([
-      'pinSet',
-      'tabSetOrder',
       'sendText',
       'ask',
       'uploadImage',

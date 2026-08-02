@@ -20,10 +20,8 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
-import type { IssueProjectionRow } from '../replica/contract'
 import type {
   AgentKind,
-  ArtifactId,
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
@@ -35,17 +33,15 @@ import type {
   MachineWire,
   SessionId,
   SessionMeta,
-  WorkState,
 } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
-import { resolveSessionIdentifier } from '@podium/protocol'
-import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
-import type { FeedSinkPort, SocketHub } from '../socket-transport'
+import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
+import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica, UiState } from '../replica/replica'
 import {
   createRouter,
@@ -55,6 +51,7 @@ import {
   type RouteState,
   routeDefaults,
 } from '../router'
+import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
 import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
@@ -62,19 +59,17 @@ import {
   type DockTab,
   dedupeSessionsByResume,
   EMPTY_PINS,
-  type FileScope,
   type FileTab,
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,
-  type PinKind,
   type PinState,
   planWorktreeMoves,
   type RecentFileEntry,
   readStoredDockTab,
   reposToViews,
-  tabIdFor,
 } from '../viewmodels'
+import { createEngineActions } from './actions'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
@@ -126,7 +121,6 @@ import {
   type EngineOutbox,
   type OutboxKinds,
 } from './wiring'
-import { createEngineActions } from './actions'
 
 /** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface
  *  the operator is looking at marks it read immediately (POD-272 — it is already
@@ -648,10 +642,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       this.booted = true
       // Sidebar prefs load out of band so boot fans out only repos + pins + tab
       // orders (never gated on settings or a conversation scan).
-      void this.api.settings.get
-        .query()
-        .then((s) => this.apply({ sidebarSettings: s.sidebar }))
-        .catch(() => {})
+      void this.refreshPersonalSettings().catch(() => {})
       // These enrichments are network-derived, not the source of truth for the
       // principal slice. A cold offline boot must keep serving the persisted
       // replica instead of replacing it with a fatal connection screen.
@@ -1138,6 +1129,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Returns true to keep the entry DURABLY in storage (finding 1) until
    *  covering truth retires it. */
   private onMutationApplied(entry: OutboxEntry): boolean {
+    if (this.reconcileActionState(entry)) return false
     const overlay = overlayForOutboxEntry(entry)
     if (overlay?.op !== 'patch') return false
     const row =
@@ -1216,6 +1208,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Definitive failure — retirement rule (b): the wiring already surfaced the
    *  poison toast; repaint without the dropped entry's overlay. */
   private onMutationDropped(entry: OutboxEntry): void {
+    this.reconcileActionState(entry)
     this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
@@ -1223,6 +1216,22 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  outbox subscription (armed in start()) already repaints on any queue
    *  change; recomputing here as well keeps actions optimistic before start()
    *  and after dispose() (the duplicate recompute is a no-op publish). */
+  private reconcileActionState(entry: OutboxEntry): boolean {
+    if (entry.kind === 'pinSet') {
+      void this.refreshPins().catch(() => {})
+      return true
+    }
+    if (entry.kind === 'tabSetOrder') {
+      void this.refreshTabOrders().catch(() => {})
+      return true
+    }
+    if (entry.kind === 'settingsUpdatePersonal') {
+      void this.refreshPersonalSettings().catch(() => {})
+      return true
+    }
+    return false
+  }
+
   private async enqueueOverlayed<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
@@ -1297,6 +1306,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.apply({ tabOrders: await this.api.tabs.listOrders.query() })
   }
 
+  private async refreshPersonalSettings(): Promise<void> {
+    const settings = await this.api.settings.get.query()
+    this.apply({ sidebarSettings: settings.sidebar })
+  }
+
   private getUserFocus(): UserFocus {
     const st = this.state
     const paneIds = [st.paneA, st.split ? st.paneB : null].filter((x): x is SessionId => x != null)
@@ -1347,7 +1361,122 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   // ------------------------------------------------------------------- actions
+  private spawnDraftAgent(args: {
+    target: SpawnTarget
+    agentKind: AgentKind
+    firstPrompt?: string
+  }): { sessionId: SessionId; issueId: IssueId } {
+    const sessionId = asSessionId(randomUUID())
+    const issueId = asIssueId(`iss_${randomUUID()}`)
+    const nowIso = new Date().toISOString()
+    const sortKey = optimisticDraftSortKey(
+      this.state.issues,
+      args.target.repoPath,
+      args.target.repoId,
+    )
+    this.spawnOverlays = [
+      ...this.spawnOverlays,
+      insertOverlay(
+        'sessions',
+        sessionId,
+        optimisticStartingSession({
+          sessionId,
+          issueId,
+          agentKind: args.agentKind,
+          cwd: args.target.path,
+          nowIso,
+        }),
+      ),
+      insertOverlay(
+        'issues',
+        issueId,
+        optimisticDraftIssue({
+          issueId,
+          repoPath: args.target.repoPath,
+          repoId: args.target.repoId,
+          sortKey,
+          agentKind: args.agentKind,
+          nowIso,
+        }),
+      ),
+    ]
+    this.recomputeSessions()
+    this.recomputeIssues()
+    void createDraftAgent({
+      trpc: this.api,
+      sessionId,
+      issueId,
+      target: args.target,
+      agentKind: args.agentKind,
+      firstPrompt: args.firstPrompt,
+    }).catch((error) => {
+      const arrived = (): boolean => this.baseSessions.some((row) => row.sessionId === sessionId)
+      const settleFailure = (): void => {
+        if (arrived()) {
+          console.debug(
+            '[podium] spawn transport failed after the session was created — treating as success',
+            sessionId,
+            error,
+          )
+          return
+        }
+        this.spawnOverlays = this.spawnOverlays.filter(
+          (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
+        )
+        this.recomputeSessions()
+        this.recomputeIssues()
+        this.notices.error(
+          `Couldn't start the agent — ${error instanceof Error ? error.message : 'unknown error'}`,
+        )
+      }
+      if (arrived()) {
+        settleFailure()
+      } else {
+        const timer = setTimeout(() => {
+          this.spawnConfirmTimers.delete(timer)
+          settleFailure()
+        }, this.spawnConfirmGraceMs)
+        this.spawnConfirmTimers.add(timer)
+      }
+    })
+    return { sessionId, issueId }
+  }
 
+  private buildStatics(): Omit<Store<TApi>, keyof EngineState> {
+    return {
+      hub: this.hub,
+      trpc: this.api,
+      replica: this.replica,
+      uiState: this.ui,
+      httpOrigin: this.httpOrigin,
+      getUserFocus: () => this.getUserFocus(),
+      refreshRepos: () => this.refreshRepos(),
+      ...createEngineActions({
+        api: this.api,
+        hub: this.hub,
+        outbox: this.outbox,
+        router: this.router,
+        notices: this.notices,
+        state: () => this.state,
+        apply: (patch) => this.apply(patch),
+        enqueueOverlayed: (kind, input) => {
+          void this.enqueueOverlayed(kind, input)
+        },
+        revealFileTab: (args) => this.revealFileTab(args),
+        recordRecentFile: (entry) => this.recordRecentFile(entry),
+        setPanelRenderMode: (sessionId, mode) => {
+          if (this.panelRenderModes[sessionId] === mode) return
+          this.panelRenderModes = { ...this.panelRenderModes, [sessionId]: mode }
+          this.reportViewState()
+        },
+        spawnDraftAgent: (args) => this.spawnDraftAgent(args),
+        setSessionDraft: (sessionId, text) => {
+          this.adoptSessionDraft(sessionId, text)
+          this.hub.sendSessionDraft(sessionId, text)
+        },
+      }),
+    }
+  }
 }
 
 export function createEngine<TApi extends PodiumClientApi = PodiumClientApi>(

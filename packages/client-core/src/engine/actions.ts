@@ -10,7 +10,6 @@
 
 import type {
   AgentKind,
-  ArtifactId,
   IssueId,
   IssueWire,
   SessionId,
@@ -20,18 +19,11 @@ import type {
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
-import type { SocketHub } from '../socket-transport'
 import type { Router } from '../router'
 import { routeDefaults } from '../router'
+import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
-import type {
-  DockTab,
-  FileScope,
-  FileTab,
-  PinKind,
-  PinState,
-  RecentFileEntry,
-} from '../viewmodels'
+import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 import { reposToViews, tabIdFor } from '../viewmodels'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
@@ -50,6 +42,9 @@ export const UI_LOCAL_ACTIONS = [
   'setPane',
   'setFocusedPane',
   'navigateToSession',
+  'setDockTab',
+  'setPanelMode',
+  'setDockShell',
   'setDockVisibleSession',
   'setPanelRenderMode',
   'toggleSplit',
@@ -64,9 +59,6 @@ export const UI_LOCAL_ACTIONS = [
 export const COMMAND_ACTIONS = [
   'setPinned',
   'setTabOrder',
-  'setDockTab',
-  'setPanelMode',
-  'setDockShell',
   'startBtw',
   'tldrSession',
   'writeFileScoped',
@@ -88,6 +80,13 @@ export const COMMAND_ACTIONS = [
   'setIssueTucked',
   'setSessionDraft',
   'setSidebarSettings',
+] as const
+
+/** Command contracts reduced directly into non-entity action state. */
+export const ACTION_STATE_REDUCER_COMMANDS = [
+  'pins.set',
+  'tabs.setOrder',
+  'settings.updatePersonal',
 ] as const
 
 type ActionState = {
@@ -135,12 +134,17 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void
   recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void
   setPanelRenderMode(sessionId: SessionId, mode: 'chat' | 'native'): void
-  spawnDraftAgent(args: {
-    target: SpawnTarget
-    agentKind: AgentKind
-    firstPrompt?: string
-  }): { sessionId: SessionId; issueId: IssueId }
+  spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
+    sessionId: SessionId
+    issueId: IssueId
+  }
   setSessionDraft(sessionId: SessionId, text: string): void
+}
+
+function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean): PinState {
+  const key = kind === 'panel' ? 'panels' : kind === 'worktree' ? 'worktrees' : 'repos'
+  const values = state[key].filter((candidate) => candidate !== id)
+  return { ...state, [key]: pinned ? [...values, id] : values }
 }
 
 export function createEngineActions<TApi extends PodiumClientApi>(
@@ -149,16 +153,21 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   const api = rt.api
   return {
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
-      rt.apply({ pins: await api.pins.set.mutate({ kind, id, pinned }) })
+      rt.apply({ pins: reducePin(rt.state().pins, kind, id, pinned) })
+      await rt.outbox.enqueue('pinSet', { kind, id, pinned })
     },
     setTabOrder: async (worktree: string, sessionIds: SessionId[]) => {
       rt.apply({ tabOrders: { ...rt.state().tabOrders, [worktree]: sessionIds } })
-      rt.apply({ tabOrders: await api.tabs.setOrder.mutate({ worktree, sessionIds }) })
+      await rt.outbox.enqueue('tabSetOrder', { worktree, sessionIds })
     },
     setView: (view) => {
       const current = rt.router.current()
       if (current.view !== view) {
-        rt.router.navigate({ ...routeDefaults(view), worktree: current.worktree, pane: current.pane })
+        rt.router.navigate({
+          ...routeDefaults(view),
+          worktree: current.worktree,
+          pane: current.pane,
+        })
       }
     },
     setSettingsTab: (tab) => {
@@ -224,7 +233,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     setPanelMode: (sessionId, mode) => {
       const panelMode = rt.state().panelMode
-      if (panelMode[sessionId] !== mode) rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
+      if (panelMode[sessionId] !== mode)
+        rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
     },
     setDockVisibleSession: (dockVisibleSession) => rt.apply({ dockVisibleSession }),
     setDockShell: (worktreePath, sessionId) => {
@@ -274,7 +284,9 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       const id = tabIdFor(scope, args.path)
       const state = rt.state()
       const existing = state.fileTabs.find((tab) => tab.id === id)
-      const issueId = existing ? existing.issueId : (args.issueId ?? state.selectedIssueId ?? undefined)
+      const issueId = existing
+        ? existing.issueId
+        : (args.issueId ?? state.selectedIssueId ?? undefined)
       rt.apply({
         fileTabs: existing
           ? state.fileTabs
@@ -342,14 +354,19 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         ? api.files.read.query({ sessionId: scope.sessionId, path })
         : scope.kind === 'artifact'
           ? api.files.read.query({ issueId: scope.issueId, artifactId: scope.artifactId, path })
-          : api.files.read.query({ machineId: scope.machineId, root: scope.root, path })) as Store<TApi>['readFileScoped'],
+          : api.files.read.query({
+              machineId: scope.machineId,
+              root: scope.root,
+              path,
+            })) as Store<TApi>['readFileScoped'],
     writeFileScoped: ((args: {
       scope: FileScope
       path: string
       content: string
       baseHash?: string
     }) => {
-      if (args.scope.kind === 'artifact') return Promise.reject(new Error('artifact snapshots are read-only'))
+      if (args.scope.kind === 'artifact')
+        return Promise.reject(new Error('artifact snapshots are read-only'))
       return args.scope.kind === 'session'
         ? api.files.write.mutate({
             sessionId: args.scope.sessionId,
@@ -402,7 +419,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     resurrectSession: async (sessionId) => {
       try {
         const result = await api.sessions.resurrect.mutate({ sessionId })
-        if (!result.ok) rt.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
+        if (!result.ok)
+          rt.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
       } catch (error) {
         rt.notices.error(
           `Couldn't resume the session — ${error instanceof Error ? error.message : 'unknown error'}`,
@@ -419,7 +437,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       if (archived) {
         const pins = rt.state().pins
         rt.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
-        await api.pins.set.mutate({ kind: 'panel', id: sessionId, pinned: false }).catch(() => {})
+        await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
       }
     },
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>
@@ -438,8 +456,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         const values = Object.fromEntries(
           Object.entries(next).map(([key, value]) => [`sidebar.${key}`, value]),
         )
-        const updated = await api.settings.updatePersonal.mutate({ values })
-        rt.apply({ sidebarSettings: updated.sidebar })
+        await rt.outbox.enqueue('settingsUpdatePersonal', { values })
       } catch {}
     },
   }

@@ -7,7 +7,7 @@
  */
 
 import type { ConfirmationRule } from '@podium/commands'
-import type { SessionId, WorkState } from '@podium/model'
+import type { PinKind, SessionId, WorkState } from '@podium/model'
 import {
   ENQUEUEABLE_DELIVERY,
   type OutboxCommand,
@@ -30,10 +30,13 @@ import type { StoreNotices } from './types'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
  *  §2.3). Each executor replays with the entry's stable mutationId, so the
- *  server dedupes across reload/reconnect. Pins/tab-orders/sidebar-settings
- *  stay direct (low offline value); sendText stays direct too — live chat must
- *  fail fast, not silently queue. */
+ *  server dedupes across reload/reconnect. Replicated per-user rows (pins,
+ *  tab order, and personal settings) use the same path. Live chat stays direct —
+ *  it must fail fast rather than silently queue. */
 export type OutboxKinds = {
+  pinSet: { kind: PinKind; id: string; pinned: boolean }
+  tabSetOrder: { worktree: string; sessionIds: SessionId[] }
+  settingsUpdatePersonal: { values: Record<string, unknown> }
   resumeAndSend: { sessionId: SessionId; text: string }
   rename: { sessionId: SessionId; name: string }
   setArchived: { sessionId: SessionId; archived: boolean }
@@ -117,6 +120,14 @@ export const OUTBOX_COMMANDS: Record<
   keyof OutboxKinds,
   OutboxCommand & { confirmation: ConfirmationRule }
 > = {
+  pinSet: { name: 'pins.set', version: 1, delivery, confirmation: 'none' },
+  tabSetOrder: { name: 'tabs.setOrder', version: 1, delivery, confirmation: 'none' },
+  settingsUpdatePersonal: {
+    name: 'settings.updatePersonal',
+    version: 1,
+    delivery,
+    confirmation: 'none',
+  },
   resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery, confirmation: 'none' },
   rename: { name: 'sessions.rename', version: 1, delivery, confirmation: 'none' },
   setArchived: { name: 'sessions.setArchived', version: 1, delivery, confirmation: 'none' },
@@ -207,6 +218,9 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     awaitingStorage: args.replica.outboxAwaitingStorage(),
     deadLetterStorage: args.replica.outboxDeadLetterStorage(),
     executors: {
+      pinSet: (i) => api.pins.set.mutate(i),
+      tabSetOrder: (i) => api.tabs.setOrder.mutate(i),
+      settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
       resumeAndSend: (i) => api.sessions.resumeAndSend.mutate(i),
       rename: (i) => api.sessions.rename.mutate(i),
       setArchived: (i) => api.sessions.setArchived.mutate(i),

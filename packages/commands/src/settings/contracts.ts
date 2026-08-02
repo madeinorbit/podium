@@ -193,23 +193,13 @@ function preferencePatch(tier: SettingsTier) {
  * and not `mcp`: there is no `podium settings` verb and no settings tool.
  */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
+const PERSONAL_SERVED_ON: readonly TransportTag[] = ['trpc', 'outbox']
 
 /**
- * PREFERENCES ARE `offline-eligible` AND ARE STILL NOT EXPOSED ON `outbox`, and
- * the gap between those two statements is deliberate.
+ * PREFERENCE WRITES ARE `offline-eligible`; personal preferences are now exposed on `outbox`.
  *
- * The delivery CLASS is the matrix row's (`offline: 'offline-eligible'`, both
- * preference rows) and it is what this issue was asked to declare. Exposure is a
- * separate, default-closed decision (ADR 3 D3), and today nothing enqueues a
- * settings write: the web outbox (`packages/client-core/src/outbox.ts`) is a
- * kind-keyed executor table with no settings executor in it. Declaring `outbox`
- * here would name a transport no dispatcher reads — POD-385's finding, which
- * POD-386 had to measure the router to catch.
- *
- * So the class says "this MAY be queued" and the exposure says "nothing queues
- * it yet". `contracts.test.ts` pins both halves, and the audit gate pins that no
- * outbox executor names a settings command — so the day one appears, the
- * exposure decision is retaken deliberately instead of by accident.
+ * Personal preferences have a client executor and therefore name the Outbox transport.
+ * Instance preferences remain tRPC-only until their owning client action is migrated.
  */
 const PREFERENCE_REAUTHORIZATION =
   'Re-authorized at every apply against the delegation resolved LIVE (ADR 9 D5 A1 / ADR 3 D8): the ' +
@@ -252,9 +242,7 @@ const PERSONAL_PREFERENCE_DELIVERY: DeliveryPolicy = {
     'it is at worst a stale opinion overwriting a newer one on a SINGLE-WRITER row keyed `(userId)`. ' +
     '`autoContinue.enabled` is the member that gave pause and is still inert as a write: it is a ' +
     'boolean the loop reads when it next runs, not a command that starts one, which is the D18.3 ' +
-    'line. Exposure deliberately omits `outbox` because no client executor dispatches a settings ' +
-    'write — a transport nothing serves is a decoration (POD-385), and POD-419 owns the ' +
-    'replica/outbox audit that would land one.',
+    'line. The personal contract is exposed on `outbox` because the client actions dispatcher queues this replicated per-user row. Instance preferences remain direct until their owning action is migrated.',
   applyTimeReauthorization: PREFERENCE_REAUTHORIZATION,
 }
 
@@ -471,6 +459,7 @@ const CLOSED_VOCABULARY_ERRORS: ErrorConsistency = {
 /** The 24 personal-preference leaves, addressed by path. */
 export const settingsUpdatePersonalInput = z.object({
   values: preferencePatch('personal-preference'),
+  mutationId: z.string().max(128).optional(),
 })
 
 /**
@@ -515,7 +504,7 @@ export const settingsUpdatePersonalContract = {
       'the caller live, so this member floor now gates the owning user’s row at apply time rather ' +
       'than describing a future storage split.',
   },
-  exposure: SERVED_ON,
+  exposure: PERSONAL_SERVED_ON,
   delivery: PERSONAL_PREFERENCE_DELIVERY,
   redaction: PREFERENCE_REDACTION,
   ownership: PREFERENCE_OWNERSHIP,
