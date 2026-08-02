@@ -21,10 +21,33 @@ const ISSUE = {
 }
 const SENDER_ISSUE = { ...ISSUE, id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 
+/**
+ * Two issues HOMED on a machine (POD-1424). ISSUE above carries no machineId, so it
+ * cannot exercise the cross-machine guard at all — the divergence needs an issue that
+ * knows where it lives.
+ */
+const HOMED_STARTED = {
+  ...ISSUE,
+  id: 'iss_homed',
+  seq: 900,
+  worktreePath: '/wt/homed',
+  machineId: 'machine-home',
+}
+/** Homed but never started: pinned, no worktree, so nothing to diverge FROM. */
+const HOMED_UNSTARTED = {
+  ...ISSUE,
+  id: 'iss_pinned',
+  seq: 901,
+  worktreePath: null,
+  machineId: 'machine-home',
+}
+
 function fakeIssues(created: Record<string, unknown>[] = []) {
   const byId = new Map<string, Record<string, unknown>>([
     [ISSUE.id, ISSUE],
     [SENDER_ISSUE.id, SENDER_ISSUE],
+    [HOMED_STARTED.id, HOMED_STARTED],
+    [HOMED_UNSTARTED.id, HOMED_UNSTARTED],
   ])
   return {
     resolveRef: (ref: string) => {
@@ -968,5 +991,89 @@ describe('mail dismiss — recipient-only clear', () => {
     await expect(
       gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
     ).rejects.toThrow(/only the recipient/)
+  })
+})
+
+/**
+ * A DELEGATE CANNOT CROSS MACHINES AWAY FROM ITS ISSUE'S WORKTREE (POD-1424).
+ *
+ * spawnAgent passes the issue's worktree PATH as cwd while taking the machine from
+ * `profile?.machineId ?? issue.machineId`. A profile naming a different machine sends
+ * that path to a host where it does not exist — and the failure is silent: an agent id
+ * comes back, a session paints, and the divergence surfaces later as work that cannot
+ * be merged.
+ *
+ * Both directions are pinned. The refusals below go green if the guard is deleted; the
+ * allowances go red if the guard is widened to ignore worktreePath. Neither branch is
+ * vacuous.
+ */
+describe('cross-machine delegate spawn (POD-1424)', () => {
+  const profileOn =
+    (machineId: string): MessageGateDeps['resolveExecutionProfile'] =>
+    () => ({
+      id: 'prof_x',
+      accountId: 'native:codex',
+      harness: 'codex',
+      model: 'gpt-5.6',
+      effort: 'medium',
+      machineId,
+    })
+
+  it('REFUSES a profile that names a machine other than the issue home', async () => {
+    const { gate, spawns } = harness({ resolveExecutionProfile: profileOn('machine-elsewhere') })
+    await expect(
+      gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: HOMED_STARTED.id,
+        prompt: 'work over there',
+        executionProfileId: 'prof_x',
+      }),
+    ).rejects.toThrow(/would create a second checkout of the same branch/)
+    // Nothing may spawn: a returned agent id is exactly what made this look like it worked.
+    expect(spawns).toHaveLength(0)
+  })
+
+  it('names handoff as the operation that legitimately moves a worktree', async () => {
+    const { gate } = harness({ resolveExecutionProfile: profileOn('machine-elsewhere') })
+    await expect(
+      gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: HOMED_STARTED.id,
+        prompt: 'work over there',
+        executionProfileId: 'prof_x',
+      }),
+    ).rejects.toThrow(/podium session handoff/)
+  })
+
+  it('ALLOWS a profile naming the same machine the issue is homed on', async () => {
+    const { gate, spawns } = harness({ resolveExecutionProfile: profileOn('machine-home') })
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: HOMED_STARTED.id,
+      prompt: 'work at home',
+      executionProfileId: 'prof_x',
+    })
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0]).toMatchObject({ cwd: '/wt/homed', machineId: 'machine-home' })
+  })
+
+  it('ALLOWS a pinned issue that has NOT been started — nothing to diverge from', async () => {
+    // The guard keys on the WORKTREE, not the pin: starting on a pinned machine is a
+    // legitimate way to home an issue, and refusing here would break that.
+    const { gate, spawns } = harness({ resolveExecutionProfile: profileOn('machine-elsewhere') })
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: HOMED_UNSTARTED.id,
+      prompt: 'home me over there',
+      executionProfileId: 'prof_x',
+    })
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0]).toMatchObject({ machineId: 'machine-elsewhere' })
+  })
+
+  it('ALLOWS a spawn with no profile at all — it inherits the issue home', async () => {
+    const { gate, spawns } = harness()
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: HOMED_STARTED.id,
+      prompt: 'inherit',
+    })
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0]).toMatchObject({ machineId: 'machine-home' })
   })
 })

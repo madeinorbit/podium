@@ -493,6 +493,37 @@ export class MessageGate {
     const model = profile?.model ?? input.model
     const effort = profile?.effort ?? input.effort
     const machineId = profile?.machineId ?? issue.machineId
+    /**
+     * A DELEGATE CANNOT CROSS MACHINES AWAY FROM ITS ISSUE'S WORKTREE (POD-1424).
+     *
+     * `cwd` above is the issue's worktree path, and a worktree exists on exactly ONE
+     * machine. Spawning onto a different one sends that path to a host where it does
+     * not exist, so the delegate either lands in an unrelated directory or a second
+     * checkout of one branch appears on a second machine. Both LOOK like a successful
+     * spawn — an agent id comes back, a session paints in the sidebar — and the
+     * divergence only surfaces later as work that cannot be merged.
+     *
+     * Reachable only through an execution profile, which is the one input that can name
+     * a machine independently of the issue (`profile?.machineId ?? issue.machineId`);
+     * every other caller inherits the issue's home and is therefore already correct.
+     *
+     * REFUSING IS THE WHOLE ANSWER, not a fallback. Retargeting to the issue's machine
+     * would ignore a placement a human configured; honouring the profile would fork the
+     * worktree. The one operation that MOVES a worktree between machines is
+     * sessions.handoff, so the refusal names it.
+     *
+     * The guard keys on the WORKTREE existing, not on the pin: an issue not yet started
+     * has nothing to diverge from, and starting on a pinned machine is a legitimate way
+     * to home it.
+     */
+    if (issue.worktreePath && machineId && issue.machineId && machineId !== issue.machineId) {
+      throw new Error(
+        `issue #${issue.seq} is homed on machine ${issue.machineId} and its worktree lives there; ` +
+          `spawning on ${machineId} would create a second checkout of the same branch. ` +
+          'Hand the session off to that machine first (`podium session handoff <id> --to <machine>`), ' +
+          "or clear the execution profile's machine.",
+      )
+    }
     const spawned = this.deps.spawnSession({
       cwd,
       agentKind: harness,
