@@ -15,6 +15,7 @@ import {
   isFrozenFile,
   isTestFile,
   loadContext,
+  phaseCloseItems,
   PUBLISH_COMPUTED_CONTROLS,
   PUBLISH_COMPUTED_PATTERN,
   publishComputedControlMisses,
@@ -45,13 +46,64 @@ function ctxOf(files: Record<string, string>, dirs: Record<string, string[]> = {
 
 describe('registered residue', () => {
   it('pins every expiring issue residue site to live production code', () => {
-    const live = loadContext(process.cwd())
+    const registeredFiles = [
+      ...new Set(REGISTERED_RESIDUE.flatMap((entry) => entry.sites.map((site) => site.file))),
+    ]
+    const live = ctxOf(
+      Object.fromEntries(registeredFiles.map((file) => [file, readFileSync(file, 'utf8')])),
+    )
     for (const residue of REGISTERED_RESIDUE) {
       for (const site of residue.sites) {
         const source = live.files.find((file) => file.file === site.file)?.stripped
         expect(source, site.file).toContain(site.needle)
+
+        if (residue.auditItem) {
+          const item = CHECKS.find((check) => check.id === residue.auditItem)
+          expect(item, `${residue.id} names a missing audit item`).toBeDefined()
+          expect(
+            item
+              ?.collect(live)
+              .some((actual) => actual.file === site.file && actual.text.includes(site.needle)),
+            `${residue.id} does not declare an exact counted site`,
+          ).toBe(true)
+        }
       }
     }
+  })
+
+  it('an undeclared new residue site still fails the phase gate', () => {
+    const expected: AuditResult = {
+      id: 'legacy-heals',
+      title: 'Legacy heals',
+      phase: 'POD-1',
+      unit: 'method declaration',
+      count: 1,
+      sites: [{ file: 'apps/server/src/store.ts', line: 10, text: 'expectedHeal(): void {' }],
+    }
+    const declared = [
+      {
+        id: 'expected-heal',
+        auditItem: 'legacy-heals',
+        owner: 'POD-2',
+        expiry: 'when old rows age out',
+        note: 'Required for the supported upgrade path.',
+        sites: [{ file: 'apps/server/src/store.ts', needle: 'expectedHeal(): void {' }],
+      },
+    ]
+
+    expect(phaseCloseItems('POD-1', [expected], declared)[0]?.undeclaredSites).toEqual([])
+
+    const withNewSite: AuditResult = {
+      ...expected,
+      count: 2,
+      sites: [
+        ...expected.sites,
+        { file: 'apps/server/src/store.ts', line: 20, text: 'expectedHeal(): void {' },
+      ],
+    }
+    expect(phaseCloseItems('POD-1', [withNewSite], declared)[0]?.undeclaredSites).toEqual([
+      { file: 'apps/server/src/store.ts', line: 20, text: 'expectedHeal(): void {' },
+    ])
   })
 })
 
