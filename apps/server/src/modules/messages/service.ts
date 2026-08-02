@@ -26,7 +26,12 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { exemptFromBrakes, type MailSenderPrincipal, senderBrakeKey } from '@podium/commands'
+import {
+  exemptFromBrakes,
+  type MailSenderPrincipal,
+  type PlacementDecision,
+  senderBrakeKey,
+} from '@podium/commands'
 import {
   type AgentPhase,
   type Attribution,
@@ -214,8 +219,38 @@ export interface MessageDeliveryDeps {
    * one human there is nothing to revoke. POD-1075/POD-1079 wire the real port.
    */
   authorizeAtApply?(message: MessageRow): { ok: true } | { ok: false; reason: string }
+  /**
+   * WAKE-PATH MACHINE USE (POD-1193 / readiness §3.1.4 M2).
+   *
+   * A wake resumes a parked session or spawns one — code execution on the
+   * TARGET SESSION's (or, for bare spawn-on-wake, the issue's) machine. The
+   * contracts declare `machineVerb: 'use'`; this port is the runtime refusal
+   * that declaration alone did not provide.
+   *
+   * Called only on the wake path (parked + lifecycle wake, or unresumable →
+   * trySpawn), never for inject into an already-live PTY. Returns the same
+   * {@link PlacementDecision} `placementDecision` produces so the composition
+   * root can reuse the gate's MachineAccess without a second ACL.
+   *
+   * ERROR RULE (mail.send / mail.ask, D20.2): unauthorized and unreachable
+   * collapse into ONE denial — the caller named a session or issue, not a
+   * machine, so machine-specific wording would be an existence oracle over
+   * someone else's fleet. spawnAgent keeps M5 (distinguishable) on its own
+   * handler path; do not collapse those.
+   *
+   * Absent = allow. Same honest single-user default as authorizeAtApply.
+   */
+  placementAtWake?(message: MessageRow, machineId: string): PlacementDecision
   now(): string
 }
+
+/**
+ * Wake placement refused under the mail error rule (D20.2): unauthorized and
+ * unreachable are the SAME reason, and the reason names neither a machine nor
+ * a grant. The address oracle for issues/sessions is a different axis; this
+ * string only covers the machine half of a wake.
+ */
+export const WAKE_PLACEMENT_DENIED_REASON = 'target is not available'
 
 /** Derive the sender principal from an authz capability (the relay/registry
  *  caller identity). ONLY the unconstrained scope ('all') is the operator —
@@ -834,7 +869,17 @@ export class MessageDeliveryService {
         if (message.fromSession && allMembers.some((s) => s.sessionId === message.fromSession)) {
           return this.suppressSelf(message)
         }
-        if (message.lifecycle === 'wake') return this.trySpawn(message, message.toId)
+        if (message.lifecycle === 'wake') {
+          // Bare spawn-on-wake places work on the ISSUE's machine (makeSpawnOnWake
+          // copies issue.machineId). Gate it before trySpawn, same M2 boundary.
+          const denied = this.refuseWakeUnlessUsable(
+            message,
+            issue.machineId,
+            opts?.viaSweep === true,
+          )
+          if (denied) return denied
+          return this.trySpawn(message, message.toId)
+        }
         // Issue is live but has NO session — HOLD for its next session. Delivered
         // at that session's next turn boundary (onSessionIdle) / the sweep. The
         // sender is TOLD it is held; it is not a silent drop [POD-834 §05].
@@ -888,13 +933,33 @@ export class MessageDeliveryService {
     if (message.lifecycle === 'wait') {
       return { ok: true, queued: true, disposition: 'queued' }
     }
-    // wake: durable queue + resurrect (queueText resurrects parked sessions);
+    // wake: durable queue + resurrect (queueText resurrects parked sessions).
+    // Code execution on the TARGET SESSION's machine — readiness §3.1.4 M2 /
+    // POD-1193. Refuse before recordWake so a denied caller neither starts a
+    // process nor burns the wake cooldown.
+    {
+      const denied = this.refuseWakeUnlessUsable(
+        message,
+        target.machineId,
+        opts?.viaSweep === true,
+      )
+      if (denied) return denied
+    }
     // record the wake against the cooldown window.
     this.recordWake(message, target)
     const injected = this.injectAndMark('queue', message, target.sessionId, 'queued')
     if (injected.ok) return injected
     if (injected.reason === 'no resume ref') {
-      return this.trySpawn(message, this.issueForSession(target) ?? message.toId)
+      // Unresumable → spawn-on-wake. The resume attempt was already gated on
+      // the parked session's machine; the spawn may land on the ISSUE's machine
+      // instead (issue.machineId), so re-check against that placement target.
+      const issueId = this.issueForSession(target) ?? message.toId
+      const issueMachine = issueId ? this.deps.issues.get(issueId)?.machineId : undefined
+      if (issueMachine && issueMachine !== target.machineId) {
+        const denied = this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
+        if (denied) return denied
+      }
+      return this.trySpawn(message, issueId)
     }
     return injected
   }
@@ -1640,6 +1705,32 @@ export class MessageDeliveryService {
     const port = this.deps.authorizeAtApply
     if (!port) return { ok: true }
     return port(message)
+  }
+
+  /**
+   * POD-1193: refuse a wake that would start a process on a machine the sender
+   * may not use. `null` = proceed; a DeliveryOutcome = stop (dead-lettered).
+   *
+   * Missing machineId and a missing port both mean "no gate to consult" — the
+   * same fail-open the single-user default uses for authorizeAtApply, and the
+   * same `if (machineId)` shape spawnAgent's M5 check already uses. A principal
+   * that cannot be re-resolved is a denial (the port returns non-allowed).
+   *
+   * Unauthorized and unreachable collapse HERE to one reason
+   * ({@link WAKE_PLACEMENT_DENIED_REASON}). That is the mail contracts' D20.2
+   * half; spawnAgent's distinguishable refusals live only on its handler path.
+   */
+  private refuseWakeUnlessUsable(
+    message: MessageRow,
+    machineId: string | undefined,
+    notifySender: boolean,
+  ): DeliveryOutcome | null {
+    if (!machineId) return null
+    const port = this.deps.placementAtWake
+    if (!port) return null
+    const decision = port(message, machineId)
+    if (decision === 'allowed') return null
+    return this.deadLetter(message, WAKE_PLACEMENT_DENIED_REASON, { notifySender })
   }
 
   /**

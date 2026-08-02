@@ -187,7 +187,9 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
     // gate stays the resolved issue/session address, and `use` is the additional
     // execution gate. Declared even though `lifecycle` is OPTIONAL and defaults to
     // `wait`, because the facet classifies what the command CAN do and this
-    // package is default-closed everywhere else.
+    // package is default-closed everywhere else. Runtime enforcement is POD-1193
+    // (`placementAtWake` on the delivery wake path); D20.2 collapses unauthorized
+    // and unreachable because the caller cannot name a machine.
     machineVerb: 'use',
     confirmation: 'confirm',
     rationale:
@@ -695,10 +697,12 @@ export const mailAskContract: CommandContract<typeof mailAskInput> = {
     // WHAT THIS DOES AND DOES NOT BUY, stated plainly so nobody reads more into it:
     // the declaration makes the fact AUDITABLE and is enforced table-wide by
     // `scripts/audit-mail-commands.ts` (every wake-capable mail command must carry
-    // it). It is not yet a runtime refusal — no mail dispatch path reads
-    // `policy.machineVerb` today, and threading a `placementDecision` for the
-    // target session's machine into the delivery path is a behaviour change on the
-    // shipped wake pipeline, filed separately rather than absorbed into a cutover.
+    // it). Runtime refusal is POD-1193: `MessageDeliveryService` calls
+    // `placementDecision` for the TARGET SESSION's machine on the wake path
+    // (resume or trySpawn) and dead-letters under D20.2 when the sender lacks
+    // `use` — unauthorized and unreachable collapse, because the caller never
+    // named a machine. spawnAgent keeps M5 on its handler path; do not collapse
+    // those.
     machineVerb: 'use',
     confirmation: 'none',
     rationale:

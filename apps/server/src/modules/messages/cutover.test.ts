@@ -439,6 +439,10 @@ describe('the two halves of the ceiling are one object', () => {
     const src = sourceOf('../../relay.ts')
     expect(src).toContain('const mail = principalMailPolicy({')
     expect(src).toContain('authorizeAtApply: mail.authorizeAtApply')
+    // POD-1193: the wake-path machine-use gate is wired from the same policy
+    // object — a ceiling without placementAtWake would declare machineVerb:use
+    // and still start processes for callers without the grant.
+    expect(src).toContain('placementAtWake: mail.placementAtWake')
     expect(src).toContain('mail.gateOptions')
   })
 })

@@ -1028,6 +1028,9 @@ export class SessionRegistry {
     // arrives at a composition root that already carries it.
     const messagesSvc = new MessageDeliveryService({
       authorizeAtApply: mail.authorizeAtApply,
+      // POD-1193: wake resumes/spawns on the target session's machine — enforce
+      // `use` at delivery. Same principalMailPolicy object as the ceiling port.
+      placementAtWake: mail.placementAtWake,
       messages: this.store.messages,
       notificationFacts: this.store.notificationFacts,
       events: this.store.events,
