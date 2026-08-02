@@ -1,6 +1,6 @@
 import { asMachineId, type GitRepositoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { reposToViews } from './derive'
+import { reposToViews } from './index'
 
 function repo(over: Partial<GitRepositoryWire> & { path: string }): GitRepositoryWire {
   return { kind: 'repository', worktrees: [], ...over }

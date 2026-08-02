@@ -1,5 +1,5 @@
 import type { SessionId, SessionMeta, SessionOffer } from '@podium/model'
-import type { IssueNavigationModel } from './derive'
+import type { IssueNavigationModel } from './slices/issues'
 import { attentionGroup } from '../focus'
 
 /**

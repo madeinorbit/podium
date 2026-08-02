@@ -8,7 +8,7 @@ import {
   rowStatusLine,
   rowWaitingCount,
   type UnifiedWorkRow,
-} from './derive'
+} from './index'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 

@@ -1,6 +1,6 @@
 import type { AgentRuntimeState, IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { formatClock, motionPhase, motionTiming } from './derive'
+import { formatClock, motionPhase, motionTiming } from './index'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
