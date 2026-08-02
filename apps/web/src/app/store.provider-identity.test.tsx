@@ -236,7 +236,24 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     await settle()
   }
 
-  it('no frame, cursor, queued write or cached value survives a user switch', async () => {
+  /**
+   * ONE SWITCH, ALL FOUR CARRIERS LIVE, then one assertion per carrier.
+   *
+   * Split into separate cases DELIBERATELY. A single case stops at its first
+   * failing expectation, so a mutation that breaks the teardown would turn one
+   * assertion red and hide whether the other three ever measured anything.
+   * Separate cases make the counterfactual legible: each mutation names exactly
+   * the set of cases it kills.
+   */
+  interface Switched {
+    hubAlice: unknown
+    replicaAlice: { getFeedCursor(): unknown } | null
+    dockTabAlice: string
+    torn: ClientRuntime[]
+    destroySpy: ReturnType<typeof vi.spyOn>
+  }
+
+  const switchAliceToBob = async (): Promise<Switched> => {
     const api = makeApi()
     // Capture the instances that get torn down, so the guard itself — not just
     // the fact that teardown was CALLED — can be measured.
@@ -253,79 +270,97 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     await renderAs(ALICE, api)
     const hubAlice = seen.hub
     const replicaAlice = seen.replica
-    expect(hubAlice).toBeTruthy()
-
-    // (1) a LIVE CURSOR: Alice's replica is caught up to 42.
+    // (1) a LIVE CURSOR: alice's replica is caught up to 42.
     ;(replicaAlice as unknown as { setFeedCursor(c: number): void }).setFeedCursor(42)
     // (2) a QUEUED WRITE: a layout command with no server to answer it.
     act(() => seen.setDockTab('git'))
     await settle()
-    // (3) a WARM CACHE: the selector has held a value across at least one render.
+    // (3) a WARM CACHE: the selector held a value across at least one render.
     const dockTabAlice = seen.dockTab
-    // (4) a LIVE SOCKET: opened by the runtime's connect timer.
-    const socketsAfterAlice = FakeWS.opened.length
 
+    // The setup is itself asserted: an empty queue, a zero cursor or a socket
+    // that never opened would make every claim below vacuously true.
+    expect(hubAlice, "alice's transport must actually exist").toBeTruthy()
     expect(seen.outboxSize, "alice's queued write must actually be queued").toBeGreaterThan(0)
     expect(replicaAlice?.getFeedCursor(), "alice's cursor must actually be live").toBe(42)
     expect(dockTabAlice, "alice's cached selection must actually differ from the default").toBe(
       'git',
     )
-    expect(socketsAfterAlice, "alice's socket must actually be open").toBeGreaterThan(0)
-    const aliceKeys = storageFor('alice').keys()
-    expect(aliceKeys.length, "alice's namespace must actually hold state").toBeGreaterThan(0)
+    // (4) a LIVE SOCKET, opened by the runtime's connect timer.
+    expect(FakeWS.opened.length, "alice's socket must actually be open").toBeGreaterThan(0)
+    expect(FakeWS.closed, "alice's socket must still be open at the switch").toBe(0)
+    expect(
+      JSON.stringify(storageFor('alice').snapshot()),
+      "alice's queued command must actually be durable",
+    ).toContain('layoutSet')
 
     // ---- THE SWITCH -------------------------------------------------------
     await renderAs(BOB, api)
+    return { hubAlice, replicaAlice, dockTabAlice, torn, destroySpy }
+  }
 
-    // The old runtime is destroyed, not merely re-rendered.
-    expect(destroySpy, 'the previous principalic runtime must be destroyed').toHaveBeenCalled()
-    // TRANSPORT: a different hub, and alice's socket closed.
+  it('destroys the previous principal’s runtime rather than re-rendering it', async () => {
+    const { destroySpy, torn } = await switchAliceToBob()
+    expect(destroySpy, 'the previous principal’s runtime must be destroyed').toHaveBeenCalled()
+    expect(torn[0]?.isDestroyed, 'it must be inert, not merely stopped').toBe(true)
+  })
+
+  it('reconstructs the transport and closes the previous principal’s socket', async () => {
+    const { hubAlice } = await switchAliceToBob()
     expect(seen.hub, 'bob must not share alice’s transport').not.toBe(hubAlice)
     expect(FakeWS.closed, 'alice’s socket must be closed by the teardown').toBeGreaterThan(0)
-    // REPLICA: a different instance over a different namespace, with NO cursor
-    // inherited — a cursor of 42 over an empty slice is the "permanently caught
-    // up" failure the namespace exists to prevent.
+  })
+
+  it('does not inherit the previous principal’s replica or cursor', async () => {
+    // A cursor of 42 over an empty slice is the "permanently caught up" failure
+    // the per-principal namespace exists to prevent: the new principal would
+    // never ask for the rows it has never seen.
+    const { replicaAlice } = await switchAliceToBob()
     expect(seen.replica, 'bob must not share alice’s replica').not.toBe(replicaAlice)
     expect(seen.replica?.getFeedCursor(), 'bob must not inherit alice’s cursor').not.toBe(42)
-    // OUTBOX: bob's queue is empty…
-    expect(seen.outboxSize, 'bob must not inherit alice’s queued write').toBe(0)
-    // …and alice's write was NOT destroyed either — it stayed in her namespace,
-    // which is what distinguishes "not adopted" from "silently discarded".
-    expect(
-      storageFor('alice').keys().length,
-      'alice’s queued work must survive in her own namespace',
-    ).toBeGreaterThan(0)
-    // Key NAMES are the same in both namespaces by design (the namespace is the
-    // storage, not the key text). The claim that matters is about the WRITE:
-    // alice's queued layout command is serialized in her store and in no part of
-    // bob's.
-    const aliceBytes = JSON.stringify(storageFor('alice').snapshot())
-    const bobBytes = JSON.stringify(storageFor('bob').snapshot())
-    expect(aliceBytes, "alice's queued command must be durable in her namespace").toContain(
-      'layoutSet',
-    )
-    expect(bobBytes, 'bob’s namespace must not contain alice’s queued command').not.toContain(
-      'layoutSet',
-    )
-    // CACHED VALUE: the mounted selector re-derived rather than replaying its
-    // last answer for the previous principal.
-    expect(seen.dockTab, 'the selector cache must not replay alice’s value').not.toBe(dockTabAlice)
+  })
 
-    // IN-FLIGHT CALLBACKS: alice's runtime is inert, so a late resolution —
-    // a tRPC promise, a grace timer, a component still holding one of her
-    // action closures — cannot publish anything at all. Driven, not assumed:
-    // the closure below is invoked AFTER the switch and must move nothing.
+  it('does not inherit the previous principal’s queued write, and does not destroy it either', async () => {
+    await switchAliceToBob()
+    expect(seen.outboxSize, 'bob must not inherit alice’s queued write').toBe(0)
+    // Key NAMES are the same in both namespaces by design (the namespace is the
+    // storage, not the key text), so the claim is about the WRITE itself.
+    // "Not adopted" must not silently mean "discarded": alice's unsent work is
+    // still hers, waiting in her namespace.
+    expect(
+      JSON.stringify(storageFor('alice').snapshot()),
+      'alice’s queued command must survive in her own namespace',
+    ).toContain('layoutSet')
+    expect(
+      JSON.stringify(storageFor('bob').snapshot()),
+      'bob’s namespace must not contain alice’s queued command',
+    ).not.toContain('layoutSet')
+  })
+
+  it('does not replay the previous principal’s cached selector value', async () => {
+    // The component is NOT remounted by the switch and its selector closure is
+    // stable, so its per-component cache is genuinely warm across the boundary.
+    // It re-derives because the cache keys on snapshot IDENTITY and the new
+    // runtime publishes a new snapshot object.
+    const { dockTabAlice } = await switchAliceToBob()
+    expect(seen.dockTab, 'the selector cache must not replay alice’s value').not.toBe(dockTabAlice)
+  })
+
+  it('publishes nothing from the previous principal’s late callback', async () => {
+    // A tRPC promise resolving after the switch, a spawn-confirm grace timer, a
+    // component still holding one of alice's action closures: all of them reach
+    // the same state choke point, and it refuses. Driven, not assumed — the
+    // closure below is invoked AFTER the switch and must move nothing.
+    const { torn } = await switchAliceToBob()
     const stale = torn[0]
-    expect(stale, 'the switch must have torn down exactly alice’s runtime').toBeDefined()
-    expect(stale?.isDestroyed, 'the torn-down runtime must be inert, not merely stopped').toBe(true)
+    expect(stale, 'the switch must have torn down alice’s runtime').toBeDefined()
     const staleSnapshot = stale?.getSnapshot()
     act(() => {
       ;(staleSnapshot as unknown as { setPaletteOpen(v: boolean): void }).setPaletteOpen(true)
     })
-    expect(
-      stale?.getSnapshot(),
-      'a previous principal’s late callback must publish nothing',
-    ).toBe(staleSnapshot)
+    expect(stale?.getSnapshot(), 'a previous principal’s late callback must publish nothing').toBe(
+      staleSnapshot,
+    )
   })
 
   it('a re-render with an equal-valued principal object keeps the same runtime', async () => {
