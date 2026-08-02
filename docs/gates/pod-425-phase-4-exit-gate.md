@@ -35,7 +35,7 @@ with evidence” criterion remains **refused**.
 | Live redeploy keeps sessions | With the missing local model build supplied, the real authenticated browser test exits 0: 1/1. It logs in through `/auth/login`, restarts only the isolated server, and preserves the marker/grid. A zero-artifact cold checkout fails before discovery because the Playwright build does not build `@podium/model`; POD-1389 owns that harness self-containment defect. | **PRODUCT BEHAVIOR MET; ENVIRONMENT CHECK REFUSED** |
 | Multi-instance isolation stays green | Fresh isolated `bun run test:multi-instance` exits 0: Bun 1/1 with 41 expectations, Vitest 1 file/3 tests, installer `ALL OK`. | **MET** |
 | Landing evidence cited, not re-derived | At this same SHA, the POD-279 coordinator reports typecheck 22/22, `wsServer.client-auth` 7/7, and protocol wire goldens 90/0, all exit 0. The gate did not rerun those lanes. | **MET** |
-| Ten multi-user deliberate-violation probes | Three detector controls exit 0 and catch their planted scoped-feed, machine-grant, and durable-class violations. The focused multi-user run exits 0 at 14 files/251 tests; an additional composition/capability run exits 0 at 8 files/190 tests. POD-1078 also retains historical evidence of one real cross-user production mutation going red and being restored. There is no fresh candidate-wide production-code mutation-and-byte-restore campaign covering every one of the ten conditions. Detector-local fixtures and positive tests do not meet POD-422 checklist E's production-tree counterfactual standard. POD-1394 owns the complete campaign. | **REFUSED** |
+| Ten multi-user deliberate-violation probes | Three detector controls exit 0 on their own scoped-feed, machine-grant, and durable-class fixtures. They prove only that those detector fixtures can make the source scanners refuse; they do not prove that the shipped running object is guarded. At POD-1394 candidate `d8fba769`, two real scoped-feed production mutants left `audit:scoped-feed` green and were caught only by running-object tests. The focused multi-user run exits 0 at 14 files/251 tests; an additional composition/capability run exits 0 at 8 files/190 tests. POD-1078 also retains historical evidence of one real cross-user production mutation going red and being restored. There is no fresh candidate-wide production-code mutation-and-byte-restore campaign covering every one of the ten conditions, with the source-scanner versus running-object half named for every cited audit. Detector-local fixtures and positive tests do not meet POD-422 checklist E's production-tree counterfactual standard. POD-1394 owns the complete campaign. | **REFUSED** |
 | Deliberately open questions remain flagged | O1 existence leakage (including room occupancy), O2 opaque cross-boundary references, O3 permission-affecting reparent, and O4 per-class owner/grant inheritance remain explicitly open in `multi-user-readiness.md`, ADRs 1/2/3/4/7/9, and `rearchitecture-v3.md`; no implementer silently resolved them. | **MET** |
 | Phase 7 entry | The gate must compose with G5 and G6 only after every row above is met. | **BLOCKED** |
 
@@ -413,22 +413,50 @@ cookie-bearing sockets authenticated, stale wire 1 received 426 `scoping-require
 the test waited for an entity frame that policy deliberately withheld. The unchanged 20-second
 timeout is the symptom, not the repair target; reported host load was `43.96/54.56/76.02`.
 
+## Audit evidence acceptance rule
+
+Every cited `audit:*` result must name which half actually walks the property being claimed. A
+source-text scanner can prove absence, construction shape, or declared coverage. Its detector-local
+`--probe` can prove that the scanner recognizes its own fixtures. Neither establishes that the
+shipped running object enforces a behavioral policy. When an audit has a running-object half in a
+`.test.ts` or package suite, gate evidence for runtime behavior must cite that half's nonzero exit
+and intended diagnostic against the production mutant.
+
+POD-1394 measured the distinction twice at candidate `d8fba769`:
+
+- C2 changed `GrantEdgeVisibilityPolicy.decide` so a principal with no grant received a personal
+  or owned-compute row. `bun run audit:scoped-feed` exited 0. The running-object
+  `scripts/audit-scoped-feed.test.ts` exited 1 and diagnosed both the unfiltered row and scoped
+  catch-up reply.
+- C4c changed the shipped scoping operation from `evict` to `remove` in `anchorFor`.
+  `bun run audit:scoped-feed` again exited 0 because its source check keys on revocation-named
+  functions. The running authority tests exited 1 and diagnosed that a visibility change is
+  derived and never a remove.
+
+Accordingly, a green source audit, a detector-local probe, and positive tests cannot be combined
+into an implied production counterfactual. For every audit cited by this gate, the record must name
+the production mutant, the source-scanner or running-object command that actually caught it, the
+nonzero exit and intended diagnostic, and the restored bytes/hash. If the source scanner stays
+green while its running-object half catches the mutation, only the latter is evidence for the
+behavioral condition. POD-1417 independently reached the same rule while repairing a
+rearchitecture-audit self-test.
+
 ## Deliberate-violation probes
 
 At `aba864a9`, these detector-local planted-fixture probes completed:
 
-| Command | Exit | What it proves |
+| Command | Exit | Detector-control result |
 | --- | ---: | --- |
-| `bun scripts/audit-scoped-feed.ts --probe` | 0 | The detector catches an unscoped policy/read seam, `remove` used for revocation, and a batch without a certified range, while sparing clean fixtures. |
-| `bun scripts/audit-machine-grants.ts --probe` | 0 | The detector catches fail-open ownership, a missing derived fleet gate, an unscoped fleet scan, and owner exposure on wire, while sparing clean fixtures. |
-| `bun scripts/audit-durable-classes.ts --probe` | 0 | The detector catches an undeclared store, missing/mistyped matrix membership, and unaccounted durable writes. The script also reported 89 current durable stores classified or explained. |
+| `bun scripts/audit-scoped-feed.ts --probe` | 0 | Its source scanner recognizes its planted unscoped seam, remove-for-revocation, and uncertified-range fixtures while sparing clean fixtures. It does not prove that the shipped filter filters or that every shipped eviction site is named for the scanner. |
+| `bun scripts/audit-machine-grants.ts --probe` | 0 | Its source scanner recognizes its planted fail-open ownership, missing derived gate, unscoped scan, and owner-on-wire fixtures while sparing clean fixtures. Running-object claims require the corresponding production mutation and runtime half. |
+| `bun scripts/audit-durable-classes.ts --probe` | 0 | Its source scanner recognizes its planted undeclared-store, matrix, and durable-write fixtures. The script separately reported 89 current stores classified or explained; behavioral policy still requires the half that walks the object. |
 
-These are useful instrument checks, but they are not substituted for the required real-tree
-counterfactuals. POD-423 and POD-424 established that a gate mutation must alter production code,
-make the real guardrail fail, and restore the original hash. The complete ten-condition production
-mutation campaign has not run on this candidate, and POD-1078's completed work is absent from it
-for conditions 1, 6, and 7. Accordingly, the criterion that *every* multi-user condition fired on
-planted bad product code is **not met**.
+These are useful detector controls, but they are not gate evidence for shipped behavior.
+POD-423 and POD-424 established that a gate mutation must alter production code, make the real
+guardrail fail for the intended reason, and restore the original hash. The complete ten-condition
+production mutation campaign has not run on this candidate, and POD-1078's completed work is absent
+from it for conditions 1, 6, and 7. Accordingly, the criterion that *every* multi-user condition
+fired on planted bad product code is **not met**.
 
 ## Environment neutrality
 
