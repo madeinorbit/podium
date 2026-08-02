@@ -200,7 +200,12 @@ const walk = (dir: string, out: string[] = []): string[] => {
     const full = join(dir, name)
     if (statSync(full).isDirectory()) walk(full, out)
     // PATH-based test exclusion. The bug this replaces filtered on line CONTENT.
-    else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.spec.ts'))
+    else if (
+      name.endsWith('.ts') &&
+      !name.endsWith('.test.ts') &&
+      !name.endsWith('.spec.ts') &&
+      !name.endsWith('.generated.ts')
+    )
       out.push(full)
   }
   return out
@@ -227,7 +232,24 @@ export const census = (root = ROOT): Map<string, Site[]> => {
  * gate cares about and the thing a file split can no longer fake.
  */
 export const BASELINE: Readonly<Record<string, number>> = {
-  FIRST_ADMIN_USER_ID: 45,
+  /**
+   * 41 usage sites, and the journey to that number is the point:
+   *   77  the hand grep everyone quoted (content filter dropped 2 lines)
+   *   79  the same grep with the filter corrected to match PATH
+   *   45  imports and comments stripped
+   *   41  `*.generated.ts` excluded
+   *
+   * The last 4 were all in `migrations/drizzle-manifest.generated.ts`, inside
+   * `--` SQL comments embedded in template strings — prose explaining why that
+   * migration deliberately spells `'user:sole'` literally INSTEAD of importing
+   * the constant. Counting an explanation of not-using-it as a use of it is the
+   * same error as counting the import, one layer down.
+   *
+   * Generated files are excluded rather than special-cased: they are not
+   * hand-authored, so an ambient principal appearing in one is a property of its
+   * GENERATOR and should be audited there, where a human could fix it.
+   */
+  FIRST_ADMIN_USER_ID: 41,
 }
 
 export const checkDrift = (
