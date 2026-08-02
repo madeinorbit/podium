@@ -8,6 +8,17 @@ import { TranscriptIndexer } from './transcript-indexer'
 
 const READ_TIMEOUT_MS = 10_000
 
+interface MirrorReadReply {
+  data: string
+  fileSize: number
+  eof: boolean
+  error?: string
+}
+
+/** What an abandoned (disposed) ranged read resolves to. The mirror turns any
+ *  `error` into a throw, and its own disposed flag then swallows it silently. */
+const DISPOSED_READ: MirrorReadReply = { data: '', fileSize: 0, eof: false, error: 'disposed' }
+
 /** The mirror's ranged-read request family (POD-318). One prefix, one result
  *  type, one registry — see `modules/daemon-request.ts`. */
 const MIRROR_READ = daemonRequestKind<{
@@ -48,6 +59,9 @@ export interface TranscriptLakeDeps {
 export class TranscriptLake {
   private readonly mirror?: MirrorService
   private readonly indexer?: TranscriptIndexer
+  /** Resolvers for ranged reads still outstanding against a daemon. */
+  private readonly outstandingReads = new Set<(result: MirrorReadReply) => void>()
+  private stopped = false
 
   constructor(
     private readonly deps: TranscriptLakeDeps,
@@ -71,7 +85,38 @@ export class TranscriptLake {
     )
   }
 
+  /**
+   * Stop every paced loop this lake owns, and abandon the ranged reads it is
+   * waiting on, BEFORE the store closes underneath them.
+   *
+   * The abandonment is the part that is easy to leave out and expensive to
+   * omit. A ranged read sits in the daemon-request broker until its 10s timeout;
+   * at shutdown the daemon has already detached, so nothing will ever answer it.
+   * Left alone, the mirror's drain woke ten seconds after a "clean" stop, tried
+   * to write backoff state to a closed SQLite handle and logged the failure —
+   * the process had reported success and then complained about itself
+   * afterwards (POD-1390). Resolving them here collapses that window to zero;
+   * the broker's own timer is unref'd, so its later expiry costs nothing.
+   */
+  dispose(): void {
+    if (this.stopped) return
+    this.stopped = true
+    this.mirror?.dispose()
+    this.indexer?.dispose()
+    for (const abandon of [...this.outstandingReads]) abandon(DISPOSED_READ)
+    this.outstandingReads.clear()
+  }
+
+  /** Ranged reads still waiting on a daemon — a shutdown/test seam in the same
+   *  spirit as MirrorService.settled(), not API. A clean stop drives this to
+   *  zero synchronously; left running, each entry lingers for the full read
+   *  timeout with a store write queued behind it. */
+  get pendingReads(): number {
+    return this.outstandingReads.size
+  }
+
   triggerSweep(machineId: string): void {
+    if (this.stopped) return
     if (!this.mirror) return
     this.mirror.enqueueDirty(machineId)
     this.indexer?.backfillMachine(
@@ -112,7 +157,27 @@ export class TranscriptLake {
   private read(
     machineId: string,
     request: { path: string; offset: number; maxBytes: number },
-  ): Promise<{ data: string; fileSize: number; eof: boolean; error?: string }> {
+  ): Promise<MirrorReadReply> {
+    if (this.stopped) return Promise.resolve(DISPOSED_READ)
+    // Wrapped rather than returned bare so `dispose()` can settle it: the broker
+    // holds the only other handle on this promise and has no cancel.
+    return new Promise<MirrorReadReply>((resolve) => {
+      let settled = false
+      const settle = (result: MirrorReadReply): void => {
+        if (settled) return
+        settled = true
+        this.outstandingReads.delete(settle)
+        resolve(result)
+      }
+      this.outstandingReads.add(settle)
+      void this.requestRead(machineId, request).then(settle)
+    })
+  }
+
+  private requestRead(
+    machineId: string,
+    request: { path: string; offset: number; maxBytes: number },
+  ): Promise<MirrorReadReply> {
     return this.deps.daemonRequest.request({
       kind: MIRROR_READ,
       timeoutMs: READ_TIMEOUT_MS,

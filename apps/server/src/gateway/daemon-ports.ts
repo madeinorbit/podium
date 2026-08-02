@@ -64,6 +64,7 @@ export interface MachinesDaemonPort {
   flushQueued(machineId: string): void
   broadcastMachines(): void
   recordInventory(machineId: string, inventory: DaemonFrame<'inventoryReport'>['inventory']): void
+  recordDiagnostic(machineId: string, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 
 /** HOSTS. Health samples are per-machine facts and are scoped by the principal;

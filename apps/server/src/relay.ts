@@ -61,6 +61,7 @@ import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
+import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
@@ -1439,6 +1440,27 @@ export class SessionRegistry {
       stopIssueSessions: (input) => issueSessionLifecycle.stopIssue(input),
     })
     this.issues = issues
+    this.bus.on('machine.diagnostic', (diagnostic) => {
+      routeMachineDiagnostic(diagnostic, {
+        recipients: (machineId) => {
+          const owner = machines.ownershipRows().find((row) => row.id === machineId)?.ownerUserId
+          return [
+            ...(owner ? [asUserId(owner)] : []),
+            ...this.store.users
+              .list()
+              .filter((user) => user.role === 'admin')
+              .map((user) => asUserId(user.id)),
+          ]
+        },
+        repoPath: (machineId) =>
+          this.store.repos.listRepoPaths(machineId)[0] ?? this.store.repos.listRepoPaths()[0],
+        issueExists: (id) => this.store.issues.getIssue(id) !== null,
+        createIssue: (input) => void issues.create(input),
+        sendMail: (issueId, body) => void issues.sendMail(issueId, 'machine-diagnostic', body),
+        notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
+        warn: (message) => console.warn(message),
+      })
+    })
     this.issueCommands = issueCommands
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
@@ -2057,6 +2079,12 @@ export class SessionRegistry {
   }
 
   dispose(): void {
+    // FIRST, and before store.close() further down the shutdown's persist list:
+    // the memory service owns paced loops (transcript mirror + FTS indexer) that
+    // keep writing to the store on later turns. Left running they woke after the
+    // handle closed and logged their own failure, so a clean stop was
+    // indistinguishable from a broken one (POD-1390).
+    this.modules.memory.dispose()
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)

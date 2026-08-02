@@ -9,13 +9,13 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
-import type { InboxPrincipalReference } from './sessions/inbox'
 import type {
   AgentObservation,
   DaemonMessage,
   MetadataChange,
   SessionOpenUrlMessage,
 } from '@podium/protocol'
+import type { InboxPrincipalReference } from './sessions/inbox'
 
 /**
  * The typed in-process event map (architecture redesign, issue #13 Phase 2).
@@ -76,6 +76,14 @@ export interface EventMap {
   'machine.disconnected': { machineId: string }
   /** Durable machine metadata changed; session machine-name projections recapture. */
   'machine.metadataChanged': { machineId: string }
+  /** Host integration degradation, scoped from the authenticated daemon principal. */
+  'machine.diagnostic': {
+    machineId: string
+    code: string
+    title: string
+    body: string
+    observedVersion?: string
+  }
   /** A host reported a fresh metrics sample. */
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */

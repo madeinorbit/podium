@@ -49,6 +49,13 @@ function renderConnectivity(c: ConnectivityStatus, nowMs: number): string[] {
       '    `podium set-server <join-code>` here and restart the daemon.',
     ]
   }
+  if (c.state === 'unauthorized') {
+    return [
+      `  ✖ server link${target}: UNAUTHORIZED — ${c.authorizationReason ?? 'this machine is not authorized'}`,
+      '    This is not an outage and will not be retried. Ask the machine owner or an admin',
+      '    to authorize/re-pair it, then restart the daemon.',
+    ]
+  }
   if (c.state === 'disconnected') {
     const err = c.lastError ? ` — ${c.lastError}` : ''
     const retry = c.retryBackoffMs

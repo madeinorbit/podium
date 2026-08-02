@@ -97,7 +97,7 @@ describe('the wire window, over real sockets', () => {
         password: CLIENT_PASSWORD,
       })
     ).cookieHeader
-    machineId = handle.registry.sessionStore.hostMachineId
+    machineId = handle.registry.modules.machines.hostMachineId
     handle.registry.gateway.attachDaemon(machineId, () => {})
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',

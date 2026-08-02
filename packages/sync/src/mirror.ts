@@ -66,6 +66,15 @@ export class MirrorService {
   private readonly queued = new Set<string>()
   /** Segment keys in error backoff until the mapped epoch-ms. */
   private readonly backoffUntil = new Map<string, number>()
+  /**
+   * Set by {@link dispose}. Everything this service does after a chunk is async
+   * and PACED, so at shutdown there is essentially always a drain mid-flight —
+   * and its owner's store is closed the moment it returns. Without this flag the
+   * loop went on to write backoff state and `console.warn` against a closed
+   * SQLite handle up to a full read timeout AFTER the process reported a clean
+   * stop (POD-1390; the same family as POD-1101's late index callback).
+   */
+  private stopped = false
 
   static readonly CHUNK_BYTES = 256 * 1024
   /** Breather after each chunk write — bounds mirror duty cycle to roughly
@@ -143,6 +152,18 @@ export class MirrorService {
     void this.drain(machineId)
   }
 
+  /**
+   * Stop for good: no further pulls are enqueued, the in-flight drain returns at
+   * its next checkpoint, and nothing after this point touches the store or the
+   * console. Idempotent, synchronous, and deliberately NOT awaited — the owner
+   * calls it while the store is still open, and an already-issued ranged read
+   * may still be outstanding against a daemon that will never answer.
+   */
+  dispose(): void {
+    this.stopped = true
+    for (const machineId of [...this.queues.keys()]) this.dropQueue(machineId)
+  }
+
   /** Resolves when the machine's queue is idle — a test/shutdown seam, not API. */
   async settled(machineId: string): Promise<void> {
     while (this.active.has(machineId)) await new Promise((r) => setTimeout(r, 5))
@@ -158,6 +179,7 @@ export class MirrorService {
       // re-enqueues and resumes exactly where this pass stopped.
       const pass = { remainingBytes: this.passBudgetBytes }
       for (;;) {
+        if (this.stopped) return
         if (pass.remainingBytes <= 0) {
           this.dropQueue(machineId)
           return
@@ -168,6 +190,11 @@ export class MirrorService {
         try {
           await this.mirrorOne(machineId, item.nativeId, item.path, pass)
         } catch (err) {
+          // Disposed while this pull was outstanding: the store is closing or
+          // closed, so neither branch below may run. The failure is an artifact
+          // of the shutdown, not news — reporting it is exactly the noise that
+          // makes a clean stop indistinguishable from a broken one.
+          if (this.stopped) return
           if (err instanceof Error && err.message === 'denied') {
             // The daemon can't serve this path anymore — the native file was
             // DELETED (the exact scenario the lake is the backup for). Nothing
@@ -229,6 +256,9 @@ export class MirrorService {
         offset: cursor,
         maxBytes: MirrorService.CHUNK_BYTES,
       })
+      // Every line below writes to the store; disposal can have closed it while
+      // this read was outstanding. Bail before the write, not after it throws.
+      if (this.stopped) return
       if (res.error) throw new Error(res.error)
       if (res.fileSize < cursor) {
         // The native file SHRANK — it was rewritten, not appended. Verbatim-mirror
