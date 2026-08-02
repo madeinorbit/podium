@@ -146,6 +146,24 @@ not code. This repairs harness self-containment; the final gate still requires t
 redeploy lane once on its eventual same-SHA candidate.
 
 
+POD-1385 **still reproduces and is not review-complete**. Its branch is based on integration
+`89b24118` and has no `apps/` or `packages/` runtime diff. The new machine-readable audit
+screens the same 28 production modules over 600 physical lines, accepts 24 only through
+predicate-backed reviewed arguments, and exits 1 on four items: sessions lifecycle, messages
+service, issues registry, and session handoff coordinator. The handoff explicitly says the audit
+half is complete and the decomposition half is filed, not finished. Those targets are POD-1396,
+POD-1397, POD-1398, and POD-1399.
+
+The instrument itself is useful but does not clear the criterion: its focused suite passes 19/19,
+its fixture probe runs before every audit, and five restored real-tree mutations prove it catches
+state growth, a runtime export in a type-only file, a stale ledger entry, a broken construction
+record, and a broken population root. The worker correctly refused to add false exceptions merely
+to make the count zero. It also documents its boundary: a file-local size audit cannot detect
+shared mutable maps or async work outliving an owner. Final acceptance therefore requires all four
+decompositions to land, the audit to exit 0 on the final named candidate, and the separate
+composition/construction/lifecycle evidence to remain green.
+
+
 There is **no complete same-SHA landing record** for `7509f2b4`, `4b947e7d`, or current
 integration `c9ff372f`. The POD-279 coordinator has same-tree typecheck 22/22, client-auth 1 file/7 tests, wire goldens 1 file/90 tests,
 the three generators, both rearchitecture audits, and POD-1316 ancestry. The following were
