@@ -292,6 +292,25 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
     expect(await res.text()).toBe('pong')
   })
 
+  // The sliding renewal exists so an actively-used BROWSER never gets logged out. Applied
+  // to a break-glass session it silently destroys the point of --ttl: any session whose
+  // remaining life is more than a day short of the 30-day TTL qualifies, which a 10-minute
+  // credential always is, so the first authenticated request promotes it to 30 days.
+  // Caught on the live instance: a `--ttl 5m` mint came back expiring in a month.
+  test('does not extend a short-lived break-glass session on use', async () => {
+    await setPassword('hunter2', mintDir)
+    const minted = mintBreakGlassSession({ stateDir: mintDir, ttlMs: 10 * 60_000 })
+
+    const res = await guarded().request('/trpc/ping', {
+      headers: { cookie: `podium_session=${minted.token}` },
+    })
+    expect(res.status).toBe(200)
+
+    const row = mintStore.auth.listClientSessions().find((s) => s.label === BREAK_GLASS_LABEL)
+    expect(row?.expiresAt).toBe(minted.expiresAt)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
+
   test('the minted row carries the break-glass label so it is revocable on its own', async () => {
     await setPassword('hunter2', mintDir)
     const minted = mintBreakGlassSession({ stateDir: mintDir })

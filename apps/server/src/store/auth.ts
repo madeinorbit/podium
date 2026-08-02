@@ -51,11 +51,11 @@ export class AuthRepository {
     return Number(this.db.prepare('DELETE FROM client_sessions WHERE label = ?').run(label).changes)
   }
 
-  getClientSession(tokenHash: string): { expiresAt: string } | undefined {
+  getClientSession(tokenHash: string): { expiresAt: string; label: string } | undefined {
     const row = this.db
-      .prepare('SELECT expires_at FROM client_sessions WHERE token_hash = ?')
-      .get(tokenHash) as { expires_at: string } | undefined
-    return row ? { expiresAt: row.expires_at } : undefined
+      .prepare('SELECT expires_at, label FROM client_sessions WHERE token_hash = ?')
+      .get(tokenHash) as { expires_at: string; label: string } | undefined
+    return row ? { expiresAt: row.expires_at, label: row.label } : undefined
   }
 
   /** Push out an existing session's expiry (sliding/rolling renewal). No-op if absent. */

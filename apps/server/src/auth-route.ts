@@ -7,7 +7,7 @@ import { hasPassword, verifyPassword } from './auth-store'
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
 export interface ClientSessionStore {
   createClientSession(tokenHash: string, expiresAt: string): void
-  getClientSession(tokenHash: string): { expiresAt: string } | undefined
+  getClientSession(tokenHash: string): { expiresAt: string; label?: string } | undefined
   isClientSessionValid(tokenHash: string, nowIso: string): boolean
   extendClientSession(tokenHash: string, expiresAt: string): void
   deleteClientSession(tokenHash: string): void
@@ -103,9 +103,17 @@ export function clientAuthGuard(opts: {
     // Sliding renewal: if this session was last renewed more than a day ago, push the expiry
     // back out and refresh the cookie so an actively-used client never gets logged out. Same
     // token. Bounded to ~one renewal write per session per day.
+    //
+    // LOGIN SESSIONS ONLY (POD-1376). The rule "remaining life is more than a day short of
+    // the full TTL" is true of EVERY short-lived session, so renewing indiscriminately
+    // promoted a `podium auth mint-session --ttl 10m` credential to 30 days on its first
+    // request — silently destroying the TTL the operator chose. A break-glass session's
+    // lifetime is set once, at mint, and is nobody else's to extend. (Upstream node⇄hub
+    // tokens escaped this only by accident: their 10-year expiry fails the condition.)
     const session = store.getClientSession(hashToken(token))
     if (
       session &&
+      (session.label ?? 'login') === 'login' &&
       SESSION_TTL_MS - (Date.parse(session.expiresAt) - nowMs) >= SESSION_RENEW_AFTER_MS
     ) {
       store.extendClientSession(hashToken(token), new Date(nowMs + SESSION_TTL_MS).toISOString())
