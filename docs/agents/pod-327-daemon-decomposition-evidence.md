@@ -1,7 +1,7 @@
 # POD-327 daemon decomposition evidence
 
-Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for a
-contention-free acceptance measurement and the required paired-VPS soak.
+Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for the
+measured interaction-latency red, current oracle drift, and the required paired-VPS soak.
 
 The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. The current pushed
 tip is catch-up merge `8b4a3249895505b725963e231e29c7b2f381d0d7`, incorporating
@@ -67,7 +67,10 @@ smoke passed with `codex-cli 0.146.0`.
 - The configured integration lane passed 40/40 files: 287 tests passed and 6 skipped. Its separate
   acceptance test now reaches the performance property after explicit ownership/auth updates;
   two measurements under host load average 58–63 on 8 CPUs exceeded the unchanged 25 ms p95
-  threshold (35.84 ms and 33.23 ms), so neither is recorded as a valid green measurement.
+  threshold (35.84 ms and 33.23 ms), so neither was recorded as a valid green measurement. The
+  requested lower-load run started at 23.16 / 27.54 / 35.16 and ended at
+  19.68 / 26.24 / 34.49; it failed 1/1 file and 1/1 test at 36.4404 ms p95. Because load fell
+  during that run, this is recorded as a real red against the unchanged 25 ms budget.
 - Post-merge `bun run typecheck`: 22/22 tasks passed across the 25-package workspace scope.
 - `bun run test:multi-instance`: the independent-runtime test passed 1/1 with 41 assertions,
   managed-account spawn passed 3/3, and the install-shell lane reported `ALL OK`.
@@ -94,24 +97,24 @@ smoke passed with `codex-cli 0.146.0`.
 
 ## Open Phase-5 gates
 
-- A saturated full node run recorded 650 files: 642 passed, 5 failed, 3 skipped; 9,370 tests
-  passed, 6 failed, and 33 skipped. Three timing-shaped files then passed 3/3 in isolation:
-  terminal keyboard 13/13 each, mirror lag 1 passed / 14 skipped each, and the audit baseline-write
-  case 1 passed / 73 skipped each. Integration fixed the three principal-probe failures and the
-  merged file now passes 3/3. Integration also corrected the Grok inspection assertion to the
-  installed CLI's normalized `pre_tool_use` event while retaining `PreToolUse` as the hook-file
-  key; the merged hermetic suite passes 8/8. The full saturated lane has not been rerun, so it is
-  not represented as green from these focused fixes.
-
-- The isolated load acceptance remains a named open item. On a credible host, capture `uptime`,
-  run `bun run test:acceptance`, and capture `uptime` again. This runs only
-  `scripts/loop-split-load.integration.test.ts`, with one worker, no retries, and the unchanged
-  25 ms p95 budget.
-- The full oracle is a second named open item: capture `uptime`, run `bun run oracle`, then capture
-  `uptime` again. Preserve each lane's Test Files / Tests census and require all five lanes green;
-  exit 0 alone is not evidence. The 2026-08-02 attempted window remained saturated, rising from
-  load 38–45 to 74.17 / 71.36 / 66.12 on 8 CPUs with 30–36 foreign workers, so no contended red or
-  unrun gate is represented as green.
+- The unchanged 25 ms load acceptance is now a measured red, not an unmeasured gate: p95 was
+  36.4404 ms while host load fell from 23.16 / 27.54 / 35.16 to 19.68 / 26.24 / 34.49 on 8 CPUs.
+  The budget has not been relaxed. Diagnose and fix the cost, then rerun the exact command with
+  pre/post load evidence.
+- The full oracle started at load 18.51 / 25.51 / 34.07, rose mid-run to
+  37.59 / 49.16 / 44.80 after foreign full-unit runners started, and ended at
+  72.69 / 58.73 / 49.21. Its unit lane was deterministically red: 4 failed, 650 passed, and
+  3 skipped files; 7 failed, 9,409 passed, and 20 skipped tests. The failures are an uncensused
+  `layout` router, stale visibility inventory, stale/invalid layout and machine-use wire fixtures,
+  and sync composition still asserting eight entity arms after the ninth landed. POD-1350 and
+  POD-1359 received the exact findings.
+- The oracle integration lane recorded 1 failed and 39 passed files; 1 failed, 288 passed, and
+  6 skipped tests. Its sole daemon memory-breakdown wait timeout coincided with 5.5–10.4 seconds
+  of measured runqueue wait and the loop classifier's `starved` verdict, so it is contended rather
+  than a functional verdict. E2E was green at 8/8 files and 31/31 tests. Multi-instance was green:
+  runtime 1/1 with 41 assertions, managed-account 1 file / 3 tests, and installer `ALL OK`.
+  Typecheck was green at 22/22 tasks across 25 packages. The oracle remains red until the
+  deterministic drift is repaired and the integration lane is rerun without starvation.
 - `bun run lint:boundaries` still reports the unrelated POD-1321 daemon-lifecycle import and dead
   allowlist entry, with no POD-327 path in the output. POD-1321 received issue mail with the
   current output.
