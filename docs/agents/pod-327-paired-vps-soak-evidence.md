@@ -1,10 +1,41 @@
 # POD-327 paired-VPS soak evidence
 
-Gate status: **NOT STARTED**. This document is the evidence form for the human-owned 48-hour
-remote-daemon soak. Do not mark it passed, call the oracle green, or close POD-327/POD-426/POD-292
-until every required field and observation below is present.
+Gate status: **NOT STARTED — candidate/control-plane mismatch found during preflight**. This
+document is the evidence form for the human-owned 48-hour remote-daemon soak. Do not mark it
+passed, call the oracle green, or close POD-327/POD-426/POD-292 until every required field and
+observation below is present.
 
 Never paste a join token, pair code, machine token, cookie, or credential file into this artifact.
+
+## Failed candidate preflight — no soak time counts
+
+The first monitored attempt on 2026-08-02 was stopped after two minutes and **does not start the
+48-hour clock**. It found that the joined VPS and the live control plane were not running the
+merged POD-327 candidate lineage:
+
+- The joined VPS was initially running the July 18 `podium 0.1.2-edge.1` bundle, executable
+  SHA-256 `308759ec1e0b2527b3ee801436a26a62e82a10732db6c7cb8ab9cc21db68aa57`.
+- Exact integration candidate `5d814dd54dbf67f97c5d052445473b6be82b0bc1` was built from a
+  detached, frozen-dependency worktree. Its executable SHA-256 is
+  `f7dbbfd353711f5e9cb3033830f1ea2ddc70eaf80620fef7b154b9ae5568674a`.
+- The one preflight swap/restart completed at `2026-08-02T13:01:04Z`, with `NRestarts=0`.
+  Continuous 60-second capture began at `2026-08-02T13:01:58Z` in the transient user unit
+  `pod327-soak-monitor.service`, writing to `~/.podium/pod327-soak/monitor.log` on vmi.
+- At `2026-08-02T13:04:00Z` the exact candidate reported `disconnected` with automatic retry;
+  the contact timestamp had not advanced. The server then refused the machine-pinned POD-1407
+  workload because `vmi3407763` was offline.
+- The live server was `f97ed4fc2269a8abd2c8c49a22ca9c7770b3ff96` from `main`, started from
+  `/home/mgw/src/other/podium`; it is not a descendant of candidate `5d814dd5`. A 48-hour soak of
+  those two mismatched endpoints would not verify the merged daemon/gateway contract.
+- The attempt was explicitly failed rather than continued. The monitor was stopped, the backed-up
+  July binary was atomically restored, and the daemon automatically rejoined at
+  `2026-08-02T13:08:44Z` with a five-second-fresh contact and `NRestarts=0`. The exact candidate is
+  retained on vmi as `~/.local/share/podium/podium-cli.pod327-5d814dd5` for the valid retry.
+
+A valid boundary may be recorded only after the live server runs the candidate lineage (or a
+documented compatible deployed SHA), the exact candidate daemon is installed, authenticated
+contact advances, and the pinned workload starts successfully. That shared-server deployment is
+outside this issue session's authority because it interrupts active users.
 
 ## Enrollment record
 
