@@ -92,10 +92,16 @@ describe('Session', () => {
     const a = makeClient('a')
     s.terminal.attachClient(a)
     expect(s.terminal.controllerId).toBe('a')
+    // Identity is stamped from the transport principal (POD-1081), never payload.
+    expect(s.terminal.controllerIdentity).toEqual({
+      kind: 'user',
+      user: a.principal.user,
+    })
     expect(a.sent).toContainEqual({
       type: 'attached',
       sessionId: asSessionId('s1'),
       controllerId: 'a',
+      controllerIdentity: { kind: 'user', user: a.principal.user },
       geometry: geo,
       epoch: 0,
       resumed: false,
@@ -127,6 +133,40 @@ describe('Session', () => {
       sessionId: asSessionId('s1'),
       data: 'eA==',
       inputOrigin: 'human',
+    })
+  })
+
+  it('attributes accepted PTY input live and stamps it on the daemon frame', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.terminal.attachClient(a)
+    const attribution = {
+      actor: { kind: 'user' as const, id: a.principal.user },
+      onBehalfOf: a.principal.user,
+    }
+    s.terminal.handleInput('a', 'eA==', attribution)
+    // Live only — retained on the terminal for watchers, not a durable row.
+    expect(s.terminal.lastInputAttribution).toEqual(attribution)
+    expect(toDaemon).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'input', attribution }),
+    )
+  })
+
+  it('revokeController clears identity and broadcasts controllerChanged', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.terminal.attachClient(a)
+    a.sent.length = 0
+    s.terminal.revokeController()
+    expect(s.terminal.controllerId).toBeNull()
+    expect(s.terminal.controllerIdentity).toBeNull()
+    expect(a.sent).toContainEqual({
+      type: 'controllerChanged',
+      sessionId: asSessionId('s1'),
+      controllerId: null,
+      controllerIdentity: null,
+      geometry: geo,
     })
   })
 
@@ -274,11 +314,13 @@ describe('Session', () => {
       rows: 60,
     })
     expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
+    expect(s.terminal.controllerIdentity).toEqual({ kind: 'user', user: b.principal.user })
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
         type: 'controllerChanged',
         sessionId: asSessionId('s1'),
         controllerId: 'b',
+        controllerIdentity: { kind: 'user', user: b.principal.user },
         geometry: { cols: 50, rows: 60 },
       })
       expect(c.sent).toContainEqual({

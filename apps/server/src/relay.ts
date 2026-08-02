@@ -784,6 +784,15 @@ export class SessionRegistry {
       snapshotTail,
       onWorktreesChanged: broadcastWorktreesChanged,
       instructionsForStart: (input) => sessionInstructions.prepare(input),
+      // POD-1081: clientCount is a degenerate view of session-room occupancy.
+      // Attach still owns frame delivery; presence rooms own who-is-watching.
+      // PTY attach auto-joins the room so the two stay one mechanism.
+      sessionOccupancyCount: (sessionId) =>
+        presence.occupancy({ kind: 'session', id: sessionId }).length,
+      sessionRoomJoin: (client, sessionId) =>
+        presence.ensureJoined(client, { kind: 'session', id: sessionId }),
+      sessionRoomLeave: (client, sessionId) =>
+        presence.ensureLeft(client, { kind: 'session', id: sessionId }),
     })
     const hosts = new HostsService(
       {

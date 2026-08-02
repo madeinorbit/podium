@@ -36,6 +36,7 @@ import {
   GeometryMessage,
   OutputFrameMessage,
   PongMessage,
+  TerminalOutcomeMessage,
   WelcomeMessage,
 } from './terminal'
 import { TranscriptDeltaMessage } from './transcript'
@@ -68,6 +69,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   HeadlessActivityMessage,
   WelcomeMessage,
   AttachedMessage,
+  TerminalOutcomeMessage,
   OutputFrameMessage,
   ControllerChangedMessage,
   GeometryMessage,

@@ -36,8 +36,6 @@ import {
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
-  type TerminalOutcomeMessage as TerminalOutcomeFrame,
-  TerminalOutcomeMessage,
   WIRE_VERSION,
 } from '@podium/protocol'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
@@ -163,15 +161,6 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 const PRESENCE_OUTBOUND_BUDGET_BYTES = 64 * 1024
-
-function parseTerminalOutcomeFrame(raw: string): TerminalOutcomeFrame | null {
-  try {
-    const parsed = TerminalOutcomeMessage.safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data : null
-  } catch {
-    return null
-  }
-}
 
 // Liveness + recovery tuning. The heartbeat catches connections that died without a
 // close event (laptop sleep leaves a half-open TCP; some proxies drop idle sockets
@@ -1114,14 +1103,6 @@ export class SocketHub {
   }
 
   private route(raw: string): void {
-    const terminalOutcome = parseTerminalOutcomeFrame(raw)
-    if (terminalOutcome !== null) {
-      if (terminalOutcome.outcome === 'unauthorized') {
-        this.terminalAttachDenials.add(terminalOutcome.sessionId)
-      }
-      this.connections.get(terminalOutcome.sessionId)?._outcome(terminalOutcome.outcome)
-      return
-    }
     let msg: ServerMessageLenient | null
     try {
       // Lenient parse: for the collection-bearing messages, one poisoned element
@@ -1167,6 +1148,14 @@ export class SocketHub {
     welcome: (msg) => {
       this.clientIdValue = msg.clientId
       this.notifyConnections()
+    },
+    // POD-1081: attach/requestControl refusal. Unauthorized is sticky so we do
+    // not retry a principal that cannot see the session or use its machine.
+    terminalOutcome: (msg) => {
+      if (msg.outcome === 'unauthorized') {
+        this.terminalAttachDenials.add(msg.sessionId)
+      }
+      this.connections.get(msg.sessionId)?._outcome(msg.outcome)
     },
     metadataDelta: (msg, context) => {
       this.legacyFeed?.frame(msg, context.dropped)

@@ -76,6 +76,9 @@ export const SERVER_PLANE_CLASS = {
   // Connection-scoped handshake/keepalive frames (single client, not fan-out).
   welcome: 'stream.live',
   attached: 'stream.live',
+  // POD-1081: attach/requestControl refusal (unauthorized vs unreachable). Live
+  // and connection-scoped — not durable, not fan-out.
+  terminalOutcome: 'stream.live',
   pong: 'stream.live',
   // Authority-only view removal; ordered on one client publication sequencer.
   sessionViewDelta: 'stream.live',
