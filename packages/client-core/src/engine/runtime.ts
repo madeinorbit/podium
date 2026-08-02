@@ -48,7 +48,7 @@
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
-import type { LayoutWire, SessionId } from '@podium/model'
+import type { IssueId, LayoutWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
@@ -768,11 +768,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   // peek overlay) must switch to the workspace through the router. Selecting
   // the tab's issue/worktree keeps fileTabsForWorkspace from dropping the tab
   // and bouncing the pane; an open peek overlay is closed so the tab is visible.
-  private revealFileTab(args: {
-    tabId: string
-    worktreePath?: string
-    issueId?: EngineState['selectedIssueId']
-  }): void {
+  private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void {
     this.apply({
       ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
@@ -792,7 +788,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   // list is how a closed-over file stays reachable across the checkout.
   private recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void {
     const key = (e: Omit<RecentFileEntry, 'openedAt'>): string =>
-      `${e.worktreePath} ${e.path} ${e.artifact?.artifactId ?? ''}`
+      `${e.worktreePath}\u0000${e.path}\u0000${e.artifact?.artifactId ?? ''}`
     const k = key(entry)
     const rest = this.state.recentFiles.filter((e) => key(e) !== k)
     this.apply({ recentFiles: [{ ...entry, openedAt: Date.now() }, ...rest].slice(0, 30) })
