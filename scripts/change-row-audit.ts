@@ -302,13 +302,35 @@ export function literalFieldLists(source: string): { line: number; keys: Set<str
 // ---------------------------------------------------------------------------
 
 /**
- * Every hand-restated change-row field list under `apps` and `packages`.
+ * The CONTROL this detector anchors on once the live tree is at zero (POD-1417).
  *
- * Scanned repo-wide rather than over the protocol file alone, deliberately: the
- * old item was scoped to `messages/sync.ts`, so a restatement copied into the
- * server or the kernel was free. A field list restated anywhere is the same debt.
+ * From zero, "no sites" and "the detector broke" are the same output
+ * (`docs/rearch-deletion-audit.md`: a detector that stops matching is not a
+ * deletion). POD-1251 drove every production restatement to zero by composing
+ * them; the live count is therefore no longer a positive anchor. This fixture
+ * is the shape the detector was redefined to see — an `op` schema reference
+ * beside two other change-vocabulary keys — and `collect` THROWS when the
+ * matcher no longer finds exactly one site in it.
+ *
+ * It is deliberately a CONTROL rather than a check that the live tree is
+ * non-empty: an emptied {@link CHANGE_ROW_KEYS}, a raised
+ * {@link CHANGE_ROW_THRESHOLD}, a `DECLARED_OP_VALUE` that no longer recognises
+ * schema identifiers, or a block parser that stops seeing keys all report a
+ * serene zero, and only running the matcher end-to-end on a known-positive
+ * catches every one of them. Same terms as `per-user-singletons` / POD-1229.
  */
-export function changeRowRestatements(ctx: AuditContext): AuditSite[] {
+export const CHANGE_ROW_ANCHOR_FILE = 'packages/protocol/src/messages/__change-row-anchor__.ts'
+export const CHANGE_ROW_ANCHOR_SOURCE = [
+  'export const PlantedChangeRowRestatement = z.object({',
+  '  seq: z.number().int().positive(),',
+  "  entity: z.literal('session'),",
+  '  id: z.string(),',
+  '  op: MetadataChangeOp,',
+  '  value: z.unknown().optional(),',
+  '})',
+].join('\n')
+
+function collectChangeRowRestatements(ctx: AuditContext): AuditSite[] {
   const sites: AuditSite[] = []
   for (const f of ctx.files) {
     if (!(f.file.startsWith('apps/') || f.file.startsWith('packages/'))) continue
@@ -327,4 +349,57 @@ export function changeRowRestatements(ctx: AuditContext): AuditSite[] {
     }
   }
   return sites.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)
+}
+
+/**
+ * Prove the matcher can still say YES before believing its live-tree NO.
+ *
+ * Called from {@link changeRowRestatements} on every collect so a broken
+ * detector cannot join `ZERO_BY_DESIGN` and report a phantom deletion.
+ */
+export function assertChangeRowAnchor(): void {
+  if (CHANGE_ROW_KEYS.size === 0) {
+    throw new Error(
+      'change-row-audit: CHANGE_ROW_KEYS loaded EMPTY from @podium/model. Every ' +
+        'change-row-typings count would be zero and the ratchet would read it as a deletion. ' +
+        'Fix the import; do not rebaseline.',
+    )
+  }
+  const found = collectChangeRowRestatements({
+    repoRoot: '/anchor',
+    files: [
+      {
+        file: CHANGE_ROW_ANCHOR_FILE,
+        stripped: CHANGE_ROW_ANCHOR_SOURCE,
+        raw: CHANGE_ROW_ANCHOR_SOURCE,
+        isTest: false,
+      },
+    ],
+    listDir: () => [],
+  })
+  if (found.length !== 1 || !found[0]?.text.includes('PlantedChangeRowRestatement')) {
+    throw new Error(
+      'change-row-audit: change-row-typings no longer matches its CONTROL — a planted ' +
+        'zod object that restates seq/entity/id/op/value beside a schema-typed `op`. It ' +
+        `reported ${JSON.stringify(found.map((s) => s.text))} instead of one site opening on ` +
+        '`PlantedChangeRowRestatement`. Its live zero therefore means "detector broken", ' +
+        'not "nothing found". Fix the detector; do not rebaseline.',
+    )
+  }
+}
+
+/**
+ * Every hand-restated change-row field list under `apps` and `packages`.
+ *
+ * Scanned repo-wide rather than over the protocol file alone, deliberately: the
+ * old item was scoped to `messages/sync.ts`, so a restatement copied into the
+ * server or the kernel was free. A field list restated anywhere is the same debt.
+ *
+ * Anchors on a synthetic restatement before scanning the live tree so a zero
+ * remains falsifiable after POD-1251 composed the last production site away
+ * (POD-1417; `docs/rearch-deletion-audit.md` "What an item that reaches ZERO owes").
+ */
+export function changeRowRestatements(ctx: AuditContext): AuditSite[] {
+  assertChangeRowAnchor()
+  return collectChangeRowRestatements(ctx)
 }
