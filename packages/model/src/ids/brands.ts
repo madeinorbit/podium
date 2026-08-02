@@ -225,27 +225,62 @@ export const asUserId = (s: string): UserId => s as UserId
  * Re-homed from `@podium/protocol`'s `planes/principal.ts` by POD-365, following
  * the {@link UserId} precedent above and that module's own instruction: it
  * records that `AgentIdentityId` *"stays here on purpose … `packages/model`
- * gains them with that aggregate or not at all"*. The aggregate is POD-1075's
- * and has not landed, but the **brand** is POD-301-family work that model
- * already owns for every other id, and `fields/attribution.ts` cannot build the
- * pair without it. Protocol re-exports from here, so `Principal`, the delegation
- * chain and the plane ports are untouched — the same shape the `UserId` move
- * took.
+ * gains them with that aggregate or not at all"*. Protocol re-exports from here,
+ * so `Principal`, the delegation chain and the plane ports are untouched — the
+ * same shape the `UserId` move took.
  *
- * DISTINCT FROM `SessionId`, and that is the whole point. It names the harness
- * identity on the hook channel (`agent_id` on SubagentStart / SubagentStop, and
- * `Capability.actorSessionId` on the relay path), which is why
- * `NativeSubagent.id` in `entities/session.ts` is documented as belonging to
- * THIS brand rather than to `SessionId`.
+ * ---------------------------------------------------------------------------
+ * SAME UNDERLYING VALUE AS {@link SessionId} FOR PODIUM AGENTS (POD-1164)
+ * ---------------------------------------------------------------------------
+ *
+ * The brands distinguish ROLE, not a second mint namespace. Axis 1 of
+ * `docs/session-binding-identity.md` names the work (`SessionId`); axis 2 names
+ * the actor. For a Podium agent session the actor *is* "this session as an
+ * actor", and the sole production mint is
+ * `asAgentIdentityId(sessionId)` at every spawn / receipt path in
+ * `apps/daemon/src/binding-store.ts`. Convert with
+ * {@link agentIdentityFromSessionId} / {@link sessionIdFromAgentIdentity} —
+ * never invent a second id, never substitute a harness-native `agent_id`.
+ *
+ * `Capability.actorSessionId` holds the {@link SessionId} spelling of this same
+ * value (every consumer walks sessions, stamps `started_by_session`, or builds
+ * `session:` keys). `Principal.agentIdentity` holds the `AgentIdentityId`
+ * spelling; `capabilityFromPrincipal` converts with the helper below.
+ *
+ * NOT the harness hook-channel `agent_id` on SubagentStart / SubagentStop.
+ * That is a HARNESS-native id (`NativeSubagent.id` in `entities/session.ts`)
+ * and stays deliberately unbranded (see this file's header, "NOT BRANDED").
+ * An earlier comment on this brand claimed otherwise; that claim described a
+ * doc path, not the live mint, and was retired by POD-1164.
  *
  * NOT the delegation shape. `(agentIdentity, onBehalfOf, scope)` — the agent
- * principal itself — is POD-1075's aggregate and is deliberately not defined
- * here; this is the id it is keyed by.
+ * principal itself — lives in `identity/delegation.ts`; this is the id it is
+ * keyed by.
  */
 export const AgentIdentityId = z.string().min(1).brand<'AgentIdentityId'>()
 export type AgentIdentityId = z.infer<typeof AgentIdentityId>
 export const AgentIdentityIdField = idField<'AgentIdentityId'>()
 export const asAgentIdentityId = (s: string): AgentIdentityId => s as AgentIdentityId
+
+/**
+ * Brand reclassification: a Podium agent session's work id as its actor id.
+ *
+ * POD-1164: same underlying string (minted once as {@link SessionId}, re-branded
+ * at the binding store). This is NOT a lookup and NOT a mapping table — it is
+ * the named form of `asAgentIdentityId(sessionId)` so call sites cannot invent a
+ * second id space by accident.
+ */
+export const agentIdentityFromSessionId = (id: SessionId): AgentIdentityId =>
+  asAgentIdentityId(id)
+
+/**
+ * Brand reclassification: a Podium agent actor id as the session it names.
+ *
+ * Inverse of {@link agentIdentityFromSessionId}. Safe only for values that came
+ * from a Podium agent mint (the live producer); a harness-native `agent_id`
+ * must never be passed here.
+ */
+export const sessionIdFromAgentIdentity = (id: AgentIdentityId): SessionId => asSessionId(id)
 
 /**
  * A DEVICE — the authenticated client session or daemon binding a call arrived

@@ -122,17 +122,15 @@ export interface Capability {
    *  Undefined for the operator/web. Threaded onto close/unblock events so the
    *  steward can skip nudging the very session that caused them (#116).
    *
-   *  BRANDED `SessionId` BY POD-362, adjudicated against the producers rather
-   *  than the name. The one LIVE producer is `sessions/service.ts`'s
-   *  `capabilityForSession(sessionId)`, whose argument keys `this.sessions`; every
-   *  consumer treats it as a podium session (`command-principal.ts` walks it
-   *  through `delegations.parentSessionOf`, `issues/registry.ts` stamps it as the
-   *  `startedBySession` column, the `session:` provenance keys). `ids/brands.ts`
-   *  additionally describes this field as carrying an `AgentIdentityId` "on the
-   *  relay path" — that path is `gateway/principal-capability.ts`, which has NO
-   *  caller outside its own test. The disagreement is real and is filed as
-   *  POD-1164; it is a one-field decision when that seam is wired, not a reason
-   *  to leave the live path unbranded. */
+   *  BRANDED `SessionId` BY POD-362; decision confirmed by POD-1164. The live
+   *  producer is `sessions/lifecycle.ts#capabilityForSession(sessionId)`, whose
+   *  argument keys `this.sessions`; every consumer treats it as a podium session
+   *  (`command-principal.ts` walks it through `delegations.parentSessionOf`,
+   *  `issues/registry.ts` stamps it as `startedBySession`, the `session:`
+   *  provenance keys). The transport principal's `agentIdentity` is the SAME
+   *  underlying value re-branded as actor (`agentIdentityFromSessionId` at the
+   *  binding-store mint); `capabilityFromPrincipal` converts back with
+   *  `sessionIdFromAgentIdentity`. They are not two id spaces. */
   actorSessionId?: SessionId
   /** ATTRIBUTION, HUMAN HALF — ADR 3 Amendment 1 D17: every write records an ACTOR
    *  and an ON-BEHALF-OF, both stamped from the authenticated transport and never

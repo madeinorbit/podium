@@ -113,8 +113,9 @@ void _issueScopeIsDelegationScope
  * sub-agent carry a delegator its parent does not have.
  */
 export const AgentDelegation = z.object({
-  /** WHICH AGENT. The harness identity on the hook / relay channel, distinct
-   *  from a `SessionId` — see `ids/brands.ts`. */
+  /** WHICH AGENT. For a Podium agent session this is the session id re-branded
+   *  as actor (POD-1164: `agentIdentityFromSessionId` / binding-store mint). Not
+   *  a harness-native hook `agent_id` — see `ids/brands.ts`. */
   agentIdentity: AgentIdentityIdField,
   /** THE ONE HUMAN at the root of the chain (ADR 9 D5 A1). Entities this agent
    *  creates are owned by this person, with the agent as actor (A4). */

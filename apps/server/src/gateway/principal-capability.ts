@@ -22,7 +22,12 @@
  */
 
 import type { Principal } from '@podium/protocol'
-import { asSessionId, type Capability, type IssueRole, type IssueScope } from '@podium/model'
+import {
+  sessionIdFromAgentIdentity,
+  type Capability,
+  type IssueRole,
+  type IssueScope,
+} from '@podium/model'
 
 export interface CapabilityRequest {
   /** The role floor the policy layer minted for this principal (ADR 3 Am.1 D15). */
@@ -50,17 +55,16 @@ export const capabilityFromPrincipal = (
       // The actor is the agent session (the existing `actorSessionId` seam); the
       // on-behalf-of is the human resolved from the delegation, never a payload.
       //
-      // ID-SPACE CONVERSION, NOT AN ADAPTER CAST — POD-1164. `Capability.
-      // actorSessionId` is a `SessionId` (POD-362 branded it to match its one live
-      // producer, `sessions/lifecycle.ts#capabilityForSession`, and every consumer:
-      // the delegation walk, the `started_by_session` column, the `session:` keys).
-      // `Principal.agentIdentity` is an `AgentIdentityId` — a DIFFERENT brand.
-      // This function has no caller outside its own test, so nothing in production
-      // crosses the two yet; the conversion is written out here, named, so wiring
-      // this seam is a decision someone makes rather than a coercion they inherit.
+      // BRAND RECLASSIFICATION, NOT A LOOKUP — POD-1164. For a Podium agent the
+      // actor identity and the work identity share one minted string
+      // (`agentIdentityFromSessionId` at the binding-store mint). Capability
+      // consumers need the SessionId spelling (delegation walk, started_by_session,
+      // `session:` keys); the transport principal carries the AgentIdentityId
+      // spelling. Convert with the named helper so a later reader cannot invent a
+      // second id space or substitute a harness-native agent_id.
       return {
         ...base,
-        actorSessionId: asSessionId(principal.agentIdentity),
+        actorSessionId: sessionIdFromAgentIdentity(principal.agentIdentity),
         onBehalfOf: principal.onBehalfOf,
       }
     case 'machine':
