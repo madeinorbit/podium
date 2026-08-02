@@ -40,7 +40,8 @@ but is not evidence for this one.
 ### Re-candidate scheduling and red attribution
 
 This refusal is held against `aba864a9`. POD-1351 has now landed after that candidate and its
-reported evidence is banked. No new candidate should be cut until POD-1356 and POD-1316 both land.
+reported evidence is banked. POD-1356 has since landed; no new candidate should be cut until
+POD-1316 lands.
 The verified results below are banked rather than rerun against a moving integration branch.
 
 The coordinator retracted the earlier rule that every red on this host is new. POD-1363 records a
@@ -237,6 +238,12 @@ The gate may be rerun only after POD-1316 closes with evidence, and after POD-10
 correction, POD-1351, POD-1356, and every other blocker land in the next candidate.
 Closure alone is insufficient: the next candidate tree must be inspected for every claimed fix,
 including POD-1315, before any dependency is credited as satisfied.
+The candidate must start at integration `3a45f190` or later. The gate must independently verify the
+protocol wire-golden suite is 90/90; the earlier integrated tree reported 3 failed/87 passed before
+POD-1350's repair landed. A green wire-window test is also insufficient by itself: POD-1316 must
+record whether the correct result is the stale client's 426 eviction or a delivered frame, and the
+candidate tree must be inspected to prove that the accepted semantic decision—not merely a changed
+assertion or accessor—is what made the lane green.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
 codes, and attribution for the structural audits, session/issue/memory E2E, live redeploy survival,
 and multi-instance isolation. Against that same SHA, this gate must run and restore the real-tree
