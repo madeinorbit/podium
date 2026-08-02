@@ -2435,6 +2435,16 @@ The complete rebased unit/web/mobile/Bun census also remains to be repeated outs
 host window. Phase-5 exit therefore remains open on those valid oracle measurements and the soak
 below.
 
+**Named quiet-host handoff (open):** keep the 25 ms p95 budget unchanged. Capture `uptime`, run
+`bun run test:acceptance`, then capture `uptime` again; that command is deliberately isolated to
+`scripts/loop-split-load.integration.test.ts` with one worker and no retries. Next capture
+`uptime`, run `bun run oracle`, and capture `uptime` once more. The oracle must report all five
+lanes green and its output must retain the Test Files / Tests counts; exit 0 alone is not evidence.
+Do not promote a contended failure to a product verdict. The attempted window on 2026-08-02 never
+materialized: observed load rose from 38–45 to 74.17 / 71.36 / 66.12 on 8 CPUs while 30–36
+foreign workers remained. These two commands and the 48-hour soak are explicit open gates, not
+waived checks.
+
 **POD-327 paired-VPS soak runbook (human gate):** mint a join token as the intended owner, run
 `podium setup --join <TOKEN> --persist systemd` on the VPS, and attach the resulting machine to an
 isolated named-instance workload. Record the start/end timestamps and daemon/server versions;

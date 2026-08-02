@@ -77,10 +77,15 @@ smoke passed with `codex-cli 0.146.0`.
 
 ## Open Phase-5 gates
 
-- The integration oracle is green. The separate load acceptance still needs one low-contention
-  run at its unchanged thresholds; a host-starved timing sample is not promoted to green.
-- The complete rebased `bun run test` census must be repeated in the same credible window; focused
-  and integration results do not substitute for the full unit/web/mobile/Bun lane.
+- The isolated load acceptance remains a named open item. On a credible host, capture `uptime`,
+  run `bun run test:acceptance`, and capture `uptime` again. This runs only
+  `scripts/loop-split-load.integration.test.ts`, with one worker, no retries, and the unchanged
+  25 ms p95 budget.
+- The full oracle is a second named open item: capture `uptime`, run `bun run oracle`, then capture
+  `uptime` again. Preserve each lane's Test Files / Tests census and require all five lanes green;
+  exit 0 alone is not evidence. The 2026-08-02 attempted window remained saturated, rising from
+  load 38–45 to 74.17 / 71.36 / 66.12 on 8 CPUs with 30–36 foreign workers, so no contended red or
+  unrun gate is represented as green.
 - `bun run lint:boundaries` still reports the unrelated POD-1321 daemon-lifecycle import and dead
   allowlist entry, with no POD-327 path in the output. POD-1321 received issue mail with the
   current output.
