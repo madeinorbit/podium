@@ -1698,6 +1698,20 @@ export class MessageDeliveryService {
     return (this.deps.authorizeAtApply as { ceiling?: unknown } | undefined)?.ceiling
   }
 
+  /**
+   * Whether the wake-path machine-use port is wired (POD-1193).
+   *
+   * Absent = allow is the deliberate single-user default — the same shape as
+   * `authorizeAtApply`. A multi-user composition that FORGETS the port is
+   * indistinguishable from that default at the decision site (`if (!port)
+   * return null`), so multi-user construction MUST assert this is true. The
+   * property is identity of the wiring, not behaviour of a denial: a tree that
+   * never exercises a refuse still has to fail when the port is dropped.
+   */
+  get placementAtWakeWired(): boolean {
+    return this.deps.placementAtWake !== undefined
+  }
+
   /** {@link MessageDeliveryDeps.authorizeAtApply}, with the absent-port default
    *  stated once. Never memoized: D8 re-authorizes on EVERY apply, and a cached
    *  answer is the capability snapshot D16 refuses, one layer down. */
@@ -1719,6 +1733,10 @@ export class MessageDeliveryService {
    * Unauthorized and unreachable collapse HERE to one reason
    * ({@link WAKE_PLACEMENT_DENIED_REASON}). That is the mail contracts' D20.2
    * half; spawnAgent's distinguishable refusals live only on its handler path.
+   *
+   * ABSENT vs DELIBERATELY-ABSENT: the decision site cannot tell them apart —
+   * both are `if (!port) return null`. Multi-user construction therefore asserts
+   * {@link placementAtWakeWired} rather than relying on a denial to fire.
    */
   private refuseWakeUnlessUsable(
     message: MessageRow,

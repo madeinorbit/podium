@@ -445,6 +445,41 @@ describe('the two halves of the ceiling are one object', () => {
     expect(src).toContain('placementAtWake: mail.placementAtWake')
     expect(src).toContain('mail.gateOptions')
   })
+
+  /**
+   * POD-1193 presence, not behaviour. Absent placementAtWake is the deliberate
+   * single-user default (fail-open, same as authorizeAtApply). A multi-user
+   * construction that forgets the port is the same code path — every denial
+   * becomes an allow — so the multi-user path must ASSERT the wire, not only
+   * exercise a refuse that a future suite might stop running.
+   *
+   * Deliberately does NOT pass `machines` into the harness: that option
+   * auto-wires placementAtWake for convenience, which would MASK a forgotten
+   * port field. Multi-user composition installs the port from the policy object
+   * the same way relay installs mail.placementAtWake.
+   */
+  it('multi-user construction wires placementAtWake — protect by absence, not behaviour', () => {
+    const policy = mailPolicy({
+      machines: { mayUse: () => false, isReachable: () => true },
+    })
+    // The policy object always carries the port…
+    expect(typeof policy.placementAtWake).toBe('function')
+    // …and multi-user service construction must install it. Identity of the
+    // wire, not the outcome of a wake denial. No `machines:` here — that would
+    // auto-wire and hide a missing placementAtWake field.
+    const h = mailHarness({
+      authorizeAtApply: policy.authorizeAtApply,
+      placementAtWake: policy.placementAtWake,
+    })
+    expect(h.svc.placementAtWakeWired).toBe(true)
+  })
+
+  it('single-user default leaves placementAtWake unwired — the deliberate allow is observable', () => {
+    // THE INSTRUMENT CAN SAY YES for the omit: bare mailHarness is single-user,
+    // no machines, no port. Multi-user wiring must not share this shape.
+    const h = mailHarness()
+    expect(h.svc.placementAtWakeWired).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------
