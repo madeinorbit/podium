@@ -1144,6 +1144,71 @@ describe('IssueService.start', () => {
     )
   })
 
+  /**
+   * POD-1386 — the pin used to refuse on every correctly-configured second
+   * machine. `requireMachineForRepo` compares this issue's SOURCE repo path
+   * literally against the target's registered paths, and two machines have two
+   * layouts, so a repository that was present read as absent. Handoff never had
+   * that bug (it resolves by repoId and clones on absence); start now calls the
+   * same resolver.
+   */
+  it('sites the worktree at the target machine’s OWN path for the same repository', async () => {
+    const { svc, deps, store } = harness()
+    // The same repository — SAME ORIGIN, therefore same repo_id — checked out
+    // somewhere else. That is the normal case, not an edge one: a second machine
+    // has a different user and a different home. Both rows are registered because
+    // the real resolver registers the target before returning, and the identity
+    // gate below reads the registry.
+    const origin = 'git@github.com:o/podium.git'
+    store.repos.addRepo('/r', 'mach-a', origin)
+    store.repos.addRepo('/home/other/src/podium', 'mach-b', origin)
+    deps.ensureRepoOnMachine = vi.fn(async () => '/home/other/src/podium')
+    deps.requireMachineForRepo = vi.fn()
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    await svc.start(created.id)
+
+    expect(deps.ensureRepoOnMachine).toHaveBeenCalledWith('mach-b', '/r')
+    // Every downstream path is the TARGET's, not the source's: the repo root the
+    // worktree is added in, and the worktree path sited under it.
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/home/other/src/podium',
+      expect.objectContaining({
+        branch: 'issue/1-remote',
+        path: expect.stringContaining('/home/other/src/podium'),
+      }),
+      'mach-b',
+    )
+    // …and the pre-flight now sees the resolved path, so it can actually pass.
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/other/src/podium')
+    // The issue's home moved as a PAIR — leaving repoPath on the source while
+    // machineId points at the target is the state that cannot start.
+    expect(svc.get(created.id)?.machineId).toBe('mach-b')
+  })
+
+  it('leaves an issue alone when the target machine holds the repo at the same path', async () => {
+    const { svc, deps } = harness()
+    deps.ensureRepoOnMachine = vi.fn(async () => '/r')
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    await svc.start(created.id)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/r',
+      expect.objectContaining({ branch: 'issue/1-remote' }),
+      'mach-b',
+    )
+  })
+
   it('pre-flights the machine pin: a failing requireMachineForRepo aborts before any work', async () => {
     const { svc, deps } = harness()
     deps.requireMachineForRepo = vi.fn(() => {

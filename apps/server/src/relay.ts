@@ -882,6 +882,10 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
+      // POD-1386: the repoId-keyed resolver handoff already uses, so a machine-pinned
+      // start finds the repository on the target instead of demanding the source's path.
+      ensureRepoOnMachine: (machineId, repoPath) =>
+        sessionsSvc.workspace.resolveRepoOnMachine(repoPath, machineId),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
@@ -2075,6 +2079,12 @@ export class SessionRegistry {
   }
 
   dispose(): void {
+    // FIRST, and before store.close() further down the shutdown's persist list:
+    // the memory service owns paced loops (transcript mirror + FTS indexer) that
+    // keep writing to the store on later turns. Left running they woke after the
+    // handle closed and logged their own failure, so a clean stop was
+    // indistinguishable from a broken one (POD-1390).
+    this.modules.memory.dispose()
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
