@@ -64,15 +64,24 @@ import {
   asMachineId,
   HandoffManifestV1,
 } from '@podium/model'
-import { harnessSupportsHandoff } from '../../../harness-manifest'
 import {
   transferHandoffPackage,
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from '../handoff-transfer'
 import type { Session } from '../session'
-import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './ports'
+import { HandoffAdmission } from './admission'
+import {
+  type AssertMachineUse,
+  HANDOFF_UNKNOWN_SESSION,
+  type HandoffCaller,
+  type HandoffInput,
+  type HandoffPorts,
+  type HandoffResult,
+} from './ports'
 import { HandoffRefusalError } from './refusal'
+
+export { HANDOFF_UNKNOWN_SESSION, type HandoffInput, type HandoffResult } from './ports'
 
 function exportedIdentity(caller: HandoffCaller) {
   switch (caller.principal.kind) {
@@ -99,95 +108,40 @@ function exportedIdentity(caller: HandoffCaller) {
   }
 }
 
-export interface HandoffInput {
-  sessionId: SessionId
-  machineId: string
-}
-
-export type HandoffResult = { ok: true; newCwd: string }
-
-/** The pinned not-found shape for THIS command. Handoff is the odd one out among
- *  the session writes — POD-379's oracle pins its absent path as a throw with
- *  this exact message, where the rest answer `'session not found'` — so the
- *  shared `resolveSessionTarget`'s `absent` outcome maps onto it rather than
- *  replacing it. */
-export const HANDOFF_UNKNOWN_SESSION = 'unknown session'
-
 /** How long the source daemon is given to release the terminal after the kill.
  *  Unchanged value, named and injected so a test does not have to wait it out. */
 const SOURCE_RELEASE_MS = 500
 
-interface InFlight {
-  readonly machineId: string
-  readonly promise: Promise<HandoffResult>
-}
-
 export class HandoffCoordinator {
-  /** One live transfer per session — see obligation 3 in the header. */
-  private readonly inFlight = new Map<string, InFlight>()
+  /** ADMISSION owns the single-flight registry — see {@link HandoffAdmission}.
+   *  The coordinator holds the phase, never the map: a registry reachable from
+   *  the pieces that prepare and apply a transfer would be the duplicate-dispatch
+   *  guard with three writers and no owner. */
+  private readonly admission: HandoffAdmission
 
-  constructor(private readonly ports: HandoffPorts) {}
+  constructor(private readonly ports: HandoffPorts) {
+    this.admission = new HandoffAdmission(ports)
+  }
 
   /**
    * Dispatch a handoff. Duplicate dispatch to the same target JOINS the transfer
    * already running; a concurrent dispatch to a different target is refused.
-   *
-   * THE ELIGIBILITY AND `use` CHECKS RUN BEFORE THE JOIN, not after. A caller that
-   * joins an in-flight transfer would otherwise ride the INITIATOR's
-   * authorization: it would be told the move succeeded without ever having been
-   * allowed to ask for it. So every dispatch is authorized with its OWN gate
-   * first, and only then coalesced.
+   * Both are decided in {@link HandoffAdmission}, which authorizes every dispatch
+   * with its own gate BEFORE coalescing it.
    */
   handoff(
     input: HandoffInput,
     caller: HandoffCaller,
     assertMachineUse: AssertMachineUse,
   ): Promise<HandoffResult> {
-    try {
-      // FAIL CLOSED ON A MISSING PRINCIPAL. There is no ambient operator here: a
-      // call site that forgets to thread the transport caller is refused, not
-      // silently granted the rights the old inline path assumed (ADR 3 D7).
-      if (!caller?.capability) throw new Error('handoff requires an authenticated caller')
-      const session = this.ports.getSession(input.sessionId)
-      if (!session) throw new Error(HANDOFF_UNKNOWN_SESSION)
-      // ASKED OF THE CAPABILITY TABLE, not of the harness's name (POD-1105). The
-      // pair of equality checks this replaces was the same answer with the
-      // harness list copied into the command path, which is what the
-      // harness-branching boundary rule exists to stop: an unknown harness is not
-      // handoff-eligible, and that stays true without this file being edited.
-      if (!harnessSupportsHandoff(session.agentKind)) {
-        throw new Error('session harness does not support handoff')
-      }
-      if (!session.resume) throw new Error('session has no resume reference')
-      // Handoff is a `use` operation on BOTH machines: may I take this session OFF
-      // here, and may I run it THERE. Checked before the already-on-that-machine
-      // refusal on purpose, so an unusable target answers the same way whatever
-      // the session's current home happens to be.
-      assertMachineUse(session.machineId)
-      assertMachineUse(input.machineId)
-    } catch (error) {
-      return Promise.reject(error)
-    }
-
-    const existing = this.inFlight.get(input.sessionId)
-    if (existing) {
-      if (existing.machineId === input.machineId) return existing.promise
-      // Two targets for one session is the fork this command must not produce,
-      // and it cannot be resolved by picking one: the loser would already have
-      // been told its move succeeded.
-      return Promise.reject(new Error('session handoff already in progress'))
-    }
-    const promise = this.run(input, caller, assertMachineUse).finally(() => {
-      const current = this.inFlight.get(input.sessionId)
-      if (current?.promise === promise) this.inFlight.delete(input.sessionId)
-    })
-    this.inFlight.set(input.sessionId, { machineId: input.machineId, promise })
-    return promise
+    return this.admission.admit(input, caller, assertMachineUse, () =>
+      this.run(input, caller, assertMachineUse),
+    )
   }
 
   /** True while a transfer for this session is in flight (diagnostics/tests). */
   isTransferring(sessionId: SessionId): boolean {
-    return this.inFlight.has(sessionId)
+    return this.admission.isTransferring(sessionId)
   }
 
   private async run(
