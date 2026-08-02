@@ -141,6 +141,8 @@ export {
   type FleetContractName,
   type FleetServerRole,
   fleetServerRoleOf,
+  machineAdoptContract,
+  machineAdoptInput,
   machinePairingCodeContract,
   machinePairingCodeInput,
   machineRenameContract,

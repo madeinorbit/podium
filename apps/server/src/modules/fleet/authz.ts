@@ -100,6 +100,9 @@ export const FLEET_TARGETS = {
   // The TARGET is the machine being given away, not the recipient. Reading
   // `newOwnerUserId` here would gate the caller against the wrong subject.
   'machines.transferOwnership': (input: unknown) => named((input as { id: string }).id),
+  // Same asymmetry as transfer: the target is the machine being adopted, never
+  // the person it is being adopted FOR.
+  'machines.adopt': (input: unknown) => named((input as { id: string }).id),
   'machines.revoke': (input: unknown) => named((input as { id: string }).id),
   // No machine exists yet, so there is no owner column that could admit anyone —
   // the `admin` floor is the only gate, exactly as POD-384's rationale says.
@@ -162,6 +165,21 @@ export interface FleetAuthzDeps {
   /** Every machine id this principal might touch on a fleet-wide command. */
   allMachineIds: () => string[]
   machineName: (machineId: string) => string | undefined
+  /**
+   * The machine's owner AS THE LEDGER HAS IT — `machines.effectiveOwner`, which
+   * reads the enrollment ledger first and falls back to the row (D19.4d rule 4).
+   *
+   * It is a SEPARATE dependency from `ownership` on purpose, and the separation
+   * is the invariant rather than a convenience. `ownership.rowFor` reads
+   * `machines.owner_user_id`, which D19.4d makes a PROJECTION of the ledger; a
+   * gate that decided "is this machine unowned" from the projection would make
+   * the row authoritative on that path, and would answer from a stale
+   * projection in exactly the window `reconcileOwnersFromLedger` exists to
+   * repair. `undefined` means the ledger has no record at all and the row is
+   * absent too — it is unowned, not unknown, and `machineRefusal` has already
+   * decided the unknown-machine case before this ever runs.
+   */
+  effectiveOwner: (machineId: string) => string | null | undefined
 }
 
 /**
@@ -197,6 +215,7 @@ export function fleetAuthzFailure(
   const fleetPolicy = policy as {
     machineVerb?: MachineVerb
     machineSharingAuthority?: 'owner-only'
+    machineOwnerPrecondition?: 'unowned'
   }
   const verb = fleetPolicy.machineVerb
   if (verb === undefined) return undefined
@@ -208,9 +227,19 @@ export function fleetAuthzFailure(
     case 'machine': {
       const refusal = machineRefusal(target.machineId, verb, deps)
       if (refusal) return refusal
-      return fleetPolicy.machineSharingAuthority === 'owner-only'
-        ? machineOwnerRefusal(target.machineId, deps)
-        : undefined
+      if (fleetPolicy.machineSharingAuthority === 'owner-only') {
+        return machineOwnerRefusal(target.machineId, deps)
+      }
+      // The two owner rules are MUTUALLY EXCLUSIVE by construction and the
+      // `else if` says so: `owner-only` requires an incumbent owner and
+      // `unowned` requires the absence of one, so a contract declaring both
+      // would be unsatisfiable. Chained rather than two independent `if`s so
+      // that reads as a single decision instead of two filters that happen
+      // never to overlap.
+      if (fleetPolicy.machineOwnerPrecondition === 'unowned') {
+        return machineUnownedRefusal(target.machineId, deps)
+      }
+      return undefined
     }
     case 'default':
       return machineRefusal(deps.defaultMachine(), verb, deps)
@@ -248,6 +277,32 @@ function machineOwnerRefusal(machineId: string, deps: FleetAuthzDeps): TRPCError
         code: 'FORBIDDEN',
         message: 'only the machine owner may change sharing',
       })
+}
+
+/**
+ * `machineOwnerPrecondition: 'unowned'` — refuse a machine that HAS an owner.
+ *
+ * The mirror image of {@link machineOwnerRefusal}, and it runs AFTER the verb
+ * check rather than instead of it, so the ordering does the disclosure work: a
+ * principal who cannot see the machine has already been refused absent-shaped
+ * upstream, and nobody reaches this line without holding `see`. That is why this
+ * refusal may name its reason where `machineOwnerRefusal` may not — the caller
+ * demonstrably already knows the machine exists.
+ *
+ * THE OWNER IS READ FROM THE LEDGER, never from `ownership.rowFor` — see
+ * {@link FleetAuthzDeps.effectiveOwner}. `null` (recorded as unowned, or a
+ * recorded owner `userExists` no longer resolves) and `undefined` (never
+ * recorded) are BOTH adoptable and are deliberately not distinguished here:
+ * they differ in how the machine got here, not in whether anybody's claim is
+ * being overridden, and in all three there is nobody to override.
+ */
+function machineUnownedRefusal(machineId: string, deps: FleetAuthzDeps): TRPCError | undefined {
+  const owner = deps.effectiveOwner(machineId)
+  if (owner === null || owner === undefined) return undefined
+  return new TRPCError({
+    code: 'FORBIDDEN',
+    message: 'machine already has an owner — only its owner may transfer it',
+  })
 }
 
 function machineRefusal(
@@ -289,6 +344,7 @@ export function fleetAuthzDeps(ctx: Context): FleetAuthzDeps {
     defaultMachine: () => machines.defaultMachine(),
     allMachineIds: () => machines.ownershipRows().map((row) => row.id),
     machineName: (machineId) => machines.ownershipRows().find((r) => r.id === machineId)?.name,
+    effectiveOwner: (machineId) => machines.effectiveOwner(machineId),
   }
 }
 

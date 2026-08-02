@@ -488,3 +488,263 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     }
   })
 })
+
+/**
+ * ADOPTION (POD-1494) — giving an owner to a machine that has none.
+ *
+ * The suite above proves transfer moves ownership BETWEEN two people. This one
+ * covers the case transfer refuses by construction, and its whole subject is
+ * WHICH machines qualify: "unowned" is three distinguishable states, and the
+ * thing that distinguishes them is the ENROLLMENT LEDGER, never the
+ * `machines.owner_user_id` projection (D19.4d).
+ */
+describe('adoption of an unowned machine (POD-1494)', () => {
+  const ALICE = 'user:alice'
+  const BOB = 'user:bob'
+
+  function adoptWorld(opts: { rowOwner?: string | null; known?: string[] } = {}): {
+    svc: MachinesService
+    store: SessionStore
+    dir: string
+    /** Mutable, so a test can make a recorded owner STOP resolving — which is
+     *  the only way to produce the quarantine state (D19.4b) honestly. */
+    known: Set<string>
+    /** Rebuild the service over the SAME ledger directory and the same store.
+     *  The constructor runs `reconcileOwnersFromLedger`, so this is the boot
+     *  repair path, and it is how a test can ask what the LEDGER alone says. */
+    reboot: () => MachinesService
+  } {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-adopt-'))
+    const store = new SessionStore(':memory:')
+    const known = new Set(opts.known ?? [ALICE, BOB])
+    const build = (): MachinesService =>
+      new MachinesService({
+        instanceId: 'default',
+        store,
+        hostMachineId: store.hostMachineId,
+        enrollment: openEnrollmentLedger(dir),
+        userExists: (id) => known.has(id),
+        sessionsChangedForMachine: () => {},
+        clients: () => [],
+        machinesForPrincipal: () => [],
+      } satisfies MachinesDeps)
+    const svc = build()
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Builder',
+      hostname: 'vmi.local',
+      tokenHash: sha256('tok'),
+      ownerUserId: opts.rowOwner ?? null,
+    })
+    store.machines.setMachineOwner(MACHINE, opts.rowOwner ?? null)
+    return { svc, store, dir, known, reboot: build }
+  }
+
+  // -------------------------------------------------------------------------
+  // THE THREE UNOWNED STATES, each produced the way production produces it
+  // -------------------------------------------------------------------------
+
+  test('state 1 — NEVER RECORDED: no owner event was ever appended', () => {
+    const { svc, store, dir } = adoptWorld()
+    try {
+      // The ledger holds nothing about this machine's ownership at all.
+      expect(svc.effectiveOwner(MACHINE)).toBeNull()
+
+      svc.adoptMachine(MACHINE, ALICE)
+
+      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('state 2 — RECORDED AS UNOWNED: the pairing code carried no owner', () => {
+    const { svc, store, dir } = adoptWorld()
+    try {
+      // What `authenticateDaemon` writes for a code with no `ownerUserId`: an
+      // owner event whose owner is explicitly null, not a missing event.
+      svc.transferOwnership(MACHINE, null as unknown as string)
+      expect(svc.effectiveOwner(MACHINE)).toBeNull()
+
+      svc.adoptMachine(MACHINE, BOB)
+
+      expect(svc.effectiveOwner(MACHINE)).toBe(BOB)
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(BOB)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('state 3 — QUARANTINE: the recorded owner no longer resolves (D19.4b)', () => {
+    const { svc, store, dir, known, reboot } = adoptWorld({ rowOwner: ALICE })
+    try {
+      svc.transferOwnership(MACHINE, ALICE)
+      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+
+      // Alice's account goes away. This is POD-1114's quarantine, reached
+      // exactly as production reaches it: `userExists` stops resolving a name
+      // the ledger still records, and boot reconcile projects null.
+      known.delete(ALICE)
+      const rebooted = reboot()
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+      // The LEDGER still says Alice — it is append-only and never rewritten.
+      // What changed is that Alice no longer resolves, which is why this reads
+      // null while the ledger entry survives.
+      expect(rebooted.effectiveOwner(MACHINE)).toBeNull()
+
+      // ADOPTION IS ALLOWED HERE, and this is the deliberate part. POD-1114
+      // refused AUTOMATIC assignment to the first admin on a restore; it did not
+      // refuse assignment. Without this the machine is usable by nobody forever,
+      // because its only other remedy is revoke plus a physical re-pair.
+      rebooted.adoptMachine(MACHINE, BOB)
+
+      expect(rebooted.effectiveOwner(MACHINE)).toBe(BOB)
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(BOB)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  // -------------------------------------------------------------------------
+  // THE STATE IT REFUSES
+  // -------------------------------------------------------------------------
+
+  test('a machine with a LIVE owner is refused — that is transfer’s act, not this one', () => {
+    const { svc, store, dir } = adoptWorld({ rowOwner: ALICE })
+    try {
+      svc.transferOwnership(MACHINE, ALICE)
+
+      // TWO PRINCIPALS' WORTH OF ROUTE, at the service seam: adoption refuses
+      // Alice's machine whether the adopter meant to take it themselves or hand
+      // it to someone else. Neither recipient makes the machine unowned.
+      expect(() => svc.adoptMachine(MACHINE, BOB)).toThrow('machine already has an owner')
+      expect(() => svc.adoptMachine(MACHINE, ALICE)).toThrow('machine already has an owner')
+
+      // Refused means SILENT: the ledger was not appended and the row is intact.
+      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('the refusal reads the LEDGER, not the row it is a projection of', () => {
+    const { svc, store, dir } = adoptWorld({ rowOwner: ALICE })
+    try {
+      svc.transferOwnership(MACHINE, ALICE)
+      // Force the row to disagree with the ledger — the state D19.4d says can
+      // exist between an append and its projection, and which boot repair
+      // exists to fix. A service that asked the ROW would now happily adopt a
+      // machine the ledger says is Alice's.
+      store.machines.setMachineOwner(MACHINE, null)
+      svc.invalidateMachineCache()
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+
+      expect(() => svc.adoptMachine(MACHINE, BOB)).toThrow('machine already has an owner')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('an unknown recipient is refused rather than re-quarantining the machine', () => {
+    const { svc, store, dir } = adoptWorld()
+    try {
+      expect(() => svc.adoptMachine(MACHINE, 'user:typo')).toThrow('unknown user: user:typo')
+      // The hazard: adopting to an unresolvable id appends an owner the next
+      // reconcile cannot resolve, so the machine comes out of adoption in
+      // exactly the quarantine it went in with. Nothing was appended.
+      expect(svc.effectiveOwner(MACHINE)).toBeNull()
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('an unknown machine is refused before anything is read', () => {
+    const { svc, dir } = adoptWorld()
+    try {
+      expect(() => svc.adoptMachine('ghost', ALICE)).toThrow("unknown machine 'ghost'")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  // -------------------------------------------------------------------------
+  // THE COMMIT POINT
+  // -------------------------------------------------------------------------
+
+  test('THE LEDGER APPEND IS THE COMMIT POINT — the row is only a projection', () => {
+    const { svc, store, dir, reboot } = adoptWorld()
+    try {
+      svc.adoptMachine(MACHINE, ALICE)
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+
+      // DESTROY THE PROJECTION and nothing else. If the row were the source of
+      // truth this machine is now unowned again and the adoption is lost.
+      store.machines.setMachineOwner(MACHINE, null)
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+
+      // Boot repair, from the ledger alone: the adoption comes back. This is
+      // the same `reconcileOwnersFromLedger` sequence that recovers a crash
+      // between the append and the row write, and it is what makes the append —
+      // not the row — the moment the adoption became real.
+      const rebooted = reboot()
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+      expect(rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('adoption APPENDS — it never rewrites the ledger entry that was there', () => {
+    const { svc, dir, known, reboot } = adoptWorld({ rowOwner: ALICE })
+    try {
+      svc.transferOwnership(MACHINE, ALICE)
+      known.delete(ALICE)
+      const quarantined = reboot()
+      quarantined.adoptMachine(MACHINE, BOB)
+
+      // Alice's account comes back — a half-restored directory finishing its
+      // import. The ledger is append-only and never-delete, so her original
+      // entry is still on disk; adoption must have SUPERSEDED it with a later
+      // append rather than overwritten it, or Bob's ownership would evaporate
+      // the moment Alice resolves again.
+      known.add(ALICE)
+      expect(reboot().effectiveOwner(MACHINE)).toBe(BOB)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('grant edges surviving on the unowned row do not reach the adopter', () => {
+    const { svc, store, dir } = adoptWorld()
+    try {
+      // An edge from before the machine lost its owner. While the owner is null
+      // `machineVerbsFor` grants nobody anything, so this edge is INVISIBLE —
+      // and would come back to life the instant an owner exists.
+      store.grants.upsert({
+        resourceKind: 'machine',
+        resourceId: MACHINE,
+        grantee: 'user:carol',
+        verb: 'use',
+        owner: ALICE,
+        visibility: 'owned-compute',
+        createdAt: new Date().toISOString(),
+        actorKind: 'user',
+        actorId: 'alice',
+        onBehalfOf: ALICE,
+      })
+      expect(svc.grantsForMachine(MACHINE)).toHaveLength(1)
+
+      svc.adoptMachine(MACHINE, BOB)
+
+      // Carol's `use` was approved under a regime that is gone, on hardware that
+      // is now Bob's. `use` is a code-execution boundary (readiness M2).
+      expect(svc.grantsForMachine(MACHINE)).toHaveLength(0)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

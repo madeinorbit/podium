@@ -58,6 +58,14 @@ function deps(
     grants?: { subject: UserId; verb: MachineVerb }[]
     owner?: UserId | null
     machines?: string[]
+    /**
+     * What the LEDGER says the owner is, when a test needs it to differ from the
+     * row. Defaults to the row's owner, so every pre-existing test is unchanged
+     * and the two agree unless a test deliberately separates them — which is the
+     * only way to tell a gate that reads the ledger from one that reads the
+     * projection and currently happens to agree with it.
+     */
+    effectiveOwner?: UserId | null
   } = {},
 ): FleetAuthzDeps {
   const ids = opts.machines ?? ['laptop']
@@ -79,6 +87,14 @@ function deps(
     defaultMachine: () => ids[0] ?? 'laptop',
     allMachineIds: () => ids,
     machineName: (id) => id,
+    effectiveOwner: (machineId) =>
+      ids.includes(machineId)
+        ? opts.effectiveOwner !== undefined
+          ? opts.effectiveOwner
+          : opts.owner === undefined
+            ? OWNER
+            : opts.owner
+        : undefined,
   }
 }
 
@@ -94,8 +110,8 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(13)
-    expect(MACHINE_COMMANDS).toHaveLength(12)
+    expect(NAMES).toHaveLength(14)
+    expect(MACHINE_COMMANDS).toHaveLength(13)
   })
 })
 
@@ -159,8 +175,23 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(refusal?.message).toContain('unknown machine')
   })
 
-  it.each(MACHINE_COMMANDS)('%s admits the machine OWNER', (name) => {
+  // `machines.adopt` is excluded, and the exclusion is asserted rather than
+  // assumed — see the test directly below. It is the one machine command whose
+  // precondition is the ABSENCE of an owner, so "admits the owner" is exactly
+  // what it must not do.
+  const OWNER_ADMITTING = MACHINE_COMMANDS.filter((n) => n !== 'machines.adopt')
+
+  it.each(OWNER_ADMITTING)('%s admits the machine OWNER', (name) => {
     expect(fleetAuthzFailure(name, anyInput, deps(user(OWNER)))).toBeUndefined()
+  })
+
+  it('`machines.adopt` is the one machine command that REFUSES the owner', () => {
+    // The filter above is a claim about exactly one command, so it is checked in
+    // both directions: adoption is refused on an owned machine, and it is the
+    // only member of the family that is.
+    expect(MACHINE_COMMANDS).toContain('machines.adopt')
+    expect(OWNER_ADMITTING).toHaveLength(MACHINE_COMMANDS.length - 1)
+    expect(fleetAuthzFailure('machines.adopt', anyInput, deps(user(OWNER)))?.code).toBe('FORBIDDEN')
   })
 
   it('a `see` grant is not enough for a `manage` command, and IS enough to be told forbidden', () => {
@@ -279,6 +310,130 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(fleetAuthzFailure('machines.transferOwnership', input, deps(user(OWNER)))).toBeUndefined()
   })
 
+  // -------------------------------------------------------------------------
+  // ADOPTION (POD-1494) — the act the case above leaves undone
+  // -------------------------------------------------------------------------
+  //
+  // The test directly above establishes that an unowned machine is transferable
+  // by NOBODY. These establish who may give it an owner instead, and each one
+  // drives TWO principals for the reason stated at the top of this block: with a
+  // single actor, "an admin may adopt" and "everyone may adopt" produce
+  // identical output.
+
+  it('only an ADMIN may adopt an unowned machine — a member is refused at the floor', () => {
+    const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
+
+    // POSITIVE FIRST. An admin, on a machine with no owner: admitted. Without
+    // this the refusals below are satisfied by a gate that refuses everybody —
+    // which is precisely what `machines.transferOwnership` does on this exact
+    // input, so the vacuous version of this test would look identical.
+    const admin = deps(user(OWNER), { owner: null, role: 'admin' })
+    expect(fleetAuthzFailure('machines.adopt', input, admin)).toBeUndefined()
+
+    // A SECOND, GENUINELY NON-ADMIN PRINCIPAL on the SAME machine. Both roles
+    // are lowered for the reason the transfer test above documents: the
+    // capability role is what `machineVerbsFor`'s quarantine arm reads, and
+    // `user()` hardcodes it to `admin`, so lowering `deps.role` alone would
+    // leave the caller admin-graded exactly where it decides.
+    const memberPrincipal: CommandPrincipal = {
+      kind: 'user',
+      user: COLLEAGUE,
+      capability: { role: 'worker', scope: { kind: 'all' } },
+    }
+    const member = deps(memberPrincipal, { owner: null, role: 'member' })
+    const refusal = fleetAuthzFailure('machines.adopt', input, member)
+    expect(refusal?.code).toBe('FORBIDDEN')
+    // The FLOOR refused, before the machine id was read — so a member learns
+    // nothing about the machine, not even that it is unowned.
+    expect(refusal?.message).toBe('machines.adopt requires an admin account')
+
+    // And the member is not merely locked out of everything: the same principal
+    // on the same machine is admitted by a command whose floor it does clear.
+    // This is what separates "the floor fired" from "this principal is inert".
+    expect(
+      fleetAuthzFailure('machines.rename', anyInput, deps(memberPrincipal, { owner: COLLEAGUE })),
+    ).toBeUndefined()
+  })
+
+  it('an admin may not adopt a machine that HAS an owner — it is invisible, not forbidden', () => {
+    const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
+
+    // An instance admin who is not the owner. `machineVerbsFor` layers admin
+    // `see` ONLY on the owner-null arm, so on someone else's machine this admin
+    // holds nothing at all and the refusal is absent-shaped (D20): the same code
+    // and the same string a never-paired id produces. Adoption must not become
+    // an existence oracle over other people's hardware.
+    const otherPersonsMachine = deps(user(COLLEAGUE), { role: 'admin', owner: OWNER })
+    const refusal = fleetAuthzFailure('machines.adopt', input, otherPersonsMachine)
+    expect(refusal?.code).toBe('NOT_FOUND')
+    // Byte-identical to the never-paired refusal except for the id the caller
+    // themselves supplied — so the answer carries no information the caller did
+    // not already have.
+    expect(refusal?.message).toBe("unknown machine 'laptop'")
+    const neverPaired = fleetAuthzFailure(
+      'machines.adopt',
+      { ...input, id: 'never-paired' },
+      otherPersonsMachine,
+    )
+    expect(neverPaired?.code).toBe('NOT_FOUND')
+    expect(neverPaired?.message).toBe("unknown machine 'never-paired'")
+
+    // The OWNER of that machine is an admin too, and reaches further — past the
+    // verb, into the declared precondition, which is where the "already owned"
+    // rule lives. Two principals, two different refusal shapes, one rule.
+    const ownerAdmin = deps(user(OWNER), { role: 'admin', owner: OWNER })
+    const owned = fleetAuthzFailure('machines.adopt', input, ownerAdmin)
+    expect(owned?.code).toBe('FORBIDDEN')
+    expect(owned?.message).toBe('machine already has an owner — only its owner may transfer it')
+
+    // Non-vacuity: drop the owner and the SAME principal is admitted.
+    expect(
+      fleetAuthzFailure('machines.adopt', input, deps(user(OWNER), { role: 'admin', owner: null })),
+    ).toBeUndefined()
+  })
+
+  it('the unowned precondition reads the LEDGER, not the machines row', () => {
+    // D19.4d makes `machines.owner_user_id` a PROJECTION of the enrollment
+    // ledger, so the row can legitimately disagree with the ledger in the window
+    // between an append and its projection. Every other test in this file has
+    // the two agreeing, which means none of them can tell which one the gate
+    // reads. These two separate them, in both directions.
+    const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
+
+    // ROW says unowned, LEDGER says COLLEAGUE owns it — a transfer appended and
+    // has not projected yet. Reading the row would let an admin adopt a machine
+    // that is, at this instant, somebody's. REFUSED.
+    const staleNullRow = deps(user(OWNER), {
+      role: 'admin',
+      owner: null,
+      effectiveOwner: COLLEAGUE,
+    })
+    expect(fleetAuthzFailure('machines.adopt', input, staleNullRow)?.code).toBe('FORBIDDEN')
+
+    // ROW still shows a departed owner, LEDGER has none — the machine is
+    // adoptable and reading the row would refuse a legitimate adoption. Note the
+    // admin needs `see`, which the owner-null arm of `machineVerbsFor` does not
+    // grant here because the ROW is not null; OWNER holds it as the row's owner,
+    // which is what makes this arm reach the precondition at all.
+    const staleOwnedRow = deps(user(OWNER), { role: 'admin', owner: OWNER, effectiveOwner: null })
+    expect(fleetAuthzFailure('machines.adopt', input, staleOwnedRow)).toBeUndefined()
+  })
+
+  it('adoption gates the MACHINE, never the person it is adopted for', () => {
+    // Same extractor hazard `machines.transferOwnership` documents: if
+    // FLEET_TARGETS read `newOwnerUserId`, an admin could name a machine id as
+    // the recipient and be gated against the wrong subject entirely.
+    const admin = deps(user(OWNER), { owner: null, role: 'admin', machines: ['laptop'] })
+    // The recipient is a machine that does not exist; the TARGET still resolves.
+    expect(
+      fleetAuthzFailure('machines.adopt', { id: 'laptop', newOwnerUserId: 'nonexistent' }, admin),
+    ).toBeUndefined()
+    // And an unknown TARGET is refused however good the recipient is.
+    expect(
+      fleetAuthzFailure('machines.adopt', { id: 'ghost', newOwnerUserId: COLLEAGUE }, admin)?.code,
+    ).toBe('NOT_FOUND')
+  })
+
   it('a `use` grant admits the discovery family and NOT the manage family', () => {
     const use = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'use' }] })
 
@@ -346,6 +501,10 @@ describe('the derived fleet router actually calls the gate', () => {
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {
       store,
+      // Exposed so a test can read the LEDGER (`effectiveOwner`) and not only
+      // the row it projects onto — the two are the same in a healthy world and
+      // only the ledger is the commit point.
+      registry,
       call: appRouter.createCaller({
         registry,
         repos,
@@ -447,6 +606,58 @@ describe('the derived fleet router actually calls the gate', () => {
       ).rejects.toThrow(/do not have access/)
       // Refused BEFORE the handler: no row write, so nothing to unwind.
       expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('ADOPTS an unowned machine through the SERVED procedure, and the ledger holds it', async () => {
+    // THE ACCEPTANCE TEST FOR POD-1494, and the counterfactual for every
+    // decision-level adoption test above: those drive a function, and a function
+    // nothing calls refuses nothing. This drives the real derived procedure, so
+    // it also proves the contract/registry/target wiring produced one at all —
+    // the exact defect class POD-1479 found on `transferOwnership`.
+    //
+    // `caller(null)` is an UNOWNED row: the machine every other test in this
+    // block uses to produce a refusal is the one adoption is FOR.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-'))
+    try {
+      const { call, store, registry } = caller(null, { stateDir: dir })
+      store.users.create(
+        {
+          id: COLLEAGUE,
+          displayName: 'Colleague',
+          role: 'member',
+          createdAt: '2026-07-30T00:00:00.000Z',
+          disabledAt: null,
+        },
+        'hash',
+      )
+      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+
+      const after = await call.machines.adopt({ id: 'm1', newOwnerUserId: COLLEAGUE })
+
+      // The projection moved…
+      expect(store.machines.getMachine('m1')?.ownerUserId).toBe(COLLEAGUE)
+      // …and the LEDGER — the commit point — is what it moved from.
+      expect(registry.modules.machines.effectiveOwner('m1')).toBe(COLLEAGUE)
+      expect(after.map((m) => m.id)).toContain('m1')
+
+      // ADOPTION IS NOT REPEATABLE, and the shape of the second refusal is the
+      // interesting part. The caller is an instance admin, and a moment ago
+      // could see this machine — because `machineVerbsFor` layers admin `see`
+      // ONLY on the owner-null arm. Now that it is the colleague's, the same
+      // admin holds nothing on it and gets the absent-shaped answer, verbatim
+      // what a never-paired id gets (D20).
+      //
+      // So adoption closes its own door: the act of giving the machine an owner
+      // is the act that makes it invisible to the admin who gave it away. That
+      // is stronger than the "already has an owner" precondition, which is the
+      // refusal only an admin who still owns the row would reach.
+      await expect(call.machines.adopt({ id: 'm1', newOwnerUserId: COLLEAGUE })).rejects.toThrow(
+        /unknown machine/,
+      )
+      expect(store.machines.getMachine('m1')?.ownerUserId).toBe(COLLEAGUE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
