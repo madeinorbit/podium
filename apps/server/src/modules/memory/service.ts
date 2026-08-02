@@ -299,6 +299,20 @@ export class MemoryService {
     this.lake.triggerSweep(machineId)
   }
 
+  /**
+   * Stop the paced, store-touching work this service owns. Called from
+   * SessionRegistry.dispose(), i.e. while the store is still open and BEFORE
+   * store.close() — the ordering the whole point depends on.
+   */
+  dispose(): void {
+    this.lake.dispose()
+  }
+
+  /** Lake reads still outstanding against a daemon — shutdown/test seam. */
+  get pendingLakeReads(): number {
+    return this.lake.pendingReads
+  }
+
   readTranscriptFromLake(
     session: LakeReadSession,
     input: { anchor?: string; direction: 'before' | 'after'; limit: number },

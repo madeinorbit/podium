@@ -2007,6 +2007,12 @@ export class SessionRegistry {
   }
 
   dispose(): void {
+    // FIRST, and before store.close() further down the shutdown's persist list:
+    // the memory service owns paced loops (transcript mirror + FTS indexer) that
+    // keep writing to the store on later turns. Left running they woke after the
+    // handle closed and logged their own failure, so a clean stop was
+    // indistinguishable from a broken one (POD-1390).
+    this.modules.memory.dispose()
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
