@@ -47,6 +47,7 @@ import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
 import {
   checkMachineVerb,
+  isMachineOwner,
   type MachineOwnershipIndex,
   machineAccessMessage,
   ownershipFromMachines,
@@ -242,7 +243,10 @@ function machineOwnerRefusal(machineId: string, deps: FleetAuthzDeps): TRPCError
       message: machineAccessMessage('absent', machineId, undefined),
     })
   }
-  return row.owner === human
+  // The affirmative arm is `isMachineOwner`'s, not a second spelling of it: the
+  // projection that decides whether the panel OFFERS transfer reads the same
+  // predicate, so a control can never render where this would refuse (POD-1495).
+  return isMachineOwner(deps.principal, machineId, deps.ownership)
     ? undefined
     : new TRPCError({
         code: 'FORBIDDEN',

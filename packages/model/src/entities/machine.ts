@@ -200,6 +200,26 @@ export const MachineWire = z.object({
   lastSeenAt: z.string(), // ISO 8601
   /** The authenticated viewer's live `USE` decision. Absent only on unscoped internal lists. */
   use: MachineUseDecision.optional(),
+  /**
+   * `SEE` — VIEWER-RELATIVE, and deliberately not an owner id (POD-1495).
+   *
+   * `true` means *you* are this machine's current owner. It is the one
+   * ownership fact a client needs in order not to OFFER an act only the owner
+   * may perform — `machines.transferOwnership` is owner-only (POD-1480), and a
+   * control that renders for a manage grantee is a control that fails.
+   *
+   * The file header's "no owner field" still holds in the sense that matters:
+   * this carries no owner IDENTITY. `false` collapses "someone else owns it"
+   * and "nobody owns it" into one answer, because both refuse the same act and
+   * splitting them would tell a see-only principal who the owner is —
+   * `ownershipRows`' own comment: a client "does not need to be told who owns
+   * it in order to be refused". Adoption of an unowned machine is a different
+   * act with different authority (POD-1494) and is not derivable from here.
+   *
+   * OMITTING IT MEANS NOT EVALUATED, the same closed reading as `use` — never
+   * "yes".
+   */
+  owned: z.boolean().optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
 })
