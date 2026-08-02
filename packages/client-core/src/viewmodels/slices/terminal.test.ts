@@ -1,7 +1,10 @@
 import { asIssueId, asSessionId, type IssueWire, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+// POD-1503: elevateCoordinatorSession moved to F3 (session-urgency) — it is an
+// ordering question, not a terminal one. Its tab-strip behaviour is still this
+// suite's to pin, so the test follows the symbol rather than the other way round.
+import { elevateCoordinatorSession } from '../session-urgency'
 import {
-  elevateCoordinatorSession,
   isCoordinatorSession,
   orderTabs,
   orphanSessionFor,

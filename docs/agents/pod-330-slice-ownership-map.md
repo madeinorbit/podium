@@ -362,29 +362,41 @@ graph but not of the import graph: it takes `IssueNavigationModel` and
 `WorktreeNavView` as TYPES, which erase at runtime and cannot cycle, but which a
 reader looking for the module with no dependencies will not find here.
 
-**THE THIRD SLICE EDGE: `worklist -> terminal`.** `rows.ts` imports
-`elevateCoordinatorSession` from the terminal slice — a VALUE import, not a type.
-The declared outgoing edge set is therefore **three**, not two:
+**THE THIRD SLICE EDGE: `worklist -> terminal` — FOUND, THEN DELETED.** `rows.ts`
+imported `elevateCoordinatorSession` from the terminal slice — a VALUE import,
+not a type — and the map named only two outgoing edges. POD-279 directed the
+edge be removed rather than documented, and it was (POD-1503, landed here).
+
+`elevateCoordinatorSession` is *sessions in, an order out*, which is verbatim F3
+`session-urgency.ts`'s stated invariant ("a collection of sessions in, an order
+or a rank out. No issues, no rows, no repos, no presentation strings"). It was
+never a terminal concern; the tab strip was merely its first caller. It now
+lives in F3, and both terminal and worklist reach it the same way every slice
+reaches a shared derivation. The outgoing edge set is back to **two**:
 
 ```
-    worklist ──▶ machines   (via nav.ts, pre-existing)
+    worklist ──▶ machines   (via nav.ts)
     worklist ──▶ issues     (row-types, visibility, row-attention, rows, folds)
-    worklist ──▶ terminal   (rows.ts, elevateCoordinatorSession)   <-- was undocumented
 ```
 
-Still a DAG: `terminal.ts` imports only `session-ownership` and `@podium/model`,
-so nothing points back.
+**The invariant did the work, and that is the transferable part.** Its sibling
+`isCoordinatorSession` stayed in terminal without anyone arbitrating: it takes
+an `IssueWire`, and F3's stated shape ("no issues") REFUSES it on sight. Two
+functions sitting adjacently in one file, one claimed and one refused, by
+reading the invariant rather than by judgement.
 
-**And this edge should be DELETED rather than documented.**
-`elevateCoordinatorSession` is *sessions in, an order out* — which is verbatim
-F3 `session-urgency.ts`'s stated invariant ("a collection of sessions in, an
-order or a rank out. No issues, no rows, no repos, no presentation strings"). It
-is not a terminal concern; it is an ordering concern that terminal happened to
-call first, because the tab strip was its first caller. Moving it to F3 makes
-the edge stop existing, which is better than making the map complete: a shared
-derivation both slices reach for is F-material by construction. Same shape as
-the `spawnTargetForRepo` retype in §3.1 — **the symbol's own signature says
-which module should have owned it.** Filed as POD-1503.
+> **A module with a written invariant can claim or refuse a symbol without a
+> meeting. That is what an invariant is FOR — the ownership question answers
+> itself at the point of the move.**
+
+Verified, not asserted: mutating the moved function so the coordinator is
+elevated to the BACK instead of the front (`unshift` → `push`) reddens **four
+named tests**, including `elevates coordinator among issue sessions and nests
+started-by children` — the WORKLIST caller. Coverage did not get orphaned by
+the move, which is the failure this map warns about in §6.5. A second mutant
+(`i <= 0` → `i < 0`) was silent and is genuinely equivalent: when the
+coordinator is already first, the mutant splices and re-inserts it into the same
+position, differing only in array identity, not in order.
 
 ### 6.2 `orderMap` was NOT duplicated — it had no callers
 
@@ -468,20 +480,48 @@ will land, be correct, and measure as a flat 1, and someone will read that as
 - Removing `UnifiedWorkRow.rank` (§6.3) — POD-1501. Note the six fixture sites in
   `derive-unified.test.ts` construct it; they must be updated, and none asserts
   on it.
-- Moving `elevateCoordinatorSession` to F3 to delete the `worklist -> terminal`
-  edge (§6.1) — POD-1503.
+- ~~Moving `elevateCoordinatorSession` to F3~~ — **DONE**, POD-1503, in this
+  branch. See §6.1: the edge is deleted, not documented.
 
-### 6.6 Two things POD-330 still owns, recorded so this approval is not misread
+### 6.6 Two things POD-330 still owns — and an as-of that was missing
 
-Confirmed by POD-330's own review of this branch, and NOT part of POD-1496:
+Confirmed by POD-330's own review of this branch, and NOT part of POD-1496.
 
-- **Two modules are over the ~400-line criterion**: `slices/machines.ts` at 464
-  and `session-status.ts` at 451. Both were under it at the cut (390 and 380) and
-  grew afterwards. POD-330's residue.
-- **The superagent shadow mirror is not at zero.**
-  `apps/web/src/features/superagent/SuperagentView.tsx` still carries it —
-  `interface SuperThread` (:32), `useState<SuperThread[]>` (:115),
-  `setThreads(t as SuperThread[])` (:169) — and the mobile half
-  (`apps/mobile/src/client/trpc.ts`) has no canonical type in `@podium/protocol`
-  or `@podium/model` to point at, so reaching zero means CREATING the shared type
-  first. The audit assigns this item to **POD-332**.
+**Two modules are over the ~400-line criterion**: `slices/machines.ts` at 464 and
+`session-status.ts` at 451. Both were under it at the cut (390 and 380) and grew
+afterwards. POD-330 declines to split them by line count, and its reasoning is
+worth keeping rather than just its verdict:
+
+- `session-status.ts` is F1, whose invariant is ONE session in, ONE presentation
+  value out. It is one question. Splitting it by size would produce two modules
+  with no separate answer between them — the exact failure the first attempt
+  made when it cut by size and produced `worklist-helpers.ts` and `nav-types.ts`.
+  **A module 13% over budget while answering one question beats two under budget
+  sharing a decision.**
+- `machines.ts` is the genuine candidate, because it plausibly holds TWO
+  questions: what repos/worktrees/metrics exist on a machine (facts), and what
+  this principal may DO with it (see/use/manage). If anyone splits it, **the
+  verbs are the seam, not the byte count** — and it needs a mutation pass in
+  both lanes first.
+
+**The superagent shadow mirror — and the correction that matters more than the
+item.** An earlier version of this section named
+`apps/web/src/features/superagent/SuperagentView.tsx` lines 32, 115 and 169 as
+still carrying the mirror. That was true of the tree it was measured on
+(integration at `e33b21c4`) and is already false elsewhere: POD-330 deleted the
+interface, the `useState` copy, the cast and the `superRefreshKey` counter in
+`11cc7997`, which is pushed but NOT an ancestor of integration.
+
+Neither of us was wrong; the claim simply had no *as-of*.
+
+> **A finding about another issue's file is a claim about a TREE, not about a
+> file, and it must carry the SHA it was measured at. Branch-local fixes are
+> invisible to every other branch's census, and a census that quotes line
+> numbers reads as current long after it stops being true.**
+
+Same family as the "measured claims need an as-of" hazard: on a moving tree a
+MEASURED verdict reads as settled and never expires. The mobile half
+(`apps/mobile/src/client/trpc.ts`) is a separate matter — it has no canonical
+type in `@podium/protocol` or `@podium/model` to point at, so reaching audit
+zero there means CREATING the shared type first. The audit assigns the whole
+item to **POD-332**.

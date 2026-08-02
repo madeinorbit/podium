@@ -84,3 +84,34 @@ export function mostUrgentSession(
   }
   return best
 }
+
+/**
+ * Move the designated coordinator session to the front of an issue's session
+ * list (M6 / docs/agent-comms-target.html §05 q1). No-op when unset or when
+ * the coordinator is not among the listed sessions (dangling-tolerant).
+ *
+ * POD-1503: this lived in the TERMINAL slice until POD-330's review of
+ * POD-1496, because the tab strip was its first caller. It never belonged
+ * there. It is *sessions in, an order out* — this module's stated invariant,
+ * verbatim — so terminal's tab order and the worklist's row construction were
+ * both reaching across a slice boundary for an ordering primitive. Moving it
+ * here does not document the `worklist -> terminal` edge; it DELETES it.
+ *
+ * Its sibling `isCoordinatorSession` deliberately stayed in terminal: it takes
+ * an `IssueWire`, and this module's invariant ("no issues") refuses it on
+ * sight. That is the invariant doing its job — a module with a stated shape can
+ * claim or refuse a symbol without anyone arbitrating.
+ */
+export function elevateCoordinatorSession(
+  sessions: SessionMeta[],
+  coordinatorSessionId: string | undefined | null,
+): SessionMeta[] {
+  if (!coordinatorSessionId) return sessions
+  const i = sessions.findIndex((s) => s.sessionId === coordinatorSessionId)
+  if (i <= 0) return sessions
+  const next = sessions.slice()
+  const [coord] = next.splice(i, 1)
+  if (!coord) return sessions
+  next.unshift(coord)
+  return next
+}

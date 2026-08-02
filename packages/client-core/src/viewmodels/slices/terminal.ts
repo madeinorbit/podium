@@ -27,6 +27,9 @@
  */
 import { worktreeForCwd, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { sessionsForWorktree } from '../session-ownership'
+// POD-1503: coordinator elevation is an ORDERING question, so it lives in F3
+// (session-urgency), not here — the tab strip was merely its first caller.
+import { elevateCoordinatorSession } from '../session-urgency'
 
 // ---------------------------------------------------------------------------
 // Tab strip order.
@@ -65,25 +68,6 @@ export function orderTabs(
     .sort((a, b) => (position.get(a.sessionId) ?? 0) - (position.get(b.sessionId) ?? 0))
   const unknown = base.filter((s) => !position.has(s.sessionId))
   return elevateCoordinatorSession([...known, ...unknown], coordinatorSessionId)
-}
-
-/**
- * Move the designated coordinator session to the front of an issue's session
- * list (M6 / docs/agent-comms-target.html §05 q1). No-op when unset or when
- * the coordinator is not among the listed sessions (dangling-tolerant).
- */
-export function elevateCoordinatorSession(
-  sessions: SessionMeta[],
-  coordinatorSessionId: string | undefined | null,
-): SessionMeta[] {
-  if (!coordinatorSessionId) return sessions
-  const i = sessions.findIndex((s) => s.sessionId === coordinatorSessionId)
-  if (i <= 0) return sessions
-  const next = sessions.slice()
-  const [coord] = next.splice(i, 1)
-  if (!coord) return sessions
-  next.unshift(coord)
-  return next
 }
 
 /** True when this session is the issue's designated coordinator (M6). */
