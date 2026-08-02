@@ -358,10 +358,7 @@ export class FeedServing {
     const key = principalRoutingKeyFromId(principalIdOf(principal))
     const subscribers = this.deps.subscriptions.subscribers(key)
     const targets = subscribers.map((sub) => String(sub.subscriberId))
-    if (
-      delivery.kind === 'rescope' ||
-      delivery.changes.some((change) => change.op === 'evict')
-    ) {
+    if (delivery.kind === 'rescope' || delivery.changes.some((change) => change.op === 'evict')) {
       this.deps.onVisibilityChanged?.(subscribers.map((sub) => sub.subscriberId))
     }
     this.publisher.publishTo(targets, principal, delivery)

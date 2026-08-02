@@ -507,8 +507,7 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
       subscriptions,
-      onVisibilityChanged: (subscriberIds) =>
-        presenceRouting?.revalidateSubscribers(subscriberIds),
+      onVisibilityChanged: (subscriberIds) => presenceRouting?.revalidateSubscribers(subscriberIds),
       diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({

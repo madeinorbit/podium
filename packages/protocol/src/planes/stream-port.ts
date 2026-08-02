@@ -253,7 +253,7 @@ export class StreamPlanePort implements StreamPort {
     const state = members?.get(memberId)
     members?.delete(memberId)
     if (members && members.size === 0) this.rooms.delete(key)
-    const ref = room ?? roomKeyToRef(key)
+    const ref = room ?? roomRefFromRoutingKey(key)
     if (!ref || !state) return
     const outcome = this.router.publish(key, {
       type: 'presenceRoomDelta',

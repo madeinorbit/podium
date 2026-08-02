@@ -31,7 +31,10 @@ export interface FeedTestPlumbing {
 }
 
 export function feedTestPlumbing(
-  opts: { diagnostics?: () => ConversationDiagnosticWire[] } = {},
+  opts: {
+    diagnostics?: () => ConversationDiagnosticWire[]
+    onVisibilityChanged?: (subscriberIds: readonly SubscriberId[]) => void
+  } = {},
 ): FeedTestPlumbing {
   const store = new SessionStore(':memory:')
   const ledger = new Ledger({
@@ -58,6 +61,7 @@ export function feedTestPlumbing(
     ),
     retention: { minAvailableSeq: () => store.sync.minChangeSeq() },
     subscriptions,
+    ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),
     diagnostics: opts.diagnostics ?? (() => []),
   })
   return {

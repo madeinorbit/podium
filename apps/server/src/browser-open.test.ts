@@ -54,7 +54,7 @@ function setup() {
   }).sessionId
   m1.length = 0
   m2.length = 0
-  return { registry, sessionId, m1, m2 }
+  return { registry, store, sessionId, m1, m2 }
 }
 
 function request(sessionId: SessionId, requestId: string) {
@@ -156,7 +156,19 @@ describe('remote browser-open routing', () => {
   })
 
   it('delivers only to clients whose scoped world may see the session', () => {
-    const { registry, sessionId } = setup()
+    const { registry, store, sessionId } = setup()
+    store.grants.upsert({
+      resourceKind: 'session',
+      resourceId: sessionId,
+      grantee: 'user:grantee',
+      verb: 'read',
+      owner: FIRST_ADMIN_USER_ID,
+      visibility: 'personal',
+      createdAt: '2026-08-02T00:00:00.000Z',
+      actorKind: 'user',
+      actorId: FIRST_ADMIN_USER_ID,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    })
     const owner: ServerMessage[] = []
     const grantee: ServerMessage[] = []
     const unrelated: ServerMessage[] = []
@@ -164,7 +176,7 @@ describe('remote browser-open routing', () => {
       registry.clientGateway,
       {
         send: (message) => owner.push(message),
-        userId: asUserId('user:owner'),
+        userId: FIRST_ADMIN_USER_ID,
         userRole: 'member',
       },
       scopedAuthority('owner', [sessionId]),

@@ -52,8 +52,7 @@ function setup(opts: { visible?: boolean | (() => boolean); now?: () => number }
     subscriptions,
     clients,
     visibility: {
-      canSee: () =>
-        typeof opts.visible === 'function' ? opts.visible() : (opts.visible ?? true),
+      canSee: () => (typeof opts.visible === 'function' ? opts.visible() : (opts.visible ?? true)),
     },
     ...(opts.now ? { now: opts.now } : {}),
   })
@@ -129,9 +128,9 @@ describe('production presence routing', () => {
       subscriptions.has(principalRoutingKey(alice.conn.principal), asSubscriberId(alice.conn.id)),
     ).toBe(true)
     expect(
-      subscriptions.keysOf(asSubscriberId(alice.conn.id)).some((key) =>
-        String(key).startsWith('room:'),
-      ),
+      subscriptions
+        .keysOf(asSubscriberId(alice.conn.id))
+        .some((key) => String(key).startsWith('room:')),
     ).toBe(false)
     expect(presence.occupancy(ROOM)).toEqual([])
     expect(alice.sent).toContainEqual({ type: 'presenceRoomClosed', room: ROOM })
