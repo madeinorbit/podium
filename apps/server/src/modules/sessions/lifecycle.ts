@@ -1,11 +1,8 @@
 import type {
   AccountId,
   Attribution,
-  AutomationRunWire,
-  AutomationWire,
   Geometry,
   IssueId,
-  IssueWire,
   ResumeRef,
   SessionId,
   SessionMeta,
@@ -41,12 +38,9 @@ import {
   asDelegationRef,
   type ControlMessage,
   type DaemonMessage,
-  type IssueDepProjection,
-  type IssueProjection,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type RepoProjection,
   type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
@@ -93,6 +87,7 @@ import type {
 import type { EventBus } from '../bus'
 import type { ConversationsService } from '../conversations/service'
 import type { WriteFunnel } from '../funnel'
+import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
@@ -119,6 +114,7 @@ import { SessionBroadcastCoordinator } from './publication/broadcast'
 import {
   SessionPublicationCoordinator,
   type SessionPublicationMetrics,
+  type SnapshotTail,
 } from './publication/coordinator'
 import type { SessionProjectionEvent } from './publish-worker-actor'
 import { PublishWorkerClient } from './publish-worker-client'
@@ -243,17 +239,12 @@ interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   conversations: ConversationsService
-  /** Lazy: the issue tracker is constructed after this one. */
+  /** Live repository-backed issue access; re-read on every apply and replay. */
+  issueAccess: DurableIssueAccessIndex
+  /** Cross-feature workflows pending extraction to L3 orchestrators. */
   issues(): IssueService
-  /** The issue wire list (attachClient bootstrap + snapshot sync). */
-  issuesWire(): IssueWire[]
-  /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
-  issueProjectionsWire(): IssueProjection[]
-  issueDepsWire(): IssueDepProjection[]
-  issueReposWire(): RepoProjection[]
-  /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
-  automationsWire(): AutomationWire[]
-  automationRunsWire(): AutomationRunWire[]
+  /** Cross-feature snapshot material read from the already-constructed durable authority. */
+  snapshotTail(): SnapshotTail
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: string): void
@@ -382,16 +373,7 @@ export class SessionLifecycle {
       generation: () => this.repository.sessionsGeneration(),
       sessions: () => this.sessions,
       listSessions: () => this.listSessions(),
-      snapshotTail: () => ({
-        issues: this.deps.issuesWire(),
-        issueProjections: this.deps.issueProjectionsWire(),
-        issueDeps: this.deps.issueDepsWire(),
-        repos: this.deps.issueReposWire(),
-        conversations: this.conversations().allConversations(),
-        automations: this.deps.automationsWire(),
-        automationRuns: this.deps.automationRunsWire(),
-        diagnostics: this.conversations().diagnostics(),
-      }),
+      snapshotTail: deps.snapshotTail,
     })
     this.broadcasts = new SessionBroadcastCoordinator({
       hasPendingVolatile: () => this.repository.hasPendingVolatile(),
@@ -783,7 +765,7 @@ export class SessionLifecycle {
     // scope gate. The source message proves intent and ordering, never rights.
     const access = {
       listSessions: () => this.listSessions(),
-      issues: this.issues(),
+      issues: this.deps.issueAccess,
       visibility: () => true,
     }
     const resolved = resolveSessionTarget(principal, input.sessionId, access)
@@ -1675,7 +1657,9 @@ export class SessionLifecycle {
     }
     if (Math.max(stoppedMs, readMs) > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
     if (session.issueId) {
-      const issue = this.deps.issuesWire().find((candidate) => candidate.id === session.issueId)
+      const issue = this.deps
+        .snapshotTail()
+        .issues.find((candidate) => candidate.id === session.issueId)
       if (!issue || issue.parentId) return 'precondition'
     }
     this.setArchived({ sessionId: session.sessionId, archived: true })

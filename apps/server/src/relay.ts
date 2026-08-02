@@ -44,8 +44,10 @@ import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
+import { repoProjectionRows } from './modules/issues/projection'
 import { IssueCommandDispatcher } from './modules/issues/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
@@ -69,6 +71,7 @@ import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
+import type { SnapshotTail } from './modules/sessions/publication/coordinator'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
@@ -298,6 +301,7 @@ export class SessionRegistry {
     const clientRegistry = new ClientRegistry()
     const clients = () => clientRegistry
 
+    const issueAccess = new DurableIssueAccessIndex(this.store.issues, this.store.grants)
     const machines = new MachinesService({
       store: this.store,
       bus: this.bus,
@@ -488,9 +492,19 @@ export class SessionRegistry {
       serving: feedServing,
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
+    const snapshotTail = (): SnapshotTail => ({
+      issues: ledger.authority.snapshot('issue') as SnapshotTail['issues'],
+      issueProjections: ledger.authority.snapshot(
+        'issueProjection',
+      ) as SnapshotTail['issueProjections'],
+      issueDeps: ledger.authority.snapshot('issueDep') as SnapshotTail['issueDeps'],
+      repos: repoProjectionRows(this.store.repos.listRepos()).map((row) => row.value),
+      conversations: ledger.authority.snapshot('conversation') as SnapshotTail['conversations'],
+      automations: ledger.authority.snapshot('automation') as SnapshotTail['automations'],
+      automationRuns: ledger.authority.snapshot('automationRun') as SnapshotTail['automationRuns'],
+      diagnostics: [...conversationDiagnostics.current],
+    })
     const publisher = new IssuePublisher({
-      allWire: () => issues?.allWire(),
-      allProjections: () => issues?.allProjections(),
       // Write-less full-list rebroadcasts (session churn, staleness flips):
       // reconcile against the ledger baseline (durable append, #255), then fan
       // the committed changes out.
@@ -600,13 +614,9 @@ export class SessionRegistry {
       machines,
       rpc,
       conversations,
+      issueAccess,
       issues: () => issues,
-      issuesWire: () => publisher.currentIssuesList(),
-      issueProjectionsWire: () => (issues.allProjections() ?? []).map((row) => row.value),
-      issueDepsWire: () => (issues.allDepProjections() ?? []).map((row) => row.value),
-      issueReposWire: () => (issues.allRepoProjections() ?? []).map((row) => row.value),
-      automationsWire: () => automations.list(),
-      automationRunsWire: () => automations.allRuns(),
+      snapshotTail,
       onWorktreesChanged: broadcastWorktreesChanged,
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
@@ -749,7 +759,7 @@ export class SessionRegistry {
         }),
     })
     this.bus.on('session.listChanged', () => {
-      publisher.publishIssues(issues.allWire())
+      publisher.publishIssues(issues.allWire(), issues.allProjections())
     })
     const locks = new LockService({
       locks: this.store.locks,
