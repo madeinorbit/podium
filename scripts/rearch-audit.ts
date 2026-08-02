@@ -16,9 +16,10 @@
  *     per-phase before/after evidence the migration ledger (POD-298) wants.
  *   - count === baseline → pass.
  *
- * Phase-close rule: `--phase POD-xxx` exits non-zero while any item mapped to
- * that phase is still > 0. A phase issue may not be closed until it exits 0.
- * See docs/rearch-deletion-audit.md.
+ * Phase-close rule: `--phase POD-xxx` exits non-zero while any undeclared site
+ * mapped to that phase remains. Exact sites may be registered with an in-repo
+ * reason and expiry; a new, moved, or otherwise undeclared site still refuses.
+ * A phase issue may not be closed until the command exits 0. See the audit doc.
  *
  * Run:
  *   bun run audit:rearch                     # ratchet (CI)
@@ -494,6 +495,8 @@ export function publishComputedControlMisses(patternSource: string): string[] {
  */
 export interface RegisteredResidue {
   id: string
+  /** The counted audit item this declaration excuses at phase-close time. */
+  auditItem?: string
   owner: string
   expiry: string
   note: string
@@ -541,14 +544,38 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
   },
   {
     id: 'legacy-machine-identity-upgrade',
+    auditItem: 'local-placeholders',
     owner: 'POD-318',
     expiry:
       'deleted when no supported install can still be carrying pre-POD-318 rows — i.e. when an upgrade path that skips this boot is no longer offered',
-    note: "The ONE-TIME rewrite of `'local'` / `'__local__'` onto this host's minted machine id. It is the only place either literal is still spelled, and it is spelled there so that a database written before POD-318 can be read at all. It is an UPGRADE WITH A DELETION HORIZON, not a standing heal: after the first boot on any given install it matches nothing, and no writer left in the tree can give it new work — which is what the `local-placeholders` counter (3, all of them here and in the brand refusal) and `MachineId`'s outright refusal of both literals together guarantee.",
+    note: "All three counted spellings are required: the ONE-TIME rewrite's WHERE IN list lets a database written before POD-318 be read at all, and the two `MachineId` validator lines make both sentinels unwritable. This is an UPGRADE WITH A DELETION HORIZON, not a standing heal: after the first boot on any install the rewrite matches nothing, and the validator prevents any writer from giving it new work.",
     sites: [
       {
         file: 'apps/server/src/store.ts',
-        needle: 'migrateLegacyMachineIdentity(hostMachineId: string): void {',
+        needle: `const LEGACY = ["'local'", "'__local__'"].join(', ')`,
+      },
+      {
+        file: 'packages/model/src/ids/brands.ts',
+        needle: ".refine((id) => id !== 'local' && id !== '__local__', {",
+      },
+      {
+        file: 'packages/model/src/ids/brands.ts',
+        needle: `message: "'local' and '__local__' are retired machine sentinels`,
+      },
+    ],
+  },
+  {
+    id: 'transcript-index-catch-up',
+    auditItem: 'adoption-backfill-heals',
+    owner: 'POD-322',
+    expiry:
+      'deleted only if transcript indexing no longer needs trigger-driven catch-up for mirrored bytes that have not reached FTS',
+    note: 'This is not an identity adoption or a boot-time data heal. Each scan/attach trigger resumes a bounded transcript-index pass from persisted byte cursors, including budget-stopped work, so renaming or deleting it to satisfy a name-based detector would break normal indexing.',
+    sites: [
+      {
+        file: 'apps/server/src/modules/memory/transcript-indexer.ts',
+        needle:
+          'backfillMachine(machineId: string, lakePathFor: (nativeId: string) => string): void {',
       },
     ],
   },
@@ -876,7 +903,11 @@ export const CHECKS: AuditCheck[] = [
   {
     id: 'adoption-backfill-heals',
     title: 'Adoption / backfill heal methods',
-    phase: 'POD-318',
+    // POD-318 removed the machine-identity adoption paths, but this name-based
+    // inventory also finds four unrelated, still-live repo upgrade heals. They
+    // remain real deletion debt and are owned explicitly rather than being
+    // excused alongside the transcript indexer's false positive.
+    phase: 'POD-1360',
     unit: 'heal method declaration',
     collect: (ctx) =>
       grep(ctx, {
@@ -1279,13 +1310,13 @@ export const CHECKS: AuditCheck[] = [
     // debt" — a carve-out nobody counts is not visible — so these were counted
     // here instead of being silently excluded from the item above.
     //
-    // POD-318 discharged it: the sentinels are retired, `MachineId` refuses both
-    // literals, and every field carries the brand, so the carve-out spelling this
-    // item also counted no longer exists. The detector stays as a RATCHET — a new
-    // machine-id field written as a raw string raises this number again.
+    // POD-318 discharged the ordering constraint: the sentinels are retired and
+    // `MachineId` refuses both literals. The field sweep itself is not residue,
+    // though: 26 raw server/command/protocol/runtime schemas remain, so POD-1361
+    // owns taking this ratchet to zero instead of a closed issue claiming it did.
     id: 'machine-id-unbranded-fields',
     title: 'Machine-id field still an unbranded string',
-    phase: 'POD-318',
+    phase: 'POD-1361',
     unit: 'one machine-id zod field declared as a bare z.string()',
     collect: (ctx) => machineIdUnbrandedFields(ctx),
   },
@@ -1314,6 +1345,55 @@ export interface AuditResult {
   unit: string
   count: number
   sites: AuditSite[]
+}
+
+export interface PhaseCloseItem {
+  result: AuditResult
+  /** Exact live sites that have no registered, justified declaration. */
+  undeclaredSites: AuditSite[]
+  /** Declarations that account for at least one live site on this item. */
+  declaredResidue: RegisteredResidue[]
+}
+
+function declarationMatches(
+  site: AuditSite,
+  declared: RegisteredResidue['sites'][number],
+): boolean {
+  return site.file === declared.file && site.text.includes(declared.needle)
+}
+
+/**
+ * Apply registered residue to a phase-close verdict without changing the count
+ * or its baseline. Declarations are exact site matches: one new occurrence,
+ * another file, or another method name remains undeclared and blocks the phase.
+ */
+export function phaseCloseItems(
+  phase: string,
+  results: readonly AuditResult[],
+  residue: readonly RegisteredResidue[] = REGISTERED_RESIDUE,
+): PhaseCloseItem[] {
+  return results
+    .filter((result) => result.phase === phase)
+    .map((result) => {
+      const candidates = residue.filter((entry) => entry.auditItem === result.id)
+      const available = candidates.flatMap((entry) => entry.sites.map((site) => ({ entry, site })))
+      const matchedEntries = new Set<RegisteredResidue>()
+      const undeclaredSites: AuditSite[] = []
+      for (const actual of result.sites) {
+        const match = available.findIndex(({ site }) => declarationMatches(actual, site))
+        if (match === -1) {
+          undeclaredSites.push(actual)
+          continue
+        }
+        const [consumed] = available.splice(match, 1)
+        if (consumed) matchedEntries.add(consumed.entry)
+      }
+      return {
+        result,
+        undeclaredSites,
+        declaredResidue: candidates.filter((entry) => matchedEntries.has(entry)),
+      }
+    })
 }
 
 export function runAudit(ctx: AuditContext, checks: readonly AuditCheck[] = CHECKS): AuditResult[] {
@@ -1368,7 +1448,7 @@ function formatBaseline(baseline: Baseline): string {
     .join(',\n')
   return `{
   "$schema": "Deletion audit baseline — see scripts/rearch-audit.ts and docs/rearch-deletion-audit.md.",
-  "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every item must reach 0 before its phase issue closes.",
+  "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every undeclared site must reach 0 before its phase issue closes.",
   "counts": {
 ${body}
   }
@@ -1535,25 +1615,51 @@ function main(): void {
       )
       process.exit(2)
     }
-    const left = mine.filter((r) => r.count > 0)
+    const assessed = phaseCloseItems(phaseArg, results)
+    const left = assessed.filter((item) => item.undeclaredSites.length > 0)
+    const declared = assessed.filter((item) => item.declaredResidue.length > 0)
     // `--phase --json` still gates; the JSON is the report, the exit code is the
     // verdict. Never let an output format decide whether a gate holds.
     if (wants('--json'))
       console.log(
-        JSON.stringify({ phase: phaseArg, clearToClose: left.length === 0, items: mine }, null, 2),
+        JSON.stringify(
+          {
+            phase: phaseArg,
+            clearToClose: left.length === 0,
+            items: assessed.map(({ result, undeclaredSites, declaredResidue }) => ({
+              ...result,
+              undeclaredSites,
+              declaredResidue,
+            })),
+          },
+          null,
+          2,
+        ),
       )
     if (left.length > 0) {
-      console.error(`${phaseArg} may NOT be closed — ${left.length} of its items still exist:\n`)
-      for (const r of left) {
-        console.error(`  ${r.count.toString().padStart(3)}  ${r.id} — ${r.title}`)
-        printSites(r)
+      console.error(
+        `${phaseArg} may NOT be closed — ${left.length} item(s) have undeclared residue:\n`,
+      )
+      for (const { result, undeclaredSites } of left) {
+        console.error(
+          `  ${undeclaredSites.length.toString().padStart(3)}  ${result.id} — ${result.title}`,
+        )
+        for (const site of undeclaredSites)
+          console.error(`      ${site.file}:${site.line}  ${site.text}`)
       }
       console.error('\nPhase-close rule: docs/rearch-deletion-audit.md')
       process.exit(1)
     }
-    console.log(
-      `${phaseArg}: all ${mine.length} deletion-audit items are at zero — clear to close.`,
-    )
+    if (!wants('--json')) {
+      console.log(`${phaseArg}: no undeclared deletion-audit residue — clear to close.`)
+      for (const { result, declaredResidue } of declared) {
+        console.log(`  ${result.count.toString().padStart(3)}  ${result.id} — declared residue`)
+        for (const entry of declaredResidue) {
+          console.log(`      ${entry.id}: ${entry.note}`)
+          console.log(`      expiry: ${entry.expiry}`)
+        }
+      }
+    }
     return
   }
 
