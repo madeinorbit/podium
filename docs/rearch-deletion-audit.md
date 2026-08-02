@@ -55,7 +55,7 @@ folded into it would report green no matter what.
 
 ## The phase-close rule
 
-> **A phase issue may not be closed while any of its mapped items count > 0.**
+> **A phase issue may not be closed while any undeclared mapped site remains.**
 
 Every item names the phase issue that owns deleting it. Before closing a phase:
 
@@ -63,9 +63,14 @@ Every item names the phase issue that owns deleting it. Before closing a phase:
 bun run audit:rearch --phase POD-309
 ```
 
-Exit 0 means every item mapped to that phase is at zero and the phase is clear to
-close. Exit 1 lists what is still standing, with file:line sites. Exit 2 means the
-argument named no known phase — a typo fails closed rather than reporting "clear".
+Exit 0 means every mapped site is either gone or exactly registered with an in-repo
+reason and expiry, and the phase is clear to close. Exit 1 lists every undeclared
+site still standing. Exit 2 means the argument named no known phase — a typo fails
+closed rather than reporting "clear".
+
+Registration is exact, not a threshold: another occurrence, another file, or a
+moved declaration is undeclared and still exits 1. The ordinary baseline count is
+unchanged, so the ratchet continues to report all residue and cannot grow it.
 
 This is what makes the audit a *scheduler* rather than a report: a phase cannot
 declare victory while its deletions are outstanding, so the intermediate state
@@ -522,12 +527,12 @@ the same one-line check, and the caveat now sits next to the check itself.
 
 ## Registered transitional residue
 
-Residue is code intentionally retained after its owning deletion slice reaches zero. It is
+Residue is code intentionally retained after its owning deletion work is complete. It is
 registered in `REGISTERED_RESIDUE` in `scripts/rearch-audit.ts` with exact production sites,
 an owner, and an expiry; `rearch-audit.test.ts` pins every registered `needle` against live
 production source, so a registered site that silently moves fails there rather than going
-quietly stale. Registered residue is excluded from the slice count, while the forbidden
-old-path detector remains at zero.
+quietly stale. Registered residue remains in the ordinary count and baseline, but its exact
+sites do not block the owning phase; any unregistered site still does.
 
 A COUNT and a REGISTER answer different questions, which is why both are here: a count says
 how much is left, and a register says which of what is left is deliberate, whose it is, and

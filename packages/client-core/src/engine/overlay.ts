@@ -52,8 +52,8 @@
  */
 
 import type { IssueWire, SessionMeta, WorkState } from '@podium/model'
-import type { IssueProjectionRow } from '../replica/contract'
 import type { OutboxEntry } from '../outbox'
+import type { IssueProjectionRow } from '../replica/contract'
 import type { OutboxKinds } from './wiring'
 
 /** The two overlaid entity kinds. Conversations carry no optimistic writes. */
@@ -290,9 +290,7 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
  * The pairing runs contract-name → outbox kind because the outbox is keyed by kind
  * and the contract table is keyed by dotted name; without one explicit map the two
  * vocabularies drift silently and nothing notices. `overlay.test.ts` asserts every
- * OFFLINE-ELIGIBLE presence contract appears here — pins and tab order are
- * absent because they are direct-only and never enter the outbox at all
- * (POD-379's oracle), which is a reason, not an omission.
+ * OFFLINE-ELIGIBLE presence contract appears here — pins and tab order reduce in actions.ts because they are non-entity per-user rows.
  */
 export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> = {
   'sessions.rename': 'rename',
@@ -409,13 +407,8 @@ export function pruneAwaiting<T extends object>(
    * already warns that soft-delete and tombstone "look identical from a distance
    * and are not". This is a third member of that family.
    *
-   * Omitted (today: nothing threads it, because POD-1077 has not landed and the
-   * only channel is `Replica.applyChanges`'s `removeIds`) ⇒ absence is treated as
-   * OUT-OF-SLICE and the overlay is KEPT. That is the default-closed answer: an
-   * evicted row that comes back — re-shared, rescoped in — finds its optimistic
-   * value still painted, and the AWAITING_TRUTH_TTL_MS backstop bounds the case
-   * where it never returns. Retiring on absence, which is what this function did
-   * before, silently reads every eviction as a deletion.
+   * Any slice exit retires the overlay. An evicted or rescoped row must not remain
+   * paintable by client optimism, because doing so would fabricate visibility.
    */
   removedIds?: ReadonlySet<string>,
 ): AwaitingTruth[] {
@@ -433,11 +426,8 @@ export function pruneAwaiting<T extends object>(
     if (a.overlay.entity !== entity) return true
     const row = byId.get(a.overlay.id)
     if (row === undefined) {
-      // GONE, but which kind of gone? Only a reported REMOVAL retires the overlay.
-      // Plain absence is out-of-slice (see `removedIds`) and is bounded by the TTL
-      // below rather than resolved as a deletion here.
-      if (removedIds?.has(a.overlay.id)) return false
-      return now - a.resolvedAt <= AWAITING_TRUTH_TTL_MS
+      void removedIds
+      return false
     }
     if (a.overlay.coveredBy(row as unknown as SessionMeta | IssueWire | IssueProjectionRow))
       return false
