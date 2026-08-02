@@ -378,6 +378,14 @@ refused `elevateCoordinatorSession`. Where the two halves disagree, the WRITTEN 
 symbol moved — a module whose stated question no longer describes its contents is worse than one
 13% over its line budget, because the sentence is what does the arbitration next time.
 
+**Resolved, not left as a prescription** (POD-1496, this commit): F3's written question was widened
+rather than the symbol moved back. Its header now states BOTH clauses and labels them by
+checkability — SHAPE as above, QUESTION as *what order sessions are presented in, whether decided
+by COMPARING the sessions (`sortSessionsForSidebar`, `sessionUrgencyRank`, `mostUrgentSession`) or
+by HONOURING AN EXTERNAL DESIGNATION (`elevateCoordinatorSession`)*. Both symbol families are named
+in the file, so the next candidate is argued against the module rather than against anyone's
+memory. See §6.1.
+
 ## 5. What this map commits to
 
 - `derive.ts` is deleted; nothing named `*-helpers` or `*-common` replaces it.
@@ -458,6 +466,36 @@ reading the invariant rather than by judgement.
 > meeting. That is what an invariant is FOR — the ownership question answers
 > itself at the point of the move.**
 
+**But only half of it arbitrated, and POD-330 caught which half** (map §4e.1,
+`b9b39289`). F3's invariant has two clauses:
+
+| clause | text | checkable? |
+|---|---|---|
+| SHAPE | a collection of sessions in, an order or a rank out; no issues, no rows, no repos | **yes** — mechanically |
+| QUESTION | how sessions rank against each other | no |
+
+The move satisfied the SHAPE verbatim, and the shape is what refused
+`isCoordinatorSession`. But **coordinator elevation does not rank sessions
+against each other**: its ordering key is an id handed in from outside, not a
+property of the sessions being ordered. Every other symbol in F3
+(`sortSessionsForSidebar`, `sessionUrgencyRank`, `mostUrgentSession`) decides
+order by COMPARING them. The shape clause said yes and the question clause was
+never consulted — because the shape is mechanically checkable and the question
+is not.
+
+> **A shape predicate is a NECESSARY condition, not a sufficient one. It refuses
+> a symbol whose shape is wrong. It cannot refuse one whose shape is RIGHT and
+> whose question is FOREIGN — and that is the drift that actually produces god
+> objects, because nobody ever adds a symbol that LOOKS wrong.**
+
+Resolved rather than left open: F3's stated question is widened, in the module
+header, to *what order sessions are presented in — whether decided by comparing
+the sessions or by honouring an external designation*, with both clauses now
+written out and labelled by checkability. **A module whose stated question no
+longer describes its contents is worse than one over its line budget**, because
+the sentence is what arbitrates the NEXT symbol: the next candidate is argued
+against what the file says, not against what anyone meant.
+
 Verified, not asserted: mutating the moved function so the coordinator is
 elevated to the BACK instead of the front (`unshift` → `push`) reddens **four
 named tests**, including `elevates coordinator among issue sessions and nests
@@ -466,6 +504,13 @@ the move, which is the failure this map warns about in §6.5. A second mutant
 (`i <= 0` → `i < 0`) was silent and is genuinely equivalent: when the
 coordinator is already first, the mutant splices and re-inserts it into the same
 position, differing only in array identity, not in order.
+
+**Caveat on that equivalence, from POD-330.** It is equivalent for ORDER and NOT
+for IDENTITY. The moment any consumer memoizes on the array reference, that
+mutant stops being equivalent and becomes a re-render — which the render probe
+in §6.4 would be the thing to catch, and which POD-1502's published slice makes
+newly plausible. **Equivalence is always relative to what the consumers actually
+observe; it is a property of the pair, not of the code.**
 
 ### 6.2 `orderMap` was NOT duplicated — it had no callers
 
