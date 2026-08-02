@@ -495,8 +495,8 @@ describe('MessageDeliveryService.send', () => {
     expect(sent[0]!.sessionId).toBe('sCoord')
     expect(r.message.deliveredTo).toBe('sCoord')
 
-    // fyi is unchanged — still the mail-nudge heuristic (most recently active when multi).
-    // Two idle live agents: multi-live picks most-recent (sOther), never the coordinator.
+    // fyi routes the same way [POD-1365] — the coordinator wins over the more
+    // recently active peer. Urgency decides how it surfaces, not who receives it.
     const idlePair = [
       session({
         sessionId: 'sCoord',
@@ -518,8 +518,8 @@ describe('MessageDeliveryService.send', () => {
       { kind: 'superagent' },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'fyi note', urgency: 'fyi' },
     )
-    expect(hFyi.sent[0]!.sessionId).toBe('sOther')
-    expect(fyi.message.deliveredTo).toBe('sOther')
+    expect(hFyi.sent[0]!.sessionId).toBe('sCoord')
+    expect(fyi.message.deliveredTo).toBe('sCoord')
 
     // Coordinator set but not live → fall back to selectMailNudgeSession.
     const noCoordLive = [
@@ -545,6 +545,70 @@ describe('MessageDeliveryService.send', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'fallback', urgency: 'interrupt' },
     )
     expect(fall.message.deliveredTo).toBe('sNew')
+  })
+
+  // [POD-1365] Routing is by ROLE, not by urgency. The fan-out regression: worker
+  // status reports to a coordinator are correctly 'fyi' (they expect no reply), and
+  // routing skipped the coordinator branch for exactly that class — then fell through
+  // to selectMailNudgeSession, which picks the most-recently-active member: during a
+  // fan-out, systematically a worker mid-task. Urgency governs HOW mail surfaces,
+  // never WHO receives it.
+  it('routes fyi issue-addressed mail to the coordinator, not the busiest member', () => {
+    // The measured POD-279 shape: coordinator and worker both live, worker more
+    // recently active (they sat ~100ms apart on output recency).
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green, gate passed', urgency: 'fyi' },
+    )
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.sessionId).toBe('sCoord')
+    expect(r.message.deliveredTo).toBe('sCoord')
+  })
+
+  // [POD-1365] Routing by role must not reintroduce the POD-279 15× self-echo loop
+  // [spec:SP-a4ba]: a coordinator mailing its OWN issue is still excluded from its own
+  // issue's recipient resolution, even though it is the designated coordinator.
+  it('never routes a coordinator its own fyi mail to its own issue', () => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 'sCoord' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'note to the lane', urgency: 'fyi' },
+    )
+    expect(sent.map((s) => s.sessionId)).not.toContain('sCoord')
+    expect(r.message.deliveredTo).not.toBe('sCoord')
   })
 
   it('records queued→injected→delivered on the ledger and emits an event per transition', () => {

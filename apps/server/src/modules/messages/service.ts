@@ -960,21 +960,28 @@ export class MessageDeliveryService {
       // issue never picks itself. selectMailNudgeSession picks the single live
       // idle member, which would otherwise BE the sender.
       const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
-      // Prefer the issue's designated coordinator for ACTIONABLE (non-fyi) mail
-      // when that session is live (docs/agent-comms-target.html §05 q1). fyi /
-      // broadcast routing is unchanged — still selectMailNudgeSession. If the
-      // coordinator is unset, gone, or not live, fall back to today's heuristic.
-      // Bare session id on the wire (same format as humanQuestionAskedBy).
-      const preferCoordinator =
-        message.urgency !== 'fyi' && typeof issue.coordinatorSessionId === 'string'
-      const coordinatorLive = preferCoordinator
-        ? members.find(
-            (s) =>
-              s.sessionId === issue.coordinatorSessionId &&
-              s.agentKind !== 'shell' &&
-              s.status === 'live',
-          )
-        : undefined
+      // Prefer the issue's designated coordinator when that session is live
+      // (docs/agent-comms-target.html §05 q1), for EVERY urgency [POD-1365].
+      // Routing is by ROLE; urgency governs only HOW the message surfaces on the
+      // recipient (inject now / ride the turn boundary / interrupt), decided
+      // below. It must not decide WHO receives it: worker status reports to a
+      // coordinator are correctly 'fyi' — they expect no reply — so excluding
+      // fyi here skipped the coordinator for exactly the class of message a
+      // fan-out coordinator most needs, and the fallback below then picked the
+      // most-recently-active member, systematically a worker mid-task.
+      // `members` already excludes the sender, so a coordinator mailing its own
+      // issue still never receives its own message [spec:SP-a4ba].
+      // If the coordinator is unset, gone, or not live, fall back to today's
+      // heuristic. Bare session id on the wire (same format as humanQuestionAskedBy).
+      const coordinatorLive =
+        typeof issue.coordinatorSessionId === 'string'
+          ? members.find(
+              (s) =>
+                s.sessionId === issue.coordinatorSessionId &&
+                s.agentKind !== 'shell' &&
+                s.status === 'live',
+            )
+          : undefined
       if (coordinatorLive) {
         target = coordinatorLive
       } else {
