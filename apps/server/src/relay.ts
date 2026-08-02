@@ -882,6 +882,10 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
+      // POD-1386: the repoId-keyed resolver handoff already uses, so a machine-pinned
+      // start finds the repository on the target instead of demanding the source's path.
+      ensureRepoOnMachine: (machineId, repoPath) =>
+        sessionsSvc.workspace.resolveRepoOnMachine(repoPath, machineId),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
