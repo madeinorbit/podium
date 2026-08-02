@@ -40,10 +40,8 @@ but is not evidence for this one.
 ### Re-candidate scheduling and red attribution
 
 This refusal is held against `aba864a9`. POD-1351 has now landed after that candidate and its
-reported evidence is banked. No new candidate should be cut until POD-1356 lands and POD-1316
-either lands independently or is demonstrably covered by a correct shared authenticated-client
-bootstrap. The verified results below are banked rather than rerun against a moving integration
-branch.
+reported evidence is banked. No new candidate should be cut until POD-1356 and POD-1316 both land.
+The verified results below are banked rather than rerun against a moving integration branch.
 
 The coordinator retracted the earlier rule that every red on this host is new. POD-1363 records a
 load-dependent rearchitecture-audit timeout, and POD-1329 found a unit-test path that overwrites
@@ -84,16 +82,16 @@ afterward and are not treated as a fix for ordinary worktree installation.
 - POD-1079 is `done`.
 - POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where
   the defaulted first-admin principal remains. POD-1078 reports integration `c557f306` passes its
-  focused principal suite at 1 file/3 tests, exit 0. POD-1316 remains open and unauthenticated.
+  focused principal suite at 1 file/3 tests, exit 0. POD-1316 remains open: real-cookie auth now
+  reaches product policy, which refuses stale wire 1 with `scoping-requires-eviction`.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
 - POD-1351 is now `done` and landed after this gate run at `61cf1b8b`, with reported phase-audit,
   baseline, one-to-one refusal, focused-test, and typecheck evidence. It remains absent from
   candidate `aba864a9` and is not credited there.
-- POD-1356 was sent back from review at clean branch HEAD `c9d90507`. Its ordinary harness path
-  deletes `PODIUM_PASSWORD`, causing `requestPrincipal` to map a cookieless request to
-  `FIRST_ADMIN_USER_ID` when credentials are absent. That is the forbidden ambient-admin path,
-  not real cookie authentication; the server-restart flow performs no login, and POD-1316's
-  wire-window test is unchanged.
+- POD-1356 is now `done` at clean branch HEAD `9f4b35d3` (tree `3476e973`). Review proved that
+  browser and real-WebSocket consumers POST the production `/auth/login` route and use its
+  `podium_session` cookie; bad-cookie rejection remains green and no timeout was increased. This
+  correction is absent from candidate `aba864a9` and is not credited there.
 - POD-1343 remains real work, but a detached `/tmp` worktree at ancestor `844c7ff1` reproduces
   the same resolution failure from a zero-`node_modules` start. It is top-level `discovered-from`
   work, not evidence that Phase 4 regressed; the environment-neutrality criterion remains refused.
@@ -108,7 +106,7 @@ The named Phase 4 child-closure criterion is therefore not met.
 | God-object audit zero | `sessions/service.ts` is absent; IssueService has one store, six capabilities, no inheritance/protected sharing. A direct size screen finds 28 production server TS modules over 600 lines; only the 621-line session-state module and 1,080-line steward have explicit reviewed exceptions in the Phase 4 record. | **Refused under the literal size criterion.** |
 | Module graph committed | All three documents are tracked and the generators report them current. The resolution ledger now has 14 former-cycle rows, not the prompt's stale count of 13. | **Met.** |
 | Session, issue, memory E2E green | `bun run test:e2e` exits 0: Test Files 8/8, Tests 31/31. It covers real session and issue/feed paths but contains no named memory-service E2E assertion. | **Partial; memory-specific evidence absent.** |
-| Live redeploy preserves sessions | Three isolated browser runs fail before session creation with `authenticated account is unavailable`; no restart assertion executes. POD-395 remains older historical evidence. | **Refused; POD-1356.** |
+| Live redeploy preserves sessions | At `aba864a9`, three isolated browser runs fail before session creation with `authenticated account is unavailable`; no restart assertion executes. POD-1356's later branch-local correction passes one authenticated restart test but is absent from this candidate. | **Refused for this candidate; child correction verified.** |
 | Multi-instance isolation green | Candidate-local `bun run test:multi-instance` exits 0: Bun 1/1 (41 assertions), Vitest 1 file/3 tests, installer `ALL OK`. | **Met.** |
 
 There is no fresh integrator landing record at `aba864a9` covering the required lanes. The latest
@@ -143,6 +141,18 @@ the harness through a real account/login and session cookie; restoring an ambien
 raising the timeout would not satisfy the gate.
 
 Every exact PID marker disappeared and every port was released. Immediately before and after these runs and the multi-instance lane, `/home/mgw/.podium/config.json` had unchanged mtime `1785657372` (`2026-08-02 09:56:12.911369050 +0200`). Because another live process rewrites that file periodically, the paired unchanged value is positive evidence that the isolated run did not interfere with the live instance. The live instance was never redeployed.
+
+At POD-1356 branch HEAD `9f4b35d3`, reviewer-run follow-up proved the correction with workspace
+resolution explicitly local to that branch. The socket-auth suite exited 0 (1 file/7 tests,
+including bad-cookie rejection). The browser restart proof used fresh short roots and explicit
+port 19926, authenticated through `/auth/login`, created a session, restarted only the isolated
+server, and preserved its terminal marker/grid: 1 test passed in 1.5 minutes. The live config mtime
+was unchanged at `1785661627`; ports 19924–19926 and all PID markers were clear afterward.
+
+The same helper exposes POD-1316's remaining non-auth defect. Its real-socket lane reached feed
+policy but exited 1 (1 file/1 test): stale wire 1 received 426 `scoping-requires-eviction`, then the
+test waited for an entity frame that policy deliberately withheld. The unchanged 20-second timeout
+is the symptom, not the repair target.
 
 ## Deliberate-violation probes
 
@@ -213,7 +223,8 @@ the cross-owner policy.
 
 ## Required next candidate
 
-The gate may be rerun only after POD-1316 and POD-1356 close with evidence, and after POD-1078, POD-1315's correction, POD-1351, and every other blocker land in the next candidate.
+The gate may be rerun only after POD-1316 closes with evidence, and after POD-1078, POD-1315's
+correction, POD-1351, POD-1356, and every other blocker land in the next candidate.
 Closure alone is insufficient: the next candidate tree must be inspected for every claimed fix,
 including POD-1315, before any dependency is credited as satisfied.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
