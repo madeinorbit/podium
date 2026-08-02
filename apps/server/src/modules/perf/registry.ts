@@ -190,16 +190,12 @@ export class PerfRegistry {
   /**
    * Keep a completed client switch trace (bounded ring, newest last).
    *
-   * THE ATTRIBUTION IS REQUIRED HERE TOO, and today the only caller can only
-   * honestly pass {@link DEPLOYMENT} — see `modules/perf/commands.ts`. That is a
-   * KNOWN GAP, stated at the type rather than papered over: a trace names a
-   * `sessionId`, so the day two principals exist this ring is the harness's one
-   * cross-principal exposure, and the reason it cannot be closed here is that
-   * `perf.report` arrives over /trpc, which has no per-connection principal to
-   * attribute it to. Deriving one from the trace's own `sessionId` would be
-   * attribution read from payload, which ADR 3 Am1 D17 forbids for exactly the
-   * reason that applies here: a client could then report a trace onto someone
-   * else's partition.
+   * THE ATTRIBUTION IS REQUIRED HERE TOO. The report seam
+   * (`modules/perf/commands.ts`) passes the transport-derived feed principal
+   * from the authenticated /trpc call — never a field of the trace body
+   * (ADR 3 Am1 D17 / POD-1230). {@link DEPLOYMENT} remains valid for any
+   * non-report site that truly has no principal, and still only lands the
+   * sample in the deployment-wide ring (no partition invented for it).
    */
   pushClientTrace(trace: ClientSwitchTrace, attribution: PerfAttribution): void {
     this.clientSwitches.push(trace)

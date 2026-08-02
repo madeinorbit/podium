@@ -101,13 +101,11 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
   } finally {
     const ms = performance.now() - start
     // ATTRIBUTED TO THE DEPLOYMENT, and that is a claim rather than a shrug
-    // [POD-736]. This seam has no per-connection principal to name: every /trpc
-    // caller is minted OPERATOR by construction (see `Context.capability`), so
-    // deriving a "principal" from the capability here would produce a dimension
-    // that LOOKS per-user while being decided by one shared login — the same
-    // well-typed lie `gateway/client-principal.ts` refuses for the feed. The
-    // per-principal switch dimension lives on the FEED path, which has a real
-    // principal; when /trpc gains one (POD-315), this line gains it too.
+    // [POD-736]. RPC timing is process-wide diagnostic of the server's own
+    // request path, not work done on a principal's feed slice — so it stays
+    // off the per-principal table. Client switch traces are different: they
+    // carry one person's session ids and are partitioned by the transport
+    // principal at the report seam (POD-1230 / modules/perf/commands.ts).
     perf.record('rpc', path, ms, DEPLOYMENT)
     if (ms >= SLOW_RPC_WARN_MS) {
       const now = Date.now()
