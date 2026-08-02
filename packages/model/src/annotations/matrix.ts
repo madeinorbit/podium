@@ -102,6 +102,9 @@ export const ROW = {
   pspecComponent: id('pspec-component'),
   pins: id('pins'),
   tabOrder: id('tab-order'),
+  /** Sidebar/tab layout shell chrome (POD-1350) — distinct from tab_order's
+   *  session order per worktree. */
+  sidebarTabLayout: id('sidebar-tab-layout'),
 
   preferencesPersonal: id('preferences-personal-keys'),
   preferencesInstance: id('preferences-instance-keys'),
@@ -1567,10 +1570,22 @@ const REPO_ROWS: readonly MatrixRow[] = [
   perUserState({
     id: ROW.tabOrder,
     section: 'repos-pins-tabs',
-    title: 'Tab order / sidebar layout',
+    title: 'Tab order',
     sites: ['`tab_order` — keyed `(user_id, worktree)` (POD-1076; `worktree` alone and therefore a singleton until then)'],
-    conflictNote: 'Layout is per person by definition. The whole order vector was one field-LWW group; keyed per user it is single-writer instead.',
+    conflictNote: 'Session order within a worktree is per person by definition. The whole order vector was one field-LWW group; keyed per user it is single-writer instead.',
     tombstoneNote: 'Scrubbed with sessions, and cascades on user deletion.',
+  }),
+  perUserState({
+    id: ROW.sidebarTabLayout,
+    section: 'repos-pins-tabs',
+    title: 'Sidebar / tab layout',
+    sites: [
+      '`user_layout` — keyed `(user_id, key)` (POD-1350; client-local ui-state until then)',
+      'packages/model/src/user-state/layout-state.ts — closed key vocabulary shared with POD-403',
+    ],
+    conflictNote:
+      'Shell chrome (dock tab, superagent open, panel modes, section collapses) is per person by definition. Key-at-a-time so concurrent multi-device writes of independent keys do not last-writer-wins over the whole shell. Device-local route, selection, focus, pane/split geometry and screen pixel widths are NOT this row — they stay in principal-namespaced client ui-state (POD-403).',
+    tombstoneNote: 'Cascades on user deletion. No entity lifecycle owns these rows.',
   }),
   // -------------------------------------------------------------------------
   // POD-1211 — two per-machine FILESYSTEM stores. Neither appears in any

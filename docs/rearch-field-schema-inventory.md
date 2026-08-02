@@ -532,7 +532,7 @@ construction**; conflict rule **`single-writer`**.
 | Pins | `pins` table, PK `(kind, id)` | `PinState` | `(userId, pinRef)` |
 | Issue pin flag | `issues.pinned` column | `IssueWire.pinned` | `(userId, issueId)` — **note it is a *second* pin mechanism; POD-1076 should collapse the two** |
 | Tab order | `tab_order` table, PK `worktree` | UI state | `(userId, worktree)` |
-| Sidebar / tab / pane layout | `EngineState` UI keys (`paneA`, `paneB`, `split`, `focusedPane`, `dockVisibleSession`, `openIssueId`, `selectedIssueId`, `peekIssueId`) + `ui` store | client-local | `(userId, …)` — client-local today, so this is the cheapest member |
+| Sidebar / tab layout (replicated) | `user_layout` keyed `(user_id, key)` (POD-1350); closed vocabulary in `packages/model/src/user-state/layout-state.ts` | `layout.get` bootstrap snapshot + `layout.set` / `layout.clear` commands | `(userId, key)` — shell chrome follows the user across devices. Device-local route/selection/pane/split/geometry stay in client ui-state (POD-403). |
 | Personal preference keys | `PodiumSettings` (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic) | settings | `(userId, key)`; `telegramChatId` explicitly per ADR 9 D8 S4 |
 | Client outbox / replica cursor | device-local | — | `per-user-state`, device-local, never replicated (ADR 1 Am1 §10) |
 

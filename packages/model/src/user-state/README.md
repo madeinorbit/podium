@@ -9,6 +9,8 @@ the key.
 |---|---|
 | `session-state.ts` | `SessionReadState`, `SessionSnoozeState`, `PinState`, `TabOrderState`, and `SessionUserOverlay` — the projection-time argument |
 | `issue-state.ts` | `IssueUserState` (read + tuck + pin, one key), `IssueMessageReadState`, and `IssueUserOverlay` |
+| `preference-state.ts` | `PersonalPreferenceState` — personal settings leaves at `(userId, path)` |
+| `layout-state.ts` | `LayoutState`, the closed key vocabulary shared with POD-403, and `DEVICE_LOCAL_UI_KEYS` |
 | `family.ts` | `PER_USER_STATE_FAMILY` (the totality list) and `PER_USER_STATE_NON_MEMBERS` (the §7.1 facts with no server row, each with its reason) |
 
 ## The rule this family exists to enforce
