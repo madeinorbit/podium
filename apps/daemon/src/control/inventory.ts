@@ -1,4 +1,5 @@
-import { buildMachineInventory, type MachineHarnessInventory } from '@podium/harness'
+import { buildMachineInventory, type MachineHarnessInventory, probeAllModels } from '@podium/harness'
+import type { ControlMessage } from '@podium/protocol'
 import type { ControlHandlers, DaemonContext } from './context'
 
 /**
@@ -75,8 +76,53 @@ export function startInventoryRefresh(
   return () => clearInterval(timer)
 }
 
-export const inventoryHandlers: Pick<ControlHandlers, 'inventoryRequest'> = {
+/**
+ * LIVE MODEL ENUMERATION FOR THIS MACHINE (POD-1466).
+ *
+ * The sibling of `reportInventory`, and it runs HERE for the same reason: which
+ * models a harness offers is a fact about the host whose CLIs answered. The
+ * server used to shell out on its own process for every machineId, so a remote
+ * machine's picker was served the SERVER's models (or nothing).
+ *
+ * Unlike inventory this is request-correlated and NOT cached here: the caching
+ * (stale-while-revalidate, per machine, persisted) is the server's ModelCatalog,
+ * and a second cache on this side would only make an upgrade take two refreshes
+ * to show up. A failed probe answers with `{}` rather than silence — the server
+ * keeps its last-good snapshot and the web falls back to its static catalog, and
+ * an unanswered request would just burn the correlator's timeout.
+ *
+ * THE CLAUDE AUTH IS THIS HOST'S, and that is the point rather than a shortcut:
+ * the models the picker should offer for a machine are the ones an agent running
+ * ON that machine can actually reach. So the key comes from this host's
+ * ANTHROPIC_API_KEY, else this host's Claude Code login. The server's
+ * `apiKeys.anthropic` secret is deliberately NOT shipped down — a server-side
+ * secret does not cross to a machine just to shorten a model list.
+ */
+async function runModelProbe(
+  ctx: DaemonContext,
+  msg: Extract<ControlMessage, { type: 'modelProbeRequest' }>,
+): Promise<void> {
+  let byAgent: Awaited<ReturnType<typeof probeAllModels>> = {}
+  try {
+    byAgent = await probeAllModels({
+      claude: {
+        ...(process.env.ANTHROPIC_API_KEY ? { apiKey: process.env.ANTHROPIC_API_KEY } : {}),
+        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+      },
+    })
+  } catch (err) {
+    console.warn(
+      `[podium:daemon] model probe failed: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  ctx.send({ type: 'modelProbeResult', requestId: msg.requestId, byAgent })
+}
+
+export const inventoryHandlers: Pick<ControlHandlers, 'inventoryRequest' | 'modelProbeRequest'> = {
   inventoryRequest: (ctx) => {
     void reportInventory(ctx, { rebuild: true })
+  },
+  modelProbeRequest: (ctx, msg) => {
+    void runModelProbe(ctx, msg)
   },
 }

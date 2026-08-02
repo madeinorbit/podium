@@ -181,6 +181,7 @@ const DISPATCH: Dispatcher = {
   harnessExecResult: toRpc,
   usageResult: toRpc,
   agentQuotaResult: toRpc,
+  modelProbeResult: toRpc,
   imageUploadResult: toRpc,
   transcriptReadResult: toRpc,
   fileReadResult: toRpc,
