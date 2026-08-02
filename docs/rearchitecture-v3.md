@@ -2466,6 +2466,9 @@ after ordinary network/server interruptions, no `unauthorized` or `blocked` tran
 daemon restart/re-pair/update, and continued spawn/reattach/control on the owned machine. Attach
 the status/log excerpts and workload observations to POD-327, then run `podium issue needs-human`
 on POD-327 for sign-off. Until that artifact exists, POD-327, POD-426, and POD-292 remain open.
+Fill `docs/agents/pod-327-paired-vps-soak-evidence.md` during the run; it pins the owner/pairer,
+minted UUID, boundary commands, connectivity-state semantics, no-manual-intervention statement and
+PASS/FAIL checklist without recording any pairing or machine secret.
 
 ### Phase 6 — Client engine split (POD-293) · exit gate POD-427
 

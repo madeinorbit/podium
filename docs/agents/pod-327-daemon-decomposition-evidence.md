@@ -110,5 +110,6 @@ smoke passed with `codex-cli 0.146.0`.
   allowlist entry, with no POD-327 path in the output. POD-1321 received issue mail with the
   current output.
 - The 48-hour unattended paired-VPS soak has not run. The authoritative steps and pass criteria
-  are in the POD-327 section of `docs/rearchitecture-v3.md`. POD-327, POD-426, and POD-292 must
-  remain open until the gate evidence is attached and accepted.
+  are in the POD-327 section of `docs/rearchitecture-v3.md`; the ready-to-fill artifact is
+  `docs/agents/pod-327-paired-vps-soak-evidence.md`. POD-327, POD-426, and POD-292 must remain open
+  until completed gate evidence is attached and accepted.
