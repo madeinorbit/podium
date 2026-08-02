@@ -237,6 +237,7 @@
             "online": true,
             "lastSeenAt": "machines[0].lastSeenAt",
             "use": "granted",
+            "owned": true,
             "inventory": {
               "os": "linux",
               "arch": "x64",
@@ -268,7 +269,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"machinesChanged\",\"machines\":[{\"id\":\"machines[0].id\",\"name\":\"machines[0].name\",\"hostname\":\"machines[0].hostname\",\"online\":true,\"lastSeenAt\":\"machines[0].lastSeenAt\",\"use\":\"granted\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"machines[0].inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"machines[0].inventory.agents[0].version\",\"path\":\"machines[0].inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"machines[0].inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"machines[0].inventory.tools[0].name\",\"installed\":true,\"version\":\"machines[0].inventory.tools[0].version\",\"path\":\"machines[0].inventory.tools[0].path\"}]}}]}"
+      "encoded": "{\"type\":\"machinesChanged\",\"machines\":[{\"id\":\"machines[0].id\",\"name\":\"machines[0].name\",\"hostname\":\"machines[0].hostname\",\"online\":true,\"lastSeenAt\":\"machines[0].lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"machines[0].inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"machines[0].inventory.agents[0].version\",\"path\":\"machines[0].inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"machines[0].inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"machines[0].inventory.tools[0].name\",\"installed\":true,\"version\":\"machines[0].inventory.tools[0].version\",\"path\":\"machines[0].inventory.tools[0].path\"}]}}]}"
     },
     {
       "schema": "MemoryBreakdownRequestMessage",
