@@ -1,6 +1,13 @@
 import { randomUUID } from '@podium/client-core/id'
 import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
+import {
+  effectivePanelMode,
+  PANEL_MODE_DEFAULT_KEY,
+  type PanelMode,
+} from '@podium/client-core/ui-state'
+
+export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 import { composerDriverFor } from '@podium/composer'
 import type { SessionId } from '@podium/model'
 import { keySequence, type MountedSession, type SpecialKey } from '@podium/terminal-client'
@@ -67,55 +74,6 @@ import { useTerminalAppearance } from './use-terminal-appearance'
 // session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
 // tests/e2e/browser. Off by default, so normal sessions never expose the input API.
 const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')
-
-type PanelMode = 'native' | 'chat'
-
-/**
- * ui-state key for the per-device default mode pick (#35). The last mode a
- * user picked anywhere becomes the device default for sessions that have no
- * remembered per-session mode yet; per-session overrides live in the store
- * (`panelMode`, persisted under `podium.panelMode`). The legacy localStorage
- * key of the same name migrates into ui-state once (replica.uiState()).
- */
-export const PANEL_MODE_DEFAULT_KEY = 'podium.panelModeDefault'
-
-/**
- * Determine the default panel mode for a session that has no persisted
- * per-session override in the store yet.
- *
- * Priority:
- * 1. The per-device default pick (the last mode the user picked anywhere,
- *    saved under PANEL_MODE_DEFAULT_KEY) — chat reads best on a phone, the
- *    real PTY is the desktop default.
- * 2. The `startScreen` setting:
- *    - 'native'  → native terminal (always)
- *    - 'chat'    → chat view (if capable; else native)
- *    - 'auto'    → chat on mobile, native on desktop
- * 3. Non-chat-capable sessions always show the native terminal.
- */
-export function initialPanelMode({
-  startScreen,
-  chatCapable,
-  isMobile,
-  saved,
-  deviceDefault,
-}: {
-  startScreen: 'native' | 'chat' | 'auto'
-  chatCapable: boolean
-  isMobile: boolean
-  /** The persisted per-session mode (from the store, #35) when known — wins over
-   *  the per-device default and the startScreen setting. */
-  saved?: PanelMode | null
-  /** The per-device default pick (ui-state PANEL_MODE_DEFAULT_KEY), if any. */
-  deviceDefault?: string | null
-}): PanelMode {
-  if (!chatCapable) return 'native'
-  if (saved === 'native' || saved === 'chat') return saved
-  if (deviceDefault === 'native' || deviceDefault === 'chat') return deviceDefault
-  if (startScreen === 'auto') return isMobile ? 'chat' : 'native'
-  if (startScreen === 'chat') return 'chat'
-  return 'native'
-}
 
 /** Collapse the user's home directory to `~` for a compact cwd display. */
 export function prettyCwd(path: string): string {
@@ -200,7 +158,6 @@ export function AgentPanel({
     openFile,
     panelMode,
     setPanelMode,
-    setPanelRenderMode,
     uiState,
     selectedIssueId,
   } = useStoreSelector(
@@ -218,7 +175,6 @@ export function AgentPanel({
       openFile: s.openFile,
       panelMode: s.panelMode,
       setPanelMode: s.setPanelMode,
-      setPanelRenderMode: s.setPanelRenderMode,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
     }),
@@ -259,21 +215,18 @@ export function AgentPanel({
   // pick (PANEL_MODE_DEFAULT_KEY) → the `startScreen` setting →
   // chat-on-mobile/native-on-desktop.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-  const mode: PanelMode = initialPanelMode({
+  // One derivation (client-core ui-state.effectivePanelMode) produces the
+  // modeled, persisted, and reported mode — no parallel saved/effective path.
+  const effectiveMode: PanelMode = effectivePanelMode({
     startScreen,
     chatCapable,
     isMobile,
     saved: panelMode[sessionId],
     deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
   })
-  // The hibernated/exited-forces-chat rule still wins over any persisted 'native'.
-  const effectiveMode: PanelMode = chatCapable ? mode : 'native'
-
-  // Report the EFFECTIVE rendered mode up to the store so it's wired through the
-  // viewState channel to the server (available signal; does not change streaming).
   useEffect(() => {
-    setPanelRenderMode(sessionId, effectiveMode)
-  }, [sessionId, effectiveMode, setPanelRenderMode])
+    setPanelMode(sessionId, effectiveMode)
+  }, [sessionId, effectiveMode, setPanelMode])
 
   // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
   // markSwitch) unless a switch to THIS session is being traced.
@@ -1033,7 +986,7 @@ export function AgentPanel({
                 <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
               </Button>
             )}
-            {echoHudEnabled() && <EchoHud hub={hub} mountedRef={mountedRef} />}
+            {echoHudEnabled(uiState) && <EchoHud hub={hub} mountedRef={mountedRef} />}
           </div>
           {/* Prompt-area chrome (§2.6, Q1 default): a tinted rule + mono hint
               row hugging the PTY's bottom edge — the composer itself is the

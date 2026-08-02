@@ -64,6 +64,7 @@ export const DAEMON_FRAME_PORTS = {
 
   // ---- machine-owned ----
   inventoryReport: ['machines'],
+  machineDiagnostic: ['machines'],
 
   // ---- host-owned ----
   hostMetrics: ['hosts'],
@@ -166,6 +167,7 @@ export type RpcDaemonFrame = Extract<DaemonMessage, { type: RpcDaemonFrameType }
  */
 export const MACHINE_SCOPE_CARRIER = {
   inventoryReport: 'principal',
+  machineDiagnostic: 'principal',
   hostMetrics: 'principal',
   memoryBreakdownResult: 'request-correlated',
   scanResult: 'principal',

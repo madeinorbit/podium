@@ -1,5 +1,9 @@
-import type { DeterministicAgentState, GlobalAgentStateLabel } from './deterministic.js'
-import { resolvedState, semanticState } from './deterministic.js'
+import type {
+  DeterministicAgentState,
+  GlobalAgentStateLabel,
+} from '../agent-state/deterministic.js'
+import { resolvedState, semanticState } from '../agent-state/deterministic.js'
+import type { TranscriptClassifierRuleSet } from '../agent-state/transcript-classifier.js'
 
 export const CLAUDE_INTERRUPT_MARKER = '[Request interrupted by user]'
 
@@ -519,6 +523,15 @@ export function classifyClaudeFeatures(
     candidateLabels(features),
     'ambiguous terminal state after deterministic checks',
   )
+}
+
+export const claudeTranscriptClassifierRules: TranscriptClassifierRuleSet<
+  unknown,
+  ClaudeTranscriptFeatures,
+  DeterministicAgentState
+> = {
+  extract: extractClaudeTranscriptFeatures,
+  classify: classifyClaudeFeatures,
 }
 
 export function classifyClaudeTranscriptDeterministically(

@@ -130,6 +130,23 @@ export class PresenceRouting {
     return this.port.occupancy(room)
   }
 
+  /**
+   * Server-side room membership for a PTY attach (POD-1081). Watching a
+   * terminal joins the session room so `clientCount` can be derived from
+   * occupancy rather than a second attach counter. Idempotent.
+   */
+  ensureJoined(conn: ClientConn, room: RoomRef): boolean {
+    const joined = this.port.join(this.target(conn), room)
+    this.scheduleFlush()
+    return joined
+  }
+
+  /** Inverse of {@link ensureJoined} — detach leaves the session room. */
+  ensureLeft(conn: ClientConn, room: RoomRef): void {
+    this.port.leave(this.target(conn), room)
+    this.scheduleFlush()
+  }
+
   isWatchedBy(principal: Principal): boolean {
     return this.port.isWatchedBy(principal)
   }

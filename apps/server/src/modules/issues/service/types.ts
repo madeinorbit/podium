@@ -192,6 +192,31 @@ export interface IssueDeps {
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: string, repoPath: string): void
+  /**
+   * The SAME repository, as THAT machine has it — cloning it there if it has none
+   * (POD-1386). Returns the target's own checkout path, which is almost never the
+   * source's: two machines have two layouts.
+   *
+   * Resolution is by `repoId`, the origin-derived identity POD-318 shipped, never
+   * by path equality. `requireMachineForRepo` compares the SOURCE path literally
+   * against the target's registered paths, so before this existed a machine pin
+   * refused on every correctly-configured second machine — the repo was there, it
+   * simply lived somewhere else. Injected by the relay from `SessionWorkspace`,
+   * which is where handoff already does this; optional so existing test deps
+   * literals stay valid.
+   */
+  ensureRepoOnMachine?(machineId: string, sourceRepoPath: string): Promise<string>
+  /**
+   * Make `ref` resolvable on that machine, moving the commits if it cannot reach
+   * them any other way (POD-1405).
+   *
+   * `ensureRepoOnMachine` puts the right REPOSITORY on the target; this puts the
+   * right COMMITS in it. Both are needed because `worktree add <path> <startPoint>`
+   * fails on a start point the target cannot resolve, and our integration branches
+   * are on NO shared remote — so a clone plus fetch cannot produce them and the
+   * objects have to move machine-to-machine.
+   */
+  ensureRefOnMachine?(machineId: string, repoPath: string, ref: string): Promise<void>
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

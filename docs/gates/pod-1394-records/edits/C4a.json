@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "      readonly kind: 'batch'\n      /** Inclusive upper bound of the range evaluated against this principal. */\n      readonly throughSeq: number\n",
+    "replace": "      readonly kind: 'batch'\n      /** Inclusive upper bound of the range evaluated against this principal. */\n      readonly throughSeq?: number\n"
+  }
+]

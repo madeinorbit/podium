@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "      note: 'A grant may never exceed its granter\u2019s own rights (ADR 9 D2 rule 4), so the GRANTER is the accountable party.',\n    },\n    visibility: 'personal',\n",
+    "replace": "      note: 'A grant may never exceed its granter\u2019s own rights (ADR 9 D2 rule 4), so the GRANTER is the accountable party.',\n    },\n    visibility: 'deployment-substrate',\n"
+  }
+]

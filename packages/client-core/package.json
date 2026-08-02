@@ -20,6 +20,11 @@
       "types": "./src/id.ts",
       "import": "./src/id.ts"
     },
+    "./principal": {
+      "@podium/source": "./src/principal.ts",
+      "types": "./src/principal.ts",
+      "import": "./src/principal.ts"
+    },
     "./transport": {
       "@podium/source": "./src/transport.ts",
       "types": "./src/transport.ts",
@@ -61,9 +66,14 @@
       "import": "./src/replica/feed/index.ts"
     },
     "./router": {
-      "@podium/source": "./src/router.ts",
-      "types": "./src/router.ts",
-      "import": "./src/router.ts"
+      "@podium/source": "./src/ui-state.ts",
+      "types": "./src/ui-state.ts",
+      "import": "./src/ui-state.ts"
+    },
+    "./ui-state": {
+      "@podium/source": "./src/ui-state.ts",
+      "types": "./src/ui-state.ts",
+      "import": "./src/ui-state.ts"
     },
     "./api": {
       "@podium/source": "./src/api.ts",

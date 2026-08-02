@@ -9,7 +9,7 @@
  */
 
 import type { TransportTag } from '@podium/commands'
-import type { Capability } from '@podium/model'
+import type { Capability, MachineUseDecision } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import {
   canSeeMachine,
@@ -158,4 +158,62 @@ export function machinesForPrincipal(
   return modules.machines
     .listMachines((machineId) => machineUseDecision(principal, machineId, ownership))
     .filter((machine) => canSeeMachine(principal, machine.id, ownership))
+}
+
+/** One registered checkout, as the fleet view reports it. */
+export interface FleetRepoRow {
+  machineId: string
+  path: string
+}
+
+/**
+ * THE FLEET VIEW (POD-1386) — the machine projection plus the checkout paths that
+ * make it ACTIONABLE, for `podium machine list`.
+ *
+ * An enumeration without repos cannot answer "which machine can take this work",
+ * because work is placed into a checkout. But repo rows are stored unscoped —
+ * `listRepos()` returns every row on every machine — so joining them naively
+ * would disclose checkout paths on machines the caller cannot even see, a worse
+ * leak than the gap this closes.
+ *
+ * The cut is `use`, not `see`, and it is the same line the model already draws
+ * around `inventory`: both a machine's harnesses and its checkouts answer "what
+ * can I run on your hardware, and as whom" (readiness §3.1.4 M2), which is a
+ * code-execution question. A principal with `see` alone learns that the machine
+ * exists and whether it is alive — and nothing about what is on it.
+ *
+ * SEPARATE FROM THE PROJECTION, ON PURPOSE. `machines` here IS
+ * `visibleMachinesFor`'s output, unmodified: this function adds a join, never a
+ * second scoping rule. Widen the projection and this follows; fork it and the two
+ * drift with nobody watching.
+ */
+export function fleetViewFor(
+  modules: Pick<RegistryModules, 'machines'>,
+  capability: Capability,
+  allRepos: FleetRepoRow[],
+): { machines: ReturnType<RegistryModules['machines']['listMachines']>; repos: FleetRepoRow[] } {
+  const machines = visibleMachinesFor(modules, capability)
+  return { machines, repos: usableRepos(machines, allRepos) }
+}
+
+/**
+ * The join itself, over an ALREADY-PROJECTED machine list.
+ *
+ * Split out from {@link fleetViewFor} so the rule can be tested against a list
+ * containing all three cases at once — usable, see-only, invisible — which is the
+ * only way to watch it REFUSE. Given a projection that already dropped the
+ * invisible machines, a filter that merely echoed its input would look correct
+ * against a one-machine fixture and would be a no-op disclosure bug against a
+ * real fleet.
+ */
+export function usableRepos(
+  machines: { id: string; use?: MachineUseDecision }[],
+  allRepos: FleetRepoRow[],
+): FleetRepoRow[] {
+  const usable = new Set(
+    machines.filter((machine) => machine.use === 'granted').map((machine) => machine.id),
+  )
+  return allRepos
+    .filter((repo) => usable.has(repo.machineId))
+    .map((repo) => ({ machineId: repo.machineId, path: repo.path }))
 }

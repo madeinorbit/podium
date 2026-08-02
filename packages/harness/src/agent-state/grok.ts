@@ -9,7 +9,7 @@ import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
 import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
 import { withEventTime } from './reducer.js'
-import type { AgentStateEvent, AgentStateProvider } from './types.js'
+import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
@@ -41,8 +41,8 @@ export const grokStateProvider: AgentStateProvider = {
   instrumentation({ endpointUrl }) {
     return { args: [], env: { [PODIUM_GROK_HOOK_URL_ENV]: endpointUrl } }
   },
-  translate: translateGrokUpdatePayload,
-  bootEvents: grokBootEvents,
+  translate: async (payload) => withStateChannel(await translateGrokUpdatePayload(payload), 'poll'),
+  bootEvents: async (opts) => withStateChannel(await grokBootEvents(opts), 'poll'),
 }
 
 export function grokSessionPaths(opts: {

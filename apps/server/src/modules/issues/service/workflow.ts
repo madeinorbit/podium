@@ -9,7 +9,7 @@ import {
 } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { systemPrincipal } from '../../../command-principal'
+import type { CommandPrincipal } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -24,24 +24,17 @@ import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 
 /**
- * Who the worktree/integration comments below are stamped as (POD-1315).
- *
- * `addComment` now REQUIRES a principal, and these sites have no user to name:
- * `freeWorktreeKeepBranch`, `cleanup` and `integrate` take an issue ref and
- * nothing else, so the invoking human is already gone by the time this plane
- * runs. A system principal is the honest answer — `attributionOf` renders it as
- * `system:<job>`, matching the `author` these comments have always carried, and
- * leaves `onBehalfOf` null instead of defaulting to an operator (ADR 3
- * Amendment 1 D21.2). This is NOT a stand-in for a user: threading the real
- * caller down here is POD-1344, and until that lands nothing in this plane may
- * pretend to know one.
- */
-const automationPrincipal = (job: 'stop' | 'cleanup' | 'integrate') => systemPrincipal(job)
-
-/**
  * Git-workflow capability: worktree
  * start/cleanup, PR/merge actions, epic integration (#70), extra sessions,
  * Linear search and the LLM activity digest.
+ *
+ * `freeWorktreeKeepBranch`, `cleanup` and `integrate` take an explicit
+ * {@link CommandPrincipal} (POD-1344). The authenticated transport had the
+ * caller all along; this plane used to drop it and stamp `system:<job>` on the
+ * six addComment sites below (POD-1315's honest interim). Callers that truly
+ * have no human — tests and in-process jobs — still pass `systemPrincipal`,
+ * but every registry/tRPC and session-stop entry hands through the real
+ * principal so comments name who asked.
  */
 export class IssueGitWorkflowModule {
   constructor(
@@ -156,14 +149,72 @@ export class IssueGitWorkflowModule {
     const selection = this.modelSelectionFor(row, row.defaultAgent)
     // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
     // branch, stage) [spec:SP-cc60] — the issue's stored defaults are the selection.
-    assertModelSelectionValid(this.store.d.store.settings.getModelCatalog(), {
-      agentKind: row.defaultAgent,
-      ...(selection.model ? { model: selection.model } : {}),
-      ...(selection.effort ? { effort: selection.effort } : {}),
-      ...(opts?.forceUnknownModel ? { force: true } : {}),
-    })
+    // Catalog is machine-keyed (POD-1123): validate against the issue's host.
+    assertModelSelectionValid(
+      this.store.d.store.settings.getModelCatalog(
+        row.machineId ?? this.store.d.store.hostMachineId,
+      ),
+      {
+        agentKind: row.defaultAgent,
+        ...(selection.model ? { model: selection.model } : {}),
+        ...(selection.effort ? { effort: selection.effort } : {}),
+        ...(opts?.forceUnknownModel ? { force: true } : {}),
+      },
+    )
+    /**
+     * PLACE THE REPOSITORY BEFORE PLACING THE WORK (POD-1386).
+     *
+     * A machine pin used to go straight to `requireMachineForRepo`, which compares
+     * this issue's SOURCE repo path literally against the target's registered
+     * paths. Two machines have two layouts — `/home/a/src/podium` here,
+     * `/home/b/src/podium` there — so the pin refused on every correctly
+     * configured second machine with "no repo registered at …", even though the
+     * repository was present. Handoff never had that bug: it resolves by `repoId`
+     * and clones on absence. This calls the same resolver.
+     *
+     * The move is committed through `rehome`, not by assigning `row.repoPath`
+     * here, because repoPath and machineId have to travel together — the
+     * file-browser root, the sidebar's worktree and the cwd the next agent spawns
+     * into are all derived from the pair, and `rehome` is the guarded transition
+     * that already moves them as one (it also refuses a target whose repo IDENTITY
+     * differs, which would silently renumber the issue into another repo).
+     *
+     * `requireMachineForRepo` keeps its job and runs AFTER: by then the repo is
+     * registered on the target, so what it still catches — an offline machine —
+     * is the thing it gives an actionable message for.
+     */
+    if (row.machineId && this.store.d.ensureRepoOnMachine) {
+      const targetRepoPath = await this.store.d.ensureRepoOnMachine(row.machineId, row.repoPath)
+      if (targetRepoPath !== row.repoPath) {
+        const moved = this.rehome(row.id, {
+          machineId: row.machineId,
+          repoPath: targetRepoPath,
+          // Not started yet, so there is no worktree to carry; `start` sites one
+          // below from the repo path this just moved to.
+          worktreePath: row.worktreePath ?? '',
+        })
+        if (!moved) {
+          throw new Error(
+            `machine ${row.machineId} has a repository at ${targetRepoPath} whose identity differs from this issue's — refusing to renumber the issue into another repo`,
+          )
+        }
+      }
+    }
     if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     const branch = this.store.slug(row.seq, row.title)
+    /**
+     * THE TARGET NEEDS THE COMMITS, NOT JUST THE REPOSITORY (POD-1405).
+     *
+     * `worktreeAdd` below passes `startPoint: row.parentBranch`, and a start point
+     * the target cannot resolve fails. Our integration branches never reach origin,
+     * so a freshly cloned repository over there CANNOT fetch them from anywhere —
+     * the objects have to move machine-to-machine. This is a no-op when the target
+     * already resolves the ref, which is every same-machine start and every start
+     * from a branch that IS on origin.
+     */
+    if (row.machineId && row.parentBranch && this.store.d.ensureRefOnMachine) {
+      await this.store.d.ensureRefOnMachine(row.machineId, row.repoPath, row.parentBranch)
+    }
     const path = this.worktreePathFor(row.repoPath, branch)
     const res = await this.store.d.repoOp(
       'worktreeAdd',
@@ -314,9 +365,14 @@ export class IssueGitWorkflowModule {
    * issue to be closed (unlike cleanup). Caller is responsible for the
    * unsaved-work guard (dirty tree without --force) and for ensuring no live
    * sessions still use this worktree.
+   *
+   * `principal` is who asked for the free (POD-1344) — stamped onto the audit
+   * comment. Author stays `system:stop` (job label); actor/onBehalfOf name the
+   * caller.
    */
   async freeWorktreeKeepBranch(
     id: string,
+    principal: CommandPrincipal,
     opts?: { force?: boolean },
   ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
     const row = this.store.rowOrThrow(id)
@@ -385,7 +441,7 @@ export class IssueGitWorkflowModule {
       row.id,
       'system:stop',
       `stop: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
-      automationPrincipal('stop'),
+      principal,
     )
     this.store.emitEvent('issue.worktree_freed', row.id, {
       seq: row.seq,
@@ -474,8 +530,14 @@ export class IssueGitWorkflowModule {
    * `git branch -d` — never --force / -D), so git itself is the last guard.
    * Never touches the repo ROOT checkout: worktreeRemove/branchDelete run
    * with the root as cwd but only ever name the issue's worktree/branch.
+   *
+   * `principal` is who asked for cleanup (POD-1344). Author stays
+   * `system:cleanup` (job label); actor/onBehalfOf name the caller.
    */
-  async cleanup(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  async cleanup(
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
@@ -512,7 +574,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
-        automationPrincipal('cleanup'),
+        principal,
       )
       this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
       return { ok: true, output: `deleted branch ${branch}`, issue }
@@ -538,7 +600,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${branch})`,
-        automationPrincipal('cleanup'),
+        principal,
       )
       this.store.emitEvent('issue.cleaned', row.id, {
         seq: row.seq,
@@ -584,7 +646,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
-        automationPrincipal('cleanup'),
+        principal,
       )
       return {
         ok: false,
@@ -598,7 +660,7 @@ export class IssueGitWorkflowModule {
       row.id,
       'system:cleanup',
       `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
-      automationPrincipal('cleanup'),
+      principal,
     )
     this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
     return { ok: true, output: `removed ${worktreePath}; deleted branch ${branch}`, issue }
@@ -625,8 +687,14 @@ export class IssueGitWorkflowModule {
    * integrate comment — rebuild-every-run makes per-child "Integrated #N" markers
    * meaningless across resets, so run-summary-only is the correct dedup unit), plus
    * an issue.integration event {epicSeq, integrated, blockedAt?} per run.
+   *
+   * `principal` is who asked for the integrate (POD-1344). Author stays
+   * `system:integrate` (job label / dedup key); actor/onBehalfOf name the caller.
    */
-  async integrate(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  async integrate(
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
     // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
     // in the SAME integration worktree. Re-entry refuses cleanly with zero repoOps.
@@ -639,7 +707,7 @@ export class IssueGitWorkflowModule {
     }
     this.integratingEpics.add(row.id)
     try {
-      return await this.integrateRun(row)
+      return await this.integrateRun(row, principal)
     } finally {
       this.integratingEpics.delete(row.id)
     }
@@ -649,6 +717,7 @@ export class IssueGitWorkflowModule {
 
   private async integrateRun(
     row: IssueRow,
+    principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
@@ -750,12 +819,7 @@ export class IssueGitWorkflowModule {
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary)
-      this.commentsMail().addComment(
-        row.id,
-        'system:integrate',
-        summary,
-        automationPrincipal('integrate'),
-      )
+      this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
     if (blockedAt != null) {
       this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
     }
@@ -846,12 +910,17 @@ export class IssueGitWorkflowModule {
     const selection = this.modelSelectionFor(row, kind)
     // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
     // session carries no model (addShell), so validation is a no-op there.
-    assertModelSelectionValid(this.store.d.store.settings.getModelCatalog(), {
-      agentKind: kind,
-      ...(selection.model ? { model: selection.model } : {}),
-      ...(selection.effort ? { effort: selection.effort } : {}),
-      ...(opts?.forceUnknownModel ? { force: true } : {}),
-    })
+    assertModelSelectionValid(
+      this.store.d.store.settings.getModelCatalog(
+        row.machineId ?? this.store.d.store.hostMachineId,
+      ),
+      {
+        agentKind: kind,
+        ...(selection.model ? { model: selection.model } : {}),
+        ...(selection.effort ? { effort: selection.effort } : {}),
+        ...(opts?.forceUnknownModel ? { force: true } : {}),
+      },
+    )
     if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     this.store.d.spawnSession({
       cwd: row.worktreePath,

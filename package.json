@@ -74,6 +74,8 @@
     "audit:router-mutations": "bun scripts/audit-router-mutations.ts --probe && bun scripts/audit-router-mutations.ts",
     "audit:scoped-feed": "bun scripts/audit-scoped-feed.ts --probe && bun scripts/audit-scoped-feed.ts",
     "audit:durable-classes": "bun scripts/audit-durable-classes.ts --probe && bun scripts/audit-durable-classes.ts",
+    "audit:god-objects": "bun scripts/audit-god-objects.ts --probe && bun scripts/audit-god-objects.ts",
+    "audit:ambient-principals": "bun scripts/audit-ambient-principals.ts --probe && bun scripts/audit-ambient-principals.ts",
     "audit:serving-path": "bun scripts/audit-serving-path.ts --probe && bun scripts/audit-serving-path.ts",
     "audit:machine-grants": "bun scripts/audit-machine-grants.ts --probe && bun scripts/audit-machine-grants.ts",
     "audit:seam": "bun scripts/audit-federation-seam.ts --probe && bun scripts/audit-federation-seam.ts",

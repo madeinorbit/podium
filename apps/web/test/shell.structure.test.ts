@@ -11,7 +11,7 @@ const read = (rel: string) =>
 // binding (P5b, issue #262). Structure assertions about the store's
 // implementation read the engine sources (plus the binding).
 const readStore = () =>
-  ['engine/engine.ts', 'engine/wiring.ts', 'react/provider.tsx']
+  ['engine/runtime.ts', 'engine/boot.ts', 'engine/wiring.ts', 'react/provider.tsx']
     .map((rel) =>
       readFileSync(
         fileURLToPath(new URL(`../../../packages/client-core/src/${rel}`, import.meta.url)),
@@ -63,9 +63,11 @@ describe('web shell structure', () => {
     // boot fan-out is repos + pins + tab orders — never a conversation rescan.
     const bootStart = src.indexOf('void Promise.all([')
     const boot = src.slice(bootStart, src.indexOf('.catch', bootStart))
-    expect(boot).toContain('this.refreshRepos()')
-    expect(boot).toContain('this.refreshPins()')
-    expect(boot).toContain('this.refreshTabOrders()')
+    // The enrichments moved to `engine/boot.ts` with POD-404's split; the
+    // invariant is the SHAPE of the fan-out, not which object owns the methods.
+    expect(boot).toContain('refreshRepos()')
+    expect(boot).toContain('refreshPins()')
+    expect(boot).toContain('refreshTabOrders()')
     expect(src).not.toContain('rescanConversations')
     expect(src).not.toContain('onConversations')
   })

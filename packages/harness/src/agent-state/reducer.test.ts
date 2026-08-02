@@ -230,22 +230,14 @@ describe('reduceAgentState', () => {
     expect(again).toBe(s)
 
     // Remove one; count matches remaining list.
-    s = reduceAgentState(
-      s,
-      { kind: 'task_delta', delta: -1, agentId: 'ad7e66922f0d8ff7a' },
-      T1,
-    )
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1, agentId: 'ad7e66922f0d8ff7a' }, T1)
     expect(s).toMatchObject({
       nativeSubagentCount: 1,
       nativeSubagents: [{ id: 'abb71646a07e32e0d', type: 'general-purpose' }],
     })
 
     // Last stop clears the list key.
-    s = reduceAgentState(
-      s,
-      { kind: 'task_delta', delta: -1, agentId: 'abb71646a07e32e0d' },
-      T1,
-    )
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1, agentId: 'abb71646a07e32e0d' }, T1)
     expect(s.nativeSubagentCount).toBe(0)
     expect(s.nativeSubagents).toBeUndefined()
   })
@@ -281,7 +273,11 @@ describe('reduceAgentState', () => {
     }
 
     let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
-    s = reduceAgentState(s, { kind: 'task_delta', delta: 1, agentId: 'A', agentType: 'Explore' }, T0)
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: 1, agentId: 'A', agentType: 'Explore' },
+      T0,
+    )
     expect(s).toMatchObject({
       nativeSubagentCount: 1,
       nativeSubagents: [{ id: 'A', type: 'Explore' }],
@@ -363,6 +359,94 @@ describe('reduceAgentState', () => {
   it('falls back to `now` for `since` when the event carries no event-time', () => {
     const s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T1)
     expect(s.since).toBe(T1)
+  })
+
+  it('records a stronger channel even when it confirms the same phase', () => {
+    const poll = reduceAgentState(
+      initialAgentState(T0),
+      { kind: 'activity', source: 'poll', confidence: 0.7, observedAt: T0 },
+      T0,
+    )
+    const hook = reduceAgentState(
+      poll,
+      { kind: 'activity', source: 'hook', confidence: 1, observedAt: T1 },
+      T1,
+    )
+    expect(hook).not.toBe(poll)
+    expect(hook).toMatchObject({ phase: 'working', stateSource: 'hook', stateConfidence: 1 })
+  })
+
+  it('prefers hook over poll over classifier inside the staleness window', () => {
+    const poll = reduceAgentState(
+      initialAgentState(T0),
+      { kind: 'activity', source: 'poll', confidence: 0.7, observedAt: T0 },
+      T0,
+    )
+    const classifier = reduceAgentState(
+      poll,
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'question' },
+        source: 'classifier',
+        confidence: 0.3,
+        observedAt: T1,
+      },
+      T1,
+    )
+    expect(classifier).toBe(poll)
+
+    const hook = reduceAgentState(
+      poll,
+      {
+        kind: 'needs_user',
+        need: 'permission',
+        source: 'hook',
+        confidence: 1,
+        observedAt: T1,
+      },
+      T1,
+    )
+    expect(hook).toMatchObject({ phase: 'needs_user', stateSource: 'hook', stateConfidence: 1 })
+
+    const latePollAt = '2026-06-12T10:00:02.000Z'
+    const latePoll = reduceAgentState(
+      hook,
+      {
+        kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
+        observedAt: latePollAt,
+      },
+      latePollAt,
+    )
+    expect(latePoll).toBe(hook)
+    expect(latePoll).toMatchObject({ phase: 'needs_user', stateSource: 'hook' })
+  })
+
+  it('accepts a fresh lower-confidence source outside the staleness window', () => {
+    const hook = reduceAgentState(
+      initialAgentState(T0),
+      {
+        kind: 'needs_user',
+        need: 'permission',
+        source: 'hook',
+        confidence: 1,
+        observedAt: T0,
+      },
+      T0,
+    )
+    const freshPollAt = '2026-06-12T10:00:07.000Z'
+    const freshPoll = reduceAgentState(
+      hook,
+      {
+        kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
+        observedAt: freshPollAt,
+      },
+      freshPollAt,
+    )
+    expect(freshPoll).toMatchObject({ phase: 'idle', stateSource: 'poll' })
   })
 })
 

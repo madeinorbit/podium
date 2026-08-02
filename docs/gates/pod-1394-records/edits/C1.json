@@ -1,0 +1,10 @@
+[
+  {
+    "anchor": "  type SubscriptionRegistry,\n",
+    "replace": "  SubscriptionRegistry,\n"
+  },
+  {
+    "anchor": "    this.router = new PlaneRouter(\n      deps.subscriptions,\n      streamLiveDelivery(STREAM_QUEUE_MAX_FRAMES, presenceCoalesceKey, STREAM_EVICT_AFTER_DROPS),\n    )\n    this.port = new StreamPlanePort(deps.subscriptions, this.router, {",
+    "replace": "    const ownRegistry = new SubscriptionRegistry()\n    this.router = new PlaneRouter(\n      ownRegistry,\n      streamLiveDelivery(STREAM_QUEUE_MAX_FRAMES, presenceCoalesceKey, STREAM_EVICT_AFTER_DROPS),\n    )\n    this.port = new StreamPlanePort(ownRegistry, this.router, {"
+  }
+]

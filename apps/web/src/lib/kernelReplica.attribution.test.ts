@@ -16,6 +16,7 @@
  * counterfactual.
  */
 
+import { asMutationId } from '@podium/model'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
@@ -114,7 +115,7 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
           entity: 'issue',
           entityId: 'i1',
           value: { id: 'i1' },
-          provenance: { seq: 1, originId: 'o', causationId: 'c', mutationId: 'm' },
+          provenance: { seq: 1, originId: 'o', causationId: 'c', mutationId: asMutationId('m') },
         },
       ],
       cursor: { feedId: 'f', epoch: 'e', seq: 1 },
@@ -141,7 +142,7 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
           entity: 'issue',
           entityId: 'i1',
           value: { id: 'i1' },
-          provenance: { seq: 1, originId: 'o', causationId: 'c', mutationId: 'm' },
+          provenance: { seq: 1, originId: 'o', causationId: 'c', mutationId: asMutationId('m') },
         },
       ],
       cursor: { feedId: 'f', epoch: 'e', seq: 1 },

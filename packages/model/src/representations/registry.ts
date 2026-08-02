@@ -68,10 +68,10 @@
  *      lying about the parent or leaking the child.
  */
 
+import { ROW } from '../annotations/matrix'
 import { HandoffManifest } from '../entities/handoff'
 import { IssueGraphNode, IssueWire, OrphanIssue } from '../entities/issue'
 import { SessionMeta } from '../entities/session'
-import { ROW } from '../annotations/matrix'
 import type { RetainedRepresentation } from './checks'
 
 /** Recurring blocker strings, written once so they cannot drift between the
@@ -575,7 +575,11 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'SessionSpawnResult',
     entity: 'session',
-    site: 'apps/server/src/modules/sessions/lifecycle.ts',
+    // POD-1396 moved the spawn operation out of lifecycle.ts into session-start.ts;
+    // this site follows the DECLARATION, which is the module that produces the
+    // representation. lifecycle.ts re-exports it for relay.ts, and a re-export is
+    // not a declaration — which is exactly what POD-302's rot check caught.
+    site: 'apps/server/src/modules/sessions/session-start.ts',
     role: 'R5',
     purpose: 'What the caller of a spawn is told about the session it just created.',
     distinctSemantics:

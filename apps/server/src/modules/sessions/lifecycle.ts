@@ -9,7 +9,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import { AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { type AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { sessionSpawnerParentId } from '../../steward'
 
 /**
@@ -46,8 +46,8 @@ import {
   type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
   type SessionOpenUrlMessage,
-  type SyncChangesSinceResult,
   type SubscriptionRegistry,
+  type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
@@ -86,16 +86,15 @@ import type {
   TerminalCandidateFacts,
 } from '../../store'
 import type { EventBus } from '../bus'
-import type { MemoryService } from '../memory/service'
 import type { WriteFunnel } from '../funnel'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
+import type { MemoryService } from '../memory/service'
 import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
-import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import { machineUseGateForCapability } from './handoff/access'
@@ -112,6 +111,22 @@ import {
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
+import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import { DEFAULT_GEOMETRY } from './session-shared'
+import type { SessionSpawnResult } from './session-start'
+
+export type { SessionSpawnResult }
+// Re-exported for `relay.ts`, which imports both from here. Neither is
+// DECLARED here: DEFAULT_GEOMETRY lives in session-shared.ts (three
+// consumers, no single owner) and SessionSpawnResult lives with the module
+// that produces it. POD-302's registry names declaration SITES, so pointing
+// it at a re-export is what went stale after the extraction.
+export { DEFAULT_GEOMETRY }
+
+import { SessionLaunchConfig } from './launch-config'
+import { SessionMachineReconciler } from './machine-reconciler'
+import { normalizeAgentName, SessionNaming } from './naming'
+import { SessionObservationLeases } from './observation-leases'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import {
   SessionPublicationCoordinator,
@@ -120,16 +135,16 @@ import {
 } from './publication/coordinator'
 import type { SessionProjectionEvent } from './publish-worker-actor'
 import { PublishWorkerClient } from './publish-worker-client'
-import { type PublicationAuthority, Session } from './session'
+import { SessionRepository } from './repository'
+import type { PublicationAuthority, Session } from './session'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionBindingReceipts } from './session-binding'
+import { SessionStart } from './session-start'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
+import { SessionTerminalProof } from './terminal-proof'
 import { SessionView } from './view'
-import { SessionRepository } from './repository'
 import { SessionWorkspace } from './workspace'
-
-export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 
 /**
  * Idempotency records outlive any sane replay horizon, then get pruned. ADR 2 D11
@@ -144,24 +159,6 @@ export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
  * the live constant. Lowering this value below the outbox horizon fails that test.
  */
 export const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
-
-/** Normalize an agent-set session name the same way setAgentName does — trim,
- *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
- *  path and createSession's spawner-prescribed name [spec:SP-4ef9][spec:SP-eb60].
- *  Length cap: MAX_AGENT_TITLE_LENGTH from @podium/protocol/titles. */
-function normalizeAgentName(
-  name: string,
-): { ok: true; name: string } | { ok: false; reason: string } {
-  const clean = name.trim().replace(/\s+/g, ' ')
-  if (!clean) return { ok: false, reason: 'title is empty' }
-  if (clean.length > MAX_AGENT_TITLE_LENGTH) {
-    return {
-      ok: false,
-      reason: `title exceeds ${MAX_AGENT_TITLE_LENGTH} characters — a session title is 3–5 words`,
-    }
-  }
-  return { ok: true, name: clean }
-}
 
 /** The write-seam change log face sessions run through ([spec:SP-3fe2] #256):
  *  `commit` binds a session row write and its declared change into one
@@ -262,6 +259,19 @@ interface SessionLifecycleDeps {
     workflowRevisionId?: string
     existingOnly?: boolean
   }): PreparedSessionInstructions
+  /**
+   * Presence-room occupancy for a session (POD-1081). When provided,
+   * `clientCount` is derived from it and attach/watch policy can consult the
+   * same room world. Optional so unit fixtures without the stream plane keep
+   * using the attach-set size.
+   */
+  sessionOccupancyCount?(sessionId: SessionId): number | undefined
+  /**
+   * Join/leave the session presence room when a PTY attaches or detaches so
+   * occupancy and attach stay one mechanism (POD-1081 §5).
+   */
+  sessionRoomJoin?(client: ClientConn, sessionId: SessionId): void
+  sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void
 }
 
 /**
@@ -280,16 +290,6 @@ interface SessionLifecycleDeps {
  * is the composition root that wires this to the other modules and keeps thin
  * public delegates.
  */
-export interface SessionSpawnResult {
-  sessionId: SessionId
-  agentId: string
-  harness: AgentKind
-  model: string | null
-  effort: string | null
-  machine: string
-  machineId: string
-  accountId: AccountId | null
-}
 
 export class SessionLifecycle {
   /** Live maps — public: the composition root's cross-module closures (and the
@@ -307,7 +307,17 @@ export class SessionLifecycle {
   readonly clients: ClientRegistry
 
   /** Durable observer leases, hydrated before session state restoration. */
-  private readonly observationLeases = new Map<SessionId, ObservationLeaseRecord>()
+  private readonly observationLeases = new SessionObservationLeases()
+  /** Terminal-proof reasoning over the lease book (POD-1396). */
+  private readonly terminalProof: SessionTerminalProof
+  /** Daemon presence reconciliation for one machine (POD-1396). */
+  private readonly machineReconciler: SessionMachineReconciler
+  /** The curated name slot and its provenance rule (POD-1396). */
+  private readonly naming: SessionNaming
+  /** Model/effort/credential resolution for a spawn frame (POD-1396). */
+  private readonly launchConfig: SessionLaunchConfig
+  /** Request resolution + spawn-frame construction (POD-1396). */
+  private readonly sessionStart: SessionStart
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -368,6 +378,40 @@ export class SessionLifecycle {
     this.rpc = deps.rpc
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
+    this.terminalProof = new SessionTerminalProof({
+      now: () => this.now(),
+      leases: this.observationLeases,
+      checkpoints: this.store.observationCheckpoints,
+      sessions: () => this.sessions.values(),
+      session: (sessionId) => this.sessions.get(sessionId),
+      pendingForProof: (sessionId, atIso) =>
+        this.store.messages.pendingForSessionProof(sessionId, atIso),
+      isDraining: (sessionId) => this.inbox.isDraining(sessionId),
+      autoContinueActive: (sessionId) => this.autoContinue.isActive(sessionId),
+    })
+    this.launchConfig = new SessionLaunchConfig({
+      store: this.store,
+      settingsViewer: () => this.settingsViewer(),
+    })
+    this.naming = new SessionNaming({
+      session: (sessionId) => this.sessions.get(sessionId),
+      mutate: (sessionId, write) => this.mutateSessionMeta(sessionId, write),
+    })
+    this.machineReconciler = new SessionMachineReconciler({
+      sessions: () => this.sessions.values(),
+      drainInbox: (sessionId) => this.inbox.drain(sessionId),
+      triggerLakeSweep: (machineId) => this.deps.memory.triggerLakeSweep(machineId),
+      resetPriorities: () => this.state.resetPriorities(),
+      pushPriorities: () => this.pushPriorities(),
+      parkArchivedSession: (sessionId) => this.parkArchivedSession(sessionId),
+      reattachMessage: (session, machineId) => this.reattachMessageFor(session, machineId),
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+      viewTiers: (sessionIds) => computePriorities([...this.clients.values()], sessionIds),
+      rebindHeadless: (session) => this.rebindHeadless(session),
+      markVolatileSessionDirty: (sessionId, fields) =>
+        this.repository.markVolatileSessionDirty(sessionId, fields),
+      broadcastSessions: () => this.broadcastSessions(),
+    })
     const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.publication = new SessionPublicationCoordinator({
       clients: this.clients,
@@ -465,6 +509,9 @@ export class SessionLifecycle {
       store: this.store,
       machines: this.machines,
       state: this.state,
+      sessionOccupancyCount: this.deps.sessionOccupancyCount
+        ? (sessionId) => this.deps.sessionOccupancyCount?.(sessionId)
+        : undefined,
     })
     this.repository = new SessionRepository({
       sessions: this.sessions,
@@ -483,6 +530,39 @@ export class SessionLifecycle {
       listSessions: () => this.view.list(),
       now: () => this.now(),
       appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+    })
+    // CONSTRUCTED HERE, NOT EARLIER, AND THE POSITION IS LOAD-BEARING.
+    // SessionStart takes view, repository and state as direct references, so it
+    // must be built after all three exist. The compiler caught this when it was
+    // placed with the other POD-1396 modules near the top of the constructor
+    // ("Property 'view' is used before being assigned") — worth recording
+    // because scripts/server-construction-order.ts walks only the RELAY root and
+    // would NOT have caught a reordering in here (POD-1411).
+    this.sessionStart = new SessionStart({
+      store: this.store,
+      view: this.view,
+      repository: this.repository,
+      state: this.state,
+      launchConfig: this.launchConfig,
+      terminalProof: this.terminalProof,
+      settingsViewer: () => this.settingsViewer(),
+      durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
+      hasSession: (sessionId) => this.sessions.has(sessionId),
+      registerSession: (session) => {
+        this.sessions.set(session.sessionId, session)
+      },
+      sessionMachineId: (sessionId) => this.sessions.get(sessionId)?.machineId,
+      defaultMachine: () => this.machines.defaultMachine(),
+      machineName: (machineId) => this.machines.machineName(machineId),
+      resolveMachineForAgent: (requested, cwd, agentKind, use) =>
+        this.machines.resolveMachineForAgent(requested, cwd, agentKind, use),
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+      broadcastSessions: () => this.broadcastSessions(),
+      soleOwnerForCwd: (cwd) => this.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
+      instructionsForStart: (i) => this.deps.instructionsForStart(i),
+      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
+      setSessionDraft: (i, fromClientId) => this.setSessionDraft(i, fromClientId),
+      emitSessionCreated: (payload) => this.bus.emit('session.created', payload),
     })
     this.headless = new HeadlessService({
       durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
@@ -575,6 +655,8 @@ export class SessionLifecycle {
         this.bus.emit('session.wakeRequested', { sessionId, principal })
         return { ok: true }
       },
+      // Take-control / hold-control re-auth at every apply (POD-1081).
+      authorizeDrive: (principal, sessionId) => this.authorizeClientDrive(principal, sessionId),
     })
     this.sendText = (input) => this.inbox.sendText(input)
     this.interruptText = (input) => this.inbox.interruptText(input)
@@ -614,6 +696,17 @@ export class SessionLifecycle {
         )
       },
       editDraft: (message, clientId) => this.state.handleDraftEdit(message, clientId),
+      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
+      machineUseFor: (principal, sessionId) => this.machineUseForClient(principal, sessionId),
+      sessionOccupancyCount: this.deps.sessionOccupancyCount
+        ? (sessionId) => this.deps.sessionOccupancyCount?.(sessionId)
+        : undefined,
+      sessionRoomJoin: this.deps.sessionRoomJoin
+        ? (client, sessionId) => this.deps.sessionRoomJoin?.(client, sessionId)
+        : undefined,
+      sessionRoomLeave: this.deps.sessionRoomLeave
+        ? (client, sessionId) => this.deps.sessionRoomLeave?.(client, sessionId)
+        : undefined,
     })
 
     this.autoContinue = new AutoContinueController({
@@ -658,7 +751,7 @@ export class SessionLifecycle {
       toMachine: (machineId, message) => this.toMachine(machineId, message),
       now: () => this.now(),
       terminalCandidateFacts: (session, lease, checkpoint) =>
-        this.terminalCandidateFacts(session, lease, checkpoint),
+        this.terminalProof.facts(session, lease, checkpoint),
       broadcastToClients: (message) => this.broadcastToClients(message),
       clearOffer: (sessionId) => this.clearOffer(sessionId),
     })
@@ -801,22 +894,6 @@ export class SessionLifecycle {
     return { ok: true }
   }
 
-  /**
-   * Allocate and durably store the observer lease before its control message is
-   * sent. Shells and non-causal adapters intentionally have no lease.
-   */
-  private fenceObservation(session: Session): ObservationLeaseRecord | undefined {
-    const provider = harnessObservationProvider(session.agentKind)
-    if (!provider) return undefined
-    const lease = this.store.observationCheckpoints.advanceGeneration(
-      session.sessionId,
-      provider,
-      session.resume?.value ?? null,
-    )
-    this.observationLeases.set(session.sessionId, lease)
-    return lease
-  }
-
   dispose(): void {
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
@@ -856,75 +933,27 @@ export class SessionLifecycle {
   }
 
   /**
-   * A machine's daemon became reachable — the SESSION half of what `attachDaemon`
-   * used to do inline. The socket registration, the placeholder adoption, the
-   * queued-control flush, the machine broadcast and the `machine.connected` bus
-   * emit are the gateway's (`gateway/daemon-mux.ts`); everything below is session
-   * orchestration and stays here, in its original order.
-   *
-   * `principal` is the transport-resolved MACHINE principal (ADR 3 D7). Every
-   * write these steps make is a daemon-class observation attributed to that
-   * machine — never to a person, and with no on-behalf-of (ADR 1's daemon writer
-   * class; `docs/multi-user-readiness.md` §3.1.6 S5).
+   * A machine's daemon became reachable / went away — the SESSION half of
+   * attach/detach. Delegated to {@link SessionMachineReconciler}; the gateway
+   * (`gateway/daemon-mux.ts`) owns the transport half and calls these.
    */
   onMachineAttached(principal: MachinePrincipal): void {
-    const machineId = principal.machine
-    // Re-arm queued-send delivery for this machine's sessions: their earlier drain
-    // attempts parked while the daemon was away (single-flight + liveness wait make
-    // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
-    for (const s of this.sessions.values()) {
-      if (s.machineId === machineId && s.queuedMessageCount > 0) {
-        this.inbox.drain(s.sessionId)
-      }
-    }
-    // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
-    // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
-    this.deps.memory.triggerLakeSweep(machineId)
-    // A freshly-(re)connected daemon knows no session's relay priority. Clear the
-    // delta cache so every current session re-sends as a change, then push the full
-    // map — otherwise a daemon restart would leave the scheduler at its default
-    // until the next viewState/attach happened to flip a session.
-    this.state.resetPriorities()
-    this.pushPriorities()
-    // Archived survivors are never rebound — archive means stopped (POD-108).
-    // Rows archived before archive learned to kill, or archived while this
-    // machine's daemon was away, are still 'live'/'reconnecting' here; parking
-    // them sends the kill now that a daemon can receive it (the daemon reaps the
-    // durable host by label even without a bridge). Must run BEFORE the probe
-    // fan-out below so an archived 'reconnecting' row is parked, not reattached.
-    for (const s of this.sessions.values()) {
-      if (s.machineId === machineId && !s.headless && s.archived) {
-        this.parkArchivedSession(s.sessionId)
-      }
-    }
-    // Re-bind survivor sessions ON THIS MACHINE: ask its daemon to reattach to their
-    // live durable host. 'reconnecting' = was live/starting at boot. 'exited' (not
-    // archived) is also probed because a row can be wrongly 'exited': its attach
-    // client died on a daemon restart while the master + agent survived in their
-    // scope (pre-fix orphans, or any residual race). The daemon reattaches a live
-    // master (→ a bind → markLive) or replies reattachFailed (→ it stays exited).
-    // The durable host, not the persisted row, is the source of truth for liveness.
-    // View-priority first, then most-recently-used: the daemon gates its spawn
-    // fan-out, so the order we send in decides who reattaches soonest. A session
-    // some connected client is focused on / rendering (viewState is
-    // server-authoritative — the same tiers the output scheduler uses) must come
-    // back typable before the long unwatched tail (POD-612); within a tier,
-    // lastActiveAt is an ISO string, so a reverse lexical sort is newest-first.
-    const probes = [...this.sessions.values()].filter(
-      (s) =>
-        s.machineId === machineId &&
-        !s.headless &&
-        (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)),
-    )
-    const viewTiers = computePriorities(
-      [...this.clients.values()],
-      probes.map((s) => s.sessionId),
-    )
-    probes.sort(
-      (a, b) =>
-        (viewTiers.get(a.sessionId) ?? 3) - (viewTiers.get(b.sessionId) ?? 3) ||
-        (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
-    )
+    this.machineReconciler.onAttached(principal)
+  }
+
+  onMachineDetached(principal: MachinePrincipal): void {
+    this.machineReconciler.onDetached(principal)
+  }
+
+  /**
+   * The reattach control message for one survivor session.
+   *
+   * `recoveryMachineAccess` was computed ONCE per attach before this moved, and
+   * is computed per session here. Identical result: the decision depends only on
+   * `machineId` and the machines ownership snapshot, and the caller's loop is
+   * synchronous, so nothing can change between iterations.
+   */
+  private reattachMessageFor(session: Session, machineId: string): ControlMessage {
     const recoveryMachineAccess =
       machineUseDecision(
         systemPrincipal('session-rebind'),
@@ -933,96 +962,72 @@ export class SessionLifecycle {
       ) === 'granted'
         ? 'allowed'
         : 'denied'
-    for (const s of probes) {
-      const observationLease = this.fenceObservation(s)
-      const requestedGeneration = observationLease?.observationGeneration ?? 1
-      this.toMachine(machineId, {
-        type: 'reattach',
-        sessionId: s.sessionId,
-        durableLabel: s.durableLabel,
-        agentKind: s.agentKind,
-        cwd: s.cwd,
-        geometry: s.terminal.geometry,
-        binding: {
-          transitionId: `reattach:${s.sessionId}:${requestedGeneration}`,
-          machineAccess: recoveryMachineAccess,
-          sessionAccess: 'allowed',
-          principal: { kind: 'system' },
-        },
-        ...(observationLease
-          ? {
-              observationGeneration: observationLease.observationGeneration,
-              observationBindingVersion: observationLease.bindingVersion,
-              observationProviderSessionId: observationLease.providerSessionId,
-              ...(observationLease.checkpoint
-                ? { observationCheckpoint: observationLease.checkpoint }
-                : {}),
-            }
-          : {}),
-        ...(s.resume ? { resume: s.resume } : {}),
-        ...(this.rpc.transcriptPathHint(
-          { kind: 'system', id: 'session-attach' },
-          { id: s.sessionId, machineId: s.machineId, ...(s.resume ? { resume: s.resume } : {}) },
-        ) ?? {}),
-        // Spawn-time floor for observer-based harnesses (codex): lets a reattached
-        // observer discover a lazily-created rollout it never saw before the restart.
-        ...(Number.isFinite(Date.parse(s.createdAt))
-          ? { createdAtMs: Date.parse(s.createdAt) }
-          : {}),
-        ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      })
-    }
-    // Headless sessions have no PTY to reattach; instead re-establish their
-    // daemon-side transcript tails (fire-and-forget — re-issued on every daemon
-    // connect, so a missed bind self-heals on the next attach).
-    for (const s of this.sessions.values()) {
-      if (s.machineId !== machineId || !s.headless || !s.resume?.value) continue
-      void this.headless
-        .headlessBind({
-          sessionId: s.sessionId,
-          agentKind: s.agentKind,
-          cwd: s.cwd,
-          resumeValue: s.resume.value,
-        })
-        .then((r) => {
-          if (!r.ok) {
-            console.warn(
-              `[podium] headless bind failed for ${s.sessionId}: ${r.error ?? 'unknown'}`,
-            )
+    const observationLease = this.terminalProof.fence(session)
+    const requestedGeneration = observationLease?.observationGeneration ?? 1
+    return {
+      type: 'reattach',
+      sessionId: session.sessionId,
+      durableLabel: session.durableLabel,
+      agentKind: session.agentKind,
+      cwd: session.cwd,
+      geometry: session.terminal.geometry,
+      binding: {
+        transitionId: `reattach:${session.sessionId}:${requestedGeneration}`,
+        machineAccess: recoveryMachineAccess,
+        sessionAccess: 'allowed',
+        principal: { kind: 'system' },
+      },
+      ...(observationLease
+        ? {
+            observationGeneration: observationLease.observationGeneration,
+            observationBindingVersion: observationLease.bindingVersion,
+            observationProviderSessionId: observationLease.providerSessionId,
+            ...(observationLease.checkpoint
+              ? { observationCheckpoint: observationLease.checkpoint }
+              : {}),
           }
-        })
-    }
+        : {}),
+      ...(session.resume ? { resume: session.resume } : {}),
+      ...(this.rpc.transcriptPathHint(
+        { kind: 'system', id: 'session-attach' },
+        {
+          id: session.sessionId,
+          machineId: session.machineId,
+          ...(session.resume ? { resume: session.resume } : {}),
+        },
+      ) ?? {}),
+      // Spawn-time floor for observer-based harnesses (codex): lets a reattached
+      // observer discover a lazily-created rollout it never saw before the restart.
+      ...(Number.isFinite(Date.parse(session.createdAt))
+        ? { createdAtMs: Date.parse(session.createdAt) }
+        : {}),
+      ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
+    } as ControlMessage
   }
 
   /**
-   * That machine's daemon went away — the SESSION half of `detachDaemon`. The
-   * superseded-socket guard, the `machine.disconnected` emit and the machine
-   * broadcast are the gateway's; this runs only once the gateway has decided the
-   * detach is real, in the same position it occupied before.
+   * Re-establish a headless session's daemon-side transcript tail.
+   *
+   * DELIBERATELY NOT AWAITED, exactly as before the move. It is re-issued on
+   * every daemon connect, so a missed bind self-heals on the next attach; making
+   * it awaited here would serialise the rebind loop behind daemon round-trips.
    */
-  onMachineDetached(principal: MachinePrincipal): void {
-    const machineId = principal.machine
-    // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
-    // restart/crash; durable masters survive in their own scopes). Drop only THIS
-    // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
-    // re-binds them — attachDaemon only probes 'reconnecting'/'exited'. Sessions on
-    // OTHER machines are untouched. Without this a daemon-only restart leaves sessions
-    // 'live' but unattached: the server never re-asks and they orphan until a server
-    // restart. (In the old single-process world the daemon never restarted alone, so
-    // this gap couldn't surface.)
-    const changed: Session[] = []
-    for (const s of this.sessions.values()) {
-      if (s.machineId !== machineId) continue
-      // Headless sessions stay 'live' across daemon restarts — no PTY bridge to
-      // lose; their tails re-establish via headlessBind on the next attach.
-      if (s.headless) continue
-      if (s.markReconnecting()) changed.push(s)
-    }
-    if (changed.length > 0) {
-      for (const session of changed)
-        this.repository.markVolatileSessionDirty(session.sessionId, ['status'])
-      this.broadcastSessions()
-    }
+  private rebindHeadless(session: Session): void {
+    if (!session.resume?.value) return
+    void this.headless
+      .headlessBind({
+        sessionId: session.sessionId,
+        agentKind: session.agentKind,
+        cwd: session.cwd,
+        resumeValue: session.resume.value,
+      })
+      .then((r) => {
+        if (!r.ok) {
+          console.warn(
+            `[podium] headless bind failed for ${session.sessionId}: ${r.error ?? 'unknown'}`,
+          )
+        }
+      })
   }
 
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
@@ -1118,6 +1123,30 @@ export class SessionLifecycle {
     return { owner: parentOwner, grants }
   }
 
+  /**
+   * Machine `use` for a browser principal against the session's host
+   * (POD-1081 §4). Independent of session grants — share is not a back door.
+   */
+  machineUseForClient(
+    principal: ClientPrincipal,
+    sessionId: SessionId,
+  ): 'granted' | 'denied' | 'absent' {
+    const session = this.sessions.get(sessionId) ?? this.store.sessions.getSession(sessionId)
+    if (!session) return 'absent'
+    const command = userCommandPrincipal(asUserId(principal.user), principal.role)
+    const ownership = ownershipFromMachines(this.machines)
+    // machineUseDecision collapses absent+denied to 'denied' when the principal
+    // cannot see the machine; attach maps both to terminalOutcome unauthorized.
+    return machineUseDecision(command, session.machineId, ownership) === 'granted'
+      ? 'granted'
+      : 'denied'
+  }
+
+  /** Live drive gate for requestControl / controller input (POD-1081 §3). */
+  authorizeClientDrive(principal: ClientPrincipal, sessionId: SessionId): boolean {
+    return this.clientControl.authorizeDrive(principal, sessionId)
+  }
+
   /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
    *  offer replaces the previous one. Persisted in the `offers` table (off-row,
    *  like snooze) and broadcast so every client's chat bar updates. */
@@ -1167,174 +1196,10 @@ export class SessionLifecycle {
    *  `initialPrompt` hands the fresh session the human's first prompt: for argv-capable
    *  agents (claude/codex/grok) it rides the launch command (`claude "<prompt>"`,
    *  race-free); for the rest it's seeded into the composer draft. */
-  createSession(input: {
-    /** Authenticated human owner; every production caller supplies this. */
-    ownerUserId?: UserId
-    agentKind?: AgentKind
-    cwd: string
-    title?: string
-    /** Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60]. Lands in the
-     *  `name` slot with `nameSource='agent'` (NOT the derived `title` slot). Same
-     *  normalize rules as setAgentName; optional — absent leaves the child unnamed
-     *  so it self-titles as today. */
-    name?: string
-    machineId?: string
-    initialPrompt?: string
-    /** Per-ticket model/effort override; absent = use the settings defaults. */
-    model?: string
-    effort?: string
-    /** Resolved account selection from an execution profile; never credential material. */
-    accountId?: AccountId
-    /** Deliberately spawn with a model slug the live catalog doesn't list (bypasses
-     *  the unknown-MODEL rejection only) [spec:SP-cc60]. Recorded in events when it
-     *  takes effect. */
-    forceUnknownModel?: boolean
-    /** Creation provenance (issue #60). Deliberately NOT defaulted here — the tRPC
-     *  router stamps 'user' (its callers are the human seams); programmatic callers
-     *  (issues, superagent) pass their own value. Absent = unknown. */
-    spawnedBy?: string
-    /** OPTIONAL workflow pass-through metadata (#285 via #237 [spec:SP-34d7
-     *  cross-harness]) — persisted verbatim, never interpreted here. */
-    workflowRunId?: string
-    workflowStepId?: string
-    executionProfileId?: string
-    /** Explicit issue attachment (issue-as-workspace). Absent = derive: a session
-     *  spawned inside a worktree owned by exactly one non-archived issue is
-     *  "continuing that issue" and gets its id stamped. */
-    issueId?: IssueId
-    /** Client-supplied id (optimistic UI): use this verbatim instead of minting a
-     *  fresh uuid, so an optimistic client row reconciles onto the real session
-     *  without a swap. Absent = mint one (unchanged default behavior). */
-    sessionId?: SessionId
-    /** Explicit workflow override; absent = issue → repository → global default. */
-    workflowRevisionId?: string
-    /** The CALLING principal's per-machine `use` decision (ADR 3 Am1 D18). Absent
-     *  = not evaluated, which is what every non-command-plane caller (issue
-     *  start, superagent, boot reconcile) passes today. Threaded into placement
-     *  so an IMPLICIT machine pick can never land on a machine the principal may
-     *  not execute on — readiness §3.1.4 M5's "must not offer". */
-    use?: MachineUseResolver
-    /** Authenticated transport principal translated at the command composition
-     * root. Internal pre-account callers default to the one authenticated user
-     * here on the server; the daemon never invents one. */
-    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
-  }): SessionSpawnResult {
-    // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
-    // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
-    // the issue's `defaultAgent` `as AgentKind` at the boundary). 'auto' is NOT a
-    // valid AgentKind: persisting or broadcasting it fails the sessionsChanged
-    // zod-parse and silently wipes the whole session list on every client.
-    // safeParse anything that isn't a real kind back to the coding role's harness.
-    const requested = AgentKind.safeParse(input.agentKind)
-    const agentKind = requested.success
-      ? requested.data
-      : resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').harness
-    // Reject an explicit model/effort the live catalog doesn't list BEFORE any spawn
-    // side effect [spec:SP-cc60]. The last line of defense for the agent-spawn path
-    // (issue start/add-session pre-check earlier, before mutating start state).
-    const { forced } = assertModelSelectionValid(this.store.settings.getModelCatalog(), {
-      agentKind,
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      ...(input.forceUnknownModel ? { force: true } : {}),
-    })
-    // Spawner name is validated before any side effect so a bad title never
-    // leaves a half-spawned session. Fresh sessions have no user name to refuse.
-    let curatedName: string | undefined
-    if (input.name !== undefined) {
-      const norm = normalizeAgentName(input.name)
-      if (!norm.ok) throw new Error(norm.reason)
-      curatedName = norm.name
-    }
-    // Explicit attachment wins; otherwise starting in an issue-owned worktree
-    // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? this.deps.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
-    // MINT SITE: a server-minted session id. The brand belongs where the id is
-    // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const preparedInstructions = this.deps.instructionsForStart({
-      sessionId,
-      cwd: input.cwd,
-      agentKind,
-      ...(issueId ? { issueId } : {}),
-      ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
-    })
-    const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
-    // Session ownership is declared per class: an issue-owned child inherits the
-    // issue owner; otherwise a binding resolves to its on-behalf-of human. The
-    // explicit owner is the transport composition root's already-resolved answer,
-    // never a wire field. The final fallback exists only for legacy in-process
-    // callers with no binding.
-    const parentOwner = issueId ? this.store.issues.getIssue(issueId)?.ownerUserId : undefined
-    const bindingOwner =
-      input.binding?.principal.kind === 'user'
-        ? input.binding.principal.userId
-        : input.binding?.principal.kind === 'agent'
-          ? this.sessionOwner(input.binding.principal.parentBindingId)?.owner
-          : undefined
-    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
-    const machineId = this.machines.resolveMachineForAgent(
-      input.machineId,
-      input.cwd,
-      agentKind,
-      input.use,
-    )
-    const spawned = this.spawn({
-      agentKind,
-      ownerUserId,
-      cwd: input.cwd,
-      ...(input.title !== undefined ? { title: input.title } : {}),
-      ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
-      origin: { kind: 'spawn' },
-      machineId,
-      bindingMachineAccess: input.use?.(machineId) === 'denied' ? 'denied' : 'allowed',
-      ...(useArgv ? { initialPrompt: taskPrompt } : {}),
-      ...(preparedInstructions.instructions.length
-        ? { instructions: preparedInstructions.instructions }
-        : {}),
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
-      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
-      ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
-      ...(issueId ? { issueId } : {}),
-      binding: input.binding ?? {
-        // One ownership answer feeds both the durable row and the daemon binding;
-        // this seam never invents a different principal.
-        principal: { kind: 'user', userId: ownerUserId },
-      },
-      sessionId,
-    })
-    preparedInstructions.commit()
-    if (taskPrompt !== undefined && !useArgv) {
-      this.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
-    }
-    // Fire-and-forget notification (post-spawn, so subscribers observe the new
-    // world). Its one consumer today is the opt-in telemetry usage counter
-    // [spec:SP-f933], which is why the payload carries the harness kind and
-    // nothing else — no cwd, no prompt, no issue id.
-    this.bus.emit('session.created', { sessionId: spawned.sessionId, agentKind })
-    // Forcing an unlisted model is a deliberate override — make it durable and
-    // observable across every spawn path [spec:SP-cc60]. Only emitted when the force
-    // actually bypassed an unknown model (a known model needs no force).
-    if (forced) {
-      this.store.events.appendEvent({
-        ts: new Date().toISOString(),
-        kind: 'agent.model_forced',
-        subject: spawned.sessionId,
-        payload: {
-          sessionId: spawned.sessionId,
-          harness: agentKind,
-          ...(input.model !== undefined ? { model: input.model } : {}),
-          ...(issueId ? { issueId } : {}),
-          ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-        },
-      })
-    }
-    return spawned
+  /** Create a session: resolve the request, then spawn it. Delegated to
+   *  {@link SessionStart}, which owns both halves. */
+  createSession(input: Parameters<SessionStart['create']>[0]): SessionSpawnResult {
+    return this.sessionStart.create(input)
   }
 
   /** The capability a relayed agent session presents: worker, scoped to the issue whose
@@ -1552,57 +1417,19 @@ export class SessionLifecycle {
     this.broadcastSessions()
   }
 
-  /**
-   * A HUMAN names the session (web rename, superagent `rename_session`) — the
-   * curated slot, stamped `nameSource = 'user'` (#490). That stamp is sovereign:
-   * setAgentName refuses against it forever after, so an agent can never overwrite
-   * a name the user picked.
-   *
-   * Clearing (name = '') also clears the source — the session is unnamed again, so
-   * an agent may name it (and the prime will ask it to).
-   */
-  renameSession({ sessionId, name }: { sessionId: SessionId; name: string }): void {
-    this.mutateSessionMeta(sessionId, (session) => {
-      const clean = name.trim()
-      session.name = clean
-      session.nameSource = clean ? 'user' : undefined
-    })
+  /** A HUMAN names the session. Delegated to {@link SessionNaming}, which owns
+   *  the user-sovereign provenance rule. */
+  renameSession(input: { sessionId: SessionId; name: string }): void {
+    this.naming.rename(input)
   }
 
-  /**
-   * The AGENT names its own session (#490) — `podium session title "…"`, relayed as
-   * sessions.title and bound to the calling session by the capability.
-   *
-   * Writes the same curated `name` slot the user writes, so it wins in the UI over
-   * the derived `title` — but stamped 'agent', and REFUSED when the user already
-   * named it. An agent may overwrite its OWN earlier agent-set name (retitling as
-   * the work becomes clear) and may name a session whose name nobody set.
-   *
-   * Refusal is a returned reason, not a throw: the CLI prints it and the agent
-   * carries on. Same persist + broadcast path as renameSession.
-   */
-  setAgentName({ sessionId, name }: { sessionId: SessionId; name: string }): {
+  /** The AGENT names its own session; refused against a user-set name. */
+  setAgentName(input: { sessionId: SessionId; name: string }): {
     ok: boolean
     name?: string
     reason?: string
   } {
-    const session = this.sessions.get(sessionId)
-    if (!session) return { ok: false, reason: 'session not found' }
-    const norm = normalizeAgentName(name)
-    if (!norm.ok) return { ok: false, reason: norm.reason }
-    // User-set names are sovereign [spec:SP-eb60]: refuse, never throw, never overwrite.
-    if (session.nameSource === 'user') {
-      return {
-        ok: false,
-        name: session.name,
-        reason: `this session was named by the user ("${session.name}") — an agent cannot rename it`,
-      }
-    }
-    this.mutateSessionMeta(sessionId, (s) => {
-      s.name = norm.name
-      s.nameSource = 'agent'
-    })
-    return { ok: true, name: norm.name }
+    return this.naming.setAgentName(input)
   }
 
   setArchived({ sessionId, archived }: { sessionId: SessionId; archived: boolean }): void {
@@ -1761,6 +1588,12 @@ export class SessionLifecycle {
       selfStop?: boolean
       /** Parent-close/issue-stop provenance; direct forced stops derive below. */
       stopReason?: 'self' | 'parent' | 'forced'
+      /**
+       * Who asked for the stop (POD-1344). Stamped onto the free-worktree audit
+       * comment. Absent only on genuinely caller-less paths (tests, in-process
+       * jobs) — those fall back to `systemPrincipal('stop')`.
+       */
+      principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{
@@ -1843,9 +1676,13 @@ export class SessionLifecycle {
         input.sessionId,
       )
       if (stillUsing.length === 0) {
-        const freed = await issues.freeWorktreeKeepBranch(issueId, {
-          force: input.force === true,
-        })
+        const freed = await issues.freeWorktreeKeepBranch(
+          issueId,
+          input.principal ?? systemPrincipal('stop'),
+          {
+            force: input.force === true,
+          },
+        )
         if (!freed.ok) {
           if (wasRunning && !input.selfStop) this.killStoppedSession(session)
           return {
@@ -1902,6 +1739,12 @@ export class SessionLifecycle {
       force?: boolean
       /** Session performing the stop (for self-stop deferral when it is a member). */
       callerSessionId?: string
+      /**
+       * Who asked for the stop (POD-1344). Stamped onto free-worktree audit
+       * comments. Absent only on genuinely caller-less paths — those fall back
+       * to `systemPrincipal('stop')`.
+       */
+      principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{
@@ -1918,6 +1761,7 @@ export class SessionLifecycle {
     const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), issue.id)
     const stopped: string[] = []
     let deferredKill = false
+    const principal = input.principal ?? systemPrincipal('stop')
     // Non-self members first (immediate kill). Self last so sibling stops + free
     // finish before the caller's deferred kill is armed after the relay reply.
     const ordered = [
@@ -1931,6 +1775,7 @@ export class SessionLifecycle {
           force: input.force,
           selfStop: input.callerSessionId === m.sessionId,
           stopReason: input.force ? 'forced' : 'parent',
+          principal,
         },
         issues,
       )
@@ -1952,7 +1797,7 @@ export class SessionLifecycle {
     if (wt) {
       const stillUsing = liveSessionsUsingWorktree(wt, this.listSessions())
       if (stillUsing.length === 0) {
-        const freed = await issues.freeWorktreeKeepBranch(input.issueId, {
+        const freed = await issues.freeWorktreeKeepBranch(input.issueId, principal, {
           force: input.force === true,
         })
         if (!freed.ok) {
@@ -1978,126 +1823,24 @@ export class SessionLifecycle {
   }
 
   /**
+   * Whether this session has a valid, unconsumed terminal proof. Delegates to
+   * {@link SessionTerminalProof}; kept here because `relay.ts` and the hosts
+   * module reach it through this service's public surface.
+   */
+  hasValidTerminalProof(sessionId: SessionId): boolean {
+    return this.terminalProof.hasValidProof(sessionId)
+  }
+
+  terminalProofMissing(sessionId: SessionId): boolean {
+    return this.terminalProof.proofMissing(sessionId)
+  }
+
+  /**
    * Park a live session: kill its process (and durable host) but keep the row,
    * its transcript, and the resume ref. One click brings it back. Returns false
    * when the session can't come back later (no resume ref) — we refuse rather
    * than silently turn "hibernate" into "kill".
    */
-  private terminalCandidateFacts(
-    session: Session,
-    lease: ObservationLeaseRecord,
-    checkpoint = lease.checkpoint,
-  ): TerminalCandidateFacts | null {
-    const fence = checkpoint?.terminalFence
-    if (!checkpoint || !fence || fence.closing) return null
-    if (!['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)) return null
-    const addressedMessages = this.store.messages
-      .pendingForSessionProof(session.sessionId, new Date(this.now()).toISOString())
-      .map((message) => ({
-        id: message.id,
-        status: message.status,
-        deliveredAt: message.deliveredAt,
-        injectedAt: message.injectedAt ?? null,
-        ackedBy: message.ackedBy,
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id))
-    const activeChildren = [...this.sessions.values()]
-      .filter(
-        (child) =>
-          child.spawnedBy === `session:${session.sessionId}` &&
-          (child.status === 'starting' ||
-            child.status === 'live' ||
-            child.status === 'reconnecting'),
-      )
-      .map((child) => ({
-        sessionId: child.sessionId,
-        status: child.status,
-        activityCount: child.terminal.activityCount,
-      }))
-      .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
-    const activeWork = {
-      nativeSubagentCount: checkpoint.turnState.nativeSubagentCount,
-      nativeSubagentIds: (checkpoint.turnState.nativeSubagents ?? [])
-        .map((child) => child.id)
-        .sort(),
-      awaitingSubagents: checkpoint.turnState.awaitingSubagents === true,
-      childSessions: activeChildren,
-      queueDrainActive: this.inbox.isDraining(session.sessionId),
-      draftPending: session.draftUpdatedAt !== undefined,
-      draftVersion: session.draftUpdatedAt ?? null,
-      offerPending: session.offer !== undefined,
-    }
-    return {
-      schemaVersion: 1,
-      sessionId: session.sessionId,
-      terminalTransitionId: fence.transitionId,
-      terminalTurnEpoch: fence.turnEpoch,
-      provider: lease.provider,
-      providerSessionId: lease.providerSessionId,
-      bindingVersion: lease.bindingVersion,
-      observerGeneration: lease.observationGeneration,
-      providerCursor: checkpoint.providerCursor ?? fence.providerCursor,
-      lastLiveReceiptAt: checkpoint.lastLiveReceiptAt,
-      lastTransitionId: checkpoint.lastTransitionId,
-      lastActiveAt: session.lastActiveAt,
-      lastInputAtMs: session.terminal.lastInputAtMs,
-      lastOutputAtMs: session.terminal.lastOutputAtMs,
-      lastResumedAtMs: session.terminal.lastResumedAtMs,
-      inputCount: session.terminal.inputCount,
-      outputCount: session.terminal.outputCount,
-      activityCount: session.terminal.activityCount,
-      queuedInputCount: session.queuedMessageCount,
-      pendingMessages: addressedMessages,
-      autoContinueActive: this.autoContinue.isActive(session.sessionId),
-      activeWork,
-      resumable: session.resume !== undefined,
-      machineId: session.machineId,
-    }
-  }
-
-  private terminalFactsConsumable(facts: TerminalCandidateFacts): boolean {
-    if (
-      !facts.resumable ||
-      facts.queuedInputCount !== 0 ||
-      facts.pendingMessages.length !== 0 ||
-      facts.autoContinueActive
-    )
-      return false
-    const active = facts.activeWork
-    return (
-      active.nativeSubagentCount === 0 &&
-      !active.awaitingSubagents &&
-      active.childSessions.length === 0 &&
-      !active.queueDrainActive &&
-      !active.draftPending &&
-      !active.offerPending
-    )
-  }
-
-  hasValidTerminalProof(sessionId: SessionId): boolean {
-    const session = this.sessions.get(sessionId)
-    const lease = this.store.observationCheckpoints.get(sessionId)
-    if (!session || !lease || (session.status !== 'live' && session.status !== 'reconnecting'))
-      return false
-    const facts = this.terminalCandidateFacts(session, lease)
-    const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
-    return Boolean(
-      facts &&
-        proof?.confirmedAt &&
-        !proof.consumedAt &&
-        JSON.stringify(proof.facts) === JSON.stringify(facts) &&
-        this.terminalFactsConsumable(facts),
-    )
-  }
-
-  terminalProofMissing(sessionId: SessionId): boolean {
-    const lease = this.store.observationCheckpoints.get(sessionId)
-    return (
-      lease?.checkpoint?.terminalFence == null ||
-      this.store.observationCheckpoints.getTerminalCandidate(sessionId) == null
-    )
-  }
-
   hibernateSession({
     sessionId,
     requireTerminalProof = false,
@@ -2121,9 +1864,9 @@ export class SessionLifecycle {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
     const lease = requireTerminalProof ? this.store.observationCheckpoints.get(sessionId) : null
-    const facts = lease ? this.terminalCandidateFacts(session, lease) : null
+    const facts = lease ? this.terminalProof.facts(session, lease) : null
     if (requireTerminalProof) {
-      if (!facts || !this.terminalFactsConsumable(facts)) {
+      if (!facts || !this.terminalProof.consumable(facts)) {
         return { ok: false, reason: 'terminal state is not safely reapable' }
       }
       const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
@@ -2145,7 +1888,7 @@ export class SessionLifecycle {
           ? () => {
               const currentLease = this.store.observationCheckpoints.get(sessionId)
               const currentFacts = currentLease
-                ? this.terminalCandidateFacts(session, currentLease)
+                ? this.terminalProof.facts(session, currentLease)
                 : null
               if (
                 !currentFacts ||
@@ -2343,7 +2086,7 @@ export class SessionLifecycle {
     // lastActiveAt makes it immediately eligible to be parked again.
     session.markResumed()
     this.repository.persist(session)
-    const observationLease = this.fenceObservation(session)
+    const observationLease = this.terminalProof.fence(session)
     this.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
@@ -2366,8 +2109,8 @@ export class SessionLifecycle {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...this.modelDefaults(session.agentKind),
-      ...this.accountEnv(session.agentKind, session.accountId),
+      ...this.launchConfig.modelDefaults(session.agentKind),
+      ...this.launchConfig.accountEnv(session.agentKind, session.accountId),
       ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     preparedInstructions.commit()
@@ -2574,140 +2317,8 @@ export class SessionLifecycle {
     }
   }
 
-  private spawn(input: {
-    agentKind: AgentKind
-    ownerUserId?: UserId
-    cwd: string
-    title?: string
-    /** Curated name at birth (spawner-prescribed or other); pairs with nameSource. */
-    name?: string
-    nameSource?: 'user' | 'agent'
-    origin: SessionMeta['origin']
-    resume?: ResumeRef
-    machineId?: string
-    initialPrompt?: string
-    instructions?: AgentInstruction[]
-    /** Per-ticket model/effort override; absent = use the settings defaults. */
-    model?: string
-    effort?: string
-    accountId?: AccountId
-    spawnedBy?: string
-    workflowRunId?: string
-    workflowStepId?: string
-    executionProfileId?: string
-    issueId?: IssueId
-    /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
-    sessionId?: SessionId
-    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
-    bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
-  }): SessionSpawnResult {
-    // A server-minted uuid was unique by construction; a client-supplied id is
-    // not. Reject a collision rather than let `sessions.set` overwrite the live
-    // Session (orphaning its PTY/daemon binding) or re-fire a spawn. `withMutation`
-    // already dedupes a genuine retry before we get here, so a hit is a real clash.
-    if (input.sessionId && this.sessions.has(input.sessionId)) {
-      throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
-    }
-    // MINT SITE: a server-minted session id. The brand belongs where the id is
-    // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const machineId = input.machineId
-      ? asMachineId(input.machineId)
-      : this.machines.defaultMachine()
-    const launch = this.modelDefaults(
-      input.agentKind,
-      input.model !== undefined || input.effort !== undefined
-        ? { model: input.model, effort: input.effort }
-        : undefined,
-    )
-    const accountId =
-      input.agentKind === 'shell'
-        ? undefined
-        : (input.accountId ??
-          resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding')
-            .accountId)
-    const session = new Session({
-      sessionId,
-      durableLabel: this.deps.durableLabelFor(sessionId),
-      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
-      agentKind: input.agentKind,
-      cwd: input.cwd,
-      title: input.title || basename(input.cwd) || input.cwd,
-      ...(launch.model ? { model: launch.model } : {}),
-      ...(launch.effort ? { effort: launch.effort } : {}),
-      ...(accountId ? { accountId } : {}),
-      origin: input.origin,
-      createdAt: new Date().toISOString(),
-      geometry: { ...DEFAULT_GEOMETRY },
-      machineId,
-      // Bind the route to the live machineId (tracks the local-adoption reassignment).
-      toDaemon: (msg) => this.toMachine(this.sessions.get(sessionId)?.machineId ?? machineId, msg),
-      onActivity: () => {
-        // Shell busy transitions advance lastActiveAt (their only activity signal);
-        // persist so that recency is durable across a restart, then rebroadcast.
-        this.repository.persist(session)
-        this.broadcastSessions()
-      },
-      ...(input.resume ? { resume: input.resume } : {}),
-      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
-      ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
-      ...(input.issueId ? { issueId: input.issueId } : {}),
-      ...(input.name ? { name: input.name } : {}),
-      ...(input.nameSource ? { nameSource: input.nameSource } : {}),
-    })
-    this.sessions.set(sessionId, session)
-    // Naming point (#474): input.issueId is the resolved birth issue (or absent
-    // for a genuinely issueless spawn) — allocate the permanent ref now.
-    const additionalWrite = this.view.prepareRefAllocation(session)
-    this.repository.persist(session, additionalWrite)
-    const observationLease = this.fenceObservation(session)
-    this.toMachine(machineId, {
-      type: 'spawn',
-      sessionId,
-      durableLabel: session.durableLabel,
-      agentKind: input.agentKind,
-      cwd: input.cwd,
-      ...(input.binding
-        ? {
-            binding: {
-              transitionId: `spawn:${sessionId}`,
-              machineAccess: input.bindingMachineAccess ?? 'allowed',
-              ...input.binding,
-              ...(input.issueId ? { issueId: input.issueId } : {}),
-            },
-          }
-        : {}),
-      ...(observationLease
-        ? {
-            observationGeneration: observationLease.observationGeneration,
-            observationBindingVersion: observationLease.bindingVersion,
-            observationProviderSessionId: observationLease.providerSessionId,
-            ...(observationLease.checkpoint
-              ? { observationCheckpoint: observationLease.checkpoint }
-              : {}),
-          }
-        : {}),
-      ...(input.resume ? { resume: input.resume } : {}),
-      ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
-      ...(input.instructions?.length ? { instructions: input.instructions } : {}),
-      geometry: { ...DEFAULT_GEOMETRY },
-      ...launch,
-      ...this.accountEnv(input.agentKind, accountId),
-      ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
-    })
-    this.broadcastSessions()
-    return {
-      sessionId,
-      agentId: sessionId,
-      harness: input.agentKind,
-      model: launch.model ?? null,
-      effort: launch.effort ?? null,
-      machine: this.machines.machineName(machineId),
-      machineId,
-      accountId: accountId ?? null,
-    }
+  private spawn(input: Parameters<SessionStart['spawn']>[0]): SessionSpawnResult {
+    return this.sessionStart.spawn(input)
   }
 
   /**
@@ -2733,62 +2344,6 @@ export class SessionLifecycle {
    */
   private settingsViewer(): UserId {
     return FIRST_ADMIN_USER_ID
-  }
-
-  private modelDefaults(
-    agentKind: AgentKind,
-    override?: { model?: string; effort?: string },
-  ): { model?: string; subagentModel?: string; effort?: string; seedCliTheme?: boolean } {
-    const settings = this.store.settings.getSettingsFor(this.settingsViewer())
-    const coding = settings.roles.coding
-    const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
-    const explicitModel = override?.model
-    const explicitEffort = override?.effort
-    const model =
-      explicitModel !== undefined && explicitModel !== 'auto'
-        ? explicitModel
-        : useCodingDefaults
-          ? coding.model
-          : 'auto'
-    const effort =
-      explicitEffort !== undefined && explicitEffort !== 'auto'
-        ? explicitEffort
-        : useCodingDefaults
-          ? coding.effort
-          : 'auto'
-    const subagentModel = coding.subagentModel
-    return {
-      ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),
-      ...(subagentModel !== 'auto' && harnessCapabilitiesFor(agentKind)?.subagentModelEnv
-        ? { subagentModel }
-        : {}),
-      // Cursor + shell have no effort flag; agentLaunchCommand also drops it, but
-      // gating here keeps the spawn message clean (capability lookup, #158).
-      ...(effort !== 'auto' && harnessSupportsEffort(agentKind) ? { effort } : {}),
-      // Per-session CLI theme seeding rides every (re)spawn so a resurrected
-      // session keeps the configured behaviour too [spec:SP-a04d].
-      ...(agentKind !== 'shell' ? { seedCliTheme: coding.seedCliTheme } : {}),
-    }
-  }
-
-  /** The managed credential (if any) for the coding role, as spawn env (#216).
-   *  Native accounts yield {} — the CLI uses its own login and the frame is
-   *  unchanged. Read live at spawn, like modelDefaults.
-   *
-   *  NEVER injected into a 'shell' pane: a shell is an interactive prompt the user
-   *  drives, so the credential would be one `env` away from being streamed to the
-   *  browser and written into persisted scrollback. Only an agent harness — which
-   *  is what the coding role's credential is FOR — gets it. (modelDefaults()
-   *  special-cases shell for the same reason of shape: a shell is not an agent.) */
-  private accountEnv(
-    agentKind: AgentKind,
-    accountId = resolveRole(
-      this.store.settings.getSettingsFor(this.settingsViewer()),
-      'coding',
-    ).accountId,
-  ): { env?: Record<string, string> } {
-    if (agentKind === 'shell') return {}
-    return resolveAccountEnv(this.store.accounts, accountId)
   }
 
   // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----

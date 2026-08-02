@@ -49,7 +49,28 @@ import type { Session } from '../session'
  * protection has to be the derivation itself: widen the manifest's list and this
  * follows, fork it and the two drift with nobody watching.
  */
-type ExportableAgentKind = HandoffManifestV1['agentKind']
+export type ExportableAgentKind = HandoffManifestV1['agentKind']
+
+/**
+ * THE COMMAND'S OWN VOCABULARY — input, result, and the one pinned refusal
+ * string — beside {@link HandoffCaller}, which is the same category of thing
+ * (what the command is called WITH). They live here rather than on the
+ * coordinator because every phase module speaks them and none of the phases
+ * should have to import a sibling phase to name its own argument.
+ */
+export interface HandoffInput {
+  sessionId: SessionId
+  machineId: string
+}
+
+export type HandoffResult = { ok: true; newCwd: string }
+
+/** The pinned not-found shape for THIS command. Handoff is the odd one out among
+ *  the session writes — POD-379's oracle pins its absent path as a throw with
+ *  this exact message, where the rest answer `'session not found'` — so the
+ *  shared `resolveSessionTarget`'s `absent` outcome maps onto it rather than
+ *  replacing it. */
+export const HANDOFF_UNKNOWN_SESSION = 'unknown session'
 
 /** The five daemon legs, exactly as `DaemonRpcService` already exposes them. */
 export interface HandoffRpcPort {

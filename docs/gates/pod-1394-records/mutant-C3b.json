@@ -1,0 +1,25 @@
+{
+  "id": "C3b",
+  "file": "apps/server/src/auth-route.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/auth-route.test.ts apps/server/src/wsServer.client-auth.test.ts",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "original_sha256": "be05e64008b838c10cfc8ce66e44b76db8bd648066506f38885489fd9f70306f",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 48,
+      "anchor_first_line": "if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined",
+      "grep_back_kind": "deletion: anchor absent",
+      "grep_back_probe": "if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "374db896b8ed03469ced0de2b3e8e7c9b50ba49f1fac6bcc5043b5c865335765",
+  "exit_code": 1,
+  "elapsed_s": 57.2,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\nstdout | apps/server/src/auth-route.test.ts > requestUserId / isRequestAuthed (auth gate) > rejects an expired session cookie (present row, past expiresAt)\n[podium:server] applied migrations: 20260715135845_baseline, 20260716075324_redesign-persistence, 20260716083847_messaging-issue-topics, 20260716134142_one-off-automation-schedules, 20260716181038_agent-action-offers, 20260717092407_issue-revision-and-feed-identity, 20260717150407_message-lifecycle-834, 20260717163430_expects-response-835, 20260717205119_notification-facts, 20260717210647_index-changes-event-time, 20260717211055_message-wake-cooldowns, 20260717214026_message-notification-facts, 20260717215846_deterministic-session-status, 20260717225739_coordinator-session-issue-provenance, 20260718013423_janitor-maintenance-fencing, 20260718030038_janitor-expiry-indexes, 20260718093018_session-drafts-versioned, 20260718123614_proposed-lane-brief, 20260718124039_session-stop-metadata, 20260718141035_issue-closed-at, 20260718193851_session-observation-checkpoints, 20260718210501_queued-input-origin, 20260719085842_session-observation-rebind-receipts, 20260719113037_terminal-hibernation-proof, 20260721145214_offer-artifacts, 20260722150425_issue-sort-key, 20260724134702_session-spawn-failure, 20260725002157_issue-tucked-at, 20260730104951_per-user-state-keying, 20260730145954_workflow-attribution-pair, 20260730162954_change-provenance-envelope, 20260730173834_user-accounts-first-admin, 20260730181721_add-feed-identity-table, 20260730201523_per-user-state-family, 20260730210350_machine-ownership, 20260730224810_server-secret-store, 20260730230202_telegram-chat-binding, 20260731004403_settings-audit-trail, 20260731040000_personal-preference-store, 20260731195047_phase-3-policy-ownership, 20260731221009_feed-identity-singleton, 20260731225445_drop-dead-sync-feed, 20260801022516_inbox-attribution-delegation, 20260802035017_drop-local-machine-defaults, 20260802095200_user-layout-store\n\n \u276f |node| apps/server/src/auth-route.test.ts (26 tests | 1 failed) 25595ms\n     \u00d7 rejects an expired session cookie (present row, past expiresAt) 715ms\n\n Test Files  1 failed | 1 passed (2)\n      Tests  1 failed | 32 passed (33)\n   Start at  17:05:40\n   Duration  54.24s (transform 58.09s, setup 908ms, import 72.25s, tests 33.13s, environment 0ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/auth-route.test.ts > requestUserId / isRequestAuthed (auth gate) > rejects an expired session cookie (present row, past expiresAt)\nAssertionError: expected 'user:sole' to be undefined\n\n- Expected:\nundefined\n\n+ Received:\n\"user:sole\"\n\n \u276f apps/server/src/auth-route.test.ts:323:54\n    321|     const cookie = cookieFor(token)\n    322|     expect(store.auth.getClientSession(hashToken(token))?.userId).toBe\u2026\n    323|     expect(requestUserId(store.auth, cookie, nowMs)).toBeUndefined()\n       |                                                      ^\n    324|     expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)\n    325|   })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "be05e64008b838c10cfc8ce66e44b76db8bd648066506f38885489fd9f70306f",
+  "restored_identical": true,
+  "git_clean_after": true
+}

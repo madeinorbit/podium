@@ -1,0 +1,25 @@
+{
+  "id": "C4a",
+  "file": "packages/sync/src/authority/scoping.ts",
+  "cmd": "bun run audit:scoped-feed",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "original_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 67,
+      "anchor_first_line": "readonly kind: 'batch'",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "readonly kind: 'batch'",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "0290b3b3832b3a5c56a35588f07b8d1cb9286768a9a68be556610666ca8ac1ca",
+  "exit_code": 1,
+  "elapsed_s": 1.3,
+  "output": "scoped-feed audit: all source-text probes found their fixtures and spared the clean ones\n$ bun scripts/audit-scoped-feed.ts --probe && bun scripts/audit-scoped-feed.ts\nScoped-feed audit: 1 finding(s). POD-1077's claims are:\n  \u00b7 the device-grade \"everyone\" policy has exactly ONE declared composition root\n  \u00b7 neither Authority read path can be reached without a principal\n  \u00b7 `remove` is never how a revocation is expressed (D14.5)\n  \u00b7 a filtered list cannot travel without its certified range (D13)\n  (the RUNNING feed \u2014 does it filter, watermark and survive a suppressed firehose \u2014 is\n   scripts/audit-scoped-feed.test.ts, which resolves the kernel under vitest)\n\n  delivery-shape  packages/sync/src/authority/scoping.ts\n      `throughSeq` is not a required `number` on the batch arm. Optional, and a filtered list can be delivered with no certified range \u2014 every suppressed row becomes a permanent invisible gap (ADR 2 D2, POD-351).\nerror: script \"audit:scoped-feed\" exited with code 1\n",
+  "restored_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "restored_identical": true,
+  "git_clean_after": true
+}

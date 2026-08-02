@@ -22,7 +22,7 @@
  *    predicate-driven `sleep` seam.
  */
 
-import type { HumanCeiling } from '@podium/commands'
+import { type HumanCeiling, placementDecision } from '@podium/commands'
 import {
   FIRST_ADMIN_USER_ID,
   asSessionId,
@@ -140,6 +140,8 @@ export interface HarnessOptions {
   ceiling?: HumanCeiling
   machines?: MachineAccess
   authorizeAtApply?: MessageDeliveryDeps['authorizeAtApply']
+  /** Override wake placement; default wires from `machines` when provided. */
+  placementAtWake?: MessageDeliveryDeps['placementAtWake']
 }
 
 export interface MailHarness {
@@ -243,6 +245,16 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     mirrorMarkIssueMailRead: (issueId, ids) =>
       store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
+    // POD-1193: when a test supplies machines (or an explicit port), the wake
+    // path consults the same placementDecision the gate uses for spawnAgent.
+    ...(opts?.placementAtWake
+      ? { placementAtWake: opts.placementAtWake }
+      : opts?.machines
+        ? {
+            placementAtWake: (_message, machineId) =>
+              placementDecision(machineId, opts.machines!),
+          }
+        : {}),
     transact: (fn) => store.transact(fn),
     ...(opts?.omitSpawnOnWake
       ? {}

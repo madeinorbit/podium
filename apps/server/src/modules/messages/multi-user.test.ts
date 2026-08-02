@@ -318,6 +318,263 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Wake path machine-use gate (POD-1193 / readiness §3.1.4 M2)
+//
+// mail.ask hard-codes lifecycle:wake; mail.send admits it. Both reach the
+// delivery wake path, which resumes a parked session or trySpawns — code
+// execution on that session's machine. The contracts declare machineVerb:use;
+// this suite is the runtime refusal.
+//
+// D20.2 for mail (caller cannot name a machine): unauthorized and unreachable
+// collapse. M5 for spawnAgent (above) stays distinguishable — do not collapse.
+// ---------------------------------------------------------------------------
+
+describe('a wake refuses to start a process without `use` on the target machine (POD-1193)', () => {
+  /** Global use/reachability — fine for single-target denials. */
+  const machines = (opts: { use: boolean; reachable: boolean }) => ({
+    mayUse: () => opts.use,
+    isReachable: () => opts.reachable,
+  })
+  /**
+   * TWO MACHINES — the vacuity trap (POD-1424 class). A single global mayUse
+   * cannot tell "enforces per-machine use" from "always deny / always allow".
+   * `usable` is the set of machine ids this principal may place work on.
+   */
+  const machinesFor = (usable: ReadonlySet<string>, reachable = true) => ({
+    mayUse: (machineId: string) => usable.has(machineId),
+    isReachable: () => reachable,
+  })
+
+  const parkedOnAlice = (h: ReturnType<typeof mailHarness>) => {
+    const issue = h.createIssue({ title: 'work' })
+    h.put({
+      sessionId: asSessionId('sParked'),
+      issueId: issue.id,
+      status: 'hibernated',
+      machineId: 'mac_alices_laptop',
+    })
+    return issue
+  }
+
+  it('dead-letters a wake to a parked session when the sender may not USE its machine', async () => {
+    const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const issue = parkedOnAlice(h)
+    const r = (await h.gate.dispatch(
+      h.agentCap(issue.id, asSessionId('sMe')),
+      undefined,
+      'send',
+      {
+        to: 'sParked',
+        body: 'wake up',
+        lifecycle: 'wake',
+      },
+    )) as { ok: boolean; disposition: string; reason?: string }
+
+    expect(r.ok).toBe(false)
+    expect(r.disposition).toBe('dead_letter')
+    expect(r.reason).toBe('dead-lettered: target is not available')
+    // Never started a process: no queueText (resume) and no spawn-on-wake.
+    expect(h.pushes).toEqual([])
+    expect(h.wakeSpawns).toEqual([])
+  })
+
+  it('mail.ask on a parked session is the same denial — seance is a wake', async () => {
+    const h = mailHarness({
+      machines: machines({ use: false, reachable: true }),
+      awaitPollMs: 1,
+    })
+    const issue = parkedOnAlice(h)
+    // timeoutSeconds:0 — ask always awaits the ack bound; the question row is
+    // already dead-lettered before the wait, so a zero window returns immediately.
+    const r = (await h.gate.dispatch(
+      h.agentCap(issue.id, asSessionId('sMe')),
+      undefined,
+      'ask',
+      { sessionId: asSessionId('sParked'), question: 'still there?', timeoutSeconds: 0 },
+    )) as { answered: boolean; questionId: string }
+
+    expect(r.answered).toBe(false)
+    expect(h.svc.message(r.questionId)?.status).toBe('dead_letter')
+    expect(h.pushes).toEqual([])
+    expect(h.wakeSpawns).toEqual([])
+  })
+
+  it('UNAUTHORIZED and UNREACHABLE collapse — the deliberate opposite of spawnAgent', async () => {
+    const denied = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const offline = mailHarness({ machines: machines({ use: true, reachable: false }) })
+    const a = parkedOnAlice(denied)
+    const b = parkedOnAlice(offline)
+
+    const wake = async (h: ReturnType<typeof mailHarness>, issueId: string) => {
+      const r = (await h.gate.dispatch(h.agentCap(asIssueId(issueId), asSessionId('sMe')), undefined, 'send', {
+        to: 'sParked',
+        body: 'wake',
+        lifecycle: 'wake',
+      })) as Record<string, unknown>
+      // Per-row id differs for any two sends; everything else must match.
+      const { id: _id, ...rest } = r
+      return rest
+    }
+
+    const unauthorized = await wake(denied, a.id)
+    const unreachable = await wake(offline, b.id)
+    // Same shape, same reason — no machine name, no "grant you use", no "not reachable".
+    expect(unauthorized).toEqual(unreachable)
+    expect(unauthorized).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: target is not available',
+    })
+    // Contrast: spawnAgent keeps M5 (tested above). If someone collapsed the
+    // two suites, this pair and the spawn pair would both pass or both fail.
+  })
+
+  it('wakes when the principal holds `use` — the instrument can say yes', async () => {
+    const h = mailHarness({ machines: machines({ use: true, reachable: true }) })
+    const issue = parkedOnAlice(h)
+    const r = (await h.gate.dispatch(
+      h.agentCap(issue.id, asSessionId('sMe')),
+      undefined,
+      'send',
+      {
+        to: 'sParked',
+        body: 'wake up',
+        lifecycle: 'wake',
+      },
+    )) as { ok: boolean; disposition: string }
+
+    expect(r.ok).toBe(true)
+    expect(r.disposition).not.toBe('dead_letter')
+    expect(h.pushes.some((p) => p.fn === 'queueText' && p.sessionId === 'sParked')).toBe(true)
+  })
+
+  it('a wait-lifecycle message to a parked session does NOT need use — no process starts', async () => {
+    const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const issue = parkedOnAlice(h)
+    const r = (await h.gate.dispatch(
+      h.agentCap(issue.id, asSessionId('sMe')),
+      undefined,
+      'send',
+      {
+        to: 'sParked',
+        body: 'parked note',
+        lifecycle: 'wait',
+      },
+    )) as { ok: boolean; disposition: string; id: string }
+
+    expect(r.ok).toBe(true)
+    expect(r.disposition).toBe('queued')
+    expect(h.pushes).toEqual([])
+    expect(h.svc.message(r.id)?.status).toBe('queued')
+  })
+
+  it('issue-addressed bare spawn-on-wake is gated on the ISSUE machine', async () => {
+    const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const issue = h.createIssue({ title: 'empty' })
+    h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
+    // No sessions on the issue → wake tries trySpawn on the issue machine.
+    const r = (await h.gate.dispatch(
+      h.agentCap(issue.id, asSessionId('sMe')),
+      true,
+      'send',
+      {
+        to: issue.id,
+        body: 'spin someone up',
+        lifecycle: 'wake',
+      },
+    )) as { ok: boolean; disposition: string; reason?: string }
+
+    expect(r).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: target is not available',
+    })
+    expect(h.wakeSpawns).toEqual([])
+  })
+
+  it('two machines: use on Alice does not license a wake on Bob — and the reverse holds', async () => {
+    // Multi-actor: the principal may USE only Alice's laptop. Waking a parked
+    // session on Bob must dead-letter; waking one on Alice must resume.
+    const usable = new Set(['mac_alices_laptop'])
+    const h = mailHarness({ machines: machinesFor(usable) })
+    const issue = h.createIssue({ title: 'shared work' })
+    h.put(
+      {
+        sessionId: asSessionId('sOnAlice'),
+        issueId: issue.id,
+        status: 'hibernated',
+        machineId: 'mac_alices_laptop',
+      },
+      {
+        sessionId: asSessionId('sOnBob'),
+        issueId: issue.id,
+        status: 'hibernated',
+        machineId: 'mac_bobs_workstation',
+      },
+    )
+    const cap = h.agentCap(issue.id, asSessionId('sMe'))
+
+    const onBob = (await h.gate.dispatch(cap, undefined, 'send', {
+      to: 'sOnBob',
+      body: 'wake bob',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string; reason?: string }
+    expect(onBob).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: target is not available',
+    })
+    expect(h.pushes.filter((p) => p.sessionId === 'sOnBob')).toEqual([])
+
+    const onAlice = (await h.gate.dispatch(cap, undefined, 'send', {
+      to: 'sOnAlice',
+      body: 'wake alice',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string }
+    expect(onAlice.ok).toBe(true)
+    expect(onAlice.disposition).not.toBe('dead_letter')
+    expect(h.pushes.some((p) => p.fn === 'queueText' && p.sessionId === 'sOnAlice')).toBe(true)
+  })
+
+  it('unresumable wake re-checks the ISSUE machine when it differs from the session machine', async () => {
+    // M6 witness: session lives on Alice (usable); issue is pinned to Bob
+    // (not usable). Resume fails with 'no resume ref' → trySpawn would place
+    // on Bob. Without the issue-machine re-check the spawn would fire.
+    const usable = new Set(['mac_alices_laptop'])
+    const h = mailHarness({ machines: machinesFor(usable) })
+    const issue = h.createIssue({ title: 'cross-machine' })
+    h.issues.update(issue.id, { machineId: asMachineId('mac_bobs_workstation') })
+    h.put({
+      sessionId: asSessionId('sUnresumable'),
+      issueId: issue.id,
+      status: 'hibernated',
+      machineId: 'mac_alices_laptop',
+    })
+    h.transport.ok = false
+    h.transport.reason = 'no resume ref'
+    h.transport.failSessions = ['sUnresumable']
+
+    const r = (await h.gate.dispatch(
+      h.agentCap(issue.id, asSessionId('sMe')),
+      undefined,
+      'send',
+      {
+        to: 'sUnresumable',
+        body: 'resurrect elsewhere',
+        lifecycle: 'wake',
+      },
+    )) as { ok: boolean; disposition: string; reason?: string }
+
+    expect(r).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: target is not available',
+    })
+    expect(h.wakeSpawns).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Sender identity — ADR 3 D7, both halves of the pair
 // ---------------------------------------------------------------------------
 

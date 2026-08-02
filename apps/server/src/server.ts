@@ -11,6 +11,7 @@ import {
   type ControlMessage,
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
+  PeerHelloReply,
   WIRE_VERSION,
 } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
@@ -27,11 +28,13 @@ import { cors } from 'hono/cors'
 import { clientAuthGuard, registerAuthRoute, requestUserId } from './auth-route'
 import { applyEnvPassword, hasPassword } from './auth-store'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
+import { userCommandPrincipal } from './command-principal'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
+import { createDaemonAcceptor, receiveDaemonFrame } from './gateway/peer-handshake'
 import { attachWebSockets } from './gateway/ws-server'
+import { openEnrollmentLedger } from './enrollment-ledger'
 import { PairingManager } from './hub/pairing'
-import { userCommandPrincipal } from './command-principal'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
@@ -219,6 +222,10 @@ export async function startServer(
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].
     publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
+    // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
+    // owner and revocation at the state-root tier, outside podium.db. Opened
+    // before service construction so pair/hello/revoke share one durability domain.
+    enrollment: openEnrollmentLedger(stateDir()),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
@@ -233,7 +240,10 @@ export async function startServer(
     // settings-coupled env reads: PODIUM_WEB_DIR/PODIUM_MOBILE_WEB_DIR bundle-path
     // fallbacks below, PODIUM_HOST/PODIUM_PASSWORD, PODIUM_LOOP_PROFILE, PODIUM_CLOUD_*)
     // into the server-side layer of the @podium/runtime/config resolver.
-    modelProbe: () =>
+    // machineId is threaded so the catalog cache keys by machine (POD-1123); the
+    // probe still shells out on THIS host today. Remote-machine probing rides the
+    // daemon later — until then only the host machine's catalog fills in live.
+    modelProbe: (_machineId) =>
       probeAllModels({
         claude: {
           apiKey:
@@ -587,27 +597,38 @@ export async function startServer(
             },
           })
         // In-process daemon link [POD-196]: the local-machine equivalent of
-        // wireDaemonSocket's post-handshake wiring (gateway attach / frame
-        // routing / detach on close), minus the socket. Handshake auth is
-        // skipped on purpose: only the composition root can reach this object,
-        // which is the same trust as holding the in-memory bootstrapToken.
+        // wireDaemonSocket, minus serialization. It still drives the SAME
+        // acceptor and daemonSecret strategy. Composition-root reachability is
+        // not proof of machine identity and grants no ambient `use` (M4).
         // queueMicrotask keeps delivery async so neither side re-enters the
         // other's call stack (the ordering the WS transport implied).
         const localDaemonLink: LocalDaemonLink = {
-          attach: ({ deliver }) => {
-            // ensureHostMachine already registered this host at startup, under the id
-            // the split-mode daemon would have read from `<stateDir>/machine.id`.
-            const machineId = hostMachineId
+          attach: ({ hello, deliver }) => {
+            const acceptor = createDaemonAcceptor({
+              machines: registry.modules.machines,
+              connectionId: `local-daemon-${randomUUID()}`,
+            })
+            const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
+            if (outcome.kind !== 'established') {
+              const reply =
+                outcome.kind === 'rejected'
+                  ? PeerHelloReply.parse(outcome.reply)
+                  : { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const }
+              return { established: false as const, reply }
+            }
+            const { principal } = outcome
             const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
-            registry.gateway.attachDaemon(machineId, send)
+            registry.gateway.attachDaemon(principal, send)
             return {
-              machineId,
+              established: true as const,
+              reply: PeerHelloReply.parse(outcome.reply),
+              machineId: principal.machine,
               // `inventoryReport` used to be special-cased at both socket call
               // sites; it is a row in the gateway's routing table now, so this
               // link routes the WHOLE daemon union through one seam.
               deliver: (msg) =>
-                queueMicrotask(() => registry.gateway.routeDaemonFrame(machineId, msg)),
-              close: () => registry.gateway.detachDaemon(machineId, send),
+                queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
+              close: () => registry.gateway.detachDaemon(principal, send),
             }
           },
         }

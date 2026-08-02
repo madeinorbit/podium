@@ -20,6 +20,12 @@ export interface SessionViewPorts {
   store: SessionStore
   machines: MachinesService
   state: SessionStateService
+  /**
+   * Room occupancy for a session (POD-1081). When provided, `clientCount` is
+   * the occupancy size rather than the PTY attach-set size — attach remains for
+   * frame delivery; who-is-watching is presence rooms.
+   */
+  sessionOccupancyCount?(sessionId: SessionId): number | undefined
 }
 
 /** The single live-model → reader-scoped SessionMeta projection. */
@@ -37,10 +43,15 @@ export class SessionView {
   wire(session: Session, forPrincipal?: SessionStatePrincipal): SessionMeta {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultPrincipal()
+    const meta = session.toMeta(
+      viewer ? this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
+    )
+    const occupancy = this.ports.sessionOccupancyCount?.(session.sessionId)
     return this.stampRef(session, {
-      ...session.toMeta(
-        viewer ? this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
-      ),
+      ...meta,
+      // Presence-room occupancy is the product "who is watching" count when the
+      // stream plane is wired; attach-set size remains the fallback for fixtures.
+      ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
       machineName: this.ports.machines.machineName(session.machineId),
       ...(harnessCapabilities
         ? {

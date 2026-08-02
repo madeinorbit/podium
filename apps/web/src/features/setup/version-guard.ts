@@ -1,3 +1,4 @@
+import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { WIRE_VERSION } from '@podium/protocol'
 
 /**
@@ -10,8 +11,9 @@ import { WIRE_VERSION } from '@podium/protocol'
 /** sessionStorage key holding how many hard-reloads this tab has already forced this session.
  *  DELIBERATELY not in the replica's ui-state collection: this loop guard must work exactly
  *  when everything else is broken (stale shell, poisoned replica, wedged storage collections)
- *  — it runs before the store exists and must never depend on it. */
-const RELOAD_COUNTER_KEY = 'podium.vreload'
+ *  — it runs before the store exists and must never depend on it.
+ *  Spelling lives in the ui-state routing table (POD-329). */
+const RELOAD_COUNTER_KEY = WIRE_RELOAD_COUNTER_KEY
 /** After this many reloads without resolving the mismatch, stop looping and surface an error. */
 const MAX_RELOADS = 2
 

@@ -295,7 +295,7 @@ Rows are POD-364 §2's numbering. "Identity carried" is what each holds of Axis 
 | 26 | `RefSessionLike` | `apps/web/src/lib/ref-miniview.ts` | `sessionId` | **elsewhere** (documented subset) |
 | 27 | `SessionCardModel` | `packages/client-core/src/viewmodels/session-card.ts` | `sessionId`, `title` | **not-identity** (presentation) |
 | 28 | `SessionAutoArchiveObservation` | `packages/protocol/src/maintenance.ts` | `sessionId` | **elsewhere** (steward payload) |
-| — | `EngineState.sessions` | `packages/client-core/src/engine/engine.ts:165` | composes `SessionMeta[]` | **elsewhere**; note this file is **grep-invisible (NUL bytes)** — verify by reading |
+| — | `EngineState.sessions` | `packages/client-core/src/engine/state.ts:47` | composes `SessionMeta[]` | **elsewhere**; note this file is **grep-invisible (NUL bytes)** — verify by reading |
 | — | replica collection `sessions` | `packages/protocol/src/messages/sync.ts:53` | transports `SessionMeta` verbatim | **elsewhere** |
 
 **Read of the crosswalk.** Of 28 representations, **exactly one new record** (the binding)

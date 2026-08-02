@@ -1085,6 +1085,7 @@ describe('IssueService.start', () => {
   it('rejects an unavailable model BEFORE mutating start state [spec:SP-cc60]', async () => {
     const { svc, deps, store } = harness()
     store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
@@ -1105,6 +1106,7 @@ describe('IssueService.start', () => {
   it('force lets an unlisted issue model start [spec:SP-cc60]', async () => {
     const { svc, deps, store } = harness()
     store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
@@ -1141,6 +1143,130 @@ describe('IssueService.start', () => {
     svc.addSession(created.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ machineId: 'mach-b' }),
+    )
+  })
+
+  /**
+   * POD-1386 — the pin used to refuse on every correctly-configured second
+   * machine. `requireMachineForRepo` compares this issue's SOURCE repo path
+   * literally against the target's registered paths, and two machines have two
+   * layouts, so a repository that was present read as absent. Handoff never had
+   * that bug (it resolves by repoId and clones on absence); start now calls the
+   * same resolver.
+   */
+  it('sites the worktree at the target machine’s OWN path for the same repository', async () => {
+    const { svc, deps, store } = harness()
+    // The same repository — SAME ORIGIN, therefore same repo_id — checked out
+    // somewhere else. That is the normal case, not an edge one: a second machine
+    // has a different user and a different home. Both rows are registered because
+    // the real resolver registers the target before returning, and the identity
+    // gate below reads the registry.
+    const origin = 'git@github.com:o/podium.git'
+    store.repos.addRepo('/r', 'mach-a', origin)
+    store.repos.addRepo('/home/other/src/podium', 'mach-b', origin)
+    deps.ensureRepoOnMachine = vi.fn(async () => '/home/other/src/podium')
+    deps.requireMachineForRepo = vi.fn()
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    await svc.start(created.id)
+
+    expect(deps.ensureRepoOnMachine).toHaveBeenCalledWith('mach-b', '/r')
+    // Every downstream path is the TARGET's, not the source's: the repo root the
+    // worktree is added in, and the worktree path sited under it.
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/home/other/src/podium',
+      expect.objectContaining({
+        branch: 'issue/1-remote',
+        path: expect.stringContaining('/home/other/src/podium'),
+      }),
+      'mach-b',
+    )
+    // …and the pre-flight now sees the resolved path, so it can actually pass.
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/other/src/podium')
+    // The issue's home moved as a PAIR — leaving repoPath on the source while
+    // machineId points at the target is the state that cannot start.
+    expect(svc.get(created.id)?.machineId).toBe('mach-b')
+  })
+
+  /**
+   * POD-1405 — the target needs the COMMITS, not just the repository. Our
+   * integration branches never reach origin, so a freshly cloned repo on another
+   * machine cannot fetch the start point from anywhere.
+   */
+  it('materialises the parent branch on the target before creating the worktree', async () => {
+    const { svc, deps, store } = harness()
+    const origin = 'git@github.com:o/podium.git'
+    store.repos.addRepo('/r', 'mach-a', origin)
+    store.repos.addRepo('/home/other/src/podium', 'mach-b', origin)
+    deps.ensureRepoOnMachine = vi.fn(async () => '/home/other/src/podium')
+    deps.requireMachineForRepo = vi.fn()
+    const order: string[] = []
+    deps.ensureRefOnMachine = vi.fn(async () => {
+      order.push('ensureRef')
+    })
+    const realRepoOp = deps.repoOp
+    deps.repoOp = vi.fn(async (op: string, ...rest: unknown[]) => {
+      if (op === 'worktreeAdd') order.push('worktreeAdd')
+      return (realRepoOp as (...a: unknown[]) => Promise<{ ok: boolean; output: string }>)(
+        op,
+        ...rest,
+      )
+    }) as typeof deps.repoOp
+
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      parentBranch: 'integration/x',
+      machineId: asMachineId('mach-b'),
+    })
+    await svc.start(created.id)
+
+    // The ref is materialised on the TARGET's own repo path, for the start point
+    // the worktree will actually be created from.
+    expect(deps.ensureRefOnMachine).toHaveBeenCalledWith(
+      'mach-b',
+      '/home/other/src/podium',
+      'integration/x',
+    )
+    // ORDER IS THE PROPERTY: a worktree add that runs first fails on a start
+    // point the target cannot resolve, which is the whole defect.
+    expect(order).toEqual(['ensureRef', 'worktreeAdd'])
+  })
+
+  it('does not reach for commits when the issue has no machine pin', async () => {
+    const { svc, deps } = harness()
+    deps.ensureRefOnMachine = vi.fn(async () => {})
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Local',
+      startNow: false,
+      parentBranch: 'integration/x',
+    })
+    await svc.start(created.id)
+    expect(deps.ensureRefOnMachine).not.toHaveBeenCalled()
+  })
+
+  it('leaves an issue alone when the target machine holds the repo at the same path', async () => {
+    const { svc, deps } = harness()
+    deps.ensureRepoOnMachine = vi.fn(async () => '/r')
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    await svc.start(created.id)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/r',
+      expect.objectContaining({ branch: 'issue/1-remote' }),
+      'mach-b',
     )
   })
 
@@ -2514,7 +2640,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     const h = harness()
     const w = prepared(h, { closed: false })
     const calls = scriptRepoOp(h.deps, {})
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/still open/)
     expect(calls).toEqual([])
@@ -2527,7 +2653,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     const w = h.svc.create({ repoPath: '/r', title: 'X', startNow: false })
     h.svc.close(w.id)
     const calls = scriptRepoOp(h.deps, {})
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/nothing to clean up/)
     expect(calls).toEqual([])
@@ -2539,7 +2665,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     const calls = scriptRepoOp(h.deps, {
       status: { ok: false, output: `fatal: cannot change to '${WT}': No such file or directory` },
     })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
     expect(r.output).toMatch(/already gone/)
     expect(calls.map((c) => c.op)).toEqual(['status']) // nothing destructive ran
@@ -2550,7 +2676,7 @@ describe('IssueService.cleanup (issue #71)', () => {
       true,
     )
     // second call is a clean no-op refusal
-    const r2 = await h.svc.cleanup(w.id)
+    const r2 = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r2.ok).toBe(false)
     expect(r2.output).toMatch(/nothing to clean up/)
   })
@@ -2562,7 +2688,7 @@ describe('IssueService.cleanup (issue #71)', () => {
       status: { ok: true, output: CLEAN_STATUS },
       isMergedInto: { ok: false, output: '' },
     })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/not fully merged into 'main'/)
     expect(calls.map((c) => c.op)).toEqual(['status', 'isMergedInto'])
@@ -2582,7 +2708,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     const calls = scriptRepoOp(h.deps, {
       status: { ok: true, output: `${CLEAN_STATUS}\n M src/a.ts\n?? junk.txt` },
     })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/uncommitted changes/)
     expect(r.output).toContain('M src/a.ts')
@@ -2594,7 +2720,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     const h = harness()
     const w = prepared(h)
     const calls = scriptRepoOp(h.deps, { status: { ok: true, output: CLEAN_STATUS } })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
     expect(calls).toEqual([
       { op: 'status', cwd: WT },
@@ -2607,13 +2733,31 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBeNull()
     expect(h.store.issues.getIssue(w.id)?.branch).toBeNull()
     const comments = h.store.issues.listIssueComments(w.id)
-    expect(
-      comments.some(
-        (c) => c.author === 'system:cleanup' && c.body.includes(WT) && c.body.includes(BR),
-      ),
-    ).toBe(true)
+    const audit = comments.find(
+      (c) => c.author === 'system:cleanup' && c.body.includes(WT) && c.body.includes(BR),
+    )
+    expect(audit).toBeDefined()
+    // POD-1344: the transport principal is stamped, not system:cleanup.
+    expect(audit?.actor).toBe(FIRST_ADMIN_USER_ID)
+    expect(audit?.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
     const events = h.store.events.listEventsSince(0, { kinds: ['issue.cleaned'] })
     expect(events.length).toBe(1)
+  })
+
+  it('attributes cleanup to the named human who asked, not to system:cleanup (POD-1344)', async () => {
+    const h = harness()
+    const w = prepared(h)
+    scriptRepoOp(h.deps, { status: { ok: true, output: CLEAN_STATUS } })
+    const alice = asUserId('user:alice')
+    expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
+
+    const r = await h.svc.cleanup(w.id, userCommandPrincipal(alice, 'member'))
+    expect(r.ok).toBe(true)
+    const audit = h.store.issues
+      .listIssueComments(w.id)
+      .find((c) => c.author === 'system:cleanup' && c.body.includes(WT))
+    expect(audit?.actor).toBe(alice)
+    expect(audit?.onBehalfOf).toBe(alice)
   })
 
   it('partial failure: worktree removed but branch delete refused → precise report, branch kept', async () => {
@@ -2623,7 +2767,7 @@ describe('IssueService.cleanup (issue #71)', () => {
       status: { ok: true, output: CLEAN_STATUS },
       branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
     })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/worktree .* removed, but branch delete refused/)
     expect(calls.map((c) => c.op)).toEqual([
@@ -2651,7 +2795,7 @@ describe('IssueService.cleanup (issue #71)', () => {
         output: `fatal: '${WT}' contains modified or untracked files, use --force to delete it`,
       },
     })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/worktree remove failed/)
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBe(WT)
@@ -2686,14 +2830,14 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
       status: { ok: true, output: CLEAN_STATUS },
       branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
     })
-    const r1 = await h.svc.cleanup(w.id)
+    const r1 = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r1.ok).toBe(false)
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBeNull()
     expect(h.store.issues.getIssue(w.id)?.branch).toBe(BR)
 
     // second call: parent chain has merged, -d now succeeds
     const calls2 = scriptRepoOp(h.deps, {})
-    const r2 = await h.svc.cleanup(w.id)
+    const r2 = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r2.ok).toBe(true)
     expect(r2.output).toContain(`deleted branch ${BR}`)
     // worktree-less path: NO status/worktreeRemove — just ancestry + delete
@@ -2715,8 +2859,8 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
       status: { ok: true, output: CLEAN_STATUS },
       branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
     })
-    await h.svc.cleanup(w.id) // partial: worktree removed, branch kept
-    const r2 = await h.svc.cleanup(w.id) // retry, -d still refuses (parent not on root HEAD yet)
+    await h.svc.cleanup(w.id, AS_OPERATOR) // partial: worktree removed, branch kept
+    const r2 = await h.svc.cleanup(w.id, AS_OPERATOR) // retry, -d still refuses (parent not on root HEAD yet)
     expect(r2.ok).toBe(false)
     expect(r2.output).not.toMatch(/nothing to clean up/)
     expect(r2.output).toMatch(/IS merged into 'main'/)
@@ -2729,7 +2873,7 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     const w = prepared(h)
     h.svc.update(w.id, { worktreePath: null }) // simulate branch-only state directly
     const calls = scriptRepoOp(h.deps, { isMergedInto: { ok: false, output: '' } })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/not fully merged into 'main'/)
     expect(calls.map((c) => c.op)).toEqual(['isMergedInto'])
@@ -2742,7 +2886,7 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     const calls = scriptRepoOp(h.deps, {
       status: { ok: false, output: `fatal: cannot change to '${WT}': Permission denied` },
     })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/cannot inspect worktree/)
     expect(calls.map((c) => c.op)).toEqual(['status'])
@@ -2756,7 +2900,7 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     scriptRepoOp(h.deps, {
       status: { ok: false, output: `fatal: not a working tree: '${WT}'` },
     })
-    const r = await h.svc.cleanup(w.id)
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/files are still on disk/)
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBe(WT)
@@ -2814,7 +2958,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = harness()
     const epic = h.svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
     const calls = scriptOps(h.deps, () => undefined)
-    const r = await h.svc.integrate(epic.id)
+    const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/no children/)
     expect(calls).toEqual([])
@@ -2824,7 +2968,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = harness()
     const { epic } = epicWith(h, [{ closed: false }, { branch: null, closed: true }])
     const calls = scriptOps(h.deps, () => undefined)
-    const r = await h.svc.integrate(epic.id)
+    const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/no closed child .* recorded branch/)
     expect(calls).toEqual([])
@@ -2834,7 +2978,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = harness()
     const { epic, children } = epicWith(h, [{}, {}])
     const calls = scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
-    const r = await h.svc.integrate(epic.id)
+    const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
     expect(calls).toEqual([
       { op: 'status', cwd: INT_WT },
@@ -2852,16 +2996,35 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(comments.filter((c) => c.author === 'system:integrate').length).toBe(1)
     expect(comments[0]!.body).toContain(`rebuilt '${INT_BR}' from 'main'`)
     expect(comments[0]!.body).toContain(`#${children[0]!.seq}, #${children[1]!.seq}`)
+    // POD-1344: job label stays system:integrate; actor/onBehalfOf name the caller.
+    expect(comments[0]!.actor).toBe(FIRST_ADMIN_USER_ID)
+    expect(comments[0]!.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
     const ev = h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev.length).toBe(1)
     expect(ev[0]!.payload).toEqual({ epicSeq: 1, integrated: [children[0]!.seq, children[1]!.seq] })
+  })
+
+  it('attributes integrate to the named human who asked, not to system:integrate (POD-1344)', async () => {
+    const h = harness()
+    const { epic } = epicWith(h, [{}, {}])
+    scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
+    const alice = asUserId('user:alice')
+    expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
+
+    const r = await h.svc.integrate(epic.id, userCommandPrincipal(alice, 'member'))
+    expect(r.ok).toBe(true)
+    const audit = h.store.issues
+      .listIssueComments(epic.id)
+      .find((c) => c.author === 'system:integrate')
+    expect(audit?.actor).toBe(alice)
+    expect(audit?.onBehalfOf).toBe(alice)
   })
 
   it('existing worktree: resets the integration branch to the parent tip (checkoutReset), no worktreeAdd', async () => {
     const h = harness()
     const { epic } = epicWith(h, [{}])
     const calls = scriptOps(h.deps, () => undefined) // status ok → worktree exists
-    const r = await h.svc.integrate(epic.id)
+    const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
     expect(calls[0]).toEqual({ op: 'status', cwd: INT_WT })
     // defensive un-wedge before the reset (result ignored; healthy = "no rebase in progress")
@@ -2878,14 +3041,14 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = harness()
     const { epic } = epicWith(h, [{}, {}])
     const calls = scriptOps(h.deps, () => undefined)
-    const [r1, r2] = await Promise.all([h.svc.integrate(epic.id), h.svc.integrate(epic.id)])
+    const [r1, r2] = await Promise.all([h.svc.integrate(epic.id, AS_OPERATOR), h.svc.integrate(epic.id, AS_OPERATOR)])
     const refused = [r1, r2].filter((r) => /integration already running for #1/.test(r.output))
     const ran = [r1, r2].filter((r) => r.ok)
     expect(refused.length).toBe(1)
     expect(ran.length).toBe(1)
     expect(calls.filter((c) => c.op === 'status').length).toBe(1) // one rebuild, not two interleaved
     // guard released: a later run proceeds normally
-    const r3 = await h.svc.integrate(epic.id)
+    const r3 = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r3.ok).toBe(true)
   })
 
@@ -2907,13 +3070,13 @@ describe('IssueService.integrate (issue #70)', () => {
       }
       return undefined
     })
-    const r1 = await h.svc.integrate(epic.id)
+    const r1 = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r1.ok).toBe(false)
     // Run 2: worktree exists (status ok) → defensive rebaseAbort BEFORE checkoutReset
     // un-wedges it and the rebuild completes.
     run = 2
     calls.length = 0
-    const r2 = await h.svc.integrate(epic.id)
+    const r2 = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r2.ok).toBe(true)
     expect(calls.slice(0, 3).map((c) => c.op)).toEqual(['status', 'rebaseAbort', 'checkoutReset'])
   })
@@ -2924,7 +3087,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const [b, a] = children
     h.svc.addDep(b!.id, a!.id, 'blocks') // B is blocked by A ⇒ A first
     const calls = scriptOps(h.deps, () => undefined)
-    await h.svc.integrate(epic.id)
+    await h.svc.integrate(epic.id, AS_OPERATOR)
     const merges = calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)
     expect(merges).toEqual([a!.branch, b!.branch])
     const ev = h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
@@ -2944,7 +3107,7 @@ describe('IssueService.integrate (issue #70)', () => {
       }
       return undefined
     })
-    const r = await h.svc.integrate(epic.id)
+    const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
     expect(calls.slice(3)).toEqual([
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: child.branch! } },
@@ -2974,7 +3137,7 @@ describe('IssueService.integrate (issue #70)', () => {
         }
       return undefined
     })
-    const r = await h.svc.integrate(epic.id)
+    const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     // cleanup after the conflicted rebase, in order
     const tail = calls.slice(calls.findIndex((c) => c.op === 'rebase') + 1)
@@ -3004,8 +3167,8 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = harness()
     const { epic } = epicWith(h, [{}, {}])
     scriptOps(h.deps, () => undefined)
-    const r1 = await h.svc.integrate(epic.id)
-    const r2 = await h.svc.integrate(epic.id)
+    const r1 = await h.svc.integrate(epic.id, AS_OPERATOR)
+    const r2 = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r1.ok).toBe(true)
     expect(r2.ok).toBe(true)
     expect(r2.output).toBe(r1.output)
@@ -3019,7 +3182,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const extra = h.svc.create({ repoPath: '/r', title: 'K2', parentId: epic.id, startNow: false })
     h.svc.update(extra.id, { branch: 'issue/4-k2' })
     h.svc.close(extra.id)
-    await h.svc.integrate(epic.id)
+    await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(
       h.store.issues.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate')
         .length,
@@ -3030,7 +3193,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = harness()
     const { epic, children } = epicWith(h, [{}, { branch: null }])
     const calls = scriptOps(h.deps, () => undefined)
-    const r = await h.svc.integrate(epic.id)
+    const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
     expect(calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)).toEqual([
       children[0]!.branch,

@@ -119,6 +119,16 @@ export class MachinesRepository {
     this.db.prepare('UPDATE machines SET name = ? WHERE id = ?').run(name, id)
   }
 
+  /**
+   * Force-write the owner projection (POD-1114 / D19.4d). Unlike
+   * {@link upsertMachine}'s `COALESCE`, this is the path that applies a ledger
+   * owner transition: the ledger append is the commit point, and this method
+   * projects it onto the row. `null` is quarantine (usable by nobody).
+   */
+  setMachineOwner(id: string, ownerUserId: string | null): void {
+    this.db.prepare('UPDATE machines SET owner_user_id = ? WHERE id = ?').run(ownerUserId, id)
+  }
+
   deleteMachine(id: string): void {
     this.db.prepare('DELETE FROM machines WHERE id = ?').run(id)
   }

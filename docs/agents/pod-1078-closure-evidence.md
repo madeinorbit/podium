@@ -1,6 +1,6 @@
 # POD-1078 closure evidence
 
-Reconciled with integration `0e62caa9` and verified at implementation tip `0c27d300` on 2026-08-02.
+Stable Phase 4 candidate `3a45f190` is merged at `94ae712a` on 2026-08-02. POD-1078 landed at `1cb323c8`; the implementation and cross-user mutation proof landed at `0c27d300` and `b26696c5` respectively.
 
 ## Acceptance evidence
 
@@ -42,14 +42,16 @@ bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.
 
 ## Wider verification
 
-- Merged focused gateway/protocol/wire suite: 9 files, 209 tests passed.
+- Implementation-tree focused gateway/protocol/wire suite: 9 files, 209 tests passed.
 - Cross-user visibility mutation: 1 file, 1 test failed as required; restored gate rerun passed.
 - Typecheck: 22 tasks passed.
 - Web: 183 files, 1,460 tests passed.
 - Mobile: 4 files, 34 tests passed.
 - Bun SQLite: 14 tests passed.
 - Independent-instance lane: runtime isolation 1 test, managed-account spawn 3 tests, installer suite `ALL OK`.
-- Full unit sweep under three concurrent foreign runners: 638 files passed, 3 skipped; 9,346 tests passed, 33 skipped. Eight failures across four files were fixed-budget timeouts; isolated reruns were all green: architecture 1 file/72 tests, normalized wire 1/7, live-scale benchmark 1/1, and terminal keyboard 1/13. Three POD-1315 principal-refusal tests remain red in isolation and were reported to their owner; this issue changes none of that path.
+- Historical full unit sweep at `02b65cbe` under three concurrent foreign runners exited `1`: 5 files failed, 638 passed, 3 skipped; 10 tests failed, 9,346 passed, 33 skipped. The count is seven timed-out tests plus three POD-1315 failures; `terminal-view.keyboard.test.ts` separately failed its 10-second `beforeAll` hook and converted all 13 assertions into skipped tests, so greater setup damage produced fewer reported failures. POD-1126 owns this exact coverage shape, which is the same all-skipped census family as POD-1329. The seven timeout titles were: rearch `exits 0 when the tree matches the committed baseline`; rearch `fails CLOSED on a well-formed phase that maps to no items`; rearch `gates a phase whose items are still alive, and clears one that reached zero`; rearch `an output flag cannot disable the gate`; rearch `an output flag cannot swallow the baseline write`; normalized wire `one dep write emits one edge and performs zero membership scans`; and benchmark `session-free residue at live scale never couples session changes back to issues`. Isolated reruns were green for every timeout group: architecture 1 file/72 tests/exit 0, normalized wire 1/7/exit 0, live-scale benchmark 1/1/exit 0, and terminal keyboard 1/13/exit 0. The three POD-1315 compile-time probes were real failures on pre-fix integration `0e62caa9` (1 file, 3 failed/3 passed, exit 1); `f4fbeee6` resolved them by making the probes declared-and-never-invoked, and the stable candidate contains that fix (1 file/3 tests/exit 0). They are not a current external failure.
+- An intermediate full `bun run test` at `c557f306` exited `1` in unit and therefore did not reach web/mobile/Bun: 2 files failed, 642 passed, 3 skipped; 2 tests failed, 9,365 passed, 20 skipped; 1 worker error. The websocket publication timeout passes isolated 1 file/7 tests/exit 0; the Bun SIGILL file passes isolated 1/12/exit 0. Grok hook discovery was red isolated 1 failed/7 passed/exit 1 because the installed CLI reports `pre_tool_use`; stable integration commit `b50f86b2` now asserts that canonical CLI casing. POD-1382 is annotated resolved for operator closure.
+- Intermediate candidate `29897756` had 8 focused files pass while `wire-golden.test.ts` failed: 206 tests passed, 3 failed. POD-1350 repaired the sampler with valid layout overrides and refreshed machine-use goldens at `f36fc1cd`/`8fda427f`, without weakening either schema; stable candidate `3a45f190` contains both fixes. The coordinator measured wire-golden 90/0, typecheck 22/22 uncached, and ambient principal count 84 on that candidate.
 - Structural gates: composition graph 176 modules/0 cycles; construction order 51 declarations/0 forward, deferred, or late bindings; reactions ledger 25 entries.
 
 `bun run lint:boundaries` reaches an unrelated pre-existing violation in `apps/server/src/modules/sessions/daemon-lifecycle.ts` and a dead allowlist entry, now tracked as POD-1362. The room/host-edge totality assertions themselves pass in `inventory.test.ts`; no changed file introduces the reported dependency.

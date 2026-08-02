@@ -1,3 +1,8 @@
+import {
+  type EntityRef,
+  joinKeyParts,
+  splitKeyParts,
+} from '@podium/model'
 import { PLANE_CLASS_SEMANTICS, type PlaneClass } from './plane'
 import { type Principal, principalRoutingId } from './principal'
 
@@ -35,29 +40,93 @@ export const asSubscriberId = (s: string): SubscriberId => s as SubscriberId
  * take an ENTITY REFERENCE or a principal — never a free string (ADR 7
  * Amendment 1 D10.2: a free-string namespace has no owner, no totality test,
  * and nothing to check a permission against).
+ *
+ * COMPOSITE PARTS ARE ESCAPED via {@link joinKeyParts} (POD-1134): unescaped
+ * `kind:id` concatenation collides (`a`+`b:c` vs `a:b`+`c`), so one subscriber
+ * set would serve two entities. For separator-free parts the byte shape is
+ * identical to the pre-POD-1134 ad-hoc keys.
  */
 export type RoutingKey = string & { readonly __brand: 'RoutingKey' }
 
-export interface EntityRef {
-  readonly kind: string
-  readonly id: string
+/**
+ * Entity references for routing live in `@podium/model` — the closed
+ * kind+branded-id union pinned by `ENTITY_KINDS`. Re-exported here so plane
+ * ports share ONE type with the composite-key home (POD-1134). Bulk non-entity
+ * streams (transcript pages, file bodies) are a DISTINCT kind space: see
+ * `BulkResourceRef` on the bulk port — they never enter this registry.
+ */
+export type { EntityRef }
+
+const ROUTING_SEP = ':'
+
+/** Structural shape accepted by key constructors: kind + id, both non-empty. */
+type RoutingEntityParts = { readonly kind: string; readonly id: string }
+
+const requireRoutingParts = (ref: RoutingEntityParts, what: string): void => {
+  if (ref.kind === '') throw new Error(`${what} kind must not be empty`)
+  if (ref.id === '') throw new Error(`${what} id must not be empty`)
 }
 
 /**
  * Key for control · entity fan-out of one entity's rows: the subscribers are
  * the connections whose principal may see that entity.
+ *
+ * Callers should pass a model {@link EntityRef}. The parameter is structural so
+ * a room ref (session|issue) and a branded entity ref share one constructor
+ * without a second named EntityRef type in this package.
  */
-export const entityRoutingKey = (ref: EntityRef): RoutingKey =>
-  `entity:${ref.kind}:${ref.id}` as RoutingKey
+export const entityRoutingKey = (ref: RoutingEntityParts): RoutingKey => {
+  requireRoutingParts(ref, 'entity routing key')
+  return joinKeyParts(ROUTING_SEP, ['entity', ref.kind, ref.id]) as RoutingKey
+}
 
-/** Key for stream · live per-room fan-out (ADR 7 Amendment 1 D10). */
-export const roomRoutingKey = (ref: EntityRef): RoutingKey =>
-  `room:${ref.kind}:${ref.id}` as RoutingKey
+/** Inverse of {@link entityRoutingKey}. Throws on a malformed or wrong-arity key. */
+export const parseEntityRoutingKey = (key: string): { kind: string; id: string } => {
+  const [ns, kind, id] = splitKeyParts(ROUTING_SEP, key, 3) as [string, string, string]
+  if (ns !== 'entity') {
+    throw new Error(`malformed entity routing key (expected entity namespace): ${JSON.stringify(key)}`)
+  }
+  if (kind === '' || id === '') {
+    throw new Error(`malformed entity routing key (empty part): ${JSON.stringify(key)}`)
+  }
+  return { kind, id }
+}
+
+/**
+ * Key for stream · live per-room fan-out (ADR 7 Amendment 1 D10).
+ * Room join APIs take the closed `RoomRef` set; this constructor only joins.
+ */
+export const roomRoutingKey = (ref: RoutingEntityParts): RoutingKey => {
+  requireRoutingParts(ref, 'room routing key')
+  return joinKeyParts(ROUTING_SEP, ['room', ref.kind, ref.id]) as RoutingKey
+}
+
+/**
+ * Inverse of {@link roomRoutingKey}. Throws on a malformed or wrong-arity key.
+ * Stream callers that only accept `session`/`issue` rooms narrow further
+ * (see `roomRefFromRoutingKey`).
+ */
+export const parseRoomRoutingKey = (key: string): { kind: string; id: string } => {
+  const [ns, kind, id] = splitKeyParts(ROUTING_SEP, key, 3) as [string, string, string]
+  if (ns !== 'room') {
+    throw new Error(`malformed room routing key (expected room namespace): ${JSON.stringify(key)}`)
+  }
+  if (kind === '' || id === '') {
+    throw new Error(`malformed room routing key (empty part): ${JSON.stringify(key)}`)
+  }
+  return { kind, id }
+}
 
 /**
  * Key for frames directed at one principal's feed rather than at an entity:
  * watermark-bearing delta frames with no visible changes, and `rescope`
  * (ADR 2 Amendment 1 D13/D14.4).
+ *
+ * The principal half is the opaque output of {@link principalRoutingId}, not a
+ * free (kind, id) pair. Escaping that whole string as one part would change the
+ * legacy `principal:user:…` byte shape for every live principal (they always
+ * contain colons). Injectivity of the principal id itself is
+ * `principalRoutingId`'s job; this constructor only namespaces it.
  */
 export const principalRoutingKeyFromId = (principalId: string): RoutingKey =>
   `principal:${principalId}` as RoutingKey

@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    matrixRow: ROW.sessionIdentity,\n",
+    "replace": "    matrixRow: 'session-identity-no-such-row' as MatrixRowId,\n"
+  }
+]

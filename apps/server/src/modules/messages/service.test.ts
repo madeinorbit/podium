@@ -3,8 +3,8 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -12,19 +12,17 @@ import type { IssueRow, MessageRow } from '../../store'
 import { SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
+import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
+import { INLINE_BODY_MAX, sanitizeBody } from './render'
 import {
   ECHO_CONFIRM_WINDOW_MS,
   HOP_LIMIT,
-  INLINE_BODY_MAX,
   INTERRUPT_DELIVERY_CEILING_MS,
   MAX_ECHO_REQUEUES,
   MessageDeliveryService,
   NEXT_TURN_DELIVERY_BUDGET_MS,
-  SPAWN_BUDGET_PER_DAY,
-  sanitizeBody,
   senderFromCapability,
-  WAKE_COOLDOWN_MS,
 } from './service'
 
 const ISSUE = {
@@ -2725,6 +2723,47 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('read')
   })
 
+  it('an OVERSIZED issue row is pull-path too — no boundary confirm, no sweep re-nudge', () => {
+    // Two things make an issue-addressed row a pointer: fyi urgency, and a body
+    // too large to paste inline. The tests above cover the fyi half; this covers
+    // the oversized half, whose CLASSIFICATION nothing else asserted — the
+    // rendering tests only check the text, and `renderFor` decides that on its
+    // own. So a delivery path that forgot the size clause and treated an
+    // oversized row as an echo row stayed green: it would be confirmed at the
+    // next turn boundary it never appeared in, and re-pushed by the sweep once
+    // the echo window passed. Neither may happen (POD-1397 mutation M2).
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live: SessionMeta[] = []
+    const { svc, sent, store } = harness(live, { now })
+    // next-turn, NOT fyi — the size clause has to carry this row on its own, or
+    // the fyi clause would mask a delivery path that dropped it.
+    const r = svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'x'.repeat(INLINE_BODY_MAX + 1),
+        urgency: 'next-turn',
+      },
+    )
+    expect(r.message.urgency).toBe('next-turn') // peer cap allows it; not silently clamped to fyi
+    const s = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id })
+    live.push(s)
+    svc.onSessionIdle(s)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).not.toContain('xxxx') // the body never entered the transcript
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // A turn boundary cannot confirm what was never shown; an inbox read can.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.onSessionIdle(s)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // ... and the sweep must not nudge again past the echo window.
+    svc.sweep()
+    expect(sent).toHaveLength(1)
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('read')
+  })
+
   it('an ERRORED turn does not confirm its injected rows — they re-queue via the sweep', () => {
     // API 529 mid-turn is frequent: an errored turn (errored→idle fires here too)
     // did not complete, so it must NOT confirm what it may not have consumed
@@ -2870,6 +2909,33 @@ describe('best-effort acks/notifications [POD-853]', () => {
     expect(sent).toHaveLength(1)
     expect(store.messages.getMessage(ack.message.id)!.status).toBe('delivered')
     // Past the echo window the sweep must NEVER re-inject it (the unbounded loop).
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    sent.length = 0
+    svc.sweep()
+    expect(sent).toHaveLength(0)
+  })
+
+  it('a NOTIFICATION is best-effort too — injection confirms it and the sweep lets it be', () => {
+    // The ack half of best-effort is covered above; the notification half was
+    // not, and dropping `notification` from the predicate left the whole suite
+    // green (POD-1397 mutation M5). A steward/subscription notification expects
+    // no ack, so chasing its echo is the same unbounded re-inject loop an ack
+    // would cause.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const { svc, sent, store } = harness([session({ sessionId: asSessionId('s1') })], { now })
+    const note = svc.send(
+      { kind: 'system', name: 'steward' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'your branch is behind',
+        kind: 'notification',
+        urgency: 'next-turn',
+      },
+    )
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(note.message.id)!.status).toBe('delivered')
+    // Past the echo window the sweep must not resurrect it.
     clock += ECHO_CONFIRM_WINDOW_MS + 1_000
     sent.length = 0
     svc.sweep()
@@ -3118,6 +3184,68 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
 
       expect(recovered.queued).toHaveLength(1)
       recovered.svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('dispose() leaves NO armed timer — every owner is disposed, not just the service', () => {
+    // POD-1390's defect class: SessionRegistry.dispose() never touched
+    // modules.memory, so memory-owned work resolved ten seconds after the
+    // SQLite handle closed. POD-1397 created three fresh places to drop that —
+    // the brakes and the scheduler are separate owners now and each arms its
+    // own timers — and nothing asserted dispose() reaches them. A dropped
+    // delegation leaves a wake cooldown or a retry page firing into a service
+    // whose store is shut.
+    //
+    // getTimerCount() is the witness rather than a per-timer assertion, because
+    // it also fires for a timer some future owner adds without a disposer,
+    // which is exactly how this defect arrives.
+    vi.useFakeTimers()
+    try {
+      const clock = Date.parse('2026-07-13T00:00:00.000Z')
+      const sessions = [
+        session({
+          sessionId: asSessionId('s1'),
+          status: 'hibernated',
+          agentState: undefined,
+          issueId: ISSUE.id,
+          resume: { kind: 'claude', value: 'native-1' },
+        }),
+      ]
+      const first = harness(sessions, {
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: false, reason: 'offline' }),
+      })
+      first.svc.send(
+        { kind: 'superagent' },
+        {
+          to: { kind: 'session', id: asSessionId('s1') },
+          body: 'after cooldown',
+          urgency: 'next-turn',
+          lifecycle: 'wake',
+        },
+      )
+      first.svc.dispose()
+
+      const recovered = harness(sessions, {
+        store: first.store,
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: true, queued: true }),
+      })
+      // The cooldown is still hot, so the row stays queued and the BRAKE arms a
+      // one-shot retry timer for the moment it expires.
+      recovered.svc.reconcileQueued()
+      const afterBrake = vi.getTimerCount()
+      expect(afterBrake).toBeGreaterThan(0)
+      // A fresh eligibility trigger arms the SCHEDULER's coalescing flush on top
+      // of it, so both owners hold a timer and dropping either delegation is
+      // caught below rather than masked by the other.
+      recovered.svc.onSessionEligibilityChanged(asSessionId('s1'))
+      expect(vi.getTimerCount()).toBeGreaterThan(afterBrake)
+
+      recovered.svc.dispose()
+      expect(vi.getTimerCount()).toBe(0)
     } finally {
       vi.useRealTimers()
     }

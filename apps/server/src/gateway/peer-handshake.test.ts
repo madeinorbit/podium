@@ -185,6 +185,101 @@ describe('payload identity is inert at the real MachinesService', () => {
     // Single use.
     expect(directory.redeemPairCode(code, { machineId: 'm-new' })).toBeNull()
   })
+
+  /**
+   * POD-1125: a pair code is permission to ADD a machine, not to take over one.
+   *
+   * TWO existing machines are seeded so the fixture can fail in either direction:
+   * without a second row, "refuses rebind" is vacuous (nothing to steal). One is
+   * owned and one is unowned so a guard that only protects rows with an
+   * ownerUserId still fails (that weaker guard was a silent mutant). The
+   * attacker is a third principal. Measured quantities: exact refuse reason on
+   * BOTH victims, both victim tokens still verify, neither row is renamed, and
+   * the same code still admits a NEW machineId (allowance branch).
+   */
+  it('a pair code cannot rebind an existing machine id', () => {
+    const store = new SessionStore(':memory:')
+    store.machines.upsertMachine({
+      id: 'admin-laptop',
+      name: 'Admin Laptop',
+      hostname: 'admin.local',
+      tokenHash: sha256('admin-tok'),
+      ownerUserId: 'user:admin',
+    })
+    // Unowned but still registered — existence, not ownership, is the rule.
+    store.machines.upsertMachine({
+      id: 'unowned-box',
+      name: 'Unowned Box',
+      hostname: 'unowned.local',
+      tokenHash: sha256('unowned-tok'),
+      ownerUserId: null,
+    })
+    const pairing = new PairingManager()
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing })
+    const machines = reg.modules.machines
+    // Mint via the service so ownerUserId is stamped (hub PairingGrant is a narrower type).
+    const code = machines.mintPairingCode({ ownerUserId: 'user:attacker' })
+
+    // SECOND machine (attacker) attempts rebind under admin-laptop's id.
+    const attackOwned = machines.authenticateDaemon({
+      type: 'pair',
+      code,
+      machineId: 'admin-laptop',
+      hostname: 'evil.local',
+      name: 'Attacker Box',
+    })
+    expect(attackOwned).toEqual({ ok: false, reason: 'machine id already registered' })
+
+    // Same code, second victim: unowned existing row must refuse too.
+    const attackUnowned = machines.authenticateDaemon({
+      type: 'pair',
+      code,
+      machineId: 'unowned-box',
+      hostname: 'evil.local',
+      name: 'Attacker Box',
+    })
+    expect(attackUnowned).toEqual({ ok: false, reason: 'machine id already registered' })
+
+    // Both pre-existing credentials still verify — rebind would kill their tokens.
+    expect(
+      machines.authenticateDaemon({
+        type: 'hello',
+        machineId: 'admin-laptop',
+        token: 'admin-tok',
+        hostname: 'admin.local',
+      }),
+    ).toMatchObject({ ok: true, machineId: 'admin-laptop' })
+    expect(
+      machines.authenticateDaemon({
+        type: 'hello',
+        machineId: 'unowned-box',
+        token: 'unowned-tok',
+        hostname: 'unowned.local',
+      }),
+    ).toMatchObject({ ok: true, machineId: 'unowned-box' })
+
+    // Rows not renamed and ownership not transferred (null stays null).
+    expect(store.machines.getMachine('admin-laptop')).toMatchObject({
+      name: 'Admin Laptop',
+      ownerUserId: 'user:admin',
+    })
+    expect(store.machines.getMachine('unowned-box')).toMatchObject({
+      name: 'Unowned Box',
+      ownerUserId: null,
+    })
+
+    // Collision refused BEFORE redeem, so the same code still admits a NEW id
+    // (the allowance branch — without it the guard could be "refuse all pairs").
+    const directory = createMachineDirectory(machines)
+    const paired = directory.redeemPairCode(code, {
+      machineId: 'attacker-fresh',
+      name: 'Attacker Box',
+      hostname: 'evil.local',
+    })
+    expect(paired).toMatchObject({ machine: 'attacker-fresh', name: 'Attacker Box' })
+    expect(paired?.issuedToken).toBeTruthy()
+    expect(store.machines.getMachine('attacker-fresh')?.ownerUserId).toBe('user:attacker')
+  })
 })
 
 describe('the machine principal carries owner and grants, and fails closed without them', () => {

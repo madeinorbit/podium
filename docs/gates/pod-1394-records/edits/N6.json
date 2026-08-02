@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  return grantees.includes(human)\n",
+    "replace": "  return true\n"
+  }
+]

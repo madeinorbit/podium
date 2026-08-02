@@ -11,15 +11,27 @@ import {
 import type {
   ControlMessage,
   DaemonHandshake,
+  DaemonMessage,
   LiveServerMessage,
   MachineVerb,
   ServerMessage,
 } from '@podium/protocol'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
+import {
+  type EnrollmentLedger,
+  mintPairingToken,
+  newLedgerTxnId,
+  type PairingTokenClaims,
+  verdictForMissingRow,
+  verifyPairingToken,
+} from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
+
+/** Client-facing hello/pair refusal — identical for every denial (D19.4 / D20). */
+const HELLO_DENIED_REASON = 'unknown machine — re-pair'
 
 /**
  * One principal's `use` decision, per machine. Supplied by the command layer
@@ -93,6 +105,18 @@ export interface MachinesDeps {
   hostMachineId: MachineId
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   pairing?: PairingCodes
+  /**
+   * Enrollment ledger (POD-1114, D19.4) — pairing root, enrollment serials,
+   * recorded owners, revocation entries. State-root tier, outside the DB.
+   * Absent only in pure socket-bookkeeping fixtures that never pair/hello.
+   */
+  enrollment?: EnrollmentLedger
+  /**
+   * Whether a recorded owner still resolves to a live account. Used on re-enrol
+   * and owner reconcile: an unresolvable owner lands the machine in quarantine
+   * (D19.4b), never auto-assigned to the first admin.
+   */
+  userExists?(userId: string): boolean
   /** Production reaction transport for derived session fields. */
   bus?: EventBus
   /** Compatibility-only for isolated fixtures without a bus. */
@@ -134,11 +158,19 @@ export class MachinesService {
   private machineRecordsCache: MachineRecord[] | null = null
   private machineNameCache = new Map<string, string>()
 
-  constructor(private readonly deps: MachinesDeps) {}
+  constructor(private readonly deps: MachinesDeps) {
+    // Ledger-wins owner projection before any use/manage decision can run (D19.4d).
+    if (this.deps.enrollment) this.reconcileOwnersFromLedger()
+  }
 
   /** Deployment label supplied by the composition root. */
   get instanceId(): string {
     return this.deps.instanceId
+  }
+
+  /** The enrollment ledger, when the composition root supplied one. */
+  get enrollment(): EnrollmentLedger | undefined {
+    return this.deps.enrollment
   }
 
   /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
@@ -218,11 +250,23 @@ export class MachinesService {
 
   /**
    * Authenticate a daemon's handshake frame (pre-Control/Daemon-union, parsed by
-   * wsServer). `pair` redeems a one-time code and mints a fresh token, hashing it
-   * for storage and returning the plaintext once (the daemon persists it). `hello`
-   * verifies a returning daemon's token against the stored hash for its machineId,
-   * then attaches as that machineId — the id always comes FROM the frame, never a
-   * token lookup, so getMachineByToken returning a boolean is sufficient.
+   * wsServer). `pair` redeems a one-time code and mints a fresh **pairing-root-
+   * verifiable** token (POD-1114), records the enrollment in the ledger, hashes
+   * the token for the row, and returns the plaintext once (the daemon persists
+   * it). The peer-chosen `machineId` is a REQUEST only: if that id already has a
+   * row, the pair is REFUSED rather than upserting over its credential
+   * (POD-1125), and the refusal runs BEFORE redeem so a collision does not burn
+   * the single-use code. A revoked machine is gone from the table, so the same id
+   * may pair again as a fresh insert.
+   *
+   * The two guards cover disjoint states and must both stay: POD-1125 refuses
+   * when the row EXISTS, POD-1114's D19.4 verdict decides when the row is
+   * ABSENT — re-enrol unattended, or deny permanently on a ledger revoke that
+   * outranks the token. `hello` verifies a returning daemon's token against the
+   * stored hash for its machineId, then attaches as that machineId — the id
+   * always comes FROM the frame, never a token lookup, so getMachineByToken
+   * returning a boolean is sufficient. The client-facing reason is byte-identical
+   * in every denial so none of this is an existence oracle.
    */
   authenticateDaemon(
     frame: DaemonHandshake,
@@ -233,12 +277,19 @@ export class MachinesService {
       // No pairing manager = node role: this server is not a rendezvous point,
       // so new machines can't join it. Returning daemons (`hello`) still work.
       if (!this.deps.pairing) return { ok: false, reason: 'pairing is disabled on this server' }
+      // Existence check BEFORE redeem: a collision must not burn a single-use code.
+      // The peer proposed this id; the directory decides, and an existing row is a
+      // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
+      if (this.deps.store.machines.getMachine(frame.machineId)) {
+        return { ok: false, reason: 'machine id already registered' }
+      }
       const pairingGrant = this.deps.pairing.redeem(frame.code)
       if (!pairingGrant) {
         return { ok: false, reason: 'invalid or expired code' }
       }
       const name = frame.name ?? frame.hostname
-      const token = randomUUID()
+      const ownerUserId = pairingGrant.ownerUserId ?? null
+      const token = this.mintEnrolledToken(frame.machineId, ownerUserId)
       this.deps.store.machines.upsertMachine({
         id: frame.machineId,
         name,
@@ -246,12 +297,21 @@ export class MachinesService {
         tokenHash: sha256(token),
         // The pairer, carried from mint. `?? null` is the fail-closed arm, not a
         // default: a code with no owner produces an unowned machine.
-        ownerUserId: pairingGrant.ownerUserId ?? null,
+        ownerUserId,
       })
+      // Force the owner projection: upsert COALESCE would keep a stale owner after
+      // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
+      this.deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
       this.invalidateMachineCache()
       return { ok: true, machineId: frame.machineId, name, token, pairingGrant }
     }
     if (this.deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
+      // Even with a live row, a ledger revoke that outranks the token must win
+      // (crash-after-append / DB rollback of the tombstone — D19.4a / D19.4d).
+      if (this.isTokenRevoked(frame.machineId, frame.token)) {
+        this.logVerdict('revoked', frame.machineId)
+        return { ok: false, reason: HELLO_DENIED_REASON }
+      }
       this.deps.store.machines.touchMachine(frame.machineId, frame.hostname)
       this.invalidateMachineCache()
       const name =
@@ -259,7 +319,214 @@ export class MachinesService {
         frame.hostname
       return { ok: true, machineId: frame.machineId, name }
     }
-    return { ok: false, reason: 'unknown machine — re-pair' }
+    // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
+    return this.helloMissingRow(frame)
+  }
+
+  /**
+   * Mint a root-verifiable token and record enrollment in the ledger. Without an
+   * enrollment ledger (socket-only fixtures), falls back to a random UUID so
+   * existing unit tests that never open a state root keep working.
+   */
+  private mintEnrolledToken(machineId: string, ownerUserId: string | null): string {
+    const ledger = this.deps.enrollment
+    if (!ledger) return randomUUID()
+    const serial = ledger.nextSerial(machineId)
+    const token = mintPairingToken(ledger.pairingRoot, { machineId, serial })
+    // Ledger append is the enrollment commit point (D19.4d). Failure aborts pair.
+    const ok = ledger.appendEnroll({
+      id: newLedgerTxnId(),
+      machineId,
+      serial,
+      ownerUserId,
+      at: new Date().toISOString(),
+    })
+    if (!ok) throw new Error('enrollment ledger refused the enroll append')
+    return token
+  }
+
+  private isTokenRevoked(machineId: string, token: string): boolean {
+    const ledger = this.deps.enrollment
+    if (!ledger) return false
+    const claims = verifyPairingToken(ledger.pairingRoot, token)
+    // Non-root tokens (host bootstrap secret, pre-upgrade UUID) have no serial
+    // in this ledger; they cannot be re-enrolled and are not ledger-revoked here.
+    if (!claims || claims.machineId !== machineId) return false
+    const revokedAt = ledger.revokeSerial(machineId)
+    return revokedAt !== undefined && revokedAt >= claims.serial
+  }
+
+  /**
+   * Hello path when the machines row is gone. Verdict order is fixed by D19.4:
+   * unverifiable → deny; revoked → deny permanently; else re-enrol per D19.4b.
+   * The client-facing reason never carries the verdict (existence/deployment oracle).
+   */
+  private helloMissingRow(
+    frame: Extract<DaemonHandshake, { type: 'hello' }>,
+  ):
+    | { ok: true; machineId: string; name: string }
+    | { ok: false; reason: string } {
+    const ledger = this.deps.enrollment
+    if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
+    const result = verdictForMissingRow(ledger, frame.token)
+    if (result.verdict !== 're-enroll') {
+      this.logVerdict(result.verdict, frame.machineId)
+      return { ok: false, reason: HELLO_DENIED_REASON }
+    }
+    // Frame machineId must match the token's claims — a forged id with a stolen
+    // token for a different machine must not re-enrol under the wrong name.
+    if (result.claims.machineId !== frame.machineId) {
+      this.logVerdict('unverifiable', frame.machineId)
+      return { ok: false, reason: HELLO_DENIED_REASON }
+    }
+    const name = frame.hostname
+    this.reEnrolMachine({
+      claims: result.claims,
+      ownerUserId: result.ownerUserId,
+      token: frame.token,
+      name,
+      hostname: frame.hostname,
+    })
+    this.logVerdict('re-enrolled', frame.machineId)
+    return { ok: true, machineId: frame.machineId, name }
+  }
+
+  /**
+   * Recreate a machines row from a pairing-root-verifiable token (D19.4b).
+   * MachineId preserved; owner from ledger (or quarantine); grants never restored.
+   */
+  private reEnrolMachine(input: {
+    claims: PairingTokenClaims
+    ownerUserId: string | null
+    token: string
+    name: string
+    hostname: string
+  }): void {
+    const resolvedOwner = this.resolveOwnerForRecovery(input.ownerUserId)
+    this.deps.store.machines.upsertMachine({
+      id: input.claims.machineId,
+      name: input.name,
+      hostname: input.hostname,
+      tokenHash: sha256(input.token),
+      ownerUserId: resolvedOwner,
+    })
+    // upsert COALESCE keeps a prior owner; recovery must apply the ledger owner.
+    this.deps.store.machines.setMachineOwner(input.claims.machineId, resolvedOwner)
+    // Grants are always dropped on recovery — the row was gone, so edge rows
+    // referencing it should already be gone; belt-and-braces clear.
+    this.deps.store.grants.removeAllForResource('machine', input.claims.machineId)
+    this.invalidateMachineCache()
+  }
+
+  /**
+   * Ledger owner → row owner. Unresolvable account → quarantine (`null`), never
+   * first-admin auto-assign (D19.4b).
+   */
+  private resolveOwnerForRecovery(recorded: string | null): string | null {
+    if (recorded === null) return null
+    if (this.deps.userExists && !this.deps.userExists(recorded)) return null
+    return recorded
+  }
+
+  private logVerdict(
+    verdict: 're-enrolled' | 'revoked' | 'unverifiable',
+    machineId: string,
+  ): void {
+    // Diagnostics follow the decision (D19.4): log the verdict + instance id +
+    // state root the check ran against. Client-facing reason stays opaque.
+    const root = this.deps.enrollment?.path ?? '(no-ledger)'
+    console.info(
+      `[podium] machine hello verdict=${verdict} machineId=${machineId} instanceId=${this.deps.instanceId} ledger=${root}`,
+    )
+  }
+
+  /**
+   * Project ledger owners (and revocations) onto the machines table.
+   * Ledger-first commit point (D19.4d): after a crash between append and row
+   * update, boot repair makes the NEW owner effective with no manual step.
+   * Also drops rows whose enrollment has been revoked at a serial that covers
+   * the stored credential when we can tell — projection of the revoke append.
+   */
+  reconcileOwnersFromLedger(): void {
+    const ledger = this.deps.enrollment
+    if (!ledger) return
+    for (const machineId of ledger.enrolledMachineIds()) {
+      const row = this.deps.store.machines.getMachine(machineId)
+      const revokedAt = ledger.revokeSerial(machineId)
+      const lastSerial = ledger.nextSerial(machineId) - 1
+      // A revoke at serial S covers every token with serial <= S. If the latest
+      // enroll serial is still covered, the machine is revoked and the row is a
+      // stale projection — remove it (grants die with it).
+      if (revokedAt !== undefined && lastSerial > 0 && revokedAt >= lastSerial) {
+        if (row) {
+          this.deps.store.grants.removeAllForResource('machine', machineId)
+          this.deps.store.machines.deleteMachine(machineId)
+        }
+        continue
+      }
+      if (!row) continue
+      const recorded = ledger.recordedOwner(machineId)
+      if (recorded === undefined) continue
+      const resolved = this.resolveOwnerForRecovery(recorded)
+      if (row.ownerUserId !== resolved) {
+        this.deps.store.machines.setMachineOwner(machineId, resolved)
+      }
+    }
+    this.invalidateMachineCache()
+  }
+
+  /**
+   * Ownership transfer — ledger append is the commit point (D19.4d).
+   *
+   * Ordering: append first; only then project onto `machines.owner`. Failure of
+   * the append leaves the old owner effective and throws. Crash after append,
+   * before the row write, is repaired by {@link reconcileOwnersFromLedger} on
+   * the next boot (and the NEW owner is already effective for any check that
+   * re-reads the ledger first — see {@link effectiveOwner}).
+   *
+   * `opts.skipRowUpdate` is the crash-injection seam for the required
+   * regression sequence #5; production callers never pass it.
+   */
+  transferOwnership(
+    machineId: string,
+    newOwnerUserId: string,
+    opts: { skipRowUpdate?: boolean; txnId?: string } = {},
+  ): void {
+    const ledger = this.deps.enrollment
+    if (!ledger) throw new Error('ownership transfer requires the enrollment ledger')
+    const row = this.deps.store.machines.getMachine(machineId)
+    if (!row) throw new Error(`unknown machine '${machineId}'`)
+    const txnId = opts.txnId ?? newLedgerTxnId()
+    const appended = ledger.appendOwner({
+      id: txnId,
+      machineId,
+      ownerUserId: newOwnerUserId,
+      at: new Date().toISOString(),
+    })
+    // Idempotent retry: a re-append of the same id is a no-op but the row may
+    // still need projecting.
+    if (!appended && ledger.recordedOwner(machineId) !== newOwnerUserId) {
+      throw new Error('ownership transfer ledger append failed')
+    }
+    if (opts.skipRowUpdate) return
+    this.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
+    this.invalidateMachineCache()
+    this.broadcastMachines()
+  }
+
+  /**
+   * Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
+   * Callers that authorize `use`/`manage` should prefer this over the raw row
+   * when a ledger is present; {@link reconcileOwnersFromLedger} keeps the row
+   * in sync, but a concurrent transfer can land between reconcile and check.
+   */
+  effectiveOwner(machineId: string): string | null | undefined {
+    const ledger = this.deps.enrollment
+    if (ledger) {
+      const recorded = ledger.recordedOwner(machineId)
+      if (recorded !== undefined) return this.resolveOwnerForRecovery(recorded)
+    }
+    return this.deps.store.machines.getMachine(machineId)?.ownerUserId
   }
 
   private machineRecords(): MachineRecord[] {
@@ -476,10 +743,12 @@ export class MachinesService {
    * cache, which every write to the table invalidates.
    */
   ownershipRows(): { id: string; name: string; ownerUserId: string | null }[] {
+    // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
+    // row when the durable append has already committed a transition.
     return this.machineRecords().map((m) => ({
       id: m.id,
       name: m.name,
-      ownerUserId: m.ownerUserId,
+      ownerUserId: this.effectiveOwner(m.id) ?? m.ownerUserId,
     }))
   }
 
@@ -501,6 +770,15 @@ export class MachinesService {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
     this.invalidateMachineCache()
     this.broadcastMachines()
+  }
+
+  /** Route a daemon-local warning with machine scope supplied by the transport. */
+  recordDiagnostic(
+    machineId: string,
+    diagnostic: Extract<DaemonMessage, { type: 'machineDiagnostic' }>,
+  ): void {
+    const { type: _type, ...detail } = diagnostic
+    this.deps.bus?.emit('machine.diagnostic', { machineId, ...detail })
   }
 
   renameMachine(id: string, name: string): void {
@@ -553,7 +831,33 @@ export class MachinesService {
     this.broadcastMachines()
   }
 
-  revokeMachine(id: string): void {
+  /**
+   * Revoke a machine. The ledger append is the revocation (D19.4d); the row
+   * delete is a projection of it. Without a durable revoke entry, a later DB
+   * restore would let the old token re-enrol automatically (the hole D19.4a closes).
+   *
+   * `opts.skipRowDelete` is the crash-injection seam mirroring transfer's
+   * `skipRowUpdate`; production callers never pass it.
+   */
+  revokeMachine(
+    id: string,
+    opts: { by?: string | null; skipRowDelete?: boolean; txnId?: string } = {},
+  ): void {
+    const ledger = this.deps.enrollment
+    if (ledger) {
+      // Serial at revoke: cover the latest enrollment serial so that token is denied.
+      // nextSerial-1 is the last enrolled serial; if never enrolled, use 1 so a
+      // future token with serial 1 is still covered once we have no better number.
+      const serial = Math.max(1, ledger.nextSerial(id) - 1)
+      ledger.appendRevoke({
+        id: opts.txnId ?? newLedgerTxnId(),
+        machineId: id,
+        serial,
+        by: opts.by ?? null,
+        at: new Date().toISOString(),
+      })
+    }
+    if (opts.skipRowDelete) return
     // The grant edges die WITH the machine (POD-1079). A daemon keeps its
     // machineId across a revoke/re-pair, so an edge that outlived the row would
     // silently re-share a machine its owner had already un-shared.

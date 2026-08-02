@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    if (this.deps.visibility.canSee(target.principal, room) !== true) {\n      this.deps.emit(target.subscriberId, {\n        type: 'presenceRoomClosed',\n        room,\n        ...(token === undefined ? {} : { token }),\n      })\n      return false\n    }\n    const key = roomRoutingKey(room)\n",
+    "replace": "    const key = roomRoutingKey(room)\n"
+  }
+]

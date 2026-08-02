@@ -1,7 +1,7 @@
-import { asSessionId } from '@podium/model'
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { agentStateProviderFor } from '../registry.js'
 import { acceptAgentObservation } from './causal'
@@ -282,6 +282,17 @@ describe('translateClaudeHookPayload', () => {
     expect(await translateClaudeHookPayload(null)).toEqual([])
     expect(await translateClaudeHookPayload('x')).toEqual([])
     expect(await translateClaudeHookPayload({ hook_event_name: 'SomethingNew' })).toEqual([])
+  })
+
+  it('keeps identity-shaped provider payload fields inert', async () => {
+    const events = await claudeCodeStateProvider.translate({
+      hook_event_name: 'SessionStart',
+      userId: 'user:forged',
+      owner: 'attacker.test',
+      account: { id: 'acct-forged' },
+    })
+    expect(events).toEqual([{ kind: 'session_started', source: 'hook', confidence: 1 }])
+    expect(JSON.stringify(events)).not.toMatch(/forged|attacker|userId|owner|account/)
   })
 })
 describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
@@ -929,7 +940,7 @@ describe('Stop payload end-to-end with a real transcript file', () => {
 describe('bootEvents', () => {
   it('fresh spawn → session_started (idle, no verdict)', async () => {
     const events = await claudeCodeStateProvider.bootEvents?.({ cwd: '/proj' })
-    expect(events).toEqual([{ kind: 'session_started' }])
+    expect(events).toEqual([{ kind: 'session_started', source: 'classifier', confidence: 0.3 }])
   })
 
   it('resume → classifies the tail and stamps the last DATED record time, not the mtime', async () => {
@@ -964,6 +975,8 @@ describe('bootEvents', () => {
     expect(events).toEqual([
       {
         kind: 'turn_completed',
+        source: 'classifier',
+        confidence: 0.3,
         verdict: { kind: 'question', summary: 'Should I also migrate the staging database?' },
         at: realActivity,
       },
@@ -1007,7 +1020,14 @@ describe('bootEvents', () => {
     // turn_completed 'question' verdict: idle/question after a restart hid the menu
     // from the superagent answer_question gate and NEEDS-ATTENTION grouping.
     expect(events).toEqual([
-      { kind: 'needs_user', need: 'question', summary: 'Which database?', at: realActivity },
+      {
+        kind: 'needs_user',
+        need: 'question',
+        summary: 'Which database?',
+        at: realActivity,
+        source: 'classifier',
+        confidence: 0.3,
+      },
     ])
     // Parity through the reducer: the boot seed and the live hook event land on the
     // same phase/need.
@@ -1071,7 +1091,7 @@ describe('bootEvents', () => {
       resumeValue: 'nope',
       homeDir: home,
     })
-    expect(events).toEqual([{ kind: 'session_started' }])
+    expect(events).toEqual([{ kind: 'session_started', source: 'classifier', confidence: 0.3 }])
   })
 
   it('resume → a transcript that does NOT yield a verdict still stamps the last DATED record time (a reattach must never restamp recency to "now")', async () => {
@@ -1101,6 +1121,8 @@ describe('bootEvents', () => {
       resumeValue: 'conv2',
       homeDir: home,
     })
-    expect(events).toEqual([{ kind: 'session_started', at: realActivity }])
+    expect(events).toEqual([
+      { kind: 'session_started', at: realActivity, source: 'classifier', confidence: 0.3 },
+    ])
   })
 })

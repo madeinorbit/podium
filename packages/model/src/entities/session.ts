@@ -118,9 +118,11 @@ export type AgentError = z.infer<typeof AgentError>
  *  Identity rides the hook channel (`agent_id` / `agent_type` on SubagentStart
  *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */
 export const NativeSubagent = z.object({
-  /** UNBRANDED: a HARNESS-minted `agent_id` off the hook channel, not a Podium
-   *  session id. Its brand is ADR 9's `AgentIdentityId` (the actor half of the
-   *  attribution pair), which POD-1075 owns; a `SessionId` here would be wrong. */
+  /** UNBRANDED: a HARNESS-minted `agent_id` off the hook channel. Deliberately
+   *  NOT a {@link SessionId} and NOT an {@link AgentIdentityId} — those two
+   *  brands share the Podium agent-session mint (POD-1164); this value is
+   *  harness-native evidence about a run, in the same class as transcript item
+   *  ids (see `ids/brands.ts` "NOT BRANDED"). */
   id: z.string(),
   type: z.string().optional(),
 })
@@ -146,6 +148,10 @@ export const AgentRuntimeState = z.object({
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'
+  /** Winning daemon observation provenance; never a user or provider-account identity. */
+  stateSource: z.enum(['hook', 'poll', 'classifier']).optional(),
+  stateConfidence: z.number().min(0).max(1).optional(),
+  stateObservedAt: z.string().optional(),
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
 

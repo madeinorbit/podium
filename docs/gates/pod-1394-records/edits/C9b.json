@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "      return { actor: `session:${principal.agentSessionId}`, onBehalfOf: principal.onBehalfOf }\n",
+    "replace": "      return { actor: `session:${principal.agentSessionId}`, onBehalfOf: null }\n"
+  }
+]

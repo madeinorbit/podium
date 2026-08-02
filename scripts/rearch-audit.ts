@@ -395,6 +395,34 @@ export function grepDistinctLiterals(
   return [...seen.values()]
 }
 
+/** POD-327's phase-close property is about the daemon composition root, not the
+ * aggregate size of the modules it composes. Keep the threshold named here so
+ * the audit, its planted control, and the issue acceptance criterion cannot
+ * drift independently. */
+export const DAEMON_COMPOSITION_ROOT = 'apps/daemon/src/daemon.ts'
+export const DAEMON_COMPOSITION_ROOT_MAX_LINES = 300
+
+export function oversizedDaemonCompositionRoot(ctx: AuditContext): AuditSite[] {
+  const root = ctx.files.find((file) => file.file === DAEMON_COMPOSITION_ROOT)
+  if (!root)
+    throw new Error(
+      `oversized-daemon-composition-root: ${DAEMON_COMPOSITION_ROOT} was not scanned; ` +
+        'the zero is unmeasured',
+    )
+  const lineCount =
+    root.stripped.length === 0
+      ? 0
+      : root.stripped.split('\n').length - (root.stripped.endsWith('\n') ? 1 : 0)
+  if (lineCount <= DAEMON_COMPOSITION_ROOT_MAX_LINES) return []
+  return [
+    {
+      file: DAEMON_COMPOSITION_ROOT,
+      line: DAEMON_COMPOSITION_ROOT_MAX_LINES + 1,
+      text: `${lineCount} lines (maximum ${DAEMON_COMPOSITION_ROOT_MAX_LINES})`,
+    },
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // The inventory
 // ---------------------------------------------------------------------------
@@ -890,6 +918,11 @@ export const CHECKS: AuditCheck[] = [
     // NOT a regression against main: main runs a different detector under this key
     // (exported names in one file, no change-row-audit.ts at all) — one instrument
     // over both trees gives integration 12, MAIN 22.
+    //
+    // POD-1251 drove the live count 15 → 0 by composition. The zero is the target
+    // state, not detector drift: `changeRowRestatements` runs a planted restatement
+    // CONTROL on every collect and THROWS when that stops matching (POD-1417), so
+    // this item may sit in ZERO_BY_DESIGN on the same terms as per-user-singletons.
     unit: "a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model's change field schemas",
     collect: (ctx) => changeRowRestatements(ctx),
   },
@@ -1180,13 +1213,19 @@ export const CHECKS: AuditCheck[] = [
     id: 'panel-mode-duality',
     title: 'panelMode storage duality',
     phase: 'POD-329',
-    unit: 'panelMode storage-key literal outside the engine persistence module',
+    unit: 'panelMode storage-key literal outside the ui-state module',
     collect: (ctx) =>
       grep(ctx, {
         roots: ['apps', 'packages'],
         pattern: /'podium\.panelMode(?:Default)?'/,
-        skip: (file) => file === 'packages/client-core/src/engine/persistence.ts',
-      }),
+      }).filter(
+        (site) =>
+          site.file !== 'packages/client-core/src/ui-state.ts' ||
+          ![
+            "panelMode: 'podium.panelMode',",
+            "panelModeDefault: 'podium.panelModeDefault',",
+          ].includes(site.text),
+      ),
   },
   {
     /**
@@ -1281,6 +1320,18 @@ export const CHECKS: AuditCheck[] = [
         roots: ['apps/server/src/relay.ts', 'apps/server/src/server.ts'],
         pattern: /^\s*let \w+!:/,
       }),
+  },
+  {
+    // POD-327 deleted the 833-line daemon host-control monolith, leaving a
+    // composition root whose transport, frame, bootstrap and host-runtime
+    // concerns are separately owned. This binary item is the phase-close gate
+    // for that deletion: a future merge can add modules, but it cannot quietly
+    // regrow daemon.ts past the issue's explicit ~300-line boundary.
+    id: 'oversized-daemon-composition-root',
+    title: 'Oversized daemon host-control composition root',
+    phase: 'POD-327',
+    unit: 'daemon.ts composition root exceeding 300 lines',
+    collect: (ctx) => oversizedDaemonCompositionRoot(ctx),
   },
   // ADDED at POD-301. POD-363's AC and POD-301's fourth AC both name a
   // "raw-string entity ids" item that reached zero; there was NO SUCH KEY and no

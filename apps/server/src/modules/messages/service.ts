@@ -27,21 +27,20 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-  deliversUnwrapped,
   exemptFromBrakes,
   type MailSenderPrincipal,
+  type PlacementDecision,
   senderBrakeKey,
 } from '@podium/commands'
 import {
+  type AgentPhase,
+  type Attribution,
   actorAgent,
   actorSystem,
   actorUser,
   asAgentIdentityId,
   asIssueId,
   FIRST_ADMIN_USER_ID,
-  type AgentPhase,
-  type Attribution,
-  type IssueId,
   type IssueScope,
   type SessionId,
   type SessionMeta,
@@ -62,16 +61,31 @@ import type { NotificationFactsRepository } from '../../store/notification-facts
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
+import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
+import { MessageMailbox } from './mailbox'
+import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
+import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
+import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
+
+export { INTERRUPT_DELIVERY_CEILING_MS, NEXT_TURN_DELIVERY_BUDGET_MS } from './mailbox'
+
+export type {
+  MessageSender,
+  MessageSenderIdentity,
+  MessageSendInput,
+  MessageSendResult,
+  SendDisposition,
+} from './types'
+
+import {
+  cursorOf,
+  DELIVERY_TARGET_PAGE_LIMIT,
+  type DeliveryTarget,
+  deliveryTargetKey,
+} from './targets'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
-/** One wake per (sender, target-issue) per this window (brake 1). */
-export const WAKE_COOLDOWN_MS = 10 * 60_000
-/** Message-triggered spawns per issue per UTC day (brake 2). */
-export const SPAWN_BUDGET_PER_DAY = 10
-/** Bodies past this render as a pointer, not inline (issue-addressed only —
- *  they are readable via `podium issue mail inbox`). */
-export const INLINE_BODY_MAX = 6_000
 /** A pushed message becomes `delivered` only when its envelope echoes back as a
  *  turn in the target's transcript [POD-834 §04d]. If no echo confirms within
  *  this window the push was lost (drain refused, session died, an ESC ate it) and
@@ -90,55 +104,6 @@ export const MAX_ECHO_REQUEUES = 2
  *  reflects the id back verbatim (transcript-echo confirmation, [POD-834]). */
 export const ECHO_ID_RE = /\bpodium message (msg_[0-9a-f-]+)\b/gi
 
-/** Urgency-gated blocking send budgets [spec:SP-cb9f] [POD-854]. A `next-turn`
- *  send blocks up to this budget for the transcript-observed `delivered`; a busy /
- *  draft-held target that outlasts it returns `accepted` (still queued — the sender
- *  queries `podium mail status`). 25s tracks the harness queue-drain deadline: long
- *  enough to catch an idle or quickly-finishing target, short enough that the CLI
- *  never hangs on a long turn. */
-export const NEXT_TURN_DELIVERY_BUDGET_MS = 25_000
-/** An `interrupt` send blocks until `delivered`; this ceiling is only a hang-guard
- *  [spec:SP-cb9f] [POD-854]. An interrupt injects immediately (ESC + inject), so it
- *  normally confirms within seconds at the ESC-cancelled turn boundary — but a
- *  composer-draft hold [POD-865] or a dead PTY can legitimately keep the row queued,
- *  so at this ceiling it returns the honest `accepted` rather than block forever.
- *  Matches ECHO_CONFIRM_WINDOW_MS (the outer bound on any single confirmation).
- *  INVARIANT: must stay under @podium/protocol's AGENT_RELAY_BLOCKING_TIMEOUT_MS —
- *  the loopback relay hub gives `messages.send` that long before it times out, and
- *  a block that outlives the transport makes the agent CLI throw instead of getting
- *  this disposition (a drift-guard test enforces the gap). */
-export const INTERRUPT_DELIVERY_CEILING_MS = 90_000
-
-/** What actually happened to a send, surfaced to the sender so a message that
- *  reached no one is never a bare success [POD-834 §04b]:
- *   - `delivered`   CONFIRMED in the target's transcript (echo or turn boundary),
- *                   or injection-is-delivery for an unwrapped operator body;
- *   - `queued`      handed to the harness input queue (or held for a live target's
- *                   next boundary) — NOT yet transcript-observed [spec:SP-cb9f];
- *   - `accepted`    a blocking send's budget expired with the row still queued
- *                   (busy / composer-draft-held / lost echo) — durably captured,
- *                   not yet confirmed; the sender queries `podium mail status`;
- *   - `held`        issue-addressed, issue live but NO live session — held for
- *                   the issue's next session (delivered at its next boundary);
- *   - `spawning`    a wake spawned a fresh agent to receive it;
- *   - `dead_letter` the target was gone; NOT delivered. */
-export type SendDisposition =
-  | 'delivered'
-  | 'queued'
-  | 'accepted'
-  | 'held'
-  | 'spawning'
-  | 'dead_letter'
-
-/** How a rendered message is confirmed as reaching the agent [POD-834]:
- *   - `echo`      enveloped body carrying the msg id → confirmed by transcript echo;
- *   - `pointer`   a coalesced "you have mail" nudge (fyi / oversized issue mail) →
- *                 the body isn't shown inline, so it is confirmed by an inbox READ,
- *                 never echo — and is never auto-requeued (no re-nudge storm);
- *   - `unwrapped` an operator's byte-faithful body (no envelope, no id) → no echo
- *                 is possible, so injection itself is the confirmation. */
-type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
-
 /**
  * The L1 principal projection of a sender, for the policy functions in
  * `@podium/commands`.
@@ -154,59 +119,6 @@ type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
  */
 const principalOf = (from: MessageSender): MailSenderPrincipal =>
   ({ ...from, user: from.attribution?.onBehalfOf ?? null }) as MailSenderPrincipal
-
-const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
-  ({
-    kind: m.fromKind,
-    user: m.attribution?.onBehalfOf ?? null,
-    ...(m.fromIssue ? { issueId: m.fromIssue } : {}),
-    ...(m.fromSession ? { sessionId: m.fromSession } : {}),
-    ...(m.fromName ? { name: m.fromName } : {}),
-  }) as MailSenderPrincipal
-
-/** The authenticated sender principal — derived by the SURFACE from its caller
- *  identity (capability / in-process authority), never from client input. */
-type MessageSenderIdentity =
-  | { kind: 'operator' }
-  | { kind: 'superagent' }
-  | { kind: 'system'; name?: string }
-  | { kind: 'agent'; issueId?: IssueId; sessionId?: SessionId }
-
-export type MessageSender = MessageSenderIdentity & {
-  readonly attribution?: Attribution
-  readonly delegationRef?: string | null
-}
-
-export interface MessageSendInput {
-  to: { kind: 'issue' | 'session' | 'operator'; id?: string }
-  body: string
-  kind?: MessageKind
-  urgency?: MessageUrgency
-  lifecycle?: MessageLifecycle
-  threadId?: string
-  inReplyTo?: string
-  expiresAt?: string
-  /** Opt into a reply [POD-835 §04b]: `--expect-response`. Only then does the
-   *  system expect (and, on settle, nag about) a response. A `question` implies it;
-   *  an `ack`/`notification` can never set it. Omitted = false (receipt-only). */
-  expectsResponse?: boolean
-  /** Internal-only arbiter identity for message-backed notifications. */
-  notificationFact?: { factKey: string; target: string }
-}
-
-export interface MessageSendResult {
-  message: MessageRow
-  /** sendText/queueText-compatible outcome (existing CLI/tool wire shapes). */
-  ok: boolean
-  queued?: boolean
-  reason?: string
-  /** The honest, sender-facing outcome [POD-834]: what happened to the message,
-   *  so `held` and `dead_letter` are never a silent success. */
-  disposition: SendDisposition
-  /** The legacy issue_messages mirror row (issue-addressed sends only) — keeps
-   *  mail inbox/claim/pending working until those readers migrate. */
-  legacy?: IssueMessageRow
-}
 
 /** attemptDelivery's result: the transport outcome plus the sender-facing
  *  disposition [POD-834]. */
@@ -307,59 +219,38 @@ export interface MessageDeliveryDeps {
    * one human there is nothing to revoke. POD-1075/POD-1079 wire the real port.
    */
   authorizeAtApply?(message: MessageRow): { ok: true } | { ok: false; reason: string }
+  /**
+   * WAKE-PATH MACHINE USE (POD-1193 / readiness §3.1.4 M2).
+   *
+   * A wake resumes a parked session or spawns one — code execution on the
+   * TARGET SESSION's (or, for bare spawn-on-wake, the issue's) machine. The
+   * contracts declare `machineVerb: 'use'`; this port is the runtime refusal
+   * that declaration alone did not provide.
+   *
+   * Called only on the wake path (parked + lifecycle wake, or unresumable →
+   * trySpawn), never for inject into an already-live PTY. Returns the same
+   * {@link PlacementDecision} `placementDecision` produces so the composition
+   * root can reuse the gate's MachineAccess without a second ACL.
+   *
+   * ERROR RULE (mail.send / mail.ask, D20.2): unauthorized and unreachable
+   * collapse into ONE denial — the caller named a session or issue, not a
+   * machine, so machine-specific wording would be an existence oracle over
+   * someone else's fleet. spawnAgent keeps M5 (distinguishable) on its own
+   * handler path; do not collapse those.
+   *
+   * Absent = allow. Same honest single-user default as authorizeAtApply.
+   */
+  placementAtWake?(message: MessageRow, machineId: string): PlacementDecision
   now(): string
 }
 
 /**
- * SUBSTRATE-boundary body sanitizer: message bodies are typed into the target
- * agent's PTY inside a bracketed paste (ESC[200~ … ESC[201~), so a body
- * containing the paste-END marker would terminate the paste early and
- * everything after it would run as raw keystrokes — command injection into
- * another agent session. Strip every C0/C1 control character except newline
- * and tab (killing ESC neutralizes ESC[201~ and all other escape sequences).
- * Applied at rendering/delivery ONLY — typeText itself stays byte-faithful for
- * operator/UI direct typing.
+ * Wake placement refused under the mail error rule (D20.2): unauthorized and
+ * unreachable are the SAME reason, and the reason names neither a machine nor
+ * a grant. The address oracle for issues/sessions is a different axis; this
+ * string only covers the machine half of a wake.
  */
-export function sanitizeBody(body: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars is the point
-  return body.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u0080-\u009f]/g, '')
-}
-
-/** Render the delivery envelope. Server-only: bodies never carry frames of
- *  their own — a spoofed "[podium message …]" inside `body` lands INSIDE the
- *  real frame and reads as quoted text. */
-export function renderEnvelope(
-  m: MessageRow,
-  fromLabel: string,
-  toLabel: string,
-  note?: string,
-): string {
-  // The seance constraint [spec:SP-34d7 read-toolkit tier 4]: a question's
-  // frame binds the receiver — answer from existing context, reply, then
-  // RESUME. Server-rendered like the rest of the frame, never client text.
-  const questionRule =
-    m.kind === 'question'
-      ? `[this is a question: answer it from your existing context with \`podium mail reply ${m.id}\`, ` +
-        `then RETURN TO WHAT YOU WERE DOING — do not take up new work because of it]\n`
-      : ''
-  // A --expect-response message [spec:SP-bf44] carries the same reply directive a
-  // question does, minus the answer-then-resume binding: the sender wants a reply
-  // (else the steward will nag them that none came), but it is not a seance. A
-  // question already gets its own, stronger rule above, so this is question-exempt.
-  const responseRule =
-    m.expectsResponse && m.kind !== 'question'
-      ? `[a response was requested: reply within this thread (\`podium mail reply ${m.id}\`) ` +
-        `when you have handled it — any substantive reply satisfies it]\n`
-      : ''
-  return (
-    `[podium message ${m.id} · from ${fromLabel} · to ${toLabel} · reply: podium mail reply ${m.id}]\n` +
-    `${m.body}\n` +
-    (note ? `${note}\n` : '') +
-    questionRule +
-    responseRule +
-    `[end podium message ${m.id}]`
-  )
-}
+export const WAKE_PLACEMENT_DENIED_REASON = 'target is not available'
 
 /** Derive the sender principal from an authz capability (the relay/registry
  *  caller identity). ONLY the unconstrained scope ('all') is the operator —
@@ -416,43 +307,6 @@ export function senderFromPrincipal(principal: CommandPrincipal): MessageSender 
 /** How the target session presents at delivery time. */
 type TargetState = 'idle' | 'running' | 'parked'
 
-type DeliveryTarget = { kind: 'session' | 'issue'; id: string }
-
-/** The low-frequency sweep remains a bounded safety net while event coverage is
- * proven. One pass never revisits an unbounded historical queue. [spec:SP-c29e] */
-export const DELIVERY_RETRY_BACKSTOP_LIMIT = 100
-/** Five minutes: event triggers are primary; this only heals a missed edge. */
-export const DELIVERY_RETRY_BACKSTOP_MS = 5 * 60_000
-
-interface DeliveryTargetWork {
-  target: DeliveryTarget
-  after?: MessagePageCursor
-  through?: MessagePageCursor
-  preferred?: SessionMeta
-  enqueuedAt: number
-}
-
-export interface MessageDeliveryStats {
-  pendingTargetCount: number
-  coalescedTriggerCount: number
-  oldestJobAgeMs: number
-  retryPageCursor: MessagePageCursor | null
-  retryPagesProcessed: number
-  triggerFailures: number
-}
-
-const DELIVERY_TARGET_PAGE_LIMIT = 200
-const DELIVERY_RECONCILE_PAGE_LIMIT = 100
-
-function cursorOf(message: MessageRow): MessagePageCursor {
-  return {
-    createdAt: message.createdAt,
-    id: message.id,
-  }
-}
-
-const deliveryTargetKey = (target: DeliveryTarget): string => `${target.kind}:${target.id}`
-
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 
 const URGENCY_ORDER: MessageUrgency[] = ['fyi', 'next-turn', 'interrupt']
@@ -469,48 +323,74 @@ export class MessageDeliveryService {
   /** Lost-echo requeues per message id [POD-853 stopgap]; in-memory is fine —
    *  a restart resets the count and the row simply earns its cap again. */
   private readonly requeueCounts = new Map<string, number>()
-  /** Last wake timestamp per sender+resolved-target brake key. This is a
-   * write-through cache over message_wake_cooldowns; cold reads are keyed. */
-  private readonly lastWakeAt = new Map<string, number>()
-  /** message-triggered spawns per issue for the current UTC day (brake 2) — a
-   *  cache over the `message.spawned` event ledger (restart-proof). */
-  private readonly spawnCount = new Map<string, { day: string; count: number }>()
   /** needs-attention already emitted per `${messageId}|${reason}` — the sweep
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
 
   private readonly notificationArbiter: NotificationArbiter
+  /** Envelope/pointer rendering and the confirmation mode that follows from it
+   *  (POD-1397). Holds no state; owned rather than injected because its deps are
+   *  a narrowing of this service's own. */
+  private readonly render: MessageRenderer
+  /** Containment brakes 1 (wake cooldown) and 2 (spawn budget) — POD-1397.
+   *  Owns their state and their timers outright; this service supplies only the
+   *  keys it is the one able to resolve, and disposes it. */
+  private readonly brakes: DeliveryBrakes
+  /** WHEN a delivery is attempted — the coalesced trigger queue, the boot
+   *  reconcile walk and the slow retry backstop, with the eleven fields that
+   *  answer for them and all three of their timers (POD-1397). */
+  private readonly scheduler: DeliveryScheduler
+  /** The PULL path: replies, acks, inbox reads, dismissals and the bounded
+   *  waits a sender uses to learn what became of its send (POD-1397). */
+  private readonly mailbox: MessageMailbox
 
   constructor(private readonly deps: MessageDeliveryDeps) {
     this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
+    this.brakes = new DeliveryBrakes({
+      messages: deps.messages,
+      events: deps.events,
+      now: deps.now,
+      onCooldownElapsed: (targets) => {
+        for (const target of targets) this.queueDeliveryTarget(target)
+      },
+    })
+    this.scheduler = new DeliveryScheduler({
+      messages: deps.messages,
+      now: deps.now,
+      runner: this.deliveryRunner(),
+    })
+    this.mailbox = new MessageMailbox({
+      messages: deps.messages,
+      issues: deps.issues,
+      notificationArbiter: this.notificationArbiter,
+      listSessions: () => deps.sessions.listSessions(),
+      now: deps.now,
+      ...(deps.mirrorMarkIssueMailRead
+        ? {
+            mirrorMarkIssueMailRead: (issueId: string, ids: string[]) =>
+              deps.mirrorMarkIssueMailRead?.(issueId, ids),
+          }
+        : {}),
+      send: (from, input) => this.send(from, input),
+      emitTransition: (message, kind, extra) => this.emitTransition(message, kind, extra),
+      fromLabel: (message) => this.render.fromLabel(message),
+    })
+    this.render = new MessageRenderer({
+      issues: deps.issues,
+      listSessions: () => deps.sessions.listSessions(),
+      ...(deps.machineName ? { machineName: (id: string) => deps.machineName!(id) } : {}),
+    })
   }
 
-  /** Bounded delivery jobs coalesce by durable recipient principal. */
-  private readonly pendingDeliveryTargets = new Map<string, DeliveryTargetWork>()
-  /** A synchronous idle drain owns these finite-snapshot targets. Fresh,
-   * reentrant triggers are retained separately for the next macrotask. */
-  private readonly activeBoundaryTargets = new Map<string, number>()
-  private readonly deferredBoundaryTargets = new Map<string, DeliveryTarget>()
-  private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
-  private reconcileTimer: ReturnType<typeof setTimeout> | null = null
-  private retryBackstopTimer: ReturnType<typeof setTimeout> | null = null
-  private retryBackstopCursor: MessagePageCursor | null = null
-  private retryPassStartedAt: number | null = null
-  private retryPagesProcessed = 0
-  private coalescedTriggerCount = 0
-  private triggerFailures = 0
+  /** The exact text a receiver would see — the delivery service's own view of
+   *  its renderer, kept public because callers ask this service, not its parts. */
+  renderFor(message: MessageRow, receiverSessionId?: string): string {
+    return this.render.renderFor(message, receiverSessionId)
+  }
+
   /** Last resolved issue per session. This is the before-state needed for detach,
    * reassignment, inferred-cwd movement, and remove events. */
   private readonly sessionIssueTargets = new Map<string, string>()
-  /** One restart-recoverable wake-cooldown timer per sender+target brake key. */
-  private readonly wakeCooldownTimers = new Map<
-    string,
-    {
-      deadline: number
-      timer: ReturnType<typeof setTimeout>
-      targets: Map<string, DeliveryTarget>
-    }
-  >()
 
   /** Queue the session principal plus both sides of its issue-resolution change. */
   onSessionEligibilityChanged(
@@ -567,11 +447,55 @@ export class MessageDeliveryService {
     }
   }
 
-  /** Begin a bounded startup walk. Each page schedules the next macrotask so
-   * every durable principal is enumerated without one unbounded boot turn. */
+  /**
+   * The delivery reasoning the scheduler calls back through. Built once, in the
+   * constructor: the scheduler decides WHEN, these methods decide WHAT, and
+   * neither reaches into the other's state.
+   */
+  private deliveryRunner(): DeliveryRunner {
+    return {
+      targetOf: (message) => this.deliveryTargetOf(message),
+      listSessions: () => this.deps.sessions.listSessions(),
+      nowMs: () => this.nowMs(),
+      drainPreferred: (session, messages, nowMs) => this.drainPreferred(session, messages, nowMs),
+      attemptOne: (message, allSessions, nowMs) => {
+        if (!this.prepareQueuedAttemptSafely(message, nowMs)) return
+        this.attemptDelivery(message, [...allSessions], { viaSweep: true })
+        this.scheduleQueuedWakeRetry(message)
+      },
+    }
+  }
+
+  /**
+   * The idle drain for ONE preferred session. Total by contract — see
+   * {@link DeliveryRunner.drainPreferred}: it reports its own failure and still
+   * returns the ids it took, because a row that falls out of the handled set is
+   * a row delivered twice.
+   */
+  private drainPreferred(
+    session: SessionMeta,
+    messages: readonly MessageRow[],
+    nowMs: number,
+  ): readonly string[] {
+    if (this.stateOf(session) !== 'idle') return []
+    const handled = messages.map((message) => message.id)
+    if (this.draftHoldActive(session)) return handled
+    const eligible = messages.filter((message) => this.prepareQueuedAttemptSafely(message, nowMs))
+    eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    try {
+      this.deliverBatch(session, eligible)
+      for (const message of eligible) this.scheduleQueuedWakeRetry(message)
+    } catch (error) {
+      this.scheduler.recordTriggerFailure(`preferred session ${session.sessionId}`, error)
+    }
+    return handled
+  }
+
+  /** Begin a bounded startup walk. The session→issue before-state is this
+   *  service's to restore; the walk itself is the scheduler's. */
   reconcileQueued(): void {
     const sessions = this.deps.sessions.listSessions()
-    if (this.deps.messages.countQueued() === 0) {
+    if (this.scheduler.queueIsEmpty()) {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
       // common empty-queue boot path.
@@ -584,151 +508,26 @@ export class MessageDeliveryService {
     for (const session of sessions) {
       this.onSessionEligibilityChanged(session.sessionId, session)
     }
-    this.runReconcilePage()
-  }
-
-  private runReconcilePage(after?: MessagePageCursor): void {
-    this.reconcileTimer = null
-    let page: MessageRow[]
-    try {
-      page = this.deps.messages.listQueuedPage({
-        ...(after ? { after } : {}),
-        limit: DELIVERY_RECONCILE_PAGE_LIMIT,
-      })
-    } catch (error) {
-      this.recordTriggerFailure('startup page query', error)
-      return
-    }
-    for (const message of page) {
-      const target = this.deliveryTargetOf(message)
-      if (target) this.queueDeliveryTarget(target)
-    }
-    this.flushDeliveryTriggers()
-    if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return
-    const next = cursorOf(page.at(-1)!)
-    this.reconcileTimer = setTimeout(() => this.runReconcilePage(next), 0)
-    this.reconcileTimer.unref?.()
+    this.scheduler.reconcile()
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
   flushDeliveryTriggers(onlyPreferredSessionId?: string): void {
-    if (this.deliveryTriggerTimer) {
-      clearTimeout(this.deliveryTriggerTimer)
-      this.deliveryTriggerTimer = null
-    }
-    if (this.pendingDeliveryTargets.size === 0) return
-    const works: DeliveryTargetWork[] = []
-    if (onlyPreferredSessionId) {
-      for (const [key, work] of this.pendingDeliveryTargets) {
-        if (work.preferred?.sessionId !== onlyPreferredSessionId) continue
-        works.push(work)
-        this.pendingDeliveryTargets.delete(key)
-      }
-      // Non-boundary/reentrant work is deliberately retained for the next
-      // macrotask; it cannot expand this synchronous finite snapshot.
-      if (this.pendingDeliveryTargets.size > 0) this.scheduleDeliveryFlush()
-    } else {
-      works.push(...this.pendingDeliveryTargets.values())
-      this.pendingDeliveryTargets.clear()
-    }
-    if (works.length === 0) return
-    const selected = new Map<string, MessageRow>()
-    const preferredGroups = new Map<
-      string,
-      { session: SessionMeta; messages: Map<string, MessageRow> }
-    >()
+    this.scheduler.flushDeliveryTriggers(onlyPreferredSessionId)
+  }
 
-    for (const work of works) {
-      let page: MessageRow[]
-      try {
-        page = this.deps.messages.pendingForPage(work.target, {
-          ...(work.after ? { after: work.after } : {}),
-          ...(work.through ? { through: work.through } : {}),
-          limit: DELIVERY_TARGET_PAGE_LIMIT,
-        })
-      } catch (error) {
-        this.recordTriggerFailure(`target page ${deliveryTargetKey(work.target)}`, error)
-        continue
-      }
-      const pageCursor = page.length > 0 ? cursorOf(page.at(-1)!) : undefined
-      if (
-        page.length === DELIVERY_TARGET_PAGE_LIMIT &&
-        pageCursor &&
-        (!work.through || this.compareCursor(pageCursor, work.through) < 0)
-      ) {
-        this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
-      }
-      for (const message of page) {
-        selected.set(message.id, message)
-        if (!work.preferred) continue
-        let group = preferredGroups.get(work.preferred.sessionId)
-        if (!group) {
-          group = { session: work.preferred, messages: new Map() }
-          preferredGroups.set(work.preferred.sessionId, group)
-        }
-        group.messages.set(message.id, message)
-      }
-    }
-
-    if (selected.size === 0) return
-    const all = this.deps.sessions.listSessions()
-    const nowMs = this.nowMs()
-    const handled = new Set<string>()
-    for (const group of preferredGroups.values()) {
-      const session = group.session
-      if (this.stateOf(session) !== 'idle') continue
-      const messages = [...group.messages.values()]
-      for (const message of messages) handled.add(message.id)
-      if (this.draftHoldActive(session)) continue
-      const eligible = messages.filter((message) => this.prepareQueuedAttemptSafely(message, nowMs))
-      eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-      try {
-        this.deliverBatch(session, eligible)
-        for (const message of eligible) this.scheduleQueuedWakeRetry(message)
-      } catch (error) {
-        this.recordTriggerFailure(`preferred session ${session.sessionId}`, error)
-      }
-    }
-    for (const message of selected.values()) {
-      if (handled.has(message.id)) continue
-      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
-      try {
-        this.attemptDelivery(message, all, { viaSweep: true })
-        this.scheduleQueuedWakeRetry(message)
-      } catch (error) {
-        this.recordTriggerFailure(`message ${message.id}`, error)
-      }
-    }
+  /** Slow delivery backstop [spec:SP-c29e]. */
+  sweep(): void {
+    this.scheduler.sweep()
   }
 
   deliveryStats(): MessageDeliveryStats {
-    const now = this.nowMs()
-    let oldest = this.retryPassStartedAt
-    for (const work of this.pendingDeliveryTargets.values()) {
-      oldest = oldest === null ? work.enqueuedAt : Math.min(oldest, work.enqueuedAt)
-    }
-    return {
-      pendingTargetCount: this.pendingDeliveryTargets.size,
-      coalescedTriggerCount: this.coalescedTriggerCount,
-      oldestJobAgeMs: oldest === null ? 0 : Math.max(0, now - oldest),
-      retryPageCursor: this.retryBackstopCursor,
-      retryPagesProcessed: this.retryPagesProcessed,
-      triggerFailures: this.triggerFailures,
-    }
+    return this.scheduler.deliveryStats()
   }
 
   dispose(): void {
-    if (this.deliveryTriggerTimer) clearTimeout(this.deliveryTriggerTimer)
-    if (this.reconcileTimer) clearTimeout(this.reconcileTimer)
-    if (this.retryBackstopTimer) clearTimeout(this.retryBackstopTimer)
-    this.deliveryTriggerTimer = null
-    this.reconcileTimer = null
-    this.retryBackstopTimer = null
-    for (const pending of this.wakeCooldownTimers.values()) clearTimeout(pending.timer)
-    this.wakeCooldownTimers.clear()
-    this.pendingDeliveryTargets.clear()
-    this.activeBoundaryTargets.clear()
-    this.deferredBoundaryTargets.clear()
+    this.scheduler.dispose()
+    this.brakes.dispose()
     this.sessionIssueTargets.clear()
   }
 
@@ -738,70 +537,16 @@ export class MessageDeliveryService {
     after?: MessagePageCursor,
     through?: MessagePageCursor,
   ): void {
-    const key = deliveryTargetKey(target)
-    if (!after && !through && this.activeBoundaryTargets.has(key)) {
-      if (this.deferredBoundaryTargets.has(key)) this.coalescedTriggerCount += 1
-      else this.deferredBoundaryTargets.set(key, target)
-      return
-    }
-
-    try {
-      if (this.deps.messages.countPending(target) === 0) return
-    } catch (error) {
-      this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
-      return
-    }
-
-    const existing = this.pendingDeliveryTargets.get(key)
-    if (existing) {
-      this.coalescedTriggerCount += 1
-      if (through) existing.through = through
-      if (!after) existing.after = undefined
-      else if (existing.after && this.compareCursor(after, existing.after) < 0)
-        existing.after = after
-      else if (!existing.after) existing.after = after
-      if (preferred) existing.preferred = preferred
-    } else {
-      this.pendingDeliveryTargets.set(key, {
-        target,
-        ...(after ? { after } : {}),
-        ...(through ? { through } : {}),
-        ...(preferred ? { preferred } : {}),
-        enqueuedAt: this.nowMs(),
-      })
-    }
-    this.scheduleDeliveryFlush()
-  }
-
-  private scheduleDeliveryFlush(): void {
-    if (this.deliveryTriggerTimer) return
-    this.deliveryTriggerTimer = setTimeout(() => {
-      this.deliveryTriggerTimer = null
-      try {
-        this.flushDeliveryTriggers()
-      } catch (error) {
-        this.recordTriggerFailure('coalesced delivery flush', error)
-      }
-    }, 0)
-    this.deliveryTriggerTimer.unref?.()
-  }
-
-  private compareCursor(a: MessagePageCursor, b: MessagePageCursor): number {
-    return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
+    this.scheduler.queueDeliveryTarget(target, preferred, after, through)
   }
 
   private prepareQueuedAttemptSafely(message: MessageRow, nowMs: number): boolean {
     try {
       return this.prepareQueuedAttempt(message, nowMs)
     } catch (error) {
-      this.recordTriggerFailure(`prepare message ${message.id}`, error)
+      this.scheduler.recordTriggerFailure(`prepare message ${message.id}`, error)
       return false
     }
-  }
-
-  private recordTriggerFailure(context: string, error: unknown): void {
-    this.triggerFailures += 1
-    console.warn(`[podium] message delivery trigger failed (${context})`, error)
   }
 
   private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
@@ -877,7 +622,7 @@ export class MessageDeliveryService {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : this.issueForSession(targetSession)
       const key = `${this.senderKey(from)}|${issueKey ?? toId ?? ''}`
-      if (this.wakeCooldownHot(key)) {
+      if (this.brakes.isWakeHot(key)) {
         clamps.push({ lifecycle, reason: 'wake cooldown (1 per 10min per sender+issue)' })
         lifecycle = 'wait'
       }
@@ -1124,7 +869,17 @@ export class MessageDeliveryService {
         if (message.fromSession && allMembers.some((s) => s.sessionId === message.fromSession)) {
           return this.suppressSelf(message)
         }
-        if (message.lifecycle === 'wake') return this.trySpawn(message, message.toId)
+        if (message.lifecycle === 'wake') {
+          // Bare spawn-on-wake places work on the ISSUE's machine (makeSpawnOnWake
+          // copies issue.machineId). Gate it before trySpawn, same M2 boundary.
+          const denied = this.refuseWakeUnlessUsable(
+            message,
+            issue.machineId,
+            opts?.viaSweep === true,
+          )
+          if (denied) return denied
+          return this.trySpawn(message, message.toId)
+        }
         // Issue is live but has NO session — HOLD for its next session. Delivered
         // at that session's next turn boundary (onSessionIdle) / the sweep. The
         // sender is TOLD it is held; it is not a silent drop [POD-834 §05].
@@ -1178,13 +933,33 @@ export class MessageDeliveryService {
     if (message.lifecycle === 'wait') {
       return { ok: true, queued: true, disposition: 'queued' }
     }
-    // wake: durable queue + resurrect (queueText resurrects parked sessions);
+    // wake: durable queue + resurrect (queueText resurrects parked sessions).
+    // Code execution on the TARGET SESSION's machine — readiness §3.1.4 M2 /
+    // POD-1193. Refuse before recordWake so a denied caller neither starts a
+    // process nor burns the wake cooldown.
+    {
+      const denied = this.refuseWakeUnlessUsable(
+        message,
+        target.machineId,
+        opts?.viaSweep === true,
+      )
+      if (denied) return denied
+    }
     // record the wake against the cooldown window.
     this.recordWake(message, target)
     const injected = this.injectAndMark('queue', message, target.sessionId, 'queued')
     if (injected.ok) return injected
     if (injected.reason === 'no resume ref') {
-      return this.trySpawn(message, this.issueForSession(target) ?? message.toId)
+      // Unresumable → spawn-on-wake. The resume attempt was already gated on
+      // the parked session's machine; the spawn may land on the ISSUE's machine
+      // instead (issue.machineId), so re-check against that placement target.
+      const issueId = this.issueForSession(target) ?? message.toId
+      const issueMachine = issueId ? this.deps.issues.get(issueId)?.machineId : undefined
+      if (issueMachine && issueMachine !== target.machineId) {
+        const denied = this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
+        if (denied) return denied
+      }
+      return this.trySpawn(message, issueId)
     }
     return injected
   }
@@ -1205,7 +980,7 @@ export class MessageDeliveryService {
   ): DeliveryOutcome {
     const sessions = this.deps.sessions
     const principal = this.inboxPrincipal(message)
-    const text = this.renderFor(message, sessionId)
+    const text = this.render.renderFor(message, sessionId)
     const input = {
       sessionId,
       text,
@@ -1226,7 +1001,7 @@ export class MessageDeliveryService {
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
-    const confirmed = this.confirmedOnInjection(message)
+    const confirmed = this.render.confirmedOnInjection(message)
     if (confirmed) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification) — the injection IS the
@@ -1258,7 +1033,7 @@ export class MessageDeliveryService {
   private trySpawn(message: MessageRow, issueId: string | null): DeliveryOutcome {
     const key = issueId ?? 'no-issue'
     const day = this.deps.now().slice(0, 10)
-    const count = this.spawnCountFor(key, day)
+    const count = this.brakes.spawnCountFor(key, day)
     if (count >= SPAWN_BUDGET_PER_DAY) {
       this.emitTransition(message, 'message.spawn_budget_exhausted')
       this.needsAttention(
@@ -1273,11 +1048,11 @@ export class MessageDeliveryService {
       this.needsAttention(message, 'wake target is unresumable and spawn-on-wake is not wired')
       return { ok: true, queued: true, reason: 'unresumable', disposition: 'held' }
     }
-    this.spawnCount.set(key, { day, count: count + 1 })
+    this.brakes.chargeSpawn(key, day, count + 1)
     // A spawn attempt IS a wake — record it against the cooldown so the sweep
     // does not re-run the spawn seam every 60s.
     if (message.fromKind !== 'operator') {
-      this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
+      this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
     }
     const r = this.deps.spawnOnWake.spawn({ issueId, message })
     if (r.ok && r.sessionId) {
@@ -1341,7 +1116,7 @@ export class MessageDeliveryService {
           })
           for (const message of page) {
             if (!message.injectedAt || message.deliveredTo !== session.sessionId) continue
-            if (this.deliveryMode(message) === 'pointer') continue
+            if (this.render.isPointer(message)) continue
             this.markDelivered(message, session.sessionId, 'boundary')
           }
           if (page.length < DELIVERY_TARGET_PAGE_LIMIT) break
@@ -1360,34 +1135,12 @@ export class MessageDeliveryService {
     // enqueue the same durable target keys and synchronously flush so existing
     // turn-boundary ordering remains exact. The keyed gate handles confirmation,
     // draft holds, FIFO/pointer batching, cooldown, and duplicate events.
-    for (const key of boundaryThrough.keys()) {
-      this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
-    }
-    try {
+    this.scheduler.runBoundaryDrain([...boundaryThrough.keys()], session.sessionId, () => {
       this.onSessionEligibilityChanged(session.sessionId, session, {
         preferThisIdleSession: true,
         boundaryThrough,
       })
-      do {
-        this.flushDeliveryTriggers(session.sessionId)
-        // Each preferred continuation is bounded by the captured high-water.
-        // A fresh/reentrant trigger is held for the next macrotask instead of
-        // resetting this snapshot's cursor or expanding its synchronous work.
-      } while (
-        [...this.pendingDeliveryTargets.values()].some(
-          (work) => work.preferred?.sessionId === session.sessionId,
-        )
-      )
-    } finally {
-      for (const key of boundaryThrough.keys()) {
-        const depth = this.activeBoundaryTargets.get(key) ?? 0
-        if (depth <= 1) this.activeBoundaryTargets.delete(key)
-        else this.activeBoundaryTargets.set(key, depth - 1)
-      }
-      const deferred = [...this.deferredBoundaryTargets.values()]
-      this.deferredBoundaryTargets.clear()
-      for (const target of deferred) this.queueDeliveryTarget(target)
-    }
+    })
   }
 
   /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human
@@ -1404,7 +1157,7 @@ export class MessageDeliveryService {
    *  passes (after which the sweep re-pushes it as a lost push). */
   private awaitingConfirmation(m: MessageRow, nowMs: number): boolean {
     if (!m.injectedAt) return false
-    if (this.deliveryMode(m) === 'pointer') return true
+    if (this.render.isPointer(m)) return true
     return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
   }
 
@@ -1428,8 +1181,8 @@ export class MessageDeliveryService {
     }
     if (message.lifecycle === 'wake' && !exemptFromBrakes(principalOfRow(message))) {
       const key = this.wakeKeyOfRow(message)
-      if (this.wakeCooldownHot(key)) {
-        this.scheduleWakeCooldown(key, message)
+      if (this.brakes.isWakeHot(key)) {
+        this.scheduleWakeRetry(key, message)
         return false
       }
     }
@@ -1443,56 +1196,7 @@ export class MessageDeliveryService {
     const current = this.deps.messages.getMessage(message.id)
     if (!current || current.status !== 'queued' || current.injectedAt) return
     const key = this.wakeKeyOfRow(current)
-    if (this.wakeCooldownHot(key)) this.scheduleWakeCooldown(key, current)
-  }
-
-  /** Slow delivery backstop. Calendar expiry belongs exclusively to the fenced
-   *  janitor; this actor-owned retry may resolve live session state. [spec:SP-c29e] */
-  sweep(): void {
-    const now = this.deps.now()
-    if (this.retryBackstopTimer) return
-    this.retryBackstopCursor = null
-    this.retryPassStartedAt = Date.parse(now)
-    this.runRetryBackstopPage()
-  }
-
-  private runRetryBackstopPage(after?: MessagePageCursor): void {
-    this.retryBackstopTimer = null
-    let page: MessageRow[]
-    try {
-      page = this.deps.messages.listQueuedPage({
-        ...(after ? { after } : {}),
-        limit: DELIVERY_RETRY_BACKSTOP_LIMIT,
-      })
-    } catch (error) {
-      this.recordTriggerFailure('retry page query', error)
-      this.retryBackstopCursor = null
-      this.retryPassStartedAt = null
-      return
-    }
-
-    const all = this.deps.sessions.listSessions()
-    const nowMs = this.nowMs()
-    for (const message of page) {
-      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
-      try {
-        this.attemptDelivery(message, all, { viaSweep: true })
-        this.scheduleQueuedWakeRetry(message)
-      } catch (error) {
-        this.recordTriggerFailure(`retry message ${message.id}`, error)
-      }
-    }
-    this.retryPagesProcessed += 1
-
-    if (page.length < DELIVERY_RETRY_BACKSTOP_LIMIT) {
-      this.retryBackstopCursor = null
-      this.retryPassStartedAt = null
-      return
-    }
-    const next = cursorOf(page.at(-1)!)
-    this.retryBackstopCursor = next
-    this.retryBackstopTimer = setTimeout(() => this.runRetryBackstopPage(next), 0)
-    this.retryBackstopTimer.unref?.()
+    if (this.brakes.isWakeHot(key)) this.scheduleWakeRetry(key, current)
   }
 
   /** Deliver a pending batch into an idle session. Inline rows go FIFO; fyi
@@ -1506,14 +1210,12 @@ export class MessageDeliveryService {
     // sender. They stay queued for their real recipient's own idle drain.
     const rows = batch.filter((m) => m.fromSession !== session.sessionId)
     if (rows.length === 0) return
-    const pointerRows = rows.filter(
-      (m) => m.toKind === 'issue' && (m.urgency === 'fyi' || m.body.length > INLINE_BODY_MAX),
-    )
+    const pointerRows = rows.filter((m) => this.render.isPointer(m))
     const inlineRows = rows.filter((m) => !pointerRows.includes(m))
     for (const m of inlineRows) {
       const r = sessions.sendText({
         sessionId: session.sessionId,
-        text: this.renderFor(m, session.sessionId),
+        text: this.render.renderFor(m, session.sessionId),
         inputOrigin: 'mail',
         principal: this.inboxPrincipal(m),
         sourceMessageId: m.id,
@@ -1526,7 +1228,7 @@ export class MessageDeliveryService {
       const m = pointerRows[0]!
       const r = sessions.sendText({
         sessionId: session.sessionId,
-        text: this.renderFor(m, session.sessionId),
+        text: this.render.renderFor(m, session.sessionId),
         inputOrigin: 'mail',
         principal: this.inboxPrincipal(m),
         sourceMessageId: m.id,
@@ -1538,7 +1240,7 @@ export class MessageDeliveryService {
       // wait — the sweep never re-nudges a pointer row [POD-834].
       const r = sessions.sendText({
         sessionId: session.sessionId,
-        text: this.pointerText(pointerRows),
+        text: this.render.pointerText(pointerRows),
         inputOrigin: 'mail',
         principal: {
           kind: 'system',
@@ -1557,69 +1259,24 @@ export class MessageDeliveryService {
    *  never chased, so both are confirmed now; everything else is injected and
    *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
   private recordPush(message: MessageRow, sessionId: SessionId): void {
-    if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId, 'injection')
+    if (this.render.confirmedOnInjection(message))
+      this.markDelivered(message, sessionId, 'injection')
     else this.markInjected(message, sessionId)
   }
 
-  /** The coalesced pointer rendering (also used for oversized bodies). */
-  pointerText(rows: MessageRow[]): string {
-    const senders = [...new Set(rows.map((m) => this.fromLabel(m)))]
-    return (
-      `[podium] ${rows.length} message(s) from ${senders.join(', ')} — ` +
-      `run 'podium issue mail inbox' to read them`
-    )
-  }
-
   // ---- acks & reads (#237 phase 3) [spec:SP-34d7 acks] ----
+  //
+  // The pull path is its own capability (POD-1397, mailbox.ts). What follows is
+  // the facade: callers ask this service, not its parts, exactly as the issue
+  // service fronts its POD-320 capability modules.
 
-  /** Where a reply to `original` goes: back to the sender principal. An agent
-   *  sender is reached at its session when that session still exists, else at
-   *  its issue; superagent/operator/system replies queue as operator rows (the
-   *  superagent thread/UI inbox picks them up — stage 6). */
+  /** Where a reply to `original` goes: back to the sender principal. */
   replyTarget(original: MessageRow): { kind: 'issue' | 'session' | 'operator'; id?: string } {
-    if (original.fromKind === 'agent') {
-      if (
-        original.fromSession &&
-        this.deps.sessions
-          .listSessions()
-          .some((s) => s.sessionId === original.fromSession)
-      ) {
-        return { kind: 'session', id: original.fromSession }
-      }
-      // Harden against legacy ref-string senders (#463): rows migrated by 016
-      // held `issue:#N` in from_issue; anything that doesn't resolve to a real
-      // issue must NOT reach the issue_messages mirror's FK — fall through.
-      if (original.fromIssue) {
-        const id = this.resolveIssueIdSafe(original.fromIssue)
-        if (id) return { kind: 'issue', id }
-      }
-      if (original.fromSession) return { kind: 'session', id: original.fromSession }
-    }
-    return { kind: 'operator' }
-  }
-
-  /** Resolve an issue ref/id to a VERIFIED existing issue id, or null. Accepts
-   *  a legacy `issue:#N` sender ref (#463) as well as `#N` / `iss_…`; an
-   *  ambiguous or unknown ref returns null instead of throwing. */
-  private resolveIssueIdSafe(ref: string): string | null {
-    const issues = this.deps.issues
-    const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
-    try {
-      const id = issues.resolveRef(bare)
-      return issues.has(id) ? id : null
-    } catch {
-      return null
-    }
+    return this.mailbox.replyTarget(original)
   }
 
   /** Reply to a message: the recipient is computed server-side from the
-   *  original's sender (never caller-supplied). Default kind 'ack' — writing it
-   *  stamps acked_by on the original in the same transaction (see send).
-   *
-   *  A response is PULL-delivered [POD-835 §04b]: the default urgency is `fyi`, so
-   *  the reply lands in the requester's mailbox and surfaces at its next natural
-   *  stop — it is NEVER pushed as a next-turn that starts a fresh turn (an ack is
-   *  never itself ackable, and every ack used to burn a recipient turn). */
+   *  original's sender (never caller-supplied). */
   sendReply(
     from: MessageSender,
     input: {
@@ -1630,60 +1287,25 @@ export class MessageDeliveryService {
       lifecycle?: MessageLifecycle
     },
   ): MessageSendResult {
-    const original = this.deps.messages.getMessage(input.inReplyTo)
-    if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
-    return this.send(from, {
-      to: this.replyTarget(original),
-      body: input.body,
-      kind: input.kind ?? 'ack',
-      inReplyTo: original.id,
-      threadId: original.threadId,
-      urgency: input.urgency ?? 'fyi',
-      lifecycle: input.lifecycle ?? 'wait',
-    })
+    return this.mailbox.sendReply(from, input)
   }
 
   /** Delivered-but-unacked (unexpired) messages awaiting `sessionId`'s reply. */
   deliveredUnacked(sessionId: SessionId): MessageRow[] {
-    return this.deps.messages.listDeliveredUnacked(sessionId, this.deps.now())
+    return this.mailbox.deliveredUnacked(sessionId)
   }
 
-  /** The messages that would produce a settle notice for `sessionId` right now
-   *  (#468): asked-for-something + not-already-notified. The relay guard uses it
-   *  to skip the git-log stitch work when nothing is notifiable. */
+  /** The messages that would produce a settle notice for `sessionId` right now (#468). */
   settleNotifiable(sessionId: SessionId): MessageRow[] {
-    return this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
+    return this.mailbox.settleNotifiable(sessionId)
   }
 
-  /**
-   * The stop-hook's single-reminder set: delivered-but-unfulfilled messages that
-   * REQUESTED a response [POD-835 §04b] (expects_response — the store gates it;
-   * urgency no longer decides, since a `--expect-response fyi` note still owes a
-   * reply), never reminded about before. Marking happens here — each message earns
-   * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
-   * render-ready rows for the daemon's block reason.
-   */
+  /** The stop-hook's single-reminder set [POD-835 §04b]. */
   pendingReminders(sessionId: SessionId): { id: string; from: string; body: string }[] {
-    const at = this.deps.now()
-    const out: { id: string; from: string; body: string }[] = []
-    for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
-      if (!this.deps.messages.markReminded(m.id, at)) continue
-      out.push({ id: m.id, from: this.fromLabel(m), body: m.body })
-    }
-    return out
+    return this.mailbox.pendingReminders(sessionId)
   }
 
-  /**
-   * Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]: the target
-   * session settled (finished/errored) leaving a REQUESTED response unfulfilled
-   * (expects_response, not stamped by any in-thread reply). One system-kind
-   * notification per such message, stitched with issue stage + last commit, routed
-   * like a reply. Suppression is the acked_by null-check — a genuine reply from the
-   * recipient that landed first empties the query; one racing after this produces
-   * duplicate information, never lost information. This notice is itself a
-   * `kind:'notification'` and can never stamp acked_by, so it never masks its own
-   * target's unanswered state. System clamps (next-turn/wait) apply.
-   */
+  /** Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]. */
   systemAckFallback(
     sessionId: SessionId,
     context: {
@@ -1691,99 +1313,33 @@ export class MessageDeliveryService {
       issueSeq?: number
       issueStage?: string
       lastCommit?: string
-      /** #285 pass-through: the settled session's assigned workflow step, when
-       *  one was stamped at spawn — the notice flags it as unresolved. */
       workflowStepId?: string
-      /** Fact claimed by the steward for this notification emission. */
       notificationFact?: { factKey: string; target: string }
     },
   ): void {
-    // #468 / [POD-835]: only messages that REQUESTED a response (expects_response)
-    // and have not already produced a settle notice. The store gates it (an ordinary
-    // message owes no reply) and the once-per-message rule (a prior notification is
-    // the marker). One notice PER MESSAGE — not per sender-group — so every message
-    // carries its own in_reply_to marker; a group notice referencing only the latest
-    // would leave the others unmarked and re-fire them on the next settle (the loop
-    // that sent one message 7 notices in 33 minutes).
-    const rows = this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
-    if (rows.length === 0) return
-    const stitch = [
-      context.issueSeq != null
-        ? `issue #${context.issueSeq}${context.issueStage ? ` stage=${context.issueStage}` : ''}`
-        : null,
-      context.lastCommit ? `last commit: ${context.lastCommit}` : null,
-      context.workflowStepId
-        ? `workflow step ${context.workflowStepId} unresolved (no report from the worker)`
-        : null,
-    ].filter(Boolean)
-    for (const m of rows) {
-      this.send(
-        { kind: 'system', name: 'steward' },
-        {
-          to: this.replyTarget(m),
-          kind: 'notification',
-          inReplyTo: m.id,
-          // System caps are next-turn/wait; ask for the cap so a settle notice
-          // lands as the sender's immediate next turn (clamp matrix enforces).
-          urgency: 'next-turn',
-          lifecycle: 'wait',
-          body:
-            `Session ${sessionId} ${context.outcome} without responding to your message ${m.id} ` +
-            `(you sent it --expect-response).` +
-            (stitch.length ? ` ${stitch.join(' · ')}.` : '') +
-            ` Use the read toolkit (podium session status/read) if you need more.`,
-          ...(context.notificationFact ? { notificationFact: context.notificationFact } : {}),
-        },
-      )
-    }
+    this.mailbox.systemAckFallback(sessionId, context)
   }
 
   /** Message lookup for the read surfaces (gate/CLI). */
   message(id: string): MessageRow | null {
-    return this.deps.messages.getMessage(id)
+    return this.mailbox.message(id)
   }
 
-  /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web] —
-   *  a pure read (never consumes queued status). */
+  /** The per-issue / per-session delivery ledger (#237) — a pure read. */
   ledger(q: { issueId?: string; sessionId?: string; limit?: number }): MessageRow[] {
-    return this.deps.messages.listLedger(q)
+    return this.mailbox.ledger(q)
   }
 
-  /**
-   * Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]: poll
-   * `acked_by` until the deadline; returns the ack row or null ("no answer
-   * yet"). NEVER hangs — the same every-wait-bounded rule as agent await.
-   * Shared by the seance (`podium session ask`) across gate + superagent.
-   */
-  async awaitAck(
+  /** Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]. */
+  awaitAck(
     messageId: string,
     opts: { timeoutMs: number; pollMs?: number; sleep?(ms: number): Promise<void> },
   ): Promise<MessageRow | null> {
-    const pollMs = opts.pollMs ?? 500
-    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
-    const deadline = Date.now() + opts.timeoutMs
-    for (;;) {
-      const m = this.deps.messages.getMessage(messageId)
-      if (m?.ackedBy) return this.deps.messages.getMessage(m.ackedBy)
-      if (Date.now() >= deadline) return null
-      await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
-    }
+    return this.mailbox.awaitAck(messageId, opts)
   }
 
-  /**
-   * Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]:
-   * poll the ledger until the row leaves `queued` — `delivered` (transcript echo
-   * or turn boundary observed it), `read` (recipient pulled its inbox), or a
-   * terminal `dead_letter`/`expired`/`cancelled` — or the deadline passes. Returns
-   * the row in whatever state it reached (still `queued` on a budget expiry — the
-   * sender is TOLD it is not yet confirmed, never left guessing), or null for an
-   * unknown id. NEVER hangs — the every-wait-bounded rule shared with `awaitAck`.
-   * This is the primitive urgency-gated blocking send builds on: `queued` means
-   * only "handed to the harness input queue", and a harness-queued message can
-   * still be Esc-cancelled or draft-held, so only a non-`queued` status is trusted.
-   * `now`/`sleep` are injectable so tests drive a deterministic clock (no timers).
-   */
-  async awaitDelivered(
+  /** Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]. */
+  awaitDelivered(
     messageId: string,
     opts: {
       timeoutMs: number
@@ -1792,74 +1348,16 @@ export class MessageDeliveryService {
       now?(): number
     },
   ): Promise<MessageRow | null> {
-    const pollMs = opts.pollMs ?? 250
-    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
-    const now = opts.now ?? (() => Date.now())
-    const deadline = now() + opts.timeoutMs
-    for (;;) {
-      const m = this.deps.messages.getMessage(messageId)
-      if (m && m.status !== 'queued') return m
-      if (now() >= deadline) return m ?? null
-      await sleep(Math.min(pollMs, Math.max(1, deadline - now())))
-    }
+    return this.mailbox.awaitDelivered(messageId, opts)
   }
 
-  /**
-   * Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
-   * surface (the gate) calls this instead of `send()` so the sender waits for the
-   * trustworthy outcome instead of a bare `queued` that provably vanished. Internal
-   * sends (steward auto-ack, self-suppress, dead-letter notice) keep calling `send`
-   * and never block. Runs the synchronous `send()`, then blocks by the EFFECTIVE
-   * (post-clamp) urgency of the resulting row. `opts` threads the caller's injectable
-   * clock/sleep straight to `awaitDelivered` (production: real timers).
-   */
-  async sendAndConfirm(
+  /** Urgency-gated blocking send [spec:SP-cb9f] [POD-854]. */
+  sendAndConfirm(
     from: MessageSender,
     input: MessageSendInput,
     opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
   ): Promise<MessageSendResult> {
-    const r = this.send(from, input)
-    return { ...r, disposition: await this.blockForDelivery(r, opts) }
-  }
-
-  /** Block by urgency until the send's outcome is trustworthy [spec:SP-cb9f]. Only a
-   *  `queued` push to a live target has an imminent turn to observe — `delivered`
-   *  (already confirmed-on-injection), `held` (no live session), `spawning` (a boot)
-   *  and `dead_letter` (gone) have nothing to wait on and pass straight through.
-   *  `fyi` confirms at queued (never blocks); an operator-addressed row is confirmed
-   *  by a HUMAN inbox read, not a turn boundary, so blocking would always time out —
-   *  it returns immediately too. `interrupt` blocks up to the hang-guard ceiling,
-   *  `next-turn` up to the shorter budget; either, on expiry with the row still
-   *  queued (busy / composer-draft-held / lost echo), returns `accepted` — durably
-   *  captured, not yet confirmed — never a bare `queued` and never an infinite block. */
-  private async blockForDelivery(
-    r: MessageSendResult,
-    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
-  ): Promise<SendDisposition> {
-    if (r.disposition !== 'queued') return r.disposition
-    // A push that FAILED at the transport (ok:false — the daemon dropped offline
-    // mid-send) put no bytes on screen, so no echo / turn boundary can confirm it
-    // within the budget; the row is durably queued and the sweep retries it. Return
-    // the honest `accepted` now instead of blocking the whole budget for a
-    // confirmation that provably cannot arrive.
-    if (!r.ok) return 'accepted'
-    const { urgency, toKind } = r.message
-    if (urgency === 'fyi' || toKind === 'operator') return r.disposition
-    const timeoutMs =
-      urgency === 'interrupt' ? INTERRUPT_DELIVERY_CEILING_MS : NEXT_TURN_DELIVERY_BUDGET_MS
-    const row = await this.awaitDelivered(r.message.id, {
-      timeoutMs,
-      ...(opts?.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
-      ...(opts?.sleep ? { sleep: opts.sleep } : {}),
-      ...(opts?.now ? { now: opts.now } : {}),
-    })
-    if (row?.status === 'delivered' || row?.status === 'read') return 'delivered'
-    // `accepted` is the honest "durably queued, not yet confirmed — query mail
-    // status" ONLY while the row is still queued at the budget expiry. Any other
-    // outcome is terminal-undelivered — dead-lettered, expired past its TTL, or
-    // cancelled — and reporting the pending `accepted` for it would lie [POD-854].
-    if (row?.status === 'queued') return 'accepted'
-    return 'dead_letter'
+    return this.mailbox.sendAndConfirm(from, input, opts)
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */
@@ -1867,73 +1365,20 @@ export class MessageDeliveryService {
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { limit?: number },
   ): MessageRow[] {
-    const rows = principals.flatMap((p) =>
-      this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
-    )
-    rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-    return rows.slice(-(opts?.limit ?? 50))
+    return this.mailbox.inbox(principals, opts)
   }
 
-  /**
-   * Inbox read for `podium mail inbox`. When `consume` is set (the RECIPIENT is
-   * reading its own box) the returned rows are marked `read` — the PULL-path
-   * confirmation, distinct from a pushed `delivered` [POD-834 §04d] — with the
-   * legacy issue_messages mirror kept in step so the stop-hook/prime pending
-   * counts stop nagging on either surface. A row already pushed (delivered) is
-   * still promoted to read when the recipient opens it.
-   */
+  /** Inbox read for `podium mail inbox` — the PULL-path confirmation [POD-834 §04d]. */
   readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { consume?: SessionId | null; limit?: number },
   ): MessageRow[] {
-    const rows = this.inbox(principals, opts?.limit !== undefined ? { limit: opts.limit } : {})
-    if (opts?.consume === undefined) return rows
-    const at = this.deps.now()
-    return rows.map((m) => {
-      if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
-      if (!this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
-      this.retireNotificationFact(m, at)
-      if (m.toKind === 'issue' && m.toId) {
-        try {
-          this.deps.mirrorMarkIssueMailRead?.(m.toId, [m.id])
-        } catch {}
-      }
-      const read = {
-        ...m,
-        status: 'read' as const,
-        readAt: at,
-        deliveredTo: m.deliveredTo ?? opts.consume ?? null,
-      }
-      this.emitTransition(read, 'message.read')
-      return read
-    })
+    return this.mailbox.readInbox(principals, opts)
   }
 
-  /** Explicitly clear one recipient-owned message without opening the inbox.
-   * Reuses `read`, the existing cleared terminal state [spec:SP-ba61]. */
+  /** Explicitly clear one recipient-owned message without opening the inbox. */
   dismiss(messageId: string, consume: string | null): MessageRow {
-    const message = this.deps.messages.getMessage(messageId)
-    if (!message) throw new Error('unknown message ' + messageId)
-    const at = this.deps.now()
-    if (message.status === 'queued' || message.status === 'delivered') {
-      this.deps.messages.markRead(message.id, consume, at)
-      if (message.toKind === 'issue' && message.toId) {
-        try {
-          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
-        } catch {}
-      }
-    }
-    const dismissed = this.deps.messages.getMessage(messageId) ?? message
-    if (dismissed.status === 'read' && message.status !== 'read') {
-      this.emitTransition(dismissed, 'message.read')
-    }
-    this.retireNotificationFact(message, at)
-    return dismissed
-  }
-
-  private retireNotificationFact(message: MessageRow, at: string): void {
-    if (!message.factKey || !message.factTarget) return
-    this.notificationArbiter.retire(message.factKey, message.factTarget, at)
+    return this.mailbox.dismiss(messageId, consume)
   }
 
   // ---- clamp matrix / relationships ----
@@ -2048,44 +1493,18 @@ export class MessageDeliveryService {
     return Date.parse(this.deps.now())
   }
 
-  /** Today's spawn count for an issue key — in-memory cache over the durable
-   *  event ledger (`message.spawned` from the wake seam, plus `agent.spawned`
-   *  rows that carry `budgetIssue` — the gate's budgeted agent spawns), so a
-   *  restart never resets brake 2. */
-  private spawnCountFor(key: string, day: string): number {
-    const entry = this.spawnCount.get(key)
-    if (entry?.day === day) return entry.count
-    let count = 0
-    try {
-      for (const e of this.deps.events.listEventsSince(0, {
-        kinds: ['message.spawned', 'agent.spawned'],
-        limit: 5000,
-      })) {
-        const p = e.payload as { spawnIssue?: string; budgetIssue?: string } | null
-        // agent.spawned rows only count when budgeted (operator spawns are free).
-        const k = e.kind === 'agent.spawned' ? p?.budgetIssue : (p?.spawnIssue ?? 'no-issue')
-        if (k !== undefined && e.ts.slice(0, 10) === day && k === key) count++
-      }
-    } catch {}
-    this.spawnCount.set(key, { day, count })
-    return count
-  }
-
   /** Brake 2 for DIRECT agent spawns (`podium agent spawn`) — the gate shares
-   *  the same per-issue daily budget as the spawn-on-wake seam, or a looping
-   *  agent could fork-bomb the host with full PTY sessions the wake budget
-   *  never sees [spec:SP-34d7 containment]. Consumes one unit when available. */
+   *  the same per-issue daily budget as the spawn-on-wake seam. Delegated: the
+   *  budget lives with the brake that enforces it, but the seam is on this
+   *  service because that is what the gate holds. */
   takeSpawnBudget(issueId: string | null): { ok: boolean; count: number } {
-    const key = issueId ?? 'no-issue'
-    const day = this.deps.now().slice(0, 10)
-    const count = this.spawnCountFor(key, day)
-    if (count >= SPAWN_BUDGET_PER_DAY) return { ok: false, count }
-    this.spawnCount.set(key, { day, count: count + 1 })
-    return { ok: true, count: count + 1 }
+    return this.brakes.takeSpawnBudget(issueId)
   }
 
   /** The cooldown key of a stored row — MUST mirror recordWake/send: session
-   *  targets resolve to their issue. */
+   *  targets resolve to their issue. Derived HERE, never inside the brake: this
+   *  service owns the session→issue resolution, and a key written by one
+   *  derivation and checked by another silently disables the brake. */
   private wakeKeyOfRow(m: MessageRow): string {
     const target =
       m.toKind === 'session'
@@ -2097,170 +1516,18 @@ export class MessageDeliveryService {
     return `${this.senderKeyOfRow(m)}|${issueKey ?? m.toId ?? ''}`
   }
 
-  private wakeCooldownHot(key: string): boolean {
-    const cutoff = this.nowMs() - WAKE_COOLDOWN_MS
-    const last = this.lastWakeAt.get(key)
-    if (last !== undefined) return last > cutoff
-    const attemptedAt = this.deps.messages.getWakeCooldown(key)
-    const parsed = attemptedAt ? Date.parse(attemptedAt) : 0
-    const derived = Number.isFinite(parsed) ? parsed : 0
-    this.lastWakeAt.set(key, derived)
-    return derived > cutoff
-  }
-
-  /** Arm one timer for every queued target sharing a sender+issue cooldown key.
-   *  The deadline comes from lastWakeAt, whose cold-path value is reconstructed
-   *  from durable message rows, so reconcileQueued() restores this after restart. */
-  private scheduleWakeCooldown(key: string, message: MessageRow): void {
+  /** Arm the brake's retry for this row's durable target. Resolving the row to
+   *  a target is this service's job; arming the timer is the brake's. */
+  private scheduleWakeRetry(key: string, message: MessageRow): void {
     const target = this.deliveryTargetOf(message)
     if (!target) return
-    const last = this.lastWakeAt.get(key)
-    if (last === undefined) return
-    const deadline = last + WAKE_COOLDOWN_MS
-    const existing = this.wakeCooldownTimers.get(key)
-    if (existing && existing.deadline === deadline) {
-      existing.targets.set(deliveryTargetKey(target), target)
-      return
-    }
-    if (existing) clearTimeout(existing.timer)
-    const targets = existing?.targets ?? new Map<string, DeliveryTarget>()
-    targets.set(deliveryTargetKey(target), target)
-    const timer = setTimeout(
-      () => {
-        const pending = this.wakeCooldownTimers.get(key)
-        if (!pending || pending.deadline !== deadline) return
-        this.wakeCooldownTimers.delete(key)
-        for (const retryTarget of pending.targets.values()) {
-          this.queueDeliveryTarget(retryTarget)
-        }
-      },
-      Math.max(1, deadline - this.nowMs()),
-    )
-    timer.unref?.()
-    this.wakeCooldownTimers.set(key, { deadline, timer, targets })
+    this.brakes.scheduleWakeRetry(key, target)
   }
 
   private recordWake(message: MessageRow, target: SessionMeta | undefined): void {
     if (exemptFromBrakes(principalOfRow(message))) return
     const issueKey = message.toKind === 'issue' ? message.toId : this.issueForSession(target)
-    this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
-  }
-
-  /** Durable write happens before queueText/spawn, so a crash or transport
-   * failure cannot erase the cooldown attempt. */
-  private recordWakeKey(key: string): void {
-    const attemptedAt = this.deps.now()
-    this.deps.messages.recordWakeCooldown(key, attemptedAt)
-    const parsed = Date.parse(attemptedAt)
-    this.lastWakeAt.set(key, Number.isFinite(parsed) ? parsed : this.nowMs())
-  }
-
-  // ---- rendering ----
-
-  /** The exact text the receiver sees: enveloped for every principal EXCEPT the
-   *  operator — only the human's own words land unwrapped. Oversized
-   *  issue-addressed bodies render as an inbox pointer instead of inline. */
-  renderFor(message: MessageRow, receiverSessionId?: string): string {
-    if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
-      return this.pointerText([message])
-    }
-    // Operator bodies are BYTE-FAITHFUL: the human's bytes are their own —
-    // they can already type anything directly into their own terminal, so
-    // there is no escalation to prevent. Unwrapped AND unsanitized. The ONE
-    // exception is a question [spec:SP-34d7 read-toolkit tier 4]: the ask
-    // round-trip needs the reply frame (message id + `podium mail reply`) or
-    // the target can never ack and awaitAck always times out — so operator
-    // questions render the frame around the still-byte-faithful body.
-    if (message.fromKind === 'operator') {
-      if (message.kind !== 'question') return message.body
-      return renderEnvelope(message, 'the operator', this.toLabel(message))
-    }
-    // Substrate boundary: every NON-operator delivered body is control-stripped
-    // so it can never break out of the bracketed paste (ESC[201~) in typeText.
-    const body = sanitizeBody(message.body)
-    return renderEnvelope(
-      { ...message, body },
-      this.fromLabel(message),
-      this.toLabel(message),
-      this.crossMachineNote(message, receiverSessionId),
-    )
-  }
-
-  /** Cross-machine provenance [spec:SP-6d57]: when the sending session runs on a
-   *  DIFFERENT machine than the receiver, say so and how to inspect its working
-   *  state — built only from what podium already knows (session machineIds),
-   *  zero storage. */
-  private crossMachineNote(message: MessageRow, receiverSessionId?: string): string | undefined {
-    if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
-    const sessions = this.deps.sessions.listSessions()
-    const senderMachine = sessions.find((s) => s.sessionId === message.fromSession)?.machineId
-    const receiverMachine = sessions.find((s) => s.sessionId === receiverSessionId)?.machineId
-    if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined
-    const name = this.deps.machineName?.(senderMachine) ?? senderMachine
-    return `[this agent runs on machine "${name}" — inspect its working tree with: podium workspace fetch ${message.fromSession}]`
-  }
-
-  private fromLabel(message: MessageRow): string {
-    if (message.fromKind === 'agent') {
-      if (message.fromIssue) {
-        // Nice-id form (#474): `issue:POD-13` — clickable in the web transcript
-        // and the reference form agents are told to use; `#seq` only before a
-        // repo prefix exists (niceRef's own fallback).
-        const issues = this.deps.issues
-        const issue = issues.getMeta(message.fromIssue)
-        return issue ? `issue:${issues.niceRef(issue)}` : message.fromIssue
-      }
-      if (message.fromSession) return `session:${message.fromSession}`
-      return 'agent'
-    }
-    if (message.fromKind === 'system')
-      return `system${message.fromName ? `:${message.fromName}` : ''}`
-    return message.fromKind // superagent
-  }
-
-  private toLabel(message: MessageRow): string {
-    if (message.toKind === 'issue') {
-      const issues = this.deps.issues
-      const issue = issues.getMeta(message.toId ?? '')
-      return issue ? `your issue ${issues.niceRef(issue)}` : `your issue ${message.toId}`
-    }
-    if (message.toKind === 'session') return 'your session'
-    return 'the operator'
-  }
-
-  /** How a message reaches the agent, deciding how (and whether) its delivery is
-   *  confirmed [POD-834]. Kept in lockstep with `deliverBatch`'s pointer filter
-   *  and `renderFor`: an issue-addressed fyi / oversized body is a pull-path
-   *  nudge (confirmed by an inbox read); an operator's byte-faithful body carries
-   *  no id and is confirmed on injection; everything else echoes back its id. */
-  private deliveryMode(message: MessageRow): DeliveryMode {
-    if (
-      message.toKind === 'issue' &&
-      (message.urgency === 'fyi' || message.body.length > INLINE_BODY_MAX)
-    ) {
-      return 'pointer'
-    }
-    if (deliversUnwrapped(principalOfRow(message), message.kind)) return 'unwrapped'
-    return 'echo'
-  }
-
-  /** A message whose push into the PTY is itself the confirmation — no transcript
-   *  echo is awaited and the sweep never re-injects it [POD-853]. Two cases: an
-   *  unwrapped operator body (no id to echo), and a best-effort ack/notification.
-   *  Pointer/pull-path rows are NOT confirmed on injection (an inbox read confirms
-   *  those), so best-effort applies only to inline echo-mode rows. */
-  private confirmedOnInjection(message: MessageRow): boolean {
-    const mode = this.deliveryMode(message)
-    return mode === 'unwrapped' || (mode === 'echo' && this.isBestEffort(message))
-  }
-
-  /** Fire-and-forget kinds [POD-853, spec:SP-34d7 acks & notifications]: an ack is
-   *  never itself acked and its ack-confirms-original side effect fires at send
-   *  time regardless; a steward/subscription notification never expects an ack.
-   *  Chasing their transcript echo only risks the mid-turn re-inject loop, so they
-   *  are delivered once (injection = confirmation) and never auto-requeued. */
-  private isBestEffort(message: MessageRow): boolean {
-    return message.kind === 'ack' || message.kind === 'notification'
+    this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
   }
 
   /** Record a push toward a live PTY without claiming the agent saw it: stamps
@@ -2431,6 +1698,20 @@ export class MessageDeliveryService {
     return (this.deps.authorizeAtApply as { ceiling?: unknown } | undefined)?.ceiling
   }
 
+  /**
+   * Whether the wake-path machine-use port is wired (POD-1193).
+   *
+   * Absent = allow is the deliberate single-user default — the same shape as
+   * `authorizeAtApply`. A multi-user composition that FORGETS the port is
+   * indistinguishable from that default at the decision site (`if (!port)
+   * return null`), so multi-user construction MUST assert this is true. The
+   * property is identity of the wiring, not behaviour of a denial: a tree that
+   * never exercises a refuse still has to fail when the port is dropped.
+   */
+  get placementAtWakeWired(): boolean {
+    return this.deps.placementAtWake !== undefined
+  }
+
   /** {@link MessageDeliveryDeps.authorizeAtApply}, with the absent-port default
    *  stated once. Never memoized: D8 re-authorizes on EVERY apply, and a cached
    *  answer is the capability snapshot D16 refuses, one layer down. */
@@ -2438,6 +1719,36 @@ export class MessageDeliveryService {
     const port = this.deps.authorizeAtApply
     if (!port) return { ok: true }
     return port(message)
+  }
+
+  /**
+   * POD-1193: refuse a wake that would start a process on a machine the sender
+   * may not use. `null` = proceed; a DeliveryOutcome = stop (dead-lettered).
+   *
+   * Missing machineId and a missing port both mean "no gate to consult" — the
+   * same fail-open the single-user default uses for authorizeAtApply, and the
+   * same `if (machineId)` shape spawnAgent's M5 check already uses. A principal
+   * that cannot be re-resolved is a denial (the port returns non-allowed).
+   *
+   * Unauthorized and unreachable collapse HERE to one reason
+   * ({@link WAKE_PLACEMENT_DENIED_REASON}). That is the mail contracts' D20.2
+   * half; spawnAgent's distinguishable refusals live only on its handler path.
+   *
+   * ABSENT vs DELIBERATELY-ABSENT: the decision site cannot tell them apart —
+   * both are `if (!port) return null`. Multi-user construction therefore asserts
+   * {@link placementAtWakeWired} rather than relying on a denial to fire.
+   */
+  private refuseWakeUnlessUsable(
+    message: MessageRow,
+    machineId: string | undefined,
+    notifySender: boolean,
+  ): DeliveryOutcome | null {
+    if (!machineId) return null
+    const port = this.deps.placementAtWake
+    if (!port) return null
+    const decision = port(message, machineId)
+    if (decision === 'allowed') return null
+    return this.deadLetter(message, WAKE_PLACEMENT_DENIED_REASON, { notifySender })
   }
 
   /**

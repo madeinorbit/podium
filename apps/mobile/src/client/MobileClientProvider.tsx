@@ -2,8 +2,13 @@
  * Mobile binding for the shared client store (arch-v2 P3, issue #192): the
  * hand-rolled useState metadata layer is gone — the Expo app runs the SAME
  * StoreProvider as the web (replica-backed entity reads, outboxed optimistic
- * mutations) over an AsyncStorage-backed replica, so a cold offline start
- * paints from local data and offline writes replay on reconnect.
+ * mutations) so a cold offline start paints from local data and offline writes
+ * replay on reconnect.
+ *
+ * READ PATH (POD-1241): KernelReplica + FeedAuthorityClient over the v2 feed,
+ * with entity rows in SqliteSyncStore. WRITE PATH (POD-1220): the durable
+ * outbox binding already on SQLite. AsyncStorage holds only side-cache
+ * (ui-state, transcript windows) and the pre-migration legacy bridge.
  *
  * `useMobileClient` keeps its existing shape: it is now a thin adapter over
  * the shared store (mobile-only extras — transcript paging, ask-user answers —
@@ -13,25 +18,25 @@
 import type { SpawnTarget } from '@podium/client-core'
 import { OUTBOX_COMMANDS, outboxCommandFor } from '@podium/client-core/engine'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import type { OutboxStorage } from '@podium/client-core/outbox'
+import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
   createKernelOutboxStorage,
-  createReplica,
+  createKernelReplica,
+  createSideCache,
+  FeedAuthorityClient,
+  FeedSink,
   preparePrincipalNamespace,
-  type KernelOutboxStorages,
+  PushedBootstrapSource,
   REPLICA_KEY_PREFIX,
   type Replica,
-  type ReplicaKind,
-  type ReplicaRows,
   type StorageApi,
-  type TranscriptWindow,
-  type UiState,
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import type { SocketHub } from '@podium/client-core/socket-transport'
+import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import type { ServerConfig } from '@podium/client-core/transport'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { PinState } from '@podium/client-core/viewmodels'
 import type {
   AgentKind,
@@ -45,8 +50,9 @@ import type {
   WorkState,
 } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type { HeadlessActivityEvent } from '@podium/protocol'
+import type { FeedChangesSinceReplyLenient, HeadlessActivityEvent } from '@podium/protocol'
 import {
+  decideLegacyAdoption,
   LEGACY_STANDALONE_OUTBOX_KEY,
   type LegacyIdentityEvidence,
   type LegacyMigrationOutcome,
@@ -57,11 +63,8 @@ import {
   type SqlDatabaseLike,
   SqliteSyncStore,
 } from '@podium/sync/adapters/mobile-sqlite'
-import {
-  ENQUEUEABLE_DELIVERY,
-  type OutboxAttribution,
-  type OutboxCommand,
-} from '@podium/sync/outbox'
+import type { OutboxAttribution, OutboxCommand } from '@podium/sync/outbox'
+import { Replica as KernelReplica, type Cursor, type ReplicaEvent } from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
 import {
@@ -74,6 +77,7 @@ import {
   useState,
 } from 'react'
 import { BootSplash } from '../components/BootSplash'
+import { fetchAuthStatus } from './auth'
 import {
   DEMO_ISSUES,
   DEMO_SESSIONS,
@@ -81,7 +85,6 @@ import {
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
-import { fetchAuthStatus } from './auth'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
 
 export interface MobileClientValue {
@@ -105,7 +108,7 @@ export interface MobileClientValue {
   hub: SocketHub | null
   trpc: MobileTrpc
   /** Principal-scoped UI preference store; no screen writes raw AsyncStorage. */
-  uiState: UiState
+  uiState: RoutedUiState
   /** The same optimistic draft-issue launch used by desktop's New Agent control. */
   spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
     sessionId: SessionId
@@ -229,21 +232,15 @@ function demoValue(config: ServerConfig): MobileClientValue {
 }
 
 // ---------------------------------------------------------------------------
-// THE MOBILE REPLICA COMPOSITION ROOT (POD-1220)
+// THE MOBILE REPLICA COMPOSITION ROOT (POD-1220 durable + POD-1241 wire v2)
 // ---------------------------------------------------------------------------
 
-/** The SQLite file the durable outbox lives in. */
+/** The SQLite file the durable outbox and entity cache live in. */
 export const MOBILE_REPLICA_DB = 'podium-replica.db'
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
 export const MOBILE_REPLICA_PRINCIPAL = 'default'
-
-/** `ENQUEUEABLE_DELIVERY` is declared against the WHOLE delivery union while
- *  `OutboxCommand` narrows to the single member it names. The cast is that
- *  narrowing and nothing else — it is the same value, reused rather than
- *  re-spelled, so a rename of the class reaches this table. */
-const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
 
 /** Re-exported for the tests and callers that named it here. The TABLE now
  *  lives beside `OutboxKinds` in client-core (POD-316) so the web recovery
@@ -264,14 +261,27 @@ const resolveMobileCommand = (kind: string): OutboxCommand | undefined => outbox
  */
 export const LEGACY_HYDRATE_PREFIXES = [REPLICA_KEY_PREFIX, LEGACY_STANDALONE_OUTBOX_KEY] as const
 
+/**
+ * Empty import plan for the entity-cache attribution decision. The decision and
+ * the records are two things `decideLegacyAdoption` returns; only the decision
+ * applies here. Re-deriving the rule locally would fork a privacy rule.
+ */
+const EMPTY_ADOPTION_PLAN = {
+  verdict: 'import' as const,
+  outbox: [],
+  retireKeys: [],
+  rejected: [],
+  cursorDiscarded: false,
+}
+
 export interface MobileReplicaDeps {
   /** The SQLite engine. Injected so a test drives a real file-backed database. */
   readonly openDatabase: () => SqlDatabaseLike
   /** Remove the file, so a poisoned or newer-version store cold-starts instead of
    *  wedging boot (ADR 6 D4.5). The adapter makes this REQUIRED for that reason. */
   readonly deleteDatabase: () => void
-  /** The hydrated AsyncStorage bridge: the legacy replica's backing AND the
-   *  migration's source. */
+  /** The hydrated AsyncStorage bridge: the legacy migration's source AND the
+   *  side-cache home for ui-state / transcript windows. */
   readonly storage: StorageApi
   /** Hydrated AsyncStorage inventory used for namespace retention/erasure. */
   readonly enumerateKeys?: () => string[]
@@ -283,53 +293,54 @@ export interface MobileReplicaDeps {
    *  a gate that always agreed with itself, and a test must be able to present an
    *  unattributable device and observe the REFUSAL. */
   readonly evidence?: LegacyIdentityEvidence
+  /**
+   * THE v2 CATCH-UP READ (POD-1241). Bound to `sync.feedChangesSince` in the
+   * live provider; tests inject a silent authority that delivers nothing so a
+   * cold-start paint assertion cannot be rescued by a live feed.
+   */
+  readonly fetchChangesSince: (cursor: Cursor) => Promise<FeedChangesSinceReplyLenient>
   /** Surfaced, never swallowed (ADR 6 D4.4). */
   readonly onDegraded: (message: string) => void
   readonly now?: () => number
 }
 
 export interface MobileReplica {
-  /** What the engine reads through. */
+  /** What the engine reads through — the kernel-backed facade. */
   readonly replica: Replica
+  /** Wire-v2 feed sink. Supplied WITH the replica; neither half is meaningful alone. */
+  readonly feed: FeedSinkPort
   /** What the migration did — the caller tells the user (D4.4). */
   readonly outcome: LegacyMigrationOutcome
   readonly store: SqliteSyncStore
   readonly principal: string
+  /**
+   * Call once the engine's hub exists. A re-bootstrap is a reconnect, so
+   * `PushedBootstrapSource` needs `hub.requestFreshWorld()`, and the hub is
+   * built FROM this assembly — late binding breaks the cycle.
+   */
+  attachHub(hub: SocketHub): void
   /** Fail-closed sign-out: erase AsyncStorage and SQLite for this principal. */
   erase(): Promise<void>
 }
 
 /**
- * Open the durable store, run the attribution gate, and return the replica the
- * engine reads through.
+ * Open the durable store, run the attribution gate, assemble the v2 feed path,
+ * and return the replica the engine reads through.
  *
- * WHY THIS DECORATES THE LEGACY REPLICA INSTEAD OF ASSEMBLING THE KERNEL ONE, which
- * is the omission the next reader will otherwise take for an oversight and "fix".
- * Mobile is still a WIRE-v1 peer — `terminal-client`'s connection registers the four
- * v2 feed handlers as deliberately empty — and `createKernelReplica`'s facade REFUSES
- * `applySnapshot` / `applyChanges` / `setCursor` by design, because those are the
- * wire-v1 write-in path and it is a v2-only read model. Constructing it here would
- * throw on the first hub frame. Entities, cursor and transcript windows therefore
- * keep coming from today's v1 AsyncStorage path unchanged; the v2 assembly
- * (KernelReplica + FeedAuthorityClient) is POD-1241's scope, and it carries its own
- * hazard — an authority whose frames never arrive paints an empty slice that looks
- * exactly like working cold-start-offline.
+ * POD-1220 landed the durable half: SqliteSyncStore, migrateLegacyReplica, and
+ * the SQLite outbox binding. This issue (POD-1241) lands the READ half: the
+ * kernel Replica, FeedAuthorityClient, FeedSink, and the facade that projects
+ * entity rows into the engine's Replica interface.
  *
- * WHAT DOES MOVE, and why it is the half that matters: the OUTBOX. ADR 6 D1 names
- * outbox entries among what AsyncStorage "MUST NOT hold … on any path", and D4.3
- * makes losing them "a correctness bug, not degraded UX". `wiring.ts` takes both
- * outbox homes off the replica it is handed, so overriding two methods moves the
- * user's unsent work into SQLite with no engine change at all.
- *
- * AND WHY THE TWO HALVES CANNOT BE SPLIT. Migrating into a SQLite outbox the engine
- * does not read would write the queue somewhere NOTHING DRAINS — strictly worse than
- * today, and it reports success at every observable level. Conversely, the outbox is
- * the ONLY family the attribution gate governs here: entities and the cursor are
- * retired unconditionally either way, so a gate called without the durable binding
- * would be a gate with a caller and no effect.
+ * THE HAZARD THIS ASSEMBLY EXISTS TO CLOSE. Before the wire cutover, pointing
+ * the facade at a cache whose frames never arrive painted an EMPTY SLICE on
+ * every cold start — indistinguishable from a working offline cold start until
+ * you have data. The feed sink is therefore required, and the cold-start test
+ * proves rows paint from a populated store when the authority delivers nothing.
  */
 export async function openMobileReplica(deps: MobileReplicaDeps): Promise<MobileReplica> {
   const principal = deps.principal ?? MOBILE_REPLICA_PRINCIPAL
+  const now = deps.now ?? Date.now
   const store = await SqliteSyncStore.open({
     openDatabase: deps.openDatabase,
     deleteDatabase: deps.deleteDatabase,
@@ -362,22 +373,38 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
 
   // Default evidence is the per-principal namespace ledger assembled above.
   // A caller may inject unknown/foreign evidence to exercise the refusal arm.
+  const evidence: LegacyIdentityEvidence =
+    deps.evidence ??
+    (namespace.durable
+      ? {
+          kind: 'multi-user',
+          signedInAs: principal,
+          identitiesEverSignedIn: namespace.knownPrincipals,
+        }
+      : { kind: 'unknown' })
+
+  // ---- THE ATTRIBUTION GATE, before a single entity row is read ------------
+  //
+  // Same rule as web's openKernelAssembly: an unattributable store is discarded
+  // and re-bootstrapped, never adopted. The outbox migration below is a separate
+  // call that parks unattributable queued work; this one governs the entity
+  // cache the cold-start paint reads.
+  const adoption = decideLegacyAdoption(EMPTY_ADOPTION_PLAN, evidence, now())
+  if (!adoption.adopt) {
+    view.cache.discardCache()
+    deps.onDegraded(
+      `Refreshing from the server after a storage upgrade (${adoption.reason}).`,
+    )
+  }
+
   const outcome = await migrateLegacyReplica({
     legacy: deps.storage,
     outbox: view.outbox,
     transact: store.unitOfWork.transact,
     resolveCommand: resolveMobileCommand,
     attribution,
-    evidence:
-      deps.evidence ??
-      (namespace.durable
-        ? {
-            kind: 'multi-user',
-            signedInAs: principal,
-            identitiesEverSignedIn: namespace.knownPrincipals,
-          }
-        : { kind: 'unknown' }),
-    now: deps.now ?? Date.now,
+    evidence,
+    now,
   })
 
   const outboxes = await createKernelOutboxStorage({
@@ -387,79 +414,71 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     onDegraded: (error) => deps.onDegraded(String(error)),
   })
 
+  // Side cache: ui-state + transcript windows on the AsyncStorage bridge.
+  // Outbox does NOT live here (ADR 6 D1) — it is injected from SQLite below.
+  const side = createSideCache({
+    storage: deps.storage,
+    enumerateKeys: deps.enumerateKeys ?? (() => []),
+    keyPrefix: namespace.keyPrefix,
+    // Legacy outbox migration already ran above into SQLite; do not also fold
+    // a second copy into the side-cache blob store.
+    adoptLegacyOutbox: false,
+    onDegraded: (error) => deps.onDegraded(String(error)),
+  })
+
+  const facade = createKernelReplica({
+    cache: view.cache,
+    side,
+    outbox: outboxes,
+  })
+
+  // ---- WIRE v2 (POD-1241) — the feed that populates entity rows ------------
+  let hub: SocketHub | undefined
+  let freshWorldPending = false
+  const bootstraps = new PushedBootstrapSource({
+    requestFreshWorld: () => {
+      if (hub === undefined) {
+        freshWorldPending = true
+        return
+      }
+      hub.requestFreshWorld()
+    },
+  })
+
+  const kernel = new KernelReplica({
+    store: view.cache,
+    authority: new FeedAuthorityClient({
+      fetchChangesSince: deps.fetchChangesSince,
+      bootstraps,
+    }),
+    onEvent: (event: ReplicaEvent) => {
+      facade.onKernelEvent(event)
+    },
+  })
+
+  const feed = new FeedSink({ replica: kernel, bootstraps })
+
   return {
-    replica: withDurableOutbox(
-      createReplica({
-        ...(namespace.durable ? { storage: deps.storage } : {}),
-        keyPrefix: namespace.keyPrefix,
-      }),
-      outboxes,
-    ),
+    replica: facade,
+    feed,
     outcome,
     store,
     principal,
+    attachHub: (attached) => {
+      hub = attached
+      if (freshWorldPending) {
+        freshWorldPending = false
+        attached.requestFreshWorld()
+      }
+    },
     erase: async () => {
+      side.dispose()
       namespace.erase()
       await Promise.all([
         store.erasePrincipal(principal),
         deps.flushStorage?.() ?? Promise.resolve(),
       ])
     },
-  }
-}
-
-/**
- * The legacy replica with its two outbox homes redirected into SQLite.
- *
- * Delegation is written out member by member rather than spread or `Object.create`d.
- * A spread would drop the class's prototype methods entirely; a prototype chain would
- * let a `this.x = …` inside the base shadow a field onto the wrapper and quietly fork
- * the replica's state. Writing it out costs a screen and makes the compiler the thing
- * that notices when `Replica` grows a member.
- */
-function withDurableOutbox(base: Replica, outboxes: KernelOutboxStorages): Replica {
-  return {
-    get persistent(): boolean {
-      return base.persistent
-    },
-    hydrate: () => base.hydrate(),
-    applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]): void {
-      base.applySnapshot(kind, rows)
-    },
-    applyChanges<K extends ReplicaKind>(
-      kind: K,
-      upserts: ReplicaRows[K][],
-      removeIds: string[],
-    ): void {
-      base.applyChanges(kind, upserts, removeIds)
-    },
-    getCursor: () => base.getCursor(),
-    setCursor: (cursor: number) => base.setCursor(cursor),
-    transcriptWindow: (key: string): TranscriptWindow | undefined => base.transcriptWindow(key),
-    putTranscriptWindow: (key: string, items: TranscriptItem[]) =>
-      base.putTranscriptWindow(key, items),
-    collection: (kind: ReplicaKind): unknown => base.collection(kind),
-    rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
-      return base.rows(kind)
-    },
-    subscribeRows: (kind: ReplicaKind, cb: () => void) => base.subscribeRows(kind, cb),
-    batch<T>(fn: () => T): T {
-      return base.batch(fn)
-    },
-    // THE TWO OVERRIDES — the whole point of the decorator.
-    outboxStorage: (): OutboxStorage => outboxes.queued,
-    outboxAwaitingStorage: (): OutboxStorage => outboxes.awaiting,
-    outboxDeadLetterStorage: (): OutboxStorage => outboxes.deadLetter,
-    uiState: (): UiState => base.uiState(),
-    flush: () => base.flush(),
-    // POD-1246: the merge with main added feed-cursor persistence and cache reset
-    // to `Replica`. This wrapper is written out member by member precisely so the
-    // compiler reports that growth rather than a spread silently swallowing it —
-    // which is what happened here. Straight delegation: the cursor and the cache
-    // both belong to the base replica; only the two outbox homes are redirected.
-    getFeedCursor: () => base.getFeedCursor(),
-    setFeedCursor: (cursor) => base.setFeedCursor(cursor),
-    resetCache: () => base.resetCache(),
   }
 }
 
@@ -474,16 +493,30 @@ function DemoProvider({ children }: { children: ReactNode }) {
   return <MobileClientContext.Provider value={value}>{children}</MobileClientContext.Provider>
 }
 
+/**
+ * Attach the engine's hub to the mobile assembly (POD-1241).
+ *
+ * A re-bootstrap is a reconnect, so `PushedBootstrapSource` needs the hub — and
+ * the hub is built by the engine FROM the assembly, so it cannot be handed over
+ * at construction. This runs inside the provider, where the hub exists.
+ */
+function MobileHubAttach({ attachHub }: { attachHub: (hub: SocketHub) => void }): null {
+  const { hub } = useStore()
+  useEffect(() => {
+    attachHub(hub)
+  }, [attachHub, hub])
+  return null
+}
+
 function LiveProvider({ children }: { children: ReactNode }) {
   const config = useMemo(readServerConfig, [])
   const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin), [config.httpOrigin])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  // AsyncStorage is Promise-only; hydrate the replica's synchronous storage
-  // bridge before the store boots (offline cold-start paints from it). The
-  // migration then runs BEFORE the store answers a read and the app does not
-  // paint until it resolves — a replica read mid-migration would show a slice
-  // that is about to be retired.
+  // AsyncStorage is Promise-only; hydrate the side-cache bridge before the store
+  // boots. The migration and SQLite open then run BEFORE the store answers a
+  // read and the app does not paint until they resolve — a replica read mid-
+  // migration would show a slice that is about to be retired.
   const [openedReplica, setOpenedReplica] = useState<MobileReplica | null>(null)
   useEffect(() => {
     let alive = true
@@ -493,6 +526,15 @@ function LiveProvider({ children }: { children: ReactNode }) {
         fetchAuthStatus(config.httpOrigin),
       ])
       if (status.userId === null) throw new Error('authenticated account is unavailable')
+      // The live server's v2 catch-up. Typed through the hand-written MobileTrpc
+      // surface is deliberately loose: the client is createTRPCClient<any>, and
+      // PodiumClientApi still only names the v1 changesSince. Runtime has the
+      // real procedure; casting here is the same seam web uses.
+      const syncV2 = trpc.sync as typeof trpc.sync & {
+        feedChangesSince: {
+          query: (input: { cursor: Cursor }) => Promise<FeedChangesSinceReplyLenient>
+        }
+      }
       const opened = await openMobileReplica({
         openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
         deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
@@ -500,6 +542,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         enumerateKeys: bridge.keys,
         flushStorage: bridge.flush,
         principal: status.userId,
+        fetchChangesSince: async (cursor) => syncV2.feedChangesSince.query({ cursor }),
         onDegraded: setNotice,
       })
       if (!alive) return
@@ -527,7 +570,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [config.httpOrigin])
+  }, [config.httpOrigin, trpc])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
   // `info` stays a no-op: the engine's only info is a transient "a session moved
   // to X" toast, and `notice` below is a STICKY banner for the storage facts the
@@ -543,9 +586,25 @@ function LiveProvider({ children }: { children: ReactNode }) {
       api={trpc}
       onFatalError={setError}
       notices={notices}
-      createReplicaFn={() => openedReplica.replica}
+      // The principal the auth status named, and the store opened for exactly
+      // it. The factory REFUSES any other principal rather than handing back
+      // the store it happens to hold: on a shared device that would give one
+      // account another's slice and cursor (POD-404).
+      principal={asClientPrincipal(openedReplica.principal)}
+      createReplicaFn={(principal) => {
+        if (principal.userId !== openedReplica.principal) {
+          throw new Error(
+            `mobile replica belongs to a different principal (opened for ${openedReplica.principal})`,
+          )
+        }
+        return openedReplica.replica
+      }}
+      // Wire v2 advertisement + frame sink (POD-1241). Providing this is how
+      // the hub sends wireVersion and receives feedDelta/feedBootstrap/…
+      feed={openedReplica.feed}
       routerWindow={routerWindow}
     >
+      <MobileHubAttach attachHub={openedReplica.attachHub} />
       <LiveBridge
         config={config}
         error={error}
@@ -637,7 +696,7 @@ function LiveBridge({
       serverConfig: config,
       hub,
       trpc,
-      uiState: replica.uiState(),
+      uiState: store.uiState,
       spawnDraftAgent: store.spawnDraftAgent,
       sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       issueById: (issueId) => issues.find((i) => i.id === issueId),
@@ -678,6 +737,7 @@ function LiveBridge({
       store.spawnDraftAgent,
       focusSessionIds,
       outboxSize,
+      store.uiState,
       eraseLocalData,
       readTranscript,
       subscribeTranscript,

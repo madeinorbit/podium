@@ -4,7 +4,6 @@ import {
   Outbox,
   type OutboxInit,
   type OutboxStorage,
-  parseOutboxEntries,
 } from '@podium/client-core/outbox'
 
 export {
@@ -18,26 +17,6 @@ export {
   parseOutboxEntries,
 } from '@podium/client-core/outbox'
 
-/** Guarded like store.tsx's lsGet/lsSet — localStorage throws in private-mode/SSR. */
-export function localStorageBacking(key = OUTBOX_LS_KEY): OutboxStorage {
-  return {
-    load: () => {
-      try {
-        return parseOutboxEntries(localStorage.getItem(key))
-      } catch {
-        return []
-      }
-    },
-    save: (entries) => {
-      try {
-        localStorage.setItem(key, JSON.stringify(entries))
-      } catch {
-        // storage unavailable — durability is best-effort
-      }
-    },
-  }
-}
-
 function browserOnlineEvents(): OnlineEvents | undefined {
   if (typeof window === 'undefined') return undefined
   return {
@@ -50,15 +29,19 @@ function browserIsOnline(): boolean {
   return typeof navigator === 'undefined' || navigator.onLine !== false
 }
 
+/**
+ * Web outbox factory. Storage MUST be the replica's outbox adapter
+ * (`replica.outboxStorage()`) — direct localStorage access is not permitted
+ * outside ui-state and the replica persistence adapter (POD-329).
+ */
 export function createOutbox<M extends Record<string, object>>(
-  init: Omit<OutboxInit<M>, 'storage' | 'onlineEvents'> & {
-    storage?: OutboxStorage
+  init: Omit<OutboxInit<M>, 'onlineEvents'> & {
+    storage: OutboxStorage
     onlineEvents?: OnlineEvents
   },
 ): Outbox<M> {
   return new Outbox({
     ...init,
-    storage: init.storage ?? localStorageBacking(),
     isOnline: init.isOnline ?? browserIsOnline,
     onlineEvents: init.onlineEvents ?? browserOnlineEvents(),
   })

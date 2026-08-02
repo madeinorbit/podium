@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    const presence = new PresenceRouting({\n      subscriptions,\n",
+    "replace": "    const presence = new PresenceRouting({\n      subscriptions: new SubscriptionRegistry(),\n"
+  }
+]

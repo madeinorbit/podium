@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "export const STREAM_QUEUE_MAX_FRAMES = 64\n",
+    "replace": "export const STREAM_QUEUE_MAX_FRAMES = 1_000_000\n"
+  }
+]

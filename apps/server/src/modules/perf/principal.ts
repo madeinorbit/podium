@@ -28,21 +28,16 @@
  * know whether they are looking at a human's connection or an agent's.
  *
  * ---------------------------------------------------------------------------
- * WHAT `DEVICE_GRADE_PRINCIPAL` MEANS FOR THE DIMENSION TODAY
+ * THE DIMENSION IS DERIVED, NEVER HARD-CODED
  * ---------------------------------------------------------------------------
  *
- * `gateway/client-principal.ts` maps EVERY client connection to the one
- * device-grade feed principal, because one shared password cannot tell two people
- * apart. So today the partition table has exactly one entry and the principal
- * dimension is, in effect, constant.
- *
- * That is not a reason to leave the dimension out, and it is the trap this run
- * has paid for repeatedly: a dimension added later cannot be applied to samples
- * already recorded, so the FIRST post-login measurement would have nothing valid
- * to compare against. The dimension is derived from the real feed principal at
- * every site — never hard-coded to the device-grade constant — so the day
- * `feedPrincipalOf` stops being a constant, every recorded sample partitions
- * correctly with no edit here.
+ * Every site hands this function the live feed principal for the connection or
+ * call (from `feedPrincipalOf` on the WS plane, or from `FamilyState.feedPrincipal`
+ * on /trpc). The digest therefore tracks whoever the transport authenticated —
+ * one shared-password account today, many accounts the day per-user login has
+ * more than one row — with no edit at the record sites. Hard-coding a constant
+ * here would be the trap this harness paid for once already: a dimension added
+ * later cannot be applied to samples already recorded.
  */
 
 import { createHash } from 'node:crypto'

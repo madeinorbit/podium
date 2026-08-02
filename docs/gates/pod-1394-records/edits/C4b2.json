@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  return { kind: 'batch', throughSeq, changes: rows }\n",
+    "replace": "  return { kind: 'batch', throughSeq: rows[rows.length - 1]?.seq ?? 0, changes: rows }\n"
+  }
+]

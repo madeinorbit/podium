@@ -1,6 +1,8 @@
-export const SIDEBAR_COLLAPSED_KEY = 'podium:sidebar:collapsed'
-export const SUPERAGENT_MODE_KEY = 'podium:superagent:mode'
-export const RIGHT_PANEL_KEY = 'podium.rightPanel'
+export {
+  RIGHT_PANEL_KEY,
+  SIDEBAR_COLLAPSED_KEY,
+  SUPERAGENT_MODE_KEY,
+} from '@podium/client-core/ui-state'
 
 /** The engraved column's two states (#65): human preview feedback removed the
  *  fully-closed state — every collapse resolves to the in-place folded bar. */

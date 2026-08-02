@@ -11,11 +11,11 @@
  * harness's poll seam advances an INJECTED clock rather than the wall clock.
  */
 
-import { asIssueId, asSessionId, type SessionId, asMachineId} from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { SPAWN_BUDGET_PER_DAY } from './brakes'
 import { mailHarness, OPERATOR, phaseState } from './characterization-support'
 import { MessageGate } from './gate'
-import { SPAWN_BUDGET_PER_DAY } from './service'
 
 // ---------------------------------------------------------------------------
 // S1 — spawn target resolution. No issue is EVER auto-created: `--new` is the

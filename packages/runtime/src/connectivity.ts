@@ -17,8 +17,9 @@ export const DAEMON_BLOCKED_EXIT_CODE = 78
 
 export const ConnectivityStatus = z.object({
   /** connected = helloOk seen on the live socket; disconnected = retrying with backoff;
-   *  blocked = server rejected the handshake terminally — re-pairing is required. */
-  state: z.enum(['connected', 'disconnected', 'blocked']),
+   *  unauthorized = transport reached the server but auth failed (never retried);
+   *  blocked = another terminal protocol/configuration refusal. */
+  state: z.enum(['connected', 'disconnected', 'unauthorized', 'blocked']),
   /** The server URL this status describes. */
   serverUrl: z.string().optional(),
   /** ISO time of the last successful handshake (survives disconnects — "last seen"). */
@@ -29,6 +30,8 @@ export const ConnectivityStatus = z.object({
   retryBackoffMs: z.number().optional(),
   /** Why the server refused us, when blocked (pairRejected/helloRejected reason). */
   blockedReason: z.string().optional(),
+  /** Auth refusal detail safe to show to this machine's operator. */
+  authorizationReason: z.string().optional(),
   updatedAt: z.string(),
 })
 export type ConnectivityStatus = z.infer<typeof ConnectivityStatus>
@@ -52,7 +55,7 @@ export function readConnectivity(dir = stateDir()): ConnectivityStatus | undefin
 /**
  * Merge-write the status: fields not in `patch` are carried over from the file (so a
  * disconnect keeps the last `lastHelloOkAt`), except transition-scoped fields — an update
- * REPLACES lastError/retryBackoffMs/blockedReason rather than inheriting stale ones.
+ * REPLACES transition-scoped error fields rather than inheriting stale ones.
  */
 export function writeConnectivity(
   patch: Omit<ConnectivityStatus, 'updatedAt'> & { updatedAt?: string },

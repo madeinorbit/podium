@@ -1,3 +1,4 @@
+import { DOCK_SECTION_KEY_PREFIX } from '@podium/client-core/ui-state'
 import { ChevronRight } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useState } from 'react'
@@ -7,10 +8,9 @@ import { cn } from '@/lib/utils'
 
 // ui-state key family for per-section open state; the legacy localStorage keys
 // of the same names migrate in once (replica LEGACY_UI_PREFIXES).
-const KEY_PREFIX = 'podium.dock.section.'
 
 function readOpen(ui: UiState, key: string, fallback: boolean): boolean {
-  const raw = ui.get(KEY_PREFIX + key)
+  const raw = ui.get(DOCK_SECTION_KEY_PREFIX + key)
   return raw === null ? fallback : raw === '1'
 }
 
@@ -37,7 +37,7 @@ export function DockSection({
   const [open, setOpen] = useState(() => readOpen(ui, storageKey, defaultOpen))
   const toggle = useCallback(() => {
     setOpen((o) => {
-      ui.set(KEY_PREFIX + storageKey, o ? '0' : '1')
+      ui.set(DOCK_SECTION_KEY_PREFIX + storageKey, o ? '0' : '1')
       return !o
     })
   }, [ui, storageKey])

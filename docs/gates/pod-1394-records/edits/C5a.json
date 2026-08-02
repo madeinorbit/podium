@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  const verbs = machineVerbsFor(principal, machineId, ownership)\n  // Invisible and never-paired are ONE answer on purpose.\n  if (!verbs.has('see')) return 'absent'\n  return verbs.has(verb) ? undefined : 'unauthorized'\n",
+    "replace": "  const verbs = machineVerbsFor(principal, machineId, ownership)\n  // Invisible and never-paired are ONE answer on purpose.\n  if (!verbs.has('see')) return 'absent'\n  return undefined\n"
+  }
+]

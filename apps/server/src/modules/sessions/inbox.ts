@@ -160,6 +160,12 @@ export interface SessionInboxDeps {
   prepareSend(sessionId: SessionId, attribution: Attribution, kind: 'text' | 'answer'): void
   ownerOf(sessionId: SessionId): UserId | null | undefined
   resurrect(sessionId: SessionId, principal: InboxPrincipalReference): Promise<{ ok: boolean; reason?: string }>
+  /**
+   * Live take-control / hold-control gate (POD-1081). When omitted, controller
+   * identity is still stamped but policy is open — unit fixtures without a
+   * grant table. Production always injects it.
+   */
+  authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): boolean
 }
 
 export interface InboxSendInput {
@@ -379,10 +385,9 @@ export class SessionInbox {
   }
 
   /**
-   * Controller identity is carried now; policy is intentionally not evaluated
-   * here. POD-1081 owns take-control policy and can extend this interface without
-   * replacing its bare-connection-id call sites. PTY input is explicit handoff,
-   * never character merging (multi-user readiness section 4).
+   * Controller-gated PTY input. Attribution is stamped from the transport
+   * principal (ADR 3 D7) and retained LIVE only (POD-1081 §2). Concurrent
+   * keystrokes are a control problem, not a text merge (readiness §4).
    */
   handleControllerInput(
     principal: ClientPrincipal,
@@ -390,14 +395,33 @@ export class SessionInbox {
     sessionId: SessionId,
     data: string,
   ): void {
-    this.deps
-      .getSession(sessionId)
-      ?.terminal.handleInput(client.id, data, inboxPrincipalFromClient(principal).attribution)
+    const session = this.deps.getSession(sessionId)
+    if (!session) return
+    // Live re-auth at apply: a revoked human (or their agent) loses control here
+    // rather than via a reaper (ADR 9 D5 A1 / ADR 3 D8).
+    if (this.deps.authorizeDrive && !this.deps.authorizeDrive(principal, sessionId)) {
+      if (session.terminal.controllerId === client.id) session.terminal.revokeController()
+      return
+    }
+    session.terminal.handleInput(client.id, data, inboxPrincipalFromClient(principal).attribution)
   }
 
+  /**
+   * Preemptive take-control (POD-1081 §3). The current controller cannot refuse;
+   * rights are re-checked live against owner/grants + machine use.
+   */
   requestControl(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {
-    void principal // carried for POD-1081; no take-control policy in this phase.
-    this.deps.getSession(sessionId)?.terminal.requestControl(client.id)
+    const session = this.deps.getSession(sessionId)
+    if (!session) return
+    if (this.deps.authorizeDrive && !this.deps.authorizeDrive(principal, sessionId)) {
+      client.send({
+        type: 'terminalOutcome',
+        sessionId,
+        outcome: 'unauthorized',
+      })
+      return
+    }
+    session.terminal.requestControl(client.id)
   }
 
   handleResize(
@@ -474,6 +498,9 @@ export class SessionInbox {
     attribution: Attribution,
   ): void {
     session.terminal.recordInputActivity(this.deps.now())
+    // Live last-input attribution for watchers (POD-1081 §2). The durable half
+    // of intentional sends remains the queue row, not this field.
+    session.terminal.noteInputAttribution(attribution)
     this.deps.daemon.sendInput(session.machineId, {
       type: 'input',
       sessionId: session.sessionId,

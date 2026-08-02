@@ -12,7 +12,7 @@ import {
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
 import { withEventTime } from './reducer.js'
-import type { AgentStateEvent, AgentStateProvider } from './types.js'
+import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
@@ -27,8 +27,8 @@ export const cursorStateProvider: AgentStateProvider = {
   instrumentation() {
     return { args: [] }
   },
-  translate: translateCursorRecord,
-  bootEvents: cursorBootEvents,
+  translate: async (payload) => withStateChannel(await translateCursorRecord(payload), 'poll'),
+  bootEvents: async (opts) => withStateChannel(await cursorBootEvents(opts), 'poll'),
 }
 
 export async function translateCursorRecord(record: unknown): Promise<AgentStateEvent[]> {

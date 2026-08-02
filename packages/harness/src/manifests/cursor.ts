@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { cursorRecordToItems } from '@podium/transcript'
 import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
+import { withStateChannel } from '../agent-state/types.js'
 import { cursorBinCandidates, resolveCursorBin } from '../cursor/cli.js'
 import { cursorSessionPaths } from '../cursor/paths.js'
 import { createCursorConversationProvider } from '../discovery/providers/cursor.js'
@@ -135,6 +136,13 @@ export const cursorManifest: AgentManifest = {
   }),
 
   state: supported(cursorStateProvider),
+  stateChannels: [
+    {
+      source: 'poll',
+      confidence: 0.7,
+      mechanism: 'Cursor per-chat transcript tail; turn_ended is the turn boundary',
+    },
+  ],
 
   // No hook channel — a polling observer discovers/pins the chat and tails its
   // per-chat transcript file.
@@ -158,7 +166,7 @@ export const cursorManifest: AgentManifest = {
         host.onResumeValue(chatId)
         host.tailFile(transcriptPathFor(chatId))
       },
-      onEvents: (events) => host.onStateEvents(events),
+      onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
     })
     return { stop: () => obs.stop() }
   }),

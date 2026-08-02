@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  'sessions',\n  {\n    id: text().primaryKey(),\n    ownerUserId: text('owner_user_id').default('user:sole').notNull(),\n",
+    "replace": "  'sessions',\n  {\n    id: text().primaryKey(),\n    ownerUserId: text('owner_user_id').default('user:sole').notNull(),\n    instanceId: text('instance_id'),\n"
+  }
+]

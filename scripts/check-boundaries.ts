@@ -694,6 +694,17 @@ const REPLICA_ROLE_DIR = 'packages/sync/src/replica/'
  */
 const REPLICA_NEUTRAL_PORTS: ReadonlySet<string> = new Set(['packages/sync/src/span.ts'])
 
+/**
+ * Package imports the replica role may take (POD-1251).
+ *
+ * `@podium/model` is L0 field vocabulary — change ops, target fields, provenance
+ * — not arbitration and not a storage adapter. The direction rule exists to keep
+ * merge policy and concrete adapters OUT; composing the change envelope from the
+ * model's one definition of those fields is exactly the opposite of restating
+ * them inside the role. A second package name here needs the same justification.
+ */
+const REPLICA_ALLOWED_PACKAGES: ReadonlySet<string> = new Set(['@podium/model'])
+
 /** Evaluation verbs. A call or a declaration either way — both are the same bug. */
 const REPLICA_FORBIDDEN_EVAL =
   /\b(canSee|maySee|mayView|isVisibleTo|visibleTo|evaluateVisibility|filterVisible|hasGrant|grantsFor|checkAccess|checkIssueAccess|authorize|resolveCapability|mergePolicy|resolveConflict|arbitrate|lastWriteWins|mergeFields|pickWinner)\s*\(/
@@ -825,6 +836,7 @@ function checkReplicaDirection(file: string, source: string): Violation[] {
       continue
     }
     if (isTest && ref.specifier === 'vitest') continue
+    if (REPLICA_ALLOWED_PACKAGES.has(ref.specifier)) continue
     violations.push({
       file,
       specifier: ref.specifier,
@@ -1049,6 +1061,7 @@ export function checkFile(
     ...checkReplicaDirection(file, source),
     ...checkSyncKernelPurity(file, source),
     ...checkSessionBindingFieldAccess(file, source),
+    ...checkUiStorageOwnership(file, source),
   ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
@@ -1147,13 +1160,123 @@ export function checkFile(
 // once an equivalent manifest constraint exists).
 // ---------------------------------------------------------------------------
 
+/** Classifier engine is harness-core-internal; provider rules stay private to their owning manifest. */
+export function checkHarnessClassifierBoundary(file: string, source: string): Violation[] {
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    if (
+      ref.specifier.includes('agent-state/transcript-classifier') &&
+      !file.startsWith('packages/harness/')
+    ) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'harness-classifier-boundary',
+        message: `${file}: classifier engine is internal to packages/harness`,
+      })
+    }
+    if (
+      ref.specifier.includes('claude-code-classifier') &&
+      file !== 'packages/harness/src/manifests/claude-code.ts' &&
+      file !== 'packages/harness/src/manifests/claude-code-classifier.ts'
+    ) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'harness-classifier-boundary',
+        message: `${file}: Claude classifier rules are private to the Claude manifest`,
+      })
+    }
+  }
+  return violations
+}
+
+// ---------------------------------------------------------------------------
+// UI storage ownership (POD-329) — the only places that may call localStorage /
+// AsyncStorage method APIs are the ui-state module and the replica persistence
+// adapter family (plus platform composition roots that inject storage).
+//
+// Theme pre-auth raw access lives inside ui-state.ts via read/writePreAuthTheme.
+// A new composition root that injects window.localStorage into createReplica
+// must be added to SANCTIONED_UI_STORAGE_FILES with a reason comment stating
+// why the next entry would need the same justification (POD-1251 standard).
+// ---------------------------------------------------------------------------
+
+/**
+ * Exact product files permitted to call localStorage / AsyncStorage methods.
+ * Adding an entry requires the same positive reason as the others: either the
+ * sole UI-state owner, the replica persistence adapter, or a composition root
+ * that *injects* storage into that adapter (never a feature component).
+ */
+const SANCTIONED_UI_STORAGE_FILES: ReadonlySet<string> = new Set([
+  // Sole UI persistence module — including the theme pre-auth exception.
+  'packages/client-core/src/ui-state.ts',
+  // Replica persistence adapter family.
+  'packages/client-core/src/replica/replica.ts',
+  'packages/client-core/src/replica/async-storage.ts',
+  'packages/client-core/src/replica/principal-storage.ts',
+  'packages/client-core/src/replica/contract.ts',
+  'packages/client-core/src/replica/kernel/side-cache.ts',
+  'packages/client-core/src/replica/kernel/facade.ts',
+  'packages/client-core/src/replica/legacy-snapshot.ts',
+  // Platform composition roots that inject storage into the replica factory.
+  // NEXT entry must be a composition root that wires StorageApi into createReplica
+  // (or its AsyncStorage twin), never a feature surface that reads a key ad hoc.
+  'apps/web/src/lib/webReplica.ts',
+  'apps/web/src/lib/desktopReplica.ts',
+  'apps/web/src/lib/kernelReplica.ts',
+  'apps/web/src/lib/use-kernel-replica.ts',
+  'apps/web/src/lib/legacyStoreAttribution.ts',
+  'apps/mobile/src/client/MobileClientProvider.tsx',
+])
+
+/** Product trees held to the storage-ownership rule (tests are exempt). */
+const UI_STORAGE_PRODUCT_PREFIXES = [
+  'apps/web/src/',
+  'apps/mobile/src/',
+  'packages/client-core/src/',
+  'packages/terminal-client/src/',
+] as const
+
+/** Method access only — bare mentions and comments are not a finding. */
+const UI_STORAGE_METHOD_CALL =
+  /(?:(?:globalThis|window)\.)?localStorage\s*\??\.(?:getItem|setItem|removeItem|clear)\b|\bAsyncStorage\s*\??\.(?:getItem|setItem|removeItem|multiGet|multiSet|getAllKeys|clear)\b/
+
+/**
+ * Rule: UI storage ownership (POD-329). Feature code routes every persisted
+ * key through ui-state / the replica adapter; direct browser or RN storage
+ * method calls outside the sanctioned set are a hard failure.
+ */
+export function checkUiStorageOwnership(file: string, source: string): Violation[] {
+  if (isTestFile(file)) return []
+  if (!UI_STORAGE_PRODUCT_PREFIXES.some((p) => file.startsWith(p))) return []
+  if (SANCTIONED_UI_STORAGE_FILES.has(file)) return []
+  // Comment-stripped so documenting the prohibition cannot trip the rule.
+  if (!UI_STORAGE_METHOD_CALL.test(stripComments(source))) return []
+  return [
+    {
+      file,
+      specifier: 'localStorage|AsyncStorage',
+      rule: 'ui-storage-ownership',
+      message: `${file}: direct localStorage/AsyncStorage method access is reserved for packages/client-core/src/ui-state.ts and the replica persistence adapter (POD-329). Route the key through ui-state or inject storage at a composition root.`,
+    },
+  ]
+}
+
 /** Check one file against the MANIFEST rules (layer, platform, role, harness). */
 export function checkManifestFile(
   file: string,
   source: string,
   harnessLiterals: readonly string[] = [],
 ): Violation[] {
-  const violations: Violation[] = [...findHarnessBranching(file, source, harnessLiterals)]
+  const violations: Violation[] = [
+    ...findHarnessBranching(file, source, harnessLiterals),
+    ...checkHarnessClassifierBoundary(file, source),
+    // POD-329 ownership also runs under the architecture-manifest path so
+    // `lint:architecture` (`--manifest-only`) cannot sail past a new raw-storage
+    // call while legacy `lint:boundaries` is continue-on-error.
+    ...checkUiStorageOwnership(file, source),
+  ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
     // Role tiers are same-workspace edges, which the cross-workspace matrix skips.

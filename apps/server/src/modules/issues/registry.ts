@@ -3,45 +3,45 @@ import {
   type ConflictClass,
   type ContractInput,
   defineCommands,
-  ISSUE_COMMAND_NAMES,
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import type { SessionId, SessionMeta } from '@podium/model'
-import type { MutationLedgerPort } from '@podium/sync'
+import type { SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { z } from 'zod'
-import {
-  attributionOf,
-  type CommandPrincipal,
-  onBehalfOfUser,
-  resolvePrincipal,
-} from '../../command-principal'
-import {
-  authorize,
-  type Capability,
-  checkIssueAccess,
-  type IssueAccessIndex,
-} from '../../issue-authz'
-import type { IssueProc, IssueTrpc } from '../../issue-client'
-import { sessionSpawnerParentId } from '../../steward'
-import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
-import { enforceExpectedRevision } from './conflict'
-import type {
-  IssueAttentionCapability,
-  IssueCommentsMailCapability,
-  IssueCrudCapability,
-  IssueGitWorkflowCapability,
-  IssueHierarchyCapability,
-  IssueReportsCapability,
-  IssueTrackerCapabilities,
-} from './service'
+import type { z } from 'zod'
+import { attributionOf } from '../../command-principal'
+import { checkIssueAccess } from '../../issue-authz'
+import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 
 /**
- * THE ISSUE COMMAND HANDLERS, JOINED TO THEIR L1 CONTRACTS (#248 [spec:SP-3fe2],
- * split by POD-311).
+ * THE ISSUE COMMAND TABLE: every issue command's handler, joined to its L1
+ * contract (#248 [spec:SP-3fe2], split by POD-311, reduced to the table alone by
+ * POD-1398).
  *
- * THIS FILE USED TO BE BOTH HALVES. It declared each command's input schema,
+ * THIS FILE IS NOW ONE THING — a declaration table. It was three (POD-1398): the
+ * table, the per-call execution context handed to every handler, and the
+ * dispatcher that runs one. The god-object audit refuses that shape by name,
+ * "a table that also ships an object is two things in one file, and the object
+ * is the half nobody reviewed" (scripts/audit-god-objects.ts), and the reason
+ * generalises past the audit: a reader who wants to check ONE row of the table
+ * had to scroll past a class they were not reviewing, and a reader auditing the
+ * dispatch pipeline had to scroll past sixty-eight rows they were not reviewing.
+ *
+ * The seam is the dependency order the code already had, and it is now the file
+ * order too — each module imports only from the one before it:
+ *
+ *   `command-ctx.ts`  IssueCaller, IssueCommandDeps, IssueCommandCtx —
+ *                     everything a handler is HANDED.
+ *   `registry.ts`     this file: the rows, the `def()` join, and the guard that
+ *                     reads a row's `action`/`target`. Handlers reference
+ *                     {@link IssueCommandCtx} as a TYPE only, so the table adds
+ *                     no runtime edge back.
+ *   `dispatcher.ts`   IssueCommandDispatcher — how a row is CHOSEN and run. The
+ *                     only module that needs both of the others at runtime, and
+ *                     nothing imports it back.
+ *
+ * IT USED TO BE BOTH HALVES OF THE CONTRACT JOIN as well. It declared each
+ * command's input schema,
  * required action and scope class alongside a handler bound to one capability —
  * which made an L1 contract table live inside an L3 feature module, the arrangement
  * POD-311 finding 1 rules out. The contract half now lives in
@@ -65,11 +65,11 @@ import type {
  *
  *   - the tRPC `issues:` sub-router (modules/issues/trpc.ts routerFromCommands),
  *   - the in-process command surface serving the daemon relay + MCP
- *     ({@link IssueCommandDispatcher}, replacing the hand-mirrored
+ *     (`IssueCommandDispatcher` in `./dispatcher`, replacing the hand-mirrored
  *     IssueCommandService of modules/issues/commands.ts),
  *   - the relay gate's dispatch (relay-gate.ts is transport-only now),
  *   - the `IssueTrpc` client the in-process MCP tools call
- *     ({@link IssueCommandDispatcher.asIssueTrpc}, replacing the Proxy soup).
+ *     (`IssueCommandDispatcher.asIssueTrpc`, replacing the Proxy soup).
  *
  * Authorization is declared on the CONTRACT (`policy.action` + `policy.resource`)
  * and the extractor that feeds it stays here — replacing the PROC_ACTION /
@@ -78,15 +78,6 @@ import type {
  * pinned to `ISSUE_CONTRACTS` via `satisfies`, so handler↔contract drift is a
  * compile error in both directions.
  */
-
-/** Who is calling (authz identity) — the same pair the router Context carries. */
-export interface IssueCaller {
-  capability: Capability
-  /** Authenticated transport principal; production dispatchers always provide it. */
-  principal?: CommandPrincipal
-  /** The agent passed --outside-scope: a knowing write outside its subtree. */
-  overrideScope?: boolean
-}
 
 /** Guardrail 2 [spec:SP-6144]: lifecycle moves on a proposed issue are
  *  operator-only, and the check FAILS CLOSED — an id that doesn't resolve is
@@ -116,78 +107,6 @@ function assertNotProposedForAgent(
       code: 'FORBIDDEN',
       message: `only an operator may ${verb} a proposed issue`,
     })
-  }
-}
-
-export interface IssueCommandDeps {
-  /** Fully constructed tracker; command dispatch is activated after features. */
-  issues: IssueTrackerCapabilities
-  /**
-   * Atomic issue/session attach workflow. The L3 application orchestrator owns
-   * the shared transaction and carries this transport-derived caller unchanged
-   * through both feature ports.
-   */
-  attachSession(
-    caller: IssueCaller,
-    input: Parameters<IssueAttentionCapability['attachSession']>[0],
-  ): ReturnType<IssueAttentionCapability['attachSession']>
-  /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
-  deleteIssue(id: string): unknown
-  /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
-  restoreIssue(id: string): unknown
-  /**
-   * FRAMEWORK IDEMPOTENCY (POD-382): `@podium/sync`'s `MutationLedger`, injected.
-   *
-   * It used to be `withMutation`, a method borrowed from modules/sessions — an
-   * issue command reaching into the session service for a property that belongs
-   * to neither. The mechanism is unchanged (docs/spec/outbox-write-path.md §2.1);
-   * what changed is that there is now ONE implementation and no per-proc wrapper
-   * to omit.
-   */
-  mutations: MutationLedgerPort
-  /** Session list — subscription source checks resolve session→issue through it. */
-  listSessions(): SessionMeta[]
-  /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
-  repoPaths(): string[]
-  /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
-   *  relay-allowlisted `repos.inferFromPath` without touching the router. */
-  inferRepoFromPath(path: string): string | undefined
-  /** Unified messaging send path (#237) [spec:SP-34d7] — optional so bare test
-   *  dispatchers keep working; when absent mailSend falls back to legacy sendMail. */
-  sendMessage?(from: MessageSender, input: MessageSendInput): MessageSendResult
-  /** Deliver a Tray answer to the asking agent session (issue #53): the shared
-   *  answer_question matching path (modules/superagent/answer-delivery) with
-   *  text fallback for sessions without a live menu. Injected by the relay;
-   *  optional so existing test deps literals stay valid. */
-  answerSessionQuestion?(
-    sessionId: SessionId,
-    answer: string,
-    caller: IssueCaller,
-  ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
-  /** Stop every session on an issue and free its worktree (keep branch)
-   *  [spec:SP-9904]. Injected from SessionLifecycle; optional in bare tests. */
-  stopIssueSessions?(input: {
-    issueId: string
-    force?: boolean
-    callerSessionId?: string
-  }): Promise<{
-    ok: boolean
-    reason?: string
-    stopped: string[]
-    worktreeFreed: boolean
-  }>
-}
-
-type IssueCommandAccess = IssueAccessIndex & Pick<IssueReportsCapability, 'getMeta' | 'resolveRef'>
-
-/** Flatten the two public capability contracts for the shared authz predicate. */
-function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAccess {
-  return {
-    has: (id) => tracker.reports.has(id),
-    ownedTarget: (id, action) => tracker.reports.ownedTarget(id, action),
-    ancestorIds: (id) => tracker.hierarchy.ancestorIds(id),
-    getMeta: (id) => tracker.reports.getMeta(id),
-    resolveRef: (ref, scopeRepoPath) => tracker.reports.resolveRef(ref, scopeRepoPath),
   }
 }
 
@@ -317,262 +236,6 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
 // ---------------------------------------------------------------------------
 
 const targetId = (i: Record<string, unknown>) => i.id as string
-
-/**
- * Per-call execution context handed to every command handler: the caller's
- * authz identity, narrowed tracker capabilities, and the cross-cutting helpers
- * forwarding, withMutation idempotency, mail identity, subscription scoping)
- * that used to be private methods of IssueCommandService.
- */
-export class IssueCommandCtx {
-  constructor(
-    readonly deps: IssueCommandDeps,
-    readonly caller: IssueCaller,
-    private readonly name: string,
-    _targetOf?: (input: Record<string, unknown>) => string | undefined,
-  ) {}
-
-  get crud(): IssueCrudCapability {
-    return this.deps.issues.crud
-  }
-  get hierarchy(): IssueHierarchyCapability {
-    return this.deps.issues.hierarchy
-  }
-  get commentsMail(): IssueCommentsMailCapability {
-    return this.deps.issues.commentsMail
-  }
-  get attention(): IssueAttentionCapability {
-    return this.deps.issues.attention
-  }
-  get gitWorkflow(): IssueGitWorkflowCapability {
-    return this.deps.issues.gitWorkflow
-  }
-  get reports(): IssueReportsCapability {
-    return this.deps.issues.reports
-  }
-  get access(): IssueCommandAccess {
-    return commandAccess(this.deps.issues)
-  }
-
-  /**
-   * The authenticated principal, or a refusal (POD-1315).
-   *
-   * `IssueCaller.principal` is optional because non-production dispatchers may
-   * omit it, so every command that needs an identity must decide what an absent
-   * one means. The only safe answer is UNAUTHORIZED: an unauthenticated caller
-   * has no identity to act under, and the alternative — substituting one — is
-   * how `addComment` came to act as the first admin for anyone who omitted it.
-   */
-  requirePrincipal(): CommandPrincipal {
-    const principal = this.caller.principal
-    if (!principal)
-      throw new TRPCError({
-        code: 'UNAUTHORIZED',
-        message: 'missing authenticated command principal',
-      })
-    return principal
-  }
-
-  private readerUser(): string {
-    const principal = this.caller.principal
-    const user = principal ? onBehalfOfUser(principal) : null
-    if (user === null) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'issue reads require a human principal' })
-    }
-    return user
-  }
-
-  mayReadIssue(id: string): boolean {
-    const target = this.reports.ownedTarget(id, 'read')
-    const user = this.readerUser()
-    return target !== undefined && (target.owner === user || target.grants.includes(user))
-  }
-
-  requireReadableIssue(id: string): void {
-    if (!this.mayReadIssue(id)) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${id}` })
-    }
-  }
-
-  visibleRows<T extends { id: string }>(rows: readonly T[]): T[] {
-    return rows.filter((row) => this.mayReadIssue(row.id))
-  }
-
-  readIssue<T>(id: string, read: () => T): T {
-    this.requireReadableIssue(id)
-    return read()
-  }
-
-  visibleGraph(
-    graph: ReturnType<IssueReportsCapability['graph']>,
-  ): ReturnType<IssueReportsCapability['graph']> {
-    const nodes = this.visibleRows(graph.nodes)
-    const ids = new Set(nodes.map((node) => node.id))
-    return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
-  }
-  deleteIssue(id: string): unknown {
-    return this.deps.deleteIssue(id)
-  }
-  restoreIssue(id: string): unknown {
-    return this.deps.restoreIssue(id)
-  }
-
-  /** Framework idempotency, bound to this command's wire name (issues.<name>). */
-  withMutation<T>(mutationId: string | undefined, fn: () => T): T {
-    return this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
-  }
-
-  // RETIRED at POD-309: `issueWrite(input, local)` sat between every issue mutation
-  // and its handler, routing a mutation whose target was a hub-mirrored issue to
-  // `UpstreamForwarder` instead of the local tracker. With federation deferred there is no
-  // second authority to forward to, so the wrapper's only remaining behaviour was
-  // `return local()`. It was UNWRAPPED at its 28 call sites rather than left as a
-  // pass-through: a wrapper with no content still reads as a policy seam, and the next
-  // author to add a branch to it would be re-growing the forwarding path by accident.
-
-  /** Agent-mail sender/claimer identity: the caller's bound issue (`issue:#<seq>`)
-   *  for a subtree-scoped agent, else 'operator'. */
-  mailIdentity(): string {
-    if (this.caller.capability.scope.kind === 'subtree') {
-      const me = this.reports.getMeta(this.caller.capability.scope.rootId)
-      if (me) return `issue:#${me.seq}`
-    }
-    return 'operator'
-  }
-
-  /** Structured sender principal for the unified substrate (#237)
-   *  [spec:SP-34d7] — server-stamped from the caller, mirroring mailIdentity():
-   *  a subtree-scoped caller is an agent on its root issue; ONLY the
-   *  unconstrained scope ('all') is the operator — an issueless agent session
-   *  (scope 'none' + actorSessionId) stamps as an agent, or it would send
-   *  unwrapped/unclamped as the human ("unwrapped = operator" invariant).
-   *  Client input NEVER contributes sender fields. */
-  messageSender(): MessageSender {
-    if (this.caller.capability.scope.kind === 'subtree') {
-      return {
-        kind: 'agent',
-        issueId: this.caller.capability.scope.rootId,
-        ...(this.caller.capability.actorSessionId
-          ? { sessionId: this.caller.capability.actorSessionId }
-          : {}),
-      }
-    }
-    if (this.caller.capability.scope.kind === 'all') return { kind: 'operator' }
-    return {
-      kind: 'agent',
-      ...(this.caller.capability.actorSessionId
-        ? { sessionId: this.caller.capability.actorSessionId }
-        : {}),
-    }
-  }
-
-  /** Server-derived provenance for a session spawned by an issue command.
-   *  Preserve the exact initiating session when one exists; otherwise distinguish
-   *  the operator from legacy constrained callers. [spec:SP-ccb2] */
-  ownerAttribution(id: string): { actor: string; onBehalfOf: import('@podium/model').UserId } {
-    const principal = this.caller.principal
-    const row = this.reports.getMeta(id)
-    if (principal?.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
-    }
-    return { actor: principal.user, onBehalfOf: principal.user }
-  }
-
-  spawnProvenance(): string {
-    if (this.caller.capability.actorSessionId) {
-      return `session:${this.caller.capability.actorSessionId}`
-    }
-    if (this.caller.capability.scope.kind === 'all') return 'user'
-    if (this.caller.capability.scope.kind === 'subtree') {
-      return `issue:${this.caller.capability.scope.rootId}`
-    }
-    return 'agent'
-  }
-
-  /** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */
-  mailOwnIssue(id?: string): string {
-    if (id) return id
-    if (this.caller.capability.scope.kind === 'subtree') return this.caller.capability.scope.rootId
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'no issue bound to this caller; pass an issue id',
-    })
-  }
-
-  /** The subscriber a subscription defaults to: the CALLER. A relayed agent's own
-   *  session (capability.actorSessionId) when the call is session-bound, else its
-   *  subtree root issue. The operator (scope 'all', no actor) has no implicit
-   *  subscriber — it manages subscriptions via the Automations UI (Phase C). */
-  deriveSubscriber(): { kind: 'session' | 'issue'; id: string } {
-    if (this.caller.capability.actorSessionId) {
-      return { kind: 'session', id: this.caller.capability.actorSessionId }
-    }
-    if (this.caller.capability.scope.kind === 'subtree') {
-      return { kind: 'issue', id: this.caller.capability.scope.rootId }
-    }
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'no subscriber bound to this caller; subscriptions are created by a bound agent',
-    })
-  }
-
-  /** Enforce that a constrained caller only watches an issue/session source WITHIN
-   *  its subtree (mirrors the scope gate, which cannot reach into the `source`
-   *  shape). Relationship sources are resolved against the caller's own subtree
-   *  at match time, so they never reach here. */
-  assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): void {
-    if (source.kind === 'issue') {
-      const id = this.reports.resolveRef(source.ref)
-      const decision = authorize(
-        this.caller.capability,
-        'write',
-        { id, ancestorIds: this.hierarchy.ancestorIds(id) },
-        { override: this.caller.overrideScope },
-      )
-      if (decision === 'confirm-required') {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `source issue ${id} is outside your subtree; re-run with --outside-scope to confirm`,
-        })
-      }
-      if (decision === 'forbidden') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'not allowed to watch that source' })
-      }
-      return
-    }
-    // session source: the caller's own session, or one bound to an in-subtree issue.
-    if (source.ref === this.caller.capability.actorSessionId) return
-    const bound = this.deps.listSessions().find((s) => s.sessionId === source.ref)?.issueId
-    const ok =
-      bound != null &&
-      authorize(this.caller.capability, 'write', {
-        id: bound,
-        ancestorIds: this.hierarchy.ancestorIds(bound),
-      }) === 'allow'
-    if (!ok) {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: 'not allowed to watch a session outside your subtree',
-      })
-    }
-  }
-
-  /** Walk an issue's parent chain; true iff some ancestor is human-audience —
-   *  i.e. the board's filterBoardScope will surface this (internal) issue nested
-   *  under it. Cycle-guarded. (#198) */
-  hasHumanAudienceAncestor(issue: { parentId?: string | null }): boolean {
-    const seen = new Set<string>()
-    let parentId: string | null | undefined = issue.parentId
-    while (parentId && !seen.has(parentId)) {
-      seen.add(parentId)
-      const parent = this.reports.getMeta(parentId)
-      if (!parent) return false
-      if (parent.audience === 'human') return true
-      parentId = parent.parentId
-    }
-    return false
-  }
-}
 
 // ---------------------------------------------------------------------------
 // The table. Grouped as the old service was: reads, writes, agent mail,
@@ -961,7 +624,7 @@ const defs = {
   cleanup: def('cleanup', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.cleanup(input.id),
+    handler: (ctx, input) => ctx.gitWorkflow.cleanup(input.id, ctx.requirePrincipal()),
   }),
   // Stop every session on the issue and free the worktree, keeping the branch
   // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
@@ -978,6 +641,7 @@ const defs = {
       }
       const r = await ctx.deps.stopIssueSessions({
         issueId: input.id,
+        principal: ctx.requirePrincipal(),
         ...(input.force ? { force: true } : {}),
         ...(ctx.caller.capability.actorSessionId
           ? { callerSessionId: ctx.caller.capability.actorSessionId }
@@ -999,7 +663,7 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.integrate(input.id),
+    handler: (ctx, input) => ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
   }),
   addSession: def('addSession', {
     kind: 'mutation',
@@ -1491,174 +1155,4 @@ export function guardIssueCommand(
   }
   // The shared decision + throw shape (#25) — also used by the in-handler mailClaim gate.
   checkIssueAccess(caller, reports, name, def.action, targetId)
-}
-
-/**
- * The in-process command surface derived from the registry: runs one command as
- * `caller` with the full router-equivalent pipeline (guard on the RAW input,
- * zod parse with the SAME schema the router mounts, then the handler), serving
- * the daemon relay gate and the in-process MCP. Replaces IssueCommandService's
- * 60-odd hand-mirrored methods and its Proxy adapters (callerFor/asIssueTrpc).
- */
-export class IssueCommandDispatcher {
-  constructor(private readonly deps: IssueCommandDeps) {}
-
-  /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
-   *  derived middleware guarded, tRPC parsed `def.input`). */
-  run<D extends AnyIssueCommandDef>(
-    caller: IssueCaller,
-    name: string,
-    def: D,
-    input: z.infer<D['input']>,
-  ): ReturnType<D['handler']> {
-    this.checkExpectedRevision(name, def, input)
-    return def.handler(
-      new IssueCommandCtx(this.deps, caller, name, def.target),
-      input,
-    ) as ReturnType<D['handler']>
-  }
-
-  /**
-   * Refuse a write whose `expectedRevision` no longer matches the authority
-   * (ADR 3 D13.3) — BEFORE the handler runs, so a stale write never reaches the
-   * store.
-   *
-   * POD-1246: the catch-up merge brought the twenty-three `exp-rev` contracts and
-   * their `expectedRevision` input key across from main, and `conflict.ts` with
-   * them, but NOTHING CALLED IT — `enforceExpectedRevision` had zero callers on
-   * this branch. The field parsed, validated and was then ignored, so every
-   * caller that asked for conflict detection silently got none. That is the
-   * fail-open shape: the protection is absent exactly when it is relied upon.
-   *
-   * Here rather than in the handlers, for the reason main gives: `run` is the one
-   * choke point every issue mutation resolves through, so a new command cannot
-   * forget the check. Thirty-nine handlers each remembering to wrap themselves is
-   * a rule that holds until someone adds the fortieth.
-   *
-   * Only `exp-rev` contracts are checked. A command declaring `append` or `cmd`
-   * has no revision baseline by definition, and reading a field its contract does
-   * not carry would be guessing at its rule.
-   *
-   * A missing target issue is left to the handler: every issue write resolves its
-   * row and throws `unknown issue …`, so nothing applies, and that NOT_FOUND
-   * serves the caller better than a conflict blaming a revision. Hub-mirrored
-   * issues take the same arm — `get()` reads local rows only, so the write
-   * forwards with `expectedRevision` untouched and the HOME authority enforces
-   * against its own row (ADR 1: one home authority).
-   */
-  private checkExpectedRevision(name: string, def: AnyIssueCommandDef, input: unknown): void {
-    if (def.conflict !== 'exp-rev') return
-    const envelope = (input ?? {}) as { expectedRevision?: number }
-    if (envelope.expectedRevision == null) return
-    const ref = def.target?.((input ?? {}) as Record<string, unknown>)
-    if (ref == null) return
-    const issue = this.deps.issues.reports.get(ref)
-    if (!issue) return
-    enforceExpectedRevision({
-      command: `issues.${name}`,
-      issueId: issue.id,
-      expected: envelope.expectedRevision,
-      actual: issue.revision,
-    })
-  }
-
-  /**
-   * Run one relayed/MCP command from RAW input: guard, parse, handle — the
-   * exact pipeline the derived router applies. Returns undefined for an unknown
-   * router/proc so callers can shape their own "no such procedure" reply.
-   */
-  dispatch(
-    caller: IssueCaller,
-    router: string,
-    proc: string,
-    rawInput: unknown,
-  ): Promise<unknown> | undefined {
-    if (router === 'repos') {
-      if (proc !== 'inferFromPath') return undefined
-      return Promise.resolve().then(() => {
-        const input = z.object({ path: z.string() }).parse(rawInput)
-        return { repoPath: this.deps.inferRepoFromPath(input.path) ?? null }
-      })
-    }
-    if (router !== 'issues' || !Object.hasOwn(issueRegistry.defs, proc)) return undefined
-    const effectiveCaller: IssueCaller = caller.principal
-      ? caller
-      : {
-          ...caller,
-          principal: resolvePrincipal(caller.capability, {
-            parentSessionOf: (sessionId) =>
-              sessionSpawnerParentId(
-                this.deps.listSessions().find((session) => session.sessionId === sessionId)
-                  ?.spawnedBy,
-              ),
-          }),
-        }
-    const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
-      proc
-    ] as AnyIssueCommandDef
-    return Promise.resolve().then(() => {
-      guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
-      const input: unknown = def.input.parse(rawInput)
-      return this.run(effectiveCaller, proc, def, input)
-    })
-  }
-
-  /**
-   * IssueTrpc-shaped client (`.<router>.<proc>.mutate|query(input)`) for the
-   * in-process MCP / shared issue command table — a plain object built over the
-   * registry's key set (typed derivation), not a Proxy: an unknown proc is a
-   * compile-time hole, not a runtime maybe.
-   */
-  asIssueTrpc(capability: Capability, overrideScope?: boolean): IssueTrpc {
-    const principal = resolvePrincipal(capability, {
-      parentSessionOf: (sessionId) =>
-        sessionSpawnerParentId(
-          this.deps.listSessions().find((session) => session.sessionId === sessionId)?.spawnedBy,
-        ),
-    })
-    const caller: IssueCaller = {
-      capability,
-      principal,
-      ...(overrideScope ? { overrideScope } : {}),
-    }
-    const proc = (router: 'issues' | 'repos', name: string): IssueProc => {
-      const call = (input?: unknown): Promise<unknown> => {
-        const result = this.dispatch(caller, router, name, input)
-        if (result === undefined) throw new Error(`no such issue procedure: ${router}.${name}`)
-        return result
-      }
-      return { query: call, mutate: call }
-    }
-    const issues = Object.fromEntries(
-      ISSUE_COMMAND_NAMES.map((name) => [name, proc('issues', name)]),
-    ) as Record<IssueContractName, IssueProc>
-    // The in-process surface never served the specs router (pspec rides the
-    // daemon relay / HTTP only) — keep the historical "no such procedure" throw.
-    const specProc = (name: string): IssueProc => {
-      const call = (): Promise<unknown> => {
-        throw new Error(`no such issue procedure: specs.${name}`)
-      }
-      return { query: call, mutate: call }
-    }
-    const specs = Object.fromEntries(
-      ['list', 'get', 'create', 'save', 'remove', 'search'].map((n) => [n, specProc(n)]),
-    )
-    // Like specs, the in-process surface doesn't serve the lock router
-    // [spec:SP-85d1] — locks ride the daemon relay / HTTP (podium lock CLI).
-    const lockProc = (name: string): IssueProc => {
-      const call = (): Promise<unknown> => {
-        throw new Error(`no such issue procedure: lock.${name}`)
-      }
-      return { query: call, mutate: call }
-    }
-    const lock = Object.fromEntries(
-      ['acquire', 'release', 'renew', 'status', 'steal'].map((n) => [n, lockProc(n)]),
-    )
-    return {
-      issues,
-      repos: { inferFromPath: proc('repos', 'inferFromPath') },
-      specs,
-      lock,
-    } as IssueTrpc
-  }
 }

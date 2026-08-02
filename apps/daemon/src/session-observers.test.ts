@@ -13,6 +13,7 @@ import {
   type HarnessObserverHost,
   harnessAdapterFor,
   supported,
+  withStateChannelEvent,
 } from '@podium/harness'
 import type {
   AgentObservation,
@@ -64,7 +65,7 @@ function setupControlledSession(sessionId = asSessionId('s-idle')) {
     translate: async () => {
       const events = nextEvents
       nextEvents = []
-      return events
+      return events.map((event) => withStateChannelEvent(event, 'hook'))
     },
   }
   const observers = createSessionObservers({
@@ -1141,7 +1142,10 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         result: 'live_transition_accepted',
         acceptedCursor: opened.providerCursor,
       })
-      observers.onHookPayload(asSessionId('podium-composer'), { ...prompt, hook_event_name: 'Stop' })
+      observers.onHookPayload(asSessionId('podium-composer'), {
+        ...prompt,
+        hook_event_name: 'Stop',
+      })
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
       })
@@ -1821,7 +1825,9 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       bindingVersion: 2,
       observationGeneration: 8,
     }
-    const bootEvents = vi.fn(async (): Promise<AgentStateEvent[]> => [{ kind: 'prompt_submitted' }])
+    const bootEvents = vi.fn(async () => [
+      withStateChannelEvent({ kind: 'prompt_submitted' }, 'classifier'),
+    ])
     const sent: DaemonMessage[] = []
     const observers = createSessionObservers({
       send: (message) => sent.push(message),

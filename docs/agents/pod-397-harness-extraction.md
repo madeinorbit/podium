@@ -135,10 +135,11 @@ POD-1071 owns that file under stated file discipline and needed no change.
   POD-292/POD-326/POD-398's work, and doing it here would have produced exactly the
   large surprise diff the fan-out protocol warns against. POD-399 needs that list
   complete before it can flip the axiom.
-- **`apps/server` `ModelCatalog` is still an instance-global singleton** holding
+- **`apps/server` `ModelCatalog` was an instance-global singleton** holding
   per-machine facts (which models each harness offers). Same class of bug as the
   inventory seam, but in `apps/server` and outside this extraction. Filed as
-  **POD-1123 (Machine-keyed model catalog)** with a `discovered-from` edge.
+  **POD-1123 (Machine-keyed model catalog)** with a `discovered-from` edge — that
+  issue keys the catalog by `machineId`.
 - **Pre-existing biome formatting backlog was reverted, not absorbed.** `biome check
   --write` fixed 151 files; ~127 were unrelated debt in `apps/server`/`apps/daemon`,
   plus 10 `packages/harness` files that were only *moved* verbatim. All reverted, so

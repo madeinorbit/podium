@@ -1,7 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import { withEventTime } from './reducer.js'
-import type { AgentStateEvent, AgentStateProvider } from './types.js'
+import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 
 /** An opencode row's `time_updated` (epoch ms) as ISO event-time, or undefined. */
 function isoFromMs(ms: number | undefined): string | undefined {
@@ -50,8 +50,8 @@ export const opencodeStateProvider: AgentStateProvider = {
   instrumentation() {
     return { args: [] }
   },
-  translate: async () => [],
-  bootEvents: opencodeBootEvents,
+  translate: async () => withStateChannel([], 'poll'),
+  bootEvents: async (opts) => withStateChannel(await opencodeBootEvents(opts), 'poll'),
 }
 
 export function observeOpencodeState(opts: {

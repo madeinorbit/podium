@@ -76,6 +76,9 @@ export const SERVER_PLANE_CLASS = {
   // Connection-scoped handshake/keepalive frames (single client, not fan-out).
   welcome: 'stream.live',
   attached: 'stream.live',
+  // POD-1081: attach/requestControl refusal (unauthorized vs unreachable). Live
+  // and connection-scoped — not durable, not fan-out.
+  terminalOutcome: 'stream.live',
   pong: 'stream.live',
   // Authority-only view removal; ordered on one client publication sequencer.
   sessionViewDelta: 'stream.live',
@@ -251,6 +254,8 @@ export const DAEMON_PLANE_CLASS = {
   // runtime stream the server sequences into a durable draft edit.
   nativeDraft: 'stream.live',
   inventoryReport: 'control.command',
+  // Host-local configuration warning, durably routed to the machine owner/admins.
+  machineDiagnostic: 'control.command',
   bind: 'stream.live',
   agentFrame: 'stream.live',
   agentFrameBatch: 'stream.live',

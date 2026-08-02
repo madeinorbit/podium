@@ -1,4 +1,4 @@
-import { asUserId, type SessionId } from '@podium/model'
+import { asUserId, type SessionId, type UserId } from '@podium/model'
 import type { DraftEditMessage } from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
@@ -12,6 +12,13 @@ import type { MachineListing } from '../machines/service'
 import type { SessionInbox } from './inbox'
 import type { SessionPublicationCoordinator } from './publication/coordinator'
 import type { Session } from './session'
+import {
+  contextFromOwnership,
+  controlSubjectFromClient,
+  mayDrive,
+  mayWatch,
+  type SessionControlContext,
+} from './session-control-policy'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStateService } from './session-state/service'
 
@@ -27,6 +34,28 @@ export interface SessionClientControlPorts {
   pushPriorities(): void
   setDraft(principal: ClientPrincipal, clientId: string, sessionId: SessionId, text: string): void
   editDraft(message: DraftEditMessage, clientId: string): void
+  /**
+   * Session ownership + grants (from store). Undefined ⇒ session does not exist
+   * (or is invisible — same answer per the consistent-error rule).
+   */
+  sessionOwner?(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
+  /**
+   * Machine `use` for this principal on the session's host. Defaults to
+   * `granted` when uninjected so unit fixtures without a machine table keep
+   * working; production always wires the real gate.
+   */
+  machineUseFor?(
+    principal: ClientPrincipal,
+    sessionId: SessionId,
+  ): SessionControlContext['machineUse']
+  /**
+   * Room occupancy count for a session (presence plane). When provided,
+   * `clientCount` is derived from it rather than from the attach-set size.
+   */
+  sessionOccupancyCount?(sessionId: SessionId): number | undefined
+  /** Join/leave session presence room with PTY attach (POD-1081 §5). */
+  sessionRoomJoin?(client: ClientConn, sessionId: SessionId): void
+  sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void
 }
 
 /** Client control-plane adapter; transport framing remains in gateway/client-mux. */
@@ -54,6 +83,7 @@ export class SessionClientControl {
   onDetached(_principal: ClientPrincipal, client: ClientConn): void {
     for (const sessionId of client.attached) {
       this.ports.mutate(sessionId, (session) => session.terminal.detachClient(client.id), false)
+      this.ports.sessionRoomLeave?.(client, sessionId)
     }
     for (const sessionId of client.transcriptSubs) {
       this.ports.sessions.get(sessionId)?.terminal.unsubscribeTranscript(client.id)
@@ -74,13 +104,26 @@ export class SessionClientControl {
       case 'attach': {
         const startedAt = performance.now()
         const session = this.ports.sessions.get(message.sessionId)
-        if (!session) return
+        // Visibility + machine use both gate attach (POD-1081 §4). Absent session
+        // and denied rights share the same unauthorized outcome — no existence
+        // oracle (ADR 3 Amendment 1 D20).
+        const allowed = this.authorizeAttach(principal, message.sessionId, session)
+        if (!allowed || !session) {
+          client.send({
+            type: 'terminalOutcome',
+            sessionId: message.sessionId,
+            outcome: 'unauthorized',
+          })
+          break
+        }
         client.attached.add(message.sessionId)
         this.ports.mutate(
           message.sessionId,
           (current) => current.terminal.attachClient(client, message.sinceSeq),
           false,
         )
+        // Watching a terminal is room membership — clientCount derives from it.
+        this.ports.sessionRoomJoin?.(client, message.sessionId)
         this.ports.broadcastSessions()
         this.ports.pushPriorities()
         perf.record(
@@ -95,6 +138,7 @@ export class SessionClientControl {
         const startedAt = performance.now()
         client.attached.delete(message.sessionId)
         this.ports.mutate(message.sessionId, (session) => session.terminal.detachClient(id), false)
+        this.ports.sessionRoomLeave?.(client, message.sessionId)
         this.ports.broadcastSessions()
         this.ports.pushPriorities()
         perf.record(
@@ -171,5 +215,36 @@ export class SessionClientControl {
     for (const sessionId of prior.attached) {
       this.ports.sessions.get(sessionId)?.terminal.reassignController(prior.id, next.id)
     }
+  }
+
+  /**
+   * Attach requires session visibility AND machine `use`. Session share alone
+   * must not open a PTY on a machine the principal cannot use.
+   */
+  private authorizeAttach(
+    principal: ClientPrincipal,
+    sessionId: SessionId,
+    session: Session | undefined,
+  ): boolean {
+    if (!session) return false
+    const owner = this.ports.sessionOwner?.(sessionId)
+    // No ownership port (legacy unit fixtures): keep today's open attach so
+    // incident tests stay focused on controller gating rather than multi-user
+    // policy. Production always injects sessionOwner.
+    if (!this.ports.sessionOwner) return true
+    if (!owner) return false
+    const machineUse = this.ports.machineUseFor?.(principal, sessionId) ?? 'granted'
+    const ctx = contextFromOwnership(owner, machineUse)
+    return mayWatch(controlSubjectFromClient(principal), ctx) === true
+  }
+
+  /** Drive rights for requestControl — owner / write grantee / admin + machine use. */
+  authorizeDrive(principal: ClientPrincipal, sessionId: SessionId): boolean {
+    const owner = this.ports.sessionOwner?.(sessionId)
+    if (!this.ports.sessionOwner) return true
+    if (!owner) return false
+    const machineUse = this.ports.machineUseFor?.(principal, sessionId) ?? 'granted'
+    const ctx = contextFromOwnership(owner, machineUse)
+    return mayDrive(controlSubjectFromClient(principal), ctx) === true
   }
 }

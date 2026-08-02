@@ -1,4 +1,5 @@
 import type { SocketHub } from '@podium/client-core/socket-transport'
+import { debugFlagEnabled, ECHO_HUD_KEY, type UiState } from '@podium/client-core/ui-state'
 import type { MountedSession } from '@podium/terminal-client'
 import type { JSX, RefObject } from 'react'
 import { useEffect, useState } from 'react'
@@ -8,14 +9,10 @@ import { useEffect, useState } from 'react'
  * keystroke→echo percentiles (SessionConnection.echoLatency) next to the hub's
  * ping RTT, so the network share vs the server/agent share of typing lag is
  * readable at a glance from any client — no devtools needed. Off by default;
- * enable with `localStorage.setItem('podium.echoHud', '1')` and reload.
+ * enable via the principal-scoped ui-state key `ECHO_HUD_KEY` (`'1'`).
  */
-export function echoHudEnabled(): boolean {
-  try {
-    return globalThis.localStorage?.getItem('podium.echoHud') === '1'
-  } catch {
-    return false
-  }
+export function echoHudEnabled(ui: Pick<UiState, 'get'>): boolean {
+  return debugFlagEnabled(ui, ECHO_HUD_KEY)
 }
 
 export function EchoHud({

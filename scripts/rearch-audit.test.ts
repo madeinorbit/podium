@@ -4,11 +4,14 @@ import { describe, expect, it } from 'vitest'
 import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
 import { entityIdSites, MIN_ID_FIELD_SITES } from './entity-id-audit'
+import { CHANGE_ROW_KEYS } from './change-row-audit'
 import {
   type AuditContext,
   type AuditResult,
   baselineOf,
   CHECKS,
+  DAEMON_COMPOSITION_ROOT,
+  DAEMON_COMPOSITION_ROOT_MAX_LINES,
   diffBaseline,
   grep,
   grepDistinctLiterals,
@@ -305,6 +308,23 @@ describe('inventory checks', () => {
     expect(new Set(CHECKS.map((c) => c.id)).size).toBe(CHECKS.length)
   })
 
+  it('panel-mode-duality exempts only the two canonical owner declarations', () => {
+    const ctx = ctxOf({
+      'packages/client-core/src/ui-state.ts': [
+        "panelMode: 'podium.panelMode',",
+        "panelModeDefault: 'podium.panelModeDefault',",
+        "const rogue = 'podium.panelMode'",
+      ].join('\n'),
+      'apps/web/src/rogue.ts': "const copy = 'podium.panelModeDefault'",
+    })
+    const sites = CHECKS.find((check) => check.id === 'panel-mode-duality')?.collect(ctx) ?? []
+
+    expect(sites.map(({ file, line }) => `${file}:${line}`).sort()).toEqual([
+      'apps/web/src/rogue.ts:1',
+      'packages/client-core/src/ui-state.ts:3',
+    ])
+  })
+
   it('agent-kind-enums counts redeclarations but not the canonical one or an alias', () => {
     const ctx = ctxOf({
       // Canonical home — never counted.
@@ -512,6 +532,28 @@ describe('inventory checks', () => {
     expect(countOf(ctx, 'change-row-typings')).toBe(0)
   })
 
+  it('change-row-typings ERRORS when its control stops matching', () => {
+    // POD-1251 drove the live count to zero. The ZERO_BY_DESIGN exemption is
+    // only honest if the planted restatement CONTROL still fires — an emptied
+    // CHANGE_ROW_KEYS is the cheapest way to make every score fail and turn
+    // that control into a serene zero, which from zero is indistinguishable
+    // from "the debt is gone".
+    const keys = CHANGE_ROW_KEYS as Set<string>
+    const saved = [...keys]
+    keys.clear()
+    try {
+      const check = CHECKS.find((c) => c.id === 'change-row-typings')
+      expect(() => check?.collect(ctxOf({}))).toThrow(/CHANGE_ROW_KEYS loaded EMPTY/)
+    } finally {
+      for (const k of saved) keys.add(k)
+    }
+    // And it says YES again once restored, so the throw above is the guard
+    // firing rather than the detector being permanently broken.
+    expect(() =>
+      CHECKS.find((c) => c.id === 'change-row-typings')?.collect(ctxOf({})),
+    ).not.toThrow()
+  })
+
   it('static-systemd-units counts unit files only', () => {
     const ctx = ctxOf({}, { 'scripts/systemd': ['README.md', 'a.service', 'b.timer', 'c.path'] })
     expect(countOf(ctx, 'static-systemd-units')).toBe(3)
@@ -525,6 +567,26 @@ describe('inventory checks', () => {
       ].join('\n'),
     })
     expect(countOf(ctx, 'composition-root-forward-refs')).toBe(1)
+  })
+
+  it('oversized daemon root refuses line 301 and errors when its anchor disappears', () => {
+    const source = (lines: number) =>
+      `${Array.from({ length: lines }, (_, i) => `const x${i} = 0`).join('\n')}\n`
+    expect(
+      countOf(
+        ctxOf({ [DAEMON_COMPOSITION_ROOT]: source(DAEMON_COMPOSITION_ROOT_MAX_LINES) }),
+        'oversized-daemon-composition-root',
+      ),
+    ).toBe(0)
+    expect(
+      countOf(
+        ctxOf({ [DAEMON_COMPOSITION_ROOT]: source(DAEMON_COMPOSITION_ROOT_MAX_LINES + 1) }),
+        'oversized-daemon-composition-root',
+      ),
+    ).toBe(1)
+    expect(() =>
+      CHECKS.find((check) => check.id === 'oversized-daemon-composition-root')?.collect(ctxOf({})),
+    ).toThrow(/was not scanned; the zero is unmeasured/)
   })
 
   it('state-dir-defs ignores the canonical home', () => {
@@ -635,43 +697,60 @@ describe('CLI exit codes', () => {
     expect(run(['--phase', 'POD-309', '--update-baseline'])).toBe(2)
   })
 
-  // POD-309 used to be this case's subject. It retired UpstreamSync/UpstreamForwarder
-  // and drove `upstream-sync-forwarder` to 0, so `--phase POD-309` now exits 0 — which is
-  // what a FINISHED phase is supposed to look like. Rather than swap the literal and lose
-  // the signal, both directions are asserted: a phase with live items gates, and the
-  // phase that reached zero does not. A single-direction test here cannot distinguish a
-  // working `--phase` gate from one that exits 1 unconditionally.
+  // BOTH directions of the phase gate, derived from the live audit rather than
+  // hardcoded phase ids. The history of this case is the reason:
   //
-  // THE LIVE SUBJECT HAS AN EXPIRY, and it is worth naming so the next author looks for
-  // it at the right moment. `--phase POD-308` gates because POD-308 still owns live
-  // items; the day its LAST item reaches zero this case reds, and the fix is the same
-  // shape rather than a deletion — pick a phase that is still live and KEEP both
-  // directions. POD-308's own agent reports (unverified from here, since it is on their
-  // branch) that after `publish-computed-fanout` clears it retains a scheduled
-  // `legacy-wire-v1-adapter` item, which would push that moment out to Phase 7 when the
-  // N-1 adapter is finally deleted. Either way the trigger is "POD-308 goes fully
-  // clear", not any one item.
+  // - POD-309 used to be the "still live" subject; it retired its item and
+  //   became the clear arm.
+  // - POD-308 took over as the live subject; a re-phase emptied it and it
+  //   became the clear arm.
+  // - POD-1251 took over as the live subject; POD-1251 composed the last
+  //   change-row restatement and the exit-1 arm went red with a correct zero
+  //   (POD-1417).
   //
-  // THE EXPIRY ARRIVED, 2026-07-31, and exactly as predicted above — by a RE-PHASE
-  // rather than by the counts moving. POD-310's Phase 2 exit gate found POD-308
-  // mapped to two items it could never clear: `legacy-wire-v1-adapter`, which
-  // POD-308's own job was to BIRTH and whose expiry is Phase 7 data, and
-  // `change-row-typings`, real debt whose owner had closed. The coordinator
-  // re-phased them to POD-337 and POD-1251 respectively, each with its reason
-  // recorded at the item. So POD-308 became the phase that REACHED ZERO.
+  // Hardcoding the next still-live phase would only postpone the same break.
+  // Derive both arms from undeclared residue on this tree so the next phase
+  // that finishes does not freeze this case red — and a single-direction
+  // test still cannot distinguish a working gate from one that always exits 1.
   //
-  // Fixed the shape the comment asked for, not by deletion: POD-1251 is the live
-  // subject now and POD-308 has moved to the clear arm. Both directions kept, and
-  // the same expiry note applies to POD-1251 the day it composes its last
-  // restatement.
-  // Each case launches two full-tree audit processes; the full node lane can
+  // Each case launches full-tree audit processes; the full node lane can
   // saturate the 20s default.
   const fullLaneAuditTimeout = 40_000
+  const repoRootForPhase = new URL('..', import.meta.url).pathname
+
+  /** First phase with undeclared residue (must gate) and first clear phase. */
+  function liveAndClearPhases(): { live: string; clear: string } {
+    const results = runAudit(loadContext(repoRootForPhase))
+    const phases = [...new Set(results.map((r) => r.phase))].sort()
+    let live: string | undefined
+    let clear: string | undefined
+    for (const phase of phases) {
+      const assessed = phaseCloseItems(phase, results)
+      if (assessed.length === 0) continue
+      const undeclared = assessed.reduce((n, item) => n + item.undeclaredSites.length, 0)
+      if (undeclared > 0) live ??= phase
+      else clear ??= phase
+      if (live && clear) break
+    }
+    if (!live) {
+      throw new Error(
+        'phase-close test could not find any phase with undeclared residue — the gate has nothing to say NO about',
+      )
+    }
+    if (!clear) {
+      throw new Error(
+        'phase-close test could not find any clear phase — both directions of the gate are unmeasured',
+      )
+    }
+    return { live, clear }
+  }
+
   it(
     'gates a phase whose items are still alive, and clears one that reached zero',
     () => {
-      expect(run(['--phase', 'POD-1251'])).toBe(1)
-      expect(run(['--phase', 'POD-308'])).toBe(0)
+      const { live, clear } = liveAndClearPhases()
+      expect(run(['--phase', live])).toBe(1)
+      expect(run(['--phase', clear])).toBe(0)
     },
     fullLaneAuditTimeout,
   )
@@ -680,9 +759,12 @@ describe('CLI exit codes', () => {
     'an output flag cannot disable the gate',
     () => {
       // `--phase X --json` exited 0 with 119 live sites before this was fixed:
-      // the format must never decide whether the gate holds.
-      expect(run(['--phase', 'POD-1251', '--json'])).toBe(1)
-      expect(run(['--phase', 'POD-1251', '--sites'])).toBe(1)
+      // the format must never decide whether the gate holds. The subject phase
+      // is derived (see liveAndClearPhases) so a finished phase cannot freeze
+      // this case on a correct zero the way POD-1251 did.
+      const { live } = liveAndClearPhases()
+      expect(run(['--phase', live, '--json'])).toBe(1)
+      expect(run(['--phase', live, '--sites'])).toBe(1)
     },
     fullLaneAuditTimeout,
   )
@@ -944,6 +1026,27 @@ describe('against the live repo', () => {
       // anchored by the planted definite-assignment control test above and scans
       // both production composition roots, so zero here is the delivered state.
       'composition-root-forward-refs',
+      // POD-327 reduced daemon.ts from 833 lines to a composition root. The
+      // detector throws if that file is no longer scanned, and the planted
+      // 300/301-line boundary test above proves both verdicts.
+      'oversized-daemon-composition-root',
+      // POD-1251 composed the last production change-row restatement: 15 → 0.
+      // Exempt on the SAME terms as per-user-singletons and no looser —
+      // `changeRowRestatements` runs its own matcher end-to-end over a planted
+      // CONTROL (a zod object restating seq/entity/id/op/value) and THROWS when
+      // that stops producing exactly one site, so an emptied CHANGE_ROW_KEYS, a
+      // raised threshold, a broken DECLARED_OP_VALUE, or a silent block-parser
+      // failure reds loudly instead of reading as a deletion. Asserted in
+      // 'change-row-typings ERRORS when its control stops matching' above.
+      'change-row-typings',
+      // POD-329 post-cutover consolidation: panelMode storage-key literals now
+      // live only as the two owner declarations in ui-state.ts (exempted by the
+      // detector). The planted-rogue control test above keeps the detector live.
+      'panel-mode-duality',
+      // POD-329: every apps/web `podium.*` storage-key literal moved into the
+      // ui-state module. Zero is the delivered state; a re-grown literal is a
+      // baseline ratchet failure, not a silent skip.
+      'web-storage-keys',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

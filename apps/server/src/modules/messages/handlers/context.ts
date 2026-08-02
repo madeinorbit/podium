@@ -36,6 +36,9 @@ import type { MessageRow } from '../../../store'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
 
+/** Wake-path placement port — see {@link MessageDeliveryDeps.placementAtWake}. */
+export type WakePlacementPort = NonNullable<MessageDeliveryDeps['placementAtWake']>
+
 export interface MailCaller {
   capability: Capability
   principal: CommandPrincipal
@@ -119,6 +122,12 @@ export const applyAuthFromCeiling = (ceiling: HumanCeiling): ApplyCeilingPort =>
  * closes — a gate that refuses an address while the delivery path still accepts
  * it — is silent, so it had to fail loudly somewhere, and boot is the only place
  * where failing loudly costs nobody a message.
+ *
+ * POD-1193 adds the wake-path machine half from the SAME `policyFor`:
+ * `placementAtWake` re-resolves the sender and calls `placementDecision` against
+ * that principal's machines. spawnAgent still reads machines via the gate's
+ * MailAccess (M5, distinguishable); the delivery wake path collapses the two
+ * non-allowed outcomes (D20.2) inside MessageDeliveryService.
  */
 export interface PrincipalMailPolicy {
   principalForCapability(capability: Capability): CommandPrincipal
@@ -128,6 +137,7 @@ export interface PrincipalMailPolicy {
 
 export function principalMailPolicy(opts: PrincipalMailPolicy): {
   authorizeAtApply: ApplyCeilingPort
+  placementAtWake: WakePlacementPort
   gateOptions: {
     principalForCapability(capability: Capability): CommandPrincipal
     policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
@@ -146,8 +156,17 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
     },
     { dynamic: true as const },
   )
+  const placementAtWake: WakePlacementPort = (message, machineId) => {
+    const principal = opts.principalForMessage(message)
+    // No principal left to re-resolve → deny. A wake is code execution; the
+    // single-user default only applies when the port is ABSENT, not when the
+    // sender cannot be found.
+    if (!principal) return 'unauthorized'
+    return placementDecision(machineId, opts.policyFor(principal).machines)
+  }
   return {
     authorizeAtApply,
+    placementAtWake,
     gateOptions: {
       principalForCapability: opts.principalForCapability,
       policyFor: opts.policyFor,
@@ -159,6 +178,7 @@ export function mailPolicy(opts?: { ceiling?: HumanCeiling; machines?: MachineAc
   ceiling: HumanCeiling
   machines: MachineAccess
   authorizeAtApply: ApplyCeilingPort
+  placementAtWake: WakePlacementPort
   gateOptions: { ceiling: HumanCeiling; machines: MachineAccess }
 } {
   const ceiling = opts?.ceiling ?? SINGLE_USER_CEILING
@@ -167,6 +187,10 @@ export function mailPolicy(opts?: { ceiling?: HumanCeiling; machines?: MachineAc
     ceiling,
     machines,
     authorizeAtApply: applyAuthFromCeiling(ceiling),
+    // Static machines for the whole harness — same object the gate's placement()
+    // reads. The wake path collapses non-allowed outcomes; spawnAgent's handler
+    // still surfaces them distinctly via access.placement().
+    placementAtWake: (_message, machineId) => placementDecision(machineId, machines),
     gateOptions: { ceiling, machines },
   }
 }

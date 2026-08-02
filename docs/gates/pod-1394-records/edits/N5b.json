@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "      if (principal.actor !== 'system' || principal.writeScope !== 'acted-on-entity') {\n",
+    "replace": "      if (principal.actor !== 'system') {\n"
+  }
+]

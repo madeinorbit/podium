@@ -5,9 +5,15 @@
  * is ever defaulted.
  */
 
-import { asIssueId, authorize, capabilityAttribution, type IssueScope } from '@podium/model'
 import {
-  asAgentIdentityId,
+  agentIdentityFromSessionId,
+  asIssueId,
+  asSessionId,
+  authorize,
+  capabilityAttribution,
+  type IssueScope,
+} from '@podium/model'
+import {
   asCapabilityRef,
   asDelegationRef,
   asDeviceId,
@@ -28,9 +34,13 @@ const userPrincipal: Principal = {
   capability: cap,
 }
 
+// POD-1164: agentIdentity is the session id re-branded as actor at mint time
+// (binding-store: asAgentIdentityId(sessionId)). The test uses the named helper
+// so a fixture that invents a different id space would not compile cleanly.
+const agentSessionId = asSessionId('sess-agent-1')
 const agentPrincipal: Principal = {
   kind: 'agent',
-  agentIdentity: asAgentIdentityId('sess-agent-1'),
+  agentIdentity: agentIdentityFromSessionId(agentSessionId),
   onBehalfOf: asUserId('usr-ada'),
   device: asDeviceId('conn-9'),
   capability: cap,
@@ -54,7 +64,10 @@ describe('capabilityFromPrincipal', () => {
     })
     // The existing actor seam is preserved, not replaced: the steward's
     // skip-the-causing-session logic (#116) keeps working off actorSessionId.
-    expect(capability.actorSessionId).toBe('sess-agent-1')
+    // POD-1164: actorSessionId is the SessionId spelling of the same mint —
+    // equal to the agent identity string, not a mapped or invented second id.
+    expect(capability.actorSessionId).toBe(agentSessionId)
+    expect(capability.actorSessionId).toBe(agentPrincipal.agentIdentity)
   })
 
   it('a machine has NO on-behalf-of — not even a placeholder', () => {

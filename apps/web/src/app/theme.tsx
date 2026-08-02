@@ -1,3 +1,5 @@
+import { readPreAuthTheme, writePreAuthTheme } from '@podium/client-core'
+import { THEME_UI_KEYS } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useStoreSelector } from './store'
@@ -20,8 +22,9 @@ export function resolveDark(mode: ThemeMode, prefersDark: boolean): boolean {
 // and by ThemeProvider (which wraps StoreProvider) — so the fast path must not
 // depend on the replica. ThemeUiStateMirror below write-throughs every change
 // into the ui-state collection so the one UI persistence layer stays complete.
-export const THEME_PRESET_KEY = 'podium.theme.preset'
-export const THEME_MODE_KEY = 'podium.theme.mode'
+// Spellings come from the model vocabulary (THEME_UI_KEYS) — no local restatement.
+export const THEME_PRESET_KEY = THEME_UI_KEYS[0]
+export const THEME_MODE_KEY = THEME_UI_KEYS[1]
 
 // PWA status-bar / address-bar tint per theme. Must mirror each preset/mode block's
 // --background in index.css; the anti-flash script in index.html duplicates these.
@@ -34,24 +37,9 @@ export const THEME_BG: Record<string, string> = {
   'superade-light': '#f4f6fb',
 }
 
-function lsGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-function lsSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value)
-  } catch {
-    // best-effort; storage can throw in private mode
-  }
-}
-
 export function readStoredTheme(): ThemeState {
-  const p = lsGet(THEME_PRESET_KEY)
-  const m = lsGet(THEME_MODE_KEY)
+  const p = readPreAuthTheme(THEME_PRESET_KEY)
+  const m = readPreAuthTheme(THEME_MODE_KEY)
   return {
     preset: p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'superade',
     mode: m === 'light' || m === 'dark' || m === 'system' ? m : 'dark',
@@ -89,8 +77,8 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
 
   useEffect(() => {
     applyTheme(state, document.documentElement, prefersDark)
-    lsSet(THEME_PRESET_KEY, state.preset)
-    lsSet(THEME_MODE_KEY, state.mode)
+    writePreAuthTheme(THEME_PRESET_KEY, state.preset)
+    writePreAuthTheme(THEME_MODE_KEY, state.mode)
     const meta = document.querySelector('meta[name="theme-color"]')
     const isDark = resolveDark(state.mode, prefersDark)
     const resolvedMode = isDark ? 'dark' : 'light'
