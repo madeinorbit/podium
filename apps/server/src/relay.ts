@@ -1245,6 +1245,21 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
+      // Machine-pinned start (POD-1424): resolve the repo on the target by IDENTITY,
+      // then materialise the start point there. Both live on SessionsService beside
+      // ensureTargetRepo, which handoff has always used for the same two problems.
+      prepareMachineStart: async ({ repoPath, machineId, startPoint }) => {
+        const target = await sessionsSvc.resolveRepoOnMachine(repoPath, machineId)
+        if (startPoint) {
+          await sessionsSvc.ensureRefOnMachine({
+            sourceRepoPath: repoPath,
+            targetRepoPath: target.path,
+            targetMachineId: machineId,
+            ref: startPoint,
+          })
+        }
+        return { repoPath: target.path }
+      },
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),

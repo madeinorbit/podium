@@ -223,6 +223,19 @@ export interface IssueDeps {
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: string, repoPath: string): void
+  /**
+   * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
+   * (resolved by repo identity, cloned on absence) and the right COMMITS in it (bundled
+   * directly, because a local-only base is on no shared remote). Returns the path the
+   * repository actually has on THAT machine, which is not the source's path.
+   *
+   * Optional so existing test deps literals stay valid; absent = same-machine behaviour.
+   */
+  prepareMachineStart?(input: {
+    repoPath: string
+    machineId: string
+    startPoint?: string
+  }): Promise<{ repoPath: string }>
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

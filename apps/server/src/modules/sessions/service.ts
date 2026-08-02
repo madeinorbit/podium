@@ -3251,6 +3251,138 @@ export class SessionsService {
   }
 
   /**
+   * Make a repository present on `targetMachineId`, resolved by IDENTITY (POD-1424).
+   *
+   * `ensureTargetRepo` already does exactly this for handoff — resolve by repoId, the
+   * origin-derived identity, and clone on absence. A machine-pinned START needed the
+   * same thing and did not have it: `requireMachineForRepo` compares the issue's SOURCE
+   * path literally against the target's registered paths, and two machines have two
+   * layouts (/home/mgw/src/podium here, /home/till/src/podium there), so a repository
+   * that was present read as absent with "no repo registered at …" — a pin refused on
+   * every correctly-configured second machine.
+   *
+   * Exposed as a method rather than copied so there is ONE resolver: fork it and the two
+   * placement paths drift, with the identity check living on only one of them.
+   */
+  async resolveRepoOnMachine(
+    sourceRepoPath: string,
+    targetMachineId: string,
+  ): Promise<{ path: string; repoId: string | null }> {
+    const source = this.store.repos.listRepos().find((repo) => repo.path === sourceRepoPath)
+    if (!source) throw new Error(`no registered repository at ${sourceRepoPath}`)
+    if (source.machineId === targetMachineId) return source
+    return this.ensureTargetRepo(source, targetMachineId)
+  }
+
+  /**
+   * Make `ref` RESOLVABLE in `repoPath` on `targetMachineId` (POD-1424).
+   *
+   * A machine-pinned start hands `worktree add <path> <startPoint>` to the target, and a
+   * start point it cannot resolve fails. Putting the right REPOSITORY there is
+   * resolveRepoOnMachine's job; this puts the right COMMITS in it.
+   *
+   * CLONE-PLUS-FETCH CANNOT DO IT, and that is the whole reason this exists: our own
+   * integration branches never reach origin, so a freshly cloned repository on another
+   * machine has nowhere to fetch them FROM. The objects have to move machine to machine.
+   *
+   * ONE MECHANISM, NOT A SECOND TRANSFER. Every step already existed and is reused
+   * unmodified — revParseVerify asks what the target holds, verifiedCommonBundleBases
+   * takes the intersection the source can actually bundle FROM, and transferHandoffPackage
+   * is the same chunked source→server→target pipe handoff and workspace-fetch use. Only
+   * the two bundle verbs are new, and they are transport primitives, not policy.
+   *
+   * INTERSECTING THE BASES IS A CORRECTNESS REQUIREMENT, not an optimisation: an unknown
+   * `^sha` aborts the whole bundle, so a base the target has not proved it holds would
+   * fail the transfer rather than merely enlarge it.
+   *
+   * IT VERIFIES RATHER THAN ASSUMES. The ref is re-checked on the target AFTER the fetch,
+   * so a bundle that transferred but did not apply fails HERE, naming the ref, instead of
+   * surfacing later as a confusing worktree-add error. The early return when the target
+   * already resolves the ref keeps every same-machine start and every start from an
+   * origin branch free.
+   */
+  async ensureRefOnMachine(input: {
+    sourceRepoPath: string
+    targetRepoPath: string
+    targetMachineId: string
+    ref: string
+  }): Promise<{ transferred: boolean }> {
+    const source = this.store.repos.listRepos().find((r) => r.path === input.sourceRepoPath)
+    if (!source) throw new Error(`no registered repository at ${input.sourceRepoPath}`)
+    if (source.machineId === input.targetMachineId) return { transferred: false }
+
+    const already = await this.rpc.repoOp(
+      'revParseVerify',
+      input.targetRepoPath,
+      { ref: input.ref },
+      input.targetMachineId,
+    )
+    if (already.ok) return { transferred: false }
+
+    // What can we bundle FROM? Only commits BOTH sides can name.
+    const candidates = [...new Set(['main', 'origin/main', input.ref])]
+    const sourceVerified = await Promise.all(
+      candidates.map((ref) =>
+        this.rpc.repoOp('revParseVerify', input.sourceRepoPath, { ref }, source.machineId),
+      ),
+    )
+    const targetVerified = await Promise.all(
+      verifiedBundleBases(sourceVerified).map((sha) =>
+        this.rpc.repoOp(
+          'revParseVerify',
+          input.targetRepoPath,
+          { ref: sha },
+          input.targetMachineId,
+        ),
+      ),
+    )
+    const bases = verifiedCommonBundleBases(sourceVerified, targetVerified)
+
+    // The token names a TRANSFER, never a location: each daemon derives its own path.
+    const transferId = `ref-${randomUUID().replace(/-/gu, '')}`.slice(0, 40)
+    const created = await this.rpc.repoOp(
+      'bundleCreate',
+      input.sourceRepoPath,
+      { transferId, ref: input.ref, ...(bases.length > 0 ? { bases: bases.join(',') } : {}) },
+      source.machineId,
+    )
+    if (!created.ok)
+      throw new Error(`could not bundle ${input.ref} on the source: ${created.output}`)
+    const staged = JSON.parse(created.output) as { path: string; sizeBytes: number }
+
+    await transferHandoffPackage({
+      rpc: this.rpc,
+      sessionId: transferId,
+      sourceMachineId: source.machineId,
+      targetMachineId: input.targetMachineId,
+      sourceStagePath: staged.path,
+      sizeBytes: staged.sizeBytes,
+    })
+
+    const fetched = await this.rpc.repoOp(
+      'bundleFetch',
+      input.targetRepoPath,
+      { transferId, ref: input.ref },
+      input.targetMachineId,
+    )
+    if (!fetched.ok)
+      throw new Error(`could not fetch ${input.ref} on the target: ${fetched.output}`)
+
+    const landed = await this.rpc.repoOp(
+      'revParseVerify',
+      input.targetRepoPath,
+      { ref: input.ref },
+      input.targetMachineId,
+    )
+    if (!landed.ok) {
+      throw new Error(
+        `${input.ref} still does not resolve on the target after the bundle transferred`,
+      )
+    }
+    return { transferred: true }
+  }
+
+  /**
    * Lazy cross-machine workspace fetch [spec:SP-6d57]: materialize ANOTHER session's
    * current working state (unpushed commits + dirty + untracked files) on the
    * CALLER's machine as a detached read-only peek worktree. COPY semantics —

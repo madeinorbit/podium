@@ -833,6 +833,63 @@ describe('IssueService.start', () => {
     )
   })
 
+  /**
+   * A machine-pinned start has to REACH the target before it builds anything (POD-1424).
+   *
+   * Two faults, one order. The repository must be resolved by IDENTITY — two machines
+   * have two layouts, so comparing the source path literally made a present repo read as
+   * absent and refused the pin on every correctly-configured second machine. And the
+   * start point must EXIST there, because our branches are on no shared remote, so a
+   * clone has nowhere to fetch them from.
+   */
+  it('materialises the repo and the start point on the target BEFORE the worktree add', async () => {
+    const { svc, deps } = harness()
+    const order: string[] = []
+    deps.requireMachineForRepo = vi.fn()
+    deps.prepareMachineStart = vi.fn(async ({ repoPath, machineId, startPoint }) => {
+      order.push(`prepare:${repoPath}:${machineId}:${startPoint}`)
+      // The target's path is NOT the source's — that is the whole point of resolving
+      // by identity rather than comparing paths.
+      return { repoPath: '/home/till/src/podium' }
+    })
+    deps.repoOp = vi.fn(async (op: string) => {
+      order.push(`repoOp:${op}`)
+      return { ok: true, output: '' }
+    }) as typeof deps.repoOp
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+      parentBranch: 'main',
+    })
+    await svc.start(created.id)
+
+    // ORDER is the assertion: a worktree add that ran first would fail on exactly the
+    // start point this exists to provide.
+    expect(order[0]).toBe('prepare:/r:mach-b:main')
+    expect(order[1]).toBe('repoOp:worktreeAdd')
+    // …and the add must use the path the TARGET has, not the source's.
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/home/till/src/podium',
+      expect.objectContaining({ startPoint: 'main' }),
+      'mach-b',
+    )
+    // The offline pre-flight still runs, now against the RESOLVED path — which is the
+    // only path it could ever have been right about.
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
+  })
+
+  it('leaves an unpinned start completely untouched — no cross-machine work at all', () => {
+    const { svc, deps } = harness()
+    deps.prepareMachineStart = vi.fn()
+    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    return svc.start(created.id).then(() => {
+      expect(deps.prepareMachineStart).not.toHaveBeenCalled()
+    })
+  })
+
   it('pre-flights the machine pin: a failing requireMachineForRepo aborts before any work', async () => {
     const { svc, deps } = harness()
     deps.requireMachineForRepo = vi.fn(() => {

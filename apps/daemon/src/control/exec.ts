@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -27,11 +27,21 @@ const execFileAsync = promisify(execFile)
  */
 const TRANSFER_ID = /^[A-Za-z0-9_-]{1,64}$/
 
-export function bundlePathFor(transferId: string, home: string): string | { error: string } {
+export function bundlePathFor(
+  transferId: string,
+  home: string,
+  op: 'bundleCreate' | 'bundleFetch',
+): string | { error: string } {
   if (!TRANSFER_ID.test(transferId)) {
     return { error: `unsafe transferId: expected [A-Za-z0-9_-]{1,64} (got '${transferId}')` }
   }
-  return join(stageDirFor(home), `${transferId}.bundle`)
+  // THE SUFFIXES DIFFER BY SIDE, AND THAT IS NOT AN INCONSISTENCY. On the SOURCE this
+  // daemon creates the file itself, so it names it `.bundle`. On the TARGET the file was
+  // put there by the chunked transfer pipe, which stages every payload as `<id>.tgz`
+  // (handoff-package.ts stagePathFor) — reusing that pipe UNCHANGED is the whole point,
+  // so the fetch side has to look where the pipe actually wrote.
+  const suffix = op === 'bundleCreate' ? '.bundle' : '.tgz'
+  return join(stageDirFor(home), `${transferId}${suffix}`)
 }
 
 /** Allowlisted git operations for the superagent — each op is a fixed argv. */
@@ -44,7 +54,7 @@ async function runRepoOp(
   // the same transfer to the other side without ever naming a location itself.
   let bundlePath: string | undefined
   if (msg.op === 'bundleCreate' || msg.op === 'bundleFetch') {
-    const derived = bundlePathFor(msg.args?.transferId ?? '', homedir())
+    const derived = bundlePathFor(msg.args?.transferId ?? '', homedir(), msg.op)
     if (typeof derived !== 'string') {
       ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: derived.error })
       return
@@ -79,10 +89,15 @@ async function runRepoOp(
       type: 'repoOpResult',
       requestId: msg.requestId,
       ok: true,
-      // The bundle verbs echo the path this daemon chose. git itself prints nothing
-      // useful here, and the caller needs to know where the file landed on THIS disk
-      // without having been allowed to name it.
-      output: bundlePath ? bundlePath : `${stdout}${stderr ? `\n${stderr}` : ''}`.trim(),
+      // The bundle verbs echo where the file landed on THIS disk (git prints nothing
+      // useful), plus its size — the chunked transfer needs a byte count it cannot learn
+      // any other way, and the caller was never allowed to name the location.
+      output: bundlePath
+        ? JSON.stringify({
+            path: bundlePath,
+            sizeBytes: msg.op === 'bundleCreate' ? statSync(bundlePath).size : 0,
+          })
+        : `${stdout}${stderr ? `\n${stderr}` : ''}`.trim(),
     })
   } catch (err) {
     ctx.send({

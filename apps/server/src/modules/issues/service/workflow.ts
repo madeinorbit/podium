@@ -6,11 +6,11 @@ import {
   type SessionMeta,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { LOCAL_PLACEHOLDER } from '../../../local-machine'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { completeForRole } from '../../../llm-roles'
+import { LOCAL_PLACEHOLDER } from '../../../local-machine'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { issueRefsPattern, probeGitState } from '../git-state'
@@ -110,12 +110,37 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
-    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    /**
+     * A machine-pinned start has to reach the target BEFORE the worktree add (POD-1424).
+     *
+     * Two things had to be true and neither was. The repository has to be resolved by
+     * IDENTITY, because two machines have two layouts and comparing the source path
+     * literally made a present repo read as absent; and the start point has to EXIST
+     * there, because `worktree add <path> <startPoint>` fails on a start point the
+     * target cannot resolve — and our own branches are on no shared remote, so a clone
+     * cannot fetch them.
+     *
+     * ORDER IS THE PROPERTY. This runs first and the worktree add uses the path it
+     * returns: the repo path on the TARGET, which is not `row.repoPath`.
+     * requireMachineForRepo keeps its job and now runs AFTER, against the resolved path,
+     * so what it still catches — an offline machine — is exactly what it has an
+     * actionable message for.
+     */
+    let startRepoPath = row.repoPath
+    if (row.machineId && this.d.prepareMachineStart) {
+      const prepared = await this.d.prepareMachineStart({
+        repoPath: row.repoPath,
+        machineId: row.machineId,
+        ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
+      })
+      startRepoPath = prepared.repoPath
+    }
+    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, startRepoPath)
     const branch = this.slug(row.seq, row.title)
-    const path = this.worktreePathFor(row.repoPath, branch)
+    const path = this.worktreePathFor(startRepoPath, branch)
     const res = await this.d.repoOp(
       'worktreeAdd',
-      row.repoPath,
+      startRepoPath,
       { path, branch, startPoint: row.parentBranch },
       row.machineId ?? undefined,
     )
