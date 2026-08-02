@@ -26,9 +26,11 @@ beforeEach(() => {
   process.env.PODIUM_STATE_DIR = dir
 })
 afterEach(() => {
-  delete process.env.PODIUM_STATE_DIR
+  process.env.PODIUM_STATE_DIR = priorStateDir
   rmSync(dir, { recursive: true, force: true })
 })
+
+const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('tri-state: absent ≠ off ≠ on', () => {
   it('absent means never asked, and sends nothing', () => {

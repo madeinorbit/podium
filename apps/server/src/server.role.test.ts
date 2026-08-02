@@ -13,6 +13,8 @@ import { startServer } from './server'
 // server with the hub role OFF and prove the hub surfaces are absent (404 /
 // pair refused) while every core surface keeps working — then check the
 // role-resolution defaults that keep existing deployments unchanged.
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('resolveServerRole', () => {
   it('no explicit role → core + hub (the H1 shape: the server IS the rendezvous)', () => {
     expect(resolveServerRole()).toEqual({ hub: true })
@@ -54,7 +56,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
 
   afterAll(async () => {
     await handle.close()
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(stateDir, { recursive: true, force: true })
   })
 
@@ -168,7 +170,7 @@ describe('startServer default role keeps hub surfaces on', () => {
 
   afterAll(async () => {
     await handle.close()
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(stateDir, { recursive: true, force: true })
   })
 

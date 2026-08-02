@@ -26,6 +26,7 @@
  */
 
 import type { z } from 'zod'
+import { SAMPLE_OVERRIDES } from './sample-overrides'
 
 /** How many union arms / enum members a single schema is sampled across. The
  *  aggregate transport unions (ClientMessage, ServerMessage, …) are covered
@@ -160,6 +161,14 @@ const sampleNumber = (schema: z.ZodTypeAny, arm: number): number => {
 const ABSENT = Symbol('absent')
 
 const sampleNode = (schema: z.ZodTypeAny, opts: SampleOptions, path: string): unknown => {
+  // Closed-vocabulary / refined schemas the generic walker cannot satisfy —
+  // see sample-overrides.ts. Checked before the typeName switch so nested
+  // uses of the same schema instance (LayoutState.entityId → LayoutKeyField)
+  // get the intentional fixture value, not a path-derived string that fails
+  // parse.
+  const override = SAMPLE_OVERRIDES.get(schema)
+  if (override !== undefined) return override(opts, path)
+
   const def = defOf(schema)
   switch (def.typeName) {
     case 'ZodString':
@@ -271,8 +280,9 @@ const sampleNode = (schema: z.ZodTypeAny, opts: SampleOptions, path: string): un
       return sampleNode(def.type as z.ZodTypeAny, opts, path)
     case 'ZodEffects':
       // refine/transform. The inner sample has to satisfy the refinement; where
-      // it cannot, the registry declares an override and the fixture test fails
-      // loudly rather than silently skipping the case.
+      // it cannot, SAMPLE_OVERRIDES supplies a value (matched by schema identity
+      // at the top of sampleNode) and the fixture test fails loudly via
+      // parseError when an override is still missing.
       return sampleNode(def.schema as z.ZodTypeAny, opts, path)
     case 'ZodPipeline':
       return sampleNode(def.in as z.ZodTypeAny, opts, path)
