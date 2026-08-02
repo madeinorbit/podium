@@ -204,3 +204,116 @@ describe('MachinesPanel version skew', () => {
     expect(screen.queryByText(/update available/i)).toBeNull()
   })
 })
+
+/**
+ * POD-1495 — the transfer affordance. The panel's ONE job at this boundary is to
+ * not construct a call POD-1480's gate would refuse, and the refusals it must
+ * not contradict are all reachable from `MachineWire.owned` alone.
+ */
+function setTransferTrpc(transferMutate: () => Promise<unknown>) {
+  storeState.trpc = {
+    machines: {
+      pairingCode: { mutate: vi.fn() },
+      transferOwnership: { mutate: transferMutate },
+    },
+    setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
+  } as unknown as Store['trpc']
+}
+
+const transferButton = () => screen.queryByRole('button', { name: 'Transfer' })
+
+describe('MachinesPanel ownership transfer', () => {
+  it('offers Transfer on a machine you own', () => {
+    storeState.machines = [machine({ owned: true })]
+    setTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(transferButton()).toBeTruthy()
+  })
+
+  it('says NOTHING about transfer when you are not the owner — no disabled control, no explanation', () => {
+    // A manage grantee and a see-only admin arrive here identically: `owned`
+    // false. A disabled button or a "you cannot transfer this" line would
+    // contradict the server, which answers absent-shaped for the machines it
+    // will not confirm the existence of.
+    storeState.machines = [machine({ owned: false })]
+    setTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(transferButton()).toBeNull()
+    expect(screen.queryByText(/transfer/i)).toBeNull()
+  })
+
+  it('treats an unevaluated `owned` as NO, never as yes', () => {
+    // Absent means NOT EVALUATED — the same closed reading `use` carries. The
+    // paired case above proves the row CAN render the button, so this null is
+    // about the missing field.
+    storeState.machines = [machine({})]
+    setTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(transferButton()).toBeNull()
+  })
+
+  it('the confirmation names the loss of access AND the dropped shares', () => {
+    storeState.machines = [machine({ owned: true, name: 'builder' })]
+    setTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
+
+    // The three facts a transfer dialog that omits any of them ships as a defect:
+    // the recipient gets it, the giver loses it irreversibly, the shares go.
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.textContent).toMatch(/you lose all three/i)
+    expect(dialog.textContent).toMatch(/not be able to undo this or transfer it back/i)
+    expect(dialog.textContent).toMatch(/every share on/i)
+  })
+
+  it('will not fire until a recipient is named and the machine name is typed back', async () => {
+    const transferMutate = vi.fn().mockResolvedValue({})
+    storeState.machines = [machine({ owned: true, name: 'builder' })]
+    setTransferTrpc(transferMutate)
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
+
+    const confirm = screen.getByRole('button', { name: 'Transfer ownership' })
+    expect(confirm).toHaveProperty('disabled', true)
+
+    // A recipient alone is not enough — this is the irreversible act.
+    fireEvent.change(screen.getByLabelText(/new owner's account name/i), {
+      target: { value: 'colleague' },
+    })
+    expect(confirm).toHaveProperty('disabled', true)
+
+    // A WRONG machine name is not enough either, so the gate is the name and not
+    // merely "something was typed".
+    const nameField = screen.getByLabelText(/type the machine name to confirm/i)
+    fireEvent.change(nameField, { target: { value: 'not-the-builder' } })
+    expect(confirm).toHaveProperty('disabled', true)
+
+    fireEvent.change(nameField, { target: { value: 'builder' } })
+    expect(confirm).toHaveProperty('disabled', false)
+
+    fireEvent.click(confirm)
+    await waitFor(() =>
+      expect(transferMutate).toHaveBeenCalledWith({ id: 'm-1', newOwnerUserId: 'colleague' }),
+    )
+  })
+
+  it("surfaces the server's own refusal verbatim rather than a friendlier rewrite", async () => {
+    const transferMutate = vi.fn().mockRejectedValue(new Error('unknown recipient'))
+    storeState.machines = [machine({ owned: true, name: 'builder' })]
+    setTransferTrpc(transferMutate)
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
+    fireEvent.change(screen.getByLabelText(/new owner's account name/i), {
+      target: { value: 'ghost' },
+    })
+    fireEvent.change(screen.getByLabelText(/type the machine name to confirm/i), {
+      target: { value: 'builder' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Transfer ownership' }))
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'unknown recipient')
+    // The dialog stays open on refusal: the owner has typed two fields, and
+    // closing it would discard them along with the reason it failed.
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+})

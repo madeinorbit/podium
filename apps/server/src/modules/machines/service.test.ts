@@ -383,9 +383,11 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   // statement, `broadcastMachines`, with a throw DOES redden three of these) and
   // it is not an assertion gap that a better probe would close: it is
   // EQUIVALENT for this write, because the record cache has exactly two readers
-  // and neither exposes a stale owner. `listMachines` carries no owner field at
-  // all, and `ownershipRows` overlays `effectiveOwner`, which reads the ledger
-  // live (D19.4d rule 4, ledger-wins). The invalidate is defensive — correct to
+  // and neither exposes a stale owner. `ownershipRows` overlays `effectiveOwner`,
+  // which reads the ledger live (D19.4d rule 4, ledger-wins); and `listMachines`
+  // carries no owner FACT of its own — POD-1495's `owned` is a viewer-relative
+  // answer supplied by the command layer, which computes it from that same
+  // ledger-live index rather than from the cached row. The invalidate is defensive — correct to
   // keep, since a future reader of the raw cached row would need it — but no
   // public read can currently distinguish its presence.
   test('the row is written, the fleet serves the NEW owner, and one broadcast goes out', () => {

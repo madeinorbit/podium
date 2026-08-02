@@ -13,6 +13,7 @@ import type { Capability, MachineUseDecision } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import {
   canSeeMachine,
+  isMachineOwner,
   type MachineOwnershipIndex,
   machineUseDecision,
   ownershipFromMachines,
@@ -156,7 +157,14 @@ export function machinesForPrincipal(
   ownership: MachineOwnershipIndex = ownershipFromMachines(modules.machines),
 ): ReturnType<RegistryModules['machines']['listMachines']> {
   return modules.machines
-    .listMachines((machineId) => machineUseDecision(principal, machineId, ownership))
+    .listMachines(
+      (machineId) => machineUseDecision(principal, machineId, ownership),
+      // POD-1495: the third viewer-relative answer this projection carries, next
+      // to `use` and the `see` filter below — "may you give this machine away".
+      // It is the SAME predicate the transfer gate refuses with, so the settings
+      // panel cannot offer a transfer the server would reject.
+      (machineId) => isMachineOwner(principal, machineId, ownership),
+    )
     .filter((machine) => canSeeMachine(principal, machine.id, ownership))
 }
 

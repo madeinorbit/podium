@@ -279,6 +279,35 @@ export function machineUseDecision(
   return machineVerbsFor(principal, machineId, ownership).has('use') ? 'granted' : 'denied'
 }
 
+/**
+ * Is this principal the machine's CURRENT owner (POD-1495)?
+ *
+ * THE OWNER-ONLY AUTHORITY ITSELF, in one place, because it now has two callers
+ * that must never disagree: the gate that REFUSES `machines.transferOwnership`
+ * (`machineOwnerRefusal`) and the wire projection that decides whether a client
+ * is OFFERED it (`MachineWire.owned`). Two spellings of "am I the owner" is how
+ * a panel ends up rendering a control the server will refuse — the failure this
+ * predicate exists to make unrepresentable.
+ *
+ * Every non-owner arm collapses to `false`, and the collapse is the point: a
+ * manage grantee, an admin who owns nothing, an agent acting for nobody, an
+ * UNOWNED machine (D19.4b — transferable by nobody; adoption is POD-1494's
+ * different act) and an id with no row all refuse the same thing. Note the
+ * asymmetry with `machineVerbsFor`: a system principal holds `see` and `use`,
+ * and is deliberately NOT an owner here — it acts for no human, and there is no
+ * account to hand a machine to.
+ */
+export function isMachineOwner(
+  principal: CommandPrincipal,
+  machineId: string,
+  ownership: MachineOwnershipIndex,
+): boolean {
+  const row = ownership.rowFor(machineId)
+  const human = onBehalfOfUser(principal)
+  if (!row || row.owner === null || human === null) return false
+  return row.owner === human
+}
+
 /** Why a machine reference failed, when it did. */
 export type MachineAccessFailure = 'absent' | 'unauthorized'
 

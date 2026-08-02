@@ -38,6 +38,14 @@ export { sha256 } from './enrollment'
 export type MachineUseResolver = (machineId: string) => MachineUseDecision
 
 /**
+ * One principal's OWNERSHIP answer, per machine (POD-1495) — "are you this
+ * machine's current owner". Supplied from the same place and for the same
+ * reason as {@link MachineUseResolver}: the principal lives in the command
+ * layer, and this service carries only the answer.
+ */
+export type MachineOwnedResolver = (machineId: string) => boolean
+
+/**
  * A machine row with the calling principal's `use` decision attached.
  *
  * `MachineWire.use` is optional because raw internal inventory has no principal
@@ -530,9 +538,12 @@ export class MachinesService {
    * reads the field and already denies FIRST when it says `'denied'`, so
    * supplying it here is what turns the whole placement surface on.
    */
-  listMachines(use?: MachineUseResolver): MachineListing[] {
+  listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
     return this.machineRecords().map((m) => ({
       ...(use ? { use: use(m.id) } : {}),
+      // POD-1495: same contract as `use` one line up — supplied means evaluated,
+      // omitted means NOT evaluated, and never "yes" by default.
+      ...(owned ? { owned: owned(m.id) } : {}),
       id: m.id,
       name: m.name,
       hostname: m.hostname,

@@ -22,6 +22,7 @@ import {
 import {
   canSeeMachine,
   checkMachineUse,
+  isMachineOwner,
   machineAccessMessage,
   type MachineOwnershipIndex,
   type MachineOwnershipRow,
@@ -472,5 +473,80 @@ describe('ownership and grants come from the source, live', () => {
 
     expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBe('absent')
     expect(checkMachineUse(user(OWNER), 'laptop', ownership)).toBeUndefined()
+  })
+})
+
+/**
+ * THE TRANSFER AUTHORITY (POD-1495) — `isMachineOwner`, which now has two
+ * callers that must agree: the gate that REFUSES `machines.transferOwnership`
+ * and the wire projection that decides whether the settings panel OFFERS it.
+ *
+ * Each denial below is paired, in the same fixture, with the owner saying YES,
+ * so no assertion can be satisfied by a fixture that simply denies everyone.
+ */
+describe('isMachineOwner: the one predicate behind both the transfer gate and the offer', () => {
+  it('the owner is the owner; a second human with no edge at all is not', () => {
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: 'laptop', name: 'Laptop', ownerUserId: OWNER }],
+    })
+
+    expect(isMachineOwner(user(OWNER), 'laptop', ownership)).toBe(true)
+    expect(isMachineOwner(user(COLLEAGUE), 'laptop', ownership)).toBe(false)
+  })
+
+  it('A MANAGE GRANTEE IS NOT AN OWNER — the FORBIDDEN the panel must never offer', () => {
+    // The colleague holds the STRONGEST verb a machine can grant, and holding it
+    // is proved here rather than assumed: `manage` is in their verb set, and
+    // ownership is still refused. That is the whole point of the predicate —
+    // giving the machine away is larger than any verb the machine can grant.
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: 'laptop', ownerUserId: OWNER }],
+      grantsForMachine: () => [{ grantee: COLLEAGUE, verb: 'manage' }],
+    })
+
+    expect(machineVerbsFor(user(COLLEAGUE), 'laptop', ownership).has('manage')).toBe(true)
+    expect(isMachineOwner(user(COLLEAGUE), 'laptop', ownership)).toBe(false)
+    expect(isMachineOwner(user(OWNER), 'laptop', ownership)).toBe(true)
+  })
+
+  it('AN UNOWNED MACHINE IS TRANSFERABLE BY NOBODY — not even the admin who can see it', () => {
+    // D19.4b: owner null is quarantine. An admin holds `see` on it (proved
+    // below, so the fixture is not merely invisible), and still owns nothing —
+    // adopting an unowned machine is a different act with different authority.
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [
+        { id: 'orphan', ownerUserId: null },
+        { id: 'laptop', ownerUserId: OWNER },
+      ],
+    })
+
+    expect(canSeeMachine(user(OWNER), 'orphan', ownership)).toBe(true)
+    expect(isMachineOwner(user(OWNER), 'orphan', ownership)).toBe(false)
+    // Same principal, same call, a machine it DOES own: the false above is about
+    // the empty owner column, not about the principal.
+    expect(isMachineOwner(user(OWNER), 'laptop', ownership)).toBe(true)
+  })
+
+  it('an unknown machine id owns nothing, and a system principal owns nothing either', () => {
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: 'laptop', ownerUserId: OWNER }],
+    })
+
+    expect(isMachineOwner(user(OWNER), 'no-such-machine', ownership)).toBe(false)
+    // A system principal holds `see` and `use` — proved, so this is not a
+    // fixture that refuses it everything — but it acts for no human, and there
+    // is no account to hand a machine to.
+    expect(machineVerbsFor(systemPrincipal('steward'), 'laptop', ownership).has('use')).toBe(true)
+    expect(isMachineOwner(systemPrincipal('steward'), 'laptop', ownership)).toBe(false)
+  })
+
+  it("an agent is the owner exactly when ITS HUMAN is — never on its own account", () => {
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: 'laptop', ownerUserId: OWNER }],
+    })
+    const session = asSessionId('s-1')
+
+    expect(isMachineOwner(agent(session, OWNER), 'laptop', ownership)).toBe(true)
+    expect(isMachineOwner(agent(session, COLLEAGUE), 'laptop', ownership)).toBe(false)
   })
 })

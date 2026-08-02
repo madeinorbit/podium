@@ -382,6 +382,13 @@ function MachineRow({
   const [renaming, setRenaming] = useState(false)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revoking, setRevoking] = useState(false)
+  // POD-1495 transfer dialog: the recipient's account name, the typed-name
+  // confirmation, and the server's refusal when there is one.
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [transferring, setTransferring] = useState(false)
+  const [recipientId, setRecipientId] = useState('')
+  const [confirmName, setConfirmName] = useState('')
+  const [transferError, setTransferError] = useState<string | null>(null)
 
   // Sync incoming name changes from server broadcast.
   useEffect(() => {
@@ -415,6 +422,46 @@ function MachineRow({
     } finally {
       setRevoking(false)
       setRevokeOpen(false)
+    }
+  }
+
+  /**
+   * POD-1495 — TRANSFER IS OFFERED ONLY TO THE CURRENT OWNER, and the panel
+   * learns that from the server rather than guessing.
+   *
+   * `machine.owned` is the viewer-relative answer the projection attaches
+   * (`MachineWire.owned`), computed by the SAME predicate the transfer gate
+   * refuses with. So the three refusals POD-1480 proves are all unreachable
+   * from here rather than re-implemented: a manage grantee sees no control
+   * (owned=false → FORBIDDEN never happens), an unowned machine offers none
+   * (owned=false; adopting one is POD-1494's different act), and a machine the
+   * caller cannot see is not in this list at all — which is why the row says
+   * NOTHING about transfer when `owned` is false. Rendering a disabled "you
+   * cannot transfer this" would leak, in the one case where the server answers
+   * absent-shaped, exactly the existence it refuses to confirm.
+   *
+   * `=== true` and not truthiness: absent means NOT EVALUATED, and the closed
+   * reading of "not evaluated" is no.
+   */
+  const mayTransfer = machine.owned === true
+
+  const transfer = async () => {
+    const recipient = recipientId.trim()
+    if (!recipient) return
+    setTransferring(true)
+    setTransferError(null)
+    try {
+      await trpc.machines.transferOwnership.mutate({ id: machine.id, newOwnerUserId: recipient })
+      setTransferOpen(false)
+      setRecipientId('')
+      setConfirmName('')
+    } catch (e) {
+      // THE SERVER'S OWN MESSAGE, verbatim. A friendlier rewrite here would have
+      // to decide what an unknown recipient or a self-transfer MEANS, and every
+      // such decision discloses more than the refusal it replaces.
+      setTransferError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setTransferring(false)
     }
   }
 
@@ -535,6 +582,93 @@ function MachineRow({
             {hosting.busy ? 'Enabling…' : 'Enable'}
           </Button>
         </>
+      )}
+
+      {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}
+      {mayTransfer && (
+        <Dialog
+          open={transferOpen}
+          onOpenChange={(open) => {
+            setTransferOpen(open)
+            // Reopening starts clean: a half-typed recipient left over from an
+            // abandoned attempt is the wrong thing to have next to a Transfer button.
+            if (!open) {
+              setRecipientId('')
+              setConfirmName('')
+              setTransferError(null)
+            }
+          }}
+        >
+          <DialogTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="flex-none text-muted-foreground"
+              />
+            }
+          >
+            Transfer
+          </DialogTrigger>
+          <DialogContent showCloseButton>
+            <DialogHeader>
+              <DialogTitle>Transfer ownership?</DialogTitle>
+              <DialogDescription>
+                <strong>{machine.name}</strong> ({machine.hostname}) becomes theirs. They get to
+                see, use and manage it; you lose all three the moment you confirm. You will not be
+                able to undo this or transfer it back — only the new owner can.
+                <br />
+                <br />
+                Everyone you have shared this machine with loses their access too: every share on{' '}
+                <strong>{machine.name}</strong> is dropped, and the new owner decides who gets it
+                back.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-3 text-[13px]">
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground">New owner's account name</span>
+                <Input
+                  value={recipientId}
+                  autoFocus
+                  disabled={transferring}
+                  placeholder="the account they sign in with"
+                  onChange={(e) => setRecipientId(e.target.value)}
+                  aria-label="New owner's account name"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground">
+                  Type <strong>{machine.name}</strong> to confirm
+                </span>
+                <Input
+                  value={confirmName}
+                  disabled={transferring}
+                  onChange={(e) => setConfirmName(e.target.value)}
+                  aria-label="Type the machine name to confirm"
+                />
+              </label>
+              {transferError && (
+                <p className="text-destructive text-[12px]" role="alert">
+                  {transferError}
+                </p>
+              )}
+            </div>
+            <DialogFooter showCloseButton>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={
+                  transferring || recipientId.trim() === '' || confirmName.trim() !== machine.name
+                }
+                onClick={() => void transfer()}
+              >
+                {transferring ? 'Transferring…' : 'Transfer ownership'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Revoke */}
