@@ -67,7 +67,7 @@ its brief that it is a grouping issue and carries no phase number.
 | New issue | Owns | Why it is a group |
 |---|---|---|
 | **POD-1347** Main catch-up and integration landing | 1129, 1246, 1252, 1253, 1254, 1257, 1263, 1264, 1273, 1279, 1280, 1292, 1293 | The reconciliation of the rewrite branch with main, across six sessions. POD-1246 is the work; POD-1273 is its finisher and still open. |
-| **POD-1348** Guardrail and audit gate health | 861, 1105, 1122, 1168, 1211, 1212, 1224, 1239 | Issues about whether the epic's own instruments can be believed. The definition of done promises "manifest enforced at error level" and "deletion audit at zero" — both are promises about tools these issues cover. |
+| **POD-1348** Guardrail and audit gate health | 861, 1105, 1122, 1168, 1211, 1212, 1224, 1239 — plus 740, 743, 1200, 1236 added by the coordinator (§5.3) | Issues about whether the epic's own instruments can be believed. The definition of done promises "manifest enforced at error level" and "deletion audit at zero" — both are promises about tools these issues cover. |
 | **POD-1349** Test lanes and host environment | 1157, 1227, 1294, 1295, 1296, 1305, 1328 | The flake-under-load class and the machine it runs on. POD-1305 is load-bearing: it proved by isolation that a symlinked `node_modules` — not the code — produces the startup errors read as flakiness all through this epic. |
 
 ### 1b. Issues moved into the phase that actually owns them
@@ -307,40 +307,48 @@ target is stage `proposed`).
 
 ---
 
-## 5. Needs a human decision
+## 5. Decisions — raised, and how they were resolved
 
-1. **Bulk-close the 17 dead Proposed issues** in §4b. Operator-only. Nothing there is unshipped.
-2. **Fix the Proposed-lane trap** (§4a). While agents can file into Proposed but not act on it, this
-   backlog regenerates. Options: let an agent close/dedupe its own Proposed filings, or route agent
-   discoveries to a lane they can work.
-3. **Four rewrite-related top-level issues need a home** — each is owned by a phase that has already
-   closed, so placing them means either reopening the question of that phase's completeness or
-   accepting an open child under a done parent. I did not want to make that call unilaterally:
+Resolved by the POD-279 coordinator on 2026-08-02, after this audit merged at `cf5ee9ed`.
+
+1. **Bulk-close the 17 dead Proposed issues** in §4b. **OPEN — operator-only.** Escalated to the
+   human with the 17 called out, including the 1120/1198/1219/1222 cluster against POD-1122.
+   Nothing there is unshipped.
+2. **Fix the Proposed-lane trap** (§4a). **OPEN.** While agents can file into Proposed but not act
+   on it, this backlog regenerates. Options: let an agent close/dedupe its own Proposed filings, or
+   route agent discoveries to a lane they can work.
+3. **Four rewrite-related top-level issues need a home.** **RESOLVED — all four now parent to
+   POD-1348**, not to the closed phases they came from:
    - POD-740 Bug: lint:boundaries red on main (`discovered-from` POD-296, Phase 0)
    - POD-743 Bug: title test matches delegation prose (`discovered-from` POD-297, Phase 0)
    - POD-1200 Collapse the two pin mechanisms (`discovered-from` POD-1076, Phase 1)
    - POD-1236 Per-user archived flag (`discovered-from` POD-1229, Phase 1)
-   My recommendation: POD-740 and POD-743 into POD-1348 (guardrail health), POD-1200 and POD-1236
-   into Phase 1. Say the word and I will move them.
-4. **Should POD-279 itself wait on Phase 7?** The epic currently has no `waits on` at all, so it
-   reads READY. Adding `279 -> 294` would make it honestly blocked. I did **not** do this: the epic
-   is actively coordinated and dropping it out of the coordinator's ready lobby is a live-workflow
-   side effect I should not impose unasked.
+
+   The reasoning is better than my recommendation was and is worth keeping: reparenting these into
+   Phase 0 and Phase 1 would reopen the question of whether those phases are finished, and they
+   **are** finished. What is left over is *instrument health*, which is exactly what POD-1348
+   holds. A closed phase with a live child is a lie in the other direction.
+4. **Should POD-279 itself wait on Phase 7?** **RESOLVED — no, and do not add it.** The edge would
+   be tautologically true (an epic is trivially blocked until its last phase closes), so it carries
+   no information a reader lacks, while dropping POD-279 out of the ready lobby has a real cost: it
+   is how the human and the coordinator find the epic at all. Real blocking belongs on the phase
+   containers, which is where §3a put it.
 5. **Two dangling dependency edges** exist repo-wide (`podium issue doctor` → `dangling: 2`, which
    makes `podium issue preflight` fail). They predate this audit. **The CLI reports the count but
    provides no way to identify which edges they are** — no `--verbose` on `doctor`, and
    `podium issue graph` prints only `1301 nodes, 1648 edges`. Unresolvable with the tools available;
-   listed rather than guessed.
+   listed rather than guessed. **Folded into the tooling issue** (§6).
 
 ## 6. Tooling defects found while doing this
 
-Filing these is not in this issue's scope, but they cost real time here and will cost the next
-audit the same.
+All four are filed on **POD-1346** (under POD-1113) alongside the coordinator's own findings.
+They cost real time here and will cost the next audit the same.
 
 1. **`podium issue tree` truncates at 100 nodes with no warning.** The epic has 246 descendants. The
-   coordinator's brief records under-counting the epic by half by trusting this output. A truncation
-   notice would have prevented it. (POD-1342 "Truncation notice in CLI output" appears to be exactly
-   this and is in progress.)
+   coordinator's brief records under-counting the epic by half by trusting this output, and
+   separately reported ~19 open leaves to the human when the real number was 30. A truncation
+   notice would have prevented both. (POD-1342 "Truncation notice in CLI output" appears to be
+   exactly this and is in progress.)
 2. **`podium issue find-duplicates` is unusable.** It prints internal `iss_<uuid>` identifiers
    rather than `POD-` refs, and it scores every empty "Draft" issue as a 1.00 match against every
    other, burying real duplicates. Every duplicate in this audit was found by hand. There are
@@ -358,6 +366,7 @@ audit the same.
 **Created (3):** POD-1347, POD-1348, POD-1349 — grouping issues.
 **Reparented (36):** 13 → POD-1347; 8 → POD-1348; 7 → POD-1349; 1146/1241/1251 → #289;
 1210/1229 → #288; 1281 → #294; 788/789 → #307; 350/359 → #349.
+**Reparented afterwards by the coordinator (4):** 740, 743, 1200, 1236 → POD-1348 (§5.3).
 **Dependencies added (14):** 291→425, 292→426, 293→427, 294→337, 325→1329, 328→404, 337→1281,
 337→1251, 337→759, 337→1347, 337→1348, 337→1349, 336→1280, 332→1241.
 **Issue text corrected (2):** POD-387 (comment: handoff frame count is ten, not seven or eight),
