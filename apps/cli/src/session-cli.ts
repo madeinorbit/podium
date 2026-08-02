@@ -36,8 +36,19 @@ export interface SessionControlClient {
     title: { mutate(input: Record<string, unknown>): Promise<TitleResult> }
     /** Clean end [spec:SP-9904] — no sessionId = stop the CALLING session. */
     stop: { mutate(input: Record<string, unknown>): Promise<StopResult> }
+    /** Move a live session to another machine (POD-1386 exposing POD-642's
+     *  `sessions.handoff`). Takes a `machineId`; the CLI resolves the name. */
+    handoff: { mutate(input: Record<string, unknown>): Promise<HandoffResult> }
   }
+  /** Read-only, and here ONLY to turn a human-typed machine name into the id the
+   *  handoff contract requires. The list is already scoped to what this session
+   *  may see, so resolving against it cannot name a machine it could not name. */
+  machines: { list: { query(input?: unknown): Promise<unknown> } }
 }
+
+/** `sessions.handoff` output: `newCwd` is the worktree the import resolved on the
+ *  target — a per-machine fact no caller can compute. */
+type HandoffResult = { ok: boolean; newCwd?: string; reason?: string }
 
 
 /** Tier-4 seance wire shape (modules/messages/gate `ask`). */
@@ -172,6 +183,11 @@ function helpText(): string {
     '      this session from the others on the same issue. Re-run to retitle as the',
     '      work becomes clear. A name the USER set always wins and is never overwritten.',
     '      Only works inside a Podium-managed agent session (PODIUM_AGENT_RELAY).',
+    '  handoff <session-id> --to <machine> [--json]',
+    '      Move a LIVE session to another machine: its worktree, branch and',
+    '      conversation go with it, and it resumes there. Use `podium machine list`',
+    '      for the names. The target must be online, you must have `use` on it, and',
+    '      the harness must support handoff — the server refuses, with a reason.',
     '  stop [<session-id>] [--force] [--outside-scope]',
     '      Cleanly end a session: stop its process, FREE the worktree, KEEP the branch',
     '      + transcript (reversible — resume recreates the worktree from the branch).',
@@ -201,6 +217,7 @@ export async function runSessionCli(
     'since',
     'question',
     'timeout',
+    'to',
   ])
   const unknown = Object.keys(args).filter((k) => !known.has(k))
   if (unknown.length) {
@@ -266,6 +283,41 @@ export async function runSessionCli(
     )
   }
   if (positionals.length > 1) throw new SessionCliError(`unexpected argument: ${positionals[1]}`)
+
+  /**
+   * `podium session handoff <id> --to <machine>` — POD-1386 exposing POD-642's
+   * `sessions.handoff` to agents. The user-facing handoff has moved live sessions
+   * between machines since POD-642; only the CLI door was missing.
+   *
+   * THE CLI RESOLVES A NAME AND NOTHING ELSE. It does not pre-check that the
+   * target is online, or that `use` is granted, or that the harness is
+   * exportable — the coordinator refuses all three, at apply time, with reasons
+   * this layer cannot reconstruct (ADR 3 D8/D16: a dispatch-time check is stale
+   * by the time a multi-leg transfer applies). A friendly local pre-flight would
+   * flatten "refused" and "unreachable" into one client-side guess, which is the
+   * distinction POD-381 deliberately kept.
+   */
+  if (command === 'handoff') {
+    const selector = args.to
+    if (typeof selector !== 'string' || selector.length === 0) {
+      throw new SessionCliError('handoff needs --to <machine> (see `podium machine list`)')
+    }
+    const { selectMachine, MachineCliError } = await import('./machine-cli')
+    const machines = (await client.machines.list.query()) as Parameters<typeof selectMachine>[0]
+    let machineId: string
+    try {
+      machineId = selectMachine(machines, selector).id
+    } catch (error) {
+      // Same refusal, this command's error type — `podium session` reports
+      // SessionCliError, and leaking a second class here would print the wrong prefix.
+      throw error instanceof MachineCliError ? new SessionCliError(error.message) : error
+    }
+    const r = await client.sessions.handoff.mutate({ sessionId, machineId })
+    if (!r.ok) throw new SessionCliError(r.reason ?? 'handoff was not accepted')
+    return args.json === true
+      ? JSON.stringify({ command, ok: true, sessionId, machineId, newCwd: r.newCwd })
+      : `handed ${sessionId} to ${selector}${r.newCwd ? ` — now at ${r.newCwd}` : ''}`
+  }
 
   // Read toolkit tiers 1–2 (#237) [spec:SP-34d7].
   if (command === 'status') {
