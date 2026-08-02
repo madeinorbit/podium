@@ -16,8 +16,8 @@ import type {
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import type { MachineRecord, SessionStore } from '../../store'
-import type { Send } from '../sessions/session'
 import type { EventBus } from '../bus'
+import type { Send } from '../sessions/session'
 
 /**
  * One principal's `use` decision, per machine. Supplied by the command layer
@@ -109,6 +109,12 @@ export class MachinesService {
   // Per-machine queue for control messages produced while that daemon is briefly
   // offline (e.g. the local daemon during boot, or a survivor session's reattach
   // before its machine re-attaches). Flushed in order on attach (flushQueued).
+  //
+  // NOT the daemon-RPC correlator (POD-318), judged deliberately: this is an
+  // OFFLINE SEND QUEUE keyed by machine, not correlation state keyed by request.
+  // Nothing here is waiting for an answer — a queued message may be a fire-and-
+  // forget spawn — and it is the layer BELOW the broker, which sends through
+  // `toMachine` and never learns whether a message went out or was parked.
   private readonly pendingByMachine = new Map<string, ControlMessage[]>()
   /**
    * In-memory mirror of the machines table. listSessions() resolves machineName

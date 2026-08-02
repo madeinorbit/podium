@@ -6,8 +6,7 @@ import type {
   SessionOpenUrlMessage,
   SessionOpenUrlResultMessage,
 } from '@podium/protocol'
-import type { ClientConn } from './client-registry'
-import { ClientRegistry } from './client-registry'
+import type { ClientConn, ClientRegistry } from './client-registry'
 
 interface BrowserOpenSession {
   machineId: string
@@ -34,6 +33,12 @@ export interface BrowserOpenGatewayDeps {
  * supplies the current host lookup; it does not interpret this control flow.
  */
 export class BrowserOpenGateway {
+  // NOT the daemon-RPC correlator (POD-318), judged deliberately. What is keyed
+  // here is a SESSION-SCOPED COMPOSITE (sessionId + requestId), not a request id
+  // minted by the broker, and the entries are user-facing: they survive to be
+  // re-offered to a client that connects later, they expire on a clock the user
+  // experiences, and a callback can arrive without any prior server request.
+  // That is an offer lifecycle, not a request/reply round-trip.
   private readonly pending = new Map<string, SessionOpenUrlMessage>()
   private readonly resolvers = new Map<string, Attribution>()
   private readonly expiryTimers = new Map<string, ReturnType<typeof setTimeout>>()

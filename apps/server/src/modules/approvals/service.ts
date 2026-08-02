@@ -1,5 +1,5 @@
-import { asSessionId, type IssueId, type SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
+import { asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
   ApprovalOp,
   type ApprovalWire,
@@ -20,6 +20,13 @@ import type { ApprovalRow, ApprovalsRepository } from '../../store/approvals'
  * binary) and reports back (approvalExecResult). Every step is appended to the
  * requesting issue's activity log, and the pending set is broadcast to all web
  * clients (plus re-sent on attach) to drive the approval popup.
+ *
+ * NOT the daemon-RPC correlator (POD-318), judged deliberately. The `pending`
+ * set here is DURABLE SQLITE rows, not in-memory correlation state: it survives
+ * a restart, has no timeout (an approval waits for a human, indefinitely), and
+ * its state machine is pending → executing → approved/denied rather than a
+ * single settle. `approvalExecResult` is the daemon reporting an outcome the
+ * store already knows it is waiting for, not a reply resolving a promise.
  */
 
 export interface ApprovalServiceDeps {
