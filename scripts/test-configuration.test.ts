@@ -6,11 +6,23 @@ import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements'
-import unitConfig from '../vitest.unit.config'
+import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 
-type Project = string | { test?: { name?: string; exclude?: string[]; retry?: number } }
+type Project =
+  | string
+  | {
+      test?: {
+        name?: string
+        exclude?: string[]
+        include?: string[]
+        retry?: number
+        maxWorkers?: number
+        fileParallelism?: boolean
+        sequence?: { groupOrder?: number }
+      }
+    }
 type Config = {
   test?: {
     env?: Record<string, string>
@@ -33,14 +45,15 @@ const smokeTestFiles = (dir: URL, prefix = ''): string[] =>
     }
     return /\.smoke\.test\.(?:ts|tsx)$/.test(entry.name) ? [relative] : []
   })
-const nodeProject = (value: unknown) => {
+const namedProject = (value: unknown, name: string) => {
   const project = config(value).test?.projects?.find(
     (candidate): candidate is Exclude<Project, string> =>
-      typeof candidate !== 'string' && candidate.test?.name === 'node',
+      typeof candidate !== 'string' && candidate.test?.name === name,
   )
-  if (!project) throw new Error('node Vitest project is missing')
+  if (!project) throw new Error(`${name} Vitest project is missing`)
   return project
 }
+const nodeProject = (value: unknown) => namedProject(value, 'node')
 
 describe('test lane configuration', () => {
   it('never collects ignored nested worktrees', () => {
@@ -49,19 +62,31 @@ describe('test lane configuration', () => {
 
   it('keeps retries out of the default project and scopes them to integration', () => {
     expect(nodeProject(rootConfig).test?.retry).toBeUndefined()
-    expect(config(unitConfig).test?.retry).toBe(0)
+    expect(nodeProject(unitConfig).test?.retry).toBe(0)
+    expect(namedProject(unitConfig, 'normalized-wire').test?.retry).toBe(0)
     expect(config(integrationConfig).test?.retry).toBe(1)
+  })
+
+  it('runs normalized-wire load guards after the parallel unit pool', () => {
+    const regular = nodeProject(unitConfig).test
+    const normalized = namedProject(unitConfig, 'normalized-wire').test
+    expect(regular?.exclude).toEqual(expect.arrayContaining(normalizedWireTests))
+    expect(regular?.sequence?.groupOrder).toBe(0)
+    expect(normalized?.include).toEqual(normalizedWireTests)
+    expect(normalized?.fileParallelism).toBe(false)
+    expect(normalized?.maxWorkers).toBe(1)
+    expect(normalized?.sequence?.groupOrder).toBe(1)
   })
 
   it('keeps deterministic integration and real-agent smoke scopes explicit', () => {
     expect(config(integrationConfig).test?.include).toContain('apps/daemon/src/daemon.test.ts')
     for (const test of ptySmokeTests) {
-      expect(config(unitConfig).test?.exclude).toContain(test)
+      expect(nodeProject(unitConfig).test?.exclude).toContain(test)
       expect(config(integrationConfig).test?.include).toContain(test)
       expect(config(agentSmokeConfig).test?.include).not.toContain(test)
     }
     for (const test of realAgentSmokeTests) {
-      expect(config(unitConfig).test?.exclude).toContain(test)
+      expect(nodeProject(unitConfig).test?.exclude).toContain(test)
       expect(config(integrationConfig).test?.include).not.toContain(test)
       expect(config(agentSmokeConfig).test?.include).toContain(test)
     }
@@ -97,6 +122,7 @@ describe('test lane configuration', () => {
       scripts: Record<string, string>
     }
     expect(pkg.scripts['test:unit']).toContain('--project node')
+    expect(pkg.scripts['test:unit']).toContain('--project normalized-wire')
     expect(pkg.scripts['test:integration']).toContain('test:acceptance')
     expect(pkg.scripts['test:acceptance:process']).toContain(
       'loop-split-process.acceptance.bun.test.ts',

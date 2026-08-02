@@ -26,6 +26,11 @@ import { attachTestClient } from './test-support/client-transport'
 
 const ISSUE_COUNT = 300
 const SESSION_COUNT = 200
+/** The two live-shape guards measure counters, not speed. On the contended
+ * 8-vCPU exit host they measured 19.8s and 20.7s in isolation, so the shared
+ * 20s default was a scheduler race. Three times that measured cost is a
+ * watchdog for a wedge while the zero-scan assertions remain the detector. */
+const SCALE_GUARD_TIMEOUT_MS = 60_000
 
 function issueRow(i: number): IssueRow {
   // The fixture builds ids from template strings; branding at the boundary keeps
@@ -316,7 +321,9 @@ describe('issueProjection emission is unconditional with transitional legacy res
 })
 
 describe('D7.2: every session change performs zero issue membership scans [POD-797]', () => {
-  it('workState change touches zero issue wire memberships', () => {
+  it('workState change touches zero issue wire memberships', {
+    timeout: SCALE_GUARD_TIMEOUT_MS,
+  }, () => {
     const { registry, sessionIds } = world()
     client(registry, undefined)
     const { scans } = issueWorkForOneFieldSessionChange(registry, sessionIds[0] as string)
@@ -350,7 +357,9 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
 })
 
 describe('normalized dep emission [POD-797]', () => {
-  it('one dep write emits one edge and performs zero membership scans', () => {
+  it('one dep write emits one edge and performs zero membership scans', {
+    timeout: SCALE_GUARD_TIMEOUT_MS,
+  }, () => {
     const { registry } = world()
     registry.modules.sessions.flushBroadcasts()
     const before = registry.modules.sessions.syncChangesSince(0)
