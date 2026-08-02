@@ -1167,6 +1167,86 @@ describe('SessionRegistry', () => {
     )
   })
 
+  it('scopes machine bootstrap and broadcasts to each authenticated principal', () => {
+    const colleague = asUserId('colleague')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    store.machines.upsertMachine({
+      id: 'shared',
+      name: 'Shared but denied',
+      hostname: 'shared',
+      tokenHash: 'shared-token',
+      ownerUserId: colleague,
+    })
+    store.machines.upsertMachine({
+      id: 'hidden',
+      name: 'Hidden',
+      hostname: 'hidden',
+      tokenHash: 'hidden-token',
+      ownerUserId: colleague,
+    })
+    store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: 'shared',
+      grantee: FIRST_ADMIN_USER_ID,
+      verb: 'see',
+      owner: colleague,
+      visibility: 'owned-compute',
+      createdAt: '2026-08-02T00:00:00.000Z',
+      actorKind: 'user',
+      actorId: colleague,
+      onBehalfOf: colleague,
+    })
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const owner = sink()
+    const other = sink()
+    attachTestClient(reg.clientGateway, owner.send)
+    attachTestClient(reg.clientGateway, {
+      send: other.send,
+      userId: colleague,
+      userRole: 'member',
+    })
+
+    const lastMachines = (sent: ServerMessage[]) =>
+      sent
+        .filter(
+          (message): message is Extract<ServerMessage, { type: 'machinesChanged' }> =>
+            message.type === 'machinesChanged',
+        )
+        .at(-1)?.machines ?? []
+
+    const ownerInitial = lastMachines(owner.sent)
+    const otherInitial = lastMachines(other.sent)
+    const rawIds = reg.modules.machines
+      .listMachines()
+      .map((machine) => machine.id)
+      .sort()
+
+    expect(rawIds).toEqual(['hidden', TEST_MACHINE, 'shared'])
+    expect(ownerInitial.map((machine) => machine.id).sort()).toEqual([TEST_MACHINE, 'shared'])
+    expect(otherInitial.map((machine) => machine.id).sort()).toEqual(['hidden', 'shared'])
+    expect(ownerInitial.every((machine) => machine.use !== undefined)).toBe(true)
+    expect(otherInitial.every((machine) => machine.use !== undefined)).toBe(true)
+
+    const denied = ownerInitial.find((machine) => machine.id === 'shared')
+    const unreachable = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
+    expect(denied).toMatchObject({ online: false, use: 'denied' })
+    expect(unreachable).toMatchObject({ online: false, use: 'granted' })
+    expect(agentCapabilityRejection(denied!, 'shell')).toBe('unauthorized')
+    expect(agentCapabilityRejection(unreachable!, 'shell')).toBe('offline')
+
+    owner.sent.length = 0
+    other.sent.length = 0
+    reg.modules.machines.broadcastMachines()
+
+    const ownerBroadcast = lastMachines(owner.sent)
+    const otherBroadcast = lastMachines(other.sent)
+    expect(ownerBroadcast).toEqual(ownerInitial)
+    expect(otherBroadcast).toEqual(otherInitial)
+    expect(ownerBroadcast).not.toEqual(otherBroadcast)
+    expect(ownerBroadcast.map((machine) => machine.id).sort()).not.toEqual(rawIds)
+    expect(otherBroadcast.map((machine) => machine.id).sort()).not.toEqual(rawIds)
+  })
+
   it('broadcasts updated metas when a session gains a resume ref (resumable → hibernate)', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
