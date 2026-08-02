@@ -555,7 +555,16 @@ export function ChatView({
   useEffect(() => {
     const el = scrollerRef.current
     if (!el) return
+    // Publish the scroller's own height so a sticky operator prompt can cap
+    // itself at a fraction of the chat viewport in CSS (POD-1368). Setting a
+    // custom property here is loop-safe: the scroller is sized by its flex
+    // parent, so nothing it publishes can feed back into its own box.
+    const publishViewportHeight = (): void => {
+      el.style.setProperty('--chat-viewport-h', `${el.clientHeight}px`)
+    }
+    publishViewportHeight()
     const ro = new ResizeObserver(() => {
+      publishViewportHeight()
       if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
       syncStickyPromptPositions()
     })
