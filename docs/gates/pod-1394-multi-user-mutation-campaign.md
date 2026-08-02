@@ -220,38 +220,35 @@ code passes through a pipe is reporting the pipe.
 
 | Fact | Value |
 | --- | --- |
-| Candidate | `4b5c3a43` (integration `80989567`); campaign first run at `d8fba769`, re-run in full here |
+| Candidate | `7ceec3f7` — every mutant in the verdict table executed here |
+| Superseded candidates | `d8fba769` (first run), `4b5c3a43` (second) — records in git history |
 | `git status --porcelain` after every mutant | empty |
 | Live config mtime, before and after | `2026-08-02 11:07:07.128162673 +0200` — **unchanged** |
 | `~/.podium` | never written; `PODIUM_STATE_DIR` redirected to scratch for every run |
 | Port 18787 | never bound by this campaign |
 
-### The ambient-principal census — all three numbers quoted at this gate were wrong or accidental
+### The ambient-principal census now has an instrument
 
-The gate has carried **84**, then **77**. POD-1385 then found the defect both of the later commands
-shared: `grep -v '\.test\.ts'` filters on line **CONTENT**, not on **PATH**, so any production line
-whose text happens to contain `.test.ts` is silently dropped. Two generated-SQL lines were.
+This campaign opened by refusing to adopt a number it could not re-derive. The gate had carried
+**84**, then **77**; POD-1385 then found that both of the later commands filtered on line **CONTENT**
+rather than **PATH** (`grep -v '\.test\.ts'`), silently dropping production lines whose text happened
+to contain `.test.ts`. Three numbers, one concept, and nothing in the build that could check any.
 
-Re-measured at `4b5c3a43`, confirming POD-1385 independently:
+POD-1408 shipped the ratchet, and at this candidate it runs clean:
 
 ```
-# path-correct: exclude *.test.ts by PATH, exclude dist
-grep -rln --include=*.ts "FIRST_ADMIN_USER_ID" apps packages | grep -v '/dist/' \
-  | grep -v '\.test\.ts$' | xargs grep -c "FIRST_ADMIN_USER_ID" | awk -F: '{s+=$2} END{print s}'
-#   -> 79   across 28 files
-
-# the command that produced 77 (content filter — WRONG)
-grep -rn 'FIRST_ADMIN_USER_ID' apps packages --include=*.ts \
-  | grep -v '\.test\.ts' | grep -v '/dist/' | wc -l
-#   -> 77
+bun run audit:ambient-principals        # --probe, then the gate
+FIRST_ADMIN_USER_ID: 41 usage sites  (baseline 41)
+DEVICE_GRADE_PRINCIPAL: 11 usage sites  (reported only)
+DeviceGradeUnscopedPolicy: 4 usage sites  (reported only)
+ambient-principal census: no drift
+exit 0
 ```
 
-So my earlier note that the 77-vs-77 agreement was "a coincidence of this candidate" was right for
-the wrong reason: it was a coincidence of **two commands sharing one exclusion bug**. Three numbers,
-one concept, and nothing in the build can check any of them. POD-1408 carries the requirement that
-follows — the ratchet must exclude by path, and its own probe must include a production file whose
-*content* contains `.test.ts`, or it reproduces exactly this defect and reports a number that looks
-like coverage.
+It took the shape the finding argued for: a **declared union** rather than one spelling, counting
+**usage sites** rather than raw grep hits, with a baseline a build can fail on. The number is no
+longer a coordinator's shell history, which is the only thing that made the earlier disagreement
+possible.
 
 ## Discovered work
 
