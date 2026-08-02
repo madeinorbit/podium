@@ -58,6 +58,32 @@ export class SessionWorkspace {
     }
   }
 
+  /**
+   * The repository at `sourceRepoPath`, as `targetMachineId` has it — cloned there
+   * if it has none. Returns the TARGET's checkout path (POD-1386).
+   *
+   * This is `prepareTarget`'s first half, exposed for callers that place a
+   * REPOSITORY rather than a session cwd — `issues.start` with a machine pin.
+   * Sharing it is the point: handoff resolves the target repo by `repoId` and
+   * clones on absence, while issue start used to compare the source path
+   * literally against the target's registered paths and refuse. Two machines have
+   * two layouts, so that predicate refused on every correctly-configured second
+   * machine. One resolver, not two.
+   *
+   * Same machine in and out is a no-op returning the source path, so a caller does
+   * not have to ask whether a move is needed.
+   */
+  async resolveRepoOnMachine(sourceRepoPath: string, targetMachineId: string): Promise<string> {
+    const sourceRepo = this.ports.store.repos
+      .listRepos()
+      .filter((repo) => sourceRepoPath === repo.path || sourceRepoPath.startsWith(`${repo.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!sourceRepo) throw new Error(`no registered repository contains ${sourceRepoPath}`)
+    if (sourceRepo.machineId === targetMachineId) return sourceRepo.path
+    const target = await this.ensureTargetRepo(sourceRepo, targetMachineId)
+    return target.path
+  }
+
   async ensureTargetRepo(
     sourceRepo: {
       machineId: string

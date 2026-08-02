@@ -162,6 +162,45 @@ export class IssueGitWorkflowModule {
       ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
+    /**
+     * PLACE THE REPOSITORY BEFORE PLACING THE WORK (POD-1386).
+     *
+     * A machine pin used to go straight to `requireMachineForRepo`, which compares
+     * this issue's SOURCE repo path literally against the target's registered
+     * paths. Two machines have two layouts — `/home/a/src/podium` here,
+     * `/home/b/src/podium` there — so the pin refused on every correctly
+     * configured second machine with "no repo registered at …", even though the
+     * repository was present. Handoff never had that bug: it resolves by `repoId`
+     * and clones on absence. This calls the same resolver.
+     *
+     * The move is committed through `rehome`, not by assigning `row.repoPath`
+     * here, because repoPath and machineId have to travel together — the
+     * file-browser root, the sidebar's worktree and the cwd the next agent spawns
+     * into are all derived from the pair, and `rehome` is the guarded transition
+     * that already moves them as one (it also refuses a target whose repo IDENTITY
+     * differs, which would silently renumber the issue into another repo).
+     *
+     * `requireMachineForRepo` keeps its job and runs AFTER: by then the repo is
+     * registered on the target, so what it still catches — an offline machine —
+     * is the thing it gives an actionable message for.
+     */
+    if (row.machineId && this.store.d.ensureRepoOnMachine) {
+      const targetRepoPath = await this.store.d.ensureRepoOnMachine(row.machineId, row.repoPath)
+      if (targetRepoPath !== row.repoPath) {
+        const moved = this.rehome(row.id, {
+          machineId: row.machineId,
+          repoPath: targetRepoPath,
+          // Not started yet, so there is no worktree to carry; `start` sites one
+          // below from the repo path this just moved to.
+          worktreePath: row.worktreePath ?? '',
+        })
+        if (!moved) {
+          throw new Error(
+            `machine ${row.machineId} has a repository at ${targetRepoPath} whose identity differs from this issue's — refusing to renumber the issue into another repo`,
+          )
+        }
+      }
+    }
     if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     const branch = this.store.slug(row.seq, row.title)
     const path = this.worktreePathFor(row.repoPath, branch)
