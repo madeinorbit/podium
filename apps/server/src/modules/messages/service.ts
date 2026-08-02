@@ -36,7 +36,6 @@ import {
   asAgentIdentityId,
   asIssueId,
   FIRST_ADMIN_USER_ID,
-  type IssueId,
   type IssueScope,
   type SessionId,
   type SessionMeta,
@@ -58,8 +57,21 @@ import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
+import { MessageMailbox } from './mailbox'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
+import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
+
+export { INTERRUPT_DELIVERY_CEILING_MS, NEXT_TURN_DELIVERY_BUDGET_MS } from './mailbox'
+
+export type {
+  MessageSender,
+  MessageSenderIdentity,
+  MessageSendInput,
+  MessageSendResult,
+  SendDisposition,
+} from './types'
+
 import {
   cursorOf,
   DELIVERY_TARGET_PAGE_LIMIT,
@@ -87,46 +99,6 @@ export const MAX_ECHO_REQUEUES = 2
  *  reflects the id back verbatim (transcript-echo confirmation, [POD-834]). */
 export const ECHO_ID_RE = /\bpodium message (msg_[0-9a-f-]+)\b/gi
 
-/** Urgency-gated blocking send budgets [spec:SP-cb9f] [POD-854]. A `next-turn`
- *  send blocks up to this budget for the transcript-observed `delivered`; a busy /
- *  draft-held target that outlasts it returns `accepted` (still queued — the sender
- *  queries `podium mail status`). 25s tracks the harness queue-drain deadline: long
- *  enough to catch an idle or quickly-finishing target, short enough that the CLI
- *  never hangs on a long turn. */
-export const NEXT_TURN_DELIVERY_BUDGET_MS = 25_000
-/** An `interrupt` send blocks until `delivered`; this ceiling is only a hang-guard
- *  [spec:SP-cb9f] [POD-854]. An interrupt injects immediately (ESC + inject), so it
- *  normally confirms within seconds at the ESC-cancelled turn boundary — but a
- *  composer-draft hold [POD-865] or a dead PTY can legitimately keep the row queued,
- *  so at this ceiling it returns the honest `accepted` rather than block forever.
- *  Matches ECHO_CONFIRM_WINDOW_MS (the outer bound on any single confirmation).
- *  INVARIANT: must stay under @podium/protocol's AGENT_RELAY_BLOCKING_TIMEOUT_MS —
- *  the loopback relay hub gives `messages.send` that long before it times out, and
- *  a block that outlives the transport makes the agent CLI throw instead of getting
- *  this disposition (a drift-guard test enforces the gap). */
-export const INTERRUPT_DELIVERY_CEILING_MS = 90_000
-
-/** What actually happened to a send, surfaced to the sender so a message that
- *  reached no one is never a bare success [POD-834 §04b]:
- *   - `delivered`   CONFIRMED in the target's transcript (echo or turn boundary),
- *                   or injection-is-delivery for an unwrapped operator body;
- *   - `queued`      handed to the harness input queue (or held for a live target's
- *                   next boundary) — NOT yet transcript-observed [spec:SP-cb9f];
- *   - `accepted`    a blocking send's budget expired with the row still queued
- *                   (busy / composer-draft-held / lost echo) — durably captured,
- *                   not yet confirmed; the sender queries `podium mail status`;
- *   - `held`        issue-addressed, issue live but NO live session — held for
- *                   the issue's next session (delivered at its next boundary);
- *   - `spawning`    a wake spawned a fresh agent to receive it;
- *   - `dead_letter` the target was gone; NOT delivered. */
-export type SendDisposition =
-  | 'delivered'
-  | 'queued'
-  | 'accepted'
-  | 'held'
-  | 'spawning'
-  | 'dead_letter'
-
 /**
  * The L1 principal projection of a sender, for the policy functions in
  * `@podium/commands`.
@@ -142,50 +114,6 @@ export type SendDisposition =
  */
 const principalOf = (from: MessageSender): MailSenderPrincipal =>
   ({ ...from, user: from.attribution?.onBehalfOf ?? null }) as MailSenderPrincipal
-
-/** The authenticated sender principal — derived by the SURFACE from its caller
- *  identity (capability / in-process authority), never from client input. */
-type MessageSenderIdentity =
-  | { kind: 'operator' }
-  | { kind: 'superagent' }
-  | { kind: 'system'; name?: string }
-  | { kind: 'agent'; issueId?: IssueId; sessionId?: SessionId }
-
-export type MessageSender = MessageSenderIdentity & {
-  readonly attribution?: Attribution
-  readonly delegationRef?: string | null
-}
-
-export interface MessageSendInput {
-  to: { kind: 'issue' | 'session' | 'operator'; id?: string }
-  body: string
-  kind?: MessageKind
-  urgency?: MessageUrgency
-  lifecycle?: MessageLifecycle
-  threadId?: string
-  inReplyTo?: string
-  expiresAt?: string
-  /** Opt into a reply [POD-835 §04b]: `--expect-response`. Only then does the
-   *  system expect (and, on settle, nag about) a response. A `question` implies it;
-   *  an `ack`/`notification` can never set it. Omitted = false (receipt-only). */
-  expectsResponse?: boolean
-  /** Internal-only arbiter identity for message-backed notifications. */
-  notificationFact?: { factKey: string; target: string }
-}
-
-export interface MessageSendResult {
-  message: MessageRow
-  /** sendText/queueText-compatible outcome (existing CLI/tool wire shapes). */
-  ok: boolean
-  queued?: boolean
-  reason?: string
-  /** The honest, sender-facing outcome [POD-834]: what happened to the message,
-   *  so `held` and `dead_letter` are never a silent success. */
-  disposition: SendDisposition
-  /** The legacy issue_messages mirror row (issue-addressed sends only) — keeps
-   *  mail inbox/claim/pending working until those readers migrate. */
-  legacy?: IssueMessageRow
-}
 
 /** attemptDelivery's result: the transport outcome plus the sender-facing
  *  disposition [POD-834]. */
@@ -377,6 +305,9 @@ export class MessageDeliveryService {
    *  reconcile walk and the slow retry backstop, with the eleven fields that
    *  answer for them and all three of their timers (POD-1397). */
   private readonly scheduler: DeliveryScheduler
+  /** The PULL path: replies, acks, inbox reads, dismissals and the bounded
+   *  waits a sender uses to learn what became of its send (POD-1397). */
+  private readonly mailbox: MessageMailbox
 
   constructor(private readonly deps: MessageDeliveryDeps) {
     this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
@@ -392,6 +323,22 @@ export class MessageDeliveryService {
       messages: deps.messages,
       now: deps.now,
       runner: this.deliveryRunner(),
+    })
+    this.mailbox = new MessageMailbox({
+      messages: deps.messages,
+      issues: deps.issues,
+      notificationArbiter: this.notificationArbiter,
+      listSessions: () => deps.sessions.listSessions(),
+      now: deps.now,
+      ...(deps.mirrorMarkIssueMailRead
+        ? {
+            mirrorMarkIssueMailRead: (issueId: string, ids: string[]) =>
+              deps.mirrorMarkIssueMailRead?.(issueId, ids),
+          }
+        : {}),
+      send: (from, input) => this.send(from, input),
+      emitTransition: (message, kind, extra) => this.emitTransition(message, kind, extra),
+      fromLabel: (message) => this.render.fromLabel(message),
     })
     this.render = new MessageRenderer({
       issues: deps.issues,
@@ -1253,55 +1200,18 @@ export class MessageDeliveryService {
   }
 
   // ---- acks & reads (#237 phase 3) [spec:SP-34d7 acks] ----
+  //
+  // The pull path is its own capability (POD-1397, mailbox.ts). What follows is
+  // the facade: callers ask this service, not its parts, exactly as the issue
+  // service fronts its POD-320 capability modules.
 
-  /** Where a reply to `original` goes: back to the sender principal. An agent
-   *  sender is reached at its session when that session still exists, else at
-   *  its issue; superagent/operator/system replies queue as operator rows (the
-   *  superagent thread/UI inbox picks them up — stage 6). */
+  /** Where a reply to `original` goes: back to the sender principal. */
   replyTarget(original: MessageRow): { kind: 'issue' | 'session' | 'operator'; id?: string } {
-    if (original.fromKind === 'agent') {
-      if (
-        original.fromSession &&
-        this.deps.sessions
-          .listSessions()
-          .some((s) => s.sessionId === original.fromSession)
-      ) {
-        return { kind: 'session', id: original.fromSession }
-      }
-      // Harden against legacy ref-string senders (#463): rows migrated by 016
-      // held `issue:#N` in from_issue; anything that doesn't resolve to a real
-      // issue must NOT reach the issue_messages mirror's FK — fall through.
-      if (original.fromIssue) {
-        const id = this.resolveIssueIdSafe(original.fromIssue)
-        if (id) return { kind: 'issue', id }
-      }
-      if (original.fromSession) return { kind: 'session', id: original.fromSession }
-    }
-    return { kind: 'operator' }
-  }
-
-  /** Resolve an issue ref/id to a VERIFIED existing issue id, or null. Accepts
-   *  a legacy `issue:#N` sender ref (#463) as well as `#N` / `iss_…`; an
-   *  ambiguous or unknown ref returns null instead of throwing. */
-  private resolveIssueIdSafe(ref: string): string | null {
-    const issues = this.deps.issues
-    const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
-    try {
-      const id = issues.resolveRef(bare)
-      return issues.has(id) ? id : null
-    } catch {
-      return null
-    }
+    return this.mailbox.replyTarget(original)
   }
 
   /** Reply to a message: the recipient is computed server-side from the
-   *  original's sender (never caller-supplied). Default kind 'ack' — writing it
-   *  stamps acked_by on the original in the same transaction (see send).
-   *
-   *  A response is PULL-delivered [POD-835 §04b]: the default urgency is `fyi`, so
-   *  the reply lands in the requester's mailbox and surfaces at its next natural
-   *  stop — it is NEVER pushed as a next-turn that starts a fresh turn (an ack is
-   *  never itself ackable, and every ack used to burn a recipient turn). */
+   *  original's sender (never caller-supplied). */
   sendReply(
     from: MessageSender,
     input: {
@@ -1312,60 +1222,25 @@ export class MessageDeliveryService {
       lifecycle?: MessageLifecycle
     },
   ): MessageSendResult {
-    const original = this.deps.messages.getMessage(input.inReplyTo)
-    if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
-    return this.send(from, {
-      to: this.replyTarget(original),
-      body: input.body,
-      kind: input.kind ?? 'ack',
-      inReplyTo: original.id,
-      threadId: original.threadId,
-      urgency: input.urgency ?? 'fyi',
-      lifecycle: input.lifecycle ?? 'wait',
-    })
+    return this.mailbox.sendReply(from, input)
   }
 
   /** Delivered-but-unacked (unexpired) messages awaiting `sessionId`'s reply. */
   deliveredUnacked(sessionId: SessionId): MessageRow[] {
-    return this.deps.messages.listDeliveredUnacked(sessionId, this.deps.now())
+    return this.mailbox.deliveredUnacked(sessionId)
   }
 
-  /** The messages that would produce a settle notice for `sessionId` right now
-   *  (#468): asked-for-something + not-already-notified. The relay guard uses it
-   *  to skip the git-log stitch work when nothing is notifiable. */
+  /** The messages that would produce a settle notice for `sessionId` right now (#468). */
   settleNotifiable(sessionId: SessionId): MessageRow[] {
-    return this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
+    return this.mailbox.settleNotifiable(sessionId)
   }
 
-  /**
-   * The stop-hook's single-reminder set: delivered-but-unfulfilled messages that
-   * REQUESTED a response [POD-835 §04b] (expects_response — the store gates it;
-   * urgency no longer decides, since a `--expect-response fyi` note still owes a
-   * reply), never reminded about before. Marking happens here — each message earns
-   * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
-   * render-ready rows for the daemon's block reason.
-   */
+  /** The stop-hook's single-reminder set [POD-835 §04b]. */
   pendingReminders(sessionId: SessionId): { id: string; from: string; body: string }[] {
-    const at = this.deps.now()
-    const out: { id: string; from: string; body: string }[] = []
-    for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
-      if (!this.deps.messages.markReminded(m.id, at)) continue
-      out.push({ id: m.id, from: this.render.fromLabel(m), body: m.body })
-    }
-    return out
+    return this.mailbox.pendingReminders(sessionId)
   }
 
-  /**
-   * Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]: the target
-   * session settled (finished/errored) leaving a REQUESTED response unfulfilled
-   * (expects_response, not stamped by any in-thread reply). One system-kind
-   * notification per such message, stitched with issue stage + last commit, routed
-   * like a reply. Suppression is the acked_by null-check — a genuine reply from the
-   * recipient that landed first empties the query; one racing after this produces
-   * duplicate information, never lost information. This notice is itself a
-   * `kind:'notification'` and can never stamp acked_by, so it never masks its own
-   * target's unanswered state. System clamps (next-turn/wait) apply.
-   */
+  /** Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]. */
   systemAckFallback(
     sessionId: SessionId,
     context: {
@@ -1373,99 +1248,33 @@ export class MessageDeliveryService {
       issueSeq?: number
       issueStage?: string
       lastCommit?: string
-      /** #285 pass-through: the settled session's assigned workflow step, when
-       *  one was stamped at spawn — the notice flags it as unresolved. */
       workflowStepId?: string
-      /** Fact claimed by the steward for this notification emission. */
       notificationFact?: { factKey: string; target: string }
     },
   ): void {
-    // #468 / [POD-835]: only messages that REQUESTED a response (expects_response)
-    // and have not already produced a settle notice. The store gates it (an ordinary
-    // message owes no reply) and the once-per-message rule (a prior notification is
-    // the marker). One notice PER MESSAGE — not per sender-group — so every message
-    // carries its own in_reply_to marker; a group notice referencing only the latest
-    // would leave the others unmarked and re-fire them on the next settle (the loop
-    // that sent one message 7 notices in 33 minutes).
-    const rows = this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
-    if (rows.length === 0) return
-    const stitch = [
-      context.issueSeq != null
-        ? `issue #${context.issueSeq}${context.issueStage ? ` stage=${context.issueStage}` : ''}`
-        : null,
-      context.lastCommit ? `last commit: ${context.lastCommit}` : null,
-      context.workflowStepId
-        ? `workflow step ${context.workflowStepId} unresolved (no report from the worker)`
-        : null,
-    ].filter(Boolean)
-    for (const m of rows) {
-      this.send(
-        { kind: 'system', name: 'steward' },
-        {
-          to: this.replyTarget(m),
-          kind: 'notification',
-          inReplyTo: m.id,
-          // System caps are next-turn/wait; ask for the cap so a settle notice
-          // lands as the sender's immediate next turn (clamp matrix enforces).
-          urgency: 'next-turn',
-          lifecycle: 'wait',
-          body:
-            `Session ${sessionId} ${context.outcome} without responding to your message ${m.id} ` +
-            `(you sent it --expect-response).` +
-            (stitch.length ? ` ${stitch.join(' · ')}.` : '') +
-            ` Use the read toolkit (podium session status/read) if you need more.`,
-          ...(context.notificationFact ? { notificationFact: context.notificationFact } : {}),
-        },
-      )
-    }
+    this.mailbox.systemAckFallback(sessionId, context)
   }
 
   /** Message lookup for the read surfaces (gate/CLI). */
   message(id: string): MessageRow | null {
-    return this.deps.messages.getMessage(id)
+    return this.mailbox.message(id)
   }
 
-  /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web] —
-   *  a pure read (never consumes queued status). */
+  /** The per-issue / per-session delivery ledger (#237) — a pure read. */
   ledger(q: { issueId?: string; sessionId?: string; limit?: number }): MessageRow[] {
-    return this.deps.messages.listLedger(q)
+    return this.mailbox.ledger(q)
   }
 
-  /**
-   * Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]: poll
-   * `acked_by` until the deadline; returns the ack row or null ("no answer
-   * yet"). NEVER hangs — the same every-wait-bounded rule as agent await.
-   * Shared by the seance (`podium session ask`) across gate + superagent.
-   */
-  async awaitAck(
+  /** Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]. */
+  awaitAck(
     messageId: string,
     opts: { timeoutMs: number; pollMs?: number; sleep?(ms: number): Promise<void> },
   ): Promise<MessageRow | null> {
-    const pollMs = opts.pollMs ?? 500
-    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
-    const deadline = Date.now() + opts.timeoutMs
-    for (;;) {
-      const m = this.deps.messages.getMessage(messageId)
-      if (m?.ackedBy) return this.deps.messages.getMessage(m.ackedBy)
-      if (Date.now() >= deadline) return null
-      await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
-    }
+    return this.mailbox.awaitAck(messageId, opts)
   }
 
-  /**
-   * Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]:
-   * poll the ledger until the row leaves `queued` — `delivered` (transcript echo
-   * or turn boundary observed it), `read` (recipient pulled its inbox), or a
-   * terminal `dead_letter`/`expired`/`cancelled` — or the deadline passes. Returns
-   * the row in whatever state it reached (still `queued` on a budget expiry — the
-   * sender is TOLD it is not yet confirmed, never left guessing), or null for an
-   * unknown id. NEVER hangs — the every-wait-bounded rule shared with `awaitAck`.
-   * This is the primitive urgency-gated blocking send builds on: `queued` means
-   * only "handed to the harness input queue", and a harness-queued message can
-   * still be Esc-cancelled or draft-held, so only a non-`queued` status is trusted.
-   * `now`/`sleep` are injectable so tests drive a deterministic clock (no timers).
-   */
-  async awaitDelivered(
+  /** Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]. */
+  awaitDelivered(
     messageId: string,
     opts: {
       timeoutMs: number
@@ -1474,74 +1283,16 @@ export class MessageDeliveryService {
       now?(): number
     },
   ): Promise<MessageRow | null> {
-    const pollMs = opts.pollMs ?? 250
-    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
-    const now = opts.now ?? (() => Date.now())
-    const deadline = now() + opts.timeoutMs
-    for (;;) {
-      const m = this.deps.messages.getMessage(messageId)
-      if (m && m.status !== 'queued') return m
-      if (now() >= deadline) return m ?? null
-      await sleep(Math.min(pollMs, Math.max(1, deadline - now())))
-    }
+    return this.mailbox.awaitDelivered(messageId, opts)
   }
 
-  /**
-   * Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
-   * surface (the gate) calls this instead of `send()` so the sender waits for the
-   * trustworthy outcome instead of a bare `queued` that provably vanished. Internal
-   * sends (steward auto-ack, self-suppress, dead-letter notice) keep calling `send`
-   * and never block. Runs the synchronous `send()`, then blocks by the EFFECTIVE
-   * (post-clamp) urgency of the resulting row. `opts` threads the caller's injectable
-   * clock/sleep straight to `awaitDelivered` (production: real timers).
-   */
-  async sendAndConfirm(
+  /** Urgency-gated blocking send [spec:SP-cb9f] [POD-854]. */
+  sendAndConfirm(
     from: MessageSender,
     input: MessageSendInput,
     opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
   ): Promise<MessageSendResult> {
-    const r = this.send(from, input)
-    return { ...r, disposition: await this.blockForDelivery(r, opts) }
-  }
-
-  /** Block by urgency until the send's outcome is trustworthy [spec:SP-cb9f]. Only a
-   *  `queued` push to a live target has an imminent turn to observe — `delivered`
-   *  (already confirmed-on-injection), `held` (no live session), `spawning` (a boot)
-   *  and `dead_letter` (gone) have nothing to wait on and pass straight through.
-   *  `fyi` confirms at queued (never blocks); an operator-addressed row is confirmed
-   *  by a HUMAN inbox read, not a turn boundary, so blocking would always time out —
-   *  it returns immediately too. `interrupt` blocks up to the hang-guard ceiling,
-   *  `next-turn` up to the shorter budget; either, on expiry with the row still
-   *  queued (busy / composer-draft-held / lost echo), returns `accepted` — durably
-   *  captured, not yet confirmed — never a bare `queued` and never an infinite block. */
-  private async blockForDelivery(
-    r: MessageSendResult,
-    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
-  ): Promise<SendDisposition> {
-    if (r.disposition !== 'queued') return r.disposition
-    // A push that FAILED at the transport (ok:false — the daemon dropped offline
-    // mid-send) put no bytes on screen, so no echo / turn boundary can confirm it
-    // within the budget; the row is durably queued and the sweep retries it. Return
-    // the honest `accepted` now instead of blocking the whole budget for a
-    // confirmation that provably cannot arrive.
-    if (!r.ok) return 'accepted'
-    const { urgency, toKind } = r.message
-    if (urgency === 'fyi' || toKind === 'operator') return r.disposition
-    const timeoutMs =
-      urgency === 'interrupt' ? INTERRUPT_DELIVERY_CEILING_MS : NEXT_TURN_DELIVERY_BUDGET_MS
-    const row = await this.awaitDelivered(r.message.id, {
-      timeoutMs,
-      ...(opts?.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
-      ...(opts?.sleep ? { sleep: opts.sleep } : {}),
-      ...(opts?.now ? { now: opts.now } : {}),
-    })
-    if (row?.status === 'delivered' || row?.status === 'read') return 'delivered'
-    // `accepted` is the honest "durably queued, not yet confirmed — query mail
-    // status" ONLY while the row is still queued at the budget expiry. Any other
-    // outcome is terminal-undelivered — dead-lettered, expired past its TTL, or
-    // cancelled — and reporting the pending `accepted` for it would lie [POD-854].
-    if (row?.status === 'queued') return 'accepted'
-    return 'dead_letter'
+    return this.mailbox.sendAndConfirm(from, input, opts)
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */
@@ -1549,73 +1300,20 @@ export class MessageDeliveryService {
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { limit?: number },
   ): MessageRow[] {
-    const rows = principals.flatMap((p) =>
-      this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
-    )
-    rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-    return rows.slice(-(opts?.limit ?? 50))
+    return this.mailbox.inbox(principals, opts)
   }
 
-  /**
-   * Inbox read for `podium mail inbox`. When `consume` is set (the RECIPIENT is
-   * reading its own box) the returned rows are marked `read` — the PULL-path
-   * confirmation, distinct from a pushed `delivered` [POD-834 §04d] — with the
-   * legacy issue_messages mirror kept in step so the stop-hook/prime pending
-   * counts stop nagging on either surface. A row already pushed (delivered) is
-   * still promoted to read when the recipient opens it.
-   */
+  /** Inbox read for `podium mail inbox` — the PULL-path confirmation [POD-834 §04d]. */
   readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { consume?: SessionId | null; limit?: number },
   ): MessageRow[] {
-    const rows = this.inbox(principals, opts?.limit !== undefined ? { limit: opts.limit } : {})
-    if (opts?.consume === undefined) return rows
-    const at = this.deps.now()
-    return rows.map((m) => {
-      if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
-      if (!this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
-      this.retireNotificationFact(m, at)
-      if (m.toKind === 'issue' && m.toId) {
-        try {
-          this.deps.mirrorMarkIssueMailRead?.(m.toId, [m.id])
-        } catch {}
-      }
-      const read = {
-        ...m,
-        status: 'read' as const,
-        readAt: at,
-        deliveredTo: m.deliveredTo ?? opts.consume ?? null,
-      }
-      this.emitTransition(read, 'message.read')
-      return read
-    })
+    return this.mailbox.readInbox(principals, opts)
   }
 
-  /** Explicitly clear one recipient-owned message without opening the inbox.
-   * Reuses `read`, the existing cleared terminal state [spec:SP-ba61]. */
+  /** Explicitly clear one recipient-owned message without opening the inbox. */
   dismiss(messageId: string, consume: string | null): MessageRow {
-    const message = this.deps.messages.getMessage(messageId)
-    if (!message) throw new Error('unknown message ' + messageId)
-    const at = this.deps.now()
-    if (message.status === 'queued' || message.status === 'delivered') {
-      this.deps.messages.markRead(message.id, consume, at)
-      if (message.toKind === 'issue' && message.toId) {
-        try {
-          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
-        } catch {}
-      }
-    }
-    const dismissed = this.deps.messages.getMessage(messageId) ?? message
-    if (dismissed.status === 'read' && message.status !== 'read') {
-      this.emitTransition(dismissed, 'message.read')
-    }
-    this.retireNotificationFact(message, at)
-    return dismissed
-  }
-
-  private retireNotificationFact(message: MessageRow, at: string): void {
-    if (!message.factKey || !message.factTarget) return
-    this.notificationArbiter.retire(message.factKey, message.factTarget, at)
+    return this.mailbox.dismiss(messageId, consume)
   }
 
   // ---- clamp matrix / relationships ----
