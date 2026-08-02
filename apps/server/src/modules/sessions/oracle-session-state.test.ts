@@ -3,19 +3,53 @@ import { attachTestClient } from '../../test-support/client-transport'
  * ORACLE — session-state session writes (POD-379 for POD-312 / POD-380).
  *
  * rename · setArchived · markRead / markUnread · setWorkState · setIssueId ·
- * snoozes · pins · tab order · composer drafts.
+ * snoozes · pins · tab order · composer drafts · the wake fence (POD-1472).
  *
  * Each one pins: what is PERSISTED, what is VOLATILE, what is FANNED OUT to
  * other clients, and the precedence rule the write obeys. See oracle-support.ts
  * for the must-not-change / will-change contract.
  */
 
-import { SOLE_USER_ID } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { SOLE_USER_ID, type SessionId } from '@podium/model'
+import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
 
 afterEach(() => disposeOracles())
+
+/** The resume ref the wake tests park and wake a conversation under. */
+const RESUME = { kind: 'claude-session', value: 'native-fence-1' } as const
+
+/** Bind a created session as a live, idle claude-code agent with a resume ref. */
+function goLive(o: ReturnType<typeof makeOracle>, sessionId: SessionId): void {
+  const machineId = o.reg.sessionStore.hostMachineId
+  o.reg.gateway.routeDaemonFrame(machineId, {
+    type: 'bind',
+    sessionId,
+    cmd: 'claude',
+    cwd: '/p',
+    agentKind: 'claude-code',
+    geometry: { cols: 80, rows: 24 },
+  })
+  o.reg.gateway.routeDaemonFrame(machineId, {
+    type: 'sessionResumeRef',
+    sessionId,
+    resume: RESUME,
+    confidence: 'exact',
+  })
+  o.reg.gateway.routeDaemonFrame(machineId, {
+    type: 'agentState',
+    sessionId,
+    state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+  })
+}
+
+/** Every spawn frame the server sent for one session, in order. */
+const spawnFrames = (daemon: ControlMessage[], sessionId: SessionId) =>
+  daemon.filter(
+    (m): m is Extract<ControlMessage, { type: 'spawn' }> =>
+      m.type === 'spawn' && m.sessionId === sessionId,
+  )
 
 const sessionChanges = (client: ServerMessage[], sessionId: string) =>
   client.flatMap((message) =>
@@ -436,5 +470,92 @@ describe('oracle: composer drafts', () => {
     await waitFor(() => true, 'the microtask queue to drain')
 
     expect(sessionChanges(o.client, sessionId)).toHaveLength(broadcastsAfterFirstKeystroke)
+  })
+})
+
+describe('oracle: the wake fence (POD-1472)', () => {
+  it(`${MUST_NOT_CHANGE}: a resurrect spawn frame carries the fence the wake allocated — generation, binding version and provider session id`, async () => {
+    // The fence decides which terminal output the REATTACHED observer trusts.
+    // The daemon reads it off the spawn frame and nowhere else, so this asserts
+    // the field as it lands on the wire, not the lease object in isolation.
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    await o.call.sessions.hibernate({ sessionId })
+    o.daemon.length = 0
+
+    expect(await o.call.sessions.resurrect({ sessionId })).toEqual({ ok: true })
+
+    const durable = o.store.observationCheckpoints.get(sessionId)
+    expect(durable).toMatchObject({ provider: 'claude-code', providerSessionId: RESUME.value })
+    expect(spawnFrames(o.daemon, sessionId)).toEqual([
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        observationGeneration: durable?.observationGeneration,
+        observationBindingVersion: durable?.bindingVersion,
+        observationProviderSessionId: RESUME.value,
+      }),
+    ])
+    // ...and the generation is a real allocated fence, not an absent field that
+    // an objectContaining over `undefined` would have matched.
+    expect(typeof spawnFrames(o.daemon, sessionId)[0]?.observationGeneration).toBe('number')
+  })
+
+  it(`${MUST_NOT_CHANGE}: a session woken TWICE never reuses a generation — each wake's frame carries a strictly newer fence`, async () => {
+    // A stale generation is what makes the observer trust output from the
+    // PREVIOUS process; the whole point of advancing it per wake.
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    await o.call.sessions.hibernate({ sessionId })
+    o.daemon.length = 0
+    await o.call.sessions.resurrect({ sessionId })
+
+    goLive(o, sessionId)
+    await o.call.sessions.hibernate({ sessionId })
+    await o.call.sessions.resurrect({ sessionId })
+
+    const generations = spawnFrames(o.daemon, sessionId).map((m) => m.observationGeneration)
+    expect(generations).toHaveLength(2)
+    expect(generations[0]).toEqual(expect.any(Number))
+    expect(generations[1]).toBeGreaterThan(generations[0] as number)
+    // The durable row is the authority the daemon's acks are checked against:
+    // the newest frame must be the row, not a value that only the frame knows.
+    expect(o.store.observationCheckpoints.get(sessionId)?.observationGeneration).toBe(
+      generations[1],
+    )
+  })
+
+  it(`${MUST_NOT_CHANGE}: resuming a PARKED conversation by resume ref wakes the existing row — same id, one row, and a fresh fence on its frame [POD-1473]`, async () => {
+    // A wake that minted a NEW id would leave a second row with its own
+    // transcript, and the user's conversation would appear to start over.
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    await o.call.sessions.hibernate({ sessionId })
+    o.daemon.length = 0
+
+    const reopened = await o.reg.modules.issueSessionLifecycle.resumeSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      resume: RESUME,
+      conversationId: 'conv-1',
+    })
+
+    expect(reopened.sessionId).toBe(sessionId)
+    expect(o.reg.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
+    expect(o.store.sessions.loadSessions().map((r) => r.id)).toEqual([sessionId])
+    expect(o.meta(sessionId).status).toBe('starting')
+    // It is the resurrect path, so it fences too — one frame, under the old id.
+    expect(spawnFrames(o.daemon, sessionId)).toEqual([
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        resume: RESUME,
+        observationGeneration:
+          o.store.observationCheckpoints.get(sessionId)?.observationGeneration,
+      }),
+    ])
   })
 })
