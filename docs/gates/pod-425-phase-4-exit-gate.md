@@ -53,6 +53,10 @@ color alone. An assertion failure that reproduces on a quiet host is real. A red
 when load drops is a host effect. A timeout whose elapsed time scales with load is also a host
 effect even when it reproduces, because its protected assertions never ran.
 
+Typecheck evidence uses `bun run typecheck` with Turbo's normal input-keyed cache. `--force` is
+reserved for an install, a `bunfig`/linker change, or a base swap where the ordinary cache key may
+not observe the environmental change; it must not be used reflexively after each merge. Test lanes
+follow the same principle and do not bypass valid caches without a named reason.
 The POD-279 coordinator later stated that the full landing lane was green with no baseline
 failures, but supplied no candidate SHA, command list, exit codes, or counts that this report can
 audit. The coordinator separately directed this gate to run the three structural generators,
