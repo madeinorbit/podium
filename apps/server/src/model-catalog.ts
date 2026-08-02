@@ -1,4 +1,4 @@
-import type { ModelChoice } from './model-probe'
+import type { ModelChoiceWire } from '@podium/protocol'
 
 /** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts`
  *  added, or the snapshot becoming machine-keyed), so a persisted snapshot from
@@ -24,7 +24,7 @@ export interface ModelCatalogSnapshot {
   machineId: string
   /** Live models keyed by agent kind (grok/cursor/opencode). Absent agents fall
    *  back to the web's static catalog. */
-  byAgent: Record<string, ModelChoice[]>
+  byAgent: Record<string, ModelChoiceWire[]>
   /** Epoch ms of the last successful probe; 0 = never fetched yet. */
   fetchedAt: number
   /** Shape version — a persisted snapshot with a different version is discarded. */
@@ -32,10 +32,10 @@ export interface ModelCatalogSnapshot {
 }
 
 /** Probe the live models for ONE machine. `machineId` is required so a probe
- *  cannot write an unkeyed catalog. The probe itself may run on the host that
- *  serves the request (today's shell-out) or be relayed to that machine's daemon
- *  later; either way the result is stamped with the machine it describes. */
-export type ModelProbe = (machineId: string) => Promise<Record<string, ModelChoice[]>>
+ *  cannot write an unkeyed catalog — and since POD-1466 it also SELECTS the host
+ *  that answers: the real probe relays to that machine's own daemon, because a
+ *  probe only ever sees the agent CLIs installed on the host it executes on. */
+export type ModelProbe = (machineId: string) => Promise<Record<string, ModelChoiceWire[]>>
 
 function emptySnapshot(machineId: string): ModelCatalogSnapshot {
   return { machineId, byAgent: {}, fetchedAt: 0 }
@@ -53,8 +53,9 @@ export class ModelCatalog {
   private readonly inflight = new Map<string, Promise<void>>()
 
   // Default probe is an empty no-op so `new SessionRegistry()` (every test) never
-  // shells out to the agent CLIs; the real `probeAllModels` is injected at boot in
-  // startServer via SessionRegistryOptions.modelProbe.
+  // reaches for a daemon; the real one (a `modelProbeRequest` to the named
+  // machine) is injected at boot in startServer via
+  // SessionRegistryOptions.modelProbe.
   constructor(
     private readonly probe: ModelProbe = async () => ({}),
     private readonly opts: {

@@ -8,11 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // (POD-397): the probe hands back the machine its facts are about, and the handler
 // must send THAT id rather than reaching for ctx.machineId a second time.
 const buildInventory = vi.fn<() => Promise<Inventory>>()
+// Same reasoning for the model probe (POD-1466): it shells out to grok/cursor/
+// opencode/codex and calls the Anthropic models API. The mock records the OPTIONS
+// it was handed, because "which home did it read the claude login from" is the
+// part of the daemon's wiring worth pinning.
+const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>()
 vi.mock('@podium/harness', () => ({
   buildMachineInventory: async (opts: { machineId: string }) => ({
     machineId: opts.machineId,
     inventory: await buildInventory(),
   }),
+  probeAllModels: (opts: unknown) => probeModels(opts),
 }))
 
 import type { DaemonContext } from './context'
@@ -119,5 +125,39 @@ describe('daemon inventory reporting (#222)', () => {
     await reportInventory(ctx) // retries because the failure wasn't cached
     expect(buildInventory).toHaveBeenCalledTimes(2)
     expect(sent).toHaveLength(1)
+  })
+})
+
+describe('daemon model probe (POD-1466)', () => {
+  const MODELS = { grok: [{ value: 'grok-4.5', label: 'grok-4.5' }] }
+
+  beforeEach(() => probeModels.mockReset().mockResolvedValue(MODELS))
+  afterEach(() => vi.restoreAllMocks())
+
+  it('answers modelProbeRequest with the models of the host it runs on, by requestId', async () => {
+    const { ctx, sent } = makeCtx()
+    inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'req-1' })
+    await vi.waitFor(() =>
+      expect(sent).toEqual([{ type: 'modelProbeResult', requestId: 'req-1', byAgent: MODELS }]),
+    )
+  })
+
+  it('reads the claude login from the daemon own home, not the process home', async () => {
+    const { ctx } = makeCtx()
+    inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'req-2' })
+    await vi.waitFor(() => expect(probeModels).toHaveBeenCalled())
+    expect(probeModels.mock.calls[0]?.[0]).toMatchObject({ claude: { homeDir: ctx.homeDir } })
+  })
+
+  // A silent daemon would only burn the server correlator's 20s timeout, and the
+  // catalog would learn nothing either way — so a broken probe still ANSWERS.
+  it('still answers, with an empty catalog, when the probe throws', async () => {
+    const { ctx, sent } = makeCtx()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    probeModels.mockRejectedValueOnce(new Error('no cli'))
+    inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'req-3' })
+    await vi.waitFor(() =>
+      expect(sent).toEqual([{ type: 'modelProbeResult', requestId: 'req-3', byAgent: {} }]),
+    )
   })
 })

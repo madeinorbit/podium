@@ -14,13 +14,18 @@ const execFileAsync = promisify(execFile)
  *                          Anthropic API key if the user runs API-based Claude, else
  *                          the Claude Code OAuth token (subscription; no separate key)
  *
- * Kept in apps/server (rather than @podium/harness) so the server needs no new
- * package dependency — the CLIs resolve via PATH and the claude call is a raw fetch.
- * The lists are network-backed (~2s warm, ~7s cold), so the ModelCatalog caches them
- * per machineId (stale-while-revalidate) rather than probing on every open. Every
- * source degrades to [] on failure, and the web falls back to its static catalog
- * per agent. The probe runs on whatever host it is invoked on; the catalog stamps
- * the machineId the caller named so two machines never share one snapshot.
+ * Lives in @podium/harness (POD-1466) because BOTH hosts run it: the server for its
+ * own machine, and each DAEMON for the machine it serves. A probe only ever reports
+ * the CLIs installed on the host it executes on, so a remote machine's catalog has
+ * to be built by that machine's daemon and shipped back (`modelProbeRequest` /
+ * `modelProbeResult`) — the same shape `inventoryReport` already uses.
+ *
+ * The CLIs resolve via PATH and the claude call is a raw fetch, so this stays a
+ * dependency-free corner of the package. The lists are network-backed (~2s warm,
+ * ~7s cold), so the ModelCatalog caches them per machineId (stale-while-revalidate)
+ * rather than probing on every open. Every source degrades to [] on failure, and the
+ * web falls back to its static catalog per agent. The catalog stamps the machineId
+ * the caller named so two machines never share one snapshot.
  */
 
 export interface ModelChoice {
@@ -144,9 +149,9 @@ export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {
 }
 
 /** Runs a probe argv → stdout. Injectable so tests never shell out. */
-export type ProbeExec = (argv: readonly string[], timeoutMs: number) => Promise<string>
+export type ModelProbeExec = (argv: readonly string[], timeoutMs: number) => Promise<string>
 
-const defaultExec: ProbeExec = async (argv, timeoutMs) => {
+const defaultExec: ModelProbeExec = async (argv, timeoutMs) => {
   const [cmd, ...args] = argv
   const { stdout } = await execFileAsync(cmd as string, args, {
     timeout: timeoutMs,
@@ -156,7 +161,7 @@ const defaultExec: ProbeExec = async (argv, timeoutMs) => {
 }
 
 export interface ProbeOptions {
-  exec?: ProbeExec
+  exec?: ModelProbeExec
   timeoutMs?: number
 }
 
@@ -179,9 +184,9 @@ export async function probeAgentModels(
 
 /** The OAuth access token the `claude` CLI already stores (subscription login; same
  *  token, no separate API key). Refreshed by Claude Code itself on use. */
-async function readClaudeOAuthToken(): Promise<string | null> {
+async function readClaudeOAuthToken(homeDir?: string): Promise<string | null> {
   try {
-    const raw = await readFile(join(homedir(), '.claude', '.credentials.json'), 'utf8')
+    const raw = await readFile(join(homeDir ?? homedir(), '.claude', '.credentials.json'), 'utf8')
     const token = (JSON.parse(raw) as { claudeAiOauth?: { accessToken?: unknown } })?.claudeAiOauth
       ?.accessToken
     return typeof token === 'string' && token.length > 0 ? token : null
@@ -206,6 +211,9 @@ export interface ClaudeProbeOptions {
   token?: string | null
   fetchImpl?: FetchLike
   timeoutMs?: number
+  /** Where `.claude/.credentials.json` lives. Defaults to the process home; the
+   *  daemon passes its own so a fixture home probes that home's login. */
+  homeDir?: string
 }
 
 /**
@@ -223,7 +231,7 @@ export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<
     ? undefined
     : opts.token !== undefined
       ? opts.token
-      : await readClaudeOAuthToken()
+      : await readClaudeOAuthToken(opts.homeDir)
   const auth: Record<string, string> | null = apiKey
     ? { 'x-api-key': apiKey }
     : token

@@ -1,7 +1,7 @@
 /**
  * Machine inventory builder (#222): os/arch + per-harness install/version/login
  * for all 5 HarnessAgent kinds. Probes never throw — a missing CLI is data
- * (`installed: false`), mirroring the apps/server/src/model-probe.ts convention
+ * (`installed: false`), mirroring the ./model-probe.ts convention
  * (injectable exec, per-call timeout, every failure caught).
  */
 

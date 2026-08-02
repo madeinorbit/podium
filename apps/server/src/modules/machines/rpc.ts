@@ -33,6 +33,7 @@ import type {
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  ModelChoiceWire,
   PortableCredentialBundle,
   PortableCredentialKind,
   RepoOp,
@@ -139,6 +140,7 @@ const REPO_OP = daemonRequestKind<OpResult>('ro')
 const HARNESS_EXEC = daemonRequestKind<OpResult>('hx')
 const USAGE = daemonRequestKind<{ hostname: string; buckets: UsageBucketWire[] }>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
+const MODEL_PROBE = daemonRequestKind<Record<string, ModelChoiceWire[]>>('mp')
 const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
 const IMAGE_UPLOAD = daemonRequestKind<{ path: string; error?: string }>('iu')
 const FILE_READ = daemonRequestKind<Payload<FileReadResultMessage>>('fr')
@@ -210,6 +212,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
       hostname: msg.hostname,
       agents: msg.agents,
     }),
+  modelProbeResult: (broker, machineId, msg) =>
+    void broker.settle(MODEL_PROBE, msg.requestId, machineId, msg.byAgent),
   imageUploadResult: (broker, machineId, msg) =>
     void broker.settle(IMAGE_UPLOAD, msg.requestId, machineId, {
       path: msg.path,
@@ -382,6 +386,29 @@ export class DaemonRpcService {
         requestId,
         ...(refresh !== undefined ? { refresh } : {}),
       }),
+      machineId,
+    )
+  }
+
+  /**
+   * ENUMERATE ONE MACHINE'S MODELS ON THAT MACHINE (POD-1466).
+   *
+   * The probe shells out to the agent CLIs, so it only ever sees the host it runs
+   * on: asking machine B's daemon is the ONLY way to learn machine B's models.
+   * `{}` on timeout — the caller (ModelCatalog) keeps its last-good snapshot for
+   * that machine rather than replacing it with an empty one, and the web falls
+   * back to its static per-agent catalog.
+   *
+   * The timeout is generous for the reason the probe's own is: a cold
+   * `cursor-agent models` plus the Anthropic model list can take several seconds,
+   * and this read is stale-while-revalidate — no client is blocked on it.
+   */
+  modelProbe(machineId: string): Promise<Record<string, ModelChoiceWire[]>> {
+    return this.request(
+      MODEL_PROBE,
+      20_000,
+      () => ({}),
+      (requestId) => ({ type: 'modelProbeRequest', requestId }),
       machineId,
     )
   }

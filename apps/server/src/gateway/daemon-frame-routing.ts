@@ -82,6 +82,7 @@ export const DAEMON_FRAME_PORTS = {
   harnessExecResult: ['rpc'],
   usageResult: ['rpc'],
   agentQuotaResult: ['rpc'],
+  modelProbeResult: ['rpc'],
   imageUploadResult: ['rpc'],
   transcriptReadResult: ['rpc'],
   fileReadResult: ['rpc'],

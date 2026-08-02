@@ -143,8 +143,8 @@ describe('extractImports', () => {
   })
 
   it('ignores specifiers that only appear in comments', () => {
-    // Mirrors apps/server/src/model-probe.ts and apps/web/src/derive.ts, which
-    // mention harness in prose only.
+    // Mirrors the shape of apps/web/src/derive.ts and any server file that
+    // mentions harness in prose only.
     const src = [
       `// Kept in apps/server (rather than @podium/harness) so ...`,
       `/* see '@podium/harness' agentLaunchCommand */`,
@@ -294,7 +294,7 @@ describe('checkFile rules', () => {
 
   it('rejects new harness importers (not grandfathered)', () => {
     const v = checkFile(
-      'apps/server/src/model-probe.ts',
+      'apps/server/src/model-catalog.ts',
       `import { agentLaunchCommand } from '@podium/harness'`,
     )
     expect(v).toHaveLength(1)
