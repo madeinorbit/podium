@@ -15,7 +15,7 @@
 
 import type { ConversationDiagnosticWire } from '@podium/model'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import { SubscriptionRegistry } from '@podium/protocol'
+import { type SubscriberId, SubscriptionRegistry } from '@podium/protocol'
 import { type Authority, type FeedIdentity, FeedIdentityRegistry, Ledger } from '@podium/sync'
 import { SessionStore } from '../store'
 import { type ClientPrincipal, userClientPrincipal } from './client-principal'
@@ -31,7 +31,10 @@ export interface FeedTestPlumbing {
 }
 
 export function feedTestPlumbing(
-  opts: { diagnostics?: () => ConversationDiagnosticWire[] } = {},
+  opts: {
+    diagnostics?: () => ConversationDiagnosticWire[]
+    onVisibilityChanged?: (subscriberIds: readonly SubscriberId[]) => void
+  } = {},
 ): FeedTestPlumbing {
   const store = new SessionStore(':memory:')
   const ledger = new Ledger({
@@ -58,6 +61,7 @@ export function feedTestPlumbing(
     ),
     retention: { minAvailableSeq: () => store.sync.minChangeSeq() },
     subscriptions,
+    ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),
     diagnostics: opts.diagnostics ?? (() => []),
   })
   return {

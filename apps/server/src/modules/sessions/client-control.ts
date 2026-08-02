@@ -46,7 +46,6 @@ export class SessionClientControl {
       )
       client.send({ type: 'machinesChanged', machines: this.ports.machines.listMachines() })
     }
-    this.ports.browserOpen.replayPending(client)
   }
 
   onDetached(_principal: ClientPrincipal, client: ClientConn): void {

@@ -75,19 +75,19 @@ against the repo today; both crossing directions are covered by tests.
 
 ADR 7 D6 counted **122** post-auth WS types at baseline `ca361327`; Amendment 1 D16 requires the
 implementer to re-derive rather than copy. Re-derived from `message-class.ts` and the zod unions
-on this branch's baseline (`201dd989`):
+at this branch's implementation baseline (`6931d7f6`):
 
 | Union | Types at `ca361327` (ADR 7 D6) | Types now |
 |---|---:|---:|
-| `ServerMessage` | 26 | **27** |
-| `ClientMessage` | 15 | **16** |
-| `ControlMessage` | 38 | **44** |
-| `DaemonMessage` | 43 | **52** |
-| **Post-auth WS total** | **122** | **139** |
+| `ServerMessage` | 26 | **34** |
+| `ClientMessage` | 15 | **19** |
+| `ControlMessage` | 38 | **47** |
+| `DaemonMessage` | 43 | **53** |
+| **Post-auth WS total** | **122** | **153** |
 | Daemon handshake (pre-auth) | 6 | 6 |
-| Frames classified ahead of their wire landing (D16) | — | 7 |
+| Frames classified ahead of their wire landing (D16) | — | 1 |
 
-The delta is drift the ADR's baseline predates, not reclassification: credential export/install,
+The delta is drift the ADR's baseline predates, not reclassification: the scoped feed and presence-room families, credential export/install,
 Draft Sync v2 (`draftEdit`, `draftTarget`, `nativeDraft`), the agent-observation family,
 `sessionViewDelta`, `sessionGitActivity`, `agentModel`, and `browseDirs*`. Every one keeps the
 class it had under `MessageSyncClass`, translated through D1's bridge. `inventory.test.ts`
@@ -101,7 +101,4 @@ grants policy (Phase 3, POD-290), collaborative text editing (reserved by ADR 1'
 control port is keyed by entity reference so a document op stream is not foreclosed), and the
 gateway's socket wiring (POD-317, which consumes these ports and the one registry).
 
-The six presence frames and `rescope` are **classified but not yet members of `ClientMessage` /
-`ServerMessage`**: D16 states the counts stay a statement about today's tree, and POD-1078 /
-POD-1077 land them on the wire. Their classification binds now precisely so the implementer does
-not get to pick the plane.
+The presence-room family is now landed on the concrete client and server unions. The sole frame classified ahead of a concrete wire member is the control-port's abstract `rescope`; its wire representation is `feedRescope`. D16 keeps both classifications total without creating a second routing mechanism.
