@@ -109,6 +109,9 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(meta).toBeTruthy()
     // Process kill sent.
     expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((m) => m.type === 'sessionBindingRetire' && m.sessionId === sessionId)).toBe(
+      false,
+    )
     // Worktree removed, branch still on issue.
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(true)
     const after = reg.modules.issues.getMeta(issue.id)

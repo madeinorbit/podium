@@ -306,8 +306,10 @@ describe('oracle: kill', () => {
 
     await o.call.sessions.kill({ sessionId })
 
-    expect(otherSeen).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
-    expect(o.daemon.filter((m) => m.type === 'kill')).toEqual([])
+    expect(otherSeen).toContainEqual(
+      expect.objectContaining({ type: 'sessionBindingRetire', sessionId }),
+    )
+    expect(o.daemon.filter((m) => m.type === 'sessionBindingRetire')).toEqual([])
     await waitFor(
       () => hasSessionDelete(o.client, sessionId),
       'the removal to reach the attached client',

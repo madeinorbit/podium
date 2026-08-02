@@ -376,6 +376,56 @@ describe('oracle: native identity receipts', () => {
       ownerId: BOB,
     })
   })
+
+  it(`${MUST_NOT_CHANGE}: two live exact claims remain visible, neither is redirected, and neither conflict is acked`, () => {
+    const f = twoUserOracle()
+    const shared = { kind: 'codex-thread', value: 'thread-shared' } as const
+
+    f.o.reg.gateway.routeDaemonFrame('local', {
+      type: 'sessionResumeRef',
+      sessionId: f.alice.sessionId,
+      resume: shared,
+      confidence: 'exact',
+      ackRequested: true,
+    })
+    f.o.daemon.length = 0
+
+    f.o.reg.gateway.routeDaemonFrame('local', {
+      type: 'sessionResumeRef',
+      sessionId: f.bob.sessionId,
+      resume: shared,
+      confidence: 'exact',
+      ackRequested: true,
+    })
+
+    expect(f.o.meta(f.alice.sessionId).resume).toEqual(shared)
+    expect(f.o.meta(f.bob.sessionId).resume).toBeUndefined()
+    expect(
+      f.o.reg.modules.sessions
+        .listSessions()
+        .map((session) => session.sessionId)
+        .sort(),
+    ).toEqual([f.alice.sessionId, f.bob.sessionId].sort())
+    expect(f.o.daemon).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionResumeRefAck', sessionId: f.bob.sessionId }),
+    )
+    expect(f.o.daemon).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'sessionResumeRefConflict',
+          sessionId: f.alice.sessionId,
+          resume: shared,
+          conflictingSessionIds: [f.bob.sessionId],
+        }),
+        expect.objectContaining({
+          type: 'sessionResumeRefConflict',
+          sessionId: f.bob.sessionId,
+          resume: shared,
+          conflictingSessionIds: [f.alice.sessionId],
+        }),
+      ]),
+    )
+  })
 })
 
 describe('oracle: browser-open forwarding', () => {

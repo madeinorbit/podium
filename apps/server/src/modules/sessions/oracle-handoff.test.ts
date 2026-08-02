@@ -400,6 +400,11 @@ describe('oracle: handoff success across two machines', () => {
     expect(f.source).toContainEqual(
       expect.objectContaining({ type: 'kill', sessionId: f.sessionId }),
     )
+    expect(
+      f.source.some(
+        (message) => message.type === 'sessionBindingRetire' && message.sessionId === f.sessionId,
+      ),
+    ).toBe(false)
     expect(f.target).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
