@@ -39,10 +39,11 @@ but is not evidence for this one.
 
 ### Re-candidate scheduling and red attribution
 
-This refusal is held against `aba864a9`; no new candidate should be cut until POD-1351 and
-POD-1356 land and POD-1316 either lands independently or is demonstrably covered by POD-1356's
-shared authenticated-client bootstrap. The verified results below are banked rather than rerun
-against a moving integration branch.
+This refusal is held against `aba864a9`. POD-1351 has now landed after that candidate and its
+reported evidence is banked. No new candidate should be cut until POD-1356 lands and POD-1316
+either lands independently or is demonstrably covered by a correct shared authenticated-client
+bootstrap. The verified results below are banked rather than rerun against a moving integration
+branch.
 
 The coordinator retracted the earlier rule that every red on this host is new. POD-1363 records a
 load-dependent rearchitecture-audit timeout, and POD-1329 found a unit-test path that overwrites
@@ -68,15 +69,17 @@ afterward and are not treated as a fix for ordinary worktree installation.
 - POD-1079 is `done`.
 - POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where the defaulted first-admin principal remains. POD-1316 remains open and leaves the real wire-window integration test unauthenticated and timing out at the fail-closed client gate.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
-- POD-1351 is an open blocking child: POD-318's phase-close audit refuses three undeclared
-  residue families.
-- POD-1356 is an open blocking child: Phase 3's fail-closed transport gate correctly rejects the
-  isolated browser harness because it has no authenticated account or session cookie, so the
-  harness cannot create the session required by the redeploy proof. This is the same removed-
-  ambient-auth test-infrastructure class as POD-1316.
-- POD-1343 remains real work, but the same resolution failure reproduces before Phase 4. It was
-  corrected to top-level `discovered-from` work rather than used as evidence of a Phase 4
-  regression.
+- POD-1351 is now `done` and landed after this gate run at `61cf1b8b`, with reported phase-audit,
+  baseline, one-to-one refusal, focused-test, and typecheck evidence. It remains absent from
+  candidate `aba864a9` and is not credited there.
+- POD-1356 was sent back from review at clean branch HEAD `c9d90507`. Its ordinary harness path
+  deletes `PODIUM_PASSWORD`, causing `requestPrincipal` to map a cookieless request to
+  `FIRST_ADMIN_USER_ID` when credentials are absent. That is the forbidden ambient-admin path,
+  not real cookie authentication; the server-restart flow performs no login, and POD-1316's
+  wire-window test is unchanged.
+- POD-1343 remains real work, but a detached `/tmp` worktree at ancestor `844c7ff1` reproduces
+  the same resolution failure from a zero-`node_modules` start. It is top-level `discovered-from`
+  work, not evidence that Phase 4 regressed; the environment-neutrality criterion remains refused.
 
 The named Phase 4 child-closure criterion is therefore not met.
 
@@ -137,8 +140,8 @@ At `aba864a9`, these detector-local planted-fixture probes completed:
 These are useful instrument checks, but they are not substituted for the required real-tree
 counterfactuals. POD-423 and POD-424 established that a gate mutation must alter production code,
 make the real guardrail fail, and restore the original hash. The complete ten-condition production
-mutation campaign has not run on this candidate, and POD-1078 is still changing the code for
-conditions 1, 6, and 7. Accordingly, the criterion that *every* multi-user condition fired on
+mutation campaign has not run on this candidate, and POD-1078's completed work is absent from it
+for conditions 1, 6, and 7. Accordingly, the criterion that *every* multi-user condition fired on
 planted bad product code is **not met**.
 
 ## Environment neutrality
@@ -161,7 +164,21 @@ The failure is **pre-existing, not introduced by Phase 4**. In an isolated detac
 - `bun install --frozen-lockfile`: exit 0, 2,704 packages, root `node_modules/@podium` absent.
 - `bun test --conditions=@podium/source scripts/runtime-resolution.integration.test.ts`: exit 1, 0/1, identical duplicate-runtime database-handle error.
 
-POD-1343 is therefore top-level discovered work rather than a Phase 4 blocker. Evidence in this report is labelled local-by-relative-path, local-by-Vitest-alias, or local after temporary root-link instrumentation; the three earlier detector-fixture runs are not counted as gate evidence.
+POD-1343 is therefore top-level discovered work rather than evidence of a Phase 4 regression.
+That attribution does not satisfy the environment-neutrality criterion.
+
+A stronger historical control at ancestor `844c7ff1` used a detached `/tmp` worktree that could
+not borrow a sibling checkout. From zero `node_modules`, its frozen install exited 0, left the root
+`node_modules/@podium` absent, and reproduced the same dual-runtime failure: 1 file/1 test,
+0 passed/1 failed.
+
+The environment-neutrality criterion itself is **refused** for candidate `aba864a9`: it does not
+guarantee that one local copy of every workspace package resolves into the audited worktree.
+POD-1343 reports a `linker=hoisted` repair plus a 25-workspace realpath guard, cold-tested at
+1 file/2 tests passing, but that fix has not landed in this candidate.
+
+Evidence in this report is labelled local-by-relative-path, local-by-Vitest-alias, or local after
+temporary root-link instrumentation; the earlier detector-fixture runs are not gate evidence.
 
 ## Deliberately open questions
 
@@ -179,7 +196,7 @@ the cross-owner policy.
 
 ## Required next candidate
 
-The gate may be rerun only after POD-1316, POD-1351, and POD-1356 close with evidence, and after POD-1078, POD-1315's correction, and every other blocker land in the next candidate.
+The gate may be rerun only after POD-1316 and POD-1356 close with evidence, and after POD-1078, POD-1315's correction, POD-1351, and every other blocker land in the next candidate.
 Closure alone is insufficient: the next candidate tree must be inspected for every claimed fix,
 including POD-1315, before any dependency is credited as satisfied.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
