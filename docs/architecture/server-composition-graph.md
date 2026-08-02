@@ -5,7 +5,7 @@
 
 Root: `apps/server/src/relay.ts`
 
-Runtime modules: 199. Runtime edges: 318. Cycles: 0.
+Runtime modules: 204. Runtime edges: 336. Cycles: 0.
 
 ## Verified topological order
 
@@ -16,198 +16,203 @@ Runtime modules: 199. Runtime edges: 318. Cycles: 0.
 5. `apps/server/src/codex-auth.ts`
 6. `apps/server/src/composition/reactions.ts`
 7. `apps/server/src/device-grade-owner.ts`
-8. `apps/server/src/features.ts`
-9. `apps/server/src/file-relay-policy.ts`
-10. `apps/server/src/gateway/browser-open.ts`
-11. `apps/server/src/gateway/client-frame-routing.ts`
-12. `apps/server/src/gateway/client-principal.ts`
-13. `apps/server/src/gateway/client-mux.ts`
-14. `apps/server/src/gateway/client-registry.ts`
-15. `apps/server/src/gateway/daemon-frame-routing.ts`
-16. `apps/server/src/gateway/daemon-mux.ts`
-17. `apps/server/src/gateway/legacy-wire-v1-adapter.ts`
-18. `apps/server/src/gateway/wire-feed-edge.ts`
-19. `apps/server/src/modules/perf/principal.ts`
-20. `apps/server/src/modules/perf/registry.ts`
-21. `apps/server/src/gateway/feed-serving.ts`
-22. `apps/server/src/gateway/presence-routing.ts`
-23. `apps/server/src/harness-manifest.ts`
-24. `apps/server/src/issue-authz.ts`
-25. `apps/server/src/issue-lint.ts`
-26. `apps/server/src/issue-similarity.ts`
-27. `apps/server/src/issue-util.ts`
-28. `apps/server/src/issueAssistant.ts`
-29. `apps/server/src/linear.ts`
-30. `apps/server/src/llm.ts`
-31. `apps/server/src/llm-roles.ts`
-32. `apps/server/src/machine-access.ts`
-33. `apps/server/src/migrations/backup.ts`
-34. `apps/server/src/migrations/drizzle-manifest.generated.ts`
-35. `apps/server/src/migrations/index.ts`
-36. `apps/server/src/model-catalog.ts`
-37. `apps/server/src/similarity.ts`
-38. `apps/server/src/model-validation.ts`
-39. `apps/server/src/modules/approvals/service.ts`
-40. `apps/server/src/modules/automations/decide.ts`
-41. `apps/server/src/modules/automations/scheduler.ts`
-42. `apps/server/src/modules/automations/service.ts`
-43. `apps/server/src/modules/bus.ts`
-44. `apps/server/src/modules/daemon-request.ts`
-45. `apps/server/src/modules/events/retention.ts`
-46. `apps/server/src/modules/funnel.ts`
-47. `apps/server/src/modules/hosts/service.ts`
-48. `apps/server/src/modules/issue-session-lifecycle.ts`
-49. `apps/server/src/modules/issues/access-index.ts`
-50. `apps/server/src/modules/issues/artifact-store.ts`
-51. `apps/server/src/modules/issues/auto-archive.ts`
-52. `apps/server/src/modules/issues/command-ctx.ts`
-53. `apps/server/src/modules/issues/conflict.ts`
-54. `apps/server/src/modules/issues/registry.ts`
-55. `apps/server/src/store/notification-facts.ts`
-56. `apps/server/src/steward.ts`
-57. `apps/server/src/modules/issues/dispatcher.ts`
-58. `apps/server/src/modules/issues/git-state.ts`
-59. `apps/server/src/modules/issues/instrumentation.ts`
-60. `apps/server/src/store/issue-storage.ts`
-61. `apps/server/src/modules/issues/projection.ts`
-62. `apps/server/src/modules/issues/publish.ts`
-63. `apps/server/src/modules/issues/relay-gate.ts`
-64. `apps/server/src/modules/issues/service/types.ts`
-65. `apps/server/src/modules/issues/service/attention.ts`
-66. `apps/server/src/modules/issues/service/core.ts`
-67. `apps/server/src/modules/issues/service/crud.ts`
-68. `apps/server/src/modules/issues/service/hierarchy.ts`
-69. `apps/server/src/modules/issues/service/mail-pending.ts`
-70. `apps/server/src/modules/issues/service/mail.ts`
-71. `apps/server/src/modules/issues/service/reads.ts`
-72. `apps/server/src/modules/issues/service/workflow.ts`
-73. `apps/server/src/modules/issues/service/index.ts`
-74. `apps/server/src/modules/layout/service.ts`
-75. `apps/server/src/modules/lock/registry.ts`
-76. `apps/server/src/store/locks.ts`
-77. `apps/server/src/modules/lock/service.ts`
-78. `apps/server/src/modules/machines/diagnostics.ts`
-79. `apps/server/src/modules/machines/rpc.ts`
-80. `apps/server/src/modules/machines/service.ts`
-81. `apps/server/src/modules/memory/transcript-indexer.ts`
-82. `apps/server/src/modules/memory/lake.ts`
-83. `apps/server/src/modules/memory/search.ts`
-84. `apps/server/src/modules/memory/visibility.ts`
-85. `apps/server/src/modules/memory/service.ts`
-86. `apps/server/src/modules/messages/targets.ts`
-87. `apps/server/src/modules/messages/brakes.ts`
-88. `apps/server/src/modules/messages/handlers/context.ts`
-89. `apps/server/src/modules/messages/mailbox.ts`
-90. `apps/server/src/modules/messages/render.ts`
-91. `apps/server/src/modules/messages/scheduler.ts`
-92. `apps/server/src/modules/messages/service.ts`
-93. `apps/server/src/modules/messages/handlers/ask.ts`
-94. `apps/server/src/modules/messages/handlers/await-agent.ts`
-95. `apps/server/src/modules/messages/handlers/inbox-consume.ts`
-96. `apps/server/src/modules/messages/handlers/ledger.ts`
-97. `apps/server/src/modules/messages/handlers/pending-reminders.ts`
-98. `apps/server/src/modules/messages/handlers/projections.ts`
-99. `apps/server/src/modules/messages/handlers/reply.ts`
-100. `apps/server/src/modules/messages/handlers/send.ts`
-101. `apps/server/src/modules/messages/handlers/spawn-agent.ts`
-102. `apps/server/src/modules/messages/registry.ts`
-103. `apps/server/src/modules/messages/gate.ts`
-104. `apps/server/src/modules/messages/queued-apply.ts`
-105. `apps/server/src/modules/messages/spawn.ts`
-106. `apps/server/src/notify.ts`
-107. `apps/server/src/modules/notify/service.ts`
-108. `apps/server/src/modules/sessions/account-env.ts`
-109. `apps/server/src/modules/sessions/draft-doc.ts`
-110. `apps/server/src/modules/sessions/session-state/service.ts`
-111. `apps/server/src/modules/sessions/session-state/registry.ts`
-112. `apps/server/src/modules/sessions/client-control.ts`
-113. `apps/server/src/modules/sessions/inbox.ts`
-114. `apps/server/src/modules/sessions/session-access.ts`
-115. `apps/server/src/modules/sessions/command-plane.ts`
-116. `apps/server/src/modules/sessions/command-ctx.ts`
-117. `apps/server/src/modules/sessions/daemon-lifecycle.ts`
-118. `apps/server/src/title-filter.ts`
-119. `apps/server/src/modules/sessions/daemon-projection.ts`
-120. `apps/server/src/modules/sessions/handoff-transfer.ts`
-121. `apps/server/src/modules/sessions/handoff/refusal.ts`
-122. `apps/server/src/modules/sessions/handoff/access.ts`
-123. `apps/server/src/modules/sessions/handoff/ports.ts`
-124. `apps/server/src/modules/sessions/handoff/admission.ts`
-125. `apps/server/src/modules/sessions/handoff/attribution.ts`
-126. `apps/server/src/modules/sessions/handoff/placement.ts`
-127. `apps/server/src/modules/sessions/handoff/preflight.ts`
-128. `apps/server/src/modules/sessions/handoff/transfer.ts`
-129. `apps/server/src/modules/sessions/handoff/coordinator.ts`
-130. `apps/server/src/modules/sessions/instructions.ts`
-131. `apps/server/src/modules/sessions/launch-config.ts`
-132. `apps/server/src/modules/sessions/machine-reconciler.ts`
-133. `apps/server/src/modules/sessions/naming.ts`
-134. `apps/server/src/modules/sessions/observation-leases.ts`
-135. `apps/server/src/modules/sessions/publication/broadcast.ts`
-136. `apps/server/src/modules/sessions/publish-worker-actor.ts`
-137. `apps/server/src/modules/sessions/publish-worker-client.ts`
-138. `apps/server/src/modules/sessions/publication/coordinator.ts`
-139. `apps/server/src/modules/sessions/terminal.ts`
-140. `apps/server/src/modules/sessions/session.ts`
-141. `apps/server/src/modules/sessions/repository.ts`
-142. `apps/server/src/modules/sessions/session-binding.ts`
-143. `apps/server/src/modules/sessions/session-shared.ts`
-144. `apps/server/src/modules/sessions/session-start.ts`
-145. `apps/server/src/modules/sessions/terminal-proof.ts`
-146. `apps/server/src/modules/sessions/view.ts`
-147. `apps/server/src/modules/sessions/workspace.ts`
-148. `apps/server/src/modules/superagent/headless.ts`
-149. `apps/server/src/modules/sessions/lifecycle.ts`
-150. `apps/server/src/modules/superagent/btw.ts`
-151. `apps/server/src/modules/sessions/read-toolkit.ts`
-152. `apps/server/src/store/settings-audit.ts`
-153. `apps/server/src/modules/settings/audit.ts`
-154. `apps/server/src/modules/settings/secret-fingerprint.ts`
-155. `apps/server/src/modules/settings/service.ts`
-156. `apps/server/src/pspec.ts`
-157. `apps/server/src/root-allowlist.ts`
-158. `apps/server/src/modules/specs/service.ts`
-159. `apps/server/src/modules/superagent/answer-delivery.ts`
-160. `apps/server/src/modules/workflows/handlers/context.ts`
-161. `apps/server/src/modules/workflows/handlers/advances.ts`
-162. `apps/server/src/modules/workflows/handlers/library.ts`
-163. `apps/server/src/modules/workflows/queries.ts`
-164. `apps/server/src/modules/workflows/registry.ts`
-165. `apps/server/src/modules/workflows/rpc.ts`
-166. `apps/server/src/modules/workflows/service.ts`
-167. `apps/server/src/repo-id.ts`
-168. `apps/server/src/store/accounts.ts`
-169. `apps/server/src/store/approvals.ts`
-170. `apps/server/src/store/auth.ts`
-171. `apps/server/src/store/automations.ts`
-172. `apps/server/src/store/conversations/index.ts`
-173. `apps/server/src/store/conversations/mirror.ts`
-174. `apps/server/src/store/conversations/registry.ts`
-175. `apps/server/src/store/conversations/transcript-index.ts`
-176. `apps/server/src/store/conversations.ts`
-177. `apps/server/src/store/events.ts`
-178. `apps/server/src/store/grants.ts`
-179. `apps/server/src/store/helpers.ts`
-180. `apps/server/src/store/issues.ts`
-181. `apps/server/src/store/machines.ts`
-182. `apps/server/src/store/maintenance.ts`
-183. `apps/server/src/store/messages.ts`
-184. `apps/server/src/store/messaging-topics.ts`
-185. `apps/server/src/store/observation-checkpoints.ts`
-186. `apps/server/src/store/read-watermarks.ts`
-187. `apps/server/src/store/repos.ts`
-188. `apps/server/src/store/server-secrets.ts`
-189. `apps/server/src/store/sessions.ts`
-190. `apps/server/src/store/user-preferences.ts`
-191. `apps/server/src/store/settings.ts`
-192. `apps/server/src/store/superagent.ts`
-193. `apps/server/src/store/telegram-bindings.ts`
-194. `apps/server/src/store/user-layout.ts`
-195. `apps/server/src/store/users.ts`
-196. `apps/server/src/store/workflows.ts`
-197. `apps/server/src/store.ts`
-198. `apps/server/src/repo-registry.ts`
-199. `apps/server/src/relay.ts`
+8. `apps/server/src/enrollment-ledger.ts`
+9. `apps/server/src/features.ts`
+10. `apps/server/src/file-relay-policy.ts`
+11. `apps/server/src/gateway/browser-open.ts`
+12. `apps/server/src/gateway/client-frame-routing.ts`
+13. `apps/server/src/gateway/client-principal.ts`
+14. `apps/server/src/gateway/client-mux.ts`
+15. `apps/server/src/gateway/client-registry.ts`
+16. `apps/server/src/gateway/daemon-frame-routing.ts`
+17. `apps/server/src/gateway/daemon-mux.ts`
+18. `apps/server/src/gateway/legacy-wire-v1-adapter.ts`
+19. `apps/server/src/gateway/wire-feed-edge.ts`
+20. `apps/server/src/modules/perf/principal.ts`
+21. `apps/server/src/modules/perf/registry.ts`
+22. `apps/server/src/gateway/feed-serving.ts`
+23. `apps/server/src/gateway/presence-routing.ts`
+24. `apps/server/src/harness-manifest.ts`
+25. `apps/server/src/issue-authz.ts`
+26. `apps/server/src/issue-lint.ts`
+27. `apps/server/src/issue-similarity.ts`
+28. `apps/server/src/issue-util.ts`
+29. `apps/server/src/issueAssistant.ts`
+30. `apps/server/src/linear.ts`
+31. `apps/server/src/llm.ts`
+32. `apps/server/src/llm-roles.ts`
+33. `apps/server/src/machine-access.ts`
+34. `apps/server/src/migrations/backup.ts`
+35. `apps/server/src/migrations/drizzle-manifest.generated.ts`
+36. `apps/server/src/migrations/index.ts`
+37. `apps/server/src/model-catalog.ts`
+38. `apps/server/src/similarity.ts`
+39. `apps/server/src/model-validation.ts`
+40. `apps/server/src/modules/approvals/service.ts`
+41. `apps/server/src/modules/automations/decide.ts`
+42. `apps/server/src/modules/automations/scheduler.ts`
+43. `apps/server/src/modules/automations/service.ts`
+44. `apps/server/src/modules/bus.ts`
+45. `apps/server/src/modules/daemon-request.ts`
+46. `apps/server/src/modules/events/retention.ts`
+47. `apps/server/src/modules/funnel.ts`
+48. `apps/server/src/modules/hosts/service.ts`
+49. `apps/server/src/modules/issue-session-lifecycle.ts`
+50. `apps/server/src/modules/issues/access-index.ts`
+51. `apps/server/src/modules/issues/artifact-store.ts`
+52. `apps/server/src/modules/issues/auto-archive.ts`
+53. `apps/server/src/modules/issues/command-ctx.ts`
+54. `apps/server/src/modules/issues/conflict.ts`
+55. `apps/server/src/modules/issues/registry.ts`
+56. `apps/server/src/store/notification-facts.ts`
+57. `apps/server/src/steward.ts`
+58. `apps/server/src/modules/issues/dispatcher.ts`
+59. `apps/server/src/modules/issues/git-state.ts`
+60. `apps/server/src/modules/issues/instrumentation.ts`
+61. `apps/server/src/store/issue-storage.ts`
+62. `apps/server/src/modules/issues/projection.ts`
+63. `apps/server/src/modules/issues/publish.ts`
+64. `apps/server/src/modules/issues/relay-gate.ts`
+65. `apps/server/src/modules/issues/service/types.ts`
+66. `apps/server/src/modules/issues/service/attention.ts`
+67. `apps/server/src/modules/issues/service/core.ts`
+68. `apps/server/src/modules/issues/service/crud.ts`
+69. `apps/server/src/modules/issues/service/hierarchy.ts`
+70. `apps/server/src/modules/issues/service/mail-pending.ts`
+71. `apps/server/src/modules/issues/service/mail.ts`
+72. `apps/server/src/modules/issues/service/reads.ts`
+73. `apps/server/src/modules/issues/service/workflow.ts`
+74. `apps/server/src/modules/issues/service/index.ts`
+75. `apps/server/src/modules/layout/service.ts`
+76. `apps/server/src/modules/lock/registry.ts`
+77. `apps/server/src/store/locks.ts`
+78. `apps/server/src/modules/lock/service.ts`
+79. `apps/server/src/modules/machines/diagnostics.ts`
+80. `apps/server/src/modules/machines/rpc.ts`
+81. `apps/server/src/modules/machines/service.ts`
+82. `apps/server/src/modules/memory/transcript-indexer.ts`
+83. `apps/server/src/modules/memory/lake.ts`
+84. `apps/server/src/modules/memory/search.ts`
+85. `apps/server/src/modules/memory/visibility.ts`
+86. `apps/server/src/modules/memory/service.ts`
+87. `apps/server/src/modules/messages/targets.ts`
+88. `apps/server/src/modules/messages/brakes.ts`
+89. `apps/server/src/modules/messages/handlers/context.ts`
+90. `apps/server/src/modules/messages/mailbox.ts`
+91. `apps/server/src/modules/messages/render.ts`
+92. `apps/server/src/modules/messages/scheduler.ts`
+93. `apps/server/src/modules/messages/service.ts`
+94. `apps/server/src/modules/messages/handlers/ask.ts`
+95. `apps/server/src/modules/messages/handlers/await-agent.ts`
+96. `apps/server/src/modules/messages/handlers/inbox-consume.ts`
+97. `apps/server/src/modules/messages/handlers/ledger.ts`
+98. `apps/server/src/modules/messages/handlers/pending-reminders.ts`
+99. `apps/server/src/modules/messages/handlers/projections.ts`
+100. `apps/server/src/modules/messages/handlers/reply.ts`
+101. `apps/server/src/modules/messages/handlers/send.ts`
+102. `apps/server/src/modules/messages/handlers/spawn-agent.ts`
+103. `apps/server/src/modules/messages/registry.ts`
+104. `apps/server/src/modules/messages/gate.ts`
+105. `apps/server/src/modules/messages/queued-apply.ts`
+106. `apps/server/src/modules/messages/spawn.ts`
+107. `apps/server/src/notify.ts`
+108. `apps/server/src/modules/notify/service.ts`
+109. `apps/server/src/modules/sessions/account-env.ts`
+110. `apps/server/src/modules/sessions/session-control-policy.ts`
+111. `apps/server/src/modules/sessions/draft-doc.ts`
+112. `apps/server/src/modules/sessions/session-state/service.ts`
+113. `apps/server/src/modules/sessions/session-state/registry.ts`
+114. `apps/server/src/modules/sessions/client-control.ts`
+115. `apps/server/src/modules/sessions/inbox.ts`
+116. `apps/server/src/modules/sessions/session-access.ts`
+117. `apps/server/src/modules/sessions/command-plane.ts`
+118. `apps/server/src/modules/sessions/command-ctx.ts`
+119. `apps/server/src/modules/sessions/daemon-lifecycle.ts`
+120. `apps/server/src/title-filter.ts`
+121. `apps/server/src/modules/sessions/daemon-projection.ts`
+122. `apps/server/src/modules/sessions/handoff-transfer.ts`
+123. `apps/server/src/modules/sessions/handoff/refusal.ts`
+124. `apps/server/src/modules/sessions/handoff/access.ts`
+125. `apps/server/src/modules/sessions/handoff/ports.ts`
+126. `apps/server/src/modules/sessions/handoff/admission.ts`
+127. `apps/server/src/modules/sessions/handoff/attribution.ts`
+128. `apps/server/src/modules/sessions/handoff/placement.ts`
+129. `apps/server/src/modules/sessions/handoff/preflight.ts`
+130. `apps/server/src/modules/sessions/handoff/transfer.ts`
+131. `apps/server/src/modules/sessions/handoff/coordinator.ts`
+132. `apps/server/src/modules/sessions/instructions.ts`
+133. `apps/server/src/modules/sessions/launch-config.ts`
+134. `apps/server/src/modules/sessions/naming.ts`
+135. `apps/server/src/modules/sessions/observation-leases.ts`
+136. `apps/server/src/modules/sessions/session-shared.ts`
+137. `apps/server/src/modules/sessions/machine-reconciler.ts`
+138. `apps/server/src/modules/sessions/publication/broadcast.ts`
+139. `apps/server/src/modules/sessions/publish-worker-actor.ts`
+140. `apps/server/src/modules/sessions/publish-worker-client.ts`
+141. `apps/server/src/modules/sessions/publication/coordinator.ts`
+142. `apps/server/src/modules/sessions/terminal.ts`
+143. `apps/server/src/modules/sessions/session.ts`
+144. `apps/server/src/modules/sessions/repository.ts`
+145. `apps/server/src/modules/sessions/session-binding.ts`
+146. `apps/server/src/modules/sessions/session-revival.ts`
+147. `apps/server/src/modules/sessions/session-start.ts`
+148. `apps/server/src/modules/sessions/session-teardown.ts`
+149. `apps/server/src/modules/sessions/terminal-proof.ts`
+150. `apps/server/src/modules/sessions/view.ts`
+151. `apps/server/src/modules/sessions/workspace.ts`
+152. `apps/server/src/modules/superagent/headless.ts`
+153. `apps/server/src/modules/sessions/session-wiring.ts`
+154. `apps/server/src/modules/sessions/lifecycle.ts`
+155. `apps/server/src/modules/superagent/btw.ts`
+156. `apps/server/src/modules/sessions/read-toolkit.ts`
+157. `apps/server/src/store/settings-audit.ts`
+158. `apps/server/src/modules/settings/audit.ts`
+159. `apps/server/src/modules/settings/secret-fingerprint.ts`
+160. `apps/server/src/modules/settings/service.ts`
+161. `apps/server/src/pspec.ts`
+162. `apps/server/src/root-allowlist.ts`
+163. `apps/server/src/modules/specs/service.ts`
+164. `apps/server/src/modules/superagent/answer-delivery.ts`
+165. `apps/server/src/modules/workflows/handlers/context.ts`
+166. `apps/server/src/modules/workflows/handlers/advances.ts`
+167. `apps/server/src/modules/workflows/handlers/library.ts`
+168. `apps/server/src/modules/workflows/queries.ts`
+169. `apps/server/src/modules/workflows/registry.ts`
+170. `apps/server/src/modules/workflows/rpc.ts`
+171. `apps/server/src/modules/workflows/service.ts`
+172. `apps/server/src/repo-id.ts`
+173. `apps/server/src/store/accounts.ts`
+174. `apps/server/src/store/approvals.ts`
+175. `apps/server/src/store/auth.ts`
+176. `apps/server/src/store/automations.ts`
+177. `apps/server/src/store/conversations/index.ts`
+178. `apps/server/src/store/conversations/mirror.ts`
+179. `apps/server/src/store/conversations/registry.ts`
+180. `apps/server/src/store/conversations/transcript-index.ts`
+181. `apps/server/src/store/conversations.ts`
+182. `apps/server/src/store/events.ts`
+183. `apps/server/src/store/grants.ts`
+184. `apps/server/src/store/helpers.ts`
+185. `apps/server/src/store/issues.ts`
+186. `apps/server/src/store/machines.ts`
+187. `apps/server/src/store/maintenance.ts`
+188. `apps/server/src/store/messages.ts`
+189. `apps/server/src/store/messaging-topics.ts`
+190. `apps/server/src/store/observation-checkpoints.ts`
+191. `apps/server/src/store/read-watermarks.ts`
+192. `apps/server/src/store/repos.ts`
+193. `apps/server/src/store/server-secrets.ts`
+194. `apps/server/src/store/sessions.ts`
+195. `apps/server/src/store/user-preferences.ts`
+196. `apps/server/src/store/settings.ts`
+197. `apps/server/src/store/superagent.ts`
+198. `apps/server/src/store/telegram-bindings.ts`
+199. `apps/server/src/store/user-layout.ts`
+200. `apps/server/src/store/users.ts`
+201. `apps/server/src/store/workflows.ts`
+202. `apps/server/src/store.ts`
+203. `apps/server/src/repo-registry.ts`
+204. `apps/server/src/relay.ts`
 
 ## Import edges
 
@@ -219,6 +224,7 @@ Runtime modules: 199. Runtime edges: 318. Cycles: 0.
 | `apps/server/src/command-principal.ts` | — |
 | `apps/server/src/composition/reactions.ts` | — |
 | `apps/server/src/device-grade-owner.ts` | — |
+| `apps/server/src/enrollment-ledger.ts` | — |
 | `apps/server/src/features.ts` | — |
 | `apps/server/src/file-relay-policy.ts` | — |
 | `apps/server/src/gateway/browser-open.ts` | — |
@@ -285,7 +291,7 @@ Runtime modules: 199. Runtime edges: 318. Cycles: 0.
 | `apps/server/src/modules/lock/service.ts` | `apps/server/src/store/locks.ts` |
 | `apps/server/src/modules/machines/diagnostics.ts` | — |
 | `apps/server/src/modules/machines/rpc.ts` | `apps/server/src/file-relay-policy.ts`<br>`apps/server/src/modules/daemon-request.ts`<br>`apps/server/src/modules/perf/registry.ts` |
-| `apps/server/src/modules/machines/service.ts` | `apps/server/src/device-grade-owner.ts` |
+| `apps/server/src/modules/machines/service.ts` | `apps/server/src/device-grade-owner.ts`<br>`apps/server/src/enrollment-ledger.ts` |
 | `apps/server/src/modules/memory/lake.ts` | `apps/server/src/harness-manifest.ts`<br>`apps/server/src/modules/daemon-request.ts`<br>`apps/server/src/modules/memory/transcript-indexer.ts` |
 | `apps/server/src/modules/memory/search.ts` | — |
 | `apps/server/src/modules/memory/service.ts` | `apps/server/src/modules/memory/lake.ts`<br>`apps/server/src/modules/memory/search.ts`<br>`apps/server/src/modules/memory/visibility.ts` |
@@ -315,7 +321,7 @@ Runtime modules: 199. Runtime edges: 318. Cycles: 0.
 | `apps/server/src/modules/perf/principal.ts` | — |
 | `apps/server/src/modules/perf/registry.ts` | — |
 | `apps/server/src/modules/sessions/account-env.ts` | — |
-| `apps/server/src/modules/sessions/client-control.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/gateway/client-principal.ts`<br>`apps/server/src/modules/perf/principal.ts`<br>`apps/server/src/modules/perf/registry.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts` |
+| `apps/server/src/modules/sessions/client-control.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/gateway/client-principal.ts`<br>`apps/server/src/modules/perf/principal.ts`<br>`apps/server/src/modules/perf/registry.ts`<br>`apps/server/src/modules/sessions/session-control-policy.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts` |
 | `apps/server/src/modules/sessions/command-ctx.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/modules/sessions/command-plane.ts`<br>`apps/server/src/steward.ts` |
 | `apps/server/src/modules/sessions/command-plane.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/session-access.ts` |
 | `apps/server/src/modules/sessions/daemon-lifecycle.ts` | `apps/server/src/harness-manifest.ts` |
@@ -334,7 +340,7 @@ Runtime modules: 199. Runtime edges: 318. Cycles: 0.
 | `apps/server/src/modules/sessions/inbox.ts` | — |
 | `apps/server/src/modules/sessions/instructions.ts` | — |
 | `apps/server/src/modules/sessions/launch-config.ts` | `apps/server/src/harness-manifest.ts`<br>`apps/server/src/modules/sessions/account-env.ts` |
-| `apps/server/src/modules/sessions/lifecycle.ts` | `apps/server/src/auto-continue.ts`<br>`apps/server/src/command-principal.ts`<br>`apps/server/src/features.ts`<br>`apps/server/src/gateway/browser-open.ts`<br>`apps/server/src/gateway/client-registry.ts`<br>`apps/server/src/harness-manifest.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/sessions/account-env.ts`<br>`apps/server/src/modules/sessions/client-control.ts`<br>`apps/server/src/modules/sessions/command-ctx.ts`<br>`apps/server/src/modules/sessions/daemon-lifecycle.ts`<br>`apps/server/src/modules/sessions/daemon-projection.ts`<br>`apps/server/src/modules/sessions/handoff/access.ts`<br>`apps/server/src/modules/sessions/handoff/coordinator.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/launch-config.ts`<br>`apps/server/src/modules/sessions/machine-reconciler.ts`<br>`apps/server/src/modules/sessions/naming.ts`<br>`apps/server/src/modules/sessions/observation-leases.ts`<br>`apps/server/src/modules/sessions/publication/broadcast.ts`<br>`apps/server/src/modules/sessions/publication/coordinator.ts`<br>`apps/server/src/modules/sessions/publish-worker-client.ts`<br>`apps/server/src/modules/sessions/repository.ts`<br>`apps/server/src/modules/sessions/session-access.ts`<br>`apps/server/src/modules/sessions/session-binding.ts`<br>`apps/server/src/modules/sessions/session-shared.ts`<br>`apps/server/src/modules/sessions/session-start.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts`<br>`apps/server/src/modules/sessions/session-state/service.ts`<br>`apps/server/src/modules/sessions/terminal-proof.ts`<br>`apps/server/src/modules/sessions/view.ts`<br>`apps/server/src/modules/sessions/workspace.ts`<br>`apps/server/src/modules/superagent/headless.ts`<br>`apps/server/src/steward.ts` |
+| `apps/server/src/modules/sessions/lifecycle.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/features.ts`<br>`apps/server/src/gateway/client-registry.ts`<br>`apps/server/src/harness-manifest.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/sessions/account-env.ts`<br>`apps/server/src/modules/sessions/command-ctx.ts`<br>`apps/server/src/modules/sessions/handoff/access.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/naming.ts`<br>`apps/server/src/modules/sessions/observation-leases.ts`<br>`apps/server/src/modules/sessions/session-access.ts`<br>`apps/server/src/modules/sessions/session-shared.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts`<br>`apps/server/src/modules/sessions/session-wiring.ts`<br>`apps/server/src/steward.ts` |
 | `apps/server/src/modules/sessions/machine-reconciler.ts` | — |
 | `apps/server/src/modules/sessions/naming.ts` | — |
 | `apps/server/src/modules/sessions/observation-leases.ts` | — |
@@ -346,13 +352,17 @@ Runtime modules: 199. Runtime edges: 318. Cycles: 0.
 | `apps/server/src/modules/sessions/repository.ts` | `apps/server/src/features.ts`<br>`apps/server/src/modules/sessions/session.ts` |
 | `apps/server/src/modules/sessions/session-access.ts` | `apps/server/src/issue-authz.ts` |
 | `apps/server/src/modules/sessions/session-binding.ts` | `apps/server/src/harness-manifest.ts` |
+| `apps/server/src/modules/sessions/session-control-policy.ts` | — |
+| `apps/server/src/modules/sessions/session-revival.ts` | `apps/server/src/modules/sessions/handoff/coordinator.ts` |
 | `apps/server/src/modules/sessions/session-shared.ts` | — |
 | `apps/server/src/modules/sessions/session-start.ts` | `apps/server/src/harness-manifest.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/sessions/naming.ts`<br>`apps/server/src/modules/sessions/session-shared.ts`<br>`apps/server/src/modules/sessions/session.ts` |
 | `apps/server/src/modules/sessions/session-state/registry.ts` | `apps/server/src/modules/sessions/session-state/service.ts` |
 | `apps/server/src/modules/sessions/session-state/service.ts` | `apps/server/src/modules/sessions/draft-doc.ts` |
+| `apps/server/src/modules/sessions/session-teardown.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/issue-util.ts` |
+| `apps/server/src/modules/sessions/session-wiring.ts` | `apps/server/src/auto-continue.ts`<br>`apps/server/src/command-principal.ts`<br>`apps/server/src/features.ts`<br>`apps/server/src/gateway/browser-open.ts`<br>`apps/server/src/gateway/client-registry.ts`<br>`apps/server/src/harness-manifest.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/modules/sessions/client-control.ts`<br>`apps/server/src/modules/sessions/command-ctx.ts`<br>`apps/server/src/modules/sessions/daemon-lifecycle.ts`<br>`apps/server/src/modules/sessions/daemon-projection.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/launch-config.ts`<br>`apps/server/src/modules/sessions/machine-reconciler.ts`<br>`apps/server/src/modules/sessions/naming.ts`<br>`apps/server/src/modules/sessions/publication/broadcast.ts`<br>`apps/server/src/modules/sessions/publication/coordinator.ts`<br>`apps/server/src/modules/sessions/publish-worker-client.ts`<br>`apps/server/src/modules/sessions/repository.ts`<br>`apps/server/src/modules/sessions/session-binding.ts`<br>`apps/server/src/modules/sessions/session-revival.ts`<br>`apps/server/src/modules/sessions/session-shared.ts`<br>`apps/server/src/modules/sessions/session-start.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts`<br>`apps/server/src/modules/sessions/session-state/service.ts`<br>`apps/server/src/modules/sessions/session-teardown.ts`<br>`apps/server/src/modules/sessions/terminal-proof.ts`<br>`apps/server/src/modules/sessions/view.ts`<br>`apps/server/src/modules/sessions/workspace.ts`<br>`apps/server/src/modules/superagent/headless.ts` |
 | `apps/server/src/modules/sessions/session.ts` | `apps/server/src/modules/sessions/terminal.ts` |
 | `apps/server/src/modules/sessions/terminal-proof.ts` | `apps/server/src/harness-manifest.ts` |
-| `apps/server/src/modules/sessions/terminal.ts` | `apps/server/src/gateway/client-principal.ts`<br>`apps/server/src/modules/perf/principal.ts`<br>`apps/server/src/modules/perf/registry.ts` |
+| `apps/server/src/modules/sessions/terminal.ts` | `apps/server/src/gateway/client-principal.ts`<br>`apps/server/src/modules/perf/principal.ts`<br>`apps/server/src/modules/perf/registry.ts`<br>`apps/server/src/modules/sessions/session-control-policy.ts` |
 | `apps/server/src/modules/sessions/view.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/harness-manifest.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts` |
 | `apps/server/src/modules/sessions/workspace.ts` | `apps/server/src/modules/sessions/handoff-transfer.ts` |
 | `apps/server/src/modules/settings/audit.ts` | `apps/server/src/store/settings-audit.ts` |

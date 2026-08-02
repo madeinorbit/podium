@@ -1,12 +1,28 @@
 # POD-1396 — finishing the `lifecycle.ts` decomposition
 
-**State:** 2955 → 2700 lines, 91 methods, **five** modules extracted.
-**Target:** under the 600-line review signal, or an argued exception its own
-predicate can satisfy. At 2700 it is not that, and no honest exception exists.
+## Status as of this branch (re-measured)
 
-Re-measure before trusting these numbers — this file has already gone stale once
-during the work it describes, which is the same failure its parent audit exists
-to catch.
+| metric | before this session | after four cuts |
+| --- | ---: | ---: |
+| `lifecycle.ts` lines | 2457 (session-start already out) | **1355** |
+| modules extracted (total for POD-1396) | 6 (leases, proof, reconciler, naming, launch-config, start) | **9** (+ teardown, revival, wiring) |
+| constructor span | 409–459 | **5** (body in `session-wiring.ts`) |
+| largest remaining method | constructor 459 | authorizeQueuedInputAtApply ~84 |
+| composition | 193 modules / 309 edges | **196 modules / 324 edges** / 0 cycles |
+| ambient USAGE | 41 | **41 (delta 0)** |
+| construction order | 52/0/0/0 | **52/0/0/0** |
+
+Still above the 600-line review signal. The four planned cuts landed; the residue
+is a facade of thin delegates plus mid-sized methods that were never part of the
+four-cut plan (authorizeQueuedInputAtApply, reattachMessageFor, client/daemon
+frame handlers, issue delete/restore plans). Do not ledger-exempt the 1355-line
+file — argue further cuts or a predicate-backed exception with evidence.
+
+Edge accounting for this session: +3 modules, +15 edges net. The jump from 313→344
+when wiring landed was wiring's value imports of every collaborator; converting
+lifecycle's class field imports to `import type` brought edges to 324. Cycles 0.
+
+---
 
 ## What has come out so far
 
