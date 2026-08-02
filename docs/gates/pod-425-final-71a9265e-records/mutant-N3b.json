@@ -1,0 +1,25 @@
+{
+  "id": "N3b",
+  "file": "packages/protocol/src/planes/control-port.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/protocol/src/planes",
+  "candidate_sha": "94a5cba20a9a179da88199030a8d3e184f1910fd",
+  "original_sha256": "40eba54f13c3d1fbc68ec9bf2f04ef6a2a7eed8cbd9ccb62cdb0f29b5924bb94",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 125,
+      "anchor_first_line": "admitEntity(target: PlaneTarget, ref: EntityRef): boolean {",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "admitEntity(target: PlaneTarget, ref: EntityRef): boolean {",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "276677068904bf884be958f52c10232048a5bd5aef3c8181e9f3169487c21c90",
+  "exit_code": 1,
+  "elapsed_s": 4.1,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-425-4-8-phase-4-exit-gate-node-decomposition\n\n \u276f |node| packages/protocol/src/planes/control-port.test.ts (17 tests | 1 failed) 53ms\n     \u00d7 admits an entity only when the resolver says so, and never says why 13ms\n\n Test Files  1 failed | 4 passed (5)\n      Tests  1 failed | 87 passed (88)\n   Start at  00:49:54\n   Duration  3.49s (transform 9.37s, setup 744ms, import 12.09s, tests 216ms, environment 2ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/protocol/src/planes/control-port.test.ts > the port carries a principal and evaluates no policy > admits an entity only when the resolver says so, and never says why\nAssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:\n\n  1st vi.fn() call:\n\n    Array [\n      \"alice\",\n      Object {\n        \"reason\": \"not-visible-to-you\",\n        \"ref\": Object {\n          \"id\": \"i1\",\n          \"kind\": \"issue\",\n        },\n        \"type\": \"subscribeDenied\",\n      },\n    ]\n\n\nNumber of calls: 1\n\n \u276f packages/protocol/src/planes/control-port.test.ts:125:29\n    123|     expect(denied.registry.keyCount).toBe(0)\n    124|     // A refusal emits nothing: there is no reason code to leak.\n    125|     expect(denied.emit).not.toHaveBeenCalled()\n       |                             ^\n    126|\n    127|     const allowed = setup(allowAll)\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "40eba54f13c3d1fbc68ec9bf2f04ef6a2a7eed8cbd9ccb62cdb0f29b5924bb94",
+  "restored_identical": true,
+  "git_clean_after": true
+}

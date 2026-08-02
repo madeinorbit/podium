@@ -1,0 +1,25 @@
+{
+  "id": "C6c",
+  "file": "apps/server/src/gateway/presence-routing.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/gateway/presence-routing.test.ts apps/server/src/gateway/reattach-storm.integration.test.ts packages/protocol/src/planes",
+  "candidate_sha": "94a5cba20a9a179da88199030a8d3e184f1910fd",
+  "original_sha256": "bc1f10509e4375bc3279ae14be08fa97520fe7ee2aa4af5a74424d054da81b65",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 27,
+      "anchor_first_line": "export const STREAM_QUEUE_MAX_FRAMES = 64",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "export const STREAM_QUEUE_MAX_FRAMES = 1_000_000",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "896f8839454191f6586b49fe03fc2f93e5a46ec468e33b265a83f87a322f56d2",
+  "exit_code": 1,
+  "elapsed_s": 5.0,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-425-4-8-phase-4-exit-gate-node-decomposition\n\n \u276f |node| apps/server/src/gateway/presence-routing.test.ts (9 tests | 1 failed) 28ms\n     \u00d7 bounds the undrained outbound queue so a busy room drops rather than buffers 9ms\n\n Test Files  1 failed | 5 passed (6)\n      Tests  1 failed | 96 passed (97)\n   Start at  00:48:16\n   Duration  4.29s (transform 12.93s, setup 948ms, import 18.28s, tests 227ms, environment 7ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/gateway/presence-routing.test.ts > production presence routing > bounds the undrained outbound queue so a busy room drops rather than buffers\nAssertionError: expected 1000000 to be 64 // Object.is equality\n\n- Expected\n+ Received\n\n- 64\n+ 1000000\n\n \u276f apps/server/src/gateway/presence-routing.test.ts:222:37\n    220|     // is a hard number above 64, not `STREAM_QUEUE_MAX_FRAMES + k` (w\u2026\n    221|     // scale with the mutant and still pass).\n    222|     expect(STREAM_QUEUE_MAX_FRAMES).toBe(64)\n       |                                     ^\n    223|\n    224|     const { subscriptions, clients, presence } = setup()\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "bc1f10509e4375bc3279ae14be08fa97520fe7ee2aa4af5a74424d054da81b65",
+  "restored_identical": true,
+  "git_clean_after": true
+}

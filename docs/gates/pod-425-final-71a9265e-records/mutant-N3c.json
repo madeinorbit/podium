@@ -1,0 +1,25 @@
+{
+  "id": "N3c",
+  "file": "packages/protocol/src/planes/stream-port.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/protocol/src/planes apps/server/src/gateway/presence-routing.test.ts",
+  "candidate_sha": "94a5cba20a9a179da88199030a8d3e184f1910fd",
+  "original_sha256": "d9a696797f64bef9e9788d874c4a2d9e2802e5837b150ba6b06dd14d68120bcc",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 111,
+      "anchor_first_line": "if (this.deps.visibility.canSee(target.principal, room) !== true) {",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "if (this.deps.visibility.canSee(target.principal, room) !== true) {",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "392b613c015cec352d28691e4b41897524f290fff0895026d659ff0f678653a0",
+  "exit_code": 1,
+  "elapsed_s": 12.9,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-425-4-8-phase-4-exit-gate-node-decomposition\n\n \u276f |node| packages/protocol/src/planes/stream-port.test.ts (19 tests | 1 failed) 435ms\n     \u00d7 does not subscribe a refused connection to anything 340ms\n\n Test Files  1 failed | 5 passed (6)\n      Tests  1 failed | 96 passed (97)\n   Start at  00:49:59\n   Duration  12.20s (transform 44.28s, setup 743ms, import 59.61s, tests 783ms, environment 1ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/protocol/src/planes/stream-port.test.ts > joins are visibility-gated and default-closed (D14) > does not subscribe a refused connection to anything\nAssertionError: expected 1 to be +0 // Object.is equality\n\n- Expected\n+ Received\n\n- 0\n+ 1\n\n \u276f packages/protocol/src/planes/stream-port.test.ts:146:31\n    144|     const { port, registry } = setup({ canSee: () => false })\n    145|     port.join(conn('a', user('alice')), room)\n    146|     expect(registry.keyCount).toBe(0)\n       |                               ^\n    147|   })\n    148|\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "d9a696797f64bef9e9788d874c4a2d9e2802e5837b150ba6b06dd14d68120bcc",
+  "restored_identical": true,
+  "git_clean_after": true
+}

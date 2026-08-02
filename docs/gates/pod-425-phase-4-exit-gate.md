@@ -1,5 +1,7 @@
 # POD-425 Phase 4 exit gate
 
+> Passing named-candidate verdict: [71a9265e exit gate](./pod-425-final-71a9265e.md).
+
 > Latest named-candidate verdict: [2b637a2b exit gate](./pod-425-final-2b637a2b.md).
 
 > Final named-candidate verdict: [2359f9d9 exit gate](./pod-425-final-2359f9d9.md).
