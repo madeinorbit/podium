@@ -340,6 +340,59 @@ export class MachinesService {
     this.transferOwnership(id, newOwnerUserId)
   }
 
+  /**
+   * Give an owner to a machine that has none (POD-1494) — what `machines.adopt`
+   * calls, and the sibling of {@link transferMachineOwnership} rather than a
+   * relaxation of it.
+   *
+   * The two differ in WHERE THE AUTHORITY COMES FROM, and this method's shape is
+   * that difference made concrete: transfer takes a `currentOwner` because the
+   * incumbent's consent IS the authority, and this one takes no such parameter
+   * because there is no incumbent to consent. The authority is the admin floor
+   * on the contract, resolved from the transport principal — so there is
+   * deliberately no adopter argument here that a caller could get wrong, and
+   * no way for this method to be talked into believing who is asking.
+   *
+   * As with transfer these checks are DEFENCE IN DEPTH and not the gate: the gate
+   * is `roleFloor: 'admin'` + `machineVerb: 'see'` + `machineOwnerPrecondition:
+   * 'unowned'` in `fleetAuthzFailure`. They are repeated because a service
+   * reachable from more than one transport must not depend on every one of them
+   * remembering.
+   */
+  adoptMachine(id: string, newOwnerUserId: string): void {
+    const machine = this.deps.store.machines.getMachine(id)
+    if (!machine) throw new Error(`unknown machine '${id}'`)
+    // THE LEDGER DECIDES, not `machine.ownerUserId`. The row is a projection
+    // (D19.4d) and this is the one question adoption must not ask it: a row
+    // still showing a stale owner between a transfer's append and its projection
+    // would refuse a legitimate adoption, and — the direction that matters — a
+    // row showing null while the ledger holds a resolvable owner would let an
+    // admin adopt a machine that is currently somebody's.
+    //
+    // `null` covers recorded-as-unowned AND quarantine (the recorded owner no
+    // longer resolves, D19.4b); `undefined` is never-recorded. All three are
+    // adoptable — see the contract for why quarantine is deliberately included.
+    const owner = this.effectiveOwner(id)
+    if (owner !== null && owner !== undefined) {
+      throw new Error('machine already has an owner — only its owner may transfer it')
+    }
+    // Same fail-closed reading as transfer: a deps bundle with no `userExists`
+    // resolves to `undefined`, which REFUSES. Adopting to an unresolvable id
+    // would append an owner the next `reconcileOwnersFromLedger` re-quarantines
+    // — the machine would come out of adoption exactly as stuck as it went in.
+    if (!this.deps.userExists?.(newOwnerUserId)) {
+      throw new Error(`unknown user: ${newOwnerUserId}`)
+    }
+    // Grant edges should not survive an ownership change, and an unowned machine
+    // is where stale ones are most likely to be: `machineVerbsFor` stops reading
+    // them the moment the owner column goes null (owner-null grants nobody
+    // anything), so an edge can sit here invisible and become live again the
+    // instant an owner exists. Dropped BEFORE the append for the crash ordering
+    // — the closed state is the safe one to be interrupted in.
+    this.deps.store.grants.removeAllForResource('machine', id)
+    this.transferOwnership(id, newOwnerUserId)
+  }
+
   /** Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
    *  See {@link credentials.effectiveOwner}. */
   effectiveOwner(machineId: string): string | null | undefined {

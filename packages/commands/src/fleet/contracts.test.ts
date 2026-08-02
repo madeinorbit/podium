@@ -24,11 +24,12 @@ import {
   fleetServerRoleOf,
 } from './contracts'
 
-const THIRTEEN: readonly FleetContractName[] = [
+const FOURTEEN: readonly FleetContractName[] = [
   'machines.rename',
   'machines.share',
   'machines.unshare',
   'machines.transferOwnership',
+  'machines.adopt',
   'machines.revoke',
   'machines.pairingCode',
   'repos.add',
@@ -58,7 +59,7 @@ const isDeclaredMatrixRow = (row: string): boolean =>
 
 describe('the thirteen fleet contracts', () => {
   it('declares exactly the thirteen fleet commands, and no fourteenth', () => {
-    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...THIRTEEN].sort())
+    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...FOURTEEN].sort())
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -123,6 +124,7 @@ describe('the thirteen fleet contracts', () => {
       'machines.rename': 'machine',
       'machines.share': 'machine',
       'machines.transferOwnership': 'machine',
+      'machines.adopt': 'machine',
       'machines.unshare': 'machine',
       'machines.revoke': 'machine',
       'machines.pairingCode': 'pairing-token',
@@ -170,6 +172,12 @@ describe('the thirteen fleet contracts', () => {
       'machines.rename': 'manage',
       'machines.share': 'manage',
       'machines.transferOwnership': 'manage',
+      // ADOPTION IS THE ONE `see`, and it is a rule rather than a weaker check:
+      // `machineVerbsFor` grants an admin `see` only while the owner is null, so
+      // `see` here resolves to "an admin, on an unowned machine" and nothing
+      // else. `manage` would refuse every caller — nobody holds it on an
+      // unowned machine.
+      'machines.adopt': 'see',
       'machines.unshare': 'manage',
       'machines.revoke': 'manage',
       // No machine exists yet, so there is no machine to hold a verb against.
@@ -225,6 +233,7 @@ describe('the thirteen fleet contracts', () => {
       'machines.rename': 'hub',
       'machines.share': 'hub',
       'machines.transferOwnership': 'hub',
+      'machines.adopt': 'hub',
       'machines.unshare': 'hub',
       'machines.revoke': 'hub',
       'machines.pairingCode': 'hub',
@@ -287,7 +296,7 @@ describe('the thirteen fleet contracts', () => {
     // has an owner column, and a floor of `admin` there would make ADR 9 D6
     // M1's "Owner + admins" unreachable for the owner.
     expect(byFloor['machines.pairingCode']).toBe('admin')
-    for (const name of THIRTEEN.filter((n) => n !== 'machines.pairingCode')) {
+    for (const name of FOURTEEN.filter((n) => n !== 'machines.pairingCode')) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
     }
   })

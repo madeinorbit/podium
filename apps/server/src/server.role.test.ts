@@ -85,6 +85,11 @@ describe('startServer with the hub role disabled (node shape)', () => {
           id: handle.registry.modules.machines.hostMachineId,
           newOwnerUserId: 'user:nobody',
         }),
+      () =>
+        trpc.machines.adopt.mutate({
+          id: handle.registry.modules.machines.hostMachineId,
+          newOwnerUserId: 'user:nobody',
+        }),
     ]) {
       const err = await call().then(
         () => undefined,
@@ -128,6 +133,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
       .map((c) => c.name)
       .sort()
     expect(hubNames).toEqual([
+      'machines.adopt',
       'machines.pairingCode',
       'machines.rename',
       'machines.revoke',

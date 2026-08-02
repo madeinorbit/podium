@@ -25,6 +25,7 @@ import {
   discoveryScanMachineHandler,
   type FleetHandler,
   machinePairingCodeHandler,
+  machineAdoptHandler,
   machineRenameHandler,
   machineRevokeHandler,
   machineShareHandler,
@@ -71,6 +72,10 @@ export const FLEET_COMMANDS = {
   'machines.transferOwnership': {
     contract: FLEET_CONTRACTS['machines.transferOwnership'],
     handler: machineTransferOwnershipHandler,
+  },
+  'machines.adopt': {
+    contract: FLEET_CONTRACTS['machines.adopt'],
+    handler: machineAdoptHandler,
   },
   'machines.revoke': {
     contract: FLEET_CONTRACTS['machines.revoke'],
