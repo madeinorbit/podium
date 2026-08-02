@@ -1,6 +1,6 @@
 # POD-1078 closure evidence
 
-Reconciled with integration `c557f306` at merge tip `6b006f41` on 2026-08-02. The implementation and cross-user mutation proof landed at `0c27d300` and `b26696c5` respectively.
+Landed on Phase 4 integration at `1cb323c8` and inspected candidate `29897756` at merge tip `00b4519e` on 2026-08-02. The implementation and cross-user mutation proof landed at `0c27d300` and `b26696c5` respectively.
 
 ## Acceptance evidence
 
@@ -42,7 +42,7 @@ bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.
 
 ## Wider verification
 
-- Merged focused gateway/protocol/wire suite: 9 files, 209 tests passed.
+- Implementation-tree focused gateway/protocol/wire suite: 9 files, 209 tests passed.
 - Cross-user visibility mutation: 1 file, 1 test failed as required; restored gate rerun passed.
 - Typecheck: 22 tasks passed.
 - Web: 183 files, 1,460 tests passed.
@@ -50,6 +50,8 @@ bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.
 - Bun SQLite: 14 tests passed.
 - Independent-instance lane: runtime isolation 1 test, managed-account spawn 3 tests, installer suite `ALL OK`.
 - Historical full unit sweep at `02b65cbe` under three concurrent foreign runners exited `1`: 5 files failed, 638 passed, 3 skipped; 10 tests failed, 9,346 passed, 33 skipped. The count is seven timed-out tests plus three POD-1315 failures; `terminal-view.keyboard.test.ts` separately failed its 10-second `beforeAll` hook and skipped 13 tests, so it was a failed file but did not add an eleventh failed test. Isolated reruns were green for every timeout group: architecture 1 file/72 tests/exit 0, normalized wire 1/7/exit 0, live-scale benchmark 1/1/exit 0, and terminal keyboard 1/13/exit 0. The three POD-1315 compile-time probes remained red in isolation at that tree (1 file, 3 failed/3 passed, exit 1); integration now contains `f4fbeee6`, which makes the probes declared-and-never-invoked rather than executable tests; the corrected merged tree passes 1 file/3 tests with exit 0.
+- Corrected-integration full `bun run test` at `c557f306` exited `1` in unit and therefore did not reach web/mobile/Bun: 2 files failed, 642 passed, 3 skipped; 2 tests failed, 9,365 passed, 20 skipped; 1 worker error. The websocket publication timeout passes isolated 1 file/7 tests/exit 0; the Bun SIGILL file passes isolated 1/12/exit 0. Grok hook discovery remains red isolated 1 failed/7 passed/exit 1 because the installed CLI reports `pre_tool_use` while the test expects `PreToolUse`; proposed POD-1382 owns that independent contract drift.
+- Landed-candidate focused suite at `29897756`: 8 files passed and `wire-golden.test.ts` failed; 206 tests passed, 3 failed. POD-1350 layout fixtures generate seven invalid keys and the committed host/model goldens omit layout plus POD-1359 machine-use additions; both owners, the coordinator, and POD-425 were notified. The eight POD-1078 routing/presence/feed/browser/inventory files and the 11-test oracle decomposition file pass.
 - Structural gates: composition graph 176 modules/0 cycles; construction order 51 declarations/0 forward, deferred, or late bindings; reactions ledger 25 entries.
 
 `bun run lint:boundaries` reaches an unrelated pre-existing violation in `apps/server/src/modules/sessions/daemon-lifecycle.ts` and a dead allowlist entry, now tracked as POD-1362. The room/host-edge totality assertions themselves pass in `inventory.test.ts`; no changed file introduces the reported dependency.
