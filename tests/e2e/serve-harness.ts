@@ -35,7 +35,7 @@ import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import type { SessionStore } from '../../apps/server/src/store'
 import { writeCodexStartupFixture } from './codex-fixture'
@@ -46,6 +46,15 @@ import {
   reapHarnessSessions,
   reapStaleHarnessDirs,
 } from './harness-env'
+
+/** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
+ *  file the server and the split-mode daemon read. There is no `'local'` constant
+ *  any more; a machine id is minted material.
+ *
+ *  A FUNCTION, not a module-level constant: these harnesses point PODIUM_STATE_DIR
+ *  at an isolated directory AFTER the imports run, and a constant would have read
+ *  (and minted into) the real state dir before that happened. */
+const hostMachineId = (): string => readOrCreateLocalMachineId()
 
 /**
  * The browser harness keeps discovery jobs INLINE on its main thread so test runs do not
@@ -206,7 +215,7 @@ if (!REAL_AGENTS) {
     const now = Date.now()
     return [
       {
-        machineId: LOCAL_MACHINE_ID,
+        machineId: hostMachineId(),
         machineName: 'podium-e2e',
         hostname: 'podium-e2e',
         agents: [
@@ -293,7 +302,7 @@ if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHI
     hostname: 'e2e-target',
     tokenHash: 'e2e',
   })
-  harnessStore.repos.updateRepoOrigin(LOCAL_MACHINE_ID, SCRATCH_REPO, E2E_ORIGIN)
+  harnessStore.repos.updateRepoOrigin(hostMachineId(), SCRATCH_REPO, E2E_ORIGIN)
   harnessStore.repos.addRepo(E2E_TARGET_REPO, E2E_TARGET_ID, E2E_ORIGIN)
   server.registry.modules.sessions.attachDaemon(E2E_TARGET_ID, (msg) => {
     if (msg.type === 'scanReposRequest') {
@@ -330,7 +339,7 @@ if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHI
 const daemonOptions: Parameters<typeof startDaemon>[0] = {
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
-  machineId: LOCAL_MACHINE_ID,
+  machineId: hostMachineId(),
   installCodexHooks: REAL_AGENTS,
   // The fixture is isolated by its per-port state root. TCP callbacks are
   // ephemeral so it never contends with the live instance; Codex continuity is
@@ -352,10 +361,10 @@ if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
     agentKind: 'codex',
     cwd: REPO_ROOT,
     issueId: issue.id,
-    machineId: LOCAL_MACHINE_ID,
+    machineId: hostMachineId(),
   })
   server.registry.modules.sessions.renameSession({ sessionId, name: 'Finished relay delegate A' })
-  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
     type: 'bind',
     sessionId,
     cmd: 'codex',
@@ -363,12 +372,12 @@ if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
     agentKind: 'codex',
     geometry: { cols: 80, rows: 24 },
   })
-  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'codex-thread', value: 'e2e-finished-delegate' },
   })
-  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
     type: 'agentState',
     sessionId,
     state: {
@@ -383,13 +392,13 @@ if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
     agentKind: 'codex',
     cwd: REPO_ROOT,
     issueId: issue.id,
-    machineId: LOCAL_MACHINE_ID,
+    machineId: hostMachineId(),
   })
   server.registry.modules.sessions.renameSession({
     sessionId: secondId,
     name: 'Finished relay delegate B',
   })
-  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
     type: 'bind',
     sessionId: secondId,
     cmd: 'codex',
@@ -397,12 +406,12 @@ if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
     agentKind: 'codex',
     geometry: { cols: 80, rows: 24 },
   })
-  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
     type: 'sessionResumeRef',
     sessionId: secondId,
     resume: { kind: 'codex-thread', value: 'e2e-finished-delegate-2' },
   })
-  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
     type: 'agentState',
     sessionId: secondId,
     state: {
@@ -425,12 +434,12 @@ if (process.env.PODIUM_E2E_OFFER === '1') {
     agentKind: 'codex',
     cwd: REPO_ROOT,
     issueId: issue.id,
-    machineId: LOCAL_MACHINE_ID,
+    machineId: hostMachineId(),
   })
   setTimeout(() => {
     // Match the real review-offer lifecycle: the turn has completed, while the
     // offer it produced still needs a human decision.
-    server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
       type: 'agentState',
       sessionId,
       state: {
@@ -458,7 +467,7 @@ if (process.env.PODIUM_E2E_HANDOFF === '1') {
   server.registry.modules.sessions.createSession({
     agentKind: 'claude-code',
     cwd: SCRATCH_FEAT,
-    machineId: LOCAL_MACHINE_ID,
+    machineId: hostMachineId(),
   })
 }
 console.log(

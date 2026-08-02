@@ -3,9 +3,18 @@ import { encode, parseServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
-import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+
+/** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
+ *  file the server and the split-mode daemon read. There is no `'local'` constant
+ *  any more; a machine id is minted material.
+ *
+ *  A FUNCTION, not a module-level constant: these harnesses point PODIUM_STATE_DIR
+ *  at an isolated directory AFTER the imports run, and a constant would have read
+ *  (and minted into) the real state dir before that happened. */
+const hostMachineId = (): string => readOrCreateLocalMachineId()
 
 // Without this isolation the test server writes session rows into the REAL
 // ~/.podium/podium.db and the daemon parks a REAL durable abduco master that
@@ -67,7 +76,7 @@ describe('e2e: daemon -> server -> client', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: srv.bootstrapToken,
-      machineId: LOCAL_MACHINE_ID,
+      machineId: hostMachineId(),
       hooks: { port: 0 },
       agentRelay: { port: 0 },
       launch: () => ({

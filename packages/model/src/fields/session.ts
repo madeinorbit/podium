@@ -45,11 +45,10 @@
  * ---------------------------------------------------------------------------
  *
  * Ids use the FIELD-position schemas (brand only, no added validation), so a
- * payload that parses today still parses. `machineId` is the exception and it is
- * a carve-out, not an oversight: `MachineIdField` stays raw because
- * `MachineId.parse('local')` SUCCEEDS, so branding a site that can hold the
- * `'local'` / `'__local__'` sentinels would LAUNDER them instead of flagging them
- * (ADR 1 Amendment 2 D16.2). POD-318 retires the sentinels first.
+ * payload that parses today still parses — `machineId` included. It was the one
+ * exception while `MachineId.parse('local')` SUCCEEDED and branding a site that
+ * could hold a sentinel would have LAUNDERED it (ADR 1 Amendment 2 D16.2).
+ * POD-318 retired both sentinels and made the boundary schema refuse them.
  */
 
 import { z } from 'zod'

@@ -41,7 +41,7 @@ describe('machines store [bun:sqlite]', () => {
     s.close()
   })
 
-  it('pre-multi-machine repos rebuild under bun:sqlite preserves rows as __local__', () => {
+  it('pre-multi-machine repos rebuild under bun:sqlite preserves rows on this host', () => {
     const file = tmpDbPath()
     // Build a pre-multi-machine repos table (path PRIMARY KEY) through the shim.
     const db = openDatabase(file)
@@ -56,7 +56,7 @@ describe('machines store [bun:sqlite]', () => {
 
     const store = new SessionStore(file)
     const rows = store.listRepos()
-    expect(rows.find((r) => r.path === '/projects/alpha')?.machineId).toBe('__local__')
+    expect(rows.find((r) => r.path === '/projects/alpha')?.machineId).toBe(store.hostMachineId)
     expect(rows.find((r) => r.path === '/projects/alpha')?.originUrl).toBeNull()
     store.addRepo('/projects/gamma')
     expect(store.listRepoPaths()).toContain('/projects/gamma')

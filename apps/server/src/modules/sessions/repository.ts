@@ -478,11 +478,10 @@ export class SessionRepository {
     // No fan-out: there are no clients at boot. Conversations are deliberately
     // NOT reconciled at boot: they are daemon-fed, and an empty list at boot
     // means "not scanned yet", not "all gone".
-    // Boot ordering (#247): this runs BEFORE server.ts calls ensureHostMachine,
-    // so placeholder rows reconcile here with machineId '__local__'. That stale
-    // baseline is unobservable and self-healing: adoption
-    // (ensureHostMachine → adoptPlaceholderRows) explicitly captures affected
-    // sessions before its broadcast — all before the server accepts connections.
+    // Boot ordering (#247), SETTLED by POD-318: rows carry a real machine id before
+    // this runs. `SessionStore` folds any pre-POD-318 sentinel rows onto this host's
+    // minted id as it OPENS — ahead of this reconcile, and ahead of the registry that
+    // calls it — so there is no stale machine baseline here to be captured later.
     const recovered = this.ports.ledger.reconcile(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
