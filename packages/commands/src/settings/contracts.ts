@@ -83,6 +83,7 @@
 
 import {
   classifySettingsPath,
+  MutationIdField,
   OWNERSHIP_MATRIX_INDEX,
   SERVER_SECRET_KEYS,
   SETTINGS_CLASSIFICATION,
@@ -459,7 +460,7 @@ const CLOSED_VOCABULARY_ERRORS: ErrorConsistency = {
 /** The 24 personal-preference leaves, addressed by path. */
 export const settingsUpdatePersonalInput = z.object({
   values: preferencePatch('personal-preference'),
-  mutationId: z.string().max(128).optional(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 /**

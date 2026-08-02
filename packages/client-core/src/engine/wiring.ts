@@ -7,7 +7,7 @@
  */
 
 import type { ConfirmationRule } from '@podium/commands'
-import type { PinKind, SessionId, WorkState } from '@podium/model'
+import type { SessionId, WorkState } from '@podium/model'
 import {
   ENQUEUEABLE_DELIVERY,
   type OutboxCommand,
@@ -34,9 +34,12 @@ import type { StoreNotices } from './types'
  *  tab order, and personal settings) use the same path. Live chat stays direct —
  *  it must fail fast rather than silently queue. */
 export type OutboxKinds = {
-  pinSet: { kind: PinKind; id: string; pinned: boolean }
-  tabSetOrder: { worktree: string; sessionIds: SessionId[] }
-  settingsUpdatePersonal: { values: Record<string, unknown> }
+  pinSet: Omit<Parameters<PodiumClientApi['pins']['set']['mutate']>[0], 'mutationId'>
+  tabSetOrder: Omit<Parameters<PodiumClientApi['tabs']['setOrder']['mutate']>[0], 'mutationId'>
+  settingsUpdatePersonal: Omit<
+    Parameters<PodiumClientApi['settings']['updatePersonal']['mutate']>[0],
+    'mutationId'
+  >
   resumeAndSend: { sessionId: SessionId; text: string }
   rename: { sessionId: SessionId; name: string }
   setArchived: { sessionId: SessionId; archived: boolean }
