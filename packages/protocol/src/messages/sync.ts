@@ -9,7 +9,6 @@ import {
   IssueDepProjection,
   IssueProjection,
   IssueWire,
-  LayoutWire,
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
@@ -164,12 +163,6 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
   metadataChangeArm(z.literal('automation'), AutomationWire),
   metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
-  /** Per-user sidebar/tab layout row (POD-1350) — keyed `(userId, key)` on the
-   *  change id via `layoutRowId`. Visibility class `per-user-state`: only the
-   *  owning human's principals see the row (ADR 9 D3 rule 4). Additive on the
-   *  wire (same contract as issueProjection): older clients ignore via
-   *  UnknownMetadataChange and advance the cursor. */
-  metadataChangeArm(z.literal('userLayout'), LayoutWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -181,7 +174,6 @@ export const MetadataEntityKind = z.enum([
   'conversation',
   'automation',
   'automationRun',
-  'userLayout',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

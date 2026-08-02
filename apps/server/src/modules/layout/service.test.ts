@@ -18,7 +18,7 @@ let service: LayoutService
 beforeEach(() => {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  service = new LayoutService({ layout: new UserLayoutRepository(db) })
+  service = new LayoutService(new UserLayoutRepository(db))
 })
 
 describe('LayoutService', () => {
