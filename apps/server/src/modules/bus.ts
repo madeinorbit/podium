@@ -9,13 +9,13 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
-import type { InboxPrincipalReference } from './sessions/inbox'
 import type {
   AgentObservation,
   DaemonMessage,
   MetadataChange,
   SessionOpenUrlMessage,
 } from '@podium/protocol'
+import type { InboxPrincipalReference } from './sessions/inbox'
 
 /**
  * The typed in-process event map (architecture redesign, issue #13 Phase 2).

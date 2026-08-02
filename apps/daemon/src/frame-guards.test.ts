@@ -1,11 +1,7 @@
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
-import {
-  controlFrameByteLength,
-  createFrameGuard,
-  MAX_CONTROL_FRAME_BYTES,
-} from './frame-guards'
+import { controlFrameByteLength, createFrameGuard, MAX_CONTROL_FRAME_BYTES } from './frame-guards'
 
 const context = (): DaemonContext =>
   ({
@@ -55,14 +51,11 @@ describe('daemon frame guards', () => {
     const send = vi.fn(() => {
       throw new Error('closing')
     })
-    guard.send(
-      { readyState: 1, send } as never,
-      {
-        type: 'inventoryReport',
-        machineId: 'machine-1',
-        inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
-      },
-    )
+    guard.send({ readyState: 1, send } as never, {
+      type: 'inventoryReport',
+      machineId: 'machine-1',
+      inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
+    })
     expect(warn).toHaveBeenCalledWith(
       '[podium:daemon] dropped malformed outbound control frame:',
       expect.any(Error),

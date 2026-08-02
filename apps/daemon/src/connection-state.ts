@@ -9,9 +9,9 @@ import {
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
+import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
-import { consumePairCode } from '@podium/runtime/setup'
 import { saveToken } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
@@ -281,6 +281,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   const connectLocal = (): void => {
     state = 'connecting'
+    const localLink = options.localLink
+    if (!localLink) {
+      terminal('blocked', 'configuration', 'local connection requested without a local link')
+      return
+    }
     let dialer: ReturnType<typeof createHandshakeDialer>
     try {
       dialer = makeDialer()
@@ -289,7 +294,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     state = 'awaiting-ack'
-    const attachment = options.localLink!.attach({
+    const attachment = localLink.attach({
       hello: dialer.hello(),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
     })

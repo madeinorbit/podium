@@ -121,7 +121,8 @@ function upsertHooksJson(doc: Record<string, unknown>): {
     const groups: HookGroup[] = Array.isArray(hooks[event]) ? (hooks[event] as HookGroup[]) : []
     let found = false
     groups.forEach((group) => {
-      group.hooks?.forEach((handler, i) => {
+      const groupHooks = group.hooks
+      groupHooks?.forEach((handler, i) => {
         if (found || !isPodiumHandler(handler)) return
         found = true
         // Refresh a stale podium handler in place (old command/timeout).
@@ -130,7 +131,7 @@ function upsertHooksJson(doc: Record<string, unknown>): {
           handler.timeout !== PODIUM_CODEX_HOOK_TIMEOUT_SEC ||
           handler.type !== 'command'
         ) {
-          group.hooks![i] = {
+          groupHooks[i] = {
             type: 'command',
             command: PODIUM_CODEX_HOOK_COMMAND,
             timeout: PODIUM_CODEX_HOOK_TIMEOUT_SEC,

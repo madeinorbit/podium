@@ -9,12 +9,12 @@ import { finished } from 'node:stream/promises'
 import { promisify } from 'node:util'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
+  type CodexVersionProbe,
   detectCodexVersion,
   ensurePodiumCodexHooks,
-  parseCodexVersion,
   PODIUM_CODEX_HOOK_COMMAND,
+  parseCodexVersion,
   supportsCodexHooks,
-  type CodexVersionProbe,
 } from './codex-hooks.js'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
@@ -262,8 +262,8 @@ describe('codex hooks real-binary smoke', () => {
 
   it('recognizes the installed real Codex binary before editing hook files', async () => {
     const version = parseCodexVersion(await detectCodexVersion())
-    expect(version).not.toBeNull()
-    expect(supportsCodexHooks(version!)).toBe(true)
+    if (!version) throw new Error('installed Codex binary did not report a parseable version')
+    expect(supportsCodexHooks(version)).toBe(true)
   })
 
   it.skipIf(!enabled)(

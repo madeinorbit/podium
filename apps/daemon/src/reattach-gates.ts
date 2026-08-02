@@ -24,7 +24,12 @@ function createPriorityLimiter(
   max: number,
 ): <T>(priority: number, fn: () => Promise<T>) => Promise<T> {
   let active = 0
-  const queues: Array<Array<() => void>> = [[], [], [], []]
+  const queues: [Array<() => void>, Array<() => void>, Array<() => void>, Array<() => void>] = [
+    [],
+    [],
+    [],
+    [],
+  ]
   const release = (): void => {
     active--
     for (const queue of queues) {
@@ -47,7 +52,7 @@ function createPriorityLimiter(
         fn().then(resolve, reject).finally(release)
       }
       if (active < max) run()
-      else (queues[priority] ?? queues[3]!).push(run)
+      else (queues[priority] ?? queues[3]).push(run)
     })
 }
 
@@ -71,7 +76,9 @@ export function createReattachGates(opts?: { reattachMax?: number; tailSeedMax?:
     })
   }
   const whenReattachSettled = (): Promise<void> =>
-    reattachPending === 0 ? Promise.resolve() : new Promise((resolve) => settledWaiters.push(resolve))
+    reattachPending === 0
+      ? Promise.resolve()
+      : new Promise((resolve) => settledWaiters.push(resolve))
   const tailSeedGate = (fn: () => Promise<void>, priority = 3): Promise<void> =>
     whenReattachSettled().then(() => tailSeedLimit(priority, fn))
   return { reattachGate, tailSeedGate }

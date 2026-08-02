@@ -151,3 +151,42 @@ it('reports transport loss as backoff and schedules a retry', async () => {
   expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 500)
   await state.close()
 })
+
+it('retains a host diagnostic until the machine transport authenticates', async () => {
+  const socket = new FakeSocket()
+  const sendApplicationFrame = vi.fn()
+  const state = createDaemonConnection({
+    options: { serverUrl: 'ws://server', identityDir: temp() },
+    instanceId: 'blue',
+    machineId: 'machine-a',
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => socket,
+  })
+
+  const started = state.start()
+  state.send({
+    type: 'machineDiagnostic',
+    code: 'codex-version-unsupported',
+    title: 'Codex hooks need review',
+    body: 'Codex 0.999 is not recognized; local files were left untouched.',
+    observedVersion: 'codex-cli 0.999.0',
+  })
+  expect(sendApplicationFrame).not.toHaveBeenCalled()
+
+  socket.emit('open')
+  socket.message(ok)
+  await started
+
+  expect(sendApplicationFrame).toHaveBeenCalledWith(
+    socket,
+    expect.objectContaining({
+      type: 'machineDiagnostic',
+      code: 'codex-version-unsupported',
+    }),
+  )
+  await state.close()
+})

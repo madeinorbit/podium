@@ -1,6 +1,6 @@
+import type { PeerHello, PeerHelloReply } from '../handshake/envelope'
 import type { ControlMessage } from './control'
 import type { DaemonMessage } from './daemon'
-import type { PeerHello, PeerHelloReply } from '../handshake/envelope'
 
 export type LocalDaemonAttachment =
   | { readonly established: false; readonly reply: PeerHelloReply }

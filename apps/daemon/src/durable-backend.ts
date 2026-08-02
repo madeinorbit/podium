@@ -19,7 +19,9 @@ export function resolveDurableBackend(
   return 'none'
 }
 
-export function selectDurableBackend(opts: Pick<DaemonOptions, 'backend' | 'tmux'>): DurableBackend {
+export function selectDurableBackend(
+  opts: Pick<DaemonOptions, 'backend' | 'tmux'>,
+): DurableBackend {
   const backend = resolveDurableBackend(opts, {
     abduco: isAbducoAvailable(),
     tmux: isTmuxAvailable(),

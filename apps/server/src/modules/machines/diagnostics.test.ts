@@ -1,6 +1,6 @@
 import { asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { routeMachineDiagnostic, type MachineDiagnosticRouterDeps } from './diagnostics'
+import { type MachineDiagnosticRouterDeps, routeMachineDiagnostic } from './diagnostics'
 
 const diagnostic = {
   machineId: 'machine-a',

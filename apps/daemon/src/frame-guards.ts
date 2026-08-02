@@ -68,7 +68,7 @@ export function createFrameGuard(
       }
     },
     send(socket, msg) {
-      if (!socket || socket.readyState !== 1) return
+      if (socket?.readyState !== 1) return
       try {
         socket.send(encode(msg))
       } catch (error) {
