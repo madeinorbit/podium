@@ -1,8 +1,10 @@
 # POD-409 — runtime verification (config-driven automation subforms)
 
-Branch `issue/409-6-4e-automationsview-config-driven-subfo`, tip before commit
-`2b637a2b` + this change. Chromium desktop, `tests/e2e/playwright.config.ts`,
-`PORT=8831`.
+Branch `issue/409-6-4e-automationsview-config-driven-subfo`, **rebased onto
+`origin/issue/279-integration` at `71a9265e`**; every result below was
+re-measured on that rebased tip, with `bun install` run after the rebase and
+`ls node_modules/@podium` confirming the hoisted links are at the repo root.
+Chromium desktop, `tests/e2e/playwright.config.ts`, `PORT=8831`.
 
     cd tests/e2e && PORT=8831 bunx playwright test \
       browser/automations.browser.e2e.ts --project=chromium-desktop
@@ -41,8 +43,11 @@ cron read-back, delegation copy below the prompt), `composer-reactive.png`
 ## Baseline — the two failures are not this change's
 
 The suite was already red before this change, and the A/B was run back-to-back on
-the same checkout (my files copied out, `git checkout --` to the pre-change tree,
-run, restore):
+the same checkout. The revert path was the safe one: the changed files were
+**copied to a snapshot first**, then `git checkout --` returned the tree to
+pre-change, and the restore copied the snapshot back — `git checkout --` reverts
+past uncommitted work, so doing it without the snapshot would have destroyed the
+diff being measured.
 
 | Suite | Baseline | With this change |
 |---|---|---|
@@ -72,7 +77,93 @@ with `{ entity: 'automation', op: 'remove' }` and
 `case 'automation'` applies removals, so the break is somewhere in the
 change-broadcast/apply path between them rather than in the UI.
 
-Reproduces identically on the pre-change tree, so it is not caused by this issue
-and it is separable from it. Filed as its own issue with a `discovered-from` edge.
+Reproduces identically on the pre-change tree — and again on the rebased tip, at
+spec lines 119 and 166 — so it is not caused by this issue and is separable from
+it. Filed as **POD-1509**, parented under POD-293 (Phase 6) with a
+`discovered-from` edge back to POD-409.
+
 The D of "CRUD real-click verified" is therefore **not** claimed here; C, R and U
 are.
+
+> Filing note for the coordinator: POD-1508 is the same bug filed first WITHOUT
+> `--parent-id`, which stranded it in Proposed where an agent can neither reparent
+> nor close it. POD-1509 supersedes it and is correctly parented. **POD-1508 needs
+> an operator to delete or archive it.**
+
+---
+
+## Mutation testing — what each guard actually protects
+
+Eleven mutants, one per guard. Each was applied to a file, the automations suite
+run, the test NAMES read out of the red (never the exit code), and the file
+restored **by copying back a pristine snapshot** taken before the first mutant —
+not by reverse-replacing the edit. Revert verified three ways after the last one:
+`md5sum` equal to the snapshot, `grep` for every mutant string returning nothing
+(rc=1), and `git status` clean.
+
+Every run printed a `Test Files` summary, so none of these reds is the
+"no tests collected, exit 1" shape that proves nothing.
+
+| # | Guard | Mutation | Named test that went red |
+|---|---|---|---|
+| A | cron guard | `scheduleValid` returns `true` unconditionally | *refuses an empty custom-cron box rather than falling back to every minute*; *refuses a malformed expression and flags the field* |
+| B | machine USE bounding | withheld targets pushed into `choices` anyway | *offers only usable targets and counts the rest by reason*; *renders an unusable saved target as an opaque, unselectable reference* |
+| C | scoped-vs-unscoped rule | `const scoped = false` | same two |
+| D | system refusal | `if (ctx.systemClass)` → never taken | *refuses every act on a system automation, and says why*; *blocks save when the right is denied, whatever the form says* |
+| E | stop/delete not USE-gated | gate widened to every action | *gates the code-running acts on a usable machine, but never stop or delete* |
+| F | no client attribution | `owner: 'me'` added to the payload | *carries no actor, owner or origin (§3.1.3 A3)* — plus both `NewAutomationDialog` edit-mode tests |
+| G | config-driven visibility | weekday field `visibleWhen: () => true` | *shows only the frequency-relevant schedule fields* |
+| H | system rows not listed | `userAutomations` returns everything | *keeps system automations out of the user list entirely* |
+
+### The seam that was DELETED, mutated on its own terms
+
+Replacing a mechanism does not inherit its coverage, so the three mutants below
+target the behaviour the deleted inline branches used to produce, not the config
+module that replaced them. All three are caught by the pre-existing
+`NewAutomationDialog.test.tsx`, which is the point: the old path's contract still
+holds through the new one.
+
+| # | Deleted behaviour | Mutation | Named test that went red |
+|---|---|---|---|
+| I | one-off sends `cron: null` | `cron` always computed | *prefills and preserves an explicit targeted one-off schedule* |
+| J | one-off opens as `once`, recurring as custom cron | always opens as `cron` | same |
+| K | shared tail fields render under every subform | tail dropped | *prefills the exact schedule and updates the existing automation* |
+
+**No mutant was silent.** There is nothing to classify as assertion gap, never
+entered, or genuinely equivalent.
+
+## Suites on the rebased tip
+
+Run without a pipe, exit status captured directly (a pipe returns the pipe's
+status, which has faked green here before):
+
+| Suite | Result |
+|---|---|
+| `apps/web/src` | rc=0 — **172 files, 1323 tests passed** |
+| `packages/client-core/src` | rc=0 — **71 files, 761 tests passed** |
+
+POD-1499's timing-shaped 5s timeouts did not appear in either run.
+
+`packages/protocol` was **not** run, and the reason is checkable rather than
+asserted: `git diff --name-only origin/issue/279-integration...HEAD` touches
+`apps/web/**`, `tests/e2e/**` and `docs/**` only — zero files under `packages/`,
+so no wire fixture or golden is reachable from this diff.
+
+## Slice consumption — why there is no `automations` slice
+
+Per POD-330's rule that `useSlice` is for a NAMED slice several surfaces read
+while `useStoreSelector` stays for one-offs: the automations composer is the only
+reader of its target derivation, so it reads raw entity lists through
+`useStoreSelector` and derives in a `useMemo`. Publishing it would add a slice
+with one consumer, which is the "port every selector and rebuild the god object
+with a nicer hook" failure mode.
+
+What IS shared comes from the shared slice rather than being re-derived here:
+`machineViews` / `MachineAvailability` / `repoUsageAt` are imported from
+`@podium/client-core/viewmodels`. Nothing in a shared slice was edited.
+
+One recommendation handed up rather than acted on: `machineViews` over a
+`MachineWire[]` — including the "omitted `use` means not evaluated" reading — is
+about to have at least three consumers (this dialog, POD-406's spawn gating,
+SidebarUnified's repo machines). That is the shape that wants publishing, and it
+belongs to whoever owns the machines slice, not to this surface.
