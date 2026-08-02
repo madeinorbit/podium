@@ -28,7 +28,7 @@ describe('appRouter', () => {
   it('models.refresh + models.catalog return the injected live catalog', async () => {
     const registry = new SessionRegistry(undefined, undefined, {
       instanceId: 'default',
-      modelProbe: async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
+      modelProbe: async (_machineId) => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)

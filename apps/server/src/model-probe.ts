@@ -17,8 +17,10 @@ const execFileAsync = promisify(execFile)
  * Kept in apps/server (rather than @podium/harness) so the server needs no new
  * package dependency — the CLIs resolve via PATH and the claude call is a raw fetch.
  * The lists are network-backed (~2s warm, ~7s cold), so the ModelCatalog caches them
- * stale-while-revalidate rather than probing on every open. Every source degrades to
- * [] on failure, and the web falls back to its static catalog per agent.
+ * per machineId (stale-while-revalidate) rather than probing on every open. Every
+ * source degrades to [] on failure, and the web falls back to its static catalog
+ * per agent. The probe runs on whatever host it is invoked on; the catalog stamps
+ * the machineId the caller named so two machines never share one snapshot.
  */
 
 export interface ModelChoice {

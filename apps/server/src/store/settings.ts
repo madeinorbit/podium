@@ -175,32 +175,52 @@ export class SettingsRepository {
   }
 
   // ---- live model catalog (SWR cache, persisted so it survives restarts and the
-  //      first picker-open after a redeploy is instant, not a cold ~2s probe) ----
-  getModelCatalog(): {
+  //      first picker-open after a redeploy is instant, not a cold ~2s probe).
+  //      KEYED BY machineId: which models a harness offers is a per-machine fact
+  //      (ADR 1 Amendment 1 D13.5). The meta key is `model_catalog:<machineId>`
+  //      so two machines never share a row. Pre-split unkeyed `model_catalog`
+  //      rows are left inert — MODEL_CATALOG_VERSION bumps discard them. ----
+  getModelCatalog(machineId: string): {
+    machineId: string
     byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
     fetchedAt: number
     version?: number
   } | null {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('model_catalog') as
-      | { value: string }
-      | undefined
+    const row = this.db
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get(`model_catalog:${machineId}`) as { value: string } | undefined
     if (!row) return null
     try {
-      const parsed = JSON.parse(row.value)
-      return parsed && typeof parsed === 'object' && parsed.byAgent ? parsed : null
+      const parsed = JSON.parse(row.value) as {
+        machineId?: unknown
+        byAgent?: unknown
+        fetchedAt?: unknown
+        version?: unknown
+      }
+      if (!parsed || typeof parsed !== 'object' || !parsed.byAgent) return null
+      // Reject a row that does not name this machine (or any machine) — an older
+      // unkeyed snapshot must not be served as if it applied here.
+      if (parsed.machineId !== machineId) return null
+      return parsed as {
+        machineId: string
+        byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
+        fetchedAt: number
+        version?: number
+      }
     } catch {
       return null
     }
   }
 
   setModelCatalog(snapshot: {
+    machineId: string
     byAgent: Record<string, unknown>
     fetchedAt: number
     version?: number
   }): void {
     this.db
       .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run('model_catalog', JSON.stringify(snapshot))
+      .run(`model_catalog:${snapshot.machineId}`, JSON.stringify(snapshot))
   }
 
   // RETIRED at POD-309: the node⇄hub cursor (`upstream_sync_cursor`) and the

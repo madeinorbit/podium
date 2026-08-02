@@ -114,11 +114,12 @@ export const hostsMemoryBreakdownContract = {
     wirePlacement: 'separate-field',
     reservedWireKeys: ['actor', 'onBehalfOf'],
     rationale:
-      'A PAIR EVEN THOUGH NOTHING DURABLE IS WRITTEN, unlike `perf` and `models` next door, and the ' +
-      'difference is the machine. This command runs code on hardware someone owns, so who asked is ' +
-      'an accountability fact regardless of whether a row records it — the grant it is checked ' +
-      'against is per-principal, and a machine grant checked against an unstamped actor is not ' +
-      'checked at all. `machineId` is a routing address and D17 forbids it doubling as the record.',
+      'A PAIR EVEN THOUGH NOTHING DURABLE IS WRITTEN, unlike `perf` next door, and the difference is ' +
+      'the machine. This command runs code on hardware someone owns, so who asked is an ' +
+      'accountability fact regardless of whether a row records it — the grant it is checked against ' +
+      'is per-principal, and a machine grant checked against an unstamped actor is not checked at ' +
+      'all. `machineId` is a routing address and D17 forbids it doubling as the record. ' +
+      '(`models.refresh` is the same shape now that the catalog is machine-keyed — POD-1123.)',
   } satisfies AttributionPolicy,
   errorConsistency: {
     callerSuppliedTargetId: true,

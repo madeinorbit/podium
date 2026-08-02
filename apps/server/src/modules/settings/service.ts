@@ -217,8 +217,9 @@ export interface SettingsServiceOptions {
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
-  /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
-   *  catalog never shells out; defaults to the real CLI probe. */
+  /** Live model-list probe for a named machine (grok/cursor/opencode `models`).
+   *  Injected in tests so the catalog never shells out; defaults to the real CLI
+   *  probe. Receives `machineId` so the result can never be written unkeyed. */
   modelProbe?: ModelProbe
   /**
    * WHERE A SETTINGS COMMAND IS RECORDED (POD-421).
@@ -258,8 +259,9 @@ export class SettingsService {
   private readonly now: () => number
   private readonly fingerprintKey: () => Buffer
   private readonly audit: SettingsAuditPort
-  // SWR cache of live per-agent model lists (grok/cursor/opencode). Query-driven:
-  // nothing probes until a client asks via getModelCatalog().
+  // SWR cache of live per-agent model lists (grok/cursor/opencode), keyed by
+  // machineId. Query-driven: nothing probes until a client asks via
+  // getModelCatalog(machineId).
   private readonly modelCatalog: ModelCatalog
 
   constructor(
@@ -276,9 +278,10 @@ export class SettingsService {
     this.fingerprintKey = options.fingerprintKey ?? (() => readOrCreateFingerprintKey())
     this.modelCatalog = new ModelCatalog(options.modelProbe, {
       now: this.now,
-      // Persist the catalog so the first picker-open after a restart/redeploy serves
-      // the last-known list instantly (then refreshes), instead of a cold ~2s probe.
-      load: () => this.store.getModelCatalog(),
+      // Persist per machine so the first picker-open after a restart/redeploy serves
+      // that machine's last-known list instantly (then refreshes), instead of a cold
+      // ~2s probe — and so two machines never share a cached catalog.
+      load: (machineId) => this.store.getModelCatalog(machineId),
       save: (snapshot) => this.store.setModelCatalog(snapshot),
     })
   }
@@ -577,16 +580,17 @@ export class SettingsService {
     return this.secrets.apiKeyFor(provider)
   }
 
-  /** Live per-agent model lists (SWR — returns cached instantly, refreshes in the
-   *  background). The web merges these over its static catalog. */
-  getModelCatalog(): ModelCatalogSnapshot {
-    return this.modelCatalog.get()
+  /** Live per-agent model lists for ONE machine (SWR — returns cached instantly,
+   *  refreshes in the background). The web merges these over its static catalog.
+   *  `machineId` is required: the catalog is a per-machine fact (ADR 1 D13.5). */
+  getModelCatalog(machineId: string): ModelCatalogSnapshot {
+    return this.modelCatalog.get(machineId)
   }
 
-  /** Force a fresh probe and return the updated snapshot (explicit "refresh now"). */
-  async refreshModelCatalog(): Promise<ModelCatalogSnapshot> {
-    await this.modelCatalog.refresh()
-    return this.modelCatalog.get()
+  /** Force a fresh probe for one machine and return the updated snapshot. */
+  async refreshModelCatalog(machineId: string): Promise<ModelCatalogSnapshot> {
+    await this.modelCatalog.refresh(machineId)
+    return this.modelCatalog.get(machineId)
   }
 
   /** True while a pairing window is open — the messaging bridge pauses its

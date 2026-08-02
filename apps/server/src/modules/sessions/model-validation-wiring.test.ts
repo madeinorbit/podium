@@ -21,6 +21,7 @@ afterEach(() => {
 function storeWithCatalog(): SessionStore {
   const store = new SessionStore(':memory:')
   store.settings.setModelCatalog({
+    machineId: store.hostMachineId,
     version: MODEL_CATALOG_VERSION,
     fetchedAt: 1_000_000,
     byAgent: {
