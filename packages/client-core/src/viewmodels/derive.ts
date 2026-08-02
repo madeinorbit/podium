@@ -5,9 +5,8 @@
  * modules — the boundary lint and the web shim (apps/web/src/derive.ts, which
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
-import { DEFER_NEXT_MESSAGE, agentCapabilityRejection, asIssueId, asSessionId, dedupeSessionsByResume, isHeadlessSession, isIssueDeferred, isSnoozed, issueReturnedFromDefer, lastUsedMachine, machinesForRepo, machinesForRepoOrClone, machinesWithRepo, normalizeOriginUrl, onlineMachinesForRepoOrClone, repoNameFromOrigin, resolveTargetMachine, resolveTargetMachineForAgent, returnedFromSnooze, snoozeUntil1h, snoozeUntilTomorrow5am, type AgentKind, type GitRepositoryWire, type HostMetricsWire, type IssueId, type IssueWire, type RepoId, type SessionId, type SessionMeta, withoutHeadless, worktreeForCwd } from '@podium/model'
+import { DEFER_NEXT_MESSAGE, agentCapabilityRejection, dedupeSessionsByResume, isHeadlessSession, isIssueDeferred, isSnoozed, issueReturnedFromDefer, lastUsedMachine, machinesForRepo, machinesForRepoOrClone, machinesWithRepo, normalizeOriginUrl, onlineMachinesForRepoOrClone, repoNameFromOrigin, resolveTargetMachine, resolveTargetMachineForAgent, returnedFromSnooze, snoozeUntil1h, snoozeUntilTomorrow5am, type IssueId, type IssueWire, type SessionMeta, withoutHeadless, worktreeForCwd } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
 
 import {
@@ -54,6 +53,7 @@ import {
   repoBranchForCwd,
   reposToViews,
   repoUsageAt,
+  resolveDefaultAgent,
   spawnTargetForRepo,
   type HostMemoryView,
   type SpawnRepoTarget,
@@ -84,6 +84,47 @@ import {
   type IssueNavView,
   type IssuePendingDecision,
 } from './slices/issues'
+
+import {
+  EMPTY_PINS,
+  lastUsedMaps,
+  sidebarSections,
+  sidebarSessions,
+  type RepoNavView,
+  type SidebarSections,
+  type WorktreeNavView,
+} from './slices/worklist/nav'
+import {
+  groupSessionsByParent,
+  partitionStaleSessions,
+  partitionWorkItems,
+  sessionsNeedChildRows,
+  type SessionGroup,
+  type StalePartition,
+  type WorkItemPartition,
+} from './slices/worklist/session-groups'
+
+// POD-330: the sidebar's navigation structure and its session bucketing are the
+// worklist's, split into modules by question rather than by size. Re-exported
+// here while the call sites still import from './derive'.
+export {
+  EMPTY_PINS,
+  groupSessionsByParent,
+  lastUsedMaps,
+  partitionStaleSessions,
+  partitionWorkItems,
+  sessionsNeedChildRows,
+  sidebarSections,
+  sidebarSessions,
+}
+export type {
+  RepoNavView,
+  SessionGroup,
+  SidebarSections,
+  StalePartition,
+  WorkItemPartition,
+  WorktreeNavView,
+}
 
 import {
   elevateCoordinatorSession,
@@ -141,6 +182,7 @@ export {
   repoBranchForCwd,
   reposToViews,
   repoUsageAt,
+  resolveDefaultAgent,
   spawnTargetForRepo,
 }
 export type { HostMemoryView, MemorySeverity, SpawnRepoTarget }
@@ -223,340 +265,6 @@ export {
 // withoutHeadless (worktree + session identity) are entity-pure — imported
 // from @podium/model above and re-exported, not redefined here (#194).
 
-
-export interface WorktreeNavView extends WorktreeView {
-  repoName: string
-  sessions: SessionMeta[]
-  /** Non-archived issues whose worktree this is. When non-empty, the sidebar
-   *  renders the issue block(s) instead of the bare worktree row. */
-  issues: IssueNavigationModel[]
-}
-
-export interface RepoNavView {
-  path: string
-  name: string
-  worktrees: WorktreeNavView[]
-  machines?: { machineId: string; path: string }[]
-  originUrl?: string
-  repoId?: RepoId
-}
-
-export interface SidebarSections {
-  /** Shared ownership work for this exact repo/session/issue snapshot. */
-  sessionOwnership?: SessionOwnershipIndex
-  pinnedWorktrees: WorktreeNavView[]
-  pinnedRepos: RepoNavView[]
-  repos: RepoNavView[]
-}
-
-export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
-
-// isSnoozed/returnedFromSnooze/snoozeUntil1h/snoozeUntilTomorrow5am (session
-// snooze) and isIssueDeferred/issueReturnedFromDefer (issue defer) are
-// entity-pure — imported from @podium/model above and re-exported, not
-// redefined here (#194). All four take an `Instant` (epoch ms): POD-299
-// collapsed the ISO-string/epoch-ms twin predicates into one clock
-// representation, so `isIssueSnoozed` is gone and `isIssueDeferred` is the
-// single spelling for both the server and these viewmodels.
-
-/** Sessions shown in the sidebar — shells never appear there (they stay in the
- *  main-view tab strip). */
-export function sidebarSessions(sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.filter((s) => s.agentKind !== 'shell')
-}
-
-export function sidebarSections(
-  repos: GitRepositoryWire[],
-  sessions: SessionMeta[],
-  pins: PinState,
-  now: number = Date.now(),
-  issues: IssueNavigationModel[] = [],
-): SidebarSections {
-  const repoViews = reposToViews(repos)
-  const pinnedWorktreePaths = new Set(pins.worktrees)
-  const pinnedRepoPaths = new Set(pins.repos)
-  sessions = sidebarSessions(sessions)
-  // worktree path → its non-archived issues (an issue owns at most one worktree;
-  // several issues may point at the same worktree — the worktree shows under each).
-  const issuesByWorktree = new Map<string, IssueNavigationModel[]>()
-  for (const issue of issues) {
-    if (issue.archived || !issue.worktreePath) continue
-    const list = issuesByWorktree.get(issue.worktreePath)
-    if (list) list.push(issue)
-    else issuesByWorktree.set(issue.worktreePath, [issue])
-  }
-
-  const allWorktrees = repoViews.flatMap((repo) =>
-    repo.worktrees.map((worktree) => ({ repo, worktree })),
-  )
-  const allWorktreePaths = allWorktrees.map(({ worktree }) => worktree.path)
-  const sessionOwnership = indexSessionOwnership(sessions, issues, allWorktreePaths)
-  const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
-    ...worktree,
-    repoName: repo.name,
-    sessions: sortSessionsForSidebar(
-      sessionsForWorktree(sessions, worktree.path, allWorktreePaths, sessionOwnership),
-      now,
-    ),
-    issues: issuesByWorktree.get(worktree.path) ?? [],
-  })
-
-  const navRepo = (repo: RepoView): RepoNavView => ({
-    path: repo.path,
-    name: repo.name,
-    worktrees: repo.worktrees
-      .filter((worktree) => !pinnedWorktreePaths.has(worktree.path))
-      .map((worktree) => navWorktree(repo, worktree)),
-    machines: repo.machines,
-    ...(repo.originUrl !== undefined ? { originUrl: repo.originUrl } : {}),
-    ...(repo.repoId !== undefined ? { repoId: repo.repoId } : {}),
-  })
-
-  return {
-    sessionOwnership,
-    pinnedWorktrees: pins.worktrees
-      .map((path) => allWorktrees.find(({ worktree }) => worktree.path === path))
-      .filter((item): item is { repo: RepoView; worktree: WorktreeView } => item !== undefined)
-      .map(({ repo, worktree }) => navWorktree(repo, worktree)),
-    pinnedRepos: pins.repos
-      .map((path) => repoViews.find((repo) => repo.path === path))
-      .filter((repo): repo is RepoView => repo !== undefined)
-      .map(navRepo),
-    repos: repoViews
-      .filter((repo) => !pinnedRepoPaths.has(repo.path))
-      .map(navRepo)
-      .filter((repo) => repo.worktrees.length > 0),
-  }
-}
-
-export interface WorkItemPartition {
-  /** Sessions needing the user's attention: blocked, finished-idle, errored, or exited. */
-  attention: SessionMeta[]
-  /** Sessions actively running without needing the user. */
-  working: SessionMeta[]
-  /** Pinned sessions — also listed in attention/working when their state warrants it. */
-  pinnedPanels: SessionMeta[]
-}
-
-/**
- * Partition sessions into the three WORK ITEMS buckets used by work-list views.
- *
- * Non-archived sessions are classified into `attention` or `working` by agent
- * state regardless of pin status. Pinned sessions additionally appear in
- * `pinnedPanels` for quick reach (same lift-and-keep pattern as worktree lists).
- *   - `attention` — any attentionGroup result other than 'working'
- *     (i.e. needsYou, idle, exited/hibernated/ended), minus snoozed/shells.
- *   - `working` — phase 'working' | 'compacting', or an active shell/uninstrumented live process.
- * Archived sessions are excluded entirely.
- */
-export function partitionWorkItems(
-  sessions: SessionMeta[],
-  pinnedSessionIds: Set<string>,
-  now: number = Date.now(),
-): WorkItemPartition {
-  const attention: SessionMeta[] = []
-  const working: SessionMeta[] = []
-  const pinnedPanels: SessionMeta[] = []
-
-  for (const s of sessions) {
-    if (s.archived || isHeadlessSession(s)) continue
-    // Shells never appear in the sidebar — not in WORKING, PINNED, or attention.
-    if (s.agentKind === 'shell') continue
-    if (pinnedSessionIds.has(s.sessionId)) pinnedPanels.push(s)
-    const group = attentionGroup(s)
-    if (group === 'working') {
-      working.push(s)
-    } else if (isSnoozed(s, now)) {
-    } else {
-      attention.push(s)
-    }
-  }
-
-  // Every WORK ITEMS section in the repo tree reads newest-active first. Without this,
-  // raw arrival order would put the newest attention session at the bottom.
-  attention.sort((a, b) => compareRecency(a, b, now))
-  working.sort((a, b) => compareRecency(a, b, now))
-  pinnedPanels.sort((a, b) => compareRecency(a, b, now))
-  return { attention, working, pinnedPanels }
-}
-
-// dedupeSessionsByResume (collapsing duplicate rows for the same underlying
-// agent conversation) is entity-pure — imported from @podium/model above and
-// re-exported, not redefined here (#194).
-
-/** A session is "stale" when it's been inactive longer than this. */
-export interface StalePartition {
-  /** Sessions to render normally. */
-  visible: SessionMeta[]
-  /** Sessions sunk into the collapsed "Stale" subsection at the bottom. */
-  stale: SessionMeta[]
-}
-
-/**
- * Split a worktree's (or attention list's) already-sorted sessions into a
- * visible head and a collapsed "Stale" tail. Stale candidates are non-working
- * sessions inactive for more than {@link STALE_INACTIVE_MS}. The split only
- * kicks in for a crowded group — MORE than 5 sessions total AND MORE than 3
- * stale candidates — and even then the 3 most-recently-active candidates stay
- * visible; only the rest collapse. Working sessions are never collapsed.
- */
-export function partitionStaleSessions(
-  sorted: SessionMeta[],
-  now: number = Date.now(),
-): StalePartition {
-  const isCandidate = (s: SessionMeta): boolean =>
-    attentionGroup(s) !== 'working' && now - Date.parse(s.lastActiveAt) > STALE_INACTIVE_MS
-  const candidates = sorted.filter(isCandidate)
-  if (sorted.length <= 5 || candidates.length <= 3) return { visible: sorted, stale: [] }
-  // Keep the 3 most-recently-active candidates visible; collapse the remainder.
-  const byRecency = [...candidates].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
-  const staleIds = new Set(byRecency.slice(3).map((s) => s.sessionId))
-  return {
-    visible: sorted.filter((s) => !staleIds.has(s.sessionId)),
-    stale: sorted.filter((s) => staleIds.has(s.sessionId)),
-  }
-}
-
-/** One sidebar session group (#237) [spec:SP-34d7 web]: a top-level session
- *  plus the cross-harness children spawned by it (`spawnedBy: 'session:<id>'`,
- *  resolved to the topmost listed ancestor so deep fan-out stays one level in
- *  the UI). Children split into `children` (live/attention-worthy) and
- *  `consumed` (exited — auto-tucked behind a disclosure). */
-export interface SessionGroup {
-  session: SessionMeta
-  children: SessionMeta[]
-  consumed: SessionMeta[]
-}
-
-const spawnedByParentId = (s: SessionMeta): string | null => {
-  const m = /^session:(.+)$/.exec(s.spawnedBy ?? '')
-  return m?.[1] ?? null
-}
-
-
-
-/**
- * Whether a sidebar issue/worktree row should expand to show nested session
- * rows (remote spawn children and/or native-subagent indicators).
- *
- * - A genuine remote spawn-child must nest under its spawner even when it is
- *   the only extra session (parent + 1 child) — never hide it behind the
- *   parent status line just because the list is short.
- * - A lone parent with `nativeSubagentCount > 0` still expands so the native
- *   indicator is visible.
- * - Unrelated multi-agent rows keep expanding as before.
- */
-export function sessionsNeedChildRows(sessions: SessionMeta[]): boolean {
-  if (sessions.length === 0) return false
-  // Native Task subagents: expand even for a lone parent session so the
-  // nested "N subagents" indicator is visible under the parent row.
-  if (sessions.some(sessionHasNativeSubagents)) return true
-  // Multi-session list: expand so remote spawn children and sibling agents
-  // are visible as rows. Parent + a single remote child is length 2 — never
-  // collapse that genuine spawn-child into the parent status line.
-  return sessions.length >= 2
-}
-
-/**
- * Group a row's sessions by spawn parentage so cross-harness fan-out doesn't
- * flatten into an unusable list: a session whose spawner is ALSO in the list
- * nests under it (grandchildren fold into the topmost listed ancestor); a
- * session whose spawner isn't listed stays top-level. Input order is preserved
- * on both levels.
- */
-export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
-  const byId = new Map(sessions.map((s) => [s.sessionId, s]))
-  // Topmost listed ancestor (cycle-guarded); null = top-level.
-  const anchorOf = (s: SessionMeta): string | null => {
-    let cur = s
-    let anchor: string | null = null
-    const seen = new Set<string>([s.sessionId])
-    for (;;) {
-      const pid = spawnedByParentId(cur)
-      if (!pid || seen.has(pid)) break
-      // NOT a POD-363 adapter cast, and deliberately left in place by it. `pid` is
-      // parsed out of the freeform `spawnedBy` tag, which has SIX producers, ONE
-      // parser and seven hand-rebuilt comparisons; branding it here would brand the
-      // parser's output at one of eight call sites and leave the other seven. The
-      // brand belongs on a shared spawnedBy constructor+parser, which is POD-1133 —
-      // so this stays a boundary cast until that lands, not a sweep target.
-      const parent = byId.get(asSessionId(pid))
-      if (!parent) break
-      anchor = pid
-      seen.add(pid)
-      cur = parent
-    }
-    return anchor
-  }
-  const groups: SessionGroup[] = []
-  const groupByAnchor = new Map<string, SessionGroup>()
-  for (const s of sessions) {
-    if (anchorOf(s) === null) {
-      const g: SessionGroup = { session: s, children: [], consumed: [] }
-      groups.push(g)
-      groupByAnchor.set(s.sessionId, g)
-    }
-  }
-  for (const s of sessions) {
-    const anchor = anchorOf(s)
-    if (anchor === null) continue
-    const g = groupByAnchor.get(anchor)
-    if (!g) continue // ancestor listed but itself nested-orphaned — treat as top-level
-    ;(isConsumedChild(s) ? g.consumed : g.children).push(s)
-  }
-  // Orphaned nested children (anchor resolved but the anchor never became a
-  // group — can't happen with anchorOf's topmost rule, but stay total):
-  for (const s of sessions) {
-    const anchor = anchorOf(s)
-    if (anchor !== null && !groupByAnchor.has(anchor)) {
-      groups.push({ session: s, children: [], consumed: [] })
-    }
-  }
-  return groups
-}
-
-/** Resolve the user's default agent kind for the unified split button. 'auto' (or
- *  unset) resolves to the most recently ACTIVE non-shell session's kind, falling
- *  back to claude-code. */
-export function resolveDefaultAgent(
-  setting: string | undefined,
-  sessions: SessionMeta[],
-): AgentKind {
-  if (setting && setting !== 'auto') return setting as AgentKind
-  let best: SessionMeta | undefined
-  for (const s of sessions) {
-    if (s.agentKind === 'shell' || isHeadlessSession(s)) continue
-    if (!best || s.lastActiveAt > best.lastActiveAt) best = s
-  }
-  return best && best.agentKind !== 'shell' ? best.agentKind : 'claude-code'
-}
-
-/** lastUsedAt maps aggregated to the repo (for repo ordering / "most recent repo")
- *  and per-worktree (for worktree ordering). A session's cwd is its worktree path;
- *  cwds not matching any known worktree aggregate under themselves. Extracted from
- *  Sidebar so the unified layout's "New <Agent> in <Repo>" shares the exact logic. */
-export function lastUsedMaps(
-  sections: SidebarSections,
-  sessions: SessionMeta[],
-): { byRepo: Map<string, number>; byWorktree: Map<string, number> } {
-  const worktreeToRepo = new Map<string, string>()
-  for (const repo of sections.repos) {
-    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
-  }
-  for (const repo of sections.pinnedRepos) {
-    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
-  }
-  for (const wt of sections.pinnedWorktrees) worktreeToRepo.set(wt.path, wt.repoPath)
-  const byRepo = new Map<string, number>()
-  const byWorktree = new Map<string, number>()
-  for (const s of sessions) {
-    const ts = new Date(s.lastActiveAt).getTime()
-    const repoPath = worktreeToRepo.get(s.cwd) ?? s.cwd
-    if (ts > (byRepo.get(repoPath) ?? 0)) byRepo.set(repoPath, ts)
-    if (ts > (byWorktree.get(s.cwd) ?? 0)) byWorktree.set(s.cwd, ts)
-  }
-  return { byRepo, byWorktree }
-}
 
 /** Rank of rows with NO sessions — sinks below every session-bearing row. */
 export const UNIFIED_ROW_EMPTY_RANK = 4

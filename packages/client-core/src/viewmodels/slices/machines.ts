@@ -23,6 +23,7 @@
  * Platform-neutral: no DOM, no storage.
  */
 import {
+  isHeadlessSession,
   machinesWithRepo,
   normalizeOriginUrl,
   repoNameFromOrigin,
@@ -31,7 +32,9 @@ import {
   type HostMetricsWire,
   type RecentSession,
   type RepoMachines,
+  type AgentKind,
   type SelectableMachine,
+  type SessionMeta,
 } from '@podium/model'
 import type { RepoView, WorktreeView } from '../types'
 
@@ -298,6 +301,26 @@ export interface MachineView<M extends SelectableMachine = SelectableMachine> {
  * separate. Machines the principal cannot even `see` are absent entirely — that
  * is the privacy boundary, and it is the only one that removes a row.
  */
+/** Resolve the user's default agent kind for the unified split button. 'auto' (or
+ *  unset) resolves to the most recently ACTIVE non-shell session's kind, falling
+ *  back to claude-code.
+ *
+ *  POD-330: a spawn-placement question, so it belongs with the rest of spawn
+ *  placement rather than with whichever surface happens to render the button —
+ *  terminal and worklist both read it. */
+export function resolveDefaultAgent(
+  setting: string | undefined,
+  sessions: SessionMeta[],
+): AgentKind {
+  if (setting && setting !== 'auto') return setting as AgentKind
+  let best: SessionMeta | undefined
+  for (const s of sessions) {
+    if (s.agentKind === 'shell' || isHeadlessSession(s)) continue
+    if (!best || s.lastActiveAt > best.lastActiveAt) best = s
+  }
+  return best && best.agentKind !== 'shell' ? best.agentKind : 'claude-code'
+}
+
 export function machineViews<M extends SelectableMachine>(
   machines: readonly M[],
   grantsOf: (machine: M) => MachineGrants,
