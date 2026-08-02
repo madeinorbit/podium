@@ -408,6 +408,33 @@ describe('reduceAgentState', () => {
     )
     expect(hook).toMatchObject({ phase: 'needs_user', stateSource: 'hook', stateConfidence: 1 })
 
+    const latePollAt = '2026-06-12T10:00:02.000Z'
+    const latePoll = reduceAgentState(
+      hook,
+      {
+        kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
+        observedAt: latePollAt,
+      },
+      latePollAt,
+    )
+    expect(latePoll).toBe(hook)
+    expect(latePoll).toMatchObject({ phase: 'needs_user', stateSource: 'hook' })
+  })
+
+  it('accepts a fresh lower-confidence source outside the staleness window', () => {
+    const hook = reduceAgentState(
+      initialAgentState(T0),
+      {
+        kind: 'needs_user',
+        need: 'permission',
+        source: 'hook',
+        confidence: 1,
+        observedAt: T0,
+      },
+      T0,
+    )
     const freshPollAt = '2026-06-12T10:00:07.000Z'
     const freshPoll = reduceAgentState(
       hook,

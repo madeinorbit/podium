@@ -86,7 +86,13 @@ describe('cursorStateProvider', () => {
       homeDir: home,
     })
     expect(events).toEqual([
-      { kind: 'turn_completed', verdict: { kind: 'done' }, at: mtime.toISOString() },
+      {
+        kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
+        verdict: { kind: 'done' },
+        at: mtime.toISOString(),
+      },
     ])
   })
 })
