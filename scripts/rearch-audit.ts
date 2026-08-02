@@ -1218,8 +1218,14 @@ export const CHECKS: AuditCheck[] = [
       grep(ctx, {
         roots: ['apps', 'packages'],
         pattern: /'podium\.panelMode(?:Default)?'/,
-        skip: (file) => file === 'packages/client-core/src/ui-state.ts',
-      }),
+      }).filter(
+        (site) =>
+          site.file !== 'packages/client-core/src/ui-state.ts' ||
+          ![
+            "panelMode: 'podium.panelMode',",
+            "panelModeDefault: 'podium.panelModeDefault',",
+          ].includes(site.text),
+      ),
   },
   {
     /**
