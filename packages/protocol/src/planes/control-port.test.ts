@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, type EntityRef } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   asCorrelationId,
@@ -21,6 +21,9 @@ import {
   SubscriptionRegistry,
   streamLiveDelivery,
 } from './routing'
+
+const issueRef = (id: string): EntityRef => ({ kind: 'issue', id: asIssueId(id) })
+const sessionRef = (id: string): EntityRef => ({ kind: 'session', id: asSessionId(id) })
 import {
   acceptsAtCursor,
   CHANGE_OP_SEMANTICS,
@@ -116,15 +119,15 @@ describe('the control port carries three classes and no more', () => {
 describe('the port carries a principal and evaluates no policy', () => {
   it('admits an entity only when the resolver says so, and never says why', () => {
     const denied = setup(denyAll)
-    expect(denied.port.admitEntity(target('alice'), { kind: 'issue', id: 'i1' })).toBe(false)
+    expect(denied.port.admitEntity(target('alice'), issueRef('i1'))).toBe(false)
     expect(denied.registry.keyCount).toBe(0)
     // A refusal emits nothing: there is no reason code to leak.
     expect(denied.emit).not.toHaveBeenCalled()
 
     const allowed = setup(allowAll)
-    expect(allowed.port.admitEntity(target('alice'), { kind: 'issue', id: 'i1' })).toBe(true)
+    expect(allowed.port.admitEntity(target('alice'), issueRef('i1'))).toBe(true)
     expect(
-      allowed.registry.has(entityRoutingKey({ kind: 'issue', id: 'i1' }), asSubscriberId('alice')),
+      allowed.registry.has(entityRoutingKey(issueRef('i1')), asSubscriberId('alice')),
     ).toBe(true)
   })
 
@@ -146,9 +149,10 @@ describe('the port carries a principal and evaluates no policy', () => {
     const canSee = vi.fn(() => true)
     const { port } = setup({ canSee })
     const spied: PlaneTarget = { subscriberId: asSubscriberId('alice'), principal }
+    const session = sessionRef('s1')
 
-    port.admitEntity(spied, { kind: 'session', id: 's1' })
-    port.publishEntity({ kind: 'session', id: 's1' }, frame(0, 1))
+    port.admitEntity(spied, session)
+    port.publishEntity(session, frame(0, 1))
     port.sendCommand(spied, { requestId: asCorrelationId('r'), type: 'kill', payload: {} })
 
     expect(capabilityReads).toBe(0)
@@ -156,14 +160,14 @@ describe('the port carries a principal and evaluates no policy', () => {
     expect(canSee).toHaveBeenCalledTimes(1)
     const [passed, entity] = canSee.mock.calls[0] as unknown as [Principal, unknown]
     expect(passed.kind).toBe('user')
-    expect(entity).toEqual({ kind: 'session', id: 's1' })
+    expect(entity).toEqual(session)
   })
 
   it('routes an entity frame to admitted principals only', () => {
     const { port, router } = setup({
       canSee: (p) => p.kind === 'user' && p.user === asUserId('alice'),
     })
-    const ref = { kind: 'issue', id: 'i1' }
+    const ref = issueRef('i1')
     expect(port.admitEntity(target('alice'), ref)).toBe(true)
     expect(port.admitEntity(target('bob'), ref)).toBe(false)
 
@@ -177,7 +181,7 @@ describe('the port carries a principal and evaluates no policy', () => {
 
   it('stops routing on revoke without telling the replica anything is deleted', () => {
     const { port, registry } = setup()
-    const ref = { kind: 'issue', id: 'i1' }
+    const ref = issueRef('i1')
     port.admitEntity(target('alice'), ref)
     expect(port.revokeEntity(target('alice'), ref)).toBe(true)
     expect(registry.has(entityRoutingKey(ref), asSubscriberId('alice'))).toBe(false)
@@ -281,7 +285,7 @@ describe('rescope and evict — and the prohibition on reusing remove', () => {
 
   it('re-admits with an ordinary upsert — no new op needed (D14.2)', () => {
     const { port, router } = setup()
-    const ref = { kind: 'issue', id: 'i1' }
+    const ref = issueRef('i1')
     port.admitEntity(target('alice'), ref)
     const readmit = frame(9, 10, [
       { seq: 10, entity: 'issue', id: 'i1', op: 'upsert', value: { id: 'i1' } },
