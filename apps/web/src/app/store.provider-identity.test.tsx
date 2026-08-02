@@ -217,7 +217,16 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     return s
   }
 
-  beforeEach(() => storages.clear())
+  /** How many sockets had been closed at the instant each principal's replica
+   *  was opened — the ORDERING measurement. Teardown of the previous principal
+   *  must complete BEFORE the successor's storage is touched; otherwise there is
+   *  a window in which two principals' clients are both live over the device. */
+  const closedWhenOpened = new Map<string, number>()
+
+  beforeEach(() => {
+    storages.clear()
+    closedWhenOpened.clear()
+  })
 
   const renderAs = async (principal: ClientPrincipal, api: PodiumClientApi): Promise<void> => {
     act(() => {
@@ -227,7 +236,10 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
           config={config}
           api={api}
           onFatalError={() => {}}
-          createReplicaFn={(p) => createReplica({ storage: storageFor(p.userId) })}
+          createReplicaFn={(p) => {
+            closedWhenOpened.set(p.userId, FakeWS.closed)
+            return createReplica({ storage: storageFor(p.userId) })
+          }}
         >
           <PrincipalProbe />
         </StoreProvider>,
@@ -305,10 +317,19 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     expect(torn[0]?.isDestroyed, 'it must be inert, not merely stopped').toBe(true)
   })
 
-  it('reconstructs the transport and closes the previous principal’s socket', async () => {
+  it('reconstructs the transport, and alice’s socket is already down when bob’s store opens', async () => {
     const { hubAlice } = await switchAliceToBob()
     expect(seen.hub, 'bob must not share alice’s transport').not.toBe(hubAlice)
-    expect(FakeWS.closed, 'alice’s socket must be closed by the teardown').toBeGreaterThan(0)
+    expect(FakeWS.closed, 'alice’s socket must be closed').toBeGreaterThan(0)
+    // ORDER, not just eventuality. React would run the effect cleanup after the
+    // successor renders; the irreversible destroy() runs first, so the previous
+    // principal's transport is already down at the moment the next principal's
+    // store is opened. Without that there is a window in which one device holds
+    // two live principals.
+    expect(
+      closedWhenOpened.get('bob'),
+      'alice’s transport must be torn down before bob’s store is opened',
+    ).toBeGreaterThan(0)
   })
 
   it('does not inherit the previous principal’s replica or cursor', async () => {
