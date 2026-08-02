@@ -445,22 +445,29 @@ export class MessageDeliveryService {
   }
 
   /** Whether `session` may take an issue's pending mail at its turn boundary
-   *  [POD-1365]. A live coordinator owns its issue's mail: peers hold, and the
-   *  row waits for the coordinator's OWN next boundary rather than being handed
-   *  to a bystander. Deliberate second-order choice: the hold lasts only while the
-   *  coordinator is live — once it exits or hibernates the branch yields and any
-   *  member may drain, so a departed coordinator can never strand its issue's mail
-   *  (waking a hibernated one is POD-1371). Undefined preference = no preference,
-   *  which is the caller's "let attemptDelivery decide" path. */
+   *  [POD-1365] [POD-1371]. The coordinator owns its issue's mail by ROLE while
+   *  it still exists as a non-exited member: peers hold, and the row waits for
+   *  the coordinator's OWN next boundary (or a lifecycle=wake send that routes
+   *  through the parked wake path). Deliberate second-order choice: ownership
+   *  survives hibernation — a resting fan-out lead must not lose mail to a live
+   *  worker. Only when the coordinator is gone or exited may any member drain,
+   *  so a departed coordinator can never strand its issue's mail. Undefined
+   *  preference = no preference, which is the caller's "let attemptDelivery
+   *  decide" path. */
   private mayDrainIssueMail(issueId: string, session?: SessionMeta): SessionMeta | undefined {
     if (!session) return undefined
     const coordinatorId = this.deps.issues().get(issueId)?.coordinatorSessionId
     if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
-    const coordinatorLive = this.deps
+    const coordinatorOwns = this.deps
       .sessions()
       .listSessions()
-      .some((s) => s.sessionId === coordinatorId && s.agentKind !== 'shell' && s.status === 'live')
-    return coordinatorLive ? undefined : session
+      .some(
+        (s) =>
+          s.sessionId === coordinatorId &&
+          s.agentKind !== 'shell' &&
+          s.status !== 'exited',
+      )
+    return coordinatorOwns ? undefined : session
   }
 
   /** Issue-side target changes can alter inferred session membership and the
@@ -990,30 +997,37 @@ export class MessageDeliveryService {
       // issue never picks itself. selectMailNudgeSession picks the single live
       // idle member, which would otherwise BE the sender.
       const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
-      // Prefer the issue's designated coordinator when that session is live
-      // (docs/agent-comms-target.html §05 q1), for EVERY urgency [POD-1365].
-      // Routing is by ROLE; urgency governs only HOW the message surfaces on the
-      // recipient (inject now / ride the turn boundary / interrupt), decided
-      // below. It must not decide WHO receives it: worker status reports to a
-      // coordinator are correctly 'fyi' — they expect no reply — so excluding
-      // fyi here skipped the coordinator for exactly the class of message a
-      // fan-out coordinator most needs, and the fallback below then picked the
-      // most-recently-active member, systematically a worker mid-task.
-      // `members` already excludes the sender, so a coordinator mailing its own
-      // issue still never receives its own message [spec:SP-a4ba].
-      // If the coordinator is unset, gone, or not live, fall back to today's
-      // heuristic. Bare session id on the wire (same format as humanQuestionAskedBy).
-      const coordinatorLive =
+      // Prefer the issue's designated coordinator by ROLE (docs/agent-comms-target.html
+      // §05 q1), for EVERY urgency [POD-1365] and every non-exited session status
+      // [POD-1371]. Routing is by ROLE; urgency and lifecycle govern only HOW the
+      // message surfaces (inject now / ride the turn boundary / interrupt / hold /
+      // wake), decided below after the target is chosen. They must not decide WHO
+      // receives it: worker status reports to a coordinator are correctly 'fyi' —
+      // they expect no reply — so gating on live status skipped the coordinator
+      // between fan-out waves (when it is normally hibernated) and the fallback
+      // below then picked the most-recently-active member, systematically a live
+      // worker. `members` already excludes the sender, so a coordinator mailing
+      // its own issue still never receives its own message [spec:SP-a4ba].
+      //
+      // HOLD vs wake for a parked coordinator [POD-1371]: default lifecycle is
+      // `wait`, so fyi (and other wait mail) is HELD for the coordinator's next
+      // turn — the parked branch below returns queued without queueText/trySpawn.
+      // That is deliberate: every fyi must not spawn a process. lifecycle=wake
+      // still rides the existing parked wake path (recordWake + queueText, then
+      // trySpawn on 'no resume ref'). Only an exited (or unset/gone) coordinator
+      // falls through to today's heuristic. Bare session id on the wire (same
+      // format as humanQuestionAskedBy).
+      const coordinator =
         typeof issue.coordinatorSessionId === 'string'
           ? members.find(
               (s) =>
                 s.sessionId === issue.coordinatorSessionId &&
                 s.agentKind !== 'shell' &&
-                s.status === 'live',
+                s.status !== 'exited',
             )
           : undefined
-      if (coordinatorLive) {
-        target = coordinatorLive
+      if (coordinator) {
+        target = coordinator
       } else {
         const live = selectMailNudgeSession(members)
         target = live
@@ -1081,12 +1095,15 @@ export class MessageDeliveryService {
       // live target — the sender gets certainty of landing (queued), not a drop.
       return { ok: true, queued: true, disposition: 'queued' }
     }
-    // parked (hibernated/exited)
+    // parked (hibernated/exited). lifecycle=wait HOLDS the row for this target's
+    // next turn (drain-on-idle / stop-hook / sweep) — including a hibernated
+    // coordinator preferred by role [POD-1371]. Do not wake on every fyi.
     if (message.lifecycle === 'wait') {
       return { ok: true, queued: true, disposition: 'queued' }
     }
     // wake: durable queue + resurrect (queueText resurrects parked sessions);
-    // record the wake against the cooldown window.
+    // record the wake against the cooldown window. A parked coordinator chosen
+    // above rides this same path — no second wake mechanism.
     this.recordWake(message, target)
     const injected = this.injectAndMark('queue', message, target.sessionId, 'queued')
     if (injected.ok) return injected

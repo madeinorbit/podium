@@ -645,19 +645,20 @@ describe('MessageDeliveryService.send', () => {
     expect(sent.map((s) => s.sessionId)).toContain('sCoord')
   })
 
-  // [POD-1365] The coordinator preference turns on session STATUS, and status is a
-  // different axis from agent PHASE. An agent sitting at its prompt is phase 'idle'
-  // and status 'live' — it IS preferred; SessionStatus has no 'idle' member at all
-  // ('starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'). Conflating the
-  // two reads the table below as far more broken than it is, so pin every status:
-  // exactly one routes to the coordinator, and the rest fall through to the
-  // most-recently-active peer. The hibernated row is the real gap — a coordinator
-  // resting between fan-out waves loses its mail to a busier worker (POD-1371).
+  // [POD-1365 / POD-1371] Coordinator preference is by ROLE, not by session STATUS.
+  // Status is a different axis from agent PHASE: an agent at its prompt is phase
+  // 'idle' and status 'live' — SessionStatus has no 'idle' member
+  // ('starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'). Prefer the
+  // coordinator whenever it still exists as a non-exited member; only 'exited'
+  // falls through to the most-recently-active peer so a departed coordinator
+  // cannot strand mail. A parked (hibernated) coordinator HOLDS fyi mail for its
+  // next turn — default lifecycle is wait, so this does not spawn a process; the
+  // bug was picking a DIFFERENT recipient, not failing to wake [POD-1371].
   it.each([
     { status: 'live', wins: true },
-    { status: 'starting', wins: false },
-    { status: 'reconnecting', wins: false },
-    { status: 'hibernated', wins: false },
+    { status: 'starting', wins: true },
+    { status: 'reconnecting', wins: true },
+    { status: 'hibernated', wins: true },
     { status: 'exited', wins: false },
   ])('coordinator with status $status receives issue mail: $wins', ({ status, wins }) => {
     const members = [
@@ -676,14 +677,104 @@ describe('MessageDeliveryService.send', () => {
         issueId: ISSUE.id,
       }),
     ]
-    const { svc } = harness(members, {
+    const { svc, sent, queued } = harness(members, {
       coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
     })
     const r = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'lane status', urgency: 'fyi' },
     )
-    expect(r.message.deliveredTo).toBe(wins ? 'sCoord' : 'sWorker')
+    if (wins) {
+      // Never the busier peer — that is the silent misroute this pins.
+      expect(r.message.deliveredTo).not.toBe('sWorker')
+      expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+      expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
+      if (status === 'live') {
+        // Idle + live injects now.
+        expect(r.message.deliveredTo).toBe('sCoord')
+      } else {
+        // Non-live coordinator: fyi is HELD (lifecycle wait) for that role —
+        // no wake/spawn on every note. Row stays queued with no peer recipient.
+        expect(r.message.deliveredTo).toBeNull()
+        expect(r.message.status).toBe('queued')
+        expect(sent).toHaveLength(0)
+        expect(queued).toHaveLength(0)
+      }
+    } else {
+      expect(r.message.deliveredTo).toBe('sWorker')
+    }
+  })
+
+  // [POD-1371] lifecycle=wake on a parked coordinator uses the existing wake path
+  // (queueText → resurrect), still by ROLE — not the busier live peer.
+  it('wakes a hibernated coordinator for lifecycle=wake issue mail, not a live peer', () => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        status: 'hibernated',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, queued, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'wake the lane lead',
+        urgency: 'next-turn',
+        lifecycle: 'wake',
+      },
+    )
+    expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(queued.map((s) => s.sessionId)).toContain('sCoord')
+    expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(r.message.deliveredTo).toBe('sCoord')
+  })
+
+  // [POD-1371] Held mail for a hibernated coordinator must not drain to a peer
+  // that reaches idle first — same ownership rule as the live busy case (POD-1365),
+  // extended to parked coordinators.
+  it('holds issue mail for a hibernated coordinator instead of draining it to a peer', () => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        status: 'hibernated',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, store, sent, queued } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green', urgency: 'fyi' },
+    )
+    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveredTo).toBeNull()
+
+    svc.onSessionIdle(session({ sessionId: 'sWorker', agentState: IDLE, issueId: ISSUE.id }))
+    expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).not.toBe('sWorker')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
   })
 
   it('records queued→injected→delivered on the ledger and emits an event per transition', () => {
