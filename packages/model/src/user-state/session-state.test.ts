@@ -25,6 +25,13 @@ import {
   issueOverlayOf,
   NO_ISSUE_USER_STATE,
 } from './issue-state'
+import {
+  DEVICE_LOCAL_UI_KEYS,
+  isLayoutKey,
+  layoutKeyFromLegacy,
+  LayoutState,
+  LAYOUT_EXACT_KEYS,
+} from './layout-state'
 import { PersonalPreferenceState } from './preference-state'
 import {
   NO_SESSION_USER_STATE,
@@ -35,19 +42,19 @@ import {
 } from './session-state'
 
 describe('the family list is the thing every totality assertion below reads', () => {
-  it('covers inventory §7.1 completely: seven schemas plus two declared non-members', () => {
-    // Seven + two = the nine distinct facts §7.1 enumerates once the three issue
+  it('covers inventory §7.1 completely: eight schemas plus one declared non-member', () => {
+    // Eight + one = the nine distinct facts §7.1 enumerates once the three issue
     // markers are recognised as one key. If a member is ever dropped, this fails
     // BEFORE the it.each blocks below quietly stop checking it.
     //
-    // The counts MOVED at POD-1213 (6 + 3 → 7 + 2): `personalPreferenceKeys` was
-    // a declared non-member for as long as personal preferences lived in the
-    // instance-wide settings blob, and became a member when they got their own
-    // `(user_id, key)` table. The pair is asserted together on purpose — a member
+    // The counts MOVED at POD-1213 (6 + 3 → 7 + 2) and again at POD-1350
+    // (7 + 2 → 8 + 1): `sidebarAndTabLayout` was a declared non-member for as
+    // long as layout lived only in client ui-state, and became a member when it
+    // got `user_layout`. The pair is asserted together on purpose — a member
     // that arrived without leaving the non-member list, or left it without
     // arriving, changes exactly one of these two numbers.
-    expect(PER_USER_STATE_FAMILY).toHaveLength(7)
-    expect(PER_USER_STATE_NON_MEMBERS).toHaveLength(2)
+    expect(PER_USER_STATE_FAMILY).toHaveLength(8)
+    expect(PER_USER_STATE_NON_MEMBERS).toHaveLength(1)
     expect(PER_USER_STATE_FAMILY.map((m) => m.name).sort()).toEqual([
       'issueMessageReadState',
       'issueUserState',
@@ -55,10 +62,12 @@ describe('the family list is the thing every totality assertion below reads', ()
       'pin',
       'sessionReadState',
       'sessionSnooze',
+      'sidebarAndTabLayout',
       'tabOrder',
     ])
-    // The moved entry is gone from the OTHER list, not merely added to this one.
+    // The moved entries are gone from the OTHER list, not merely added here.
     expect(PER_USER_STATE_NON_MEMBERS.map((n) => n.name)).not.toContain('personalPreferenceKeys')
+    expect(PER_USER_STATE_NON_MEMBERS.map((n) => n.name)).not.toContain('sidebarAndTabLayout')
   })
 
   it('every member names a real table, and no two members claim the same one', () => {
@@ -118,6 +127,9 @@ describe('every member composes the ONE (userId, entityId) fragment', () => {
     // declines the brand for the same reason and must still refuse a non-string.
     expect(PersonalPreferenceState.shape.entityId.safeParse('sidebar.repoSort').success).toBe(true)
     expect(PersonalPreferenceState.shape.entityId.safeParse(42).success).toBe(false)
+    // Layout keys are the same unbranded path shape.
+    expect(LayoutState.shape.entityId.safeParse('dockTab').success).toBe(true)
+    expect(LayoutState.shape.entityId.safeParse(42).success).toBe(false)
   })
 
   it('no member carries a `visibility` field — the class is a matrix annotation, never a per-row value', () => {
@@ -207,5 +219,45 @@ describe('the fragment factory is reused, not re-implemented', () => {
   it('perUserKey(X) puts the user half in the same position for any entity brand', () => {
     expect(Object.keys(perUserKey(SessionIdField).shape)).toEqual(['userId', 'entityId'])
     expect(Object.keys(perUserKey(IssueIdField).shape)).toEqual(['userId', 'entityId'])
+  })
+})
+
+describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
+  it('admits every exact key and every dynamic section key under an allowed prefix', () => {
+    for (const key of LAYOUT_EXACT_KEYS) {
+      expect(isLayoutKey(key), key).toBe(true)
+    }
+    expect(isLayoutKey('sidebar.section.closed')).toBe(true)
+    expect(isLayoutKey('dock.section.files')).toBe(true)
+  })
+
+  it('refuses free-form keys, bare prefixes, and device-local geometry', () => {
+    expect(isLayoutKey('not.a.layout.key')).toBe(false)
+    expect(isLayoutKey('sidebar.section')).toBe(false)
+    expect(isLayoutKey('podium.view')).toBe(false)
+    expect(isLayoutKey('sidebar.width')).toBe(false)
+  })
+
+  it('maps legacy ui-state keys onto layout keys, and leaves device-local keys unmapped', () => {
+    expect(layoutKeyFromLegacy('podium.dockTab')).toBe('dockTab')
+    expect(layoutKeyFromLegacy('podium.superOpen.v2')).toBe('superOpen')
+    expect(layoutKeyFromLegacy('podium:sidebar:collapsed')).toBe('sidebar.collapsed')
+    expect(layoutKeyFromLegacy('podium:sidebar:projects')).toBe('sidebar.section.projects')
+    expect(layoutKeyFromLegacy('podium.dock.section.mail')).toBe('dock.section.mail')
+    // Device-local: never become layout rows.
+    for (const key of DEVICE_LOCAL_UI_KEYS) {
+      expect(layoutKeyFromLegacy(key), key).toBeNull()
+    }
+  })
+
+  it('a layout row parses like a personal preference row', () => {
+    expect(
+      LayoutState.safeParse({ userId: 'user:sole', entityId: 'dockTab', value: 'files' }).success,
+    ).toBe(true)
+    // value is z.unknown() — any JSON is fine, including null; the key is the claim.
+    expect(
+      LayoutState.safeParse({ userId: 'user:sole', entityId: 'dockTab', value: null }).success,
+    ).toBe(true)
+    expect(LayoutState.safeParse({ userId: 'user:sole' }).success).toBe(false)
   })
 })

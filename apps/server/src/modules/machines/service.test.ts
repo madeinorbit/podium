@@ -9,10 +9,12 @@ import { type MachinesDeps, MachinesService } from './service'
 /** Only the socket bookkeeping is exercised here — none of these paths touch the store. */
 function makeService(): MachinesService {
   const deps = {
+    instanceId: 'default',
     store: {} as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
     clients: () => [],
+    machinesForPrincipal: () => [],
   } satisfies MachinesDeps
   return new MachinesService(deps)
 }
@@ -135,17 +137,25 @@ describe('MachinesService inventory persistence (#222)', () => {
   function makeStoreService(): { svc: MachinesService; store: SessionStore } {
     const store = new SessionStore(':memory:')
     const svc = new MachinesService({
+      instanceId: 'default',
       store,
       hostMachineId: store.hostMachineId,
       sessionsChangedForMachine: () => {},
       clients: () => [],
+      machinesForPrincipal: () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
 
   test('recordInventory persists the report and it survives a hello reconnect', () => {
     const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({ id: MACHINE, name: 'vmi', hostname: 'vmi', tokenHash: 'x', ownerUserId: 'user:sole' })
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'vmi',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: 'user:sole',
+    })
 
     svc.recordInventory(MACHINE, INV)
     expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
@@ -158,7 +168,13 @@ describe('MachinesService inventory persistence (#222)', () => {
 
   test('explicit session placement is rejected when the harness is missing or logged out', () => {
     const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({ id: MACHINE, name: 'Builder', hostname: 'vmi', tokenHash: 'x', ownerUserId: 'user:sole' })
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Builder',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: 'user:sole',
+    })
     svc.attach(MACHINE, recorder().send)
 
     svc.recordInventory(MACHINE, INV)
@@ -178,8 +194,20 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('implicit placement moves to a capable machine that owns the cwd', () => {
     const { svc, store } = makeStoreService()
     const other = 'capable'
-    store.machines.upsertMachine({ id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x', ownerUserId: 'user:sole' })
-    store.machines.upsertMachine({ id: other, name: 'Capable', hostname: 'b', tokenHash: 'y', ownerUserId: 'user:sole' })
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Missing',
+      hostname: 'a',
+      tokenHash: 'x',
+      ownerUserId: 'user:sole',
+    })
+    store.machines.upsertMachine({
+      id: other,
+      name: 'Capable',
+      hostname: 'b',
+      tokenHash: 'y',
+      ownerUserId: 'user:sole',
+    })
     store.repos.addRepo('/repo', MACHINE)
     store.repos.addRepo('/repo', other)
     svc.attach(MACHINE, recorder().send)

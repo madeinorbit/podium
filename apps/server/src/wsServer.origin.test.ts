@@ -86,7 +86,7 @@ describe('the CSWSH guard on the real upgrade path', () => {
 
   async function start(): Promise<string> {
     store = new SessionStore(':memory:')
-    registry = new SessionRegistry(store)
+    registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     server = createServer()
     handle = attachWebSockets(server as Server, registry, {
       userForClient: () => FIRST_ADMIN_USER_ID,

@@ -16,6 +16,7 @@
  * and no type in this file grows an owner field.
  */
 import type { z } from 'zod'
+import type { MachineUseDecision } from '../entities/machine'
 import type { IssueWorkspace } from '../fields/issue'
 import { worktreeForCwd, worktreeSubpath } from '../identity/worktree'
 
@@ -108,8 +109,6 @@ export interface HandoffRepo extends RepoMachines {
  * is instead the ABSENCE of the field (see {@link HandoffMachine.use}), which is
  * visible in a diff and greppable, whereas a permissive enum member is neither.
  */
-export type MachineUseDecision = 'granted' | 'denied'
-
 export interface HandoffMachine extends SelectableMachine {
   inventory?: {
     agents: { kind: string; installed: boolean; login: { state: 'in' | 'out' | 'unknown' } }[]

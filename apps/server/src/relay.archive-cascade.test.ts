@@ -8,7 +8,7 @@ import { SessionRegistry } from './relay'
 // session-less WORKTREE row where the issue used to be.
 
 function regWithDaemon() {
-  const reg = new SessionRegistry()
+  const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
 }

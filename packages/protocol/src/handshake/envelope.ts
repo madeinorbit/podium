@@ -177,8 +177,6 @@ export const PeerHello = z.object({
   feedId: z.string().optional(),
   credential: PeerCredential,
   claims: PeerIdentityClaims.optional(),
-  /** [spec:SP-15aa] — threaded exactly as today; not a tenant discriminator (ADR 1 D5). */
-  instanceId: z.string().optional(),
 })
 export type PeerHello = z.infer<typeof PeerHello>
 

@@ -43,7 +43,7 @@ function harness({
 } = {}) {
   const store = new SessionStore(':memory:')
   const daemon: ControlMessage[] = []
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))
   const { sessionId } = registry.modules.sessions.createSession({
@@ -144,7 +144,7 @@ function harness({
 
 describe('durable terminal hibernation proof', () => {
   it('keeps explicit legacy hibernation proof-free', () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -325,7 +325,7 @@ describe('durable terminal hibernation proof', () => {
     })
 
     const controls: ControlMessage[] = []
-    const restarted = new SessionRegistry(h.store)
+    const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) => controls.push(message))
     const continues = () =>
@@ -363,7 +363,7 @@ describe('durable terminal hibernation proof', () => {
     })
 
     const controls: ControlMessage[] = []
-    const restarted = new SessionRegistry(h.store)
+    const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) => controls.push(message))
     restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {

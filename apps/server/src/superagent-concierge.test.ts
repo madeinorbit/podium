@@ -31,7 +31,7 @@ afterEach(() => {
 type TurnReq = Extract<ControlMessage, { type: 'headlessTurnRequest' }>
 
 async function harness(opts?: { eventReadLimit?: number }) {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.

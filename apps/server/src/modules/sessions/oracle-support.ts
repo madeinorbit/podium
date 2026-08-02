@@ -190,7 +190,7 @@ export function makeOracle(
       }),
     )
   }
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   // The daemon the oracle attaches is THIS HOST's (POD-318): the registry
   // provisioned its row on construction, so it has a credential to have

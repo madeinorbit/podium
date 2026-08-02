@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -7,10 +7,15 @@ import {
   issueWireBuildCount,
   resetIssueWireBuildCount,
 } from './modules/issues/instrumentation'
+import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+
+/** The fixture's caller. `addComment` requires a principal (POD-1315) — these
+ *  tests exercise the operator seam, so they say so rather than defaulting. */
+const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
 /**
  * The normalized issue wire, end to end through the PRODUCTION wiring
@@ -129,7 +134,7 @@ function world(opts: { issues?: number; sessions?: number } = {}) {
   for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++) store.issues.upsertIssue(issueRow(i))
   const sessionIds: string[] = []
   for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++) sessionIds.push(seedSession(store, i))
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   return { store, registry, sessionIds }
 }
@@ -265,7 +270,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     store.issues.upsertIssue(issueRow(0))
     const sessionId = seedSession(store, 0, null)
 
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.modules.sessions.flushBroadcasts()
 
@@ -294,7 +299,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     expect(sessionValue?.issueId).toBe('iss_0')
 
     const cursor = Math.max(...all.changes.map((change) => change.seq))
-    const reboot = new SessionRegistry(store)
+    const reboot = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(reboot)
     reboot.modules.sessions.flushBroadcasts()
     const after = reboot.modules.sessions.syncChangesSince(cursor)
@@ -309,7 +314,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     const { registry } = world({ issues: 1, sessions: 0 })
     const before = registry.modules.issues.get('iss_0')?.updatedAt
 
-    registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise')
+    registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise', AS_OPERATOR)
 
     const projections = changesOf(registry, 'issueProjection')
     const appended = projections.filter((change) => change.id === 'iss_0').at(-1)

@@ -7,11 +7,13 @@
  * page.evaluate() run as plain `window.__podium.…()` in the browser.
  */
 import { expect, type Page } from '@playwright/test'
+import { loginTestClient } from '../../../apps/server/src/test-support/client-auth'
 import { CodexReadinessBoundary } from '../codex-readiness'
 
 /** ws:// origin of the harness relay; PORT lets concurrent harness runs stay isolated. */
 export const RELAY =
   process.env.PODIUM_RELAY ?? `ws://localhost:${Number(process.env.PORT ?? 8799)}`
+const HTTP = RELAY.replace(/^ws/, 'http')
 
 interface PodiumTestApi {
   screenText(): string
@@ -30,6 +32,22 @@ export async function openApp(page: Page): Promise<void> {
   // through the same persistence channel a user would, rather than a production
   // E2E branch in the app. Must run before app code, so before goto.
   await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
+  // A password inherited by the isolated server enables the production cookie
+  // gate. Authenticate through the real route and install its real session
+  // cookie before app code opens `/auth/status` and `/client`.
+  const password = process.env.PODIUM_PASSWORD?.trim()
+  if (password) {
+    const login = await loginTestClient({ origin: HTTP, password })
+    await page.context().addCookies([
+      {
+        name: login.cookieName,
+        value: login.cookieValue,
+        url: HTTP,
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ])
+  }
   // Phone user agents get the web shell at `/` directly since #58 — no cookie
   // opt-out needed; `?server`/`?e2e` survive the load [spec:SP-902c].
   await page.goto(`/?server=${RELAY}&e2e=1`)

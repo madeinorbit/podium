@@ -14,7 +14,7 @@ afterEach(() => {
 })
 
 function makeRegistry(): SessionRegistry {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   return registry

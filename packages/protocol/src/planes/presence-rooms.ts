@@ -11,11 +11,10 @@ import { AgentIdentityId, UserId } from './principal'
  * must never be queued, replayed, retried from an outbox, or treated as
  * offline-class.
  *
- * These frames are NOT members of the post-auth `ClientMessage` /
- * `ServerMessage` unions yet — POD-1078 lands them on the wire. D16 classifies
- * them in advance precisely so the implementer does not get to pick the plane,
- * and `planes/inventory.ts` carries that classification with a totality check
- * over this module's unions.
+ * These frames are members of the post-auth `ClientMessage` and
+ * `ServerMessage` unions. D16 classified them before landing so the
+ * implementer could not pick another plane; `planes/inventory.ts` now checks
+ * the landed unions and this module's unions together for totality.
  */
 
 /**

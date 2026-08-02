@@ -28,7 +28,7 @@ afterEach(async () => {
 /** Start a real http server with an open client surface; return its base ws origin. */
 async function start(): Promise<string> {
   store = new SessionStore(':memory:')
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   server = createServer()
   handle = attachWebSockets(server as Server, registry)
   await new Promise<void>((res) => (server as Server).listen(0, res))

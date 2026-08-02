@@ -131,7 +131,7 @@ async function handoffFixture(
   store.machines.setMachineInventory('m2', inventory)
   store.repos.addRepo('/source/repo', 'm1', 'git@github.com:example/repo.git')
   store.repos.addRepo('/target/repo', 'm2', 'git@github.com:example/repo.git')
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   built.push(reg)
 
   const source: ControlMessage[] = []

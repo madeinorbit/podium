@@ -13,7 +13,12 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
-import { resolvePrincipal } from './command-principal'
+import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+
+/** The fixture's caller. `addComment` requires a principal (POD-1315) — these
+ *  tests exercise the operator seam, so they say so rather than defaulting. */
+const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
@@ -56,7 +61,7 @@ function sink() {
 
 describe('characterization: session roundtrip across daemon reconnect (contract 1)', () => {
   it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon1: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon1.push(m))
     const { sessionId } = reg.modules.sessions.createSession({
@@ -214,7 +219,9 @@ describe('characterization: issue lifecycle equivalence across entry points (con
    *  install has one host; this pins that. */
   const HOST = asMachineId('machine-under-test')
   const freshRegistry = () => {
-    const reg = new SessionRegistry(new SessionStore(':memory:', HOST))
+    const reg = new SessionRegistry(new SessionStore(':memory:', HOST), undefined, {
+      instanceId: 'default',
+    })
     registries.push(reg)
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
@@ -248,7 +255,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         startNow: false,
       })
       regA.issues.claim(a.id, asUserId('agent:test'))
-      regA.issues.addComment(a.id, 'agent:test', 'progress note')
+      regA.issues.addComment(a.id, 'agent:test', 'progress note', AS_OPERATOR)
       regA.issues.close(a.id, 'done')
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
@@ -330,7 +337,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 
 describe('characterization: closed-state normalization (contract 2, issue #24)', () => {
   it('a bare closedReason patch moves the stage to done (#24)', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
       const patched = reg.issues.update(w.id, { closedReason: 'wontfix' })
@@ -358,7 +365,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
   })
 
   it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
       reg.issues.close(w.id) // stage done + closedReason 'done'
@@ -382,7 +389,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
   })
 
   it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
       reg.issues.close(w.id)
@@ -498,14 +505,14 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
 
     // Populate one row in each family through the real write paths.
     const store1 = new SessionStore(file)
-    const reg1 = new SessionRegistry(store1)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
     })
     const issue = reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
-    reg1.issues.addComment(issue.id, 'agent:test', 'durable note')
+    reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
     reg1.issues.close(issue.id, 'done')
     reg1.modules.mutations.once('mut-char-1', 'issues.close', () => ({ ok: true }))
     store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
@@ -574,7 +581,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
     )
 
   it('scope violations are PRECONDITION_FAILED, role denials are FORBIDDEN, operator passes — identically via the middleware and the in-proc mailClaim check', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = appRouter.createCaller({
         registry: reg,

@@ -18,6 +18,7 @@ function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeSt
 function makeSession(toDaemon = vi.fn()) {
   return new Session({
     sessionId: asSessionId('s1'),
+    durableLabel: 'podium-s1',
     agentKind: 'claude-code',
     cwd: '/w',
     title: 'w',
@@ -132,6 +133,7 @@ describe('Session', () => {
   it('shell is busy only while a submitted command runs, not on prompt-draw/echo', () => {
     const s = new Session({
       sessionId: asSessionId('sh'),
+      durableLabel: 'podium-sh',
       agentKind: 'shell',
       cwd: '/w',
       title: 'w',
@@ -170,7 +172,12 @@ describe('Session', () => {
     expect(toDaemon).not.toHaveBeenCalled()
     s.terminal.handleResize('a', 120, 40)
     expect(s.terminal.geometry).toEqual({ cols: 120, rows: 40 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 120, rows: 40 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 120,
+      rows: 40,
+    })
   })
 
   it('ignores a resize from a controller that isn’t rendering the session', () => {
@@ -198,7 +205,12 @@ describe('Session', () => {
     s.terminal.handleResize('a', 200, 50)
     expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
     expect(s.terminal.activityDirty).toBe(true)
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 200,
+      rows: 50,
+    })
   })
 
   it('broadcasts the applied geometry to all clients so the size is not lost (quarter-size fix)', () => {
@@ -234,7 +246,12 @@ describe('Session', () => {
     a.sent.length = 0
     s.terminal.reconcileGeometry('a')
     expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(a.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
+    expect(a.sent).toContainEqual({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 200,
+      rows: 50,
+    })
   })
 
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
@@ -250,7 +267,12 @@ describe('Session', () => {
     expect(s.terminal.controllerId).toBe('b')
     expect(s.terminal.epoch).toBe(1)
     expect(s.terminal.geometry).toEqual({ cols: 50, rows: 60 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 50, rows: 60 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 50,
+      rows: 60,
+    })
     expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
@@ -326,7 +348,12 @@ describe('Session', () => {
     s.terminal.reconcileGeometry('a')
     // The dropped fitted size is now applied — not lost.
     expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 200,
+      rows: 50,
+    })
   })
 
   it('reconcileGeometry is a no-op when the client is not the controller or not rendering', () => {
@@ -516,6 +543,7 @@ describe('Session', () => {
   it('markLive promotes a reconnecting session to live', () => {
     const s = new Session({
       sessionId: asSessionId('s1'),
+      durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -577,6 +605,7 @@ describe('Session', () => {
   it('preserves a persisted compute total when a reloaded old daemon omits it', () => {
     const s = new Session({
       sessionId: asSessionId('s1'),
+      durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -611,6 +640,7 @@ describe('Session', () => {
   it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {
     const s = new Session({
       sessionId: asSessionId('s1'),
+      durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -636,6 +666,7 @@ describe('Session', () => {
   it('a running shell command advances lastActiveAt (output is its only signal)', () => {
     const s = new Session({
       sessionId: asSessionId('sh'),
+      durableLabel: 'podium-sh',
       agentKind: 'shell',
       cwd: '/w',
       title: 'w',
@@ -778,6 +809,7 @@ describe('Session transcript cache (recent-delta window)', () => {
   it('markResumed bumps lastResumedAt and marks dirty without touching lastActiveAt', () => {
     const s = new Session({
       sessionId: asSessionId('s1'),
+      durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -806,6 +838,7 @@ describe('Session transcript cache (recent-delta window)', () => {
   it('seeds counters from SessionInit ISO values', () => {
     const s = new Session({
       sessionId: asSessionId('s1'),
+      durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -825,6 +858,7 @@ describe('Session transcript cache (recent-delta window)', () => {
   it('seeds a malformed activity ISO as 0 (never NaN — would freeze hibernation)', () => {
     const s = new Session({
       sessionId: asSessionId('s1'),
+      durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',

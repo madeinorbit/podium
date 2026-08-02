@@ -39,7 +39,7 @@ import { SessionRegistry } from '../../relay'
 
 const registries: SessionRegistry[] = []
 const fresh = (): SessionRegistry => {
-  const r = new SessionRegistry()
+  const r = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registries.push(r)
   return r
 }

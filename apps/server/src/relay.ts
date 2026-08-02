@@ -7,6 +7,7 @@ import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
+import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -69,7 +70,7 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
@@ -98,6 +99,8 @@ export type {
 export type { MemoryBreakdown }
 
 interface SessionRegistryOptions {
+  /** Boot-resolved deployment identity; every composition root names it explicitly. */
+  instanceId: string
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -237,13 +240,17 @@ export class SessionRegistry {
   private readonly issueAutoArchive: IssueAutoArchive
   /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
   private readonly automationScheduler: AutomationScheduler
+  private readonly store: SessionStore
   private readonly now: () => number
 
   constructor(
-    private readonly store: SessionStore = new SessionStore(':memory:'),
-    notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
-    options: SessionRegistryOptions = {},
+    store: SessionStore | undefined,
+    notificationPushers: NotificationPushers | undefined,
+    options: SessionRegistryOptions,
   ) {
+    this.store = store ?? new SessionStore(':memory:')
+    notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
+    const { instanceId } = options
     this.now = options.now ?? Date.now
     // Resolve feature state once, then keep it atomic with settings changes. This also
     // avoids reading persistence during instruction preparation after async recovery.
@@ -306,6 +313,7 @@ export class SessionRegistry {
       this.store.repos,
     )
     const machines = new MachinesService({
+      instanceId,
       store: this.store,
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
@@ -314,6 +322,11 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clientRegistry.values(),
+      machinesForPrincipal: (principal, machineService) =>
+        machinesForPrincipal(
+          { machines: machineService },
+          userCommandPrincipal(asUserId(principal.user), principal.role),
+        ),
     })
     // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
     // this registry mints names a machine (POD-318), and a machine id with no row is
@@ -483,6 +496,22 @@ export class SessionRegistry {
       current: readonly import('@podium/model').ConversationDiagnosticWire[]
     } = { current: [] }
     const subscriptions = new SubscriptionRegistry()
+    const roomVisibility: VisibilityResolver = {
+      canSee: (principal, ref) => {
+        if (principal.kind !== 'user') return false
+        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
+        return visibility.mayDeliver(
+          { kind: 'user', userId: principal.user },
+          { entity: ref.kind, entityId: ref.id },
+        )
+      },
+    }
+    const presence = new PresenceRouting({
+      subscriptions,
+      clients: clientRegistry,
+      visibility: roomVisibility,
+      now: this.now,
+    })
     const feedServing = new FeedServing({
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
@@ -498,6 +527,7 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
       subscriptions,
+      onVisibilityChanged: (subscriberIds) => presence.revalidateSubscribers(subscriberIds),
       diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({
@@ -692,6 +722,7 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
     const sessionsSvc = new SessionLifecycle({
+      durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
@@ -700,6 +731,7 @@ export class SessionRegistry {
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
+      subscriptions,
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
@@ -1874,22 +1906,6 @@ export class SessionRegistry {
     // that both surfaces arrive on the same socket.
     // The CLIENT plane's mux. Every client frame is session-owned today except
     // `ping`, which the mux answers itself — see gateway/client-frame-routing.ts.
-    const roomVisibility: VisibilityResolver = {
-      canSee: (principal, ref) => {
-        if (principal.kind !== 'user') return false
-        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
-        return visibility.mayDeliver(
-          { kind: 'user', userId: principal.user },
-          { entity: ref.kind, entityId: ref.id },
-        )
-      },
-    }
-    const presence = new PresenceRouting({
-      subscriptions,
-      clients: clientRegistry,
-      visibility: roomVisibility,
-      now: this.now,
-    })
     this.clientGateway = new ClientMux({
       registry: clientRegistry,
       ports: { sessions: sessionsSvc },

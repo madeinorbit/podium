@@ -28,9 +28,88 @@
  * teach each WeakMap to tolerate duplication.
  */
 
+import { globSync, readFileSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { applyBaselineSchema } from '../apps/server/src/migrations'
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+
+describe('workspace packages resolve inside this checkout', () => {
+  it('links every workspace package at the repository root', () => {
+    const rootPackage = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+      workspaces: string[]
+    }
+    const workspaceManifests = rootPackage.workspaces
+      .flatMap((pattern) => globSync(`${pattern}/package.json`, { cwd: repoRoot }))
+      .sort()
+
+    expect(workspaceManifests.length).toBeGreaterThan(0)
+    for (const relativeManifest of workspaceManifests) {
+      const manifest = join(repoRoot, relativeManifest)
+      const workspace = JSON.parse(readFileSync(manifest, 'utf8')) as { name?: string }
+      expect(workspace.name, `${relativeManifest} must name its workspace package`).toBeDefined()
+
+      const installed = join(repoRoot, 'node_modules', workspace.name ?? '')
+      let resolved: string
+      try {
+        resolved = realpathSync(installed)
+      } catch {
+        throw new Error(`${workspace.name} is not linked from this checkout's node_modules`)
+      }
+      expect(
+        resolved,
+        `${workspace.name} resolved outside this checkout instead of to ${dirname(manifest)}`,
+      ).toBe(realpathSync(dirname(manifest)))
+    }
+  })
+
+  it('keeps conflicting third-party versions scoped to their declaring workspace', () => {
+    const conflicts = [
+      { workspace: 'apps/mobile', packageName: 'react' },
+      { workspace: 'apps/mobile', packageName: 'react-dom' },
+      { workspace: 'packages/client-core', packageName: '@types/node' },
+      { workspace: 'packages/terminal-client-react', packageName: '@types/node' },
+    ] as const
+    const rootRequire = createRequire(join(repoRoot, 'package.json'))
+
+    for (const { workspace, packageName } of conflicts) {
+      const workspaceManifest = join(repoRoot, workspace, 'package.json')
+      const workspacePackage = JSON.parse(readFileSync(workspaceManifest, 'utf8')) as {
+        dependencies?: Record<string, string>
+        devDependencies?: Record<string, string>
+      }
+      expect(
+        workspacePackage.dependencies?.[packageName] ??
+          workspacePackage.devDependencies?.[packageName],
+        `${workspace} must declare ${packageName} for this isolation check to be meaningful`,
+      ).toBeDefined()
+
+      const workspaceRequire = createRequire(workspaceManifest)
+      const workspaceResolved = realpathSync(
+        workspaceRequire.resolve(`${packageName}/package.json`),
+      )
+      const expectedLocal = realpathSync(
+        join(repoRoot, workspace, 'node_modules', ...packageName.split('/'), 'package.json'),
+      )
+      expect(
+        workspaceResolved,
+        `${workspace} resolved ${packageName} through the hoisted root copy`,
+      ).toBe(expectedLocal)
+
+      const rootResolved = realpathSync(rootRequire.resolve(`${packageName}/package.json`))
+      const workspaceVersion = JSON.parse(readFileSync(workspaceResolved, 'utf8')).version
+      const rootVersion = JSON.parse(readFileSync(rootResolved, 'utf8')).version
+      expect(
+        workspaceVersion,
+        `${workspace}'s ${packageName} no longer conflicts with the root version`,
+      ).not.toBe(rootVersion)
+    }
+  })
+})
 
 describe('@podium/runtime resolves to one instance (#746)', () => {
   it('the migrator recognises a database this file opened', () => {

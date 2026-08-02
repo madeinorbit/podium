@@ -14,7 +14,6 @@ import {
   spawnTmuxAgent,
   tmuxHasSession,
 } from '@podium/pty'
-import { resolveInstanceId } from '@podium/runtime/config'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
@@ -39,7 +38,7 @@ const DRAFT_SYNC_HARNESS_ENV: Partial<Record<AgentKind, Record<string, string>>>
 export function agentRelayEnv(
   sessionId: SessionId,
   endpoint: string,
-  instanceId: string = resolveInstanceId(),
+  instanceId: string,
 ): Record<string, string> {
   // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium`
   // CLI reads the session id from PODIUM_AGENT_RELAY's path, so this isn't consumed

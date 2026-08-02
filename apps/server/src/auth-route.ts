@@ -151,6 +151,15 @@ export interface AccountCredentialStore {
 export interface AuthRouteOptions {
   store?: ClientSessionStore
   users?: AccountCredentialStore
+  /**
+   * Resolve the request's transport principal at the server composition root.
+   *
+   * When present this is the SAME resolver used by tRPC and the client socket;
+   * the auth route reports its result and never invents an account of its own.
+   * This keeps the open/dev bootstrap policy in one place instead of growing a
+   * second first-admin fallback at an unauthenticated status endpoint.
+   */
+  resolveUserId?: (cookieHeader: string | undefined) => UserId | undefined
   /** State dir holding the password hash (auth.json). Defaults to the real state dir. */
   authDir?: string
   throttle?: { maxFailures?: number; lockoutMs?: number }
@@ -171,9 +180,13 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
 
   app.get('/auth/status', (c) => {
     const needsAuth = hasPassword(authDir) || Boolean(users?.hasPerUserCredentials())
-    const authed =
-      needsAuth && store ? isRequestAuthed(store, c.req.header('cookie'), now()) : false
-    const userId = store ? requestUserId(store, c.req.header('cookie'), now()) : undefined
+    const cookie = c.req.header('cookie')
+    const userId = opts.resolveUserId
+      ? opts.resolveUserId(cookie)
+      : store
+        ? requestUserId(store, cookie, now())
+        : undefined
+    const authed = userId !== undefined
     return c.json({ needsAuth, authed, ...(userId ? { userId } : {}) })
   })
 

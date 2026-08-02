@@ -1,7 +1,8 @@
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import {
   asSubscriberId,
   principalRoutingKey,
+  type Principal,
   type RoomRef,
   SubscriptionRegistry,
 } from '@podium/protocol'
@@ -16,11 +17,12 @@ const ROOM: RoomRef = { kind: 'session', id: asSessionId('session-room') }
 function connection(
   id: string,
   stream: (message: Parameters<ClientConn['send']>[0]) => boolean = () => true,
+  user: UserId = FIRST_ADMIN_USER_ID,
 ): { conn: ClientConn; sent: Parameters<ClientConn['send']>[0][] } {
   const sent: Parameters<ClientConn['send']>[0][] = []
   const conn: ClientConn = {
     id,
-    principal: userClientPrincipal(id, FIRST_ADMIN_USER_ID, 'admin'),
+    principal: userClientPrincipal(id, user, 'member'),
     send: (message) => {
       sent.push(message)
     },
@@ -45,13 +47,18 @@ function connection(
   return { conn, sent }
 }
 
-function setup(opts: { visible?: boolean; now?: () => number } = {}) {
+function setup(
+  opts: { visible?: boolean | ((principal: Principal) => boolean); now?: () => number } = {},
+) {
   const subscriptions = new SubscriptionRegistry()
   const clients = new ClientRegistry()
   const presence = new PresenceRouting({
     subscriptions,
     clients,
-    visibility: { canSee: () => opts.visible ?? true },
+    visibility: {
+      canSee: (principal) =>
+        typeof opts.visible === 'function' ? opts.visible(principal) : (opts.visible ?? true),
+    },
     ...(opts.now ? { now: opts.now } : {}),
   })
   return { subscriptions, clients, presence }
@@ -88,6 +95,40 @@ describe('production presence routing', () => {
     expect(b.sent.at(-1)).toEqual(a.sent.at(-1))
   })
 
+  it('does not reveal a present user to a second user who cannot see the room', () => {
+    const aliceId = asUserId('user:alice')
+    const bobId = asUserId('user:bob')
+    const { clients, presence } = setup({
+      visible: (principal) => principal.kind === 'user' && principal.user === aliceId,
+    })
+    const alice = connection('alice', () => true, aliceId)
+    const bob = connection('bob', () => true, bobId)
+    clients.add(alice.conn)
+    clients.add(bob.conn)
+
+    presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
+    alice.sent.length = 0
+    presence.route(alice.conn, {
+      type: 'presenceUpdate',
+      room: ROOM,
+      payload: { cursor: 7 },
+    })
+    presence.flushNow()
+
+    // Positive control: Alice's identity-carrying presence is genuinely live
+    // and reaches the authorized subscriber before Bob attempts the same join.
+    expect(alice.sent).toContainEqual({
+      type: 'presenceRoomDelta',
+      room: ROOM,
+      change: 'updated',
+      member: { identity: { kind: 'user', user: aliceId }, payload: { cursor: 7 } },
+    })
+
+    presence.route(bob.conn, { type: 'presenceSubscribe', room: ROOM })
+
+    expect(bob.sent).toEqual([{ type: 'presenceRoomClosed', room: ROOM }])
+  })
+
   it('shares one registry with the principal feed and derives all leaves on disconnect', () => {
     const { subscriptions, clients, presence } = setup()
     const alice = connection('alice')
@@ -104,6 +145,34 @@ describe('production presence routing', () => {
 
     expect(subscriptions.keyCount).toBe(0)
     expect(presence.occupancy(ROOM)).toEqual([])
+  })
+
+  it('evicts stale rooms when the durable feed reports a rights change', () => {
+    let visible = true
+    const { subscriptions, clients, presence } = setup({ visible: () => visible })
+    const alice = connection('alice')
+    clients.add(alice.conn)
+    subscriptions.subscribe(principalRoutingKey(alice.conn.principal), {
+      subscriberId: asSubscriberId(alice.conn.id),
+      principal: alice.conn.principal,
+    })
+    presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
+    alice.sent.length = 0
+
+    visible = false
+    presence.revalidateSubscribers([asSubscriberId(alice.conn.id)])
+    presence.flushNow()
+
+    expect(
+      subscriptions.has(principalRoutingKey(alice.conn.principal), asSubscriberId(alice.conn.id)),
+    ).toBe(true)
+    expect(
+      subscriptions
+        .keysOf(asSubscriberId(alice.conn.id))
+        .some((key) => String(key).startsWith('room:')),
+    ).toBe(false)
+    expect(presence.occupancy(ROOM)).toEqual([])
+    expect(alice.sent).toContainEqual({ type: 'presenceRoomClosed', room: ROOM })
   })
 
   it('drops a pressured stream and evicts only its room subscription', () => {

@@ -21,7 +21,7 @@ const ctx = (registry: SessionRegistry) =>
 
 describe('sortKey minting on create (POD-168)', () => {
   it('each new top-level issue mints above the scope minimum', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'first', startNow: false })
@@ -40,7 +40,7 @@ describe('sortKey minting on create (POD-168)', () => {
   })
 
   it("a parent's children are an independent key space", async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const first = await op.issues.create({ repoPath: '/r', title: 'top A', startNow: false })
@@ -68,7 +68,7 @@ describe('sortKey minting on create (POD-168)', () => {
   })
 
   it('scopes are per repo group at the top level', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r1', title: 'repo1 top', startNow: false })
@@ -83,7 +83,7 @@ describe('sortKey minting on create (POD-168)', () => {
 
 describe('sortKey update patch (POD-168)', () => {
   it('round-trips through issues.update and persists on the wire', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'movable', startNow: false })
@@ -97,7 +97,7 @@ describe('sortKey update patch (POD-168)', () => {
   })
 
   it('rejects malformed keys (uppercase, trailing zero, empty)', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'guarded', startNow: false })
@@ -110,7 +110,7 @@ describe('sortKey update patch (POD-168)', () => {
   })
 
   it('pin/unpin leaves the sortKey untouched (unpin returns to its position)', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'pin me', startNow: false })

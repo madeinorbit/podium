@@ -31,7 +31,7 @@ type TurnAck = Extract<ControlMessage, { type: 'headlessTurnAck' }>
 type SpawnMsg = Extract<ControlMessage, { type: 'spawn' }>
 
 async function harness() {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   const turnReqs: TurnReq[] = []
   const bindReqs: BindReq[] = []
@@ -743,7 +743,7 @@ describe('boot reconciliation for headless sessions', () => {
     expect(h.registry.sessionStore.superagent.listPendingTurns()).toHaveLength(0)
 
     const store = h.registry.sessionStore
-    const reborn = new SessionRegistry(store)
+    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
     reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
@@ -774,7 +774,7 @@ describe('boot reconciliation for headless sessions', () => {
     expect(h.registry.sessionStore.superagent.listPendingTurns()).toHaveLength(1)
 
     const store = h.registry.sessionStore
-    const reborn = new SessionRegistry(store)
+    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
     const acknowledgements: TurnAck[] = []
@@ -834,7 +834,7 @@ describe('boot reconciliation for headless sessions', () => {
       h.registry.sessionStore.superagent.getSuperagentThread('global')?.podiumSessionId
     // "Restart": a fresh registry over the same store.
     const store = h.registry.sessionStore
-    const reborn = new SessionRegistry(store)
+    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const binds: BindReq[] = []
     const reattaches: string[] = []

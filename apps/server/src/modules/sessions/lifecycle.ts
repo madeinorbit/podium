@@ -41,11 +41,13 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
+  type RoomRef,
   type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
   type SessionOpenUrlMessage,
   type SyncChangesSinceResult,
+  type SubscriptionRegistry,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
@@ -92,6 +94,7 @@ import type { MachinesService, MachineUseResolver } from '../machines/service'
 import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
+import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
@@ -192,6 +195,8 @@ export interface SessionRestorePlan {
 }
 
 interface SessionLifecycleDeps {
+  /** Deployment-qualified durable namespace, injected by the composition root. */
+  durableLabelFor(sessionId: SessionId): string
   store: SessionStore
   now(): number
   bus: EventBus
@@ -228,6 +233,8 @@ interface SessionLifecycleDeps {
    * client-plane mirror of the daemon mux's in-process peer form.
    */
   clients?: ClientRegistry
+  /** The gateway's ONE routing registry, shared by the feed and room stream. */
+  subscriptions: SubscriptionRegistry
   /** Shared live-session registry, constructed before every reader. Lifecycle
    * remains its sole mutation owner. */
   sessions?: Map<SessionId, Session>
@@ -388,6 +395,7 @@ export class SessionLifecycle {
     this.browserOpen = new BrowserOpenGateway({
       now: () => this.now(),
       clients: this.clients,
+      subscriptions: this.deps.subscriptions,
       session: (sessionId) => this.sessions.get(sessionId),
       sessionOwner: (sessionId) => this.sessionOwner(sessionId),
       toMachine: (machineId, message) => this.toMachine(machineId, message),
@@ -477,6 +485,7 @@ export class SessionLifecycle {
       appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
     })
     this.headless = new HeadlessService({
+      durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
       getSession: (sessionId) => this.sessions.get(sessionId),
       registerSession: (session) => this.sessions.set(session.sessionId, session),
       resolveMachine: (requested, cwd, agentKind) =>
@@ -583,7 +592,11 @@ export class SessionLifecycle {
       publication: this.publication,
       state: this.state,
       inbox: this.inbox,
-      machines: this.machines,
+      machinesForPrincipal: (principal) =>
+        projectMachinesForPrincipal(
+          { machines: this.machines },
+          userCommandPrincipal(asUserId(principal.user), principal.role),
+        ),
       browserOpen: this.browserOpen,
       mutate: (sessionId, change, issueRelevant) =>
         this.repository.mutateSessionView(sessionId, change, issueRelevant),
@@ -1766,12 +1779,7 @@ export class SessionLifecycle {
     // Unsaved-work guard: inspect the working copy when present. Branch commits
     // alone are not a refusal — the branch is always kept.
     if (worktreePath && !input.force) {
-      const st = await this.rpc.repoOp(
-        'status',
-        worktreePath,
-        undefined,
-        session.machineId,
-      )
+      const st = await this.rpc.repoOp('status', worktreePath, undefined, session.machineId)
       if (st.ok) {
         const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
         if (dirty.length > 0) {
@@ -2620,6 +2628,7 @@ export class SessionLifecycle {
             .accountId)
     const session = new Session({
       sessionId,
+      durableLabel: this.deps.durableLabelFor(sessionId),
       ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       agentKind: input.agentKind,
       cwd: input.cwd,
@@ -2797,6 +2806,11 @@ export class SessionLifecycle {
    */
   onClientAttached(principal: ClientPrincipal, client: ClientConn): void {
     this.clientControl.onAttached(principal, client)
+  }
+
+  /** Feature-owned consequence of a successful stream-room join. */
+  onRoomJoined(client: ClientConn, room: RoomRef): void {
+    if (room.kind === 'session') this.browserOpen.replayPending(client)
   }
 
   /** Authorization/view invalidation seam: the main authority changed one client world. */

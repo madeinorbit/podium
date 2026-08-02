@@ -4,7 +4,7 @@ import { SessionStore } from './store'
 
 describe('SessionRegistry model catalog wiring', () => {
   it('defaults to an empty catalog and never shells out when no probe is injected', () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     // No modelProbe → empty snapshot, and get() must not throw (default no-op probe).
     expect(registry.modules.settings.getModelCatalog()).toEqual({ byAgent: {}, fetchedAt: 0 })
     registry.dispose()
@@ -15,7 +15,7 @@ describe('SessionRegistry model catalog wiring', () => {
       grok: [{ value: 'grok-build', label: 'grok-build' }],
       cursor: [{ value: 'composer-2.5', label: 'Composer 2.5' }],
     }))
-    const registry = new SessionRegistry(undefined, undefined, { modelProbe })
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default', modelProbe })
     const snapshot = await registry.modules.settings.refreshModelCatalog()
     expect(snapshot.byAgent.grok?.[0]?.value).toBe('grok-build')
     expect(registry.modules.settings.getModelCatalog().byAgent.cursor?.[0]?.value).toBe('composer-2.5')
@@ -28,14 +28,14 @@ describe('SessionRegistry model catalog wiring', () => {
     const probe = vi.fn(async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }))
 
     // First "boot": probe once, which persists to the shared store.
-    const first = new SessionRegistry(store, undefined, { modelProbe: probe })
+    const first = new SessionRegistry(store, undefined, { instanceId: 'default', modelProbe: probe })
     await first.modules.settings.refreshModelCatalog()
     first.dispose()
 
     // Second "boot" (same DB): the catalog is served from persistence immediately —
     // get() returns it with no additional probe on the fresh registry.
     const probe2 = vi.fn(async () => ({}))
-    const second = new SessionRegistry(store, undefined, { modelProbe: probe2 })
+    const second = new SessionRegistry(store, undefined, { instanceId: 'default', modelProbe: probe2 })
     expect(second.modules.settings.getModelCatalog().byAgent.grok?.[0]?.value).toBe('grok-build')
     second.dispose()
   })

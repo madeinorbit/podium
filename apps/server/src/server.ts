@@ -122,6 +122,8 @@ export function isLoopbackHost(host: string): boolean {
 export function registerVersionRoute(
   app: Hono,
   deps: {
+    /** Deployment identity resolved once by the process entry point. */
+    instanceId: string
     /**
      * The grade of the visibility policy this server actually runs (POD-376).
      *
@@ -140,14 +142,14 @@ export function registerVersionRoute(
      * fires on every stripped-down deployment.
      */
     visibilityGrade?: () => string
-  } = {},
+  },
 ): void {
   app.get('/version', (c) =>
     c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
       appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
-      instanceId: resolveInstanceId(),
+      instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
     }),
   )
@@ -212,6 +214,7 @@ export async function startServer(
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
   const registry = new SessionRegistry(store, undefined, {
+    instanceId,
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].
@@ -322,6 +325,7 @@ export async function startServer(
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerVersionRoute(app, {
+    instanceId,
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
@@ -373,7 +377,13 @@ export async function startServer(
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
-  registerAuthRoute(app, { store: store.auth, users: store.users })
+  registerAuthRoute(app, {
+    store: store.auth,
+    users: store.users,
+    // One principal resolver for every human-client transport. The status route
+    // reports this result; it does not recreate the open/dev bootstrap fallback.
+    resolveUserId: (cookie) => requestPrincipal(cookie)?.user,
+  })
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.

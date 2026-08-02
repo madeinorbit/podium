@@ -24,11 +24,21 @@ export class IssueCommentsMailModule {
   /**
    * Comments inherit their issue aggregate's owner and grants; actor and
    * on-behalf-of attribution are stamped from the authenticated principal.
+   *
+   * `principal` is REQUIRED and deliberately has no default (POD-1315). It was
+   * optional here and defaulted to the first admin one layer up, which meant a
+   * caller that simply forgot to say who was acting silently acted AS the
+   * administrator — the fail-open shape ADR 3 Amendment 1 D14 rules out. There
+   * is no identity this method could invent that would be honest: a human
+   * behind a transport, an agent, and an in-process job are three different
+   * answers and only the caller knows which one it is. Omission is therefore a
+   * compile error, and `addComment-principal.test.ts` beside this file fails
+   * the BUILD (not just the run) if a default comes back.
    */
-  addComment(id: string, author: string, body: string, principal?: CommandPrincipal): IssueWire {
+  addComment(id: string, author: string, body: string, principal: CommandPrincipal): IssueWire {
     const issueId = this.store.resolveRef(id)
     const row = this.store.rowOrThrow(issueId)
-    const attribution = principal ? attributionOf(principal) : undefined
+    const attribution = attributionOf(principal)
     return this.store.persistWith(row, () =>
       this.store.deps.store.issues.addIssueComment({
         id: `cmt_${randomUUID()}`,
@@ -36,7 +46,8 @@ export class IssueCommentsMailModule {
         author,
         body,
         createdAt: this.store.now(),
-        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
+        actor: attribution.actor,
+        onBehalfOf: attribution.onBehalfOf,
       }),
     )
   }

@@ -63,7 +63,6 @@ export interface DialerDeps {
    * expects otherwise has misread ADR 3 D7.
    */
   readonly claims?: PeerIdentityClaims
-  readonly instanceId?: string
   readonly support?: { wire: number; min: number }
 }
 
@@ -94,7 +93,6 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         caps: [...offered],
         credential: deps.credential,
         ...(deps.claims === undefined ? {} : { claims: deps.claims }),
-        ...(deps.instanceId === undefined ? {} : { instanceId: deps.instanceId }),
       }
     },
     receive(raw: string): DialerStep {

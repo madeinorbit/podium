@@ -81,6 +81,8 @@ export interface SideCache {
   outboxStorage(): OutboxStorage
   outboxAwaitingStorage(): OutboxStorage
   outboxDeadLetterStorage(): OutboxStorage
+  /** Detach this principal's cross-tab listener before another principal opens. */
+  dispose(): void
 }
 
 /** Never throws: a poisoned or foreign blob reads as empty, like the legacy
@@ -216,6 +218,7 @@ export function createSideCache(init: SideCacheInit): SideCache {
 
   function migrateLegacyUiKeys(): void {
     if (storage.getItem(`${uiKey}.migrated`) !== null) return
+    const retire = new Set<string>()
     const enumerate =
       init.enumerateKeys ??
       (() => {
@@ -230,13 +233,7 @@ export function createSideCache(init: SideCacheInit): SideCache {
       const value = storage.getItem(key)
       if (value === null) return
       ui[target] = value
-      if (!mirrored.has(key)) {
-        try {
-          storage.removeItem(key)
-        } catch {
-          // leaving the old key behind is harmless; the new one wins
-        }
-      }
+      if (!mirrored.has(key)) retire.add(key)
     }
     for (const key of LEGACY_UI_KEYS) take(key)
     for (const key of MIRRORED_UI_KEYS) take(key)
@@ -255,29 +252,30 @@ export function createSideCache(init: SideCacheInit): SideCache {
         const map = JSON.parse(ui[target] ?? '{}') as Record<string, string>
         map[key.slice(prefixKey.length)] = value
         ui[target] = JSON.stringify(map)
-        try {
-          storage.removeItem(key)
-        } catch {
-          // best-effort
-        }
+        retire.add(key)
       }
     }
-    writeJson(storage, uiKey, ui)
     try {
+      // Persist the acting principal's copy and marker before retiring raw
+      // inputs. A crash can replay an idempotent fold; it cannot make a second
+      // principal inherit inputs already consumed by the first.
+      storage.setItem(uiKey, JSON.stringify(ui))
       storage.setItem(`${uiKey}.migrated`, '1')
+      for (const key of retire) storage.removeItem(key)
     } catch {
-      // a storage that cannot record the migration re-runs it; the fold is idempotent
+      // A storage that cannot complete the fold leaves raw inputs for retry.
     }
   }
 
   // Cross-tab: another tab's write to our key re-reads and notifies, matching
   // the legacy collection's `storage` event behaviour.
-  init.storageEventApi?.addEventListener?.('storage', (event) => {
+  // Exact namespaced-key equality is the principal isolation boundary.
+  const onStorage = (event: StorageEvent): void => {
     if (event.key !== uiKey) return
     ui = readJson<Record<string, string>>(storage, uiKey, {})
     for (const cb of uiListeners) cb()
-  })
-
+  }
+  init.storageEventApi?.addEventListener('storage', onStorage)
   const uiState: UiState = {
     get: (key) => ui[key] ?? null,
     set: (key, value) => {
@@ -313,12 +311,8 @@ export function createSideCache(init: SideCacheInit): SideCache {
   // entity rows, and POD-377's brief is explicit that queued work is never
   // silently discarded. A cache can be re-derived; this cannot.
   //
-  // The old blobs are READ AND LEFT IN PLACE, never deleted: turning the flag
-  // back off must find the legacy path exactly as it was. That risks a
-  // double-drain, which is the safe direction — every outboxed mutation carries
-  // a stable `mutationId` and the server dedupes on it (docs/spec/
-  // outbox-write-path.md), so a replayed entry is a no-op at the Authority.
-  // Losing the write is not recoverable; sending it twice is.
+  // Raw blobs retire after the acting principal's copy and marker are durable;
+  // leaving them for rollback would let a second principal consume the queue.
   migrateLegacyOutbox()
 
   function migrateLegacyOutbox(): void {
@@ -339,13 +333,16 @@ export function createSideCache(init: SideCacheInit): SideCache {
       for (const entry of found) {
         if (!merged.some((e) => e.mutationId === entry.mutationId)) merged.push(entry)
       }
-      writeJson(storage, outboxKey, merged)
+      writeQueued(storage, outboxKey, merged, (error) => init.onDegraded?.(error))
     }
     try {
       storage.setItem(`${outboxKey}.migrated`, '1')
+      for (const key of init.legacyOutboxKeys ?? DEFAULT_LEGACY_OUTBOX_KEYS) {
+        storage.removeItem(key)
+      }
     } catch {
-      // A storage that cannot record the fold re-runs it; the fold is
-      // idempotent by mutationId, so re-running adds nothing twice.
+      // The namespaced copy is durable. A failed marker/removal causes an
+      // idempotent retry by mutationId; it never drops queued work.
     }
   }
 
@@ -379,5 +376,8 @@ export function createSideCache(init: SideCacheInit): SideCache {
     outboxStorage: () => outboxAt(outboxKey),
     outboxAwaitingStorage: () => outboxAt(awaitingKey),
     outboxDeadLetterStorage: () => outboxAt(deadLetterKey),
+    dispose: () => {
+      init.storageEventApi?.removeEventListener('storage', onStorage)
+    },
   }
 }
