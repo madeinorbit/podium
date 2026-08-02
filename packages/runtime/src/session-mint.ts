@@ -60,6 +60,28 @@ function databasePath(at: string): string {
 }
 
 /**
+ * How long a `podium auth` connection waits for a lock before giving up.
+ *
+ * The default is 0 — fail instantly — which on a live instance under agent load means a
+ * mint can lose a race with the server and error out. Captured at the call site as
+ * `TOKEN=$(podium auth mint-session)`, that failure is INVISIBLE: `$(…)` takes stdout only,
+ * so the operator gets an empty token and a 401 telling them to mint a session, which is
+ * what they just did. Waiting is the fix; these writes are single-row and sub-millisecond.
+ */
+export function mintBusyTimeoutMs(): number {
+  return 5_000
+}
+
+/** A connection to the instance DB that waits out contention rather than failing.
+ *  Exported so a test can assert the pragma actually lands on the connection — asserting
+ *  the constant alone would pass with the pragma deleted. */
+export function openInstanceDatabase(path: string) {
+  const db = openDatabase(path)
+  db.exec(`PRAGMA busy_timeout = ${mintBusyTimeoutMs()}`)
+  return db
+}
+
+/**
  * Insert a revocable `client_sessions` row and return its plaintext token.
  *
  * Safe against a RUNNING server, for the same reason `scripts/mint-upstream-token.ts` is:
@@ -75,7 +97,7 @@ export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
   const nowMs = (opts.now ?? Date.now)()
   const token = randomBytes(32).toString('base64url')
   const expiresAt = new Date(nowMs + (opts.ttlMs ?? DEFAULT_TTL_MS)).toISOString()
-  const db = openDatabase(path)
+  const db = openInstanceDatabase(path)
   try {
     db.prepare(
       'INSERT OR REPLACE INTO client_sessions (token_hash, created_at, expires_at, label) VALUES (?, ?, ?, ?)',
@@ -101,7 +123,7 @@ export interface SessionRow {
 
 /** Every session row, newest first — what `podium auth sessions` prints. */
 export function listSessions(at: string = stateDir()): SessionRow[] {
-  const db = openDatabase(databasePath(at))
+  const db = openInstanceDatabase(databasePath(at))
   try {
     const rows = db
       .prepare(
@@ -123,7 +145,7 @@ export function listSessions(at: string = stateDir()): SessionRow[] {
  *  than wholesale so revoking break-glass credentials never signs a browser out or cuts a
  *  node off its hub. */
 export function revokeSessionsByLabel(label: string, at: string = stateDir()): number {
-  const db = openDatabase(databasePath(at))
+  const db = openInstanceDatabase(databasePath(at))
   try {
     // `changes` is number|bigint across the two drivers; the count here is always small.
     return Number(db.prepare('DELETE FROM client_sessions WHERE label = ?').run(label).changes)

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -7,6 +7,8 @@ import {
   BREAK_GLASS_LABEL,
   listSessions,
   mintBreakGlassSession,
+  mintBusyTimeoutMs,
+  openInstanceDatabase,
   readCachedSessionToken,
   resolveSessionToken,
   revokeSessionsByLabel,
@@ -52,6 +54,38 @@ it('mints a token and stores only its sha-256', () => {
   expect(row.token_hash).toBe(createHash('sha256').update(minted.token).digest('hex'))
   expect(row.token_hash).not.toBe(minted.token)
   expect(row.label).toBe(BREAK_GLASS_LABEL)
+})
+
+// Reported from the live instance: `TOKEN=$(podium auth mint-session ...)` came back EMPTY
+// once, and the next call then told the operator to mint a session — the thing they had just
+// done. `$(...)` captures stdout only, so a failed mint is invisible at the call site. Two
+// defences: don't fail on transient contention in the first place, and never return a token
+// without proving the row is actually there.
+it('waits out a busy database instead of failing the mint', () => {
+  seedDatabase(dir)
+  const path = join(dir, 'podium.db')
+  const readTimeout = (db: { prepare(sql: string): { get(): unknown } }) =>
+    Number((db.prepare('PRAGMA busy_timeout').get() as { timeout: number }).timeout)
+
+  // Counterfactual: a plain connection fails a contended write instantly (the default is 0).
+  const plain = openDatabase(path)
+  expect(readTimeout(plain)).toBe(0)
+  plain.close?.()
+
+  const mintConn = openInstanceDatabase(path)
+  expect(readTimeout(mintConn)).toBeGreaterThanOrEqual(5_000)
+  expect(readTimeout(mintConn)).toBe(mintBusyTimeoutMs())
+  mintConn.close?.()
+})
+
+it('reports a mint that could not be written instead of returning a token', () => {
+  seedDatabase(dir)
+  chmodSync(join(dir, 'podium.db'), 0o444)
+  try {
+    expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow()
+  } finally {
+    chmodSync(join(dir, 'podium.db'), 0o644)
+  }
 })
 
 it('honours the requested ttl', () => {

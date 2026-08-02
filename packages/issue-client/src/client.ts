@@ -93,9 +93,19 @@ function isTrpcEnvelope(text: string): boolean {
 }
 
 /** The message for a response tRPC cannot parse. Names the status and the body, because
- *  the body is where the real cause is; a 401 also names the fix. */
-function describeNonEnvelope(status: number, text: string): string {
+ *  the body is where the real cause is; a 401 also names the fix.
+ *
+ *  The 401 has TWO cases and they need different advice. "Mint a session" is actively
+ *  misleading when a session was already sent — it tells the operator to do the thing they
+ *  just did, and never says the credential was rejected. `carriedCredential` splits them. */
+function describeNonEnvelope(status: number, text: string, carriedCredential: boolean): string {
   const detail = text.trim() ? `: ${text.trim().slice(0, 500)}` : ''
+  if (status === 401 && carriedCredential)
+    return (
+      `HTTP 401 unauthorized${detail} — the session this CLI carried was rejected; it has ` +
+      'expired or been revoked. Mint a fresh one with `podium auth mint-session` ' +
+      '(`podium auth sessions` shows what the server still holds).'
+    )
   if (status === 401)
     return (
       `HTTP 401 unauthorized${detail} — this Podium instance is password-protected and the ` +
@@ -136,7 +146,8 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     // Read once: a Response body can only be consumed once, so hand the link a fresh
     // Response built from the same text rather than the drained original.
     const text = await res.text().catch(() => '')
-    if (!isTrpcEnvelope(text)) throw new Error(describeNonEnvelope(res.status, text))
+    if (!isTrpcEnvelope(text))
+      throw new Error(describeNonEnvelope(res.status, text, Boolean(opts.sessionToken)))
     return new Response(text, {
       status: res.status,
       statusText: res.statusText,

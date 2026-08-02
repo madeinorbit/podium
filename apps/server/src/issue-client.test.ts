@@ -55,6 +55,25 @@ describe('makeIssueClient', () => {
     }
   })
 
+  // POD-1376 follow-up. "Mint a session" is the WRONG advice when a session was already
+  // sent — that told an operator to do the thing they had just done, and the message never
+  // said the credential had been rejected. Expired and revoked both land here.
+  it('says the credential was rejected when one WAS carried', async () => {
+    const srv = await serve((_req, res) => {
+      res.writeHead(401, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'unauthorized' }))
+    })
+    try {
+      const client = makeIssueClient(srv.url, { sessionToken: 'stale-token' })
+      const call = (client as any).issues.stats.query({})
+      await expect(call).rejects.toThrow(/rejected/)
+      await expect(call).rejects.toThrow(/expired or been revoked/)
+      await expect(call).rejects.toThrow(/HTTP 401/)
+    } finally {
+      srv.close()
+    }
+  })
+
   // The guard must NOT swallow ordinary procedure errors: tRPC answers those with a
   // real envelope under a 4xx/5xx, and their message is the whole point.
   it('lets a tRPC error envelope through so the procedure message still renders', async () => {
