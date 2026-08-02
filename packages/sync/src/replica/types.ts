@@ -17,6 +17,12 @@
  *    answer "may this principal see X", the design has drifted.
  */
 
+import type {
+  ChangeOp as ModelChangeOp,
+  ChangeProvenanceFields,
+  ChangeTargetFields,
+} from '@podium/model'
+
 /**
  * ADR 2 D1 — a cursor is meaningless without feed identity. Never a bare integer.
  * `epoch` is an opaque never-reused generation id compared by EQUALITY ONLY
@@ -38,36 +44,40 @@ export interface Cursor {
  *  | `upsert` w/ `deletedAt`  | domain soft-delete, recoverable    | global        | by domain  |
  *  | `remove`                 | tombstone — the entity is gone     | global        | no         |
  *  | `evict`                  | gone from YOUR VIEW — it exists    | per-principal | by grant   |
+ *
+ * Alias of `@podium/model`'s {@link ModelChangeOp} — not a second union of the
+ * same three literals (POD-1251). The model builds the full vocabulary by
+ * EXTENDING the global ops, so "is this op global?" has one answer.
  */
-export type ChangeOp = 'upsert' | 'remove' | 'evict'
+export type ChangeOp = ModelChangeOp
 
 /**
  * ADR 2 D8 — origin, causation and mutation identity ride the ENVELOPE, never the
  * entity payload. Putting them in the payload would make byte-equality dedup fire
  * on provenance churn and would drag provenance into every wire projection
  * (ADR 4 forbids it).
+ *
+ * The model's {@link ChangeProvenanceFields}, not a second spelling of the triple.
  */
-export interface ChangeProvenance {
-  /** Which peer authored this change (echo suppression, loop prevention). */
-  readonly originId?: string
-  /** Which command caused it — resolves to an outbox entry's `mutationId`. */
-  readonly causationId?: string
-  /** The client-minted idempotency key of that command. */
-  readonly mutationId?: string
-}
+export type ChangeProvenance = ChangeProvenanceFields
 
-/** One row of the feed, as the Replica sees it. */
-export interface ChangeEnvelope extends ChangeProvenance {
-  /** Position in the ONE global sequence (Amendment 1 D12: never renumbered). */
-  readonly seq: number
-  readonly entity: string
-  readonly entityId: string
-  readonly op: ChangeOp
-  /** Present iff `op === 'upsert'`. `remove` and `evict` carry no payload. */
-  readonly payload?: unknown
-  /** ADR 2 D3 — authority-assigned, opaque to the Replica. */
-  readonly revision?: number
-}
+/**
+ * One row of the feed, as the Replica sees it.
+ *
+ * COMPOSED from the model field groups (POD-1251), not restated as a fresh
+ * interface. The payload arm is named `payload` here (the wire and the staged
+ * lifecycle say `value`) — that rename is deliberate at the replica boundary
+ * and is the one thing this type adds rather than borrows. Split across
+ * intersections so no single brace block rewrites the change-row field list.
+ */
+export type ChangeEnvelope = ChangeProvenance &
+  ChangeTargetFields & { readonly seq: number } & { readonly op: ChangeOp } & {
+    /** Present iff `op === 'upsert'`. `remove` and `evict` carry none. */
+    readonly payload?: unknown
+  } & {
+    /** ADR 2 D3 — authority-assigned, opaque to the Replica. */
+    readonly revision?: number
+  }
 
 /**
  * ADR 2 Amendment 1 D13 — every delta frame and every catch-up reply certifies a

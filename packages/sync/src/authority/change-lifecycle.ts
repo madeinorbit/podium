@@ -84,6 +84,23 @@ export const StoredChangeRow = StagedChangeSpec.omit({ value: true }).extend({
 export type StoredChangeRow = z.infer<typeof StoredChangeRow>
 
 /**
+ * What the durable adapter accepts for one append, before the Authority stamps
+ * the batch clock. Composed rather than restated: `eventTime` is applied once
+ * per batch (see {@link ChangeLogStore.appendChanges}), so it is not on the row
+ * until the adapter writes it.
+ */
+export type ChangeLogWriteRow = Omit<StoredChangeRow, 'eventTime'>
+
+/**
+ * A stored row re-read with its assigned `seq`. The payload is still serialized
+ * bytes — this is the persistence shape, not {@link SequencedChange}.
+ *
+ * Used by `changesSince` and `latestChangeStates` on the store port so those
+ * two reads cannot invent a third field list beside {@link StoredChangeRow}.
+ */
+export type ChangeLogReadRow = ChangeLogWriteRow & { seq: number }
+
+/**
  * PHASE 3 — the row with its position in the ONE global sequence.
  *
  * `seq` is assigned by the append and is never renumbered per-principal

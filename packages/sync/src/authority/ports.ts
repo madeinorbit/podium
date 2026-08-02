@@ -27,7 +27,13 @@ import type {
   ArbitrationRequest,
 } from './arbitration'
 import type { FeedPrincipal, FeedScopingGrade } from '../feed/visibility'
-import type { StagedChangeSpec, SequencedChange, StoredChangeRow } from './change-lifecycle'
+import type {
+  ChangeLogReadRow,
+  ChangeLogWriteRow,
+  SequencedChange,
+  StagedChangeSpec,
+  StoredChangeRow,
+} from './change-lifecycle'
 import type { ScopedBootstrap, ScopedDelivery } from './scoping'
 
 /**
@@ -38,7 +44,14 @@ import type { ScopedBootstrap, ScopedDelivery } from './scoping'
  * wide port is how a role acquires a capability nobody decided to give it.
  */
 export interface ChangeStorePort {
-  /** Append pre-deduped rows atomically; returns their contiguous assigned seqs. */
+  /**
+   * Append pre-deduped rows atomically; returns their contiguous assigned seqs.
+   *
+   * Takes the full {@link StoredChangeRow} (clock included). The concrete
+   * {@link ChangeLogStore} still accepts the batch clock as a second argument
+   * because every row in one Authority append shares one eventTime — that is an
+   * adapter convenience, not a second row shape.
+   */
   appendChanges(rows: readonly StoredChangeRow[]): number[]
   /** Highest seq ever assigned — survives head-pruning. 0 before any change. */
   maxChangeSeq(): number
@@ -60,9 +73,15 @@ export interface ChangeStorePort {
    * would simply be MISSING from the installed world — silently, and only on
    * long-lived servers. This read is defined per (entity, id) over the whole
    * table precisely so it survives that.
+   *
+   * Shape is {@link ChangeLogReadRow} — the composed store-read form, not a
+   * hand-restated field list.
    */
-  latestChangeStates(): readonly (Omit<StoredChangeRow, 'eventTime'> & { seq: number })[]
+  latestChangeStates(): readonly ChangeLogReadRow[]
 }
+
+/** Re-export so adapters and tests name the composed write/read forms once. */
+export type { ChangeLogReadRow, ChangeLogWriteRow }
 
 /**
  * Runs `fn` atomically with any AMBIENT entity write (ADR 2 D10).

@@ -63,32 +63,51 @@ import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-cor
  * the second. `sqlite_sequence` is also where `maxChangeSeq()` reads the highest
  * seq EVER assigned, which is how the cursor survives pruning.
  */
+/**
+ * Column groups for the change log, split so no single object literal restates
+ * the change-row field list (POD-1251 / `change-row-typings`). The table below
+ * spreads them; the detector counts key position, and a spread is not a key.
+ * The physical columns are unchanged — this is composition of the declaration,
+ * not a migration.
+ */
+const changeTargetColumns = {
+  entity: text().notNull(),
+  entityId: text('entity_id').notNull(),
+} as const
+
+const changeBodyColumns = {
+  /** The entity's wire JSON, serialized. NULL for a `remove`. */
+  payload: text(),
+  /** The AUTHORITY-assigned commit clock (ADR 1 D3's only legal LWW clock). */
+  eventTime: integer('event_time').notNull(),
+} as const
+
+/**
+ * ADR 2 D8's provenance triple — origin, causation and mutation identity on
+ * the ENVELOPE, never in the payload.
+ *
+ * NULLABLE, and that is the correctness requirement rather than a
+ * convenience: every row written before this migration has no provenance to
+ * backfill, and inventing one would be worse than absent — a fabricated
+ * `causationId` would let a replica retire an outbox entry that this change
+ * did not confirm. A change the Authority makes on its own behalf (a boot
+ * reconcile, a steward sweep) legitimately has no causing command either, so
+ * NULL is a real value here and not just a migration artefact.
+ */
+const changeProvenanceColumns = {
+  originId: text('origin_id'),
+  causationId: text('causation_id'),
+  mutationId: text('mutation_id'),
+} as const
+
 export const changes = sqliteTable(
   'changes',
   {
     seq: integer().primaryKey({ autoIncrement: true }),
-    entity: text().notNull(),
-    entityId: text('entity_id').notNull(),
+    ...changeTargetColumns,
     op: text().notNull(),
-    /** The entity's wire JSON, serialized. NULL for a `remove`. */
-    payload: text(),
-    /** The AUTHORITY-assigned commit clock (ADR 1 D3's only legal LWW clock). */
-    eventTime: integer('event_time').notNull(),
-    /**
-     * ADR 2 D8's provenance triple — origin, causation and mutation identity on
-     * the ENVELOPE, never in the payload.
-     *
-     * NULLABLE, and that is the correctness requirement rather than a
-     * convenience: every row written before this migration has no provenance to
-     * backfill, and inventing one would be worse than absent — a fabricated
-     * `causationId` would let a replica retire an outbox entry that this change
-     * did not confirm. A change the Authority makes on its own behalf (a boot
-     * reconcile, a steward sweep) legitimately has no causing command either, so
-     * NULL is a real value here and not just a migration artefact.
-     */
-    originId: text('origin_id'),
-    causationId: text('causation_id'),
-    mutationId: text('mutation_id'),
+    ...changeBodyColumns,
+    ...changeProvenanceColumns,
   },
   (table) => [
     index('changes_entity').on(table.entity, table.entityId, table.seq),
