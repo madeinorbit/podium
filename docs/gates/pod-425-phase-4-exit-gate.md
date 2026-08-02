@@ -163,6 +163,15 @@ shared mutable maps or async work outliving an owner. Final acceptance therefore
 decompositions to land, the audit to exit 0 on the final named candidate, and the separate
 composition/construction/lifecycle evidence to remain green.
 
+A third review request names branch tip `d40956b4`, but it still cannot satisfy that bar. Direct
+tree measurement finds `sessions/lifecycle.ts` at 2,700 lines, `messages/service.ts` at 2,595,
+`issues/registry.ts` at 1,664, and `sessions/handoff/coordinator.ts` at 616. POD-1396 and POD-1399
+remain in backlog and POD-1397 remains in progress. POD-1398 is closed in the tracker, but its merge
+`233d4fba` is not an ancestor of `d40956b4` (`git merge-base --is-ancestor` exits 1), and the
+candidate retains the unsplit 1,664-line registry. Therefore neither the stage transition nor the
+closed child is candidate evidence. The review is refused without rerunning the audit: three leaves
+are unfinished and the fourth fix is absent from the named tree, so a zero-item result is impossible.
+
 
 POD-1390 is **cleared against current integration**. Merge `d8fba769` contains implementation
 `295992a4` and the strengthened shutdown assertion `2d05fcff`; the four-test file is unchanged in
