@@ -35,7 +35,9 @@ function spawns(daemon: ControlMessage[]) {
 }
 
 describe('SessionStart: issue owner precedence', () => {
-  it('an issue-attached create lands on the issue owner, not a conflicting ownerUserId', () => {
+  // ADR 1: ownership per class — an issue-owned child inherits the issue owner.
+  // Without this assertion, inverting parentOwner ?? input.ownerUserId stays green.
+  it('ADR 1: createSession with issueId and a conflicting ownerUserId lands on the issue owner', () => {
     const issueOwner = asUserId('user:issue-owner')
     const conflicting = asUserId('user:explicit-conflict')
     expect(issueOwner).not.toBe(conflicting)
@@ -69,7 +71,8 @@ describe('SessionStart: issue owner precedence', () => {
 })
 
 describe('SessionStart: live session-id collision guard', () => {
-  it('refuses a second spawn with the same sessionId and leaves the first session live and bound', () => {
+  // Property is survival of the first live session, not merely that an error is thrown.
+  it('refusing a live sessionId leaves the first session live and bound (not only throws)', () => {
     const sessionId = asSessionId('client-supplied-id')
     const { reg, daemon } = makeRegistry()
 
