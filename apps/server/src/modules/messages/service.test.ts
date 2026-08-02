@@ -3189,6 +3189,68 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
     }
   })
 
+  it('dispose() leaves NO armed timer — every owner is disposed, not just the service', () => {
+    // POD-1390's defect class: SessionRegistry.dispose() never touched
+    // modules.memory, so memory-owned work resolved ten seconds after the
+    // SQLite handle closed. POD-1397 created three fresh places to drop that —
+    // the brakes and the scheduler are separate owners now and each arms its
+    // own timers — and nothing asserted dispose() reaches them. A dropped
+    // delegation leaves a wake cooldown or a retry page firing into a service
+    // whose store is shut.
+    //
+    // getTimerCount() is the witness rather than a per-timer assertion, because
+    // it also fires for a timer some future owner adds without a disposer,
+    // which is exactly how this defect arrives.
+    vi.useFakeTimers()
+    try {
+      const clock = Date.parse('2026-07-13T00:00:00.000Z')
+      const sessions = [
+        session({
+          sessionId: asSessionId('s1'),
+          status: 'hibernated',
+          agentState: undefined,
+          issueId: ISSUE.id,
+          resume: { kind: 'claude', value: 'native-1' },
+        }),
+      ]
+      const first = harness(sessions, {
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: false, reason: 'offline' }),
+      })
+      first.svc.send(
+        { kind: 'superagent' },
+        {
+          to: { kind: 'session', id: asSessionId('s1') },
+          body: 'after cooldown',
+          urgency: 'next-turn',
+          lifecycle: 'wake',
+        },
+      )
+      first.svc.dispose()
+
+      const recovered = harness(sessions, {
+        store: first.store,
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: true, queued: true }),
+      })
+      // The cooldown is still hot, so the row stays queued and the BRAKE arms a
+      // one-shot retry timer for the moment it expires.
+      recovered.svc.reconcileQueued()
+      const afterBrake = vi.getTimerCount()
+      expect(afterBrake).toBeGreaterThan(0)
+      // A fresh eligibility trigger arms the SCHEDULER's coalescing flush on top
+      // of it, so both owners hold a timer and dropping either delegation is
+      // caught below rather than masked by the other.
+      recovered.svc.onSessionEligibilityChanged(asSessionId('s1'))
+      expect(vi.getTimerCount()).toBeGreaterThan(afterBrake)
+
+      recovered.svc.dispose()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('coalesces duplicate eligibility triggers into one delivery attempt', () => {
     const sessions: SessionMeta[] = []
     const { svc, sent } = harness(sessions)

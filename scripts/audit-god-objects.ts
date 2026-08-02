@@ -748,6 +748,15 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     argument:
       'The session entity itself — the in-memory object every other sessions module holds a reference to, carrying its durable fields, its volatile terminal counters and the publication authority. Its three fields are the working-time accumulators and the unread re-arm hook, which advance together on the same state transitions. This is a domain object rather than a service: splitting it would mean splitting the identity that the maps in lifecycle, repository and state are all keyed on. 507 of its 716 lines are code.',
   },
+  {
+    file: 'apps/server/src/modules/messages/service.ts',
+    kind: 'cohesive-owner',
+    budget: 2100,
+    review: 'POD-1397 / POD-1385',
+    protectedState: ['turnHop', 'requeueCounts', 'attentionEmitted', 'sessionIssueTargets'],
+    argument:
+      "The push path: admit a send (clamp matrix, brakes, hop), write the row, resolve the recipient AT DELIVERY TIME, inject or spawn or dead-letter, and confirm. POD-1397 took eighteen owned fields down to four by giving four capabilities their own owners — rendering and the confirmation mode that follows from it (render.ts), containment brakes 1 and 2 with their timers (brakes.ts), the three entry paths into delivery scheduling with theirs (scheduler.ts), and the pull path of reads, replies and bounded waits (mailbox.ts). Each took its state with it; none of them holds a reference to a map or a timer owned by another, and every timer in the module now has exactly one disposer. The four fields that remain are what stops the residue splitting further: `sessionIssueTargets` is the session→issue resolution that admission, delivery, the brake keys and the eligibility events all read, `turnHop` is written at injection and read by the next send from that session, `requeueCounts` bounds the lost-echo loop between prepare and confirm, and `attentionEmitted` dedupes needs-attention across the spawn, delivery and dead-letter paths. Cutting admission from delivery, or either from the eligibility events, would share all four by reference — the observationLeases shape this audit warns a split can hide. 1190 of its 1797 lines are code, no method over 180.",
+  },
 ]
 
 // ---------------------------------------------------------------------------
