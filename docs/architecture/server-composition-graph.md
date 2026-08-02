@@ -5,7 +5,7 @@
 
 Root: `apps/server/src/relay.ts`
 
-Runtime modules: 177. Runtime edges: 283. Cycles: 0.
+Runtime modules: 177. Runtime edges: 284. Cycles: 0.
 
 ## Verified topological order
 
@@ -255,7 +255,7 @@ Runtime modules: 177. Runtime edges: 283. Cycles: 0.
 | `apps/server/src/modules/issues/service/mail.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/modules/issues/service/mail-pending.ts` |
 | `apps/server/src/modules/issues/service/reads.ts` | `apps/server/src/issue-lint.ts`<br>`apps/server/src/issue-similarity.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/modules/issues/service/mail-pending.ts` |
 | `apps/server/src/modules/issues/service/types.ts` | — |
-| `apps/server/src/modules/issues/service/workflow.ts` | `apps/server/src/issue-util.ts`<br>`apps/server/src/issueAssistant.ts`<br>`apps/server/src/linear.ts`<br>`apps/server/src/llm-roles.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/issues/git-state.ts` |
+| `apps/server/src/modules/issues/service/workflow.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/issueAssistant.ts`<br>`apps/server/src/linear.ts`<br>`apps/server/src/llm-roles.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/issues/git-state.ts` |
 | `apps/server/src/modules/lock/registry.ts` | `apps/server/src/issue-authz.ts` |
 | `apps/server/src/modules/lock/service.ts` | `apps/server/src/store/locks.ts` |
 | `apps/server/src/modules/machines/diagnostics.ts` | — |

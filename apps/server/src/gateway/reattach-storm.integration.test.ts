@@ -67,7 +67,7 @@ describe('a daemon reattach storm', () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-reattach-storm-'))
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({ port: 0 })
-    machineId = handle.registry.sessionStore.hostMachineId
+    machineId = handle.registry.modules.machines.hostMachineId
     // A session can only be created on an ONLINE machine, so the host has to be
     // attached before the fixture exists. This sink is superseded by the storm's
     // first round, which is exactly the reattach shape under test.

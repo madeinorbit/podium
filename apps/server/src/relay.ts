@@ -492,6 +492,7 @@ export class SessionRegistry {
       current: readonly import('@podium/model').ConversationDiagnosticWire[]
     } = { current: [] }
     const subscriptions = new SubscriptionRegistry()
+    let presenceRouting: PresenceRouting | undefined
     const feedServing = new FeedServing({
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
@@ -507,6 +508,7 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
       subscriptions,
+      onVisibilityChanged: (subscriberIds) => presenceRouting?.revalidateSubscribers(subscriberIds),
       diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({
@@ -710,6 +712,7 @@ export class SessionRegistry {
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
+      subscriptions,
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
@@ -1920,7 +1923,9 @@ export class SessionRegistry {
       clients: clientRegistry,
       visibility: roomVisibility,
       now: this.now,
+      onJoined: (client, room) => sessionsSvc.onRoomJoined(client, room),
     })
+    presenceRouting = presence
     this.clientGateway = new ClientMux({
       registry: clientRegistry,
       ports: { sessions: sessionsSvc },

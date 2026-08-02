@@ -63,6 +63,42 @@ function publishPending(plumbing: ReturnType<typeof feedTestPlumbing>, fromSeq: 
   return delivery.throughSeq
 }
 
+describe('durable visibility changes revalidate ephemeral subscribers', () => {
+  it('notifies the same registry subscribers for rescope and evict deliveries', () => {
+    const changed: string[][] = []
+    const notify = (ids: readonly { toString(): string }[]) =>
+      changed.push(ids.map((id) => String(id)))
+
+    const rescoped = feedTestPlumbing({ onVisibilityChanged: notify })
+    const rescopePeer = new Peer('rescope-peer', WIRE_VERSION, true)
+    rescoped.serving.attach(
+      rescopePeer,
+      DEVICE_GRADE_PRINCIPAL,
+      rescoped.routingPrincipal(rescopePeer.id),
+    )
+    rescoped.serving.publish(DEVICE_GRADE_PRINCIPAL, {
+      kind: 'rescope',
+      throughSeq: 1,
+      reason: 'rights-changed',
+    })
+
+    const evicted = feedTestPlumbing({ onVisibilityChanged: notify })
+    const evictPeer = new Peer('evict-peer', WIRE_VERSION, true)
+    evicted.serving.attach(
+      evictPeer,
+      DEVICE_GRADE_PRINCIPAL,
+      evicted.routingPrincipal(evictPeer.id),
+    )
+    evicted.serving.publish(DEVICE_GRADE_PRINCIPAL, {
+      kind: 'batch',
+      throughSeq: 1,
+      changes: [{ seq: 1, entity: 'session', entityId: 's1', op: 'evict' }],
+    })
+
+    expect(changed).toEqual([['rescope-peer'], ['evict-peer']])
+  })
+})
+
 describe('a v1 peer is served the pre-cutover messages, folded out of the feed', () => {
   it('a snapshot peer gets the five lists, in the attach order it always had', () => {
     const p = feedTestPlumbing()
