@@ -18,13 +18,13 @@ import {
   checkStale,
   checkUnexplained,
   GOD_OBJECT_LEDGER,
+  type LedgerEntry,
+  type Measurement,
   measure,
   probe,
   screen,
   stripComments,
   THRESHOLD,
-  type LedgerEntry,
-  type Measurement,
 } from './audit-god-objects'
 
 const M = (over: Partial<Measurement> = {}): Measurement => ({
@@ -144,8 +144,18 @@ describe('it refuses a tree that violates the ceiling', () => {
    */
   it('refuses the composition root when the construction record is not clean', () => {
     const root = 'apps/server/src/relay.ts'
-    const asClean = checkPredicate([M({ file: root })], [ENTRY({ file: root, kind: 'composition-root' })], true, root)
-    const asDirty = checkPredicate([M({ file: root })], [ENTRY({ file: root, kind: 'composition-root' })], false, root)
+    const asClean = checkPredicate(
+      [M({ file: root })],
+      [ENTRY({ file: root, kind: 'composition-root' })],
+      true,
+      root,
+    )
+    const asDirty = checkPredicate(
+      [M({ file: root })],
+      [ENTRY({ file: root, kind: 'composition-root' })],
+      false,
+      root,
+    )
     expect(asClean).toEqual([])
     expect(asDirty).toHaveLength(1)
   })
@@ -187,9 +197,10 @@ describe('the ledger describes the tree it is committed with', () => {
     expect(findings).toEqual([])
     // And the entries are about modules that exist.
     for (const entry of GOD_OBJECT_LEDGER)
-      expect(measured.some((m) => m.file === entry.file), `${entry.file} is not in the screen`).toBe(
-        true,
-      )
+      expect(
+        measured.some((m) => m.file === entry.file),
+        `${entry.file} is not in the screen`,
+      ).toBe(true)
     expect(known.size).toBe(GOD_OBJECT_LEDGER.length)
   })
 })

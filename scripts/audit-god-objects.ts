@@ -206,14 +206,16 @@ export const measure = (file: string, src: string): Measurement => {
   const code = countCodeLines(src)
   const bare = stripComments(src)
   const runtimeExports = [
-    ...bare.matchAll(/^export\s+(?:default\s+)?(?:async\s+)?(?:const|let|var|function|class|enum)\s+(\w+)/gm),
+    ...bare.matchAll(
+      /^export\s+(?:default\s+)?(?:async\s+)?(?:const|let|var|function|class|enum)\s+(\w+)/gm,
+    ),
   ].map((m) => m[1] as string)
   const exportedClasses = [...bare.matchAll(/^export\s+(?:abstract\s+)?class\s+(\w+)/gm)].map(
     (m) => m[1] as string,
   )
-  const imports = [
-    ...bare.matchAll(/^import\s[\s\S]*?from\s+['"]([^'"]+)['"]/gm),
-  ].map((m) => m[1] as string)
+  const imports = [...bare.matchAll(/^import\s[\s\S]*?from\s+['"]([^'"]+)['"]/gm)].map(
+    (m) => m[1] as string,
+  )
   const privateFields = [
     ...bare.matchAll(/^\s{2}(?:private\s+)(?:readonly\s+)?(\w+)\s*[:=]/gm),
   ].map((m) => m[1] as string)
@@ -235,7 +237,11 @@ export const measure = (file: string, src: string): Measurement => {
   const rawLines = src.split('\n')
   const methodStarts: number[] = []
   rawLines.forEach((l, i) => {
-    if (/^ {2}(?:(?:private|public|protected|readonly|static|async|get|set)\s+)*[a-zA-Z_]\w*\s*[(<]/.test(l))
+    if (
+      /^ {2}(?:(?:private|public|protected|readonly|static|async|get|set)\s+)*[a-zA-Z_]\w*\s*[(<]/.test(
+        l,
+      )
+    )
       methodStarts.push(i)
   })
   const spans = methodStarts.slice(1).map((s, i) => s - (methodStarts[i] as number))
@@ -246,8 +252,10 @@ export const measure = (file: string, src: string): Measurement => {
   const topLevelStatements = bare
     .split('\n')
     .filter((l) => /^[a-z]/.test(l))
-    .filter((l) => !/^(import|export|type|interface|const|let|var|function|class|enum|declare|from)\b/.test(l))
-    .length
+    .filter(
+      (l) =>
+        !/^(import|export|type|interface|const|let|var|function|class|enum|declare|from)\b/.test(l),
+    ).length
   return {
     file,
     physical,
@@ -567,7 +575,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     budget: 800,
     review: 'POD-1385',
     argument:
-      'The scheduled-automations surface: 30 stateless methods covering definition CRUD, cron evaluation and run dispatch for the Automations tab. The scheduler timer that would be this module\'s state lives on the composition root, which owns process-lifetime timers so that shutdown can cancel them in one place; what is left here holds nothing and shares nothing between its methods.',
+      "The scheduled-automations surface: 30 stateless methods covering definition CRUD, cron evaluation and run dispatch for the Automations tab. The scheduler timer that would be this module's state lives on the composition root, which owns process-lifetime timers so that shutdown can cancel them in one place; what is left here holds nothing and shares nothing between its methods.",
   },
   {
     file: 'apps/server/src/server.ts',
@@ -592,7 +600,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     budget: 800,
     review: 'POD-1385 / POD-381 / POD-379',
     argument:
-      'The L3 session command handlers: 321 lines of code behind a 328-line written record, which is why it crosses a physical-line screen at all. That record is load-bearing rather than decorative — it states which half of each command the CONTRACT owns (authz, idempotency, envelope) and which half the HANDLER owns (the daemon control leg), which is the split that stopped tRPC and relay from authorizing `sessions.sendText` two different ways; and it pins every not-found shape POD-379\'s oracle fixed, per command, so a future edit cannot quietly turn a silent no-op into a thrown error. Deleting the explanation to pass a line count would delete the only statement of the invariant the file exists to hold.',
+      "The L3 session command handlers: 321 lines of code behind a 328-line written record, which is why it crosses a physical-line screen at all. That record is load-bearing rather than decorative — it states which half of each command the CONTRACT owns (authz, idempotency, envelope) and which half the HANDLER owns (the daemon control leg), which is the split that stopped tRPC and relay from authorizing `sessions.sendText` two different ways; and it pins every not-found shape POD-379's oracle fixed, per command, so a future edit cannot quietly turn a silent no-op into a thrown error. Deleting the explanation to pass a line count would delete the only statement of the invariant the file exists to hold.",
   },
 
   // -- Owners: coupled state that a split would have to share ----------------
@@ -694,7 +702,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
       'lastActivityByThreadRef',
     ],
     argument:
-      'The two-way chat bridge, whose eleven fields are one live connection\'s bookkeeping: the adapter and its key, the per-thread dispatch queues with their awaiting/dispatching guards, the two directions of the issue-topic binding, and the typing leases. The leases are the reason the pieces cannot separate — the superagent-turn path and the ambient working-signal path share one per-topic lease specifically so the two never double-fire, which only works while one object holds both. The topic maps are two directions of one binding and must not disagree.',
+      "The two-way chat bridge, whose eleven fields are one live connection's bookkeeping: the adapter and its key, the per-thread dispatch queues with their awaiting/dispatching guards, the two directions of the issue-topic binding, and the typing leases. The leases are the reason the pieces cannot separate — the superagent-turn path and the ambient working-signal path share one per-topic lease specifically so the two never double-fire, which only works while one object holds both. The topic maps are two directions of one binding and must not disagree.",
   },
   {
     file: 'apps/server/src/modules/sessions/session.ts',
@@ -776,7 +784,8 @@ export const checkArgument = (ledger: readonly LedgerEntry[]): Finding[] => {
       findings.push({
         check: 'argument-unreviewed',
         where: entry.file,
-        detail: 'No review reference. Name the issue or document where this exception was accepted.',
+        detail:
+          'No review reference. Name the issue or document where this exception was accepted.',
       })
   }
   return findings
@@ -996,17 +1005,9 @@ export const probe = (): Finding[] => {
       })
   }
 
-  expect(
-    'unexplained-god-object',
-    checkUnexplained([M()], []),
-    checkUnexplained([M()], [ENTRY()]),
-  )
+  expect('unexplained-god-object', checkUnexplained([M()], []), checkUnexplained([M()], [ENTRY()]))
 
-  expect(
-    'stale-ledger-entry',
-    checkStale([], [ENTRY()]),
-    checkStale([M()], [ENTRY()]),
-  )
+  expect('stale-ledger-entry', checkStale([], [ENTRY()]), checkStale([M()], [ENTRY()]))
 
   expect(
     'review-budget-exceeded',
@@ -1020,18 +1021,10 @@ export const probe = (): Finding[] => {
     checkArgument([ENTRY()]),
   )
 
-  expect(
-    'argument-unreviewed',
-    checkArgument([ENTRY({ review: '  ' })]),
-    checkArgument([ENTRY()]),
-  )
+  expect('argument-unreviewed', checkArgument([ENTRY({ review: '  ' })]), checkArgument([ENTRY()]))
 
-  const pred = (
-    m: Measurement,
-    e: LedgerEntry,
-    clean = true,
-    root = DECLARED_ROOT,
-  ): Finding[] => checkPredicate([m], [e], clean, root)
+  const pred = (m: Measurement, e: LedgerEntry, clean = true, root = DECLARED_ROOT): Finding[] =>
+    checkPredicate([m], [e], clean, root)
 
   expect(
     'exception-predicate-failed',
@@ -1077,13 +1070,27 @@ export const probe = (): Finding[] => {
     },
     {
       name: 'composition-root with an unordered construction record',
-      dirty: pred(M({ file: DECLARED_ROOT }), ENTRY({ file: DECLARED_ROOT, kind: 'composition-root' }), false),
-      clean: pred(M({ file: DECLARED_ROOT }), ENTRY({ file: DECLARED_ROOT, kind: 'composition-root' }), true),
+      dirty: pred(
+        M({ file: DECLARED_ROOT }),
+        ENTRY({ file: DECLARED_ROOT, kind: 'composition-root' }),
+        false,
+      ),
+      clean: pred(
+        M({ file: DECLARED_ROOT }),
+        ENTRY({ file: DECLARED_ROOT, kind: 'composition-root' }),
+        true,
+      ),
     },
     {
       name: 'a second composition root',
-      dirty: pred(M({ file: 'apps/server/src/other-root.ts' }), ENTRY({ file: 'apps/server/src/other-root.ts', kind: 'composition-root' })),
-      clean: pred(M({ file: DECLARED_ROOT }), ENTRY({ file: DECLARED_ROOT, kind: 'composition-root' })),
+      dirty: pred(
+        M({ file: 'apps/server/src/other-root.ts' }),
+        ENTRY({ file: 'apps/server/src/other-root.ts', kind: 'composition-root' }),
+      ),
+      clean: pred(
+        M({ file: DECLARED_ROOT }),
+        ENTRY({ file: DECLARED_ROOT, kind: 'composition-root' }),
+      ),
     },
     {
       name: 'documented, but the code itself is over the line',
@@ -1092,15 +1099,15 @@ export const probe = (): Finding[] => {
     },
     {
       name: 'surface that grew state',
-      dirty: pred(
-        M({ privateStateFields: ['a', 'b', 'c'] }),
-        ENTRY({ kind: 'operation-surface' }),
-      ),
+      dirty: pred(M({ privateStateFields: ['a', 'b', 'c'] }), ENTRY({ kind: 'operation-surface' })),
       clean: pred(M({ privateStateFields: ['a'] }), ENTRY({ kind: 'operation-surface' })),
     },
     {
       name: 'surface hiding one long method',
-      dirty: pred(M({ maxMethodLines: MAX_METHOD_LINES + 1 }), ENTRY({ kind: 'operation-surface' })),
+      dirty: pred(
+        M({ maxMethodLines: MAX_METHOD_LINES + 1 }),
+        ENTRY({ kind: 'operation-surface' }),
+      ),
       clean: pred(M({ maxMethodLines: MAX_METHOD_LINES }), ENTRY({ kind: 'operation-surface' })),
     },
     {
@@ -1167,7 +1174,11 @@ export const probe = (): Finding[] => {
   ]
   for (const c of kindCases) {
     if (c.dirty.length === 0)
-      broken.push({ check: 'exception-predicate-failed', where: c.name, detail: 'missed its planted violation' })
+      broken.push({
+        check: 'exception-predicate-failed',
+        where: c.name,
+        detail: 'missed its planted violation',
+      })
     if (c.clean.length > 0)
       broken.push({
         check: 'exception-predicate-failed',
@@ -1195,7 +1206,10 @@ export const probe = (): Finding[] => {
       where: '<probe>',
       detail: 'counted an injected collaborator as mutable state',
     })
-  if (!stateProbe.privateStateFields.includes('cache') || !stateProbe.privateStateFields.includes('cursor'))
+  if (
+    !stateProbe.privateStateFields.includes('cache') ||
+    !stateProbe.privateStateFields.includes('cursor')
+  )
     broken.push({
       check: 'measure-private-state',
       where: '<probe>',
