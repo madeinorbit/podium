@@ -34,7 +34,7 @@ function makeRegistry(store: SessionStore): {
   registry: SessionRegistry
   daemon: ControlMessage[]
 } {
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const daemon: ControlMessage[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))

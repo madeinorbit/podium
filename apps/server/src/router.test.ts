@@ -14,7 +14,7 @@ import { appRouter } from './router'
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
 function caller() {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
@@ -27,6 +27,7 @@ function caller() {
 describe('appRouter', () => {
   it('models.refresh + models.catalog return the injected live catalog', async () => {
     const registry = new SessionRegistry(undefined, undefined, {
+      instanceId: 'default',
       modelProbe: async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
@@ -160,7 +161,7 @@ describe('appRouter', () => {
 
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
@@ -192,7 +193,7 @@ describe('appRouter', () => {
   })
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     let polled = ''
     // The router reaches settings through the typed modules seam — stub there.
@@ -250,7 +251,7 @@ describe('appRouter', () => {
 })
 
 function repoCaller() {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol').ControlMessage[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))

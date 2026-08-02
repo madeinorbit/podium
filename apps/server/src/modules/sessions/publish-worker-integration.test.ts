@@ -88,7 +88,7 @@ function registryWithControlledWorkers(workers: ControlledWorker[]): SessionRegi
       return worker
     },
   })
-  return new SessionRegistry(undefined, undefined, { publicationWorker })
+  return new SessionRegistry(undefined, undefined, { instanceId: 'default', publicationWorker })
 }
 
 describe('SessionLifecycle publication worker integration', () => {
@@ -98,7 +98,7 @@ describe('SessionLifecycle publication worker integration', () => {
   })
 
   it('groups equal ViewKeys onto shared bytes while the main authority filters worlds', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const aliceSession = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -152,7 +152,7 @@ describe('SessionLifecycle publication worker integration', () => {
   })
 
   it('rebuilds a stable ViewKey after authorization revocation without leaking the removed id', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const first = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -214,7 +214,7 @@ describe('SessionLifecycle publication worker integration', () => {
   })
 
   it('publishes hidden-only source ranges without leaking ids and visible removes to their world', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const aliceSession = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -292,7 +292,7 @@ describe('SessionLifecycle publication worker integration', () => {
   })
 
   it('sequences an immediate mutation behind the prepared bootstrap', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const first = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -343,7 +343,7 @@ describe('SessionLifecycle publication worker integration', () => {
   })
 
   it('fails scoped catch-up closed to the authorized session world', () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const visible = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -382,7 +382,7 @@ describe('SessionLifecycle publication worker integration', () => {
   })
 
   it('rebuilds the bootstrap under hello capabilities and sends it exactly once', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const sessionId = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -586,6 +586,7 @@ describe('SessionLifecycle publication worker integration', () => {
 
   it('shadow-compares two scoped worlds through hidden-only changes and revocation', async () => {
     const registry = new SessionRegistry(undefined, undefined, {
+      instanceId: 'default',
       publicationShadowCompare: true,
     })
     registries.push(registry)
@@ -681,7 +682,7 @@ describe('SessionLifecycle publication worker integration', () => {
   })
 
   it('does not multiply a 588-session projection across same-ViewKey clients', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const sessionIds: string[] = []
     for (let index = 0; index < 588; index += 1) {

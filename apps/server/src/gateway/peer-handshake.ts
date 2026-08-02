@@ -49,7 +49,6 @@ export const gatewayCapabilityMinter = {
 export interface DaemonAcceptorDeps {
   readonly machines: MachineAuthenticator
   readonly connectionId: string
-  readonly instanceId?: string
 }
 
 /**
@@ -78,7 +77,6 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
     transport: {
       endpoint: '/daemon',
       connectionId: deps.connectionId,
-      ...(deps.instanceId === undefined ? {} : { instanceId: deps.instanceId }),
     },
     preAuthNonHandshake: 'ignore',
   })

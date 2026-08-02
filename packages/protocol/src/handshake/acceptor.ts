@@ -59,8 +59,6 @@ export interface EstablishedPeer {
   readonly agreedVersion: number
   readonly caps: CapabilityNegotiation
   readonly name?: string
-  /** [spec:SP-15aa] — carried through, never a row discriminator (ADR 1 D5). */
-  readonly instanceId?: string
   /**
    * Whatever the directory attached to its resolution, handed back to the gateway
    * untouched. The framing never reads it (see `ResolvedMachine.directoryContext`).
@@ -237,7 +235,6 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
         agreedVersion: version.agreed,
         caps,
         ...(outcome.name === undefined ? {} : { name: outcome.name }),
-        ...(hello.instanceId === undefined ? {} : { instanceId: hello.instanceId }),
         ...(outcome.directoryContext === undefined
           ? {}
           : { directoryContext: outcome.directoryContext }),

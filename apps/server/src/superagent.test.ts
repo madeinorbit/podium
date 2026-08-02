@@ -137,7 +137,7 @@ describe('harnessAllowedTools', () => {
 // auto-answers git ops so issues.start can complete.
 describe('start_agent tool wiring (issue #60)', () => {
   function harness() {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
@@ -343,7 +343,7 @@ describe('session-steering tool belt (issue #62)', () => {
   const pendingQuestion = st('needs_user', { need: { kind: 'question' } })
 
   function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const inputs: string[] = []
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())

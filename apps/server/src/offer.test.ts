@@ -36,7 +36,7 @@ function metaOffer(reg: SessionRegistry, sessionId: string) {
 
 describe('agent action offer [spec:SP-c7f1]', () => {
   it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -58,7 +58,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('carries artifact references [POD-120] on meta and across a restart', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = new SessionRegistry(new SessionStore(file))
+    const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -68,7 +68,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect(metaOffer(reg, sessionId)?.artifacts).toEqual(artifacts)
     reg.dispose()
 
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     expect(metaOffer(reg2, sessionId)?.artifacts).toEqual(artifacts)
 
     // A replacing offer WITHOUT artifacts drops them (no sticky column).
@@ -76,13 +76,13 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect(metaOffer(reg2, sessionId)?.artifacts).toBeUndefined()
     reg2.dispose()
 
-    const reg3 = new SessionRegistry(new SessionStore(file))
+    const reg3 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     expect(metaOffer(reg3, sessionId)?.artifacts).toBeUndefined()
     reg3.dispose()
   })
 
   it('clearOffer removes it', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -95,7 +95,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('persists the offer across a restart (reload from the same store file)', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = new SessionRegistry(new SessionStore(file))
+    const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -103,7 +103,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.dispose()
 
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     const surfaced = metaOffer(reg2, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
@@ -113,7 +113,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('boot reconciliation: user input after the offer drops it on reload', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = new SessionRegistry(new SessionStore(file))
+    const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -131,7 +131,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     )
     db.close()
 
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     expect(metaOffer(reg2, sessionId)).toBeUndefined()
     reg2.dispose()
 
@@ -142,7 +142,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   })
 
   it('clears the offer when a message is queued to the session (a user turn)', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     // A session with no live daemon parks the send into the durable queue, which
     // is the clear-on-turn path a button click also rides through.
     const { sessionId } = reg.modules.sessions.createSession({
@@ -172,7 +172,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     })
 
     function seed() {
-      const reg = new SessionRegistry()
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',

@@ -36,7 +36,7 @@ function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'podium-host', hostname: 'podium-host', tokenHash: 'x', ownerUserId: 'user:sole' })
   store.machines.upsertMachine({ id: 'm2', name: 'VMI', hostname: 'vmi', tokenHash: 'y', ownerUserId: 'user:sole' })
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
   reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
@@ -87,7 +87,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
   it('single-machine invariant: one online daemon → one entry with that machine agents', async () => {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({ id: 'm1', name: 'Solo', hostname: 'solo', tokenHash: 'x', ownerUserId: 'user:sole' })
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
 
@@ -108,7 +108,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
   it('returns [] when no daemon is online', async () => {
     const store = new SessionStore(':memory:')
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     expect(await reg.modules.rpc.agentQuotaAll()).toEqual([])
   })
 })

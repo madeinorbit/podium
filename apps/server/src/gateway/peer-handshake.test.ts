@@ -39,7 +39,7 @@ function fakeWs() {
 const registryWithMachine = (id = 'm1', token = 'tok') => {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id, name: 'box', hostname: 'box', tokenHash: sha256(token), ownerUserId: 'user:sole' })
-  return new SessionRegistry(store)
+  return new SessionRegistry(store, undefined, { instanceId: 'default' })
 }
 
 const frame = (o: unknown) => Buffer.from(JSON.stringify(o))
@@ -172,7 +172,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('pairing passes the peer name through and mints a token once', () => {
     const store = new SessionStore(':memory:')
     const pairing = new PairingManager()
-    const reg = new SessionRegistry(store, undefined, { pairing })
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing })
     const code = pairing.mint({})
     const directory = createMachineDirectory(reg.modules.machines)
     const paired = directory.redeemPairCode(code, {

@@ -24,7 +24,7 @@ describe('causal session observation gate', () => {
     const reg = new SessionRegistry(store, {
       ntfy: vi.fn(),
       telegram: vi.fn(),
-    })
+    }, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
@@ -141,7 +141,7 @@ describe('causal session observation gate', () => {
 
     reg.dispose()
     const restartedSent: ControlMessage[] = []
-    const restarted = new SessionRegistry(store)
+    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
     expect(
       restarted.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
@@ -186,7 +186,7 @@ describe('causal session observation gate', () => {
   it('routes a foreign lease advance to an explicit rejection acknowledgement', () => {
     const store = new SessionStore(':memory:')
     const sent: ControlMessage[] = []
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
@@ -240,7 +240,7 @@ describe('causal session observation gate', () => {
     const sent: ControlMessage[] = []
     const ntfy = vi.fn()
     const telegram = vi.fn()
-    const reg = new SessionRegistry(store, { ntfy, telegram })
+    const reg = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
@@ -431,7 +431,7 @@ describe('causal session observation gate', () => {
 
     reg.dispose()
     const restartedSent: ControlMessage[] = []
-    const restarted = new SessionRegistry(store)
+    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
       restartedSent.push(msg),
     )
@@ -456,7 +456,7 @@ describe('causal session observation gate', () => {
 
   it('rolls back resume and lease when conversation linking throws', () => {
     const store = new SessionStore(':memory:')
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn())
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {

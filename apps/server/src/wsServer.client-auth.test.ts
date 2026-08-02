@@ -35,7 +35,7 @@ async function start(
   resolvePublicationAuthority?: NonNullable<WsAuthOptions['resolvePublicationAuthority']>,
 ) {
   store = new SessionStore(':memory:')
-  registry = new SessionRegistry(store)
+  registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   server = createServer()
   handle = attachWebSockets(server as Server, registry, {
     // biome-ignore lint/suspicious/noExplicitAny: test double for IncomingMessage

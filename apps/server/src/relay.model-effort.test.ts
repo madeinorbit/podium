@@ -24,7 +24,7 @@ function captureSpawn(over: {
       tools: [],
     }),
   )
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const sent: ControlMessage[] = []
   registry.gateway.attachDaemon('m1', (m) => sent.push(m))
   registry.modules.sessions.createSession({ cwd: '/wt', machineId: 'm1', ...over })

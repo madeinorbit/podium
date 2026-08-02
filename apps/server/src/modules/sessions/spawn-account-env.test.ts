@@ -53,7 +53,7 @@ const MANAGED_ANTHROPIC = {
 
 /** Registry + the daemon's inbox of control frames. */
 function makeRegistry(store: SessionStore): { reg: SessionRegistry; daemon: ControlMessage[] } {
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))

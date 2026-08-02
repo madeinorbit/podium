@@ -129,7 +129,7 @@ function world(opts: { issues?: number; sessions?: number } = {}) {
   for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++) store.issues.upsertIssue(issueRow(i))
   const sessionIds: string[] = []
   for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++) sessionIds.push(seedSession(store, i))
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   return { store, registry, sessionIds }
 }
@@ -265,7 +265,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     store.issues.upsertIssue(issueRow(0))
     const sessionId = seedSession(store, 0, null)
 
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.modules.sessions.flushBroadcasts()
 
@@ -294,7 +294,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     expect(sessionValue?.issueId).toBe('iss_0')
 
     const cursor = Math.max(...all.changes.map((change) => change.seq))
-    const reboot = new SessionRegistry(store)
+    const reboot = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(reboot)
     reboot.modules.sessions.flushBroadcasts()
     const after = reboot.modules.sessions.syncChangesSince(cursor)

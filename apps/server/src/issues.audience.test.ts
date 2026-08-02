@@ -44,7 +44,7 @@ const withWarning = (v: unknown): string | undefined => (v as { warning?: string
 
 describe('issues.create provenance (#198)', () => {
   it('operator create → origin/audience human, no warning, not flagged', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg, OPERATOR)
       const created = await op.issues.create({
@@ -62,7 +62,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent top-level create → human-facing proposed, without needsHuman', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -86,7 +86,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent top-level create forces audience human even if agent passes audience agent', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -108,7 +108,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent top-level audience input cannot bypass proposed curation', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -130,7 +130,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent sub-issue create → internal, not forced-visible, not attention-flagged', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -153,7 +153,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('nested agent sub-issue stays internal and unflagged', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -179,7 +179,7 @@ describe('issues.create provenance (#198)', () => {
     }
   })
   it('rejects agent promotion while allowing operator promotion', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg, OPERATOR)
       const root = await op.issues.create({ repoPath: '/r', title: 'root', startNow: false })
@@ -211,7 +211,7 @@ describe('issues.create provenance (#198)', () => {
  *  attach, and the proposal-subtree inertness rule. */
 describe('proposed lane bypass paths are closed (B1-B4)', () => {
   const setup = async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const op = ctx(reg, OPERATOR)
     const root = await op.issues.create({ repoPath: '/r', title: 'root', startNow: false })
     const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: root.id } })

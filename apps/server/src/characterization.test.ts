@@ -56,7 +56,7 @@ function sink() {
 
 describe('characterization: session roundtrip across daemon reconnect (contract 1)', () => {
   it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon1: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon1.push(m))
     const { sessionId } = reg.modules.sessions.createSession({
@@ -214,7 +214,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
    *  install has one host; this pins that. */
   const HOST = asMachineId('machine-under-test')
   const freshRegistry = () => {
-    const reg = new SessionRegistry(new SessionStore(':memory:', HOST))
+    const reg = new SessionRegistry(new SessionStore(':memory:', HOST), undefined, { instanceId: 'default' })
     registries.push(reg)
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
@@ -330,7 +330,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 
 describe('characterization: closed-state normalization (contract 2, issue #24)', () => {
   it('a bare closedReason patch moves the stage to done (#24)', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
       const patched = reg.issues.update(w.id, { closedReason: 'wontfix' })
@@ -358,7 +358,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
   })
 
   it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
       reg.issues.close(w.id) // stage done + closedReason 'done'
@@ -382,7 +382,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
   })
 
   it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
       reg.issues.close(w.id)
@@ -498,7 +498,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
 
     // Populate one row in each family through the real write paths.
     const store1 = new SessionStore(file)
-    const reg1 = new SessionRegistry(store1)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -574,7 +574,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
     )
 
   it('scope violations are PRECONDITION_FAILED, role denials are FORBIDDEN, operator passes — identically via the middleware and the in-proc mailClaim check', async () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = appRouter.createCaller({
         registry: reg,

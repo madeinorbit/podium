@@ -22,7 +22,7 @@ const bind = (sessionId: SessionId) =>
   }) as const
 
 function regWithDaemon(store?: SessionStore) {
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
 }
@@ -125,33 +125,33 @@ describe('boot-time leaked-draft sweep', () => {
 
   it('reaps a draft whose attached session no longer exists', () => {
     const file = freshFile()
-    const reg1 = new SessionRegistry(new SessionStore(file))
+    const reg1 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
     new SessionStore(file).sessions.purgeSession(sessionId)
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     expect(reg2.issues.get(draft.id)).toBeNull()
   })
 
   it('reaps a draft whose only attached session is exited, detaching it', () => {
     const file = freshFile()
     const store = new SessionStore(file)
-    const reg1 = new SessionRegistry(store)
+    const reg1 = new SessionRegistry(store, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Force-persist the row as exited behind the reaper's back (leaked state).
     const row = store.sessions.loadSessions().find((r) => r.id === sessionId)
     if (!row) throw new Error('session row missing')
     store.sessions.upsertSession({ ...row, status: 'exited' })
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     expect(reg2.issues.get(draft.id)).toBeNull()
     expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
   })
 
   it('keeps drafts with live (reconnecting) or hibernated sessions across boot', () => {
     const file = freshFile()
-    const reg1 = new SessionRegistry(new SessionStore(file))
+    const reg1 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     // Live session draft: comes back 'reconnecting' at boot — must survive.
     const live = draftWithSession(reg1, '/repo-a')
@@ -165,7 +165,7 @@ describe('boot-time leaked-draft sweep', () => {
       resume: { kind: 'claude', value: 'conv-h' },
     })
     expect(reg1.modules.sessions.hibernateSession({ sessionId: hib.sessionId }).ok).toBe(true)
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     expect(reg2.issues.get(live.draft.id)).not.toBeNull()
     expect(reg2.issues.get(hib.draft.id)).not.toBeNull()
   })

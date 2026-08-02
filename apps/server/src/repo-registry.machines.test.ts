@@ -16,7 +16,7 @@ function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
   store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y', ownerUserId: 'user:sole' })
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
@@ -139,7 +139,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     // Single machine setup
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))

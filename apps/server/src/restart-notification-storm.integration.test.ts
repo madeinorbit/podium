@@ -124,7 +124,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       const telegram = vi.fn()
       const web: ServerMessage[] = []
       let store = new SessionStore(dbPath)
-      let registry = new SessionRegistry(store, { ntfy, telegram })
+      let registry = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
       const controls: ControlMessage[] = []
       const attach = () => registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (msg) => controls.push(msg))
       attach()
@@ -256,7 +256,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           registry.dispose()
           store.close()
           store = new SessionStore(dbPath)
-          registry = new SessionRegistry(store, { ntfy, telegram })
+          registry = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
           attachTestClient(registry.clientGateway, (message) => web.push(message))
           attach()
         }
