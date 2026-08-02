@@ -103,10 +103,17 @@ describe('buildHeadlessExec argv shapes', () => {
     expect(resumed.args).toEqual(['run', '--format', 'json', '-s', 'ses_1', 'hi'])
   })
 
-  it('cursor: -p --resume <chatId> with positional prompt', () => {
+  it('cursor: pins Auto unless a named model overrides it', () => {
     const { cmd, args } = buildHeadlessExec('cursor', { prompt: 'hi', sessionId: 'chat-1' }, bins)
     expect(cmd).toBe('/opt/cursor-agent')
-    expect(args).toEqual(['-p', '--resume', 'chat-1', 'hi'])
+    expect(args).toEqual(['-p', '--resume', 'chat-1', '--model', 'auto', 'hi'])
+    const named = buildHeadlessExec(
+      'cursor',
+      { prompt: 'hi', sessionId: 'chat-1', model: 'composer-2.5' },
+      bins,
+    )
+    expect(named.args).toContain('composer-2.5')
+    expect(named.args).not.toContain('auto')
   })
 
   it('uses Grok native rules and auto permission mode without polluting the prompt', () => {

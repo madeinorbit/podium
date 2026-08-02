@@ -98,10 +98,12 @@ export const cursorManifest: AgentManifest = {
   },
 
   exec: supported((opts, bins) => {
-    const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
+    // Cursor can persist a named CLI default that the current account cannot use;
+    // pin Podium's absent/auto selection to Cursor's real Auto model.
+    const model = opts.model || 'auto'
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: bins.cursor(), args: ['-p', ...(model ? ['--model', model] : []), prompt] }
+    return { cmd: bins.cursor(), args: ['-p', '--model', model, prompt] }
   }),
 
   headless: supported({
@@ -111,7 +113,9 @@ export const cursorManifest: AgentManifest = {
     // on stdout) so even the first turn runs pinned via --resume.
     resumeIdAllocation: 'create-chat',
     buildExec: supported((opts, bins) => {
-      const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
+      // A preallocated chat otherwise inherits Cursor's persisted named model.
+      // Pin Auto explicitly when Podium supplied no model override.
+      const model = opts.model || 'auto'
       const sys = opts.systemPrompt?.trim()
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
@@ -121,7 +125,8 @@ export const cursorManifest: AgentManifest = {
           '-p',
           '--resume',
           opts.sessionId ?? '',
-          ...(model ? ['--model', model] : []),
+          '--model',
+          model,
           ...(opts.permissionMode === 'auto' ? ['--auto-review'] : []),
           prompt,
         ],

@@ -126,6 +126,9 @@ describe('buildHarnessExec', () => {
       cmd: '/bin/opencode',
       args: ['run', 'p'],
     })
-    expect(buildHarnessExec('cursor', { prompt: 'p' }, bins).cmd).toBe('/bin/agent')
+    expect(buildHarnessExec('cursor', { prompt: 'p' }, bins)).toEqual({
+      cmd: '/bin/agent',
+      args: ['-p', '--model', 'auto', 'p'],
+    })
   })
 })
