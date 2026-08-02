@@ -10,7 +10,11 @@ import { describe, expect, it } from 'vitest'
 import { userClientPrincipal } from './client-principal'
 import type { ClientConn } from './client-registry'
 import { ClientRegistry } from './client-registry'
-import { PresenceRouting, STREAM_EVICT_AFTER_DROPS } from './presence-routing'
+import {
+  PresenceRouting,
+  STREAM_EVICT_AFTER_DROPS,
+  STREAM_QUEUE_MAX_FRAMES,
+} from './presence-routing'
 
 const ROOM: RoomRef = { kind: 'session', id: asSessionId('session-room') }
 
@@ -207,6 +211,58 @@ describe('production presence routing', () => {
       subscriptions.keysOf(asSubscriberId('slow')).some((key) => String(key).startsWith('room:')),
     ).toBe(false)
     expect(clients.get('slow')).toBe(slow.conn)
+  })
+
+  it('bounds the undrained outbound queue so a busy room drops rather than buffers', () => {
+    // Production policy: STREAM_QUEUE_MAX_FRAMES is the depth bound that keeps
+    // presence from starving the control plane (ADR 7 Am1 / readiness 3.4).
+    // A mutation that raises it to 1e6 must fail this test — so the flood size
+    // is a hard number above 64, not `STREAM_QUEUE_MAX_FRAMES + k` (which would
+    // scale with the mutant and still pass).
+    expect(STREAM_QUEUE_MAX_FRAMES).toBe(64)
+
+    const { subscriptions, clients, presence } = setup()
+    // Socket accepts every frame. This is not the send-failure path exercised
+    // above; frames pile up only because we refuse to drain.
+    const watcher = connection('watcher', () => true, asUserId('user:watcher'))
+    clients.add(watcher.conn)
+    presence.route(watcher.conn, { type: 'presenceSubscribe', room: ROOM })
+    presence.flushNow()
+    watcher.sent.length = 0
+
+    // Distinct members → distinct coalesce keys, so latest-wins cannot collapse
+    // the flood into one slot. 80 sits between the real bound (64) and any
+    // million-scale mutant.
+    const flood = 80
+    const actors = Array.from({ length: flood }, (_, i) => {
+      const actor = connection(`actor-${i}`, () => true, asUserId(`user:actor-${i}`))
+      clients.add(actor.conn)
+      presence.route(actor.conn, { type: 'presenceSubscribe', room: ROOM })
+      // Drain join fan-out so the depth bound is measured on the update storm.
+      presence.flushNow()
+      return actor
+    })
+
+    for (let i = 0; i < flood; i += 1) {
+      presence.route(actors[i]!.conn, {
+        type: 'presenceUpdate',
+        room: ROOM,
+        payload: { cursor: i },
+      })
+      // Deliberately no flushNow: the router queue is the thing under test.
+    }
+
+    // Coalesce → drop → evict from the room once the undrained queue is full
+    // for STREAM_EVICT_AFTER_DROPS consecutive non-coalescing frames. A 1e6
+    // queue would still hold every frame and keep the subscription.
+    expect(
+      subscriptions
+        .keysOf(asSubscriberId('watcher'))
+        .some((key) => String(key).startsWith('room:')),
+    ).toBe(false)
+    // Presence overload never tears down the connection or its other planes.
+    expect(clients.get('watcher')).toBe(watcher.conn)
+    expect(watcher.sent).toContainEqual({ type: 'presenceRoomClosed', room: ROOM })
   })
 
   it('caps inbound cursor publication at 60Hz instead of buffering it', () => {
