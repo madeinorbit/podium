@@ -560,35 +560,94 @@ separate change with its own blast radius — filed, not smuggled into this cut.
 > said the code RUNS, and the census said nothing READS it — which makes the
 > silence a finding about the design, not about the tests.**
 
-### 6.4 The render probe: no regression, and no improvement yet
+### 6.4 The render probe: the improvement, MEASURED (POD-331)
 
-Post-cut, on the deleted-derive tree:
+> **As-of `0f760eef`, on `issue/279-integration` at `b120c56d`.** The previous
+> version of this section was written on the row-cut tree and said the gain
+> "needs the published slice hook, which is NOT in this commit", followed by a
+> prescription for whoever landed it. That was true when written and false
+> afterwards, and POD-331 plus five remaining children and POD-332 read this map
+> as their brief — so it was instructing them to do work that was already done.
+> POD-1496 caught it and filed POD-1515; this rewrite is that fix, folded in by
+> the issue whose landing invalidated the section.
+
+Post-cut, on the deleted-derive tree at `09e4fe07`, the numbers were byte-identical
+to the ceilings measured on the uncut tree at `c3b8247e`: the split cost nothing
+and gained nothing, exactly as predicted, because the gain is one derivation per
+CHANGE instead of one per CONSUMER and that needs the published hook.
+
+**The caveat that made this measurable.** The probe rendered `SidebarUnified` and
+nothing else, so it observed ONE consumer — and with one consumer, "once per
+consumer" and "once per change" are the same number. The probe as written could
+not show the improvement it existed to measure. POD-331 therefore landed
+`CommandPalette` into the probe's tree as a second consumer **in its own commit,
+before the port**, so the ceiling is a measured baseline rather than a
+remembered one:
 
 ```
-[POD-330 worklist] per publish: commits=2.2 sidebarSections=1 unifiedWorkList=1
+BEFORE — unported tree at 5409a3ac
+  [POD-330 worklist]     per publish: commits=2.2 sidebarSections=1 unifiedWorkList=1
+  [POD-331 two-consumer] per publish: commits=3   sidebarSections=2 unifiedWorkList=1
+
+AFTER — ported, at 0f760eef
+  [POD-330 worklist]     per publish: commits=2.2 worklistSlice=1 directSidebarSections=0
+  [POD-331 two-consumer] per publish: commits=3   worklistSlice=1 directSidebarSections=0
 ```
 
-Byte-identical to the ceilings measured on the uncut tree at `c3b8247e`. The
-split cost nothing, and gained nothing — as predicted. The gain is one
-derivation per CHANGE instead of one per CONSUMER, and it needs the published
-slice hook, which is NOT in this commit.
+**The claim is the two-consumer row: 2 → 1.** Commits are unchanged at 2.2 and 3,
+so there is no regression. `unifiedWorkList` stays 1 because `CommandPalette`
+does not call it — which is why the pair of numbers is reported rather than one.
 
-**A caveat for whoever measures it.** The probe renders `SidebarUnified` and
-nothing else, so it observes ONE consumer. A published hook would move the
-number from 1-per-consumer to 1-per-change, but with one consumer those are the
-same number: **the probe as written cannot show the improvement it exists to
-measure.** Landing the hook must also add a second consumer to the probe's tree
-(`CommandPalette` calls `sidebarSections` independently; `SidebarUnified` itself
-calls it at two separate call sites, lines 247 and 947) — otherwise the hook
-will land, be correct, and measure as a flat 1, and someone will read that as
-"no gain".
+#### 6.4.1 The probe measured NOTHING again, and only the guard caught it
+
+Recorded because it is now the SECOND time on this issue family (see §4b) that
+this probe reported the best possible result while measuring nothing.
+
+The counter wrapped the `@podium/client-core/viewmodels` barrel, which sees a
+COMPONENT calling `sidebarSections`. Once the derivation moved INSIDE
+client-core, the slice reached it through a package-internal relative import,
+the barrel counter stopped seeing it, and it read **zero** — which passes every
+ceiling. What failed was the can-say-NO assertion, not the ceiling.
+
+The fix was not to weaken it. The probe now counts through the publisher's own
+`SliceDerivationCounts`, keeps the can-say-NO guard on THAT counter, and retains
+the barrel counter as a separate "nobody derives locally any more" check
+asserted to be 0 — a zero that is only meaningful next to a guard proving the
+work still happens somewhere. Both numbers print on every run.
+
+> **A wrapper measures a call path, not a computation.** Move the computation to
+> a different path and the wrapper reports zero with total confidence. Prefer the
+> mechanism's own instrumentation over a wrapper around one of its callers.
+
+#### 6.4.2 The clock had to enter the snapshot
+
+`sidebarSections` is a function of time as well as of rows — it feeds `now` to
+`isSnoozed` and `compareRecency` so a snooze lapses on screen without a server
+round-trip. The publisher keys on snapshot identity and nothing else, which is
+what makes it correct across evict and rescope (§4a).
+
+Those two facts forbid reading the clock inside `derive`: the worklist would be
+memoized against a clock that had moved, so on a quiet system with no publishes
+an overnight snooze would never lapse. The answer is NOT a second cache key —
+that would make the wrong cache writable again, which §4a is explicit about —
+but `Store.coarseNow`. A new minute is a new snapshot, and the derivation stays
+a pure function of its source. One interval per runtime now replaces eleven
+per-component `useNow(60_000)` intervals that each ticked on their own phase, so
+two surfaces can no longer disagree about what time it is.
+
+**Deleting that interval was SILENT across all 760 client-core tests.** A throw
+on the same line reddened 46, so the line runs constantly: an ASSERTION GAP, not
+dead code and not an equivalent mutant. The mechanism it replaced — the
+per-component `useNow` — had no test either, which is §6.5's warning arriving on
+schedule: replacing a fragile mechanism does not inherit its coverage, because
+there was none to inherit. Two tests in `runtime.test.ts` close it.
 
 ### 6.5 What remains after this commit
 
-- The published worklist slice — POD-1502. The HOOK MECHANISM already landed on
-  integration at `1b7784db` (`slices/publish.ts`, `react/use-slice.ts`); what is
-  missing is a `defineSlice` over `sidebarSections` / `unifiedWorkList` and the
-  consumer port, plus the probe's second consumer per §6.4.
+- ~~The published worklist slice — POD-1502~~ — **DONE**, POD-331, at `0f760eef`.
+  `slices/worklist/published.ts` defines it, `SidebarUnified` / `CommandPalette` /
+  the collapsed rail all read it through `useSlice`, and the probe has its second
+  consumer. Measured 2 → 1 derivations per publish; see §6.4.
 - `superagent-shadow-types` → zero: see §6.6, it is POD-332's and it is not a
   deletion.
 - Removing `UnifiedWorkRow.rank` (§6.3) — POD-1501. Note the six fixture sites in
