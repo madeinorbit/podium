@@ -192,6 +192,8 @@ export interface SessionRestorePlan {
 }
 
 interface SessionLifecycleDeps {
+  /** Deployment-qualified durable namespace, injected by the composition root. */
+  durableLabelFor(sessionId: SessionId): string
   store: SessionStore
   now(): number
   bus: EventBus
@@ -477,6 +479,7 @@ export class SessionLifecycle {
       appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
     })
     this.headless = new HeadlessService({
+      durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
       getSession: (sessionId) => this.sessions.get(sessionId),
       registerSession: (session) => this.sessions.set(session.sessionId, session),
       resolveMachine: (requested, cwd, agentKind) =>
@@ -1766,12 +1769,7 @@ export class SessionLifecycle {
     // Unsaved-work guard: inspect the working copy when present. Branch commits
     // alone are not a refusal — the branch is always kept.
     if (worktreePath && !input.force) {
-      const st = await this.rpc.repoOp(
-        'status',
-        worktreePath,
-        undefined,
-        session.machineId,
-      )
+      const st = await this.rpc.repoOp('status', worktreePath, undefined, session.machineId)
       if (st.ok) {
         const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
         if (dirty.length > 0) {
@@ -2620,6 +2618,7 @@ export class SessionLifecycle {
             .accountId)
     const session = new Session({
       sessionId,
+      durableLabel: this.deps.durableLabelFor(sessionId),
       ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       agentKind: input.agentKind,
       cwd: input.cwd,

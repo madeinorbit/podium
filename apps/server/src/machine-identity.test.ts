@@ -243,6 +243,31 @@ describe('the split-mode local daemon authenticates as this host', () => {
   })
 })
 
+describe('composition threads deployment identity explicitly', () => {
+  it('derives fleet and durable-session namespaces from the constructor parameter', () => {
+    const store = new SessionStore(':memory:', HOST)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'blue' })
+
+    expect(registry.modules.machines.instanceId).toBe('blue')
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
+    const session = store.sessions.getSession(sessionId)
+    expect(session?.durableLabel).toBe('podium-blue-' + sessionId)
+
+    const headless = registry.modules.sessions.headless.createHeadlessSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+    expect(store.sessions.getSession(headless.sessionId)?.durableLabel).toBe(
+      'podium-blue-' + headless.sessionId,
+    )
+    registry.dispose()
+    store.close()
+  })
+})
+
 describe('rows are attributed from birth — there is no placeholder phase', () => {
   it('a session created before any daemon connects already names the host', () => {
     const store = new SessionStore(':memory:', HOST)

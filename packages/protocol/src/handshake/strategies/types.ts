@@ -45,8 +45,6 @@ export interface TransportFacts {
   readonly inProcess?: boolean
   /** The connection identity the gateway assigned; the DEVICE half's fallback. */
   readonly connectionId?: string
-  /** [spec:SP-15aa] instance the connection landed on. Threaded, never a tenant key. */
-  readonly instanceId?: string
 }
 
 export interface AuthInput<C extends PeerCredential = PeerCredential> {

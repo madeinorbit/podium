@@ -20,6 +20,8 @@ import type {
 import { Session } from '../sessions/session'
 
 export interface HeadlessDeps {
+  /** Deployment-qualified durable namespace, injected by server composition. */
+  durableLabelFor(sessionId: SessionId): string
   getSession(sessionId: SessionId): Session | undefined
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
@@ -100,6 +102,7 @@ export class HeadlessService {
     const machineId = this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
     const session = new Session({
       sessionId,
+      durableLabel: this.deps.durableLabelFor(sessionId),
       agentKind: input.agentKind,
       cwd: input.cwd,
       title: input.title || basename(input.cwd) || input.cwd,

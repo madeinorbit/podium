@@ -10,9 +10,11 @@ type VersionBody = {
   minSupportedVersion: number
 }
 
-async function fetchVersion(): Promise<{ status: number; body: VersionBody }> {
+async function fetchVersion(
+  instanceId = 'default',
+): Promise<{ status: number; body: VersionBody }> {
   const app = new Hono()
-  registerVersionRoute(app)
+  registerVersionRoute(app, { instanceId })
   const res = await app.request('/version')
   return { status: res.status, body: (await res.json()) as VersionBody }
 }
@@ -26,7 +28,6 @@ describe('GET /version', () => {
   beforeEach(() => {
     savedAppVersion = process.env.PODIUM_APP_VERSION
     savedInstance = process.env.PODIUM_INSTANCE
-    delete process.env.PODIUM_INSTANCE
   })
   afterEach(() => {
     if (savedAppVersion === undefined) delete process.env.PODIUM_APP_VERSION
@@ -55,8 +56,8 @@ describe('GET /version', () => {
   })
 
   it('reports the selected instance identity', async () => {
-    process.env.PODIUM_INSTANCE = 'blue'
-    const { body } = await fetchVersion()
+    process.env.PODIUM_INSTANCE = 'wrong-ambient-value'
+    const { body } = await fetchVersion('blue')
     expect(body.instanceId).toBe('blue')
   })
 

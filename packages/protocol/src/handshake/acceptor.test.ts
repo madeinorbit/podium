@@ -64,9 +64,7 @@ describe('handshake order — the gateway end', () => {
   })
 
   it('rule 2: version is refused BEFORE any credential is examined', () => {
-    const authenticate = vi.fn(
-      (): AuthOutcome => ({ ok: false, reason: 'auth-failed' }),
-    )
+    const authenticate = vi.fn((): AuthOutcome => ({ ok: false, reason: 'auth-failed' }))
     const spy: PeerAuthStrategy = {
       role: 'machine',
       credentialKind: 'machineToken',
@@ -135,9 +133,7 @@ describe('framing is common; role resolution is not payload-controlled', () => {
       registry: registry(),
       transport: transportFacts({ endpoint: '/client' }),
     })
-    const step = a.receive(
-      JSON.stringify(helloFor({ kind: 'machineToken', token: 'tok-ok' })),
-    )
+    const step = a.receive(JSON.stringify(helloFor({ kind: 'machineToken', token: 'tok-ok' })))
     // /client implies console, and console does not claim a machine token.
     expect(step.action === 'reject' && step.reply.reason).toBe('unsupported-credential')
   })
@@ -207,10 +203,5 @@ describe('payload identity is inert at the framing level too', () => {
   it('the acceptor tells the peer which identity IT resolved', () => {
     const step = acceptor().receive(goodHello())
     expect(step.action === 'establish' && step.reply.assignedId).toBe('mach-vps')
-  })
-
-  it('threads instanceId without letting it discriminate anything', () => {
-    const step = acceptor().receive(goodHello({ instanceId: 'inst-b' }))
-    expect(step.action === 'establish' && step.peer.instanceId).toBe('inst-b')
   })
 })

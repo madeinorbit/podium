@@ -5,13 +5,18 @@
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts
  */
 import { afterAll, describe, expect, it } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { type ChildProcess, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import { FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
+import { SESSION_COOKIE } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
+import { SessionStore } from '../apps/server/src/store'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -22,7 +27,7 @@ const git = Bun.which('git')
 if (git) symlinkSync(git, join(RUNTIME_BIN, 'git'))
 
 interface InstanceSpec {
-  id: 'blue' | 'green'
+  id: 'default' | 'blue'
   stateDir: string
   agentHome: string
   webDir: string
@@ -70,6 +75,20 @@ function makeSpec(id: InstanceSpec['id']): InstanceSpec {
   }
 }
 
+function seedLegacyNamedState(spec: InstanceSpec): void {
+  mkdirSync(spec.stateDir, { recursive: true })
+  const path = join(spec.stateDir, 'podium.db')
+  new SessionStore(path, asMachineId('00000000-0000-4000-8000-000000000734')).close()
+  const db = openDatabase(path)
+  db.prepare('DELETE FROM machines').run()
+  db.prepare(
+    `INSERT INTO machines
+      (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
+      VALUES ('local', 'legacy-host', 'legacy-host', 'legacy-token', 't', 't', NULL)`,
+  ).run()
+  db.close()
+}
+
 function instanceEnv(
   spec: InstanceSpec,
   overrides: Record<string, string | undefined> = {},
@@ -109,11 +128,14 @@ function instanceEnv(
   return env
 }
 
-function startInstance(spec: InstanceSpec): RunningInstance {
+function startInstance(
+  spec: InstanceSpec,
+  overrides: Record<string, string | undefined> = {},
+): RunningInstance {
   const child = spawn(
     process.execPath,
     ['--conditions=@podium/source', CLI, '--instance', spec.id, 'all'],
-    { cwd: ROOT, env: instanceEnv(spec), stdio: ['ignore', 'pipe', 'pipe'] },
+    { cwd: ROOT, env: instanceEnv(spec, overrides), stdio: ['ignore', 'pipe', 'pipe'] },
   )
   let output = ''
   child.stdout?.on('data', (chunk) => {
@@ -207,9 +229,14 @@ function jsonOutput(result: CliResult): { data?: unknown } {
   if (!line) throw new Error(`missing JSON output: ${result.stdout} ${result.stderr}`)
   return JSON.parse(line) as { data?: unknown }
 }
-function trpc(spec: InstanceSpec): ReturnType<typeof createTRPCClient<AppRouter>> {
+function trpc(spec: InstanceSpec, cookie?: string): ReturnType<typeof createTRPCClient<AppRouter>> {
   return createTRPCClient<AppRouter>({
-    links: [httpBatchLink({ url: `http://127.0.0.1:${spec.port}/trpc` })],
+    links: [
+      httpBatchLink({
+        url: `http://127.0.0.1:${spec.port}/trpc`,
+        ...(cookie ? { headers: { cookie } } : {}),
+      }),
+    ],
   })
 }
 
@@ -225,39 +252,87 @@ afterAll(async () => {
 
 describe('multi-instance runtime isolation', () => {
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
-    const blue = startInstance(makeSpec('blue'))
-    const green = startInstance(makeSpec('green'))
-    await waitUntil(async () => (await version(blue))?.instanceId === 'blue', 'blue server')
-    await waitUntil(async () => (await version(green))?.instanceId === 'green', 'green server')
+    const compat = startInstance(makeSpec('default'))
+    const namedSpec = makeSpec('blue')
+    seedLegacyNamedState(namedSpec)
+    const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
+    await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
+    await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
     for (const [port, label] of [
-      [blue.hookPort, 'blue hook'],
-      [green.hookPort, 'green hook'],
-      [blue.relayPort, 'blue relay'],
-      [green.relayPort, 'green relay'],
+      [compat.hookPort, 'compat hook'],
+      [named.hookPort, 'named hook'],
+      [compat.relayPort, 'compat relay'],
+      [named.relayPort, 'named relay'],
     ] as const)
       await waitUntil(() => endpointIsListening(port), label)
 
     expect(
       new Set([
-        blue.port,
-        green.port,
-        blue.hookPort,
-        green.hookPort,
-        blue.relayPort,
-        green.relayPort,
+        compat.port,
+        named.port,
+        compat.hookPort,
+        named.hookPort,
+        compat.relayPort,
+        named.relayPort,
       ]).size,
     ).toBe(6)
-    expect(JSON.parse(readFileSync(join(blue.stateDir, 'instance.json'), 'utf8'))).toMatchObject({
+    expect(JSON.parse(readFileSync(join(compat.stateDir, 'instance.json'), 'utf8'))).toMatchObject({
+      instanceId: 'default',
+    })
+    expect(JSON.parse(readFileSync(join(named.stateDir, 'instance.json'), 'utf8'))).toMatchObject({
       instanceId: 'blue',
     })
-    expect(JSON.parse(readFileSync(join(green.stateDir, 'instance.json'), 'utf8'))).toMatchObject({
-      instanceId: 'green',
-    })
-    expect(existsSync(join(blue.stateDir, 'runtime', 'abduco'))).toBe(true)
-    expect(existsSync(join(green.stateDir, 'runtime', 'abduco'))).toBe(true)
+    expect(existsSync(join(compat.stateDir, 'runtime', 'abduco'))).toBe(false)
+    expect(existsSync(join(named.stateDir, 'runtime', 'abduco'))).toBe(true)
 
-    const title = 'Blue runtime acceptance'
-    const created = await runCli(blue, [
+    const inspectBoot = (spec: InstanceSpec) => {
+      const db = openDatabase(join(spec.stateDir, 'podium.db'))
+      const rows = db
+        .prepare('SELECT id, owner_user_id AS ownerUserId FROM machines ORDER BY id')
+        .all() as { id: string; ownerUserId: string | null }[]
+      const columns = db.prepare('PRAGMA table_info(machines)').all() as { name: string }[]
+      db.close()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+      expect(rows.some((row) => row.ownerUserId === null)).toBe(false)
+      expect(rows.some((row) => row.id === 'local' || row.id === '__local__')).toBe(false)
+      expect(columns.some((column) => column.name === 'instance_id')).toBe(false)
+      return rows[0]!.id
+    }
+    const compatMachineId = inspectBoot(compat)
+    const namedMachineId = inspectBoot(named)
+    expect(readFileSync(join(compat.stateDir, 'machine.id'), 'utf8').trim()).toBe(compatMachineId)
+    expect(readFileSync(join(named.stateDir, 'machine.id'), 'utf8').trim()).toBe(namedMachineId)
+
+    // A second authenticated member is still inside the SAME named deployment,
+    // but the instance label grants no execute authority over its host machine.
+    const memberToken = 'named-instance-member'
+    const memberDb = openDatabase(join(named.stateDir, 'podium.db'))
+    memberDb
+      .prepare(
+        `INSERT INTO users (id, display_name, role, created_at, disabled_at)
+         VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
+      )
+      .run()
+    memberDb
+      .prepare(
+        `INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at)
+         VALUES (?, 'user:member', '2026-08-02T00:00:00.000Z', '2099-01-01T00:00:00.000Z')`,
+      )
+      .run(createHash('sha256').update(memberToken).digest('hex'))
+    memberDb.close()
+    const memberApi = trpc(named, SESSION_COOKIE + '=' + memberToken)
+    await expect(
+      memberApi.sessions.create.mutate({
+        agentKind: 'shell',
+        cwd: ROOT,
+        machineId: namedMachineId,
+      }),
+    ).rejects.toThrow(/unknown machine/)
+    expect(await trpc(named).sessions.list.query()).toEqual([])
+
+    const title = 'Default runtime acceptance'
+    const created = await runCli(compat, [
       'issue',
       'create',
       '--repoPath',
@@ -267,73 +342,75 @@ describe('multi-instance runtime isolation', () => {
       '--json',
     ])
     expect(created.code, created.stderr).toBe(0)
-    const blueList = await runCli(blue, ['issue', 'list', '--repoPath', ROOT, '--json'])
-    const greenList = await runCli(green, ['issue', 'list', '--repoPath', ROOT, '--json'])
-    const blueIssues = jsonOutput(blueList).data as Array<{ id: string; title: string }>
-    const greenIssues = jsonOutput(greenList).data as Array<{ id: string; title: string }>
-    const blueIssue = blueIssues.find((issue) => issue.title === title)
-    expect(blueIssue).toBeDefined()
-    expect(greenIssues.some((issue) => issue.title === title)).toBe(false)
-    if (!blueIssue) throw new Error('blue issue was not persisted')
-    expect((await runCli(green, ['issue', 'show', blueIssue.id, '--json'])).code).toBe(1)
-    const foreignMutation = await runCli(green, [
+    const compatList = await runCli(compat, ['issue', 'list', '--repoPath', ROOT, '--json'])
+    const namedList = await runCli(named, ['issue', 'list', '--repoPath', ROOT, '--json'])
+    const compatIssues = jsonOutput(compatList).data as Array<{ id: string; title: string }>
+    const namedIssues = jsonOutput(namedList).data as Array<{ id: string; title: string }>
+    const compatIssue = compatIssues.find((issue) => issue.title === title)
+    expect(compatIssue).toBeDefined()
+    expect(namedIssues.some((issue) => issue.title === title)).toBe(false)
+    if (!compatIssue) throw new Error('compat issue was not persisted')
+    expect((await runCli(named, ['issue', 'show', compatIssue.id, '--json'])).code).toBe(1)
+    const foreignMutation = await runCli(named, [
       'issue',
       'update',
-      blueIssue.id,
+      compatIssue.id,
       '--title',
       'Crossed instance boundary',
       '--json',
     ])
     expect(foreignMutation.code).toBe(1)
-    const blueAfterMutation = await runCli(blue, ['issue', 'show', blueIssue.id, '--json'])
-    expect(blueAfterMutation.code, blueAfterMutation.stderr).toBe(0)
-    expect((jsonOutput(blueAfterMutation).data as { title: string }).title).toBe(title)
+    const compatAfterMutation = await runCli(compat, ['issue', 'show', compatIssue.id, '--json'])
+    expect(compatAfterMutation.code, compatAfterMutation.stderr).toBe(0)
+    expect((jsonOutput(compatAfterMutation).data as { title: string }).title).toBe(title)
 
-    const relay = `http://127.0.0.1:${blue.relayPort}/agent/fake`
-    const mismatch = await runCli(green, ['issue', 'list', '--repoPath', ROOT], {
+    const relay = `http://127.0.0.1:${compat.relayPort}/agent/fake`
+    const mismatch = await runCli(named, ['issue', 'list', '--repoPath', ROOT], {
       PODIUM_NO_RELAY: undefined,
       PODIUM_AGENT_RELAY: relay,
-      PODIUM_SESSION_INSTANCE: 'blue',
+      PODIUM_SESSION_INSTANCE: 'default',
     })
     expect(mismatch.code).toBe(2)
-    expect(mismatch.stderr).toContain("belongs to instance 'blue', not 'green'")
-    const explicit = await runCli(green, ['issue', 'list', '--repoPath', ROOT, '--json'], {
+    expect(mismatch.stderr).toContain("belongs to instance 'default', not 'blue'")
+    const explicit = await runCli(named, ['issue', 'list', '--repoPath', ROOT, '--json'], {
       PODIUM_NO_RELAY: '1',
       PODIUM_AGENT_RELAY: relay,
-      PODIUM_SESSION_INSTANCE: 'blue',
+      PODIUM_SESSION_INSTANCE: 'default',
     })
     expect(explicit.code, explicit.stderr).toBe(0)
     expect(jsonOutput(explicit).data).toEqual([])
 
-    const blueApi = trpc(blue)
-    const greenApi = trpc(green)
-    const { sessionId } = await blueApi.sessions.create.mutate({ agentKind: 'shell', cwd: ROOT })
+    const compatApi = trpc(compat)
+    const namedApi = trpc(named)
+    const { sessionId } = await compatApi.sessions.create.mutate({ agentKind: 'shell', cwd: ROOT })
     await waitUntil(
-      async () => (await blueApi.sessions.list.query()).some((s) => s.sessionId === sessionId),
-      'blue session row',
+      async () => (await compatApi.sessions.list.query()).some((s) => s.sessionId === sessionId),
+      'compat session row',
     )
-    expect((await greenApi.sessions.list.query()).some((s) => s.sessionId === sessionId)).toBe(
+    expect((await namedApi.sessions.list.query()).some((s) => s.sessionId === sessionId)).toBe(
       false,
     )
-    await greenApi.sessions.kill.mutate({ sessionId })
-    expect((await blueApi.sessions.list.query()).some((s) => s.sessionId === sessionId)).toBe(true)
-    await blueApi.sessions.kill.mutate({ sessionId })
+    await namedApi.sessions.kill.mutate({ sessionId })
+    expect((await compatApi.sessions.list.query()).some((s) => s.sessionId === sessionId)).toBe(
+      true,
+    )
+    await compatApi.sessions.kill.mutate({ sessionId })
     await waitUntil(
-      async () => !(await blueApi.sessions.list.query()).some((s) => s.sessionId === sessionId),
-      'blue session teardown',
+      async () => !(await compatApi.sessions.list.query()).some((s) => s.sessionId === sessionId),
+      'compat session teardown',
     )
 
-    const stopBlue = await runCli(blue, ['stop'])
-    expect(stopBlue.code, stopBlue.stderr).toBe(0)
-    await waitUntil(() => blue.child.exitCode !== null, 'blue exit')
-    expect(await version(blue)).toBeUndefined()
-    expect(await endpointIsListening(blue.hookPort)).toBe(false)
-    expect((await version(green))?.instanceId).toBe('green')
-    expect(await endpointIsListening(green.hookPort)).toBe(true)
-    expect(await endpointIsListening(green.relayPort)).toBe(true)
+    const stopCompat = await runCli(compat, ['stop'])
+    expect(stopCompat.code, stopCompat.stderr).toBe(0)
+    await waitUntil(() => compat.child.exitCode !== null, 'compat exit')
+    expect(await version(compat)).toBeUndefined()
+    expect(await endpointIsListening(compat.hookPort)).toBe(false)
+    expect((await version(named))?.instanceId).toBe('blue')
+    expect(await endpointIsListening(named.hookPort)).toBe(true)
+    expect(await endpointIsListening(named.relayPort)).toBe(true)
 
-    const stopGreen = await runCli(green, ['stop'])
-    expect(stopGreen.code, stopGreen.stderr).toBe(0)
-    await waitUntil(() => green.child.exitCode !== null, 'green exit')
+    const stopNamed = await runCli(named, ['stop'])
+    expect(stopNamed.code, stopNamed.stderr).toBe(0)
+    await waitUntil(() => named.child.exitCode !== null, 'named exit')
   }, 180_000)
 })

@@ -7,6 +7,7 @@ import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
+import { DEFAULT_INSTANCE_ID, durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -98,6 +99,8 @@ export type {
 export type { MemoryBreakdown }
 
 interface SessionRegistryOptions {
+  /** Boot-resolved deployment identity; direct test fixtures use the compatibility default. */
+  instanceId?: string
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -244,6 +247,7 @@ export class SessionRegistry {
     notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
     options: SessionRegistryOptions = {},
   ) {
+    const instanceId = options.instanceId ?? DEFAULT_INSTANCE_ID
     this.now = options.now ?? Date.now
     // Resolve feature state once, then keep it atomic with settings changes. This also
     // avoids reading persistence during instruction preparation after async recovery.
@@ -306,6 +310,7 @@ export class SessionRegistry {
       this.store.repos,
     )
     const machines = new MachinesService({
+      instanceId,
       store: this.store,
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
@@ -692,6 +697,7 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
     const sessionsSvc = new SessionLifecycle({
+      durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
