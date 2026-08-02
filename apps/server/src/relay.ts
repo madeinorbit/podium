@@ -69,7 +69,8 @@ import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
 import { QueuedMessageApply } from './modules/messages/queued-apply'
-import { DELIVERY_RETRY_BACKSTOP_MS, MessageDeliveryService } from './modules/messages/service'
+import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
+import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,

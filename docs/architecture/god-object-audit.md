@@ -103,14 +103,14 @@ one.
 
 ## Verdict at this candidate
 
-28 production modules over 600 lines. **25 carry a reviewed exception whose
-structural claim holds; 3 are open items.**
+28 production modules over 600 lines. **26 carry a reviewed exception whose
+structural claim holds; 2 are open items.**
 
 | module | physical | code | status |
 | --- | ---: | ---: | --- |
-| `modules/sessions/lifecycle.ts` | 2955 | 2081 | **ITEM** — six responsibilities, 96 methods |
-| `modules/messages/service.ts` | 2595 | 1749 | **ITEM** — 18 owned state fields |
+| `modules/sessions/lifecycle.ts` | 2700 | 1900 | **ITEM** — six responsibilities, 96 methods |
 | `relay.ts` | 2026 | 1606 | composition-root |
+| `modules/messages/service.ts` | 1797 | 1190 | cohesive-owner (POD-1397 — was an ITEM at 2595/1749, 18 owned state fields) |
 | `migrations/schema.ts` | 1404 | 1056 | declaration-table |
 | `modules/superagent/service.ts` | 1187 | 952 | cohesive-owner |
 | `modules/issues/registry.ts` | 1157 | 818 | declaration-table (POD-1398 — was an ITEM at 1664/1188, "table + 2 classes in one file") |
@@ -152,6 +152,37 @@ dispatcher that needs both. Each is now its own module in that order
 imports the context as a TYPE only so it adds no runtime edge back, and nothing
 imports the dispatcher back. Only then did the table qualify for a
 `declaration-table` entry; the other two fell under the threshold entirely.
+
+`messages/service.ts` closed by decomposition too, and it is the case that shows
+what this audit's state bound is for. Its problem was named as eighteen owned
+mutable fields, and four capabilities came out carrying their own: rendering and
+the confirmation mode that follows from it (`render.ts`), containment brakes 1
+and 2 (`brakes.ts`), delivery scheduling (`scheduler.ts`), and the pull path of
+reads, replies and bounded waits (`mailbox.ts`). Four fields remain and the entry
+names all four.
+
+Two things about it are worth recording rather than leaving to the diff.
+
+The first is a seam the issue brief got wrong, and the reason to re-derive a
+proposed split from the code instead of taking it. The brief asked for a delivery
+queue and a retry/sweep as separate owners. They cannot be, without sharing state
+by reference: `triggerFailures` is incremented by every entry path, and
+`deliveryStats().oldestJobAgeMs` is a minimum over the queue's `enqueuedAt`
+values *and* `retryPassStartedAt`. The eleven fields are exactly the closure of
+`MessageDeliveryStats`. Splitting them would have produced two files that pass
+this audit separately while sharing one counter and one clock — shape 2 above,
+made worse by a decomposition rather than removed by one. They are one owner with
+three entry paths.
+
+The second is that shape 1 above now has a witness in this module. `dispose()`
+appeared in the messages tests only as cleanup; nothing asserted it stopped
+anything, which was survivable while one object held every timer and is not once
+three owners each arm their own. A test arms one timer in each owner, proves both
+are armed, and requires `vi.getTimerCount()` to reach zero — a count rather than
+a list, so it also fires for a timer a future owner adds without a disposer.
+Dropping either delegation, or hollowing out the brake's own disposer, turns it
+red. That is one module covered; the general instrument the "cannot see" section
+asks for still does not exist.
 
 `handoff/coordinator.ts` is the case worth naming, because it would have passed
 a weaker instrument. At 421 code lines it satisfies the `documented` predicate

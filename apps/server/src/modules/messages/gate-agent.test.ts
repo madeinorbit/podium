@@ -2,14 +2,15 @@
 // cross-harness]: gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, type SessionId } from '@podium/model'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
 import type { IssueService } from '../issues/service'
+import { SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageGate, type MessageGateDeps } from './gate'
-import { MessageDeliveryService, SPAWN_BUDGET_PER_DAY } from './service'
+import { MessageDeliveryService } from './service'
 
 const ISSUE = {
   id: 'iss_a',

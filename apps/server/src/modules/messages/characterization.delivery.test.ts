@@ -28,13 +28,13 @@
 
 import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { WAKE_COOLDOWN_MS } from './brakes'
 import { mailHarness, OPERATOR, phaseState } from './characterization-support'
+import { INLINE_BODY_MAX } from './render'
 import {
   ECHO_CONFIRM_WINDOW_MS,
   HOP_LIMIT,
-  INLINE_BODY_MAX,
   MAX_ECHO_REQUEUES,
-  WAKE_COOLDOWN_MS,
 } from './service'
 
 const kinds = (h: ReturnType<typeof mailHarness>): string[] => h.events().map((e) => e.kind)
