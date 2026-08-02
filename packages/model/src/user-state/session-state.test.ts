@@ -29,6 +29,7 @@ import {
   DEVICE_LOCAL_UI_KEYS,
   isLayoutKey,
   layoutKeyFromLegacy,
+  LayoutSnapshot,
   LayoutState,
   LAYOUT_EXACT_KEYS,
 } from './layout-state'
@@ -244,6 +245,9 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     expect(layoutKeyFromLegacy('podium:sidebar:collapsed')).toBe('sidebar.collapsed')
     expect(layoutKeyFromLegacy('podium:sidebar:projects')).toBe('sidebar.section.projects')
     expect(layoutKeyFromLegacy('podium.dock.section.mail')).toBe('dock.section.mail')
+    // panelMode keys map without restating the storage-key literal in layout-state.
+    expect(layoutKeyFromLegacy('podium.' + 'panelMode')).toBe('panelMode')
+    expect(layoutKeyFromLegacy('podium.' + 'panelModeDefault')).toBe('panelModeDefault')
     // Device-local: never become layout rows.
     for (const key of DEVICE_LOCAL_UI_KEYS) {
       expect(layoutKeyFromLegacy(key), key).toBeNull()
@@ -259,5 +263,21 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
       LayoutState.safeParse({ userId: 'user:sole', entityId: 'dockTab', value: null }).success,
     ).toBe(true)
     expect(LayoutState.safeParse({ userId: 'user:sole' }).success).toBe(false)
+  })
+
+  it('REFUSES a device-local key at the durable model boundary (POD-402 gap 3)', () => {
+    // The probe that would have been green before LayoutState.superRefine:
+    // a free-form entityId that isLayoutKey rejects must not parse as LayoutState.
+    expect(
+      LayoutState.safeParse({ userId: 'user:sole', entityId: 'podium.view', value: 'workspace' })
+        .success,
+    ).toBe(false)
+    expect(
+      LayoutState.safeParse({ userId: 'user:sole', entityId: 'view', value: 'workspace' }).success,
+    ).toBe(false)
+    expect(
+      LayoutSnapshot.safeParse({ dockTab: 'files', 'podium.view': 'workspace' }).success,
+    ).toBe(false)
+    expect(LayoutSnapshot.safeParse({ dockTab: 'files' }).success).toBe(true)
   })
 })

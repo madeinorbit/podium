@@ -1,13 +1,12 @@
 /**
  * Layout tRPC surface (POD-1350) — `layout.get` · `layout.set` · `layout.clear`.
  *
- * Writes are gated by the L1 contracts in `@podium/commands` (closed key
- * vocabulary, per-user-state class, offline-eligible + outbox). The get is a
- * READ and has no write-class visibility; it is still principal-scoped.
+ * Writes run the contract-derived LIVE gate ({@link layoutAuthzFailure}) before
+ * any store touch, then the handler. See POD-402 review gap 1.
  *
- * Bootstrap representation for POD-403: `get` returns the full
- * {@link LayoutSnapshot} for the calling user. Command responses return the
- * same shape after a write so ui-state has one seam to hydrate from.
+ * State is reached ONLY through {@link familyState} → `modules.layout` (the
+ * POD-314 seam). No `sessionStore` / `mods(ctx)` longhand in this file —
+ * `router-triple-access` counts those as transport reach-throughs.
  */
 
 import {
@@ -16,53 +15,52 @@ import {
   layoutSetContract,
   layoutSetInput,
 } from '@podium/commands'
-import type { UserId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { onBehalfOfUser } from '../../command-principal'
 import type { Context } from '../../trpc'
 import { t } from '../../trpc'
-import { LayoutService } from './service'
+import { familyState } from '../derived-family'
+import { layoutActor, layoutAuthzDeps, layoutAuthzFailure } from './authz'
 
-function requireActor(ctx: Context, name: string): UserId {
-  const actor = onBehalfOfUser(ctx.principal)
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function authorizeWrite(
+  ctx: Context,
+  name: string,
+): { actor: NonNullable<ReturnType<typeof layoutActor>> } {
+  const deps = layoutAuthzDeps(ctx)
+  const refusal = layoutAuthzFailure(name, deps)
+  if (refusal) throw refusal
+  const actor = layoutActor(deps)
   if (actor === null) {
     throw new TRPCError({
       code: 'FORBIDDEN',
       message: `${name} writes on behalf of a user, and this principal has none`,
     })
   }
-  return actor
-}
-
-function layoutService(ctx: Context): LayoutService {
-  return new LayoutService(ctx.registry.sessionStore.layout)
-}
-
-function nowIso(): string {
-  return new Date().toISOString()
+  return { actor }
 }
 
 /** Layout procedures for the root router under the `layout` namespace. */
 export function layoutFamilyProcedures() {
   return {
-    /** Bootstrap snapshot for the calling principal. */
+    /** Bootstrap snapshot for the calling principal (tRPC read path). */
     get: t.procedure.query(({ ctx }) => {
-      const actor = requireActor(ctx, 'layout.get')
-      return layoutService(ctx).getSnapshot(actor)
+      const { actor } = authorizeWrite(ctx, layoutSetContract.name)
+      return familyState(ctx).modules.layout.getSnapshot(actor)
     }),
 
     set: t.procedure.input(layoutSetInput).mutation(({ ctx, input }) => {
-      // Contract is the schema source of truth; re-parse so a bypassed client
-      // cannot skip the closed vocabulary (defense in depth).
+      const { actor } = authorizeWrite(ctx, layoutSetContract.name)
       const parsed = layoutSetContract.input.parse(input)
-      const actor = requireActor(ctx, layoutSetContract.name)
-      return layoutService(ctx).set(actor, parsed.values, nowIso())
+      return familyState(ctx).modules.layout.set(actor, parsed.values, nowIso())
     }),
 
     clear: t.procedure.input(layoutClearInput).mutation(({ ctx, input }) => {
+      const { actor } = authorizeWrite(ctx, layoutClearContract.name)
       const parsed = layoutClearContract.input.parse(input)
-      const actor = requireActor(ctx, layoutClearContract.name)
-      return layoutService(ctx).clear(actor, parsed.keys)
+      return familyState(ctx).modules.layout.clear(actor, parsed.keys)
     }),
   }
 }
