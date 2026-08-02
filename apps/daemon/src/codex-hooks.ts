@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM_CODEX_HOOK_URL_ENV } from '@podium/harness'
 
 /**
@@ -28,6 +30,50 @@ import { PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM_CODEX_HOOK_URL_ENV } from '@podium
 export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); sid="$PODIUM_SESSION_ID"; s="$${PODIUM_CODEX_HOOK_SOCKET_ENV}"; u="$${PODIUM_CODEX_HOOK_URL_ENV}"; if [ -n "$s" ] && [ -n "$sid" ]; then printf %s "$p" | curl -fsS -m 2 --unix-socket "$s" -X POST -H "content-type: application/json" --data-binary @- "http://localhost/hooks/$sid" >/dev/null 2>&1 || true; elif [ -n "$u" ]; then printf %s "$p" | curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true; fi'`
 
 const PODIUM_CODEX_HOOK_TIMEOUT_SEC = 5
+const execFileAsync = promisify(execFile)
+
+/** Versions whose public hooks.json contract was exercised by Podium. */
+const SUPPORTED_CODEX_MINOR = { min: 142, max: 146 } as const
+
+export interface CodexVersion {
+  raw: string
+  major: number
+  minor: number
+  patch: number
+}
+
+export interface CodexHookDiagnostic {
+  code: 'codex-version-unsupported'
+  title: 'Codex hooks need review'
+  body: string
+  observedVersion: string
+}
+
+export type CodexVersionProbe = () => Promise<string>
+
+export function parseCodexVersion(output: string): CodexVersion | null {
+  const match = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/u.exec(output.trim())
+  if (!match) return null
+  return {
+    raw: output.trim(),
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  }
+}
+
+export function supportsCodexHooks(version: CodexVersion): boolean {
+  return (
+    version.major === 0 &&
+    version.minor >= SUPPORTED_CODEX_MINOR.min &&
+    version.minor <= SUPPORTED_CODEX_MINOR.max
+  )
+}
+
+export async function detectCodexVersion(): Promise<string> {
+  const { stdout, stderr } = await execFileAsync('codex', ['--version'], { timeout: 10_000 })
+  return `${stdout}${stderr}`.trim()
+}
 
 const CODEX_HOOK_EVENTS = [
   'SessionStart',
@@ -75,7 +121,8 @@ function upsertHooksJson(doc: Record<string, unknown>): {
     const groups: HookGroup[] = Array.isArray(hooks[event]) ? (hooks[event] as HookGroup[]) : []
     let found = false
     groups.forEach((group) => {
-      group.hooks?.forEach((handler, i) => {
+      const groupHooks = group.hooks
+      groupHooks?.forEach((handler, i) => {
         if (found || !isPodiumHandler(handler)) return
         found = true
         // Refresh a stale podium handler in place (old command/timeout).
@@ -84,7 +131,7 @@ function upsertHooksJson(doc: Record<string, unknown>): {
           handler.timeout !== PODIUM_CODEX_HOOK_TIMEOUT_SEC ||
           handler.type !== 'command'
         ) {
-          group.hooks![i] = {
+          groupHooks[i] = {
             type: 'command',
             command: PODIUM_CODEX_HOOK_COMMAND,
             timeout: PODIUM_CODEX_HOOK_TIMEOUT_SEC,
@@ -118,10 +165,39 @@ function upsertHooksJson(doc: Record<string, unknown>): {
  */
 export async function ensurePodiumCodexHooks(opts?: {
   homeDir?: string
-}): Promise<{ installed: boolean; changed: boolean; reason?: string }> {
+  versionProbe?: CodexVersionProbe
+  onDegraded?: (diagnostic: CodexHookDiagnostic) => void
+}): Promise<{ installed: boolean; changed: boolean; degraded?: boolean; reason?: string }> {
   const codexHome = join(opts?.homeDir ?? homedir(), '.codex')
   if (!existsSync(codexHome)) return { installed: false, changed: false, reason: 'no ~/.codex' }
   const hooksJsonPath = join(codexHome, 'hooks.json')
+
+  let observedVersion: string
+  try {
+    observedVersion = await (opts?.versionProbe ?? detectCodexVersion)()
+  } catch (error) {
+    observedVersion = `unavailable (${error instanceof Error ? error.message : String(error)})`
+  }
+  const parsedVersion = parseCodexVersion(observedVersion)
+  if (!parsedVersion || !supportsCodexHooks(parsedVersion)) {
+    const diagnostic: CodexHookDiagnostic = {
+      code: 'codex-version-unsupported',
+      title: 'Codex hooks need review',
+      observedVersion,
+      body: `Podium does not recognize Codex version '${observedVersion}'. Codex hook automation is disabled; hooks.json and config.toml were left untouched.`,
+    }
+    // The local banner covers an operator watching the daemon journal. The
+    // callback crosses the authenticated machine transport so the server can
+    // issue-mail only this machine's owner and admins, never every client.
+    console.error(`[podium:daemon] ${diagnostic.title.toUpperCase()}: ${diagnostic.body}`)
+    opts?.onDegraded?.(diagnostic)
+    return {
+      installed: false,
+      changed: false,
+      degraded: true,
+      reason: 'unsupported codex version',
+    }
+  }
 
   let doc: Record<string, unknown> = {}
   try {

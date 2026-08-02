@@ -132,6 +132,8 @@ const DISPATCH: Dispatcher = {
   // ---- machines: the machine's own reported inventory, scoped by principal ----
   inventoryReport: (ports, principal, msg) =>
     ports.machines.recordInventory(principal.machine, msg.inventory),
+  machineDiagnostic: (ports, principal, msg) =>
+    ports.machines.recordDiagnostic(principal.machine, msg),
 
   // ---- hosts: a per-machine fact, so the machine rides the delivery path ----
   hostMetrics: (ports, principal, msg) => {

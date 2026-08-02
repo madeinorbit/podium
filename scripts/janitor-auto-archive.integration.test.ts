@@ -39,6 +39,10 @@ let nextSeq = 1
 function issueRow(id: string, over: Partial<IssueRow> = {}): IssueRow {
   return {
     id: asIssueId(id),
+    ownerUserId: FIRST_ADMIN_USER_ID,
+    visibility: 'personal',
+    createdByActor: FIRST_ADMIN_USER_ID,
+    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     repoPath: '/repo',
     seq: nextSeq++,
     title: id,
@@ -86,6 +90,7 @@ function issueRow(id: string, over: Partial<IssueRow> = {}): IssueRow {
 function seedSession(store: SessionStore, id: string, over: Partial<SessionRow> = {}): void {
   store.sessions.upsertSession({
     id: asSessionId(id),
+    ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'shell',
     cwd: '/repo',
     title: id,
@@ -104,7 +109,7 @@ function seedSession(store: SessionStore, id: string, over: Partial<SessionRow> 
     lastResumedAt: null,
     archived: false,
     workState: null,
-    machineId: '__local__',
+    machineId: store.hostMachineId,
     stoppedAt: STOPPED,
     issueId: null,
     ...over,
