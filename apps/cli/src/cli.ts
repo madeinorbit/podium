@@ -141,6 +141,8 @@ export type LaunchPlan =
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
   | { kind: 'quota'; args: string[] }
+  /** `podium machine list|show` — the fleet read a placement decision needs. */
+  | { kind: 'machine'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'janitor'; serverUrl: string; takeover: boolean }
@@ -342,6 +344,7 @@ export function resolvePlan(
     // privacy question in front of the user, not bury it in the top-level help.
     'telemetry',
     'quota',
+    'machine',
   ])
   if (
     argv[0] === 'help' ||
@@ -409,6 +412,8 @@ export function resolvePlan(
   if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
   // `podium quota`: the same live harness plan limits shown in the web panel.
   if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
+  // `podium machine`: which hosts this session may place work on (POD-1424).
+  if (argv[0] === 'machine') return { kind: 'machine', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -662,6 +667,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
       ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
       : []),
     '  session <command>     Send turns to agent sessions; status/read for a peek',
+    '  machine <command>     List the machines this session can place work on',
     '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
     '                        Request a one-off session wake (agent sessions only)',
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
@@ -1049,6 +1055,11 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'quota': {
       const { quotaCliMain } = await import('./quota-cli')
       await quotaCliMain(plan.args)
+      return
+    }
+    case 'machine': {
+      const { machineCliMain } = await import('./machine-cli')
+      await machineCliMain(plan.args)
       return
     }
     case 'join-config': {
