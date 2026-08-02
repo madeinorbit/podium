@@ -166,6 +166,13 @@ true for this zero to be MEANINGFUL, and assert that. If the answer is "nothing
 what is left to check, and checking it is not ceremony: it is the difference
 between an item that is done and an item nobody is measuring.
 
+`change-row-typings` reached that state at POD-1251 (15 → 0 by composition) and
+joined `ZERO_BY_DESIGN` under POD-1417: `changeRowRestatements` runs a planted
+restatement CONTROL on every collect and throws when that stops matching. The
+phase-close CLI cases no longer hardcode a "still live" phase id — they derive
+both the gating arm and the clear arm from undeclared residue on the live tree,
+so the next finished phase does not freeze the test on a correct zero.
+
 ## Baseline reconciliations
 
 A baseline bump is the one edit that can retire this guardrail, so every bump is

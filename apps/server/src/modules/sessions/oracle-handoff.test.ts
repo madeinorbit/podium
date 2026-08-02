@@ -60,6 +60,35 @@ interface HandoffFixture {
    *  (nothing is stopped before the target verified a base) are only assertable
    *  against a shared timeline, never against two per-machine arrays. */
   timeline: TimelineEvent[]
+  /**
+   * WHAT THE SOURCE ACTUALLY DID WITH THE KILL, as the source saw it (POD-1409).
+   *
+   * The other observables here are the SERVER's view — which frames it sent, in
+   * what order. That is enough for every ordering claim in this file and it is
+   * exactly what was NOT enough for the source release: `sleep(SOURCE_RELEASE_MS)`
+   * could be deleted outright and every ordering relation still held, because the
+   * order is enforced by the sequential awaits and not by the delay. Reading the
+   * coordinator's own timeline can only ever prove the coordinator agrees with
+   * itself.
+   *
+   * So this is recorded by the SOURCE daemon instead: it models a release that
+   * takes real time (as a real one does — the PTY has to be torn down before the
+   * worktree can be read cleanly), and records whether that release had finished
+   * at the moment the export request arrived.
+   */
+  release: {
+    /** Set when m1 receives `kill`. */
+    killedAt?: number
+    /** Set when the modelled release finishes, some time after the kill. */
+    releasedAt?: number
+    /** Snapshot of `releasedAt` taken WHEN THE EXPORT ARRIVED — undefined means
+     *  the export reached a source that was still releasing. This is the whole
+     *  assertion, and it is a boolean fact rather than a clock comparison, so a
+     *  loaded box cannot flip it. */
+    releasedBeforeExport?: number
+    /** Measured ms from kill to export, for the failure message. */
+    killToExportMs?: number
+  }
   /** Position of the first `machine:type` event, or -1. */
   at(machine: FixtureMachine, type: ControlMessage['type']): number
   /** How many `machine:type` events happened. */
@@ -104,6 +133,14 @@ async function handoffFixture(
      *  assertion — the POD-379 round-4 failure mode, in a file that has to stay
      *  sharp because two of its tests exist to catch exactly that mutant. */
     onTargetProbe?: () => void
+    /**
+     * Model a source release that takes this many ms (POD-1409). Off by default so
+     * the rest of the file stays fast; the release test turns it on.
+     *
+     * It must be WELL under `SOURCE_RELEASE_MS` (500) — the margin is what keeps
+     * the assertion a fact about the code rather than about this box's timers.
+     */
+    modelSourceReleaseMs?: number
   } = {},
 ): Promise<HandoffFixture> {
   const store = new SessionStore(':memory:')
@@ -137,9 +174,24 @@ async function handoffFixture(
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
   const timeline: TimelineEvent[] = []
+  const release: HandoffFixture['release'] = {}
   reg.gateway.attachDaemon('m1', (msg) => {
     source.push(msg)
     timeline.push({ machine: 'm1', type: msg.type, msg })
+    // POD-1409: the source models a release that takes real time, and records
+    // whether it had finished when the export arrived. A real daemon must tear
+    // down the PTY before the worktree can be exported cleanly; that gap is what
+    // SOURCE_RELEASE_MS budgets for, and nothing else in this file can see it.
+    if (msg.type === 'kill' && opts.modelSourceReleaseMs !== undefined) {
+      release.killedAt = Date.now()
+      setTimeout(() => {
+        release.releasedAt = Date.now()
+      }, opts.modelSourceReleaseMs)
+    }
+    if (msg.type === 'handoffExportRequest' && release.killedAt !== undefined) {
+      release.releasedBeforeExport = release.releasedAt
+      release.killToExportMs = Date.now() - release.killedAt
+    }
     if (msg.type === 'repoOpRequest') {
       const ok = msg.args?.ref === 'main'
       reg.gateway.routeDaemonFrame('m1', {
@@ -289,6 +341,7 @@ async function handoffFixture(
     source,
     target,
     timeline,
+    release,
     at: (machine, type) => timeline.findIndex((e) => e.machine === machine && e.type === type),
     count: (machine, type) =>
       timeline.filter((e) => e.machine === machine && e.type === type).length,
@@ -451,6 +504,59 @@ describe('oracle: handoff success across two machines', () => {
     expect(f.at('m1', 'kill')).toBeLessThan(f.at('m1', 'handoffExportRequest'))
     expect(f.at('m1', 'handoffExportRequest')).toBeLessThan(f.at('m2', 'handoffImportRequest'))
     expect(f.at('m2', 'handoffImportRequest')).toBeLessThan(f.at('m2', 'spawn'))
+  })
+
+  /**
+   * THE SOURCE HAS ACTUALLY RELEASED BEFORE THE EXPORT READS THE WORKTREE
+   * (POD-1409) — the clause the ordering test above cannot state.
+   *
+   * The hole this closes, found by POD-1385: deleting
+   * `await this.ports.sleep(SOURCE_RELEASE_MS)` from the coordinator left this
+   * whole file at 25/25 GREEN. Every relation asserted above survives it, because
+   * the ORDER is produced by the sequential awaits — the delay contributes
+   * nothing to it. So the file pinned "these steps happen in this order" while
+   * appearing to pin "the kill completed before the export", which are different
+   * claims, and only the first was ever true of the instrument.
+   *
+   * WHY THIS ASSERTION IS ON THE SOURCE AND NOT ON A CLOCK. Reading elapsed time
+   * in the coordinator would prove the coordinator agrees with itself; a real
+   * source needs the PTY torn down before its worktree exports cleanly, and only
+   * the source knows when that finished. So m1 models a release that takes real
+   * time and records whether it had FINISHED when the export arrived. The
+   * assertion is that boolean fact, not a duration comparison — a loaded box
+   * shifts both timestamps together and cannot flip it.
+   *
+   * The 120ms model against a 500ms budget is a 4x margin, and it is deliberately
+   * not a `setTimeout` before an assertion (the flake shape this repo has been
+   * bitten by): the delay lives inside the SIMULATED DAEMON, where a real release
+   * delay lives, and the test awaits the handoff rather than the clock.
+   */
+  it(`${MUST_NOT_CHANGE}: the source finishes releasing BEFORE the export reads its worktree`, async () => {
+    const f = await handoffFixture({ modelSourceReleaseMs: 120 })
+
+    await f.reg.modules.issueSessionLifecycle.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      TEST_CALLER,
+    )
+
+    // The kill reached the source and the export followed it — the ordering the
+    // test above already owns, restated only so a fixture regression that stopped
+    // sending either frame fails HERE as a missing precondition rather than
+    // passing vacuously below.
+    expect(f.release.killedAt).toBeDefined()
+    expect(f.release.killToExportMs).toBeDefined()
+
+    // THE CLAUSE: the release had completed by the time the export arrived.
+    // `undefined` means the export reached a source still tearing down its PTY —
+    // which is exactly what deleting the sleep produces.
+    expect(
+      f.release.releasedBeforeExport,
+      `export reached the source ${f.release.killToExportMs}ms after the kill, before its 120ms release finished`,
+    ).toBeDefined()
+
+    // And the measured gap cleared the modelled release, stated as a number so a
+    // failure reports how far short it fell rather than only that it did.
+    expect(f.release.killToExportMs ?? 0).toBeGreaterThanOrEqual(120)
   })
 
   it(`${willChange('POD-1079', 'machine rows gain real owners and grants; today every row resolves to the one instance account')}: with the DEFAULT fleet any authenticated caller may hand off, because there is only one account to own anything`, async () => {

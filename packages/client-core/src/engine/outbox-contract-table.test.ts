@@ -27,7 +27,7 @@
  */
 
 import type { CommandContract } from '@podium/commands'
-import { ISSUE_CONTRACTS, SETTINGS_CONTRACTS } from '@podium/commands'
+import { ISSUE_CONTRACTS, LAYOUT_CONTRACTS, SETTINGS_CONTRACTS } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { OUTBOX_COMMANDS } from './wiring'
 
@@ -35,7 +35,11 @@ import { OUTBOX_COMMANDS } from './wiring'
  *  (sessions.*, snoozes.*) has its own by-name lookup; issues.* is a plain
  *  registry. Both are consulted so no queued kind is excluded by silence. */
 const byName = new Map<string, CommandContract>()
-for (const contract of [...Object.values(ISSUE_CONTRACTS), ...Object.values(SETTINGS_CONTRACTS)]) {
+for (const contract of [
+  ...Object.values(ISSUE_CONTRACTS),
+  ...Object.values(SETTINGS_CONTRACTS),
+  ...Object.values(LAYOUT_CONTRACTS),
+]) {
   byName.set((contract as CommandContract).name, contract as CommandContract)
 }
 /**
