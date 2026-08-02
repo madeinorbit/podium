@@ -137,16 +137,15 @@ describe('engine action ownership boundary', () => {
     ])
   })
 
-  it('routes personal layout actions through reducer optimism and the airplane-mode queue', () => {
+  it('queues personal layout writes optimistically through the Actions-owned port', () => {
     const h = harness()
 
-    h.actions.setSuperOpen(true)
-    h.actions.setDockTab('files')
-    h.actions.setPanelMode(sessionId, 'native')
+    h.actions.replicatedLayout.set('podium.superOpen.v2', '1')
+    h.actions.replicatedLayout.set('dockTab', 'files')
+    h.actions.replicatedLayout.set('panelMode', JSON.stringify({ [sessionId]: 'native' }))
 
-    expect(h.state().superOpen).toBe(true)
-    expect(h.state().dockTab).toBe('files')
-    expect(h.state().panelMode).toEqual({ [sessionId]: 'native' })
+    expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
+    expect(h.actions.replicatedLayout.get('dockTab')).toBe('files')
     expect(h.queued).toEqual([
       { kind: 'layoutSet', input: { values: { superOpen: '1' } } },
       { kind: 'layoutSet', input: { values: { dockTab: 'files' } } },
