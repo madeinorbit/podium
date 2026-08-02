@@ -116,6 +116,11 @@ export class ConversationIndexRepository {
     }))
   }
 
+  search(opts: { query?: string; projectPath?: string; limit?: number }): ConversationIndexRow[] {
+    const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
+    return this.searchCandidates(opts).slice(0, limit)
+  }
+
   adoptLocalRows(machineId: string): void {
     this.db.prepare("UPDATE conversations SET machine_id=? WHERE machine_id='__local__'").run(machineId)
   }

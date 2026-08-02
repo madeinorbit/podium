@@ -1,4 +1,4 @@
-import { machineScopedKey } from '@podium/model'
+import { asIssueId, machineScopedKey } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { MemoryReader } from './types'
@@ -116,8 +116,8 @@ export class MemorySearchService {
       })
       issueHits.add(row.id)
     }
-    for (const comment of this.store.issues.searchIssueComments(text, 200)) {
-      const issue = visibleIssues.get(comment.issueId)
+    for (const comment of this.store.issues.searchIssueComments(text, null)) {
+      const issue = visibleIssues.get(asIssueId(comment.issueId))
       if (!issue || issueHits.has(issue.id)) continue
       out.push({
         kind: 'issue',

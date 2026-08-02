@@ -44,6 +44,7 @@ export interface MemoryServiceDeps {
 export class MemoryService {
   private latestConversations: ConversationSummaryWire[] = []
   private latestDiagnostics: ConversationDiagnosticWire[] = []
+  private readonly machineByConversation = new Map<string, string>()
   private lastDiagnosticsBroadcast = JSON.stringify([])
   private readonly visibility: MemoryVisibilityPolicy
   private readonly searcher: MemorySearchService
@@ -85,6 +86,8 @@ export class MemoryService {
     diagnostics: ConversationDiagnosticWire[],
     removed: string[] = [],
   ): void {
+    for (const conversation of conversations) this.machineByConversation.set(conversation.id, machineId)
+    for (const id of removed) this.machineByConversation.delete(id)
     this.latestConversations = this.indexConversations(conversations, machineId, removed)
     this.latestDiagnostics = diagnostics
     this.broadcastDiagnostics()
@@ -189,12 +192,23 @@ export class MemoryService {
     this.deps.onDiagnosticsChanged(this.latestDiagnostics)
   }
 
+  searchConversations(
+    reader: MemoryReader,
+    opts: { query?: string; projectPath?: string; limit?: number },
+  ) {
+    return this.searcher.searchConversations(reader, opts)
+  }
+
+  search(reader: MemoryReader, opts: { text: string; limit?: number; now?: () => number }) {
+    return this.searcher.search(reader, opts)
+  }
+
   setConversationMeta(
     reader: MemoryReader,
     input: { id: string; name?: string; summary?: string },
   ): void {
     const current = this.latestConversations.find((conversation) => conversation.id === input.id)
-    const machineId = current?.machineId ?? '__local__'
+    const machineId = this.machineByConversation.get(input.id) ?? '__local__'
     if (!current || !this.visibility.mayRead(reader, {
       class: 'conversation',
       machineId,
@@ -283,11 +297,11 @@ export class MemoryReaderView {
   ) {}
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
-    return this.memory.searcher.searchConversations(this.reader, opts)
+    return this.memory.searchConversations(this.reader, opts)
   }
 
   search(opts: { text: string; limit?: number; now?: () => number }) {
-    return this.memory.searcher.search(this.reader, opts)
+    return this.memory.search(this.reader, opts)
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {

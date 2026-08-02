@@ -1,4 +1,4 @@
-import type { ConversationSummaryWire, ConversationSummaryWireInput } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type ConversationSummaryWire, type ConversationSummaryWireInput } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -107,7 +107,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       transact: (fn) => store.transact(fn),
     })
     // Seed one row so the delete half of the batch has something to bite on.
-    store.conversations.upsertConversations([
+    store.conversations.index.upsert([
       { id: 'c-old', agentKind: 'claude-code', providerId: 'p' },
     ])
     const cursorBefore = ledger.cursor()
@@ -117,17 +117,17 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         // the ledger's transact span they degrade to savepoints (depth 1), and
         // the outer rollback must unwind them together.
         write: () => {
-          store.conversations.upsertConversations([
+          store.conversations.index.upsert([
             { id: 'c-new', agentKind: 'claude-code', providerId: 'p' },
           ])
-          store.conversations.deleteConversations(['c-old'])
+          store.conversations.index.delete(['c-old'])
         },
         changes: () => {
           throw new Error('declaration failed')
         },
       }),
     ).toThrow('declaration failed')
-    const ids = store.conversations.searchConversations({}).map((r) => r.id)
+    const ids = store.conversations.index.search({}).map((r) => r.id)
     expect(ids).toContain('c-old') // delete rolled back
     expect(ids).not.toContain('c-new') // upsert rolled back
     expect(ledger.cursor()).toBe(cursorBefore)
@@ -135,16 +135,16 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     // And the same nested layering COMMITS as one unit when nothing throws.
     ledger.commit({
       write: () => {
-        store.conversations.upsertConversations([
+        store.conversations.index.upsert([
           { id: 'c-new', agentKind: 'claude-code', providerId: 'p' },
         ])
-        store.conversations.deleteConversations(['c-old'])
+        store.conversations.index.delete(['c-old'])
       },
       changes: () => [
         { entity: 'conversation', id: 'c-new', op: 'upsert', value: { id: 'c-new' } },
       ],
     })
-    const after = store.conversations.searchConversations({}).map((r) => r.id)
+    const after = store.conversations.index.search({}).map((r) => r.id)
     expect(after).toContain('c-new')
     expect(after).not.toContain('c-old')
     expect(ledger.cursor()).toBe(cursorBefore + 1)
@@ -159,7 +159,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const changes = conversationChangesSince(registry, cursor)
     expect(changes.some((c) => c.id === 'c2' && c.op === 'remove')).toBe(true)
     expect(
-      registry.sessionStore.conversations.searchConversations({}).map((r) => r.id),
+      registry.sessionStore.conversations.index.search({}).map((r) => r.id),
     ).not.toContain('c2')
   })
 
@@ -216,7 +216,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const cursor = cursorOf(registry)
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
-    registry.modules.conversations.setConversationMeta({ id: 'c1', name: 'My run', summary: 'sum' })
+    registry.modules.memory.setConversationMeta(
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { id: 'c1', name: 'My run', summary: 'sum' },
+    )
     registry.modules.sessions.flushBroadcasts()
     // Durable: the curated wire row is in the change log…
     const changes = conversationChangesSince(registry, cursor)
@@ -238,7 +241,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ).toBe(true)
     // The store write itself landed too (the original behavior, now seam-bound).
     expect(
-      registry.sessionStore.conversations.searchConversations({}).find((r) => r.id === 'c1')?.name,
+      registry.sessionStore.conversations.index.search({}).find((r) => r.id === 'c1')?.name,
     ).toBe('My run')
     // A later identical discovery push must NOT flap the log: the curated meta
     // is overlaid onto scan rows, so the re-committed wire is byte-stable.
@@ -247,17 +250,15 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(conversationChangesSince(registry, cursor2)).toEqual([])
   })
 
-  it('(c2) setConversationMeta on an undiscovered id commits the write with no wire change', () => {
+  it('(c2) setConversationMeta is default-closed for an undiscovered id', () => {
     const registry = makeRegistry()
     const cursor = cursorOf(registry)
-    registry.modules.conversations.setConversationMeta({ id: 'ghost', name: 'n' })
-    // No broadcast row exists for it — nothing declared, nothing appended…
+    expect(() => registry.modules.memory.setConversationMeta(
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { id: 'ghost', name: 'n' },
+    )).toThrow('conversation not found')
     expect(conversationChangesSince(registry, cursor)).toEqual([])
-    // …but the store write (placeholder insert + meta) still landed.
-    expect(
-      registry.sessionStore.conversations.searchConversations({}).find((r) => r.id === 'ghost')
-        ?.name,
-    ).toBe('n')
+    expect(registry.sessionStore.conversations.index.search({}).find((r) => r.id === 'ghost')).toBeUndefined()
   })
 
   it('(d) restart: the baseline folds from the retained log — no boot reconcile, and the first scan dedups', () => {
@@ -311,7 +312,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const registry = makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1', { title: 't' }), conv('c2')])
-    registry.modules.conversations.setConversationMeta({ id: 'c1', name: 'kept' })
+    registry.modules.memory.setConversationMeta(
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { id: 'c1', name: 'kept' },
+    )
     push(registry, [conv('c1', { title: 't' }), conv('c3')], { removed: ['c2'] })
     const healed = registry.modules.sessions.syncChangesSince(0)
     expect(healed.kind).toBe('delta')
@@ -322,7 +326,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       if (c.op === 'upsert') folded.set(c.id, c.value)
       else folded.delete(c.id)
     }
-    const live = registry.modules.conversations.allConversations()
+    const live = registry.modules.memory.allConversations()
     expect([...folded.keys()].sort()).toEqual(live.map((c) => c.id).sort())
     expect(folded.get('c1')).toEqual(live.find((c) => c.id === 'c1'))
   })

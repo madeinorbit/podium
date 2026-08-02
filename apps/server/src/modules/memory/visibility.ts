@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import type { SessionRow, SessionStore } from '../../store'
 import type { MemoryReader } from './types'
 
@@ -54,11 +55,11 @@ export class MemoryVisibilityPolicy {
     const userId = reader.kind === 'user' ? reader.id : reader.onBehalfOf
     switch (ref.class) {
       case 'session': {
-        const row = this.store.sessions.getSession(ref.id)
+        const row = 'id' in ref ? this.store.sessions.getSession(asSessionId(String(ref.id))) : undefined
         return row ? this.mayReadSessionRow(userId, row) : false
       }
       case 'issue': {
-        const row = this.store.issues.getIssue(ref.id)
+        const row = 'id' in ref ? this.store.issues.getIssue(asIssueId(String(ref.id))) : undefined
         if (!row) return false
         return row.ownerUserId === userId || this.hasReadGrant(userId, 'issue', row.id)
       }
@@ -78,7 +79,7 @@ export class MemoryVisibilityPolicy {
 
   mayReadSession(reader: MemoryReader, sessionId: string): boolean {
     if (reader.kind === 'system') return true
-    const row = this.store.sessions.getSession(sessionId)
+    const row = this.store.sessions.getSession(asSessionId(sessionId))
     if (!row) return false
     return this.mayReadSessionRow(
       reader.kind === 'user' ? reader.id : reader.onBehalfOf,

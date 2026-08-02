@@ -24,6 +24,7 @@ import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
 import type { ObservationLeaseRecord, SessionRow, SessionStore } from '../../store'
 import type { WriteFunnel } from '../funnel'
+import type { MemoryService } from '../memory/service'
 import { SessionPublicationCoordinator } from './publication/coordinator'
 import type { SessionProjectionEvent } from './publish-worker-actor'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
@@ -34,6 +35,7 @@ import type { SessionLedger } from './lifecycle'
 export interface SessionRepositoryPorts {
   sessions: Map<SessionId, Session>
   store: SessionStore
+  memory: Pick<MemoryService, 'conversationPodiumId'>
   ledger: SessionLedger
   publication: SessionPublicationCoordinator
   funnel: WriteFunnel
@@ -410,7 +412,8 @@ export class SessionRepository {
     }
     this.state.installSession(session.sessionId)
     if (session.resume?.value) {
-      session.conversationPodiumId = this.store.conversations.conversationPodiumId(
+      session.conversationPodiumId = this.ports.memory.conversationPodiumId(
+        { kind: 'system', id: 'session-boot-reconcile' },
         session.machineId,
         session.resume.value,
       )

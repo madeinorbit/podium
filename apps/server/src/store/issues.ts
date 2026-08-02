@@ -643,19 +643,19 @@ export class IssuesRepository {
    *  volume), so LIKE is enough for the omni-search's comment source. */
   searchIssueComments(
     query: string,
-    limit = 30,
+    limit: number | null = 30,
   ): { issueId: string; body: string; createdAt: string }[] {
     const q = query.trim()
     if (!q) return []
-    const rows = this.db
-      .prepare(
-        `SELECT issue_id, body, created_at FROM issue_comments
-         WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?`,
-      )
-      .all(
-        `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`,
-        Math.min(200, Math.max(1, limit)),
-      ) as Record<string, unknown>[]
+    const escaped = "%" + q.replace(/[\%_]/g, (c) => "\\" + c) + "%"
+    const base = `SELECT issue_id, body, created_at FROM issue_comments
+      WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC`
+    const rows = (limit === null
+      ? this.db.prepare(base).all(escaped)
+      : this.db.prepare(`${base} LIMIT ?`).all(
+          escaped,
+          Math.min(200, Math.max(1, limit)),
+        )) as Record<string, unknown>[]
     return rows.map((r) => ({
       issueId: r.issue_id as string,
       body: r.body as string,

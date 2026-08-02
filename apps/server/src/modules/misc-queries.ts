@@ -22,7 +22,6 @@
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
 import { loadConfig } from '@podium/runtime/config'
-import { searchAll } from '../search'
 import type { FamilyState } from './derived-family'
 import { assertAllowedRoot } from './files/registry'
 import { defineQuery } from './query-table'
@@ -54,11 +53,7 @@ export const SEARCH_QUERIES = {
       limit: z.number().int().positive().max(100).optional(),
     }),
     (s, input) =>
-      searchAll(
-        s.store,
-        { listSessions: () => s.modules.sessions.listSessions(), issues: s.modules.issues },
-        input,
-      ),
+      s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
   ),
 } as const
 

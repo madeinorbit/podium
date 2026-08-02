@@ -41,8 +41,8 @@ import type {
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
-import type { SessionStore } from '../../store'
-import type { LakeReadSession } from '../conversations/service'
+import type { MemoryService } from '../memory/service'
+import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 
 const SCAN_TIMEOUT_MS = 10_000
@@ -65,10 +65,7 @@ export interface ScanReposResult {
 /** Identity of the server-side reader requesting personal transcript content.
  * Authorization belongs at this boundary; the daemon and @podium/transcript run
  * as system-side readers and never receive or interpret this value. */
-export type TranscriptReader =
-  | { kind: 'user'; id: string }
-  | { kind: 'agent'; id: string }
-  | { kind: 'system'; id: string }
+export type TranscriptReader = MemoryReader
 
 /** One machine's directory listing, or why it couldn't be read (POD-814). */
 export interface BrowseDirsResult {
@@ -92,6 +89,7 @@ export interface TranscriptSlice {
 
 /** The session fields the file/transcript RPCs resolve against. */
 export interface RpcSessionView {
+  id: SessionId
   cwd: string
   machineId: string
   agentKind: AgentKind
@@ -101,7 +99,7 @@ export interface RpcSessionView {
 
 interface DaemonRpcDeps {
   broker?: DaemonRequestBroker
-  store: Pick<SessionStore['conversations'], 'conversationSegmentPath'>
+  memory: Pick<MemoryService, 'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake'>
   toMachine(machineId: string, msg: ControlMessage): void
   defaultMachine(): string
   resolveMachine(requested: string | undefined, cwd: string): string
@@ -109,17 +107,6 @@ interface DaemonRpcDeps {
   machineName(id: string): string
   onlineMachineIds(): string[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
-  /** Lake-fallback transcript read supplied by the already-constructed conversation lake.
-   *
-   *  Takes `LakeReadSession` by NAME rather than restating its three fields
-   *  inline. The inline copy was a second definition of the port (inventory
-   *  §6.5 rule 1) and it had already drifted from the one it mirrored, pinning
-   *  `resume` to `{ value: string }`. A `type`-only import adds no runtime
-   *  coupling, so the laziness this comment describes is unaffected (POD-366). */
-  readTranscriptFromLake(
-    session: LakeReadSession,
-    input: { anchor?: string; direction: 'before' | 'after'; limit: number },
-  ): Promise<TranscriptSlice | undefined>
 }
 
 export interface DaemonRequestBrokerDeps {
@@ -679,13 +666,14 @@ export class DaemonRpcService {
 
   /** The recorded segment path for a session's conversation, shaped for message
    *  spreads (`{pathHint}` or undefined). Lookup only — never derives. */
-  transcriptPathHint(session: {
+  transcriptPathHint(reader: TranscriptReader, session: {
+    id: SessionId
     machineId: string
     resume?: { value: string }
   }): { pathHint: string } | undefined {
     const nativeId = session.resume?.value
     if (!nativeId) return undefined
-    const path = this.deps.store.conversationSegmentPath(session.machineId, nativeId)
+    const path = this.deps.memory.transcriptPathHint(reader, session)?.pathHint
     return path ? { pathHint: path } : undefined
   }
 
@@ -709,9 +697,9 @@ export class DaemonRpcService {
     },
     reader: TranscriptReader,
   ): Promise<TranscriptSlice> {
-    // Required even before scoped session reads land: callers cannot accidentally
-    // bake in an ambient operator. POD-1077 installs the visibility decision here.
-    void reader
+    if (!this.deps.memory.canReadSession(reader, input.sessionId)) {
+      return { items: [], hasMore: false }
+    }
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { items: [], hasMore: false }
     // Leg timing [POD-701]: transcriptRead.daemon / transcriptRead.lake record
@@ -739,7 +727,7 @@ export class DaemonRpcService {
             // Segment evidence beats cwd derivation: the recorded absolute path (from
             // discovery scans) survives worktree moves; the daemon still falls back to
             // derivation + sweep when absent/stale (conversation registry §3.3).
-            ...(this.transcriptPathHint(session) ?? {}),
+            ...(this.transcriptPathHint(reader, session) ?? {}),
             ...(input.anchor ? { anchor: input.anchor } : {}),
             direction: input.direction,
             limit: input.limit,
@@ -754,7 +742,7 @@ export class DaemonRpcService {
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
     const tLake0 = performance.now()
-    const fromLake = await this.deps.readTranscriptFromLake(session, input)
+    const fromLake = await this.deps.memory.readTranscriptFromLake(session, input)
     if (fromLake) {
       perf.record('phase', 'transcriptRead.lake', performance.now() - tLake0, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)

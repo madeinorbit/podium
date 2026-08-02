@@ -1,4 +1,4 @@
-import type { ConversationSummaryWire, ConversationSummaryWireInput } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type ConversationSummaryWire, type ConversationSummaryWireInput } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -79,7 +79,7 @@ describe('SessionRegistry conversation registry', () => {
       conversations: [conv('parent-1')],
       diagnostics: [],
     })
-    const again = registry.modules.conversations
+    const again = registry.modules.memory
       .allConversations()
       .find((conversation) => conversation.id === 'parent-1')
     expect(again?.podiumId).toBe(parent?.podiumId)
@@ -108,7 +108,7 @@ describe('SessionRegistry conversation registry', () => {
     })
     void registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
-      { kind: 'user', id: 'conversation-reader' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     const read = daemon.find((m) => (m as { type: string }).type === 'transcriptRead') as {
       pathHint?: string

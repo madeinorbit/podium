@@ -439,7 +439,7 @@ describe('search_all tool', () => {
       cwd: '/w',
     })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
-    registry.sessionStore.conversations.upsertConversations([
+    registry.sessionStore.conversations.index.upsert([
       {
         id: 'native-conv',
         agentKind: 'claude-code',

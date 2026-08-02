@@ -85,7 +85,7 @@ import type {
   TerminalCandidateFacts,
 } from '../../store'
 import type { EventBus } from '../bus'
-import type { ConversationsService } from '../conversations/service'
+import type { MemoryService } from '../memory/service'
 import type { WriteFunnel } from '../funnel'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
@@ -238,7 +238,7 @@ interface SessionLifecycleDeps {
   publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
-  conversations: ConversationsService
+  memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
   /** Cross-feature snapshot material read from the already-constructed durable authority. */
@@ -394,7 +394,7 @@ export class SessionLifecycle {
       toMachine: (machineId, message) => this.toMachine(machineId, message),
     })
     this.bindingReceipts = new SessionBindingReceipts({
-      store: this.store,
+      memory: this.deps.memory,
       now: () => this.now(),
       sessions: () => this.sessions.values(),
       session: (sessionId) => this.sessions.get(sessionId),
@@ -462,6 +462,7 @@ export class SessionLifecycle {
     this.repository = new SessionRepository({
       sessions: this.sessions,
       store: this.store,
+      memory: this.deps.memory,
       ledger: this.deps.ledger,
       publication: this.publication,
       funnel: this.funnel,
@@ -629,6 +630,7 @@ export class SessionLifecycle {
       state: this.state,
       projection: this.daemonProjection,
       store: this.store,
+      memory: this.deps.memory,
       observationLeases: this.observationLeases,
       persist: (session, additionalWrite) => this.repository.persist(session, additionalWrite),
       broadcastSessions: () => this.broadcastSessions(),
@@ -787,9 +789,6 @@ export class SessionLifecycle {
     return { ok: true }
   }
 
-  private conversations(): ConversationsService {
-    return this.deps.conversations
-  }
   /**
    * Allocate and durably store the observer lease before its control message is
    * sent. Shells and non-causal adapters intentionally have no lease.
@@ -868,7 +867,7 @@ export class SessionLifecycle {
     }
     // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
     // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
-    this.conversations().triggerLakeSweep(machineId)
+    this.deps.memory.triggerLakeSweep(machineId)
     // A freshly-(re)connected daemon knows no session's relay priority. Clear the
     // delta cache so every current session re-sends as a change, then push the full
     // map — otherwise a daemon restart would leave the scheduler at its default
@@ -949,7 +948,10 @@ export class SessionLifecycle {
             }
           : {}),
         ...(s.resume ? { resume: s.resume } : {}),
-        ...(this.rpc.transcriptPathHint(s) ?? {}),
+        ...(this.rpc.transcriptPathHint(
+          { kind: 'system', id: 'session-attach' },
+          { id: s.sessionId, machineId: s.machineId, ...(s.resume ? { resume: s.resume } : {}) },
+        ) ?? {}),
         // Spawn-time floor for observer-based harnesses (codex): lets a reattached
         // observer discover a lazily-created rollout it never saw before the restart.
         ...(Number.isFinite(Date.parse(s.createdAt))

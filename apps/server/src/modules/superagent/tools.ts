@@ -17,7 +17,6 @@ import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
-import { searchAll } from '../../search'
 import type { SessionStore } from '../../store'
 import { deliverAnswerToSession } from './answer-delivery'
 
@@ -101,6 +100,9 @@ export function buildSuperagentTools(
   const spawnedBy = threadId ? 'superagent:' + threadId : 'superagent'
   const ownerUserId = threadId
     ? store.superagent.getSuperagentThread(asThreadId(threadId))?.ownerUserId
+    : undefined
+  const memoryReader = ownerUserId
+    ? { kind: 'agent' as const, id: threadId ?? 'superagent', onBehalfOf: ownerUserId }
     : undefined
   const getSession = (id: string) => sessions.listSessions().find((s) => s.sessionId === id)
   const tools: SuperagentTool[] = [
@@ -699,14 +701,16 @@ export function buildSuperagentTools(
           required: ['query'],
         },
       },
-      run: async (args) =>
-        JSON.stringify(
-          modules.conversations.searchConversations({
+      run: async (args) => {
+        if (!memoryReader) return 'unknown superagent thread'
+        return JSON.stringify(
+          modules.memory.searchConversations(memoryReader, {
             query: str(args.query) ?? '',
             ...(str(args.projectPath) ? { projectPath: str(args.projectPath) } : {}),
             limit: 15,
           }),
-        ),
+        )
+      },
     },
     {
       spec: {
@@ -741,15 +745,12 @@ export function buildSuperagentTools(
           ? args.kinds.filter((k): k is string => typeof k === 'string')
           : undefined
         // A kind filter drops hits AFTER ranking, so over-fetch to keep the
-        // filtered list full (searchAll caps its own limit at 100).
-        const raw = searchAll(
-          store,
-          { listSessions: () => sessions.listSessions(), issues },
-          {
-            text: query,
-            limit: kinds && kinds.length > 0 ? 100 : limit,
-          },
-        )
+        // filtered list full (memory search caps its own limit at 100).
+        if (!memoryReader) return 'unknown superagent thread'
+        const raw = modules.memory.search(memoryReader, {
+          text: query,
+          limit: kinds && kinds.length > 0 ? 100 : limit,
+        })
         const results = (
           kinds && kinds.length > 0 ? raw.filter((r) => kinds.includes(r.kind)) : raw
         ).slice(0, limit)

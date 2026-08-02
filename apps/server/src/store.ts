@@ -187,8 +187,7 @@ export class SessionStore {
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects
     // and data heals) — never schema DDL.
     this.conversations.ensureFts()
-    this.conversations.repairSubagentSegmentPaths()
-    this.superagent.seedGlobalThread()
+        this.superagent.seedGlobalThread()
     this.repos.importReposJson(this.path)
     this.backfillRepoIds()
     // #474: assign human-facing prefixes to any repos still missing one (heals

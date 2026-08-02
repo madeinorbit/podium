@@ -400,9 +400,9 @@ describe('causal session observation gate', () => {
       observationGeneration: 2,
       checkpoint: { lastTransitionId: 'thread-2-bootstrap' },
     })
-    const thread2Conversation = store.conversations.conversationPodiumId('local', 'thread-2')
+    const thread2Conversation = store.conversations.registry.podiumId('local', 'thread-2')
     expect(thread2Conversation).toBeDefined()
-    expect(store.conversations.conversationPodiumId('local', 'thread-3')).toBeUndefined()
+    expect(store.conversations.registry.podiumId('local', 'thread-3')).toBeUndefined()
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservationRebind',
       sessionId,
@@ -483,7 +483,7 @@ describe('causal session observation gate', () => {
       type: 'agentObservation',
       observation: bootstrap,
     })
-    vi.spyOn(store.conversations, 'linkConversationSegment').mockImplementation(() => {
+    vi.spyOn(store.conversations.registry, 'linkSegment').mockImplementation(() => {
       throw new Error('link failed')
     })
     expect(() =>
