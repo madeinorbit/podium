@@ -116,6 +116,40 @@ export const WorkflowRunStepWire = z.object({
 })
 export type WorkflowRunStepWire = z.infer<typeof WorkflowRunStepWire>
 
+/**
+ * ONE RECORDED ACT ON A RUN, WITH ITS ATTRIBUTION PAIR (ADR 9 D5 A3, readiness
+ * §3.1.3 A3).
+ *
+ * `actorKind`/`actorId` is WHICH agent, session or operator acted; `onBehalfOf`
+ * is WHICH HUMAN it acted for. Two fields and not one, because "did a person or
+ * an agent skip this step?" and "whose authority was it under?" are different
+ * questions — and the UI has to be able to answer both without asserting
+ * either.
+ *
+ * READ-ONLY, AND STAMPED SERVER-SIDE. Every field here is projected from
+ * `workflow_events`, whose columns are written from the authenticated transport
+ * principal (ADR 3 D7: payload identity is inert). No client input reaches any
+ * of them, and no command payload on this surface carries an actor, an owner or
+ * an origin. This wire exists so the UI can DISPLAY the pair, never so it can
+ * supply it.
+ *
+ * `onBehalfOf` STAYS NULLABLE. A `system` principal has no human behind it by
+ * construction (ADR 9 D8 S5) and must not be given one; collapsing that null to
+ * an empty string would make "none by construction" and "we failed to record
+ * one" compare equal. The client renders the null as "no delegating human"
+ * rather than inventing the operator.
+ */
+export const WorkflowRunEventWire = z.object({
+  /** The event kind as the engine recorded it — `run.started`, `step.skipped`, … */
+  kind: z.string(),
+  actorKind: z.string(),
+  /** Null for rows whose actor predates the column. Never substituted. */
+  actorId: z.string().nullable(),
+  onBehalfOf: z.string().nullable(),
+  createdAt: z.string(),
+})
+export type WorkflowRunEventWire = z.infer<typeof WorkflowRunEventWire>
+
 export const WorkflowRunWire = z.object({
   id: z.string(),
   subjectKind: z.enum(['issue', 'session']),
@@ -125,6 +159,9 @@ export const WorkflowRunWire = z.object({
   status: WorkflowRunStatus,
   supersedesRunId: z.string().nullable(),
   steps: z.array(WorkflowRunStepWire),
+  /** The run's recorded acts, oldest first, each with its attribution PAIR.
+   *  Defaulted to empty so a peer that predates the field parses unchanged. */
+  history: z.array(WorkflowRunEventWire).default([]),
   startedAt: z.string(),
   completedAt: z.string().nullable(),
 })

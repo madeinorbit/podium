@@ -3732,7 +3732,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(run.coordinatorSessionId).toBe('s1')
     })
 
-    it('PIN the workflows repository exposes appendEvent and NO event reader', () => {
+    it('PIN the workflows repository writes events, and reads them ONLY per run', () => {
       // Renamed to what this body actually checks. It previously claimed "no
       // reader anywhere in the product", which a unit test cannot see — that
       // claim is evidenced separately by a byte-wise scan of 1787 files
@@ -3742,11 +3742,56 @@ describe('POD-730 workflow mutation characterization', () => {
       // Why it is pinned at all: run history is reachable only by raw SQL, so
       // POD-731 could drop the appendEvent calls with nothing going red. They
       // are the only durable audit trail this surface has.
+      //
+      // POD-647 ADDED `listRunEvents`, DELIBERATELY, AND THE PIN NOW GUARDS ITS
+      // SHAPE RATHER THAN ITS ABSENCE. The UI has to show a run's attribution
+      // PAIR (readiness §3.1.3 A3), which is impossible while the audit trail
+      // has no reader. What the original pin was protecting — that this trail
+      // never becomes a general-purpose event query — is protected by the list
+      // below being CLOSED: a reader is admitted here one at a time, with an
+      // argument, and `listRunEvents` is scoped to a single run id.
       const repositoryMethods = Object.getOwnPropertyNames(
         Object.getPrototypeOf(h.store.workflows),
       ).sort()
       expect(repositoryMethods).toContain('appendEvent')
-      expect(repositoryMethods.filter((m) => /event/i.test(m))).toEqual(['appendEvent'])
+      expect(repositoryMethods.filter((m) => /event/i.test(m))).toEqual([
+        'appendEvent',
+        'listRunEvents',
+      ])
+    })
+
+    it('POD-647 projects the attribution PAIR onto the run wire, never a payload', () => {
+      const created = h.service.create(
+        {
+          name: 'attributed',
+          description: '',
+          scope: 'global',
+          instructions: 'do the thing',
+          steps: [],
+        },
+        operator,
+      )
+      const run = h.service.startRun({
+        sessionId: asSessionId('s1'),
+        cwd: '/repo-a/wt',
+        issueId: 'issue-1',
+        revisionId: created.revision.id,
+      })
+
+      // The run START is on the wire, with WHICH actor recorded — the half a
+      // client may display and may never assert.
+      const started = run.history.find((event) => event.kind === 'workflow.run_started')
+      expect(started).toMatchObject({ actorKind: 'session', actorId: 's1' })
+
+      // And the payload is NOT: the reader projects the pair and the kind, so a
+      // widening of `payload_json` cannot reach a client through this door.
+      expect(Object.keys(started ?? {}).sort()).toEqual([
+        'actorId',
+        'actorKind',
+        'createdAt',
+        'kind',
+        'onBehalfOf',
+      ])
     })
   })
 

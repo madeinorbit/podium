@@ -10,6 +10,7 @@ import {
   type WorkflowBindingWire,
   WorkflowGitObservation,
   type WorkflowRevisionWire,
+  type WorkflowRunEventWire,
   type WorkflowRunStatus,
   type WorkflowRunStepStatus,
   WorkflowRunStepWire,
@@ -453,6 +454,35 @@ export class WorkflowsRepository {
         .prepare(`SELECT * FROM workflow_run_steps WHERE run_id = ? ORDER BY position`)
         .all(runId) as Raw[]
     ).map(toRunStep)
+  }
+
+  /**
+   * The run's recorded acts, oldest first — the read side of `appendEvent`.
+   *
+   * Projects the ATTRIBUTION PAIR (`actor_kind`/`actor_id` and `on_behalf_of`)
+   * and nothing else: `payload_json` is written through each contract's own
+   * redaction policy and has no business widening a read model that exists to
+   * answer "who did this, for whom". Ordered by `id` — the insertion order — and
+   * served by the `workflow_events_run` index, which is already on
+   * `(run_id, id)`.
+   */
+  listRunEvents(runId: string): WorkflowRunEventWire[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT kind, actor_kind, actor_id, on_behalf_of, created_at
+             FROM workflow_events WHERE run_id = ? ORDER BY id`,
+        )
+        .all(runId) as Raw[]
+    ).map((row) => ({
+      kind: String(row.kind),
+      actorKind: String(row.actor_kind),
+      // NEVER substituted. A null actor id is a row whose actor predates the
+      // column; inventing one would be a lie in an audit trail.
+      actorId: row.actor_id === null ? null : String(row.actor_id),
+      onBehalfOf: row.on_behalf_of === null ? null : String(row.on_behalf_of),
+      createdAt: String(row.created_at),
+    }))
   }
 
   findLiveRun(subjectKind: 'issue' | 'session', subjectId: string): WorkflowRunRow | null {
