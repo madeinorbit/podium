@@ -97,6 +97,47 @@ function warnDroppedControlFrame(err: unknown, dir: 'inbound' | 'outbound' = 'in
   console.warn(`[podium:daemon] dropped malformed ${dir} control frame:`, err)
 }
 
+/**
+ * Answer a frame whose ENVELOPE is intelligible but whose PAYLOAD is not (POD-1464).
+ *
+ * A control frame naming an op this daemon's build does not know fails the strict parse,
+ * and the throw escapes BEFORE any reply is sent — so the server waits out its 35s
+ * timeout and the operator is told "agent relay timed out". Version skew then looks
+ * exactly like a machine that is offline, which sends whoever is debugging to the
+ * network when the real answer is "update the daemon on that host". Measured on
+ * vmi3407763: a `bundleFetch` repo op against a 0.1.2-edge.1 daemon produced nothing but
+ * a timeout, and the actual cause was only visible in that machine's journal.
+ *
+ * The envelope is parsed SEPARATELY from the payload precisely because it survives: the
+ * requestId is already on the wire, so a reply is always possible and refusing to send
+ * one is a choice. A timeout should mean the machine did not answer, and nothing else.
+ *
+ * Only `repoOpRequest` is answered here — that is the observed case, and the one whose
+ * result frame (`ok` + `output`) can carry a refusal without inventing a shape. Adding a
+ * request type is one arm; guessing at result shapes we have not seen is not worth the
+ * risk of emitting a frame the server rejects.
+ */
+export function payloadRejectionReply(rawText: string, err: unknown): DaemonMessage | undefined {
+  let envelope: { type?: unknown; requestId?: unknown; op?: unknown }
+  try {
+    envelope = JSON.parse(rawText) as { type?: unknown; requestId?: unknown; op?: unknown }
+  } catch {
+    // Not even JSON — there is no requestId to address a reply to.
+    return undefined
+  }
+  const type = typeof envelope?.type === 'string' ? envelope.type : undefined
+  const requestId = typeof envelope?.requestId === 'string' ? envelope.requestId : undefined
+  if (!type || !requestId || type !== 'repoOpRequest') return undefined
+  const version = process.env.PODIUM_APP_VERSION ?? 'dev'
+  const op = typeof envelope?.op === 'string' ? envelope.op : undefined
+  const output = op
+    ? `repo operation '${op}' is not supported by this daemon (podium ${version}) — update the daemon on this machine`
+    : `this daemon (podium ${version}) could not read the repo operation: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+  return { type: 'repoOpResult', requestId, ok: false, output }
+}
+
 /** Byte length of an inbound ws frame without materializing it to a string. Exported
  *  for unit testing the oversized-frame guard. */
 export function controlFrameByteLength(raw: RawData): number {
@@ -656,13 +697,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       console.warn('[podium:daemon] dropping oversized control frame')
       return
     }
+    const text = raw.toString()
     let msg: ControlMessage
     try {
       // The toString+parse of a large frame is a known synchronous loop cost
       // (the big-paste wedge shape) — time it separately from the handler.
-      msg = timeTask('controlParse', () => parseControlMessage(raw.toString()))
+      msg = timeTask('controlParse', () => parseControlMessage(text))
     } catch (err) {
       finishControlTurn('<invalid>')
+      // ANSWER BEFORE DROPPING (POD-1464). The payload did not parse, but the envelope
+      // carries the requestId, so somebody IS waiting — and letting them wait out a
+      // 35s timeout makes a stale daemon indistinguishable from an unreachable one.
+      const reply = payloadRejectionReply(text, err)
+      if (reply) send(reply)
       // Drop the malformed control frame (don't wedge the loop) — but log it, never
       // silently, so protocol drift / poison frames are observable.
       warnDroppedControlFrame(err)
