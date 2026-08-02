@@ -41,13 +41,13 @@ import { WebSocket } from 'ws'
 import { startServer } from '../server'
 import { loginTestClient } from '../test-support/client-auth'
 
-const MACHINE = 'local'
 const CLIENT_PASSWORD = 'wire-window-client-password'
 
 describe('the wire window, over real sockets', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
   let cookieHeader: string
+  let machineId: string
   let originalPassword: string | undefined
 
   beforeAll(async () => {
@@ -62,11 +62,12 @@ describe('the wire window, over real sockets', () => {
         password: CLIENT_PASSWORD,
       })
     ).cookieHeader
-    handle.registry.gateway.attachDaemon(MACHINE, () => {})
+    machineId = handle.registry.sessionStore.hostMachineId
+    handle.registry.gateway.attachDaemon(machineId, () => {})
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
-      machineId: MACHINE,
+      machineId,
     })
     handle.registry.modules.sessions.flushBroadcasts()
   })
@@ -167,7 +168,7 @@ describe('the wire window, over real sockets', () => {
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
-      machineId: MACHINE,
+      machineId,
     })
     handle.registry.modules.sessions.flushBroadcasts()
 
