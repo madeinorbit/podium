@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import type { DaemonHandshakeReply } from '@podium/protocol'
+import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { type DaemonMessage, parseDaemonMessage, encode as protocolEncode } from '@podium/protocol'
 import {
   abducoHasSession,
@@ -221,8 +221,13 @@ function handshakeAndCollect(ws: WS, received: DaemonMessage[]): Promise<void> {
   ws.on('message', (raw) => {
     if (!authed) {
       authed = true
-      const ok: DaemonHandshakeReply = { type: 'helloOk', name: 'test' }
-      ws.send(encode(ok), resolveHandshake)
+      const ok: PeerHelloReply = {
+        type: 'peerHelloOk',
+        v: WIRE_VERSION,
+        caps: [],
+        name: 'test',
+      }
+      ws.send(JSON.stringify(ok), resolveHandshake)
       return
     }
     received.push(parseDaemonMessage(raw.toString()))
@@ -751,8 +756,13 @@ describe('daemon multi-bridge', () => {
         ws.on('message', (raw) => {
           if (!authed) {
             authed = true
-            const ok: DaemonHandshakeReply = { type: 'helloOk', name: 'test' }
-            ws.send(encode(ok))
+            const ok: PeerHelloReply = {
+              type: 'peerHelloOk',
+              v: WIRE_VERSION,
+              caps: [],
+              name: 'test',
+            }
+            ws.send(JSON.stringify(ok))
             ws.send(
               encode({
                 type: 'dirListRequest',

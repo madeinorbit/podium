@@ -11,6 +11,7 @@ import {
 import type {
   ControlMessage,
   DaemonHandshake,
+  DaemonMessage,
   LiveServerMessage,
   MachineVerb,
   ServerMessage,
@@ -505,6 +506,15 @@ export class MachinesService {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
     this.invalidateMachineCache()
     this.broadcastMachines()
+  }
+
+  /** Route a daemon-local warning with machine scope supplied by the transport. */
+  recordDiagnostic(
+    machineId: string,
+    diagnostic: Extract<DaemonMessage, { type: 'machineDiagnostic' }>,
+  ): void {
+    const { type: _type, ...detail } = diagnostic
+    this.deps.bus?.emit('machine.diagnostic', { machineId, ...detail })
   }
 
   renameMachine(id: string, name: string): void {

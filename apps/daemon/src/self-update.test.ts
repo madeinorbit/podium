@@ -3,10 +3,19 @@ import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 describe('decideOnProtocolMismatch', () => {
   it('installed → self-update', () => {
-    expect(decideOnProtocolMismatch({ installed: true })).toEqual({ action: 'self-update' })
+    expect(
+      decideOnProtocolMismatch({ installed: true, source: 'handshake-rejection' }),
+    ).toEqual({ action: 'self-update' })
   })
   it('source/dev → just backoff', () => {
-    expect(decideOnProtocolMismatch({ installed: false })).toEqual({ action: 'backoff' })
+    expect(decideOnProtocolMismatch({ installed: false, source: 'handshake-rejection' })).toEqual({
+      action: 'backoff',
+    })
+  })
+  it('treats an HTTP 426 and an envelope rejection as the same mismatch policy', () => {
+    expect(decideOnProtocolMismatch({ installed: true, source: 'http-426' })).toEqual(
+      decideOnProtocolMismatch({ installed: true, source: 'handshake-rejection' }),
+    )
   })
 })
 

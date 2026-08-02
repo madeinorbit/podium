@@ -5,9 +5,18 @@
 //     usually transient (the local server is mid-redeploy).
 //   - installed binary → run `podium update`, then let `decidePostUpdate` read
 //     its exit code to choose restart vs give-up.
-export function decideOnProtocolMismatch(ctx: { installed: boolean }): {
+export type ProtocolMismatchSource = 'handshake-rejection' | 'http-426'
+
+export function decideOnProtocolMismatch(ctx: {
+  installed: boolean
+  source: ProtocolMismatchSource
+}): {
   action: 'self-update' | 'backoff'
 } {
+  // Both representations are the same policy signal. Keeping `source` explicit
+  // prevents the socket state machine from growing two subtly different update
+  // branches as servers roll between envelope and HTTP-level rejection.
+  void ctx.source
   return ctx.installed ? { action: 'self-update' } : { action: 'backoff' }
 }
 

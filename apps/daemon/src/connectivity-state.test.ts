@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, watch } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { DaemonHandshakeReply } from '@podium/protocol'
+import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -81,10 +81,12 @@ describe('daemon connectivity state (#19)', () => {
     })
     wss.on('connection', (ws) => {
       ws.once('message', () => {
-        const reply: DaemonHandshakeReply = {
-          type: 'paired',
-          token: 'tok-1',
-          machineId: 'm-1',
+        const reply: PeerHelloReply = {
+          type: 'peerHelloOk',
+          v: WIRE_VERSION,
+          caps: [],
+          issuedToken: 'tok-1',
+          assignedId: 'm-1',
           name: 'box',
         }
         ws.send(JSON.stringify(reply))
@@ -120,16 +122,23 @@ describe('daemon connectivity state (#19)', () => {
         const frame = JSON.parse(raw.toString()) as Record<string, unknown>
         handshakes.push(frame)
         if (handshakes.length === 1) {
-          const reply: DaemonHandshakeReply = {
-            type: 'paired',
-            token: 'tok-reconnect',
-            machineId: 'm-1',
+          const reply: PeerHelloReply = {
+            type: 'peerHelloOk',
+            v: WIRE_VERSION,
+            caps: [],
+            issuedToken: 'tok-reconnect',
+            assignedId: 'm-1',
             name: 'box',
           }
           ws.send(JSON.stringify(reply), () => ws.close())
           return
         }
-        const reply: DaemonHandshakeReply = { type: 'helloOk', name: 'box' }
+        const reply: PeerHelloReply = {
+          type: 'peerHelloOk',
+          v: WIRE_VERSION,
+          caps: [],
+          name: 'box',
+        }
         ws.send(JSON.stringify(reply))
         resolveReconnected(frame)
       })
@@ -151,8 +160,14 @@ describe('daemon connectivity state (#19)', () => {
       retry.fire()
       await Promise.all([reconnected, connectedAgain])
       expect(handshakes).toHaveLength(2)
-      expect(handshakes[0]).toMatchObject({ type: 'pair', code: 'CODE-1' })
-      expect(handshakes[1]).toMatchObject({ type: 'hello', token: 'tok-reconnect' })
+      expect(handshakes[0]).toMatchObject({
+        type: 'peerHello',
+        credential: { kind: 'pairCode', code: 'CODE-1' },
+      })
+      expect(handshakes[1]).toMatchObject({
+        type: 'peerHello',
+        credential: { kind: 'machineToken', token: 'tok-reconnect' },
+      })
       expect(readConnectivity(dir)?.state).toBe('connected')
     } finally {
       await daemon.close()
@@ -164,7 +179,11 @@ describe('daemon connectivity state (#19)', () => {
     wss.on('connection', (ws) => {
       connections++
       ws.once('message', () => {
-        const reply: DaemonHandshakeReply = { type: 'pairRejected', reason: 'bad code' }
+        const reply: PeerHelloReply = {
+          type: 'peerHelloRejected',
+          reason: 'auth-failed',
+          message: 'invalid or expired code',
+        }
         ws.send(JSON.stringify(reply))
       })
     })
@@ -173,10 +192,13 @@ describe('daemon connectivity state (#19)', () => {
       /rejected/,
     )
     const conn = readConnectivity(dir)
-    expect(conn?.state).toBe('blocked')
-    expect(conn?.blockedReason).toContain('pairRejected')
-    expect(conn?.blockedReason).toContain('bad code')
-    expect(onBlocked).toHaveBeenCalledWith({ type: 'pairRejected', reason: 'bad code' })
+    expect(conn?.state).toBe('unauthorized')
+    expect(conn?.authorizationReason).toContain('peerHelloRejected')
+    expect(conn?.authorizationReason).toContain('invalid or expired code')
+    expect(onBlocked).toHaveBeenCalledWith({
+      type: 'peerHelloRejected',
+      reason: 'invalid or expired code',
+    })
     // Blocked is terminal: give the backoff window a chance and assert no re-dial happened.
     await new Promise((r) => setTimeout(r, 700))
     expect(connections).toBe(1)
@@ -191,7 +213,12 @@ describe('daemon connectivity state (#19)', () => {
       }
       first = false
       ws.once('message', () => {
-        const reply: DaemonHandshakeReply = { type: 'helloOk', name: 'box' }
+        const reply: PeerHelloReply = {
+          type: 'peerHelloOk',
+          v: WIRE_VERSION,
+          caps: [],
+          name: 'box',
+        }
         ws.send(JSON.stringify(reply))
         // Server goes away right after a healthy handshake.
         setTimeout(() => ws.close(), 10)

@@ -57,6 +57,7 @@ import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
+import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
@@ -1386,6 +1387,27 @@ export class SessionRegistry {
       stopIssueSessions: (input) => issueSessionLifecycle.stopIssue(input),
     })
     this.issues = issues
+    this.bus.on('machine.diagnostic', (diagnostic) => {
+      routeMachineDiagnostic(diagnostic, {
+        recipients: (machineId) => {
+          const owner = machines.ownershipRows().find((row) => row.id === machineId)?.ownerUserId
+          return [
+            ...(owner ? [asUserId(owner)] : []),
+            ...this.store.users
+              .list()
+              .filter((user) => user.role === 'admin')
+              .map((user) => asUserId(user.id)),
+          ]
+        },
+        repoPath: (machineId) =>
+          this.store.repos.listRepoPaths(machineId)[0] ?? this.store.repos.listRepoPaths()[0],
+        issueExists: (id) => this.store.issues.getIssue(id) !== null,
+        createIssue: (input) => void issues.create(input),
+        sendMail: (issueId, body) => void issues.sendMail(issueId, 'machine-diagnostic', body),
+        notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
+        warn: (message) => console.warn(message),
+      })
+    })
     this.issueCommands = issueCommands
     this.modules = {
       bus: this.bus,

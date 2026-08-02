@@ -55,7 +55,14 @@ describe('daemon frame guards', () => {
     const send = vi.fn(() => {
       throw new Error('closing')
     })
-    guard.send({ readyState: 1, send } as never, { type: 'inventoryReport', inventory: { agents: [], tools: [] } })
+    guard.send(
+      { readyState: 1, send } as never,
+      {
+        type: 'inventoryReport',
+        machineId: 'machine-1',
+        inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
+      },
+    )
     expect(warn).toHaveBeenCalledWith(
       '[podium:daemon] dropped malformed outbound control frame:',
       expect.any(Error),

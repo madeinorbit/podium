@@ -11,6 +11,7 @@ import {
   type ControlMessage,
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
+  PeerHelloReply,
   WIRE_VERSION,
 } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
@@ -604,7 +605,7 @@ export async function startServer(
             if (outcome.kind !== 'established') {
               const reply =
                 outcome.kind === 'rejected'
-                  ? outcome.reply
+                  ? PeerHelloReply.parse(outcome.reply)
                   : { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const }
               return { established: false as const, reply }
             }
@@ -613,7 +614,7 @@ export async function startServer(
             registry.gateway.attachDaemon(principal, send)
             return {
               established: true as const,
-              reply: outcome.reply,
+              reply: PeerHelloReply.parse(outcome.reply),
               machineId: principal.machine,
               // `inventoryReport` used to be special-cased at both socket call
               // sites; it is a row in the gateway's routing table now, so this
