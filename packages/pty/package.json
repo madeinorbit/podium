@@ -35,7 +35,7 @@
     "dev": "tsup --watch",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --root ../.. --config vitest.unit.config.ts --project node packages/pty/src --passWithNoTests",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
