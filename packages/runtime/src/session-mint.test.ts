@@ -58,9 +58,14 @@ it('mints a token and stores only its sha-256', () => {
 
 // Reported from the live instance: `TOKEN=$(podium auth mint-session ...)` came back EMPTY
 // once, and the next call then told the operator to mint a session — the thing they had just
-// done. `$(...)` captures stdout only, so a failed mint is invisible at the call site. Two
-// defences: don't fail on transient contention in the first place, and never return a token
-// without proving the row is actually there.
+// done. `$(...)` captures stdout only, so a failed mint is invisible at the call site.
+//
+// The defence is to not fail on transient contention in the first place (below). There is
+// deliberately NO read-back after the insert: a write that does not land THROWS — the next
+// test pins that with a read-only database file — so a read-back would assert something
+// already guaranteed and would pass with the INSERT deleted. The other half of the fix is
+// not here at all: it is the 401 message learning to say "the session you carried was
+// rejected" instead of "mint one", in packages/issue-client/src/client.ts.
 it('waits out a busy database instead of failing the mint', () => {
   seedDatabase(dir)
   const path = join(dir, 'podium.db')
