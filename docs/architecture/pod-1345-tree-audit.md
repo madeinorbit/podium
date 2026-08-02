@@ -177,11 +177,38 @@ The fixture is still in the **live** host config, and `ps` shows unit lanes runn
 out of the POD-402 and POD-1329 worktrees. So a test lane is still writing live host state, and
 the live server is currently running with an experimental feature flag a test switched on.
 
-**The writer remains unidentified.** This narrows the window and proves the behaviour is ongoing;
-it is correlation with running lanes, not attribution, and it is not dressed up as more. The
-original reporter ruled out `packages/runtime/src/config.test.ts` (properly isolated via
-`mkdtempSync` + `PODIUM_STATE_DIR`) and `apps/server/src/features.test.ts` (writes nothing to
-disk). That elimination still stands.
+**The writer was unidentified at the time of writing. It has since been found — and the earlier
+elimination of it was wrong.** Found by POD-1329, confirmed independently here against
+`issue/279-integration`:
+
+`packages/runtime/src/config.test.ts` has **two** `describe` blocks:
+
+| | line | isolation |
+|---|---|---|
+| `describe('podium config')` | 24 | `beforeEach` at 26-28 with `mkdtempSync` + `process.env.PODIUM_STATE_DIR` — **isolated** |
+| `describe('layered resolvers (#251): env → config.json → default')` | 123 | **no `beforeEach`, no `mkdtempSync`, no `PODIUM_STATE_DIR` — not isolated at all** |
+
+and inside the second one, at line 170:
+
+```ts
+it('PodiumConfig accepts features record and round-trips via save/load', () => {
+  saveConfig({ mode: 'server', features: { 'sample-experiment': true, other: false } })
+```
+
+That is byte-for-byte the contents found in the live `~/.podium/config.json`. With no state-dir
+override in scope, `saveConfig` writes the real host config. The test does this on **every unit
+run on this box**.
+
+**Why this hid for so long, and it is the lesson rather than the bug:** the original reporter
+grepped the file, saw `mkdtempSync` and `PODIUM_STATE_DIR`, and exonerated it. Both symbols *are*
+in the file — in the first describe. **Partial isolation is indistinguishable from full isolation
+at that grep.** One of two blocks protected reads exactly like two of two. This is the same shape
+as the audit's own overclaimed row above and as the "unproven detector = unproven guard" doctrine
+POD-769 exists to write down: a mechanism that is N-1 of N still looks like it works.
+
+The corollary matters for POD-1328 specifically: a "periodic writer on an 11-15 minute cadence"
+was a pattern fitted to the observer's own sampling interval. There is no periodicity — there are
+unit runs.
 
 **Why this matters beyond one bug:** a test lane that mutates live host state is how a
 verification run fabricates its own incident. If the status probe reads this config, the
