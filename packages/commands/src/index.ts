@@ -233,6 +233,14 @@ export {
   WRITE_POLICY,
 } from './issues/cells'
 export {
+  READ_POSITION_CONTRACT_NAMES,
+  READ_POSITION_CONTRACTS,
+  type ReadPositionAdvanceInput,
+  type ReadPositionContractName,
+  readPositionAdvanceContract,
+  readPositionAdvanceInput,
+} from './read-position/contracts'
+export {
   ISSUE_COMMAND_NAMES,
   ISSUE_CONTRACT_LIST,
   ISSUE_CONTRACTS,

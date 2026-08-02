@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { Store } from '@/app/store'
-import { FEED_CURSOR_KEY, readFeedCursor, writeFeedCursor } from './column-state'
 
 /** The cross-project event vocabulary the chat feed shows (spec §6.8 — curated
  *  to state changes a human would skim; breadcrumb noise stays out). */
@@ -58,13 +57,18 @@ async function fetchSince(
  * (engraved-column.md §2.5): a capped tail of the durable issue-event log.
  *
  * The divider position freezes where the cursor stood when the feed last
- * became visible; the persisted cursor itself advances whenever the feed is
- * on screen, so the collapsed-✦ unread dot (`unread`) and the next session's
- * divider both mean "newer than the last time you had the chat open".
+ * became visible; the cursor itself advances whenever the feed is on screen, so
+ * the collapsed-✦ unread dot (`unread`) and the next session's divider both mean
+ * "newer than the last time you had the chat open".
+ *
+ * THE CURSOR IS PER-USER, NOT PER-DEVICE (POD-1380). It arrives from
+ * `store.readPosition` — a replicated row keyed by the authenticated principal —
+ * so a stream read on a laptop is read on a phone. It used to be a device-local
+ * ui-state key, which was invisible with one device and wrong with two.
  */
 export function useIssueEvents(
   trpc: Store['trpc'],
-  uiState: Store['uiState'],
+  readPosition: Store['readPosition'],
   visible: boolean,
   /** Only ONE instance should poll at a time: the open column's view, or the
    *  folded bar while the column is folded. Non-polling instances still read
@@ -73,7 +77,12 @@ export function useIssueEvents(
 ): { events: FeedEvent[]; unread: boolean; dividerId: number; dividerTs: string | null } {
   const [events, setEvents] = useState<FeedEvent[]>(cachedTail ?? [])
   const [maxId, setMaxId] = useState(cachedMaxId)
-  const [cursor, setCursor] = useState(() => readFeedCursor(uiState.get(FEED_CURSOR_KEY)))
+  // The cursor is external state: this device's advance is one writer, and the
+  // person's OTHER device is another (its row arrives on the scoped feed).
+  const cursor = useSyncExternalStore(
+    (onChange) => readPosition.subscribe(onChange),
+    () => readPosition.get('issueEvents'),
+  )
   // Freeze the divider where the cursor stood when the feed became visible.
   const [divider, setDivider] = useState(cursor)
   const wasVisible = useRef(false)
@@ -104,19 +113,19 @@ export function useIssueEvents(
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: cursor/divider are advanced, not observed
   useEffect(() => {
-    if (visible && !wasVisible.current) setDivider(readFeedCursor(uiState.get(FEED_CURSOR_KEY)))
+    if (visible && !wasVisible.current) setDivider(readPosition.get('issueEvents'))
     wasVisible.current = visible
-    if (visible && maxId > cursor.id) {
-      const next = { id: maxId, ts: new Date().toISOString() }
-      uiState.set(FEED_CURSOR_KEY, writeFeedCursor(next))
-      setCursor(next)
+    if (visible && maxId > cursor.lastEventId) {
+      // Monotonic on both sides: the port refuses a proposal at or behind the
+      // position it holds, and the server clamps to max.
+      readPosition.advance('issueEvents', { lastEventId: maxId, seenAt: new Date().toISOString() })
     }
-  }, [visible, maxId, uiState])
+  }, [visible, maxId, readPosition])
 
   return {
     events,
-    unread: maxId > cursor.id,
-    dividerId: divider.id,
-    dividerTs: divider.ts,
+    unread: maxId > cursor.lastEventId,
+    dividerId: divider.lastEventId,
+    dividerTs: divider.seenAt,
   }
 }

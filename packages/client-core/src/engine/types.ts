@@ -33,6 +33,7 @@ import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
+import type { ReadPositionPort } from '../read-position'
 import type { ReplicatedLayoutPort } from './replicated-layout'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
@@ -309,6 +310,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Command-owned replicated layout writer consumed by POD-403's routing,
    * hydration, and migration module. Device-local keys fail closed here. */
   replicatedLayout: ReplicatedLayoutPort
+  /** This person's event-stream read positions (POD-1380). Its own port, not a
+   * ui-state key: the position follows the user and merges monotonically. */
+  readPosition: ReadPositionPort
   /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
   httpOrigin: string
   /** Count of not-yet-synced outbox entries (offline-authored writes waiting to

@@ -21,12 +21,18 @@ import {
   LAYOUT_EXACT_KEYS,
   LayoutKeyField,
   LayoutSnapshot,
+  READ_STREAM_IDS,
+  ReadPositionSnapshot,
+  ReadStreamIdField,
 } from '@podium/model'
 import type { z } from 'zod'
 import type { SampleOptions } from './sampler'
 
 /** One exact key from the closed layout vocabulary — stable fixture pin. */
 const FIXTURE_LAYOUT_KEY = LAYOUT_EXACT_KEYS[0]
+
+/** One stream from the closed read-position vocabulary (POD-1380). */
+const FIXTURE_STREAM_ID = READ_STREAM_IDS[0]
 
 export type SampleOverride = (opts: SampleOptions, path: string) => unknown
 
@@ -48,5 +54,15 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
       opts.mode === 'minimal'
         ? {}
         : { [FIXTURE_LAYOUT_KEY]: { unknownFixture: FIXTURE_LAYOUT_KEY } },
+  ],
+  // Closed isReadStreamId vocabulary (POD-1380) — same two shapes as layout:
+  // the refined field, and the record whose KEYS the field override cannot reach.
+  [ReadStreamIdField, () => FIXTURE_STREAM_ID],
+  [
+    ReadPositionSnapshot,
+    (opts: SampleOptions) =>
+      opts.mode === 'minimal'
+        ? {}
+        : { [FIXTURE_STREAM_ID]: { lastEventId: 7, seenAt: '2026-08-02T00:00:00.000Z' } },
   ],
 ])

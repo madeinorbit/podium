@@ -39,6 +39,21 @@ const uiState = {
     uiStateMap.set(key, value)
   }),
 }
+/**
+ * The read position is per-user state with its own port (POD-1380), no longer a
+ * ui-state key. The double is monotonic like the real one so a test that sets a
+ * position and then renders sees the same refusal-to-rewind the product has.
+ */
+let readPositionValue = { lastEventId: 0, seenAt: null as string | null }
+const readPosition = {
+  get: () => readPositionValue,
+  advance: vi.fn((_stream: string, next: { lastEventId: number; seenAt: string | null }) => {
+    if (next.lastEventId > readPositionValue.lastEventId) readPositionValue = next
+  }),
+  hydrate: vi.fn(async () => {}),
+  replace: vi.fn(),
+  subscribe: () => () => {},
+}
 const setPane = vi.fn()
 const setSelectedWorktree = vi.fn()
 const setSelectedIssueId = vi.fn()
@@ -87,6 +102,7 @@ vi.mock('@/app/store', () => {
     selectedIssueId: storeSelectedIssueId,
     superRefreshKey: 0,
     uiState,
+    readPosition,
     setPane,
     setSelectedWorktree,
     setSelectedIssueId,
@@ -120,6 +136,8 @@ beforeEach(() => {
   storeIssues = []
   storeSelectedIssueId = null
   uiStateMap.clear()
+  readPositionValue = { lastEventId: 0, seenAt: null }
+  readPosition.advance.mockClear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -539,7 +557,7 @@ describe('standing event feed removal (POD-113)', () => {
   })
 
   it('keeps the YOU-WERE-HERE divider when events landed since the frozen cursor', async () => {
-    uiStateMap.set('podium:superfeed:cursor', JSON.stringify({ id: 2, ts: '2026-07-22T14:20:00Z' }))
+    readPositionValue = { lastEventId: 2, seenAt: '2026-07-22T14:20:00Z' }
     fakeTrpc.issues.events.query.mockResolvedValue([
       {
         id: 5,

@@ -402,6 +402,42 @@ export const userLayout = sqliteTable(
   (table) => [primaryKey({ columns: [table.userId, table.key], name: 'user_layout_pk' })],
 )
 
+/**
+ * ONE PERSON'S POSITION IN ONE EVENT STREAM (POD-1380) — the per-user family
+ * member POD-403's routing table could not classify, because it had no server
+ * row to be per-user in.
+ *
+ * `stream_id` is a member of `@podium/model`'s closed stream vocabulary
+ * (`isReadStreamId`), one entry today: the cross-project issue-event log the
+ * superagent chat renders.
+ *
+ * `last_event_id` IS THE ORDERING and `seen_at` is only the divider's clock
+ * label. The stored position is `max(stored, proposed)` — a cursor moves forward
+ * or not at all, because last-writer-wins across one person's two devices would
+ * re-mark read events unread.
+ *
+ * NO foreign key to `users`, matching its layout and preference siblings.
+ *
+ * No SQL backfill: the legacy value is in client ui-state and is forwarded once
+ * through `readPosition.advance` on the ACTING principal. A server-side backfill
+ * could not express "this device's cursor belongs to whoever is signed in now".
+ */
+export const userReadPosition = sqliteTable(
+  'user_read_position',
+  {
+    userId: text('user_id').notNull(),
+    streamId: text('stream_id').notNull(),
+    /** Highest acknowledged event id. Integer so monotonicity is comparable in SQL. */
+    lastEventId: integer('last_event_id').notNull(),
+    /** Descriptive label for the divider; never an arbitration input. */
+    seenAt: text('seen_at'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.streamId], name: 'user_read_position_pk' }),
+  ],
+)
+
 export const conversations = sqliteTable(
   'conversations',
   {
