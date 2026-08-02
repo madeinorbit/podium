@@ -50,8 +50,8 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
-import { AutoContinueController } from '../../auto-continue'
+import { type EntityChangeSpec, type MutationLedger, type MutationLedgerPort } from '@podium/sync'
+import type { AutoContinueController } from '../../auto-continue'
 import {
   type CommandPrincipal,
   resolvePrincipal,
@@ -59,10 +59,10 @@ import {
   userCommandPrincipal,
 } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
-import { BrowserOpenGateway } from '../../gateway/browser-open'
+import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
-import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import { type ClientConn, type ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import {
   harnessCapabilitiesFor,
@@ -91,15 +91,14 @@ import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
 import type { MemoryService } from '../memory/service'
-import { HeadlessService } from '../superagent/headless'
+import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
-import { SessionClientControl } from './client-control'
+import type { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
-import { SessionDaemonLifecycle } from './daemon-lifecycle'
-import { SessionDaemonProjection } from './daemon-projection'
+import type { SessionDaemonLifecycle } from './daemon-lifecycle'
+import type { SessionDaemonProjection } from './daemon-projection'
 import { machineUseGateForCapability } from './handoff/access'
-import { HandoffCoordinator } from './handoff/coordinator'
-import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
+import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
 import {
   type InboxPrincipalReference,
   inboxActorColumns,
@@ -123,42 +122,35 @@ export type { SessionSpawnResult }
 // it at a re-export is what went stale after the extraction.
 export { DEFAULT_GEOMETRY }
 
-import { SessionLaunchConfig } from './launch-config'
-import { SessionMachineReconciler } from './machine-reconciler'
-import { normalizeAgentName, SessionNaming } from './naming'
+import type { SessionLaunchConfig } from './launch-config'
+import type { SessionMachineReconciler } from './machine-reconciler'
+import { normalizeAgentName } from './naming'
+import type { SessionNaming } from './naming'
 import { SessionObservationLeases } from './observation-leases'
-import { SessionBroadcastCoordinator } from './publication/broadcast'
-import {
+import type { SessionBroadcastCoordinator } from './publication/broadcast'
+import type {
   SessionPublicationCoordinator,
-  type SessionPublicationMetrics,
-  type SnapshotTail,
+  SessionPublicationMetrics,
+  SnapshotTail,
 } from './publication/coordinator'
 import type { SessionProjectionEvent } from './publish-worker-actor'
-import { PublishWorkerClient } from './publish-worker-client'
-import { SessionRepository } from './repository'
+import type { PublishWorkerClient } from './publish-worker-client'
+import type { SessionRepository } from './repository'
 import type { PublicationAuthority, Session } from './session'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
-import { SessionBindingReceipts } from './session-binding'
-import { SessionStart } from './session-start'
+import type { SessionBindingReceipts } from './session-binding'
+import type { SessionStart } from './session-start'
+import type { SessionTeardown } from './session-teardown'
+import type { SessionRevival } from './session-revival'
+import { wireSessionLifecycle } from './session-wiring'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
-import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
-import { SessionTerminalProof } from './terminal-proof'
-import { SessionView } from './view'
-import { SessionWorkspace } from './workspace'
+import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
+import type { SessionTerminalProof } from './terminal-proof'
+import type { SessionView } from './view'
+import type { SessionWorkspace } from './workspace'
 
-/**
- * Idempotency records outlive any sane replay horizon, then get pruned. ADR 2 D11
- * owns this number and this is its prune site.
- *
- * EXPORTED because ADR 3 D11.3 requires the outbox age inequality
- * (`OUTBOX_MAX_AGE_MS + SKEW_MARGIN_MS < RECEIPT_RETENTION_MS`) to IMPORT it
- * rather than copy `30d` into the check — a copy is a comment that fails open the
- * day this line is tuned. The importer is
- * `receipt-retention.test.ts` beside this file: `packages/*` may not import
- * `apps/*`, so the invariant is asserted on this side of that boundary, against
- * the live constant. Lowering this value below the outbox horizon fails that test.
- */
-export const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+/** Re-exported from session-shared so receipt-retention tests keep a stable site. */
+export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 
 /** The write-seam change log face sessions run through ([spec:SP-3fe2] #256):
  *  `commit` binds a session row write and its declared change into one
@@ -191,7 +183,7 @@ export interface SessionRestorePlan {
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
-interface SessionLifecycleDeps {
+export interface SessionLifecycleDeps {
   /** Deployment-qualified durable namespace, injected by the composition root. */
   durableLabelFor(sessionId: SessionId): string
   store: SessionStore
@@ -294,7 +286,7 @@ interface SessionLifecycleDeps {
 export class SessionLifecycle {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
-  readonly sessions: Map<SessionId, Session>
+  readonly sessions!: Map<SessionId, Session>
   /**
    * THE CLIENT CONNECTION SET — OWNED BY THE GATEWAY (POD-390).
    *
@@ -304,494 +296,78 @@ export class SessionLifecycle {
    * feature concern (see `gateway/client-registry.ts`); the delivery half is the
    * registry's methods.
    */
-  readonly clients: ClientRegistry
+  readonly clients!: ClientRegistry
 
   /** Durable observer leases, hydrated before session state restoration. */
   private readonly observationLeases = new SessionObservationLeases()
   /** Terminal-proof reasoning over the lease book (POD-1396). */
-  private readonly terminalProof: SessionTerminalProof
+  private readonly terminalProof!: SessionTerminalProof
   /** Daemon presence reconciliation for one machine (POD-1396). */
-  private readonly machineReconciler: SessionMachineReconciler
+  private readonly machineReconciler!: SessionMachineReconciler
   /** The curated name slot and its provenance rule (POD-1396). */
-  private readonly naming: SessionNaming
+  private readonly naming!: SessionNaming
   /** Model/effort/credential resolution for a spawn frame (POD-1396). */
-  private readonly launchConfig: SessionLaunchConfig
+  private readonly launchConfig!: SessionLaunchConfig
   /** Request resolution + spawn-frame construction (POD-1396). */
-  private readonly sessionStart: SessionStart
+  private readonly sessionStart!: SessionStart
+  /** Ending a session in one of four survival shapes (POD-1396). */
+  private readonly sessionTeardown!: SessionTeardown
+  /** Resume / resurrect / handoff (POD-1396). */
+  private readonly sessionRevival!: SessionRevival
 
-  private readonly store: SessionStore
-  private readonly now: () => number
-  private readonly bus: EventBus
-  private readonly machines: MachinesService
-  private readonly rpc: DaemonRpcService
-  readonly headless: HeadlessService
+  private readonly store!: SessionStore
+  private readonly now!: () => number
+  private readonly bus!: EventBus
+  private readonly machines!: MachinesService
+  private readonly rpc!: DaemonRpcService
+  readonly headless!: HeadlessService
   /** Durable viewer/shared-surface state, isolated behind explicit ports. */
-  readonly state: SessionStateService
+  readonly state!: SessionStateService
   /** Backend auto-continue loop — re-arms retryable errored agents. */
-  private readonly autoContinue: AutoContinueController
+  private readonly autoContinue!: AutoContinueController
   /** Attributed inbound text, answers, FIFO queueing and controller gating. */
-  readonly inbox: SessionInbox
-  readonly sendText: SessionInbox['sendText']
-  readonly interruptText: SessionInbox['interruptText']
-  readonly queueText: SessionInbox['queueText']
-  readonly resumeAndSend: SessionInbox['resumeAndSend']
-  readonly answerAskUserQuestion: (input: {
+  readonly inbox!: SessionInbox
+  readonly sendText!: SessionInbox['sendText']
+  readonly interruptText!: SessionInbox['interruptText']
+  readonly queueText!: SessionInbox['queueText']
+  readonly resumeAndSend!: SessionInbox['resumeAndSend']
+  readonly answerAskUserQuestion!: (input: {
     sessionId: SessionId
     choices: { optionIndices: number[] }[]
     principal?: InboxPrincipalReference
   }) => { ok: boolean }
-  readonly setSessionDraft: (
+  readonly setSessionDraft!: (
     input: { sessionId: SessionId; text: string },
     fromClientId?: string,
   ) => void
-  readonly draftRevision: SessionStateService['draftRevision']
+  readonly draftRevision!: SessionStateService['draftRevision']
   /** The `sessions.handoff` handler (POD-642), built on first use. It holds the
    *  single-flight registry that stops a duplicate dispatch from forking a
    *  session, so it must outlive one call — see `handoffs()`. */
-  private handoffCoordinator?: HandoffCoordinator
   /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
-  private readonly funnel: WriteFunnel
-  readonly publication: SessionPublicationCoordinator
-  readonly clientControl: SessionClientControl
-  readonly daemonProjection: SessionDaemonProjection
-  private readonly daemonLifecycle: SessionDaemonLifecycle
-  readonly workspace: SessionWorkspace
-  readonly view: SessionView
-  readonly repository: SessionRepository
+  private readonly funnel!: WriteFunnel
+  readonly publication!: SessionPublicationCoordinator
+  readonly clientControl!: SessionClientControl
+  readonly daemonProjection!: SessionDaemonProjection
+  private readonly daemonLifecycle!: SessionDaemonLifecycle
+  readonly workspace!: SessionWorkspace
+  readonly view!: SessionView
+  readonly repository!: SessionRepository
 
   private issueProjectionGeneration = 0
-  readonly broadcasts: SessionBroadcastCoordinator
-  private readonly browserOpen: BrowserOpenGateway
-  private readonly bindingReceipts: SessionBindingReceipts
+  readonly broadcasts!: SessionBroadcastCoordinator
+  private readonly browserOpen!: BrowserOpenGateway
+  private readonly bindingReceipts!: SessionBindingReceipts
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.repository.flushActivity(), 12_000)
 
   constructor(private readonly deps: SessionLifecycleDeps) {
-    this.store = deps.store
-    this.sessions = deps.sessions ?? new Map()
-    this.now = deps.now
-    this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
-    this.clients = deps.clients ?? new ClientRegistry()
-    this.bus = deps.bus
-    this.machines = deps.machines
-    this.rpc = deps.rpc
-    this.activityFlushTimer.unref?.()
-    this.funnel = deps.funnel
-    this.terminalProof = new SessionTerminalProof({
-      now: () => this.now(),
-      leases: this.observationLeases,
-      checkpoints: this.store.observationCheckpoints,
-      sessions: () => this.sessions.values(),
-      session: (sessionId) => this.sessions.get(sessionId),
-      pendingForProof: (sessionId, atIso) =>
-        this.store.messages.pendingForSessionProof(sessionId, atIso),
-      isDraining: (sessionId) => this.inbox.isDraining(sessionId),
-      autoContinueActive: (sessionId) => this.autoContinue.isActive(sessionId),
-    })
-    this.launchConfig = new SessionLaunchConfig({
-      store: this.store,
-      settingsViewer: () => this.settingsViewer(),
-    })
-    this.naming = new SessionNaming({
-      session: (sessionId) => this.sessions.get(sessionId),
-      mutate: (sessionId, write) => this.mutateSessionMeta(sessionId, write),
-    })
-    this.machineReconciler = new SessionMachineReconciler({
-      sessions: () => this.sessions.values(),
-      drainInbox: (sessionId) => this.inbox.drain(sessionId),
-      triggerLakeSweep: (machineId) => this.deps.memory.triggerLakeSweep(machineId),
-      resetPriorities: () => this.state.resetPriorities(),
-      pushPriorities: () => this.pushPriorities(),
-      parkArchivedSession: (sessionId) => this.parkArchivedSession(sessionId),
-      reattachMessage: (session, machineId) => this.reattachMessageFor(session, machineId),
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-      viewTiers: (sessionIds) => computePriorities([...this.clients.values()], sessionIds),
-      rebindHeadless: (session) => this.rebindHeadless(session),
-      markVolatileSessionDirty: (sessionId, fields) =>
-        this.repository.markVolatileSessionDirty(sessionId, fields),
-      broadcastSessions: () => this.broadcastSessions(),
-    })
-    const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
-    this.publication = new SessionPublicationCoordinator({
-      clients: this.clients,
-      worker: publicationWorker,
-      funnel: this.funnel,
-      shadowCompare: deps.publicationShadowCompare ?? false,
-      generation: () => this.repository.sessionsGeneration(),
-      sessions: () => this.sessions,
-      listSessions: () => this.listSessions(),
-      snapshotTail: deps.snapshotTail,
-    })
-    this.broadcasts = new SessionBroadcastCoordinator({
-      hasPendingVolatile: () => this.repository.hasPendingVolatile(),
-      scheduleVolatileCapture: () => this.repository.scheduleVolatileSessionCapture(),
-      flushVolatileCaptures: () => {
-        this.repository.flushVolatileSessionCaptures()
-      },
-      generation: () => this.repository.sessionsGeneration(),
-      issueGeneration: () => this.issueProjectionGeneration,
-      listSessions: () => this.listSessions(),
-      schedulePublication: (options) => this.publication.schedule(options),
-      publishIssues: (sessions) => this.bus.emit('session.listChanged', { sessions }),
-      flushDeltas: () => this.funnel.flushDeltas(),
-    })
-    this.browserOpen = new BrowserOpenGateway({
-      now: () => this.now(),
-      clients: this.clients,
-      subscriptions: this.deps.subscriptions,
-      session: (sessionId) => this.sessions.get(sessionId),
-      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-    })
-    this.bindingReceipts = new SessionBindingReceipts({
-      memory: this.deps.memory,
-      now: () => this.now(),
-      sessions: () => this.sessions.values(),
-      session: (sessionId) => this.sessions.get(sessionId),
-      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
-      persist: (session) => this.repository.persist(session),
-      broadcastSessions: () => this.broadcastSessions(),
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-    })
-    this.daemonProjection = new SessionDaemonProjection({
-      sessions: this.sessions,
-      recordSessionGitActivity: (sessionId, input) =>
-        this.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input }),
-      binding: this.bindingReceipts,
-      persist: (session) => this.repository.persist(session),
-      broadcastSessions: () => this.broadcastSessions(),
-      broadcastToClients: (message) => this.broadcastToClients(message),
-      adoptWorktree: (issueId, message) =>
-        this.bus.emit('issue.sessionDerived', { kind: 'adoptWorktree', issueId, message }),
-    })
-
-    this.workspace = new SessionWorkspace({
-      store: this.store,
-      rpc: this.rpc,
-      machines: this.machines,
-      issueAccess: this.deps.issueAccess,
-      getSession: (sessionId) => this.sessions.get(sessionId),
-      settingsViewer: () => this.settingsViewer(),
-      onWorktreesChanged: (repoPath, machineId) =>
-        this.deps.onWorktreesChanged(repoPath, machineId),
-    })
-
-    this.state = new SessionStateService({
-      store: this.store,
-      now: () => this.now(),
-      getSession: (sessionId) => this.sessions.get(sessionId),
-      sessionIds: () => this.sessions.keys(),
-      clients: () => this.clients.values(),
-      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
-      persistSession: (sessionId, additionalWrite) => {
-        const session = this.sessions.get(sessionId)
-        if (session) this.repository.persist(session, additionalWrite)
-      },
-      mutateSession: (sessionId, mutate) => {
-        this.mutateSessionMeta(sessionId, (session) => mutate(session))
-      },
-      broadcastSessions: () => this.broadcastSessions(),
-      broadcastToClients: (message, options) => this.broadcastToClients(message, options),
-      deliverToClient: (clientId, message) => {
-        const client = this.clients.get(clientId)
-        if (client) this.clients.deliver(client, message)
-      },
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-      onArchived: (sessionId) => {
-        this.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
-        this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
-        this.parkArchivedSession(sessionId)
-      },
-    })
-    this.view = new SessionView({
-      sessions: this.sessions,
-      store: this.store,
-      machines: this.machines,
-      state: this.state,
-      sessionOccupancyCount: this.deps.sessionOccupancyCount
-        ? (sessionId) => this.deps.sessionOccupancyCount?.(sessionId)
-        : undefined,
-    })
-    this.repository = new SessionRepository({
-      sessions: this.sessions,
-      store: this.store,
-      memory: this.deps.memory,
-      ledger: this.deps.ledger,
-      publication: this.publication,
-      funnel: this.funnel,
-      view: this.view,
-      state: this.state,
-      observationLeases: this.observationLeases,
-      autoContinue: () => this.autoContinue,
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-      broadcastSessions: () => this.broadcastSessions(),
-      flushBroadcasts: () => this.broadcasts.flush(),
-      listSessions: () => this.view.list(),
-      now: () => this.now(),
-      appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
-    })
-    // CONSTRUCTED HERE, NOT EARLIER, AND THE POSITION IS LOAD-BEARING.
-    // SessionStart takes view, repository and state as direct references, so it
-    // must be built after all three exist. The compiler caught this when it was
-    // placed with the other POD-1396 modules near the top of the constructor
-    // ("Property 'view' is used before being assigned") — worth recording
-    // because scripts/server-construction-order.ts walks only the RELAY root and
-    // would NOT have caught a reordering in here (POD-1411).
-    this.sessionStart = new SessionStart({
-      store: this.store,
-      view: this.view,
-      repository: this.repository,
-      state: this.state,
-      launchConfig: this.launchConfig,
-      terminalProof: this.terminalProof,
-      settingsViewer: () => this.settingsViewer(),
-      durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
-      hasSession: (sessionId) => this.sessions.has(sessionId),
-      registerSession: (session) => {
-        this.sessions.set(session.sessionId, session)
-      },
-      sessionMachineId: (sessionId) => this.sessions.get(sessionId)?.machineId,
-      defaultMachine: () => this.machines.defaultMachine(),
-      machineName: (machineId) => this.machines.machineName(machineId),
-      resolveMachineForAgent: (requested, cwd, agentKind, use) =>
-        this.machines.resolveMachineForAgent(requested, cwd, agentKind, use),
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-      broadcastSessions: () => this.broadcastSessions(),
-      soleOwnerForCwd: (cwd) => this.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
-      instructionsForStart: (i) => this.deps.instructionsForStart(i),
-      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
-      setSessionDraft: (i, fromClientId) => this.setSessionDraft(i, fromClientId),
-      emitSessionCreated: (payload) => this.bus.emit('session.created', payload),
-    })
-    this.headless = new HeadlessService({
-      durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
-      getSession: (sessionId) => this.sessions.get(sessionId),
-      registerSession: (session) => this.sessions.set(session.sessionId, session),
-      resolveMachine: (requested, cwd, agentKind) =>
-        this.machines.resolveMachineForAgent(requested, cwd, agentKind),
-      defaultMachine: () => this.machines.defaultMachine(),
-      toMachine: (machineId, message) => this.machines.toMachine(machineId, message),
-      nextRequestId: (prefix) => this.rpc.nextRequestId(prefix),
-      defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
-      persist: (session) => this.persist(session),
-      broadcastSessions: () => this.broadcastSessions(),
-      clients: () => this.clients.values(),
-    })
-    this.inbox = new SessionInbox({
-      getSession: (sessionId) => this.sessions.get(sessionId),
-      queue: {
-        enqueue: (row) => {
-          const actor = inboxActorColumns(row.principal.attribution.actor)
-          return this.store.sync.enqueueMessage({
-            id: row.id,
-            sessionId: row.sessionId,
-            text: row.text,
-            queuedAt: row.queuedAt,
-            inputOrigin: row.inputOrigin,
-            principalKind: row.principal.kind,
-            principalRef: row.principal.principalRef,
-            delegationRef: row.principal.delegation,
-            actorKind: actor.actorKind,
-            actorId: actor.actorId,
-            onBehalfOf: row.principal.attribution.onBehalfOf,
-            sourceMessageId: row.sourceMessageId,
-          })
-        },
-        list: (sessionId) =>
-          this.store.sync.listQueuedMessages(sessionId).map((row) => ({
-            id: row.id,
-            text: row.text,
-            attempts: row.attempts,
-            inputOrigin: row.inputOrigin,
-            principal: {
-              kind: row.principalKind,
-              principalRef: row.principalRef,
-              delegation: row.delegationRef ? asDelegationRef(row.delegationRef) : null,
-              attribution: {
-                actor: inboxActorFromColumns(row.actorKind, row.actorId),
-                onBehalfOf: row.onBehalfOf ? asUserId(row.onBehalfOf) : null,
-              },
-            },
-            sourceMessageId: row.sourceMessageId,
-          })),
-        bumpAttempts: (id) => this.store.sync.bumpQueuedAttempts(id),
-        delete: (id) => this.store.sync.deleteQueuedMessage(id),
-      },
-      daemon: {
-        sendInput: (machineId, message) => this.toMachine(machineId, message),
-      },
-      authorization: {
-        authorizeAtDrain: (input) => this.authorizeQueuedInputAtApply(input),
-        rejected: ({ sourceMessageId, reason }) => {
-          if (sourceMessageId) this.deps.rejectQueuedMessage?.(sourceMessageId, reason)
-        },
-      },
-      attention: {
-        stateChanged: (input) => this.bus.emit('session.stateChanged', input),
-        answered: ({ ownerUserId, sessionId, attribution }) => {
-          this.store.events.appendEvent({
-            ts: new Date(this.now()).toISOString(),
-            kind: 'session.inbox.answered',
-            subject: sessionId,
-            payload: { sessionId, ownerUserId, attribution },
-          })
-        },
-      },
-      now: () => this.now(),
-      persist: (session, options) =>
-        this.repository.persist(
-          session,
-          options?.cancelTerminalCandidate
-            ? () => this.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
-            : undefined,
-        ),
-      broadcast: () => this.broadcastSessions(),
-      needsSubmitVerification: harnessNeedsSubmitVerification,
-      prepareSend: (sessionId, attribution, kind) =>
-        this.prepareInboxSend(sessionId, attribution, kind),
-      ownerOf: (sessionId) => this.sessionOwner(sessionId)?.owner,
-      resurrect: async (sessionId, principal) => {
-        this.bus.emit('session.wakeRequested', { sessionId, principal })
-        return { ok: true }
-      },
-      // Take-control / hold-control re-auth at every apply (POD-1081).
-      authorizeDrive: (principal, sessionId) => this.authorizeClientDrive(principal, sessionId),
-    })
-    this.sendText = (input) => this.inbox.sendText(input)
-    this.interruptText = (input) => this.inbox.interruptText(input)
-    this.queueText = (input) => this.inbox.queueText(input)
-    this.resumeAndSend = (input) => this.inbox.resumeAndSend(input)
-    this.answerAskUserQuestion = (input) =>
-      this.inbox.answerAskUserQuestion({
-        ...input,
-        principal: input.principal ?? SYSTEM_INBOX_PRINCIPAL,
-      })
-    this.setSessionDraft = (input, fromClientId) => this.state.setDraft(input, fromClientId)
-    this.draftRevision = (sessionId) => this.state.draftRevision(sessionId)
-    this.clientControl = new SessionClientControl({
-      sessions: this.sessions,
-      publication: this.publication,
-      state: this.state,
-      inbox: this.inbox,
-      machinesForPrincipal: (principal) =>
-        projectMachinesForPrincipal(
-          { machines: this.machines },
-          userCommandPrincipal(asUserId(principal.user), principal.role),
-        ),
-      browserOpen: this.browserOpen,
-      mutate: (sessionId, change, issueRelevant) =>
-        this.repository.mutateSessionView(sessionId, change, issueRelevant),
-      broadcastSessions: () => this.broadcastSessions(),
-      pushPriorities: () => this.pushPriorities(),
-      setDraft: (principal, clientId, sessionId, text) => {
-        this.sessionStateEnvelope().execute(
-          'sessions.setDraft',
-          { sessionId, edit: { kind: 'replace', text } },
-          sessionStatePrincipalFor(
-            userCommandPrincipal(asUserId(principal.user), principal.role),
-            clientId,
-          ),
-          'ws',
-        )
-      },
-      editDraft: (message, clientId) => this.state.handleDraftEdit(message, clientId),
-      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
-      machineUseFor: (principal, sessionId) => this.machineUseForClient(principal, sessionId),
-      sessionOccupancyCount: this.deps.sessionOccupancyCount
-        ? (sessionId) => this.deps.sessionOccupancyCount?.(sessionId)
-        : undefined,
-      sessionRoomJoin: this.deps.sessionRoomJoin
-        ? (client, sessionId) => this.deps.sessionRoomJoin?.(client, sessionId)
-        : undefined,
-      sessionRoomLeave: this.deps.sessionRoomLeave
-        ? (client, sessionId) => this.deps.sessionRoomLeave?.(client, sessionId)
-        : undefined,
-    })
-
-    this.autoContinue = new AutoContinueController({
-      // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
-      // so it is resolved for a user. See `settingsViewer` below for why that
-      // user is spelled out rather than defaulted.
-      isEnabled: () =>
-        this.store.settings.getSettingsFor(this.settingsViewer()).autoContinue.enabled,
-      sendContinue: (sessionId) => {
-        this.continueSession({ sessionId })
-      },
-      getSession: (sessionId) => {
-        // The controller re-arms off fresh agentState events, so overnight recovery
-        // after a daemon reattach relies on reattach re-seeding agentState (seedBootState).
-        const s = this.sessions.get(sessionId)
-        if (!s) return undefined
-        return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
-      },
-    })
-    this.daemonLifecycle = new SessionDaemonLifecycle({
-      sessions: this.sessions,
-      bus: this.bus,
-      browserOpen: this.browserOpen,
-      autoContinue: this.autoContinue,
-      inbox: this.inbox,
-      state: this.state,
-      projection: this.daemonProjection,
-      store: this.store,
-      memory: this.deps.memory,
-      observationLeases: this.observationLeases,
-      persist: (session, additionalWrite) => this.repository.persist(session, additionalWrite),
-      broadcastSessions: () => this.broadcastSessions(),
-      onSessionActivity: (sessionId) =>
-        this.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId }),
-      onSessionAttention: (sessionId) =>
-        this.bus.emit('issue.sessionDerived', { kind: 'attention', sessionId }),
-      onSessionTurnEnd: (sessionId) =>
-        this.bus.emit('issue.sessionDerived', { kind: 'turnEnd', sessionId }),
-      maybeReapDraftIssue: (issueId) => this.maybeReapDraftIssue(issueId),
-      emitSessionExited: (sessionId, code, spawnedBy) =>
-        this.emitSessionExited(sessionId, code, spawnedBy),
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-      now: () => this.now(),
-      terminalCandidateFacts: (session, lease, checkpoint) =>
-        this.terminalProof.facts(session, lease, checkpoint),
-      broadcastToClients: (message) => this.broadcastToClients(message),
-      clearOffer: (sessionId) => this.clearOffer(sessionId),
-    })
-    // Auto-continue re-arm on the settings flip — the reaction needs the sessions
-    // map, so it lives here as a bus subscriber (this service is constructed AFTER
-    // NotifyService, so the notification replay keeps firing first).
-    this.bus.on('settings.changed', ({ previous, next }) => {
-      // Keep the cached draftSync flag current (POD-859). Resolved through the
-      // canonical experiments system (channel/config/user) [spec:SP-f4b9].
-      this.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
-      const wasEnabled = previous.autoContinue.enabled
-      const nowEnabled = next.autoContinue.enabled
-      if (nowEnabled === wasEnabled) return
-      const ids = nowEnabled
-        ? [...this.sessions.values()]
-            .filter(
-              (s) =>
-                (s.status === 'live' || s.status === 'starting') &&
-                s.agentState?.phase === 'errored' &&
-                s.agentState.error?.retryable === true,
-            )
-            .map((s) => s.sessionId)
-        : []
-      this.autoContinue.onSettingsChanged(nowEnabled, ids)
-    })
-    // Agent mail send-time nudge (issue #103): poke the target issue's live agent
-    // session so mail is noticed without polling. The nudge carries NO message
-    // body — an idempotent "check your inbox" poke. Selection: a single idle
-    // live agent gets an immediate sendText; otherwise the most recently active
-    // live agent gets a durable queued send; no live agents → nothing (the mail
-    // surfaces via prime / the stop-hook).
-    this.bus.on('issue.mailSent', ({ seq, worktreePath }) => {
-      const members = sessionsForIssue(worktreePath ?? null, this.listSessions())
-      const target = selectMailNudgeSession(members)
-      if (!target) return
-      const text = `You have mail on issue #${seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`
-      if (target.mode === 'send') this.sendText({ sessionId: target.sessionId, text })
-      else void this.queueText({ sessionId: target.sessionId, text })
-    })
+    // ORDER UNCHANGED — body lives in session-wiring.ts as a verbatim move.
+    // scripts/server-construction-order.ts does not walk this interior (POD-1411).
+    wireSessionLifecycle(this, deps)
   }
+
   private prepareInboxSend(
     sessionId: SessionId,
     attribution: Attribution,
@@ -1254,100 +830,18 @@ export class SessionLifecycle {
       conversationId: string
       title?: string
       machineId?: string
-      /** Provenance for the FRESH-SPAWN fallback only (issue #60). When the resume
-       *  lands on an existing row (reuse/resurrect below), that row's original
-       *  spawnedBy is kept — a resume never rewrites who created the session. */
       spawnedBy?: string
-      /** The calling principal's `use` decision per machine — see createSession. */
       use?: MachineUseResolver
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ sessionId: SessionId }> {
-    // One row per conversation. A conversation is identified by its durable
-    // resume ref (kind+value); resuming one that already has a row must REUSE
-    // that row, never mint a parallel one. Each parallel row spawned its own
-    // durable master and forked its own transcript, while the web only HID the
-    // siblings (dedupeSessionsByResume) — so closing the visible row revealed a
-    // masked duplicate with its own title/transcript/stage. Reuse kills that at
-    // the source: a running row is focused as-is; a parked (hibernated/exited)
-    // row is resurrected under its same id.
-    const existing = this.findLiveByResume(input.resume)
-    if (existing) {
-      if (existing.status === 'hibernated' || existing.status === 'exited') {
-        const woke = await this.resurrectSession({ sessionId: existing.sessionId }, issues)
-        if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
-      } else {
-        // Reopening a still-live but long-idle session also resets its hibernation
-        // timer — the user is back on it even with no new message. (resurrectSession
-        // already stamps this for the parked case above.)
-        this.sessions.get(existing.sessionId)?.markResumed()
-      }
-      return { sessionId: existing.sessionId }
-    }
-    const issueId = this.deps.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
-    // MINT SITE: a server-minted session id. The brand belongs where the id is
-    // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = asSessionId(randomUUID())
-    const preparedInstructions = this.deps.instructionsForStart({
-      sessionId,
-      cwd: input.cwd,
-      agentKind: input.agentKind,
-      ...(issueId ? { issueId } : {}),
-    })
-    const spawned = this.spawn({
-      agentKind: input.agentKind,
-      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
-      cwd: input.cwd,
-      title: input.title,
-      origin: { kind: 'resume', conversationId: input.conversationId },
-      resume: input.resume,
-      machineId: this.machines.resolveMachineForAgent(
-        input.machineId,
-        input.cwd,
-        input.agentKind,
-        input.use,
-      ),
-      ...(preparedInstructions.instructions.length
-        ? { instructions: preparedInstructions.instructions }
-        : {}),
-      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-      ...(issueId ? { issueId } : {}),
-      sessionId,
-    })
-    preparedInstructions.commit()
-    return spawned
+    return this.sessionRevival.resumeSession(input, issues)
   }
 
-  /**
-   * The existing session for a resume ref, if any — the canonical row for that
-   * conversation. Prefers a still-running row (live/starting/reconnecting) over a
-   * parked one, breaking ties toward the most-recently-active so we land on the
-   * row the user last touched.
-   */
   private findLiveByResume(resume: ResumeRef): Session | undefined {
-    const running = (s: Session) =>
-      s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
-    return (
-      [...this.sessions.values()]
-        // A HEADLESS session shares its harness's resume ref but is not a PTY
-        // reuse target — "open in terminal" resumes the same ref as a real PTY
-        // session alongside it, so headless rows never satisfy this lookup.
-        .filter(
-          (s) => !s.headless && s.resume?.kind === resume.kind && s.resume?.value === resume.value,
-        )
-        .sort((a, b) => {
-          if (running(a) !== running(b)) return running(a) ? -1 : 1
-          return (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? '')
-        })
-        .at(0)
-    )
+    return this.sessionRevival.findLiveByResume(resume)
   }
 
-  /**
-   * The overview "Continue" button: nudge an errored agent to retry by typing
-   * `continue⏎` into its PTY. Guarded to the errored phase so a stray click
-   * can't inject text into a healthy prompt.
-   */
   continueSession({ sessionId }: { sessionId: SessionId }): { ok: boolean } {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false }
@@ -1378,7 +872,7 @@ export class SessionLifecycle {
     return this.sessionStateRegistry
   }
 
-  private readonly mutations: MutationLedgerPort
+  private readonly mutations!: MutationLedgerPort
 
   /**
    * IDEMPOTENCY IS NOT THIS SERVICE'S ANYMORE (POD-382).
@@ -1436,41 +930,11 @@ export class SessionLifecycle {
     this.state.setArchived(sessionId, archived)
   }
 
-  /**
-   * Archive also stops the process (POD-108). Archive used to be pure metadata,
-   * so every archived-but-live session kept its abduco master + agent resident
-   * forever — dozens of idle agent processes with no way to reap them from the
-   * UI. Same park as stopSession: 'hibernated' when a cold resume is possible
-   * (resume ref kept), else 'exited'. Unlike hibernateSession this does not
-   * refuse a working agent — the archive guard already made the user confirm
-   * archiving a working session, and that confirmed intent is "stop it".
-   * Unarchiving does NOT resurrect; that stays an explicit resume.
-   */
+  /** Archive parks a running process (POD-108). See SessionTeardown survival table. */
   private parkArchivedSession(sessionId: SessionId): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    const running =
-      session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
-    if (!running) return
-    if (session.agentKind !== 'shell' && !session.resume) {
-      session.status = 'exited'
-      session.exitCode = session.exitCode ?? 0
-    } else {
-      session.status = 'hibernated'
-    }
-    this.autoContinue.onSessionGone(sessionId)
-    session.stoppedAt = new Date(this.now()).toISOString()
-    session.stopReason = 'parent'
-    // Unlike stopSession, readAt is left alone: archiving IS the acknowledgment —
-    // resurfacing the session as unread would undo the tidy-up the user just did.
-    this.repository.persist(session)
-    this.killStoppedSession(session)
-    this.broadcastSessions()
+    this.sessionTeardown.parkArchivedSession(sessionId)
   }
 
-  /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
   tryAutoArchiveStoppedObserved(
     observed: {
       sessionId: SessionId
@@ -1481,44 +945,9 @@ export class SessionLifecycle {
     },
     nowMs: number,
   ): 'applied' | 'precondition' | 'not-due' {
-    const session = this.sessions.get(observed.sessionId)
-    if (!session || session.archived) return 'precondition'
-    // WHOSE read (POD-1229) — see `IssueAttention.tryAutoArchiveObserved` for the
-    // reasoning. `archived` is shared, so only the viewer this service archives
-    // for may gate it, and a proposal naming anyone else is refused outright.
-    if (observed.readerUserId !== this.view.broadcastViewer()) return 'precondition'
-    // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
-    // and no `readAt == null` clause here either: both cases the CAS caught are
-    // refused by the checks below — a re-read lands inside the `not-due` window,
-    // and a mark-unread makes `Date.parse(null ?? '')` NaN. A guard that can be
-    // deleted with every test still green is indistinguishable from an absent
-    // one, so the refusal lives in exactly one place.
-    if (
-      (session.issueId ?? null) !== observed.issueId ||
-      session.stoppedAt !== observed.stoppedAt
-    ) {
-      return 'precondition'
-    }
-    const stoppedMs = Date.parse(session.stoppedAt ?? '')
-    const readMs = Date.parse(this.view.overlay(observed.sessionId).readAt ?? '')
-    if (!Number.isFinite(stoppedMs) || !Number.isFinite(readMs) || readMs < stoppedMs) {
-      return 'precondition'
-    }
-    if (Math.max(stoppedMs, readMs) > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
-    if (session.issueId) {
-      const issue = this.deps
-        .snapshotTail()
-        .issues.find((candidate) => candidate.id === session.issueId)
-      if (!issue || issue.parentId) return 'precondition'
-    }
-    this.setArchived({ sessionId: session.sessionId, archived: true })
-    return 'applied'
+    return this.sessionTeardown.tryAutoArchiveStoppedObserved(observed, nowMs)
   }
 
-  /** Mark a session read (issue #124): stamp readAt = now on the ACTOR's own
-   *  `(userId, sessionId)` row (POD-1076), then broadcast. The derived `unread`
-   *  flips to false immediately (readAt is now the latest timestamp) and re-arms
-   *  on the next activity. No-op for an unknown session. */
   markSessionRead(userId: string, sessionId: SessionId): void {
     this.state.markRead(this.view.principalForTrustedUser(asUserId(userId)), sessionId)
   }
@@ -1571,28 +1000,14 @@ export class SessionLifecycle {
   }
 
   /**
-   * Cleanly end a session [spec:SP-9904]: stop its process, free the issue
-   * worktree when safe, KEEP branch + transcript + session row (reversible —
-   * resume recreates the worktree from the branch). Distinct from hibernate
-   * (keeps worktree) and kill/delete (removes the row).
-   *
-   * Unsaved-work guard: dirty/conflicted working tree refuses without `force`.
-   * Self-stop (`selfStop`) defers the process kill so the CLI/relay reply
-   * lands before the agent dies.
+   * Cleanly end a session [spec:SP-9904]. Survival table lives on SessionTeardown.
    */
   async stopSession(
     input: {
       sessionId: SessionId
       force?: boolean
-      /** True when the CALLER is stopping itself — defer process kill. */
       selfStop?: boolean
-      /** Parent-close/issue-stop provenance; direct forced stops derive below. */
       stopReason?: 'self' | 'parent' | 'forced'
-      /**
-       * Who asked for the stop (POD-1344). Stamped onto the free-worktree audit
-       * comment. Absent only on genuinely caller-less paths (tests, in-process
-       * jobs) — those fall back to `systemPrincipal('stop')`.
-       */
       principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
@@ -1602,148 +1017,18 @@ export class SessionLifecycle {
     worktreeFreed?: boolean
     deferredKill?: boolean
   }> {
-    const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, reason: 'unknown session' }
-
-    const issueId = session.issueId ?? this.deps.issueAccess.issueForCwd(session.cwd)
-    const issue = issueId ? this.deps.issueAccess.getMeta(issueId) : undefined
-    const worktreePath = issue?.worktreePath ?? null
-
-    // Unsaved-work guard: inspect the working copy when present. Branch commits
-    // alone are not a refusal — the branch is always kept.
-    if (worktreePath && !input.force) {
-      const st = await this.rpc.repoOp('status', worktreePath, undefined, session.machineId)
-      if (st.ok) {
-        const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
-        if (dirty.length > 0) {
-          return {
-            ok: false,
-            reason: `refusing stop: unsaved changes in the working tree (re-run with --force to free the worktree and discard them; branch is kept either way):\n${dirty.join('\n')}`,
-          }
-        }
-      } else if (!/cannot change to .*: no such file or directory/i.test(st.output)) {
-        return {
-          ok: false,
-          reason: `refusing stop: cannot inspect worktree: ${st.output}`,
-        }
-      }
-    }
-
-    const wasRunning =
-      session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
-
-    // Park the row first (keep resume ref + transcript). Shells have no resume
-    // ref — stop still parks them as exited so they stay inspectable.
-    if (wasRunning) {
-      if (session.agentKind !== 'shell' && !session.resume) {
-        // No resume ref yet: still stop the process but mark exited rather than
-        // hibernated (same inspectability; resume may not recover conversation).
-        session.status = 'exited'
-        session.exitCode = session.exitCode ?? 0
-      } else {
-        session.status = 'hibernated'
-      }
-      this.autoContinue.onSessionGone(input.sessionId)
-      // A terminal transition is new unread information; acknowledgment begins only
-      // after the operator opens it again. [spec:SP-6144]
-      session.stoppedAt = new Date(this.now()).toISOString()
-      // 'forced' is reserved for --force (work may be discarded); a plain
-      // operator/parent stop is an orderly park, labeled 'parent'. [spec:SP-6144]
-      session.stopReason = input.force
-        ? 'forced'
-        : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
-      this.rearmUnread(input.sessionId)
-      this.repository.persist(session, () =>
-        this.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
-      )
-      this.broadcastSessions()
-    } else if (session.status !== 'hibernated' && session.status !== 'exited') {
-      return { ok: false, reason: `cannot stop session in status '${session.status}'` }
-    }
-
-    // Free worktree only when no OTHER live session still uses the path —
-    // including sessions attached to a different issue but running in this
-    // worktree [spec:SP-9904]. Free BEFORE arming any kill so work completes
-    // while the agent is still alive; self-stop kill is armed only after the
-    // relay reply (finalizeDeferredStopKill), not via a timer.
-    let worktreeFreed = false
-    if (issueId && worktreePath) {
-      const stillUsing = liveSessionsUsingWorktree(
-        worktreePath,
-        this.listSessions(),
-        input.sessionId,
-      )
-      if (stillUsing.length === 0) {
-        const freed = await issues.freeWorktreeKeepBranch(
-          issueId,
-          input.principal ?? systemPrincipal('stop'),
-          {
-            force: input.force === true,
-          },
-        )
-        if (!freed.ok) {
-          if (wasRunning && !input.selfStop) this.killStoppedSession(session)
-          return {
-            ok: true,
-            reason: `session stopped but worktree not freed: ${freed.output}`,
-            worktreeFreed: false,
-            deferredKill: input.selfStop === true && wasRunning,
-          }
-        }
-        worktreeFreed = freed.worktreeFreed
-      }
-    }
-
-    // Peer/operator: kill now. Self-stop: hold the kill until the relay has
-    // delivered agentRelayResult (finalizeDeferredStopKill) [spec:SP-9904].
-    if (wasRunning && !input.selfStop) this.killStoppedSession(session)
-
-    return {
-      ok: true,
-      worktreeFreed,
-      deferredKill: input.selfStop === true && wasRunning,
-    }
+    return this.sessionTeardown.stopSession(input, issues)
   }
 
-  /** Immediate process kill for a session already parked by stop. */
-  private killStoppedSession(session: Session): void {
-    this.toMachine(session.machineId, {
-      type: 'kill',
-      sessionId: session.sessionId,
-      durableLabel: session.durableLabel,
-    })
-  }
-
-  /**
-   * Arm the process kill for a self-stop AFTER the relay reply has been sent
-   * [spec:SP-9904]. Called from AgentRelayGate once agentRelayResult is on the
-   * wire — not a fixed timer.
-   */
   finalizeDeferredStopKill(sessionId: SessionId): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    // Only kill if still parked from stop (hibernated/exited) — never a live row.
-    if (session.status !== 'hibernated' && session.status !== 'exited') return
-    this.killStoppedSession(session)
+    this.sessionTeardown.finalizeDeferredStopKill(sessionId)
   }
 
-  /**
-   * Stop every session on an issue, then free the issue worktree (keep branch)
-   * [spec:SP-9904].
-   */
   async stopIssue(
     input: {
       issueId: string
       force?: boolean
-      /** Session performing the stop (for self-stop deferral when it is a member). */
       callerSessionId?: string
-      /**
-       * Who asked for the stop (POD-1344). Stamped onto free-worktree audit
-       * comments. Absent only on genuinely caller-less paths — those fall back
-       * to `systemPrincipal('stop')`.
-       */
       principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
@@ -1754,79 +1039,9 @@ export class SessionLifecycle {
     worktreeFreed: boolean
     deferredKill?: boolean
   }> {
-    const issue = this.deps.issueAccess.getMeta(input.issueId)
-    if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
-    // sessionsForIssue matches on the canonical issue id; input.issueId may be a
-    // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
-    const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), issue.id)
-    const stopped: string[] = []
-    let deferredKill = false
-    const principal = input.principal ?? systemPrincipal('stop')
-    // Non-self members first (immediate kill). Self last so sibling stops + free
-    // finish before the caller's deferred kill is armed after the relay reply.
-    const ordered = [
-      ...members.filter((m) => m.sessionId !== input.callerSessionId),
-      ...members.filter((m) => m.sessionId === input.callerSessionId),
-    ]
-    for (const m of ordered) {
-      const r = await this.stopSession(
-        {
-          sessionId: m.sessionId,
-          force: input.force,
-          selfStop: input.callerSessionId === m.sessionId,
-          stopReason: input.force ? 'forced' : 'parent',
-          principal,
-        },
-        issues,
-      )
-      if (!r.ok) {
-        return {
-          ok: false,
-          reason: r.reason ?? `failed to stop session ${m.sessionId}`,
-          stopped,
-          worktreeFreed: false,
-        }
-      }
-      stopped.push(m.sessionId)
-      if (r.deferredKill) deferredKill = true
-    }
-    // Final free pass: only when no live cwd still uses the worktree (any issue).
-    let worktreeFreed = false
-    const current = this.deps.issueAccess.getMeta(input.issueId)
-    const wt = current?.worktreePath ?? null
-    if (wt) {
-      const stillUsing = liveSessionsUsingWorktree(wt, this.listSessions())
-      if (stillUsing.length === 0) {
-        const freed = await issues.freeWorktreeKeepBranch(input.issueId, principal, {
-          force: input.force === true,
-        })
-        if (!freed.ok) {
-          return {
-            ok: true,
-            reason: `sessions stopped but worktree not freed: ${freed.output}`,
-            stopped,
-            worktreeFreed: false,
-            ...(deferredKill ? { deferredKill: true } : {}),
-          }
-        }
-        worktreeFreed = freed.worktreeFreed
-      }
-    } else {
-      worktreeFreed = Boolean(current?.branch && !current.worktreePath)
-    }
-    return {
-      ok: true,
-      stopped,
-      worktreeFreed,
-      ...(deferredKill ? { deferredKill: true } : {}),
-    }
+    return this.sessionTeardown.stopIssue(input, issues)
   }
 
-  /**
-   * Whether this session has a valid, unconsumed terminal proof. Delegates to
-   * {@link SessionTerminalProof}; kept here because `relay.ts` and the hosts
-   * module reach it through this service's public surface.
-   */
   hasValidTerminalProof(sessionId: SessionId): boolean {
     return this.terminalProof.hasValidProof(sessionId)
   }
@@ -1836,116 +1051,26 @@ export class SessionLifecycle {
   }
 
   /**
-   * Park a live session: kill its process (and durable host) but keep the row,
-   * its transcript, and the resume ref. One click brings it back. Returns false
-   * when the session can't come back later (no resume ref) — we refuse rather
-   * than silently turn "hibernate" into "kill".
+   * Park a live session: kill process, keep row/transcript/resume ref.
+   * Survival table lives on SessionTeardown; terminal proof is only read there.
    */
-  hibernateSession({
-    sessionId,
-    requireTerminalProof = false,
-  }: {
+  hibernateSession(input: {
     sessionId: SessionId
     requireTerminalProof?: boolean
   }): { ok: boolean; reason?: string } {
-    const session = this.sessions.get(sessionId)
-    if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status !== 'live' && session.status !== 'reconnecting')
-      return { ok: false, reason: 'not running' }
-    if (!session.resume) {
-      return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
-    }
-    // Never park an agent mid-work: hibernation kills the process, and a
-    // working/compacting agent would lose its in-flight turn. Auto-hibernation
-    // already filters to idle/ended; enforcing it here makes the primitive (and
-    // the manual hibernate button) safe regardless of caller.
-    const phase = session.agentState?.phase
-    if (phase === 'working' || phase === 'compacting') {
-      return { ok: false, reason: 'agent is working — let it reach idle first' }
-    }
-    const lease = requireTerminalProof ? this.store.observationCheckpoints.get(sessionId) : null
-    const facts = lease ? this.terminalProof.facts(session, lease) : null
-    if (requireTerminalProof) {
-      if (!facts || !this.terminalProof.consumable(facts)) {
-        return { ok: false, reason: 'terminal state is not safely reapable' }
-      }
-      const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
-      if (
-        !proof?.confirmedAt ||
-        proof.consumedAt ||
-        JSON.stringify(proof.facts) !== JSON.stringify(facts)
-      ) {
-        return { ok: false, reason: 'terminal state has not passed live revalidation' }
-      }
-    }
-    const runningStatus = session.status
-    session.status = 'hibernated'
-    const consumedAt = new Date(this.now()).toISOString()
-    try {
-      this.repository.persist(
-        session,
-        facts
-          ? () => {
-              const currentLease = this.store.observationCheckpoints.get(sessionId)
-              const currentFacts = currentLease
-                ? this.terminalProof.facts(session, currentLease)
-                : null
-              if (
-                !currentFacts ||
-                JSON.stringify(currentFacts) !== JSON.stringify(facts) ||
-                !this.store.observationCheckpoints.consumeTerminalCandidate(
-                  currentFacts,
-                  consumedAt,
-                )
-              ) {
-                throw new Error('terminal proof changed before hibernation')
-              }
-            }
-          : undefined,
-      )
-    } catch (error) {
-      // `persist` restores its captured durable state on any transaction error;
-      // keep this lifecycle primitive independently correct even when a caller or
-      // test supplies a store without a prior capture.
-      session.status = runningStatus
-      if (error instanceof Error && error.message === 'terminal proof changed before hibernation') {
-        return { ok: false, reason: error.message }
-      }
-      throw error
-    }
-    this.autoContinue.onSessionGone(sessionId)
-    this.toMachine(session.machineId, {
-      type: 'kill',
-      sessionId,
-      ...(session ? { durableLabel: session.durableLabel } : {}),
-    })
-    this.broadcastSessions()
-    return { ok: true }
+    return this.sessionTeardown.hibernateSession(input)
   }
 
   /**
    * Move one resumable worktree session to another machine ([spec:SP-3f7a]).
-   *
-   * THE COMPOSITION ROOT for the `sessions.handoff` command (POD-642). The
-   * choreography, the `use`-verb gate on both machines, the apply-time
-   * re-authorization and the single-flight idempotency live in
-   * {@link HandoffCoordinator}; this method's whole job is to build that
-   * coordinator's ports out of this service and hand it the transport caller.
-   *
-   * `caller` DEFAULTS TO THE OPERATOR, and that default is a legacy seam with
-   * exactly one justification: `sessions.handoff` is exposed on `trpc` only, and
-   * "every HTTP caller is the OPERATOR today" (the router context says so). So
-   * the default states today's truth rather than inventing an ambient identity —
-   * and it is deliberately NOT inside the coordinator, which refuses a call with
-   * no caller at all (ADR 3 D7 fail-closed). When POD-381's `command-ctx`
-   * resolves a real principal per transport, this parameter is what it fills.
+   * Composition root for `sessions.handoff` — see SessionRevival.
    */
   handoffSession(
     input: { sessionId: SessionId; machineId: string },
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return this.handoffs(issues).handoff(input, caller, this.machineUseGate(caller))
+    return this.sessionRevival.handoffSession(input, caller, issues)
   }
 
   /**
@@ -1961,6 +1086,9 @@ export class SessionLifecycle {
    *
    * A factory of a gate, not a gate: it must re-read rights on every call, because
    * the coordinator calls it again at each apply point.
+   *
+   * Stays on SessionLifecycle (not SessionRevival): it is an authorization seam,
+   * not a revival concern.
    */
   machineUseGate: (caller: HandoffCaller) => AssertMachineUse = (caller) =>
     machineUseGateForCapability({
@@ -1978,170 +1106,25 @@ export class SessionLifecycle {
       ownership: ownershipFromMachines(this.machines),
     })
 
-  /**
-   * ONE coordinator for the life of this service, not one per call: its
-   * single-flight map is the thing that stops a duplicate dispatch from forking
-   * the session, and a per-call coordinator would start every dispatch with an
-   * empty map — a guard that still looked implemented.
-   */
-  private handoffs(issues: SessionIssueWorkflowPort): HandoffCoordinator {
-    if (this.handoffCoordinator) return this.handoffCoordinator
-    const ports: HandoffPorts = {
-      rpc: this.rpc,
-      getSession: (sessionId) => this.sessions.get(sessionId),
-      listSessions: () =>
-        this.listSessions().map((meta) => ({
-          sessionId: meta.sessionId,
-          machineId: meta.machineId ?? '',
-          cwd: meta.cwd,
-          status: meta.status,
-        })),
-      listRepos: () => this.store.repos.listRepos(),
-      listMachines: () => this.machines.listMachines(),
-      issueMeta: (issueId) => this.deps.issueAccess.getMeta(issueId) ?? undefined,
-      rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
-      ensureTargetRepo: (sourceRepo, targetMachineId) =>
-        this.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
-      persist: (session) => this.repository.persist(session),
-      mutateSessionView: (sessionId, mutate) => {
-        this.repository.mutateSessionView(sessionId, mutate)
-      },
-      broadcastSessions: () => this.broadcastSessions(),
-      onSessionGone: (sessionId) => this.autoContinue.onSessionGone(sessionId),
-      toMachine: (machineId, message) => this.toMachine(machineId, message),
-      onWorktreesChanged: (repoPath, machineId) =>
-        this.deps.onWorktreesChanged(repoPath, machineId),
-      resumeSession: (resumeInput) => this.resumeSession(resumeInput, issues),
-      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput, issues),
-      recordEvent: (event) => {
-        this.store.events.appendEvent(event)
-      },
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    }
-    this.handoffCoordinator = new HandoffCoordinator(ports)
-    return this.handoffCoordinator
-  }
-
-  /** Wake a hibernated session: respawn under the same id with its resume ref.
-   *  If stop freed the worktree, recreates it from the preserved branch first
-   *  [spec:SP-9904]. */
+  /** Wake a hibernated/exited session under the same id [spec:SP-9904]. */
   resurrectSession(
-    {
-      sessionId,
-      adoptedBinding,
-    }: {
+    input: {
       sessionId: SessionId
       adoptedBinding?: SessionBindingAdoptLaunchInstruction
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: boolean; reason?: string }> {
-    const session = this.sessions.get(sessionId)
-    if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
-    // Hibernated (parked on purpose) and exited (process died or was killed
-    // externally) are the same situation here: no process, but the row and the
-    // resume ref are intact — both come back with one spawn.
-    if (session.status !== 'hibernated' && session.status !== 'exited') {
-      return Promise.resolve({ ok: false, reason: 'process still running' })
-    }
-    // A shell has no conversation to lose — a fresh spawn in the same cwd IS
-    // full recovery, so it never needs a resume ref. Agents do: respawning one
-    // without its ref would silently discard the conversation.
-    if (session.agentKind !== 'shell' && !session.resume) {
-      return Promise.resolve({ ok: false, reason: 'no resume ref' })
-    }
-
-    // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
-    // so the agent has a real cwd. Transcript inspection does not need this.
-    // The common hibernate→wake path resolves synchronously, and the spawn
-    // must too: queueText fire-and-forgets this call and its callers rely on
-    // the spawn being on the wire before queueText returns [POD-197].
-    const ensured = this.workspace.ensureSessionWorktree(session, issues)
-    if (ensured instanceof Promise) {
-      return ensured.then((e) => this.finishResurrect(session, e, adoptedBinding))
-    }
-    return Promise.resolve(this.finishResurrect(session, ensured, adoptedBinding))
+    return this.sessionRevival.resurrectSession(input, issues)
   }
 
-  private finishResurrect(
-    session: Session,
-    ensured: { ok: boolean; reason?: string; cwd?: string },
-    adoptedBinding?: SessionBindingAdoptLaunchInstruction,
-  ): { ok: boolean; reason?: string } {
-    const sessionId = session.sessionId
-    if (!ensured.ok) return { ok: false, reason: ensured.reason }
-    if (ensured.cwd && ensured.cwd !== session.cwd) {
-      session.cwd = ensured.cwd
-    }
-
-    const preparedInstructions = this.deps.instructionsForStart({
-      sessionId,
-      cwd: session.cwd,
-      agentKind: session.agentKind,
-      ...(session.issueId ? { issueId: session.issueId } : {}),
-      existingOnly: true,
-    })
-    session.status = 'starting'
-    session.exitCode = undefined
-    // Waking a session resets its hibernation idle timer — otherwise a stale
-    // lastActiveAt makes it immediately eligible to be parked again.
-    session.markResumed()
-    this.repository.persist(session)
-    const observationLease = this.terminalProof.fence(session)
-    this.toMachine(session.machineId, {
-      type: 'spawn',
-      sessionId,
-      durableLabel: session.durableLabel,
-      agentKind: session.agentKind,
-      cwd: session.cwd,
-      ...(adoptedBinding ? { adoptedBinding } : {}),
-      ...(observationLease
-        ? {
-            observationGeneration: observationLease.observationGeneration,
-            observationBindingVersion: observationLease.bindingVersion,
-            observationProviderSessionId: observationLease.providerSessionId,
-            ...(observationLease.checkpoint
-              ? { observationCheckpoint: observationLease.checkpoint }
-              : {}),
-          }
-        : {}),
-      ...(session.resume ? { resume: session.resume } : {}),
-      ...(preparedInstructions.instructions.length
-        ? { instructions: preparedInstructions.instructions }
-        : {}),
-      geometry: session.terminal.geometry,
-      ...this.launchConfig.modelDefaults(session.agentKind),
-      ...this.launchConfig.accountEnv(session.agentKind, session.accountId),
-      ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
-    })
-    preparedInstructions.commit()
-    this.broadcastSessions()
-    return { ok: true }
-  }
-
-  /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
-   *  archive), reap its draft issue if the draft is now empty — draft, no
-   *  worktree, no children, and every attached session dead (exited/archived) or
-   *  gone. Hibernation does NOT land here via a dead status ('hibernated' blocks
-   *  the reap inside reapIfEmptyDraft), so a parked draft survives. */
   private maybeReapDraftIssue(issueId: string | null | undefined): void {
-    if (!issueId) return
-    try {
-      this.bus.emit('issue.sessionDerived', { kind: 'reapDraft', issueId })
-    } catch (err) {
-      console.warn(`[podium:issues] draft-issue reap failed for ${issueId}:`, err)
-    }
+    this.sessionTeardown.maybeReapDraftIssue(issueId)
   }
 
-  /** Durable transition for removing a local session. POD-309 removed the second
-   *  spec this used to push: a retained hub-mirror entry colliding on the same id was
-   *  revealed in the same ordered append. There is no mirror to reveal any more. */
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
-    return [{ entity: 'session', id: sessionId, op: 'remove' }]
+    return this.sessionTeardown.sessionRemovalSpecs(sessionId)
   }
 
-  /** Prepare deletion of every LOCAL session belonging to an issue. The caller
-   *  commits `write` + `changes` together with the issue tombstone, then invokes
-   *  `apply` only after that durable transaction succeeds. */
   prepareIssueSessionDelete(issueId: string, worktreePath: string | null): SessionDeletePlan {
     const localMetas = [...this.sessions.values()].map((s) =>
       s.toMeta(this.view.overlay(s.sessionId)),
@@ -2195,126 +1178,25 @@ export class SessionLifecycle {
     }
   }
 
-  /** Runtime half of a durable session removal. Issue-owned tombstones can be
-   * restored and therefore use generic process kill; standalone deletion is
-   * terminal and emits the distinct binding-retirement instruction. */
+  /** Runtime half of a durable session removal. */
   private removeSessionRuntime(
     sessionId: SessionId,
     terminalRetirement?: { retiredAt: string },
   ): void {
-    const session = this.sessions.get(sessionId)
-    // The issues service owns the per-session Git attribution ledger. Notify it
-    // while membership/cwd are still resolvable, before this removal.
-    this.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
-
-    this.toMachine(
-      // The live Session is the truth while it exists; after it is dropped the durable
-      // row still names the machine that ran it, and only a session with neither gets
-      // the fleet default. Every arm is a machine some daemon actually answers to.
-      session?.machineId ??
-        this.store.sessions.getSession(sessionId)?.machineId ??
-        this.machines.defaultMachine(),
-      terminalRetirement
-        ? {
-            type: 'sessionBindingRetire',
-            sessionId,
-            transitionId: `retire:${sessionId}`,
-            retiredAt: terminalRetirement.retiredAt,
-            ...(session ? { durableLabel: session.durableLabel } : {}),
-          }
-        : {
-            type: 'kill',
-            sessionId,
-            ...(session ? { durableLabel: session.durableLabel } : {}),
-          },
-    )
-    this.autoContinue.onSessionGone(sessionId)
-    session?.terminal.detachAll()
-    this.sessions.delete(sessionId)
-    this.state.removeSession(sessionId)
-    this.daemonProjection.disposeTitle(sessionId)
-    for (const c of this.clients.values()) c.attached.delete(sessionId)
-    this.repository.forget(sessionId)
+    this.sessionTeardown.removeSessionRuntime(sessionId, terminalRetirement)
   }
 
   killSession(input: { sessionId: SessionId }): void {
-    const session = this.sessions.get(input.sessionId)
-    // Capture before the row is tombstoned — the reap after cleanup needs it.
-    const issueId = session?.issueId
-    const deletedAt = new Date(this.now()).toISOString()
-    // The remove change commits in the SAME transaction as the tombstone (and
-    // the queued-send cleanup — a killed session can never deliver, so its rows
-    // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
-    // durable change log can never say something the sessions table doesn't.
-    // Durable tombstone FIRST, live teardown after (#247): a commit throw leaves
-    // the session fully alive — still in the map, clients attached, PTY not
-    // signalled — and propagates to the caller, instead of tearing down live
-    // state for a row the rolled-back transaction still holds.
-    const { changes } = this.deps.ledger.commit({
-      write: () => {
-        this.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
-        this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
-      },
-      changes: () => this.sessionRemovalSpecs(input.sessionId),
-    })
-    this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
-    this.repository.publishSessionProjection(changes)
-    this.broadcastSessions()
-    // The killed session may have been the last living occupant of an empty
-    // draft issue — reap the vessel so "x" doesn't leak orphaned Drafts.
-    this.maybeReapDraftIssue(issueId)
-    // Session-death notification [spec:SP-85d1] (lock auto-release et al.): a
-    // kill deletes the row from the map BEFORE the daemon's agentExit arrives,
-    // so the agentExit-path emit would be skipped — fire it here. killSession
-    // is never the hibernate path (hibernateSession only flips status).
-    // Capture spawnedBy before the row is gone so the steward can still resolve
-    // a session-spawner parent wake (POD-904 / exit-without-report).
-    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
+    this.sessionTeardown.killSession(input)
   }
 
-  /**
-   * Real process death: bus fan-out (locks, messaging) AND a durable
-   * `session.exited` row for the steward's session-parent wake (POD-904).
-   * Hibernate does not land here. Best-effort log write — a store throw must
-   * not undo the exit side-effects already applied.
-   */
   private emitSessionExited(
     sessionId: SessionId,
     code: number,
     spawnedBy?: string | null,
-    sourceSession: Session | undefined = this.sessions.get(sessionId),
+    sourceSession?: Session,
   ): void {
-    const session = sourceSession
-    const lease = this.store.observationCheckpoints.get(sessionId)
-    const fence = lease?.checkpoint?.terminalFence
-    const candidate = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
-    // A fence suppresses the fixed steward exit fallback only while it still
-    // describes the latest causal input. Historical/mixed-version fences without
-    // their matching durable candidate, or a prompt sent after the fence, must let
-    // the crash surface as a real exit.
-    const terminalFenceReported = Boolean(
-      session &&
-        fence &&
-        !fence.closing &&
-        candidate &&
-        candidate.facts.terminalTransitionId === fence.transitionId &&
-        candidate.facts.inputCount === session.terminal.inputCount,
-    )
-    this.bus.emit('session.exited', { sessionId, code })
-    try {
-      this.store.events.appendEvent({
-        ts: new Date(this.now()).toISOString(),
-        kind: 'session.exited',
-        subject: sessionId,
-        payload: {
-          code,
-          ...(terminalFenceReported ? { terminalFenceReported: true } : {}),
-          ...(spawnedBy ? { spawnedBy } : {}),
-        },
-      })
-    } catch {
-      // Durable log is best-effort; bus subscribers already ran.
-    }
+    this.sessionTeardown.emitSessionExited(sessionId, code, spawnedBy, sourceSession)
   }
 
   private spawn(input: Parameters<SessionStart['spawn']>[0]): SessionSpawnResult {
