@@ -16,6 +16,7 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
+import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
@@ -30,20 +31,13 @@ export type MachineUseResolver = (machineId: string) => MachineUseDecision
 /**
  * A machine row with the calling principal's `use` decision attached.
  *
- * NOT on `MachineWire` itself, and that is deliberate: `packages/model`'s
- * machine entity says in its own header that no `owner`, `visibility` or `grant`
- * field may land there yet — those are POD-1075's model types and POD-1071's
- * matrix columns, and adding one would break the byte-identical wire contract
- * that made the Phase-1 move provable. A per-principal decision is the same
- * class of field.
+ * `MachineWire.use` is optional because raw internal inventory has no principal
+ * to evaluate. Ownership and grant rows remain server-only policy inputs.
  *
- * So the decision is a SERVER-SIDE annotation today. It reaches every server
- * consumer that enforces it (`requireAgent`, `resolveMachineForAgent`, and
- * through them `agentCapabilityRejection`), and it does NOT survive the wire
- * until the schema carries it — which is POD-1079's, with the projection this
- * type already shapes.
+ * Authenticated list and live-update boundaries always supply the decision, so
+ * consumers distinguish denial from reachability before reading inventory.
  */
-export type MachineListing = MachineWire & { use?: MachineUseDecision }
+export type MachineListing = MachineWire
 
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 export function sha256(s: string): string {
@@ -104,7 +98,9 @@ export interface MachinesDeps {
   /** Compatibility-only for isolated fixtures without a bus. */
   sessionsChangedForMachine?(machineId: string): void
   /** Connected client fan-out (machinesChanged). */
-  clients(): Iterable<{ send(msg: ServerMessage): void }>
+  clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
+  /** Principal-scoped projection supplied by the command-policy composition boundary. */
+  machinesForPrincipal(principal: ClientPrincipal, machines: MachinesService): MachineListing[]
 }
 
 /**
@@ -618,7 +614,12 @@ export class MachinesService {
 
   broadcastMachines(): void {
     // Classified live-only (@podium/protocol message-class): re-served in full on attach.
-    const msg: LiveServerMessage = { type: 'machinesChanged', machines: this.listMachines() }
-    for (const c of this.deps.clients()) c.send(msg)
+    for (const c of this.deps.clients()) {
+      const msg: LiveServerMessage = {
+        type: 'machinesChanged',
+        machines: this.deps.machinesForPrincipal(c.principal, this),
+      }
+      c.send(msg)
+    }
   }
 }
