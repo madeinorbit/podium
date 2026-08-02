@@ -7,19 +7,19 @@
 
 import type { TransportTag } from '@podium/commands'
 import { z } from 'zod'
-import type { PerfRegistry } from './registry'
+import type { PerfState } from './commands'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
 export interface PerfQuery<In extends z.ZodTypeAny, Out> {
   readonly input: In
   readonly exposure: readonly TransportTag[]
-  readonly run: (service: PerfRegistry, input: z.infer<In>) => Out
+  readonly run: (state: PerfState, input: z.infer<In>) => Out
 }
 
 const query = <In extends z.ZodTypeAny, Out>(
   input: In,
-  run: (service: PerfRegistry, input: z.infer<In>) => Out,
+  run: (state: PerfState, input: z.infer<In>) => Out,
 ): PerfQuery<In, Out> => ({ input, exposure: SERVED_ON, run })
 
 /** `.passthrough()` rather than a strict empty object: the shipped procedure had
@@ -30,7 +30,7 @@ const noInput = z.object({}).passthrough().optional()
 export const PERF_QUERIES = {
   /** Rolling server-side timings — every rpc via the trpc.ts middleware, plus the
    *  named internal phases and the client switch-trace ring [POD-701]. */
-  snapshot: query(noInput, (service) => service.snapshot()),
+  snapshot: query(noInput, (state) => state.perf.snapshot()),
 } as const
 
 export type PerfQueryName = keyof typeof PERF_QUERIES

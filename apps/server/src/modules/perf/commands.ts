@@ -7,6 +7,21 @@
  * PerfRegistry itself — the switch-latency ring [POD-701]. Two different things
  * called "registry" in one directory is how a reader ends up importing the wrong
  * one, so the newcomer yields the name.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SERVICE BUNDLE CARRIES THE TRANSPORT PRINCIPAL (POD-1230)
+ * ---------------------------------------------------------------------------
+ *
+ * `perf.report` used to call `pushClientTrace(…, DEPLOYMENT)` because the handler
+ * only saw the registry and /trpc was assumed to have no principal. That was
+ * true when this table was written; it is not true now.
+ *
+ * `FamilyState.feedPrincipal` is already derived from the authenticated cookie
+ * principal (`derived-family.ts` → `requestPrincipal` in `server.ts`). Handing
+ * it here is the same pattern `files` uses for a multi-member selector: the
+ * widening is VISIBLE on the family, the handler never sees a `ctx`, and the
+ * attribution cannot come from the trace payload (ADR 3 Am1 D17). A client that
+ * forges another session's id in the body still lands on ITS OWN partition.
  */
 
 import {
@@ -17,10 +32,23 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
+import type { FeedPrincipal } from '@podium/sync'
 import type { z } from 'zod'
-import { DEPLOYMENT, type PerfRegistry } from './registry'
+import type { PerfRegistry } from './registry'
+import { perfPrincipal } from './principal'
 
-export type PerfHandler<In, Out> = (svc: PerfRegistry, input: In) => Out
+/**
+ * Exactly what the perf family reaches. `feedPrincipal` is the transport-
+ * derived feed identity for this /trpc call — the same key the feed serving
+ * path uses — or absent when the caller is not a user/agent (there is no
+ * honest partition for a system principal's "switch trace").
+ */
+export interface PerfState {
+  readonly perf: PerfRegistry
+  readonly feedPrincipal?: FeedPrincipal
+}
+
+export type PerfHandler<In, Out> = (state: PerfState, input: In) => Out
 
 export interface PerfCommand {
   readonly contract: AnyCommandContract
@@ -32,16 +60,14 @@ export interface PerfCommand {
 export const PERF_COMMANDS_TRPC = {
   report: {
     contract: PERF_CONTRACTS.report,
-    handler: ((svc, input) => {
-      // DEPLOYMENT, and it is the honest answer rather than the convenient one
-      // [POD-736]. `perf.report` arrives over /trpc, which mints OPERATOR for
-      // every caller and carries no per-connection principal; the only other
-      // candidate is the trace's own `sessionId`, and attributing by payload is
-      // what lets one client write into another principal's partition. So the
-      // trace lands in the deployment-wide ring exactly as it always has, and the
-      // gap is recorded rather than closed by a guess — see the discovered issue
-      // filed against this seam, and `PerfRegistry.pushClientTrace`.
-      svc.pushClientTrace(input, DEPLOYMENT)
+    handler: ((state, input) => {
+      // Transport principal only. The trace carries sessionId/issueId and those
+      // MUST NOT decide the partition — a client could otherwise write into
+      // another principal's ring (ADR 3 Am1 D17; POD-1230).
+      if (state.feedPrincipal === undefined) {
+        throw new Error('authenticated feed principal required to report a client switch trace')
+      }
+      state.perf.pushClientTrace(input, perfPrincipal(state.feedPrincipal))
       // Live visibility, MOVED VERBATIM from the router procedure it replaces:
       // one compact line per reported switch with the three slowest gaps between
       // consecutive marks (offsets are relative to t0). Kept because operators
@@ -71,8 +97,8 @@ export const PERF_COMMANDS_TRPC = {
   },
   reset: {
     contract: PERF_CONTRACTS.reset,
-    handler: ((svc) => {
-      svc.reset()
+    handler: ((state) => {
+      state.perf.reset()
       return { ok: true as const }
     }) satisfies PerfHandler<z.infer<(typeof PERF_CONTRACTS)['reset']['input']>, unknown>,
   },

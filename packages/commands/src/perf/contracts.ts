@@ -26,8 +26,10 @@
  *
  * So the class below is `deployment-substrate`, declared, with the reasoning:
  * ADR 9 D3 rule 1 — a property of the DEPLOYMENT rather than of a person. The
- * ring aggregates every principal's switches on this server; there is no per-user
- * partition of it, and there could not be one without changing what it measures.
+ * registry keeps a deployment-wide ring (what `perf.snapshot` serves) AND
+ * per-principal partitions (what `snapshotFor` serves). The snapshot read still
+ * names the deployment, not one person — the partitions do not change what the
+ * admin-grade read measures.
  *
  * The missing matrix row is reported as discovered work rather than added here:
  * the matrix is ADR 1's and its totality test is POD-304/POD-1071's, so a router
@@ -104,12 +106,14 @@ const PERF_REDACTION: RedactionPolicy = {
  * `not-applicable` on the actor half, which is the honest answer and not a gap.
  *
  * ADR 3 Amendment 1 D17's rule is that attribution is a PAIR and neither half may
- * come from payload. It does not require every command to HAVE one: this writes a
- * deployment-wide diagnostic ring with no per-principal partition and no durable
- * row, so there is no accountability record for a principal to be stamped into.
- * `onBehalfOf: 'none-representable'` follows, and the classification lint checks
- * the combination that would be incoherent — a human with no actor — rather than
- * this one.
+ * come from payload. It does not require every command to HAVE one: this writes an
+ * in-memory diagnostic ring with no durable accountability row, so there is nothing
+ * for a principal to be stamped into. The *perf partition* a report lands in is a
+ * separate concern — that key is the transport-derived feed principal at the
+ * handler (POD-1230), never a field of the trace body, and never this policy's
+ * actor/onBehalfOf pair. `onBehalfOf: 'none-representable'` follows, and the
+ * classification lint checks the combination that would be incoherent — a human
+ * with no actor — rather than this one.
  */
 const PERF_ATTRIBUTION: AttributionPolicy = {
   actor: 'not-applicable',
@@ -117,11 +121,12 @@ const PERF_ATTRIBUTION: AttributionPolicy = {
   wirePlacement: 'not-on-the-wire',
   reservedWireKeys: [],
   rationale:
-    'Deliberately no pair. The ring is deployment-wide, in-memory and has no per-principal ' +
-    'partition and no durable row, so there is no accountability record to stamp — D17 forbids ' +
-    'attribution coming from payload, it does not require a command that records nothing to invent ' +
-    'a principal. Stated rather than left off, so "this command has no attribution" and "the author ' +
-    'forgot the field" cannot look alike.',
+    'Deliberately no accountability pair. The ring is in-memory and has no durable row, so ' +
+    'there is no audit record to stamp — D17 forbids attribution coming from payload, it does ' +
+    'not require a diagnostic sample to invent an actor. The sample still partitions by the ' +
+    'transport-derived feed principal at the report seam (POD-1230); that is a selection key, ' +
+    'not this policy field. Stated rather than left off, so "this command has no attribution" ' +
+    'and "the author forgot the field" cannot look alike.',
 }
 
 /** Neither takes a caller-supplied target id: `report` addresses no row and
