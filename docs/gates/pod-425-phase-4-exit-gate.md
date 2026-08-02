@@ -131,12 +131,14 @@ The worker's `--write` re-run was bit-identical and added only the 72-line evide
 typecheck 22/22 and no ambient-principal change. Thus current composition documents are proven
 current; only the historical candidate result remains red.
 
-POD-1389 is likewise **cleared against current integration**. Fix `98e3dd5e` builds
-`@podium/model` before `@podium/protocol` in both Playwright configs, and current integration
-`c9ff372f` contains that commit with both configs byte-identical. Its source-level configuration
-guard inspects both commands rather than existing `dist` state and passes in the reported
-1-file/13-test lane. A detached cold checkout began with model/protocol/web/mobile outputs absent;
-the exact authenticated restart command rebuilt all four and passed 1 Chromium test with 0 skipped,
+POD-1389 is likewise **cleared against current integration**. Fix `98e3dd5e`, authored under
+POD-1356 and landed at `c9ff372f`, builds `@podium/model` before `@podium/protocol` in both
+Playwright configs. The merged source-level guard inspects command order rather than existing
+`dist` state and passes 1 file/12 tests. The POD-279 coordinator then removed the model build from
+the real Playwright config, grep-confirmed its absence, and the same guard refused at 1 failed/11
+passed; restoration left zero dirty files. A detached cold checkout began with
+model/protocol/web/mobile outputs absent; the exact authenticated restart command rebuilt all four
+and passed 1 Chromium test with 0 skipped,
 unchanged 180-second timeout, complete port/state/PID cleanup, and live-config mtime `1785661627`.
 The first cold attempt built all outputs but timed out waiting for health at host load 81; the
 unchanged retry passed at load about 49, so the first timeout is correctly attributed to host load,
