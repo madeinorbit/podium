@@ -1,5 +1,16 @@
 import type { ControlMessage } from './control'
 import type { DaemonMessage } from './daemon'
+import type { PeerHello, PeerHelloReply } from '../handshake/envelope'
+
+export type LocalDaemonAttachment =
+  | { readonly established: false; readonly reply: PeerHelloReply }
+  | {
+      readonly established: true
+      readonly reply: PeerHelloReply
+      readonly machineId: string
+      deliver(msg: DaemonMessage): void
+      close(): void
+    }
 
 /**
  * In-process daemon↔server link for all-in-one mode [POD-196].
@@ -17,13 +28,10 @@ import type { DaemonMessage } from './daemon'
  *   effect; callers must not rely on that.
  * - Delivery is async (microtask): a `deliver` call never re-enters the
  *   sender's stack, mirroring the ordering the socket transport implied.
- * - `attach` performs the equivalent of a successful local handshake: the
- *   server registers the local machine's daemon socket; `close` detaches it.
+ * - `attach` RUNS the common machine handshake over the supplied hello. Being
+ *   in-process is a transport optimization, never a local-credential trust
+ *   shortcut (ADR 9 D6 M4). Only an established reply exposes delivery.
  */
 export interface LocalDaemonLink {
-  attach(opts: { deliver: (msg: ControlMessage) => void }): {
-    machineId: string
-    deliver(msg: DaemonMessage): void
-    close(): void
-  }
+  attach(opts: { hello: PeerHello; deliver: (msg: ControlMessage) => void }): LocalDaemonAttachment
 }
