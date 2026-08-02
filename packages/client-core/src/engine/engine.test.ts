@@ -599,6 +599,45 @@ describe('unified optimistic overlay (#263)', () => {
     engine.dispose()
   })
 
+  it('treats a revision reject as rollback, then repaints after an explicit rebase', async () => {
+    const api = makeApi()
+    let attempts = 0
+    api.sessions.rename.mutate = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) {
+        throw Object.assign(new Error('stale revision'), {
+          data: { code: 'CONFLICT', httpStatus: 409 },
+        })
+      }
+      throw new Error('network down after rebase')
+    })
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'rebased')
+    expect(nameOf(engine, 's1')).toBe('rebased')
+    await settle()
+
+    const [parked] = engine.getSnapshot().outboxDeadLetters
+    expect(parked?.reason).toEqual({ code: 'conflict' })
+    expect(nameOf(engine, 's1')).toBeUndefined()
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+
+    engine
+      .getSnapshot()
+      .recoverOutbox.retry(parked!.entry.mutationId, { expectedRevision: 2 })
+    expect(engine.getSnapshot().outboxDeadLetters).toEqual([])
+    expect(nameOf(engine, 's1')).toBe('rebased')
+    await settle()
+    expect(attempts).toBe(2)
+    expect(nameOf(engine, 's1')).toBe('rebased')
+    expect(engine.getSnapshot().outboxSize).toBe(1)
+    engine.dispose()
+  })
+
   it('a queued offline write keeps painting after a reload (fresh engine, same storage)', async () => {
     const storage = memoryStorage()
     const api = makeApi()
@@ -922,6 +961,30 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     api.sessions.resumeAndSend = { mutate: vi.fn(async () => ({})) }
     return api
   }
+
+  it.each(['unauthorized', 'unreachable'] as const)(
+    'refuses %s placement before optimistic rows are painted',
+    (placement) => {
+      const { engine } = makeEngine({ api: spawnApi() })
+      const before = engine.getSnapshot()
+
+      expect(() =>
+        engine.getSnapshot().spawnDraftAgent({
+          target: {
+            path: '/w',
+            repoPath: '/w',
+            machineId: 'machine-1',
+            placement,
+          },
+          agentKind: 'claude-code',
+        }),
+      ).toThrow(placement === 'unauthorized' ? /not authorized/ : /unreachable/)
+
+      expect(engine.getSnapshot().sessions).toEqual(before.sessions)
+      expect(engine.getSnapshot().issues).toEqual(before.issues)
+      engine.dispose()
+    },
+  )
 
   it('a failure AFTER the session row landed is success: no toast, no rollback', async () => {
     const api = spawnApi()

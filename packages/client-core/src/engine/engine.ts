@@ -53,7 +53,7 @@ import {
 } from '../router'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
-import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
+import { assertSpawnPlacement, createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
   type DockTab,
@@ -1388,6 +1388,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     agentKind: AgentKind
     firstPrompt?: string
   }): { sessionId: SessionId; issueId: IssueId } {
+    // Machine USE is a code-execution boundary. Refuse before minting ids or
+    // painting optimistic rows: a forbidden target must never appear as a
+    // temporarily-created session/issue while the async network seam rejects.
+    assertSpawnPlacement(args.target)
     const sessionId = asSessionId(randomUUID())
     const issueId = asIssueId(`iss_${randomUUID()}`)
     const nowIso = new Date().toISOString()
