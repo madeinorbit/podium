@@ -32,6 +32,9 @@ merged POD-327 candidate lineage:
   `2026-08-02T13:08:44Z` with a five-second-fresh contact and `NRestarts=0`. The exact candidate is
   retained on vmi as `~/.local/share/podium/podium-cli.pod327-5d814dd5` for the valid retry.
 
+The complete monitor and journal capture is retained at
+`docs/evidence/pod-327/failed-soak-preflight-2026-08-02.log`.
+
 A valid boundary may be recorded only after the live server runs the candidate lineage (or a
 documented compatible deployed SHA), the exact candidate daemon is installed, authenticated
 contact advances, and the pinned workload starts successfully. That shared-server deployment is
