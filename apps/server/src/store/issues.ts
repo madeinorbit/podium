@@ -32,7 +32,12 @@ export class IssuesRepository {
   ) {}
 
   upsertIssue(row: IssueRow): void {
-    if (!row.ownerUserId || !row.visibility || !row.createdByActor || row.createdByOnBehalfOf === undefined) {
+    if (
+      !row.ownerUserId ||
+      !row.visibility ||
+      !row.createdByActor ||
+      row.createdByOnBehalfOf === undefined
+    ) {
       throw new Error(`upsertIssue: complete ownership attribution is required for ${row.id}`)
     }
     // Strict on write: stage is a load-bearing enum (the board column + zod-validated
@@ -647,15 +652,14 @@ export class IssuesRepository {
   ): { issueId: string; body: string; createdAt: string }[] {
     const q = query.trim()
     if (!q) return []
-    const escaped = "%" + q.replace(/[\%_]/g, (c) => "\\" + c) + "%"
+    const escaped = '%' + q.replace(/[\%_]/g, (c) => '\\' + c) + '%'
     const base = `SELECT issue_id, body, created_at FROM issue_comments
       WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC`
-    const rows = (limit === null
-      ? this.db.prepare(base).all(escaped)
-      : this.db.prepare(`${base} LIMIT ?`).all(
-          escaped,
-          Math.min(200, Math.max(1, limit)),
-        )) as Record<string, unknown>[]
+    const rows = (
+      limit === null
+        ? this.db.prepare(base).all(escaped)
+        : this.db.prepare(`${base} LIMIT ?`).all(escaped, Math.min(200, Math.max(1, limit)))
+    ) as Record<string, unknown>[]
     return rows.map((r) => ({
       issueId: r.issue_id as string,
       body: r.body as string,

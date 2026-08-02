@@ -666,11 +666,14 @@ export class DaemonRpcService {
 
   /** The recorded segment path for a session's conversation, shaped for message
    *  spreads (`{pathHint}` or undefined). Lookup only — never derives. */
-  transcriptPathHint(reader: TranscriptReader, session: {
-    id: SessionId
-    machineId: string
-    resume?: { value: string }
-  }): { pathHint: string } | undefined {
+  transcriptPathHint(
+    reader: TranscriptReader,
+    session: {
+      id: SessionId
+      machineId: string
+      resume?: { value: string }
+    },
+  ): { pathHint: string } | undefined {
     const nativeId = session.resume?.value
     if (!nativeId) return undefined
     const path = this.deps.memory.transcriptPathHint(reader, session)?.pathHint

@@ -305,14 +305,13 @@ export function buildSuperagentTools(
         const principal = actorSessionId
           ? sessions.inboxPrincipalForSession(actorSessionId)
           : undefined
-        if (!principal) return 'failed: answer caller identity unavailable'
+        if (!principal || !memoryReader) return 'failed: answer caller identity unavailable'
         const r = await deliverAnswerToSession(
           {
             getSession,
             sessions,
             rpc: {
-              readTranscript: (input) =>
-                rpc.readTranscript(input, { kind: 'system', id: 'superagent-answer-tool' }),
+              readTranscript: (input) => rpc.readTranscript(input, memoryReader),
             },
           },
           {
@@ -582,6 +581,7 @@ export function buildSuperagentTools(
       },
       run: async (args) => {
         const lastN = Math.min(100, Math.max(1, num(args.lastN) ?? 30))
+        if (!memoryReader) return 'unknown superagent thread'
         // The latest window off disk; 'before' with no anchor returns the newest items.
         const { items } = await rpc.readTranscript(
           {
@@ -589,7 +589,7 @@ export function buildSuperagentTools(
             direction: 'before',
             limit: lastN,
           },
-          { kind: 'system', id: threadId ? `superagent-tools:${threadId}` : 'superagent-tools' },
+          memoryReader,
         )
         const tail = items.slice(-lastN)
         if (tail.length === 0) return '(no transcript found for this session)'

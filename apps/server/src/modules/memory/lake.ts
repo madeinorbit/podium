@@ -64,8 +64,9 @@ export class TranscriptLake {
   triggerSweep(machineId: string): void {
     if (!this.mirror) return
     this.mirror.enqueueDirty(machineId)
-    this.indexer?.backfillMachine(machineId, (nativeId) =>
-      this.mirror?.lakePath(machineId, nativeId) ?? '',
+    this.indexer?.backfillMachine(
+      machineId,
+      (nativeId) => this.mirror?.lakePath(machineId, nativeId) ?? '',
     )
   }
 
@@ -77,14 +78,19 @@ export class TranscriptLake {
   async readWindow(
     session: LakeReadSession,
     input: { anchor?: string; direction: 'before' | 'after'; limit: number },
-  ): Promise<{ items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean } | undefined> {
+  ): Promise<
+    { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean } | undefined
+  > {
     const nativeId = session.resume?.value
     if (!this.mirror || !nativeId) return undefined
     if (this.deps.store.mirror.mirrorCursor(session.machineId, nativeId) <= 0) return undefined
     const path = this.mirror.lakePath(session.machineId, nativeId)
     const recordToItems = transcriptRecordMapperFor(session.agentKind)
     if (!recordToItems) return undefined
-    const slice = await fileChainSource([{ path, fileId: fileIdFor(path) }], recordToItems).readSlice({
+    const slice = await fileChainSource(
+      [{ path, fileId: fileIdFor(path) }],
+      recordToItems,
+    ).readSlice({
       ...(input.anchor ? { anchor: input.anchor } : {}),
       direction: input.direction,
       limit: input.limit,

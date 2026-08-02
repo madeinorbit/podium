@@ -524,7 +524,8 @@ export class SuperagentService {
         ? backend
         : resolveRole(settings, 'coding')
     // The manifest declares whether the harness accepts a pre-minted first-turn id.
-    const sessionUuid = firstTurn && harnessPremintsHeadlessResumeId(agent) ? randomUUID() : undefined
+    const sessionUuid =
+      firstTurn && harnessPremintsHeadlessResumeId(agent) ? randomUUID() : undefined
     const pending = this.store.superagent.promoteQueuedInput(inputId, {
       turnId: randomUUID(),
       ownerUserId,
@@ -897,7 +898,7 @@ export class SuperagentService {
           direction: 'before',
           limit: 2000,
         },
-        { kind: 'system', id: 'superagent-handoff' },
+        { kind: 'agent', id: 'superagent:' + thread.id, onBehalfOf: thread.ownerUserId },
       )
       if (items.length === 0) return undefined
       return buildHandoffSeed({ from, to, items })
@@ -951,7 +952,7 @@ export class SuperagentService {
           direction: 'before',
           limit: 2000,
         },
-        { kind: 'system', id: 'superagent-context' },
+        { kind: 'agent', id: 'superagent:' + thread.id, onBehalfOf: thread.ownerUserId },
       )
       const last = items[items.length - 1]
       if (firstTurn) {

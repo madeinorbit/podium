@@ -44,39 +44,61 @@ export class ConversationIndexRepository {
       message_count=COALESCE(excluded.message_count,conversations.message_count),
       parent_conversation_id=COALESCE(excluded.parent_conversation_id,conversations.parent_conversation_id)`)
     transaction(this.db, () => {
-      for (const row of rows) stmt.run(
-        row.id, row.agentKind, row.title ?? null, row.projectPath ?? null, row.providerId,
-        row.resumeKind ?? null, row.resumeValue ?? null, row.createdAt ?? null,
-        row.updatedAt ?? null, row.messageCount ?? null, row.machineId ?? '__local__',
-        row.parentConversationId ?? null,
-      )
+      for (const row of rows)
+        stmt.run(
+          row.id,
+          row.agentKind,
+          row.title ?? null,
+          row.projectPath ?? null,
+          row.providerId,
+          row.resumeKind ?? null,
+          row.resumeValue ?? null,
+          row.createdAt ?? null,
+          row.updatedAt ?? null,
+          row.messageCount ?? null,
+          row.machineId ?? '__local__',
+          row.parentConversationId ?? null,
+        )
     })
   }
 
   delete(ids: string[]): void {
     if (ids.length === 0) return
     const stmt = this.db.prepare('DELETE FROM conversations WHERE id = ?')
-    transaction(this.db, () => { for (const id of ids) stmt.run(id) })
+    transaction(this.db, () => {
+      for (const id of ids) stmt.run(id)
+    })
   }
 
   curatedMeta(): Map<string, { name?: string; summary?: string }> {
-    const rows = this.db.prepare(
-      'SELECT id,name,summary FROM conversations WHERE name IS NOT NULL OR summary IS NOT NULL',
-    ).all() as { id: string; name: string | null; summary: string | null }[]
-    return new Map(rows.map((row) => [row.id, {
-      ...(row.name != null ? { name: row.name } : {}),
-      ...(row.summary != null ? { summary: row.summary } : {}),
-    }]))
+    const rows = this.db
+      .prepare(
+        'SELECT id,name,summary FROM conversations WHERE name IS NOT NULL OR summary IS NOT NULL',
+      )
+      .all() as { id: string; name: string | null; summary: string | null }[]
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        {
+          ...(row.name != null ? { name: row.name } : {}),
+          ...(row.summary != null ? { summary: row.summary } : {}),
+        },
+      ]),
+    )
   }
 
   setMeta(id: string, meta: { name?: string; summary?: string }): void {
     if (!this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)) {
-      this.db.prepare(
-        "INSERT INTO conversations (id,agent_kind,provider_id) VALUES (?,'claude-code','unknown')",
-      ).run(id)
+      this.db
+        .prepare(
+          "INSERT INTO conversations (id,agent_kind,provider_id) VALUES (?,'claude-code','unknown')",
+        )
+        .run(id)
     }
-    if (meta.name !== undefined) this.db.prepare('UPDATE conversations SET name=? WHERE id=?').run(meta.name, id)
-    if (meta.summary !== undefined) this.db.prepare('UPDATE conversations SET summary=? WHERE id=?').run(meta.summary, id)
+    if (meta.name !== undefined)
+      this.db.prepare('UPDATE conversations SET name=? WHERE id=?').run(meta.name, id)
+    if (meta.summary !== undefined)
+      this.db.prepare('UPDATE conversations SET summary=? WHERE id=?').run(meta.summary, id)
   }
 
   /** Complete candidates: memory filters before scoring and limiting. */
@@ -87,22 +109,33 @@ export class ConversationIndexRepository {
     const query = opts.query?.trim() ?? ''
     let rows: Record<string, unknown>[]
     if (!query) {
-      rows = this.db.prepare(`SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}
-        ORDER BY c.updated_at DESC NULLS LAST`).all(...pathArgs) as Record<string, unknown>[]
+      rows = this.db
+        .prepare(`SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}
+        ORDER BY c.updated_at DESC NULLS LAST`)
+        .all(...pathArgs) as Record<string, unknown>[]
     } else if (this.ftsAvailable) {
-      const fts = query.split(/\s+/).filter(Boolean).map((token) => `"${token.replace(/"/g, '""')}"*`).join(' ')
-      rows = this.db.prepare(`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
+      const fts = query
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((token) => `"${token.replace(/"/g, '""')}"*`)
+        .join(' ')
+      rows = this.db
+        .prepare(`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
         WHERE conversations_fts MATCH ?${pathFilter}${topLevel}
-        ORDER BY c.updated_at DESC NULLS LAST`).all(fts, ...pathArgs) as Record<string, unknown>[]
+        ORDER BY c.updated_at DESC NULLS LAST`)
+        .all(fts, ...pathArgs) as Record<string, unknown>[]
     } else {
       const like = `%${query}%`
-      rows = this.db.prepare(`SELECT c.* FROM conversations c WHERE
+      rows = this.db
+        .prepare(`SELECT c.* FROM conversations c WHERE
         (c.title LIKE ? OR c.name LIKE ? OR c.summary LIKE ? OR c.project_path LIKE ?)
-        ${pathFilter}${topLevel} ORDER BY c.updated_at DESC NULLS LAST`
-      ).all(like, like, like, like, ...pathArgs) as Record<string, unknown>[]
+        ${pathFilter}${topLevel} ORDER BY c.updated_at DESC NULLS LAST`)
+        .all(like, like, like, like, ...pathArgs) as Record<string, unknown>[]
     }
     return rows.map((row) => ({
-      id: row.id as string, agentKind: row.agent_kind as string, providerId: row.provider_id as string,
+      id: row.id as string,
+      agentKind: row.agent_kind as string,
+      providerId: row.provider_id as string,
       title: (row.title as string | null) ?? undefined,
       name: (row.name as string | null) ?? undefined,
       summary: (row.summary as string | null) ?? undefined,
@@ -122,6 +155,8 @@ export class ConversationIndexRepository {
   }
 
   adoptLocalRows(machineId: string): void {
-    this.db.prepare("UPDATE conversations SET machine_id=? WHERE machine_id='__local__'").run(machineId)
+    this.db
+      .prepare("UPDATE conversations SET machine_id=? WHERE machine_id='__local__'")
+      .run(machineId)
   }
 }

@@ -2367,6 +2367,16 @@ ownership declarations, open default-closed existence switches, reparent routing
 deliberate behavior change are recorded in
 `docs/agents/pod-320-issue-capabilities.md`.
 
+#### LEDGER ENTRY — POD-322 (4.6 memory service): personal recall is one scoped boundary
+
+Conversation identity, subagent segment repair, discovered-conversation curation, the paced transcript lake and mirror, transcript FTS, and omni-search now compose under modules/memory. The transport procedures remain in modules/conversations but receive a principal-bound MemoryReaderView; no production caller maps a native conversation id, reads a lake path, or queries a transcript index directly. The former 660-line conversations repository is a 32-line aggregate over four repositories: registry 106 lines, conversation index 127, mirror checkpoints 57, and transcript index 116. The application side is split into service 310, lake 133, transcript indexer 295, search 222, visibility 120, and reader types 10 lines.
+
+Search is an authorization boundary, not a convenience helper. MemoryVisibilityPolicy is the single query-time decision point over session, issue, conversation, transcript, superagent-thread, and setting classes. Personal sources resolve the current owner and live grants; unknown document classes refuse by default. Filtering happens before FTS normalization, deduplication, ranking, limits, counts, or facets, and callers cannot pass a prefiltered id set. The unresolved existence policy is one exported switch whose current conservative value makes counts and facets describe only the visible slice; POD-1070 may change that decision. A regression seeds another user with matching session, issue, conversation, transcript, and superagent content and proves the first user receives no hit, snippet, or ranking influence.
+
+Transcript pages remain bulk-plane request/reply through DaemonRpcService. It authorizes the carried user, delegated agent, or system reader before asking either the daemon or the lake; an invisible and an unknown session both return the same empty page. Superagent transcript and search reads use the thread owner delegation, not an ambient operator or system promotion. Discovery indexing and boot repair remain system derived-field maintenance: they may read across owners, stamp no human, and every indexed row inherits the source conversation scope. InstanceId remains the independent deployment partition and no instance_id column was added.
+
+The watchdog scar tissue is unchanged: MirrorService still pulls 256 KiB chunks with a 25 ms unreferenced breather and a 16 MiB pass budget, while transcript indexing keeps its existing bounded windows and pass pacing. POD-624's negative summarize result cache was re-homed verbatim into packages/harness at schema version 3, so unchanged guardian or parse-diagnostic files do not reread 64 KiB heads every scan and vanished negative rows prune without a false conversation removal. The durable conversations.discovery-index reaction remains system-principal, startup-reconciled from registry, lake, and checkpoints, idempotent by machine/native/source revision, and scope-inheriting.
+
 ### Phase 5 — Machine host tightening (POD-292) · exit gate POD-426
 
 **Scope:** SessionBinding designed lifecycle (POD-323, design doc gates code), async-only

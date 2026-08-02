@@ -11,7 +11,9 @@ export class TranscriptMirrorRepository {
     )
   }
 
-  segmentsToMirrorDirty(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[] {
+  segmentsToMirrorDirty(
+    machineId: string,
+  ): { nativeId: string; path: string; mirroredBytes: number }[] {
     return this.rows(
       `SELECT native_id,path,mirrored_bytes FROM conversation_segments
        WHERE machine_id=? AND path IS NOT NULL
@@ -30,28 +32,36 @@ export class TranscriptMirrorRepository {
   }
 
   setReportedBytes(machineId: string, nativeId: string, bytes: number): void {
-    this.db.prepare(
-      'UPDATE conversation_segments SET reported_bytes=? WHERE machine_id=? AND native_id=?',
-    ).run(bytes, machineId, nativeId)
+    this.db
+      .prepare(
+        'UPDATE conversation_segments SET reported_bytes=? WHERE machine_id=? AND native_id=?',
+      )
+      .run(bytes, machineId, nativeId)
   }
 
   reportedBytes(machineId: string, nativeId: string): number | undefined {
-    const row = this.db.prepare(
-      'SELECT reported_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
-    ).get(machineId, nativeId) as { reported_bytes: number | null } | undefined
+    const row = this.db
+      .prepare(
+        'SELECT reported_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
+      )
+      .get(machineId, nativeId) as { reported_bytes: number | null } | undefined
     return row?.reported_bytes ?? undefined
   }
 
   mirrorCursor(machineId: string, nativeId: string): number {
-    const row = this.db.prepare(
-      'SELECT mirrored_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
-    ).get(machineId, nativeId) as { mirrored_bytes: number } | undefined
+    const row = this.db
+      .prepare(
+        'SELECT mirrored_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
+      )
+      .get(machineId, nativeId) as { mirrored_bytes: number } | undefined
     return row?.mirrored_bytes ?? 0
   }
 
   setMirrorCursor(machineId: string, nativeId: string, bytes: number, at: string): void {
-    this.db.prepare(
-      'UPDATE conversation_segments SET mirrored_bytes=?,mirrored_at=? WHERE machine_id=? AND native_id=?',
-    ).run(bytes, at, machineId, nativeId)
+    this.db
+      .prepare(
+        'UPDATE conversation_segments SET mirrored_bytes=?,mirrored_at=? WHERE machine_id=? AND native_id=?',
+      )
+      .run(bytes, at, machineId, nativeId)
   }
 }

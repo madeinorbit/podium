@@ -804,9 +804,7 @@ describe('conversation index', () => {
   it('prefix-matches partial words', () => {
     const store = new SessionStore(':memory:')
     store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
-    expect(store.conversations.index.search({ query: 'rela' }).map((h) => h.id)).toEqual([
-      'a',
-    ])
+    expect(store.conversations.index.search({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
@@ -831,9 +829,7 @@ describe('conversation index', () => {
     // Empty-query browse: only the top-level session.
     expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect(store.conversations.index.search({ query: 'parser' }).map((h) => h.id)).toEqual([
-      'top',
-    ])
+    expect(store.conversations.index.search({ query: 'parser' }).map((h) => h.id)).toEqual(['top'])
     store.close()
   })
 
@@ -844,9 +840,10 @@ describe('conversation index', () => {
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect(
-      store.conversations.index.search({ query: 'relay endpoint' }).map((h) => h.id),
-    ).toEqual(['newer', 'older'])
+    expect(store.conversations.index.search({ query: 'relay endpoint' }).map((h) => h.id)).toEqual([
+      'newer',
+      'older',
+    ])
     store.close()
   })
 
@@ -885,9 +882,7 @@ describe('conversation index', () => {
     expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect(store.conversations.index.search({ query: 'keyboard' }).map((h) => h.id)).toEqual(
-      ['a'],
-    )
+    expect(store.conversations.index.search({ query: 'keyboard' }).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 

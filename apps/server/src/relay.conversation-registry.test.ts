@@ -1,4 +1,8 @@
-import { FIRST_ADMIN_USER_ID, type ConversationSummaryWire, type ConversationSummaryWireInput } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID,
+  type ConversationSummaryWire,
+  type ConversationSummaryWireInput,
+} from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'

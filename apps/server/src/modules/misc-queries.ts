@@ -52,8 +52,7 @@ export const SEARCH_QUERIES = {
       text: z.string().min(1).max(256),
       limit: z.number().int().positive().max(100).optional(),
     }),
-    (s, input) =>
-      s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
+    (s, input) => s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
   ),
 } as const
 

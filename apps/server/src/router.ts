@@ -13,10 +13,7 @@ import {
   ThreadIdField,
   WorkState,
 } from '@podium/model'
-import {
-  clientSwitchTraceSchema,
-  type FileReadResultMessage,
-} from '@podium/protocol'
+import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,

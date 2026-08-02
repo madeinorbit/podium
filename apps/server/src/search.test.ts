@@ -31,7 +31,10 @@ describe('MemoryService omni-search', () => {
     registry.gateway.attachDaemon('m1', () => {})
 
     // Session named after the phrase.
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
     registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
@@ -56,10 +59,13 @@ describe('MemoryService omni-search', () => {
 
     // Conversation row in the durable index.
     const { sessionId: conversationSessionId } = registry.modules.sessions.createSession({
-      ownerUserId: FIRST_ADMIN_USER_ID, agentKind: 'claude-code', cwd: '/conversation',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      agentKind: 'claude-code',
+      cwd: '/conversation',
     })
     registry.gateway.routeDaemonFrame('m1', {
-      type: 'sessionResumeRef', sessionId: conversationSessionId,
+      type: 'sessionResumeRef',
+      sessionId: conversationSessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
     store.conversations.index.upsert([
@@ -133,9 +139,9 @@ describe('MemoryService omni-search', () => {
 
   it('transcript hits carry an FTS snippet with match markers and registry refs', () => {
     const { store, registry } = seed()
-    const hit = registry.modules.memory.search(READER, { text: 'capacitor' }).find(
-      (r) => r.kind === 'transcript',
-    )
+    const hit = registry.modules.memory
+      .search(READER, { text: 'capacitor' })
+      .find((r) => r.kind === 'transcript')
     expect(hit?.snippet).toContain('**capacitor**')
     expect(hit?.machineId).toBe('m1')
     expect(hit?.podiumId).toMatch(/^conv_/)
@@ -143,9 +149,9 @@ describe('MemoryService omni-search', () => {
 
   it('resolves a live sessionId on a transcript hit when a session resumes that native id', () => {
     const { registry, sessionId } = seed()
-    const hit = registry.modules.memory.search(READER, { text: 'engine.ts' }).find(
-      (r) => r.kind === 'transcript',
-    )
+    const hit = registry.modules.memory
+      .search(READER, { text: 'engine.ts' })
+      .find((r) => r.kind === 'transcript')
     expect(hit?.sessionId).toBe(sessionId)
   })
 
@@ -184,42 +190,66 @@ describe('search.query tRPC', () => {
     registry.gateway.attachDaemon('m1', () => {})
     const bob = asUserId('usr_bob')
     const { sessionId } = registry.modules.sessions.createSession({
-      ownerUserId: bob, agentKind: 'claude-code', cwd: '/classifiedneedle',
+      ownerUserId: bob,
+      agentKind: 'claude-code',
+      cwd: '/classifiedneedle',
     })
     registry.modules.sessions.renameSession({ sessionId, name: 'classifiedneedle session' })
     registry.gateway.routeDaemonFrame('m1', {
-      type: 'sessionResumeRef', sessionId,
+      type: 'sessionResumeRef',
+      sessionId,
       resume: { kind: 'claude-session', value: 'classified-native' },
     })
-    store.conversations.index.upsert([{
-      id: 'classified-native', agentKind: 'claude-code',
-      providerId: 'claude-code-jsonl', machineId: 'm1',
-      title: 'classifiedneedle conversation',
-    }])
-    store.conversations.transcriptIndex.append('m1', 'classified-native', [{
-      content: 'classifiedneedle transcript', itemUuid: 'private-message',
-    }], 100)
+    store.conversations.index.upsert([
+      {
+        id: 'classified-native',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        machineId: 'm1',
+        title: 'classifiedneedle conversation',
+      },
+    ])
+    store.conversations.transcriptIndex.append(
+      'm1',
+      'classified-native',
+      [
+        {
+          content: 'classifiedneedle transcript',
+          itemUuid: 'private-message',
+        },
+      ],
+      100,
+    )
     const issue = registry.issues.create({
-      repoPath: '/private', title: 'fixture template',
-      description: 'private issue body', startNow: false,
+      repoPath: '/private',
+      title: 'fixture template',
+      description: 'private issue body',
+      startNow: false,
     })
     const issueRow = store.issues.getIssue(issue.id)
     if (!issueRow) throw new Error('issue seed missing')
     store.issues.upsertIssue({
-      ...issueRow, id: asIssueId('iss_bob_private'), seq: issueRow.seq + 1,
-      ownerUserId: bob, title: 'classifiedneedle issue',
+      ...issueRow,
+      id: asIssueId('iss_bob_private'),
+      seq: issueRow.seq + 1,
+      ownerUserId: bob,
+      title: 'classifiedneedle issue',
     })
     store.superagent.upsertSuperagentThread({
-      id: 'private-thread', ownerUserId: bob, kind: 'btw',
+      id: 'private-thread',
+      ownerUserId: bob,
+      kind: 'btw',
       title: 'classifiedneedle superagent',
     })
     store.superagent.appendSuperagentMessage('private-thread', {
-      role: 'assistant', content: 'classifiedneedle private thread body',
+      role: 'assistant',
+      content: 'classifiedneedle private thread body',
     })
 
     expect(registry.modules.memory.search(READER, { text: 'classifiedneedle' })).toEqual([])
     const bobHits = registry.modules.memory.search(
-      { kind: 'user', id: bob }, { text: 'classifiedneedle' },
+      { kind: 'user', id: bob },
+      { text: 'classifiedneedle' },
     )
     expect(new Set(bobHits.map((hit) => hit.kind))).toEqual(
       new Set(['session', 'issue', 'conversation', 'transcript']),
@@ -235,24 +265,45 @@ describe('search.query tRPC', () => {
     const bob = asUserId('usr_bob')
     const bind = (ownerUserId: typeof bob, nativeId: string, cwd: string) => {
       const { sessionId } = registry.modules.sessions.createSession({
-        ownerUserId, agentKind: 'claude-code', cwd,
+        ownerUserId,
+        agentKind: 'claude-code',
+        cwd,
       })
       registry.gateway.routeDaemonFrame('m1', {
-        type: 'sessionResumeRef', sessionId,
+        type: 'sessionResumeRef',
+        sessionId,
         resume: { kind: 'claude-session', value: nativeId },
       })
     }
     bind(FIRST_ADMIN_USER_ID, 'visible-rank', '/visible')
-    store.conversations.transcriptIndex.append('m1', 'visible-rank', [{
-      content: 'rankneedle visible', itemUuid: 'visible-rank-message',
-    }], 100)
-    const before = registry.modules.memory.search(READER, { text: 'rankneedle' })
+    store.conversations.transcriptIndex.append(
+      'm1',
+      'visible-rank',
+      [
+        {
+          content: 'rankneedle visible',
+          itemUuid: 'visible-rank-message',
+        },
+      ],
+      100,
+    )
+    const before = registry.modules.memory
+      .search(READER, { text: 'rankneedle' })
       .find((hit) => hit.kind === 'transcript')
     bind(bob, 'hidden-rank', '/hidden')
-    store.conversations.transcriptIndex.append('m1', 'hidden-rank', [{
-      content: 'rankneedle rankneedle rankneedle rankneedle', itemUuid: 'hidden-rank-message',
-    }], 100)
-    const after = registry.modules.memory.search(READER, { text: 'rankneedle' })
+    store.conversations.transcriptIndex.append(
+      'm1',
+      'hidden-rank',
+      [
+        {
+          content: 'rankneedle rankneedle rankneedle rankneedle',
+          itemUuid: 'hidden-rank-message',
+        },
+      ],
+      100,
+    )
+    const after = registry.modules.memory
+      .search(READER, { text: 'rankneedle' })
       .find((hit) => hit.kind === 'transcript')
     expect(after?.id).toBe(before?.id)
     expect(after?.score).toBe(before?.score)
@@ -273,7 +324,13 @@ describe('search.query tRPC', () => {
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {
       registry,
-      trpc: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
+      trpc: appRouter.createCaller({
+        registry,
+        repos,
+        superagent,
+        capability: OPERATOR,
+        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      }),
     }
   }
 
@@ -284,7 +341,10 @@ describe('search.query tRPC', () => {
 
   it('serves ranked results over the wire shape', async () => {
     const { registry, trpc } = caller()
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.modules.sessions.renameSession({ sessionId, name: 'quantum toaster' })
     const results = await trpc.search.query({ text: 'quantum' })
     expect(results.map((r) => SearchResultWire.parse(r))).toHaveLength(1)

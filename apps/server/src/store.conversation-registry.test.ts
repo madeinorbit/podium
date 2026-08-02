@@ -2,6 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
 // The conversation registry (docs/spec/conversation-registry.md §3.1): Podium ids
@@ -167,6 +168,7 @@ describe('conversation registry store', () => {
     })
     first.close()
     const second = new SessionStore(file)
+    const registry = new SessionRegistry(second)
     expect(second.conversations.registry.segmentPath('m1', 'parent-1')).toBeUndefined()
     expect(second.conversations.registry.segmentPath('m1', 'agent-x')).toBe(
       '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',
@@ -174,6 +176,7 @@ describe('conversation registry store', () => {
     expect(second.conversations.registry.segmentPath('m1', 'parent-2')).toBe(
       '/home/u/.claude/projects/-repo/parent-2.jsonl',
     )
+    registry.dispose()
     second.close()
   })
 })

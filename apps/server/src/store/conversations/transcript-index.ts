@@ -27,12 +27,17 @@ export class TranscriptIndexRepository {
     }
   }
 
-  get isAvailable(): boolean { return this.available }
+  get isAvailable(): boolean {
+    return this.available
+  }
 
-  segmentsToIndex(machineId: string): { nativeId: string; mirroredBytes: number; indexedBytes: number }[] {
-    const rows = this.db.prepare(`SELECT native_id,mirrored_bytes,indexed_bytes
-      FROM conversation_segments WHERE machine_id=? AND mirrored_bytes>indexed_bytes`
-    ).all(machineId) as Record<string, unknown>[]
+  segmentsToIndex(
+    machineId: string,
+  ): { nativeId: string; mirroredBytes: number; indexedBytes: number }[] {
+    const rows = this.db
+      .prepare(`SELECT native_id,mirrored_bytes,indexed_bytes
+      FROM conversation_segments WHERE machine_id=? AND mirrored_bytes>indexed_bytes`)
+      .all(machineId) as Record<string, unknown>[]
     return rows.map((row) => ({
       nativeId: row.native_id as string,
       mirroredBytes: row.mirrored_bytes as number,
@@ -41,9 +46,9 @@ export class TranscriptIndexRepository {
   }
 
   indexedCursor(machineId: string, nativeId: string): number {
-    const row = this.db.prepare(
-      'SELECT indexed_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
-    ).get(machineId, nativeId) as { indexed_bytes: number } | undefined
+    const row = this.db
+      .prepare('SELECT indexed_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?')
+      .get(machineId, nativeId) as { indexed_bytes: number } | undefined
     return row?.indexed_bytes ?? 0
   }
 
@@ -58,18 +63,22 @@ export class TranscriptIndexRepository {
       'INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts) VALUES(?,?,?,?,?)',
     )
     transaction(this.db, () => {
-      for (const row of rows) insert.run(row.content, machineId, nativeId, row.itemUuid ?? null, row.ts ?? null)
-      this.db.prepare(
-        'UPDATE conversation_segments SET indexed_bytes=? WHERE machine_id=? AND native_id=?',
-      ).run(indexedBytes, machineId, nativeId)
+      for (const row of rows)
+        insert.run(row.content, machineId, nativeId, row.itemUuid ?? null, row.ts ?? null)
+      this.db
+        .prepare(
+          'UPDATE conversation_segments SET indexed_bytes=? WHERE machine_id=? AND native_id=?',
+        )
+        .run(indexedBytes, machineId, nativeId)
     })
   }
 
   rows(machineId: string, nativeId: string): { content: string; itemUuid?: string; ts?: string }[] {
     if (!this.available) return []
-    const rows = this.db.prepare(`SELECT content,item_uuid,ts FROM transcript_fts
-      WHERE machine_id=? AND native_id=? ORDER BY rowid`
-    ).all(machineId, nativeId) as Record<string, unknown>[]
+    const rows = this.db
+      .prepare(`SELECT content,item_uuid,ts FROM transcript_fts
+      WHERE machine_id=? AND native_id=? ORDER BY rowid`)
+      .all(machineId, nativeId) as Record<string, unknown>[]
     return rows.map((row) => ({
       content: row.content as string,
       itemUuid: (row.item_uuid as string | null) ?? undefined,
@@ -81,17 +90,20 @@ export class TranscriptIndexRepository {
   searchCandidates(query: string): TranscriptSearchCandidate[] {
     const trimmed = query.trim()
     if (!trimmed || !this.available) return []
-    const fts = trimmed.split(/\s+/).filter(Boolean).map(
-      (token) => `"${token.replace(/"/g, '""')}"*`,
-    ).join(' ')
-    const rows = this.db.prepare(`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
+    const fts = trimmed
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => `"${token.replace(/"/g, '""')}"*`)
+      .join(' ')
+    const rows = this.db
+      .prepare(`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
       snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
       s.podium_id,c.title,c.name,c.updated_at
       FROM transcript_fts f
       LEFT JOIN conversation_segments s ON s.machine_id=f.machine_id AND s.native_id=f.native_id
       LEFT JOIN conversations c ON c.id=f.native_id
-      WHERE transcript_fts MATCH ? ORDER BY rank`
-    ).all(fts) as Record<string, unknown>[]
+      WHERE transcript_fts MATCH ? ORDER BY rank`)
+      .all(fts) as Record<string, unknown>[]
     return rows.map((row) => ({
       machineId: row.machine_id as string,
       nativeId: row.native_id as string,
@@ -107,10 +119,14 @@ export class TranscriptIndexRepository {
 
   drop(machineId: string, nativeId: string): void {
     if (this.available) {
-      this.db.prepare('DELETE FROM transcript_fts WHERE machine_id=? AND native_id=?').run(machineId, nativeId)
+      this.db
+        .prepare('DELETE FROM transcript_fts WHERE machine_id=? AND native_id=?')
+        .run(machineId, nativeId)
     }
-    this.db.prepare(
-      'UPDATE conversation_segments SET indexed_bytes=0 WHERE machine_id=? AND native_id=?',
-    ).run(machineId, nativeId)
+    this.db
+      .prepare(
+        'UPDATE conversation_segments SET indexed_bytes=0 WHERE machine_id=? AND native_id=?',
+      )
+      .run(machineId, nativeId)
   }
 }

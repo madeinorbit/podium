@@ -1,4 +1,8 @@
-import { FIRST_ADMIN_USER_ID, type ConversationSummaryWire, type ConversationSummaryWireInput } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID,
+  type ConversationSummaryWire,
+  type ConversationSummaryWireInput,
+} from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -107,9 +111,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       transact: (fn) => store.transact(fn),
     })
     // Seed one row so the delete half of the batch has something to bite on.
-    store.conversations.index.upsert([
-      { id: 'c-old', agentKind: 'claude-code', providerId: 'p' },
-    ])
+    store.conversations.index.upsert([{ id: 'c-old', agentKind: 'claude-code', providerId: 'p' }])
     const cursorBefore = ledger.cursor()
     expect(() =>
       ledger.commit({
@@ -158,9 +160,9 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     push(registry, [conv('c1')], { removed: ['c2'] })
     const changes = conversationChangesSince(registry, cursor)
     expect(changes.some((c) => c.id === 'c2' && c.op === 'remove')).toBe(true)
-    expect(
-      registry.sessionStore.conversations.index.search({}).map((r) => r.id),
-    ).not.toContain('c2')
+    expect(registry.sessionStore.conversations.index.search({}).map((r) => r.id)).not.toContain(
+      'c2',
+    )
   })
 
   it('(b) volatile-only churn appends NOTHING; a stable-field change appends the FULL wire payload', () => {
@@ -253,12 +255,16 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
   it('(c2) setConversationMeta is default-closed for an undiscovered id', () => {
     const registry = makeRegistry()
     const cursor = cursorOf(registry)
-    expect(() => registry.modules.memory.setConversationMeta(
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
-      { id: 'ghost', name: 'n' },
-    )).toThrow('conversation not found')
+    expect(() =>
+      registry.modules.memory.setConversationMeta(
+        { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        { id: 'ghost', name: 'n' },
+      ),
+    ).toThrow('conversation not found')
     expect(conversationChangesSince(registry, cursor)).toEqual([])
-    expect(registry.sessionStore.conversations.index.search({}).find((r) => r.id === 'ghost')).toBeUndefined()
+    expect(
+      registry.sessionStore.conversations.index.search({}).find((r) => r.id === 'ghost'),
+    ).toBeUndefined()
   })
 
   it('(d) restart: the baseline folds from the retained log — no boot reconcile, and the first scan dedups', () => {
@@ -312,6 +318,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const registry = makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1', { title: 't' }), conv('c2')])
+    ownConversation(registry, 'c1')
     registry.modules.memory.setConversationMeta(
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
       { id: 'c1', name: 'kept' },

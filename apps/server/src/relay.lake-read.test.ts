@@ -205,8 +205,8 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     expect(result).toEqual({ items: [], hasMore: false })
-    expect(sent.some((message) =>
-      (message as { type?: string }).type === 'transcriptRead',
-    )).toBe(false)
+    expect(sent.some((message) => (message as { type?: string }).type === 'transcriptRead')).toBe(
+      false,
+    )
   })
 })

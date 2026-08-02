@@ -111,7 +111,8 @@ export class TranscriptIndexer {
     // where the last attempt left it — that gap is a partial trailing line the
     // indexer already proved it cannot consume (newline-less lake tail); reading
     // it again every sweep is pure waste. Either cursor moving re-qualifies it.
-    const behind = this.deps.index.segmentsToIndex(machineId)
+    const behind = this.deps.index
+      .segmentsToIndex(machineId)
       .filter(
         (s) =>
           this.lastBackfillGap.get(machineScopedKey(machineId, s.nativeId)) !==

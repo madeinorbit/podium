@@ -163,4 +163,70 @@ describe('ConversationDiscoveryCache', () => {
     expect(v2.getFresh(file, fileStat, 'codex')).toBeUndefined()
     v2.close()
   })
+
+  test('caches a negative result so a summarized-to-nothing file is a fresh hit', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const cache = new ConversationDiscoveryCache(db)
+    const fileStat = await stat(file)
+
+    cache.upsertManyNegative([{ path: file, stats: fileStat, agentKind: 'codex' }])
+
+    // getFreshEntry reports the negative hit; getFresh (summary-only) stays undefined.
+    expect(cache.getFreshEntry(file, fileStat, 'codex')).toEqual({ kind: 'negative' })
+    expect(cache.getFresh(file, fileStat, 'codex')).toBeUndefined()
+    // A negative row is not a conversation.
+    expect(cache.listSummaries()).toEqual([])
+    cache.close()
+  })
+
+  test('negative rows go stale on size/mtime change like positive ones', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const cache = new ConversationDiscoveryCache(db)
+    cache.upsertManyNegative([{ path: file, stats: await stat(file), agentKind: 'codex' }])
+
+    await writeFile(file, '{"grew":true,"more":true}\n')
+    await utimes(file, new Date('2026-06-01T10:05:00.000Z'), new Date('2026-06-01T10:05:00.000Z'))
+    const changed = await stat(file)
+    // A changed file misses (re-summarize), never a stale negative hit.
+    expect(cache.getFreshEntry(file, changed, 'codex')).toBeUndefined()
+    cache.close()
+  })
+
+  test('a negative hit is scoped to its agent kind and schema version', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const fileStat = await stat(file)
+    const v3 = new ConversationDiscoveryCache(db, { schemaVersion: 3 })
+    v3.upsertManyNegative([{ path: file, stats: fileStat, agentKind: 'codex' }])
+    // Wrong kind never matches a negative row.
+    expect(v3.getFreshEntry(file, fileStat, 'claude-code')).toBeUndefined()
+    v3.close()
+
+    // A newer schema discards the old negative row.
+    const v4 = new ConversationDiscoveryCache(db, { schemaVersion: 4 })
+    expect(v4.getFreshEntry(file, fileStat, 'codex')).toBeUndefined()
+    v4.close()
+  })
+
+  test('prunes a vanished negative file without emitting a removal id', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const cache = new ConversationDiscoveryCache(db)
+    const fileStat = await stat(file)
+    cache.upsertManyNegative([{ path: file, stats: fileStat, agentKind: 'codex' }])
+
+    await rm(file)
+    const pruned = cache.deleteMissing(new Set(), ['codex'])
+    // The row is removed, but there was never a conversation id to report as removed.
+    expect(pruned.deleted).toBe(1)
+    expect(pruned.removedIds).toEqual([])
+    expect(cache.getFreshEntry(file, fileStat, 'codex')).toBeUndefined()
+    cache.close()
+  })
 })

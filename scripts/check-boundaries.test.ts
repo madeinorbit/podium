@@ -141,8 +141,8 @@ describe('checkFile rules', () => {
   it('rejects harness importers in apps/server (Phase 3 removed the grandfathers)', () => {
     for (const file of [
       'apps/server/src/relay.ts',
-      'apps/server/src/transcript-indexer.ts',
-      'apps/server/src/modules/conversations/service.ts',
+      'apps/server/src/modules/memory/transcript-indexer.ts',
+      'apps/server/src/modules/memory/service.ts',
     ]) {
       const v = checkFile(file, `import { fileChainSource } from '@podium/harness'`)
       expect(v).toHaveLength(1)
@@ -174,7 +174,7 @@ describe('checkFile rules', () => {
   it('allows @podium/transcript from apps and packages, and keeps it near-leaf', () => {
     expect(
       checkFile(
-        'apps/server/src/transcript-indexer.ts',
+        'apps/server/src/modules/memory/transcript-indexer.ts',
         `import { claudeRecordToItems } from '@podium/transcript'`,
       ),
     ).toEqual([])

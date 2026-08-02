@@ -1368,21 +1368,24 @@ export class SessionLifecycle {
       : undefined
   }
 
-  async resumeSession(input: {
-    ownerUserId?: UserId
-    agentKind: AgentKind
-    cwd: string
-    resume: ResumeRef
-    conversationId: string
-    title?: string
-    machineId?: string
-    /** Provenance for the FRESH-SPAWN fallback only (issue #60). When the resume
-     *  lands on an existing row (reuse/resurrect below), that row's original
-     *  spawnedBy is kept — a resume never rewrites who created the session. */
-    spawnedBy?: string
-    /** The calling principal's `use` decision per machine — see createSession. */
-    use?: MachineUseResolver
-  }, issues: SessionIssueWorkflowPort): Promise<{ sessionId: SessionId }> {
+  async resumeSession(
+    input: {
+      ownerUserId?: UserId
+      agentKind: AgentKind
+      cwd: string
+      resume: ResumeRef
+      conversationId: string
+      title?: string
+      machineId?: string
+      /** Provenance for the FRESH-SPAWN fallback only (issue #60). When the resume
+       *  lands on an existing row (reuse/resurrect below), that row's original
+       *  spawnedBy is kept — a resume never rewrites who created the session. */
+      spawnedBy?: string
+      /** The calling principal's `use` decision per machine — see createSession. */
+      use?: MachineUseResolver
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{ sessionId: SessionId }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
     // that row, never mint a parallel one. Each parallel row spawned its own
@@ -1738,14 +1741,17 @@ export class SessionLifecycle {
    * Self-stop (`selfStop`) defers the process kill so the CLI/relay reply
    * lands before the agent dies.
    */
-  async stopSession(input: {
-    sessionId: SessionId
-    force?: boolean
-    /** True when the CALLER is stopping itself — defer process kill. */
-    selfStop?: boolean
-    /** Parent-close/issue-stop provenance; direct forced stops derive below. */
-    stopReason?: 'self' | 'parent' | 'forced'
-  }, issues: SessionIssueWorkflowPort): Promise<{
+  async stopSession(
+    input: {
+      sessionId: SessionId
+      force?: boolean
+      /** True when the CALLER is stopping itself — defer process kill. */
+      selfStop?: boolean
+      /** Parent-close/issue-stop provenance; direct forced stops derive below. */
+      stopReason?: 'self' | 'parent' | 'forced'
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{
     ok: boolean
     reason?: string
     worktreeFreed?: boolean
@@ -1883,12 +1889,15 @@ export class SessionLifecycle {
    * Stop every session on an issue, then free the issue worktree (keep branch)
    * [spec:SP-9904].
    */
-  async stopIssue(input: {
-    issueId: string
-    force?: boolean
-    /** Session performing the stop (for self-stop deferral when it is a member). */
-    callerSessionId?: string
-  }, issues: SessionIssueWorkflowPort): Promise<{
+  async stopIssue(
+    input: {
+      issueId: string
+      force?: boolean
+      /** Session performing the stop (for self-stop deferral when it is a member). */
+      callerSessionId?: string
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{
     ok: boolean
     reason?: string
     stopped: string[]
@@ -1909,12 +1918,15 @@ export class SessionLifecycle {
       ...members.filter((m) => m.sessionId === input.callerSessionId),
     ]
     for (const m of ordered) {
-      const r = await this.stopSession({
-        sessionId: m.sessionId,
-        force: input.force,
-        selfStop: input.callerSessionId === m.sessionId,
-        stopReason: input.force ? 'forced' : 'parent',
-      }, issues)
+      const r = await this.stopSession(
+        {
+          sessionId: m.sessionId,
+          force: input.force,
+          selfStop: input.callerSessionId === m.sessionId,
+          stopReason: input.force ? 'forced' : 'parent',
+        },
+        issues,
+      )
       if (!r.ok) {
         return {
           ok: false,
@@ -2263,13 +2275,16 @@ export class SessionLifecycle {
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
-  resurrectSession({
-    sessionId,
-    adoptedBinding,
-  }: {
-    sessionId: SessionId
-    adoptedBinding?: SessionBindingAdoptLaunchInstruction
-  }, issues: SessionIssueWorkflowPort): Promise<{ ok: boolean; reason?: string }> {
+  resurrectSession(
+    {
+      sessionId,
+      adoptedBinding,
+    }: {
+      sessionId: SessionId
+      adoptedBinding?: SessionBindingAdoptLaunchInstruction
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{ ok: boolean; reason?: string }> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     // Hibernated (parked on purpose) and exited (process died or was killed

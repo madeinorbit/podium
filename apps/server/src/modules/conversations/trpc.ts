@@ -19,7 +19,8 @@ export type ConversationProcedures = FamilyProcedures<
 export const conversationFamilyProcedures = (): ConversationProcedures =>
   derivedFamilyProcedures({
     family: 'conversations',
-    service: (state) => state.modules.memory.forReader({ kind: 'user', id: asUserId(state.caller.userId) }),
+    service: (state) =>
+      state.modules.memory.forReader({ kind: 'user', id: asUserId(state.caller.userId) }),
     commands: CONVERSATION_COMMANDS_TRPC,
     queries: CONVERSATION_QUERIES,
   })

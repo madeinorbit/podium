@@ -25,8 +25,4 @@ export class ConversationsRepository {
     this.index.ensureFts()
     this.transcriptIndex.ensureFts()
   }
-
-  adoptLocalRows(machineId: string): void {
-    this.index.adoptLocalRows(machineId)
-  }
 }

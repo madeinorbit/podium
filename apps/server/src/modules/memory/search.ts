@@ -1,4 +1,5 @@
 import { asIssueId, machineScopedKey } from '@podium/model'
+import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { MemoryReader } from './types'
@@ -13,10 +14,18 @@ const TYPE_WEIGHT: Record<SearchResultWire['kind'], number> = {
 }
 const RECENCY_WINDOW_MS = 30 * 86_400_000
 const SETTINGS = [
-  ['appearance', 'Appearance'], ['sessions', 'New sessions'], ['superagent', 'Superagent'],
-  ['workllm', 'Background LLM'], ['keys', 'API keys'], ['hibernation', 'Hibernation'],
-  ['notifications', 'Notifications'], ['workflow', 'Workflow'], ['integrations', 'Integrations'],
-  ['machines', 'Machines'], ['security', 'Security'], ['updates', 'Updates'],
+  ['appearance', 'Appearance'],
+  ['sessions', 'New sessions'],
+  ['superagent', 'Superagent'],
+  ['workllm', 'Background LLM'],
+  ['keys', 'API keys'],
+  ['hibernation', 'Hibernation'],
+  ['notifications', 'Notifications'],
+  ['workflow', 'Workflow'],
+  ['integrations', 'Integrations'],
+  ['machines', 'Machines'],
+  ['security', 'Security'],
+  ['updates', 'Updates'],
 ] as const
 
 const boost = (ts: string | undefined, now: number): number => {
@@ -54,13 +63,16 @@ export class MemorySearchService {
     opts: { query?: string; projectPath?: string; limit?: number },
   ) {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
-    return this.store.conversations.index.searchCandidates(opts).filter((row) =>
-      this.visibility.mayRead(reader, {
-        class: 'conversation',
-        machineId: row.machineId ?? '__local__',
-        nativeId: row.id,
-      }),
-    ).slice(0, limit)
+    return this.store.conversations.index
+      .searchCandidates(opts)
+      .filter((row) =>
+        this.visibility.mayRead(reader, {
+          class: 'conversation',
+          machineId: row.machineId ?? LOCAL_PLACEHOLDER,
+          nativeId: row.id,
+        }),
+      )
+      .slice(0, limit)
   }
 
   search(
@@ -94,11 +106,13 @@ export class MemorySearchService {
     }
 
     const visibleIssues = new Map(
-      this.store.issues.listIssueRows().filter(
-        (row) =>
-          !row.deletedAt &&
-          this.visibility.mayRead(reader, { class: 'issue', id: row.id }),
-      ).map((row) => [row.id, row]),
+      this.store.issues
+        .listIssueRows()
+        .filter(
+          (row) =>
+            !row.deletedAt && this.visibility.mayRead(reader, { class: 'issue', id: row.id }),
+        )
+        .map((row) => [row.id, row]),
     )
     const issueHits = new Set<string>()
     for (const row of visibleIssues.values()) {
@@ -148,11 +162,14 @@ export class MemorySearchService {
     if (reader.kind !== 'system') {
       const owner = reader.kind === 'user' ? reader.id : reader.onBehalfOf
       for (const thread of this.store.superagent.listSuperagentThreads(owner)) {
-        if (!this.visibility.mayRead(reader, {
-          class: 'superagent-thread',
-          id: thread.id,
-          ownerUserId: thread.ownerUserId,
-        })) continue
+        if (
+          !this.visibility.mayRead(reader, {
+            class: 'superagent-thread',
+            id: thread.id,
+            ownerUserId: thread.ownerUserId,
+          })
+        )
+          continue
         const messages = this.store.superagent.loadSuperagentMessages(thread.id)
         const matching = messages.find((message) => message.content.toLowerCase().includes(lower))
         const titleHit = (thread.title ?? '').toLowerCase().includes(lower)
@@ -187,7 +204,7 @@ export class MemorySearchService {
       const normalized = bestRank !== undefined && bestRank < 0 ? row.rank / bestRank : 1
       const session = sessions.find(
         (candidate) =>
-          (candidate.machineId ?? '__local__') === row.machineId &&
+          (candidate.machineId ?? LOCAL_PLACEHOLDER) === row.machineId &&
           candidate.resumeValue === row.nativeId &&
           this.visibility.mayRead(reader, { class: 'session', id: candidate.id }),
       )

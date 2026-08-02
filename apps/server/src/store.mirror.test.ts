@@ -167,8 +167,8 @@ describe('SessionStore transcript mirror state', () => {
     })
 
     expect(
-      store
-        .conversations.mirror.segmentsToMirrorDirty('m1')
+      store.conversations.mirror
+        .segmentsToMirrorDirty('m1')
         .map((s) => s.nativeId)
         .sort(),
     ).toEqual(['behind', 'never-reported'])

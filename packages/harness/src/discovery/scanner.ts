@@ -153,6 +153,13 @@ async function scanAgentConversationsCachedInternal(
     summary: AgentConversationSummary
     agentKind: AgentKind
   }[] = []
+  // Files that summarized to nothing (guardian rollouts, parse-diagnostic files).
+  // Cached as negative rows (POD-624) so their 64 KB heads aren't re-read every scan.
+  const negativeWrites: {
+    path: string
+    stats: ConversationFileStat
+    agentKind: AgentKind
+  }[] = []
   const seenPaths = new Set<string>()
   const memoCanonicalPath = memoizeCanonicalPath()
 
@@ -219,9 +226,10 @@ async function scanAgentConversationsCachedInternal(
               }
 
               seenPaths.add(file.path)
-              const cached = options.cache.getFresh(file.path, stats, provider.agentKind)
+              const cached = options.cache.getFreshEntry(file.path, stats, provider.agentKind)
               if (cached) {
-                conversations.push(cached)
+                // A negative hit is still fresh — skip the re-summarize, emit nothing.
+                if (cached.kind === 'summary') conversations.push(cached.summary)
                 return
               }
 
@@ -231,7 +239,10 @@ async function scanAgentConversationsCachedInternal(
                 rootState: listing.state,
               })
               diagnostics.push(...extracted.diagnostics)
-              if (!extracted.summary) return
+              if (!extracted.summary) {
+                negativeWrites.push({ path: file.path, stats, agentKind: provider.agentKind })
+                return
+              }
 
               cacheWrites.push({
                 path: file.path,
@@ -248,6 +259,7 @@ async function scanAgentConversationsCachedInternal(
   )
 
   options.cache.upsertMany(cacheWrites)
+  options.cache.upsertManyNegative(negativeWrites)
   // A targeted refresh (`skipPrune`) never prunes: it only ever saw the dirty paths,
   // so it cannot tell what is genuinely missing — `removed` stays empty.
   const pruned = internal.skipPrune
