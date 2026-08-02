@@ -85,6 +85,53 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (bad) return { error: bad }
       return { bin: 'git', argv: ['rev-parse', '--verify', `${ref}^{commit}`] }
     }
+    /**
+     * Bundle `ref`, minus everything the target already proved it holds (POD-1424).
+     *
+     * `out` is NOT caller-supplied: the exec layer derives it from an opaque transfer
+     * token inside the daemon's own stage directory, exactly as the chunk-read side
+     * already confines what it will read. A caller able to name the output path could
+     * write a file anywhere the daemon can write.
+     *
+     * EVERY REV SLOT IS GUARDED. `git bundle create` has no `--` protecting its rev
+     * slots, so an unguarded '--all' parses as an OPTION and bundles the entire
+     * repository — the whole history, to another machine, from one crafted ref.
+     *
+     * Bases ride as `^<sha>`. They are the INTERSECTION the source can actually bundle
+     * from, computed by the caller: an unknown `^sha` aborts the whole bundle, so
+     * narrowing to what both sides hold is a correctness requirement, not an
+     * optimisation.
+     */
+    case 'bundleCreate': {
+      const { out, ref, bases } = args
+      if (!out || !ref) return { error: 'missing args' }
+      if (!isAbsolute(out)) return { error: 'bundle path must be absolute' }
+      const baseList = (bases ?? '').split(',').filter(Boolean)
+      const bad =
+        assertSafeRef(ref, 'ref') ??
+        baseList.map((sha) => assertSafeRef(sha, 'base')).find((e): e is string => e !== null)
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: ['bundle', 'create', out, ref, ...baseList.map((sha) => `^${sha}`)],
+      }
+    }
+    /**
+     * Fetch a bundle that arrived in this daemon's stage into the repository (POD-1424).
+     *
+     * The bundle is a positional after `--`, and `ref` is guarded for the same reason as
+     * above. This deliberately does NOT create or move a branch: it makes the OBJECTS
+     * reachable so a later `worktree add` can resolve its start point. What branch points
+     * where is the caller's business, not the transport's.
+     */
+    case 'bundleFetch': {
+      const { bundle, ref } = args
+      if (!bundle || !ref) return { error: 'missing args' }
+      if (!isAbsolute(bundle)) return { error: 'bundle path must be absolute' }
+      const bad = assertSafeRef(ref, 'ref')
+      if (bad) return { error: bad }
+      return { bin: 'git', argv: ['fetch', '--', bundle, ref] }
+    }
     case 'worktreeAdd': {
       // Options before `--`; path + optional startPoint ride after it as
       // guaranteed positionals. The -b value is an option argument `--` cannot

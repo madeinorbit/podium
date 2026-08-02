@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { hostname, tmpdir } from 'node:os'
+import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveCursorBin, resolveOpencodeBin } from '@podium/agent-bridge'
 import type { ControlMessage, UsageBucketWire } from '@podium/protocol'
+import { stageDirFor } from '../handoff-package.js'
 import { buildHarnessExec } from '../harness-exec.js'
 import { repoOpCommand } from '../repo-op'
 import { scanClaudeUsage } from '../usage-scan'
@@ -13,12 +14,49 @@ import type { ControlHandlers, DaemonContext } from './context'
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * A transfer token names a BUNDLE, never a location (POD-1424).
+ *
+ * The server sends an opaque `transferId`; each daemon derives the file inside its own
+ * stage directory and echoes the path it used back in the result. A server-computed
+ * path would be a guess about a filesystem the server cannot see, and a server able to
+ * name paths on another machine's disk is a traversal surface no validation closes.
+ *
+ * The token is restricted to the shape the server actually mints, so no separator,
+ * parent segment or NUL can survive into a filename.
+ */
+const TRANSFER_ID = /^[A-Za-z0-9_-]{1,64}$/
+
+export function bundlePathFor(transferId: string, home: string): string | { error: string } {
+  if (!TRANSFER_ID.test(transferId)) {
+    return { error: `unsafe transferId: expected [A-Za-z0-9_-]{1,64} (got '${transferId}')` }
+  }
+  return join(stageDirFor(home), `${transferId}.bundle`)
+}
+
 /** Allowlisted git operations for the superagent — each op is a fixed argv. */
 async function runRepoOp(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'repoOpRequest' }>,
 ): Promise<void> {
-  const cmd = repoOpCommand(msg.op, msg.args ?? {})
+  // Bundle verbs take a TOKEN, not a path: resolve it here, in the daemon, against
+  // this machine's own stage — and report the resolved path so the caller can hand
+  // the same transfer to the other side without ever naming a location itself.
+  let bundlePath: string | undefined
+  if (msg.op === 'bundleCreate' || msg.op === 'bundleFetch') {
+    const derived = bundlePathFor(msg.args?.transferId ?? '', homedir())
+    if (typeof derived !== 'string') {
+      ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: derived.error })
+      return
+    }
+    bundlePath = derived
+    mkdirSync(dirname(bundlePath), { recursive: true, mode: 0o700 })
+  }
+  const cmd = repoOpCommand(msg.op, {
+    ...(msg.args ?? {}),
+    ...(bundlePath && msg.op === 'bundleCreate' ? { out: bundlePath } : {}),
+    ...(bundlePath && msg.op === 'bundleFetch' ? { bundle: bundlePath } : {}),
+  })
   if ('error' in cmd) {
     ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: cmd.error })
     return
@@ -41,7 +79,10 @@ async function runRepoOp(
       type: 'repoOpResult',
       requestId: msg.requestId,
       ok: true,
-      output: `${stdout}${stderr ? `\n${stderr}` : ''}`.trim(),
+      // The bundle verbs echo the path this daemon chose. git itself prints nothing
+      // useful here, and the caller needs to know where the file landed on THIS disk
+      // without having been allowed to name it.
+      output: bundlePath ? bundlePath : `${stdout}${stderr ? `\n${stderr}` : ''}`.trim(),
     })
   } catch (err) {
     ctx.send({

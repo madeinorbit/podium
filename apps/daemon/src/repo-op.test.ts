@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { assertSafeRef, repoOpCommand } from './repo-op'
 
 describe('repoOpCommand', () => {
@@ -283,5 +283,144 @@ describe('repoOpCommand against a real git scratch repo (issue #81)', () => {
       run(repoOpCommand('worktreeAdd', { path: wt, branch: 'issue/1-x', startPoint: 'main' })).code,
     ).toBe(0)
     expect(run(repoOpCommand('worktreeRemove', { path: wt })).code).toBe(0)
+  })
+})
+
+/**
+ * bundleCreate / bundleFetch (POD-1424) — moving commits between machines.
+ *
+ * A second machine cannot start work on a branch whose base is on NO shared remote;
+ * our own integration branches never reach origin, so a clone plus a fetch cannot
+ * rescue it and the objects have to travel directly.
+ *
+ * TESTED AGAINST REAL GIT, not argv. An argv assertion cannot tell a working transport
+ * from a plausible-looking one, and the property that matters is that a commit existing
+ * ONLY in the source becomes resolvable in a target that shares no remote and no
+ * history — the state a newly-provisioned machine is in.
+ */
+describe('bundle verbs (POD-1424)', () => {
+  const git = (cwd: string, ...argv: string[]): string =>
+    execFileSync('git', ['-C', cwd, ...argv], { encoding: 'utf8' }).trim()
+
+  function repo(dir: string): string {
+    mkdirSync(dir, { recursive: true })
+    execFileSync('git', ['-C', dir, 'init', '-q', '-b', 'main'])
+    git(dir, 'config', 'user.email', 't@example.com')
+    git(dir, 'config', 'user.name', 'T')
+    return dir
+  }
+
+  let root: string
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'podium-bundle-'))
+  })
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('moves a commit that exists ONLY in the source into a target sharing no history', () => {
+    const source = repo(join(root, 'source'))
+    writeFileSync(join(source, 'a.txt'), 'hello')
+    git(source, 'add', 'a.txt')
+    git(source, 'commit', '-qm', 'only-here')
+    const sha = git(source, 'rev-parse', 'HEAD')
+
+    // A fresh `git init` with no remote and no history — assert it CANNOT see the
+    // commit first, so the test cannot pass by the object already being present.
+    const target = repo(join(root, 'target'))
+    expect(() => git(target, 'rev-parse', '--verify', `${sha}^{commit}`)).toThrow()
+
+    const out = join(root, 'x.bundle')
+    const create = repoOpCommand('bundleCreate', { out, ref: 'main' })
+    expect(create).not.toHaveProperty('error')
+    execFileSync('git', ['-C', source, ...(create as { argv: string[] }).argv])
+
+    const fetch = repoOpCommand('bundleFetch', { bundle: out, ref: 'main' })
+    expect(fetch).not.toHaveProperty('error')
+    execFileSync('git', ['-C', target, ...(fetch as { argv: string[] }).argv])
+
+    // The object ARRIVED — this is the whole point of the pair.
+    //
+    // Watched failing by replacing bundleFetch's argv with a command that succeeds and
+    // transfers nothing. NOT by adding `--dry-run`: measured here, `git fetch --dry-run`
+    // from a BUNDLE still writes the objects into the target's store, so a --dry-run
+    // mutant leaves this green and would have "proved" the test works when it had not
+    // been exercised at all.
+    expect(git(target, 'rev-parse', '--verify', `${sha}^{commit}`)).toBe(sha)
+  })
+
+  it('bundleFetch does not create or move a branch — only the objects travel', () => {
+    const source = repo(join(root, 'source2'))
+    writeFileSync(join(source, 'a.txt'), 'hello')
+    git(source, 'add', 'a.txt')
+    git(source, 'commit', '-qm', 'c1')
+    const target = repo(join(root, 'target2'))
+    const out = join(root, 'y.bundle')
+    execFileSync('git', [
+      '-C',
+      source,
+      ...(repoOpCommand('bundleCreate', { out, ref: 'main' }) as { argv: string[] }).argv,
+    ])
+    execFileSync('git', [
+      '-C',
+      target,
+      ...(repoOpCommand('bundleFetch', { bundle: out, ref: 'main' }) as { argv: string[] }).argv,
+    ])
+    // What branch points where is the caller's business, not the transport's.
+    expect(git(target, 'branch', '--list')).toBe('')
+  })
+
+  it("REFUSES '--all', which would otherwise bundle the entire repository", () => {
+    // `git bundle create` has no `--` protecting its rev slots, so an unguarded
+    // '--all' parses as an OPTION — the whole history, to another machine.
+    expect(repoOpCommand('bundleCreate', { out: '/tmp/x.bundle', ref: '--all' })).toEqual({
+      error: expect.stringContaining('unsafe ref'),
+    })
+    expect(
+      repoOpCommand('bundleCreate', { out: '/tmp/x.bundle', ref: 'main', bases: '--all' }),
+    ).toEqual({ error: expect.stringContaining('unsafe base') })
+    expect(
+      repoOpCommand('bundleFetch', { bundle: '/tmp/x.bundle', ref: '--upload-pack=evil' }),
+    ).toEqual({ error: expect.stringContaining('unsafe ref') })
+  })
+
+  it('refuses a relative bundle path from either verb', () => {
+    expect(repoOpCommand('bundleCreate', { out: 'rel.bundle', ref: 'main' })).toEqual({
+      error: 'bundle path must be absolute',
+    })
+    expect(repoOpCommand('bundleFetch', { bundle: 'rel.bundle', ref: 'main' })).toEqual({
+      error: 'bundle path must be absolute',
+    })
+  })
+
+  it('narrows the bundle to the bases the target already proved it holds', () => {
+    const source = repo(join(root, 'source3'))
+    writeFileSync(join(source, 'a.txt'), '1')
+    git(source, 'add', 'a.txt')
+    git(source, 'commit', '-qm', 'base')
+    const base = git(source, 'rev-parse', 'HEAD')
+    writeFileSync(join(source, 'b.txt'), '2')
+    git(source, 'add', 'b.txt')
+    git(source, 'commit', '-qm', 'tip')
+
+    const full = join(root, 'full.bundle')
+    const thin = join(root, 'thin.bundle')
+    execFileSync('git', [
+      '-C',
+      source,
+      ...(repoOpCommand('bundleCreate', { out: full, ref: 'main' }) as { argv: string[] }).argv,
+    ])
+    execFileSync('git', [
+      '-C',
+      source,
+      ...(
+        repoOpCommand('bundleCreate', { out: thin, ref: 'main', bases: base }) as {
+          argv: string[]
+        }
+      ).argv,
+    ])
+    // The point of intersecting bases: a bundle that excludes what the target has is
+    // strictly smaller, and that is what makes a large shared history affordable.
+    expect(statSync(thin).size).toBeLessThan(statSync(full).size)
   })
 })

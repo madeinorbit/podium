@@ -201,6 +201,16 @@ export const RepoOp = z.enum([
   'log',
   'branches',
   'revParseVerify',
+  // Move commits between machines (POD-1424): the OBJECT half of what a handoff
+  // does with a whole session package. A second machine cannot start work on a
+  // branch whose base is on NO shared remote — our integration branches never
+  // reach origin — so clone-plus-fetch cannot rescue it and the objects have to
+  // travel directly. NEITHER VERB TAKES A FILESYSTEM PATH FROM THE CALLER: the
+  // server names a TRANSFER, and each daemon derives the location inside its own
+  // stage. A server able to name paths on another machine's disk is a traversal
+  // surface no validation closes.
+  'bundleCreate',
+  'bundleFetch',
   'worktreeAdd',
   // stop→resume [spec:SP-9904]: re-materialize a worktree for an EXISTING branch
   // (no -b/-B). worktreeAdd always creates a new branch; this attaches the
