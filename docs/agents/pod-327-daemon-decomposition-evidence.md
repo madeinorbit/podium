@@ -3,10 +3,10 @@
 Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for a
 contention-free acceptance measurement and the required paired-VPS soak.
 
-The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. Catch-up merge
-`1136d78997daaa140d44eaef2ed2e96ebd2a95c0` also incorporates integration through
-`40e2cac3`. Generated architecture documents were regenerated from resolved code rather than
-hand-merged.
+The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. The current pushed
+tip is catch-up merge `8b4a3249895505b725963e231e29c7b2f381d0d7`, incorporating
+integration through `29897756`. Generated architecture documents were regenerated from resolved
+code rather than hand-merged.
 
 ## Result
 
@@ -39,6 +39,9 @@ hand-merged.
   `use` authorization from a server-authenticated human.
 - Authentication denial produces `unauthorized` without a retry timer. Transport loss produces
   `offline`/backoff and schedules reconnect.
+- The catch-up conflict deliberately keeps `registry.modules.machines.hostMachineId` in the
+  real-socket fixtures. The machines module owns the canonical minted host identity;
+  `sessionStore.hostMachineId` is the retired reader and was not reintroduced.
 
 ## Codex guard
 
@@ -51,6 +54,10 @@ smoke passed with `codex-cli 0.146.0`.
 
 ## Verification
 
+- On the current pushed tip, the consolidated daemon, Codex guard, and shared handshake suite
+  passed 23/23 files: 184 tests passed and 1 skipped. The conflict-resolved real-socket
+  wire-window integration passed 1/1 file and 1/1 test. The corrected hermetic Grok hook suite
+  passed 1/1 file and 8/8 tests.
 - Focused daemon/protocol/router run: 10 files passed, 233 tests passed, 1 skipped.
 - The rebased handshake/authorization contract run passed 8/8 files and 111/111 tests across the
   daemon dialer, gateway acceptor, shared conformance/strategy suites, payload-inert identity, and
@@ -71,9 +78,11 @@ smoke passed with `codex-cli 0.146.0`.
   the gate exit 1 at line 301; exact restoration returned it to 74 lines and green. The detector
   test passed 1/1 (73 unrelated cases skipped); the pre-catch-up full audit file passed 73/73.
 - `bun run audit:machine-grants`: passed.
-- On the current merge tip, the composition graph is acyclic/current at 178 modules, construction
+- On the current merge tip, the composition graph is acyclic/current at 179 modules, construction
   order is current, and the reactions ledger is current at 25 reactions; all three passed without
   `--write` after the generated documents were refreshed.
+- The global deletion ratchet is baseline exact at 32 items and 142 sites. The phase-specific
+  POD-327 item remains at zero with no undeclared sites or declared residue.
 - The machine-grants planted-fixture probe and clean gate passed, and the systemd render matched.
 - The Codex guard suite passed 10 tests and skipped 1 in one file; the installed binary reported
   `codex-cli 0.146.0` and took the real-binary arm.
@@ -89,13 +98,10 @@ smoke passed with `codex-cli 0.146.0`.
   passed, 6 failed, and 33 skipped. Three timing-shaped files then passed 3/3 in isolation:
   terminal keyboard 13/13 each, mirror lag 1 passed / 14 skipped each, and the audit baseline-write
   case 1 passed / 73 skipped each. Integration fixed the three principal-probe failures and the
-  merged file now passes 3/3. The remaining Grok real-binary hook smoke is deterministically red
-  3/3 because the installed CLI emits `pre_tool_use` while the test expects `PreToolUse`; POD-1329
-  received the exact finding.
-- The global deletion ratchet on integration is currently red outside POD-327: the newest layout
-  merge grew `router-triple-access` from 0 to 1 and `panel-mode-duality` from 3 to 5. POD-1350 and
-  the rewrite coordinator received the exact sites. These are not rebaselined or called green;
-  POD-327's own phase-specific item remains proven at zero.
+  merged file now passes 3/3. Integration also corrected the Grok inspection assertion to the
+  installed CLI's normalized `pre_tool_use` event while retaining `PreToolUse` as the hook-file
+  key; the merged hermetic suite passes 8/8. The full saturated lane has not been rerun, so it is
+  not represented as green from these focused fixes.
 
 - The isolated load acceptance remains a named open item. On a credible host, capture `uptime`,
   run `bun run test:acceptance`, and capture `uptime` again. This runs only
