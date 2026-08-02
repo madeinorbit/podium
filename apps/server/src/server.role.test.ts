@@ -62,16 +62,22 @@ describe('startServer with the hub role disabled (node shape)', () => {
     const health = await fetch(`http://127.0.0.1:${handle.port}/health`)
     expect(await health.text()).toBe('ok')
     expect(await trpc.sessions.list.query()).toEqual([])
-    // Reading the fleet is core (a node lists its own local machine)…
+    // Reading the fleet is core (a node lists its own host machine)…
     const machines = await trpc.machines.list.query()
-    expect(machines.some((m) => m.id === 'local')).toBe(true)
+    expect(machines.some((m) => m.id === handle.registry.modules.machines.hostMachineId)).toBe(
+      true,
+    )
   })
 
   it('pairing/fleet procs are ABSENT: 404 NOT_FOUND, not permission-denied', async () => {
     for (const call of [
       () => trpc.machines.pairingCode.mutate(),
-      () => trpc.machines.rename.mutate({ id: 'local', name: 'nope' }),
-      () => trpc.machines.revoke.mutate({ id: 'local' }),
+      () =>
+        trpc.machines.rename.mutate({
+          id: handle.registry.modules.machines.hostMachineId,
+          name: 'nope',
+        }),
+      () => trpc.machines.revoke.mutate({ id: handle.registry.modules.machines.hostMachineId }),
     ]) {
       const err = await call().then(
         () => undefined,
@@ -138,9 +144,11 @@ describe('startServer with the hub role disabled (node shape)', () => {
   })
 
   it('the local daemon `hello` path is unaffected by the node role', () => {
+    // The split-mode daemon presents the id it read from `<stateDir>/machine.id` —
+    // the same file this server read, hence the same value the service reports.
     const auth = handle.registry.modules.machines.authenticateDaemon({
       type: 'hello',
-      machineId: 'local',
+      machineId: handle.registry.modules.machines.hostMachineId,
       token: handle.bootstrapToken,
       hostname: 'same-host',
     })
@@ -190,10 +198,11 @@ describe('startServer default role keeps hub surfaces on', () => {
     const trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${handle.port}/trpc` })],
     })
-    const renamed = await trpc.machines.rename.mutate({ id: 'local', name: 'renamed-host' })
-    expect(renamed.find((m) => m.id === 'local')?.name).toBe('renamed-host')
+    const host = handle.registry.modules.machines.hostMachineId
+    const renamed = await trpc.machines.rename.mutate({ id: host, name: 'renamed-host' })
+    expect(renamed.find((m) => m.id === host)?.name).toBe('renamed-host')
     // The schema is the contract's, and it still refuses what it always refused.
-    await expect(trpc.machines.rename.mutate({ id: 'local', name: '' })).rejects.toThrow()
+    await expect(trpc.machines.rename.mutate({ id: host, name: '' })).rejects.toThrow()
     const after = await trpc.machines.revoke.mutate({ id: 'joiner' })
     expect(after.some((m) => m.id === 'joiner')).toBe(false)
   })

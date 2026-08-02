@@ -4029,7 +4029,11 @@ describe('listDir routing', () => {
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
 
-    const p = reg.modules.rpc.listDir({ machineId: 'local', root: '/w', path: '/w' })
+    const p = reg.modules.rpc.listDir({
+      machineId: reg.sessionStore.hostMachineId,
+      root: '/w',
+      path: '/w',
+    })
     const req = daemon.find((m) => m.type === 'dirListRequest') as
       | { requestId: string; path: string }
       | undefined

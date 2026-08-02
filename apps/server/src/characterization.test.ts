@@ -1,7 +1,13 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+  type SessionId,
+} from '@podium/model'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
@@ -201,8 +207,14 @@ function observe(reg: SessionRegistry, issueId: string): LifecycleObservation {
 
 describe('characterization: issue lifecycle equivalence across entry points (contract 2)', () => {
   const registries: SessionRegistry[] = []
+  /** ONE HOST for all three runs. The three entry points must produce byte-identical
+   *  rows, and a repo path no repo row claims derives its `repo_id` from (machine,
+   *  path) — so three registries each minting their own machine id (POD-318) would
+   *  differ in the one field that has nothing to do with the entry point. A real
+   *  install has one host; this pins that. */
+  const HOST = asMachineId('machine-under-test')
   const freshRegistry = () => {
-    const reg = new SessionRegistry()
+    const reg = new SessionRegistry(new SessionStore(':memory:', HOST))
     registries.push(reg)
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
