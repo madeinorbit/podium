@@ -1,8 +1,8 @@
 # POD-426 Phase 5 exit gate — host tightening
 
 **Gate run:** 2026-08-02
-**Candidate:** `c3b8247ebee10ee772c1c40654742965ee0f2100`
-**Worktree:** exactly `issue/279-integration` — `git rev-list --left-right --count HEAD...issue/279-integration` returned `0 0`; `git merge-base --is-ancestor` confirms the integration tip is contained.
+**Candidate:** `a573534ce0fb469e70f7a9176183d559b6343d54` (integration tip; this document sits one commit above it)
+**First pass:** `c3b8247e`. Integration advanced five commits mid-run, so every result below was **re-derived on the rebased tip**; both passes agreed on every verdict. Where the two differ, the change is called out.
 **Verdict:** **HELD OPEN — Phase 7 entry is not unblocked.**
 
 Seven of POD-292's eight acceptance criteria pass, each on an instrument this run proved
@@ -38,9 +38,14 @@ This is POD-1343's repair working, and it is the reverse of the POD-425 failure 
 `bun install --frozen-lockfile` (1338 packages, exit 0):
 
 ```text
-bun run typecheck
+bun run typecheck                        # first pass, c3b8247e
  Tasks:    22 successful, 22 total
 Cached:    20 cached, 22 total
+exit 0
+
+bun run typecheck                        # rebased tip, a573534c
+ Tasks:    22 successful, 22 total
+Cached:    22 cached, 22 total    >>> FULL TURBO
 exit 0
 ```
 
@@ -203,17 +208,20 @@ reproduced under controlled conditions.
 
 Phase 5 had never been run as an assembled thing. Both results below are new.
 
+Every row below was run twice — once at `c3b8247e`, once on the rebased tip `a573534c` — with
+identical results unless noted.
+
 | Lane | Result | Exit |
 | --- | --- | ---: |
 | `apps/server/src/modules/sessions/` (full directory) | 45 files, **513 tests passed** | 0 |
-| `bun run test:unit` (workspace) | 671 files, **9640 passed, 5 failed, 20 skipped** | **1** |
+| `bun run test:unit` (workspace) | 671 files, **9640 passed, 5 failed, 20 skipped** — the same three files both passes | **1** |
 | `bun run test:bun:unit` (what CI invokes) | 14 passed | 0 |
 | `bun run audit:rearch` | 32 items / 113 sites, baseline exact | 0 |
 | `bun scripts/audit-ambient-principals.ts` | `FIRST_ADMIN_USER_ID: 41 usage sites (baseline 41)`, no drift | 0 |
 | `bun run audit:machine-grants` | probe + repo clean | 0 |
 | `bun run lint:boundaries` | `boundaries OK — 6 allowlisted, 0 new` | 0 |
 | `bun run audit:durable-classes` | **1 finding** | **1** |
-| `bun run audit:god-objects` | **2 items** | **1** |
+| `bun run audit:god-objects` | **1 item** on the rebased tip (2 at `c3b8247e`) | **1** |
 
 ### The three unit-lane failures
 
@@ -246,17 +254,20 @@ is green.** Both halves matter, so stating them separately:
 
 ## Two evidence hazards this run found
 
-**`bun run audit:god-objects` (exit 1, 2 items) and the god-object unit test are not the
-same check.** The CLI reports both `review-budget-exceeded` on `machines/service.ts` **and**
-`unexplained-god-object` on `apps/server/src/modules/sessions/lifecycle.ts` (2510 physical /
-1737 code, no ledger entry). The unit test at `audit-god-objects.test.ts:196` explicitly
-filters `unexplained-god-object` out before asserting, so the lane only ever fails on the
-first. Anyone citing "the god-object test passes" is not citing the CLI, and vice versa.
+**`bun run audit:god-objects` and the god-object unit test are not the same check.** The unit
+test at `audit-god-objects.test.ts:196` explicitly filters `unexplained-god-object` out before
+asserting, so the lane can only ever fail on `review-budget-exceeded`. The CLI reports both
+kinds. Anyone citing "the god-object test passes" is not citing the CLI, and vice versa —
+worth writing down, because this run caught the divergence live.
 
-On `lifecycle.ts` itself: it has never carried a ledger entry, it has been over threshold far
-longer than this phase, and POD-1396 is actively decomposing it (2955 → 2510 physical over
-the last 60 commits, via four extraction commits). It is recorded here rather than chased,
-and it does **not** block this gate — no POD-292 criterion bounds module size.
+At the first-pass candidate `c3b8247e` the CLI reported **two** items: the budget breach plus
+`unexplained-god-object` on `apps/server/src/modules/sessions/lifecycle.ts` (2510 physical /
+1737 code, never any ledger entry). The unit lane showed only the first. On the rebased tip
+the CLI reports **one**: POD-1396's `6001786a refactor(POD-1396): lifecycle under 600 after
+teardown cut and further seams` landed mid-run and cleared it. The decomposition ran
+2955 → 2510 → under 600 across the run. Recorded because it explains why two honest observers
+minutes apart would have counted differently, not because it blocks anything — no POD-292
+criterion bounds module size.
 
 **`bun run test:bun` is not in CI and is red.** CI runs `test:bun:unit`; `ci.yml:132` records
 that `test:bun` (compiled-daemon + lifecycle integration) stays out deliberately. Worth
