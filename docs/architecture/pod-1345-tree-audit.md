@@ -128,7 +128,65 @@ untouched and proving it would be wasted effort.
 | **POD-769** Ledger: unproven detector = unproven guard | Grep of `docs/rearchitecture-v3.md` for "three costumes", "unproven detector", "non-event" returns nothing. The doctrine join is unwritten. |
 | **POD-1122** scripts/ has no typecheck gate | Turbo runs typecheck in 23 packages; `scripts/` is not a workspace package and appears in none of them. Still the fail-open shape it describes. (Note: this issue's brief has a large paste of raw turbo output embedded mid-sentence — worth cleaning when someone picks it up.) |
 | **POD-1343** Worktree runtime resolution | Same defect *class* as POD-1305 but a distinct instance (gate worktree with `node_modules/@podium` absent after a clean install, vs POD-1305's symlink sharing). Deliberately **not** closed as a duplicate — the two have different fixes and closing on similarity is exactly the error this audit exists to avoid. A `related` link is the right relationship; it is left for whoever works POD-1305 to decide. |
-| **POD-1273, 1279, 1280, 1157, 1241, 1251, 1281, 1305, 1328, 803, 809, 1316, 326, 1081** | All read and confirmed to describe work not present on the tree. No action beyond reparenting and gate wiring. |
+| **POD-1273, 1279, 1280, 1157, 1241, 1251, 1281, 1305, 1316, 326, 1081, 803, 809** | **Read, not independently re-measured.** Each describes work that is plainly not on the tree, and each was left open on that basis. This is a weaker standard than the rows above it and should not be read as equivalent — see the correction note below. |
+
+### 2b-note. Correction: the last row of §2b originally overclaimed
+
+**Added 2026-08-02 08:30 UTC, after a reader asked whether POD-1328 still reproduces.**
+
+That row first read *"All read and confirmed to describe work not present on the tree."* For
+several of its entries — POD-1328 most clearly — the honest description is **read, not
+re-measured**. I read the brief and reparented the issue; I did not run `podium status` and did not
+look at the probe. "Confirmed" was the wrong word and it is the exact failure this audit exists to
+catch, committed by the audit itself: a verdict phrased more strongly than the evidence behind it.
+
+The corrected wording stands above. What follows is the measurement that should have been there.
+
+**POD-1328 — measured 2026-08-02 08:29 UTC on ludovico, live instance:**
+
+```
+$ podium status
+Podium — mode: server
+  ● server  up :18787  (health)          <- reports UP, correctly
+$ curl -s -o /dev/null -w "%{http_code}" http://localhost:18787/health
+200
+$ ss -ltnp | grep 18787
+LISTEN 127.0.0.1:18787  users:(("bun",pid=3097780,fd=21))
+```
+
+**The headline symptom does not reproduce.** `podium status` agrees with the health endpoint.
+
+**That is not a fix, and POD-1328 must not be closed on it.** The original was a point-in-time
+measurement at 07:05 UTC on integration `0c2ec962`; this is one contradicting reading roughly 85
+minutes later. A probe that disagrees with reality intermittently is precisely the class where a
+single green is a non-event — the same rule the ledger states for detectors and guards (§4 of
+`docs/rearchitecture-v3.md`, and POD-769). Retiring this issue needs the probe read, not re-run.
+
+**The issue's SECOND observation is confirmed live and ongoing, and is the more dangerous half.**
+POD-1328 reported `~/.podium/config.json` rewritten at 06:43:31 UTC with a features block whose
+flag names match a test fixture, and deliberately declined to name the writer. As of 08:29 UTC:
+
+```
+$ TZ=UTC stat -c '%y' ~/.podium/config.json
+2026-08-02 08:14:31 UTC                  <- rewritten ~15 min ago, DURING this audit session
+$ cat ~/.podium/config.json
+{ "mode": "server", "features": { "sample-experiment": true, "other": false } }
+```
+
+The fixture is still in the **live** host config, and `ps` shows unit lanes running concurrently
+out of the POD-402 and POD-1329 worktrees. So a test lane is still writing live host state, and
+the live server is currently running with an experimental feature flag a test switched on.
+
+**The writer remains unidentified.** This narrows the window and proves the behaviour is ongoing;
+it is correlation with running lanes, not attribution, and it is not dressed up as more. The
+original reporter ruled out `packages/runtime/src/config.test.ts` (properly isolated via
+`mkdtempSync` + `PODIUM_STATE_DIR`) and `apps/server/src/features.test.ts` (writes nothing to
+disk). That elimination still stands.
+
+**Why this matters beyond one bug:** a test lane that mutates live host state is how a
+verification run fabricates its own incident. If the status probe reads this config, the
+contamination is a live candidate cause for the down-while-up reading itself — which would make
+the two halves of POD-1328 one defect, not two observations.
 
 ### 2c. Corrected rather than closed — POD-1280
 
