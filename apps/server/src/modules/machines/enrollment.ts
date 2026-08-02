@@ -318,6 +318,107 @@ export function transferOwnership(
 }
 
 /**
+ * The product-surface transfer (POD-1480) — what `machines.transferOwnership`
+ * calls, and the first caller that ever reaches the projection tail of
+ * {@link transferOwnership} (row write, cache invalidation, broadcast). The raw
+ * function above stays as-is: it IS D19.4d's append-then-project sequence and
+ * owns the crash-injection seam.
+ *
+ * The two checks here are DEFENCE IN DEPTH, not the gate. The gate is
+ * `machineSharingAuthority: 'owner-only'` in `fleetAuthzFailure`, resolved from
+ * the transport principal; this repeats the owner check for the same reason
+ * `shareMachine` does — a service reachable from more than one transport must
+ * not depend on every one of them remembering.
+ *
+ * `currentOwner` is the AUTHENTICATED human, never a payload field (ADR 3 D7).
+ */
+export function transferMachineOwnership(
+  host: EnrollmentHost,
+  id: string,
+  newOwnerUserId: string,
+  currentOwner: string,
+): void {
+  const machine = host.deps.store.machines.getMachine(id)
+  if (!machine?.ownerUserId || machine.ownerUserId !== currentOwner) {
+    throw new Error('only the machine owner may transfer ownership')
+  }
+  // An unknown or unreadable recipient is REFUSED rather than written. The
+  // projection would otherwise record an owner `userExists` cannot resolve,
+  // and the next `reconcileOwnersFromLedger` would quarantine the machine
+  // (owner null, usable by nobody) — a typo silently bricking someone's Mac.
+  //
+  // `?.` — a deps bundle with no `userExists` resolves to `undefined`, which
+  // is falsy and therefore REFUSES. Absent is the closed direction.
+  if (!host.deps.userExists?.(newOwnerUserId)) {
+    throw new Error(`unknown user: ${newOwnerUserId}`)
+  }
+  if (newOwnerUserId === currentOwner) {
+    throw new Error('machine is already owned by that user')
+  }
+  // The audience does NOT travel with the machine. Every existing grant edge
+  // was a deliberate act by the OUTGOING owner (readiness M3: sharing is a
+  // deliberate act, and M2: `use` is a code-execution boundary). Carrying them
+  // over would hand the incoming owner an audience they never approved, on
+  // their hardware. Dropped BEFORE the ledger append, so a crash between the
+  // two leaves the closed state and not the open one.
+  host.deps.store.grants.removeAllForResource('machine', id)
+  transferOwnership(host, id, newOwnerUserId)
+}
+
+/**
+ * Give an owner to a machine that has none (POD-1494) — what `machines.adopt`
+ * calls, and the sibling of {@link transferMachineOwnership} rather than a
+ * relaxation of it.
+ *
+ * The two differ in WHERE THE AUTHORITY COMES FROM, and this function's shape is
+ * that difference made concrete: transfer takes a `currentOwner` because the
+ * incumbent's consent IS the authority, and this one takes no such parameter
+ * because there is no incumbent to consent. The authority is the admin floor
+ * on the contract, resolved from the transport principal — so there is
+ * deliberately no adopter argument here that a caller could get wrong, and
+ * no way for this function to be talked into believing who is asking.
+ *
+ * As with transfer these checks are DEFENCE IN DEPTH and not the gate: the gate
+ * is `roleFloor: 'admin'` + `machineVerb: 'see'` + `machineOwnerPrecondition:
+ * 'unowned'` in `fleetAuthzFailure`. They are repeated because a service
+ * reachable from more than one transport must not depend on every one of them
+ * remembering.
+ */
+export function adoptMachine(host: EnrollmentHost, id: string, newOwnerUserId: string): void {
+  const machine = host.deps.store.machines.getMachine(id)
+  if (!machine) throw new Error(`unknown machine '${id}'`)
+  // THE LEDGER DECIDES, not `machine.ownerUserId`. The row is a projection
+  // (D19.4d) and this is the one question adoption must not ask it: a row
+  // still showing a stale owner between a transfer's append and its projection
+  // would refuse a legitimate adoption, and — the direction that matters — a
+  // row showing null while the ledger holds a resolvable owner would let an
+  // admin adopt a machine that is currently somebody's.
+  //
+  // `null` covers recorded-as-unowned AND quarantine (the recorded owner no
+  // longer resolves, D19.4b); `undefined` is never-recorded. All three are
+  // adoptable — see the contract for why quarantine is deliberately included.
+  const owner = effectiveOwner(host, id)
+  if (owner !== null && owner !== undefined) {
+    throw new Error('machine already has an owner — only its owner may transfer it')
+  }
+  // Same fail-closed reading as transfer: a deps bundle with no `userExists`
+  // resolves to `undefined`, which REFUSES. Adopting to an unresolvable id
+  // would append an owner the next `reconcileOwnersFromLedger` re-quarantines
+  // — the machine would come out of adoption exactly as stuck as it went in.
+  if (!host.deps.userExists?.(newOwnerUserId)) {
+    throw new Error(`unknown user: ${newOwnerUserId}`)
+  }
+  // Grant edges should not survive an ownership change, and an unowned machine
+  // is where stale ones are most likely to be: `machineVerbsFor` stops reading
+  // them the moment the owner column goes null (owner-null grants nobody
+  // anything), so an edge can sit here invisible and become live again the
+  // instant an owner exists. Dropped BEFORE the append for the crash ordering
+  // — the closed state is the safe one to be interrupted in.
+  host.deps.store.grants.removeAllForResource('machine', id)
+  transferOwnership(host, id, newOwnerUserId)
+}
+
+/**
  * Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
  * Callers that authorize `use`/`manage` should prefer this over the raw row
  * when a ledger is present; {@link reconcileOwnersFromLedger} keeps the row
