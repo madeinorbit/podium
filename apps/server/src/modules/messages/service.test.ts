@@ -2916,6 +2916,33 @@ describe('best-effort acks/notifications [POD-853]', () => {
     expect(sent).toHaveLength(0)
   })
 
+  it('a NOTIFICATION is best-effort too — injection confirms it and the sweep lets it be', () => {
+    // The ack half of best-effort is covered above; the notification half was
+    // not, and dropping `notification` from the predicate left the whole suite
+    // green (POD-1397 mutation M5). A steward/subscription notification expects
+    // no ack, so chasing its echo is the same unbounded re-inject loop an ack
+    // would cause.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const { svc, sent, store } = harness([session({ sessionId: asSessionId('s1') })], { now })
+    const note = svc.send(
+      { kind: 'system', name: 'steward' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'your branch is behind',
+        kind: 'notification',
+        urgency: 'next-turn',
+      },
+    )
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(note.message.id)!.status).toBe('delivered')
+    // Past the echo window the sweep must not resurrect it.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    sent.length = 0
+    svc.sweep()
+    expect(sent).toHaveLength(0)
+  })
+
   it('a regular message is NOT best-effort — it still waits for its echo/turn boundary', () => {
     const { svc, store } = harness([session({ sessionId: asSessionId('s1') })])
     const r = svc.send(
