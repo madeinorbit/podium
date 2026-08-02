@@ -177,14 +177,25 @@ export class SessionStart {
       ? requested.data
       : resolveRole(this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
           .harness
+    // Resolve the target machine before model validation — the catalog is
+    // machine-keyed (POD-1123), so we validate against THIS spawn's host.
+    const machineId = this.ports.resolveMachineForAgent(
+      input.machineId,
+      input.cwd,
+      agentKind,
+      input.use,
+    )
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
-    const { forced } = assertModelSelectionValid(this.ports.store.settings.getModelCatalog(), {
-      agentKind,
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      ...(input.forceUnknownModel ? { force: true } : {}),
-    })
+    const { forced } = assertModelSelectionValid(
+      this.ports.store.settings.getModelCatalog(machineId),
+      {
+        agentKind,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.effort !== undefined ? { effort: input.effort } : {}),
+        ...(input.forceUnknownModel ? { force: true } : {}),
+      },
+    )
     // Spawner name is validated before any side effect so a bad title never
     // leaves a half-spawned session.
     let curatedName: string | undefined
@@ -217,12 +228,6 @@ export class SessionStart {
           ? this.ports.sessionOwner(input.binding.principal.parentBindingId)?.owner
           : undefined
     const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
-    const machineId = this.ports.resolveMachineForAgent(
-      input.machineId,
-      input.cwd,
-      agentKind,
-      input.use,
-    )
     const spawned = this.spawn({
       agentKind,
       ownerUserId,

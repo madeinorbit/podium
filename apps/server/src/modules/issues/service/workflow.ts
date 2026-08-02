@@ -149,12 +149,18 @@ export class IssueGitWorkflowModule {
     const selection = this.modelSelectionFor(row, row.defaultAgent)
     // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
     // branch, stage) [spec:SP-cc60] — the issue's stored defaults are the selection.
-    assertModelSelectionValid(this.store.d.store.settings.getModelCatalog(), {
-      agentKind: row.defaultAgent,
-      ...(selection.model ? { model: selection.model } : {}),
-      ...(selection.effort ? { effort: selection.effort } : {}),
-      ...(opts?.forceUnknownModel ? { force: true } : {}),
-    })
+    // Catalog is machine-keyed (POD-1123): validate against the issue's host.
+    assertModelSelectionValid(
+      this.store.d.store.settings.getModelCatalog(
+        row.machineId ?? this.store.d.store.hostMachineId,
+      ),
+      {
+        agentKind: row.defaultAgent,
+        ...(selection.model ? { model: selection.model } : {}),
+        ...(selection.effort ? { effort: selection.effort } : {}),
+        ...(opts?.forceUnknownModel ? { force: true } : {}),
+      },
+    )
     /**
      * PLACE THE REPOSITORY BEFORE PLACING THE WORK (POD-1386).
      *
@@ -904,12 +910,17 @@ export class IssueGitWorkflowModule {
     const selection = this.modelSelectionFor(row, kind)
     // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
     // session carries no model (addShell), so validation is a no-op there.
-    assertModelSelectionValid(this.store.d.store.settings.getModelCatalog(), {
-      agentKind: kind,
-      ...(selection.model ? { model: selection.model } : {}),
-      ...(selection.effort ? { effort: selection.effort } : {}),
-      ...(opts?.forceUnknownModel ? { force: true } : {}),
-    })
+    assertModelSelectionValid(
+      this.store.d.store.settings.getModelCatalog(
+        row.machineId ?? this.store.d.store.hostMachineId,
+      ),
+      {
+        agentKind: kind,
+        ...(selection.model ? { model: selection.model } : {}),
+        ...(selection.effort ? { effort: selection.effort } : {}),
+        ...(opts?.forceUnknownModel ? { force: true } : {}),
+      },
+    )
     if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     this.store.d.spawnSession({
       cwd: row.worktreePath,

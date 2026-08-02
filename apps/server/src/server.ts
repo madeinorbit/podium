@@ -240,7 +240,10 @@ export async function startServer(
     // settings-coupled env reads: PODIUM_WEB_DIR/PODIUM_MOBILE_WEB_DIR bundle-path
     // fallbacks below, PODIUM_HOST/PODIUM_PASSWORD, PODIUM_LOOP_PROFILE, PODIUM_CLOUD_*)
     // into the server-side layer of the @podium/runtime/config resolver.
-    modelProbe: () =>
+    // machineId is threaded so the catalog cache keys by machine (POD-1123); the
+    // probe still shells out on THIS host today. Remote-machine probing rides the
+    // daemon later — until then only the host machine's catalog fills in live.
+    modelProbe: (_machineId) =>
       probeAllModels({
         claude: {
           apiKey:

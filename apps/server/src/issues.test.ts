@@ -1085,6 +1085,7 @@ describe('IssueService.start', () => {
   it('rejects an unavailable model BEFORE mutating start state [spec:SP-cc60]', async () => {
     const { svc, deps, store } = harness()
     store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
@@ -1105,6 +1106,7 @@ describe('IssueService.start', () => {
   it('force lets an unlisted issue model start [spec:SP-cc60]', async () => {
     const { svc, deps, store } = harness()
     store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
