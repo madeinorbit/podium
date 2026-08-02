@@ -33,6 +33,7 @@ import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { createDaemonAcceptor, receiveDaemonFrame } from './gateway/peer-handshake'
 import { attachWebSockets } from './gateway/ws-server'
+import { openEnrollmentLedger } from './enrollment-ledger'
 import { PairingManager } from './hub/pairing'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
@@ -221,6 +222,10 @@ export async function startServer(
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].
     publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
+    // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
+    // owner and revocation at the state-root tier, outside podium.db. Opened
+    // before service construction so pair/hello/revoke share one durability domain.
+    enrollment: openEnrollmentLedger(stateDir()),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the

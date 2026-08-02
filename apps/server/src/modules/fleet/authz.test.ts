@@ -297,11 +297,15 @@ describe('the derived fleet router actually calls the gate', () => {
     expect(store.grants.listForResource('machine', 'm1')).toEqual([])
   })
 
-  it('refuses to rename an UNOWNED machine, with the unknown-machine wording', async () => {
+  it('refuses to rename an UNOWNED machine (admin may see it, nobody may manage it)', async () => {
+    // D19.4b quarantine: the caller is admin-grade so the machine is visible
+    // (admins hold `see` on unowned rows) but manage is still refused — not with
+    // the "unknown machine" wording (that would hide the row from the people who
+    // must assign an owner), but as unauthorized.
     const { call, store } = caller(null)
 
     await expect(call.machines.rename({ id: 'm1', name: 'renamed' })).rejects.toThrow(
-      /unknown machine/,
+      /do not have access/,
     )
     // And the write did not happen — the refusal is before the handler, not a
     // message alongside a completed rename.
@@ -311,20 +315,21 @@ describe('the derived fleet router actually calls the gate', () => {
   it('refuses a repo write against an unowned machine', async () => {
     const { call } = caller(null)
     await expect(call.repos.add({ path: '/tmp/x', machineId: 'm1' })).rejects.toThrow(
-      /unknown machine/,
+      /do not have access/,
     )
   })
 
-  it('an unowned machine refuses EVERYONE, grant or no grant', async () => {
+  it('an unowned machine refuses manage/use to EVERYONE, grant or no grant', async () => {
     const { call, store } = caller(null)
     store.grants.upsert(edge('manage'))
 
     // `machineUseAllowed`'s rule, reaching the router: an owner-less machine is
-    // not team compute with an empty ACL, it is a machine nobody may touch. A
-    // grant issued against it confers nothing, because there was no owner whose
-    // rights the grant could have been within (ADR 9 D2 rule 4).
+    // not team compute with an empty ACL, it is a machine nobody may execute on.
+    // A grant issued against it confers nothing, because there was no owner whose
+    // rights the grant could have been within (ADR 9 D2 rule 4). Admin-grade
+    // callers may still see it (D19.4b quarantine), so the refusal is unauthorized.
     await expect(call.machines.rename({ id: 'm1', name: 'granted' })).rejects.toThrow(
-      /unknown machine/,
+      /do not have access/,
     )
   })
 
@@ -401,14 +406,15 @@ describe('a paired machine belongs to whoever minted its code', () => {
 
     expect(machines.authenticateDaemon(pairFrame(code)).ok).toBe(true)
     expect(store.machines.getMachine('joiner')?.ownerUserId).toBeNull()
-    // Unowned is the fail-CLOSED arm: `machineUseAllowed` refuses everyone,
-    // rather than the machine landing as ambient team compute.
+    // Unowned is the fail-CLOSED arm for use/manage: not ambient team compute.
+    // Admins hold `see` (D19.4b quarantine) so rename is FORBIDDEN rather than
+    // NOT_FOUND — the machine is visible to the people who must assign an owner.
     expect(
       fleetAuthzFailure(
         'machines.rename',
         { id: 'joiner' },
         deps(user(OWNER), { owner: null, machines: ['joiner'] }),
       )?.code,
-    ).toBe('NOT_FOUND')
+    ).toBe('FORBIDDEN')
   })
 })

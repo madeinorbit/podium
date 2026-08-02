@@ -128,6 +128,13 @@ interface SessionRegistryOptions {
    *  assembly (core never imports hub/pairing; see roles.ts). Absent = pairing
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   pairing?: PairingCodes
+  /**
+   * Enrollment ledger (POD-1114, D19.4) — pairing root + append-only enrollment,
+   * owner and revocation facts at the state-root tier. Injected from server
+   * assembly so the path is composition-owned; absent only in fixtures that never
+   * exercise pairing durability.
+   */
+  enrollment?: import('./enrollment-ledger').EnrollmentLedger
   /** Deterministic publication-worker fault injection for service-level tests. */
   publicationWorker?: PublishWorkerClient
   /** Rollout-only semantic comparison of legacy and worker publications. */
@@ -337,6 +344,10 @@ export class SessionRegistry {
       hostMachineId: this.store.hostMachineId,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
+      ...(options.enrollment ? { enrollment: options.enrollment } : {}),
+      // Quarantine resolution (D19.4b): an owner that no longer has an account row
+      // must not keep use, and must not be rewritten to the first admin.
+      userExists: (userId) => this.store.users.get(userId) !== undefined,
       clients: () => clientRegistry.values(),
       machinesForPrincipal: (principal, machineService) =>
         machinesForPrincipal(
