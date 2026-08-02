@@ -9,11 +9,10 @@
  *
  * Recorded here because the issue brief says "offline queueing is issue-writes
  * only today", and that is not what the code does: the covered set spans eight
- * SESSION writes plus three issue writes. Pins, tab order, sendText, and the two
- * remaining router mutations (`ask`, `uploadImage`) are the deliberate
- * exclusions (`createEngineOutbox`'s docstring: pins/tab-orders are low offline
- * value; live chat must fail fast rather than silently queue — and a seance or
- * an image upload replayed hours later is worse than a failure).
+ * SESSION writes plus three issue writes and five replicated per-user writes.
+ * Only live interaction (`sendText`, `ask`, and `uploadImage`) remains a
+ * deliberate direct-only exclusion: replaying chat, a seance, or an image
+ * upload hours later is worse than an immediate failure.
  *
  * Every characterization here is tagged must-not-change: the covered set is a
  * product decision the migration must carry over verbatim, not a
@@ -71,6 +70,7 @@ function recordingApi() {
     pins: { set: proc('pins.set') },
     tabs: { setOrder: proc('tabs.setOrder') },
     settings: { updatePersonal: proc('settings.updatePersonal') },
+    layout: { set: proc('layout.set'), clear: proc('layout.clear') },
     issues: {
       markRead: proc('issues.markRead'),
       markUnread: proc('issues.markUnread'),
@@ -120,6 +120,8 @@ async function drainFully(outbox: { size(): number; drain(): Promise<void> }): P
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
   { kind: 'pinSet', input: { kind: 'panel', id: 's1', pinned: true }, path: 'pins.set' },
   { kind: 'tabSetOrder', input: { worktree: '/w', sessionIds: ['s1'] }, path: 'tabs.setOrder' },
+  { kind: 'layoutSet', input: { values: { superOpen: '0' } }, path: 'layout.set' },
+  { kind: 'layoutClear', input: { keys: ['superOpen'] }, path: 'layout.clear' },
   {
     kind: 'settingsUpdatePersonal',
     input: { values: { 'sidebar.repoSort': 'name' } },
@@ -147,7 +149,7 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
 ]
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: eight session writes, three issue writes, and three replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: eight session writes, three issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {

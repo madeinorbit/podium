@@ -59,6 +59,10 @@ function submit(api: PodiumClientApi, envelope: OutboxEnvelope): Promise<unknown
       return api.pins.set.mutate(input as never)
     case 'tabs.setOrder':
       return api.tabs.setOrder.mutate(input as never)
+    case 'layout.set':
+      return api.layout.set.mutate(input as never)
+    case 'layout.clear':
+      return api.layout.clear.mutate(input as never)
     case 'settings.updatePersonal':
       return api.settings.updatePersonal.mutate(input as never)
     case 'sessions.resumeAndSend':

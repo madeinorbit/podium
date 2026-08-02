@@ -37,14 +37,14 @@ import {
 } from '../engine/types'
 import type { CreateEngineOutbox } from '../engine/wiring'
 import type { Replica } from '../replica/replica'
-import type { RouterWindow } from '../router'
+import type { RouterWindow } from '../ui-state'
 import type { FeedSinkPort } from '../socket-transport'
 
 // Shared engine seams (#262): types live with the engine; re-exported here so
 // the react entrypoint's public surface is unchanged.
 export type { Store, StoreNotices, StoreServerConfig, UserFocus } from '../engine/types'
 // The main-view union lives with the router (URL ↔ view mapping).
-export type { MainView } from '../router'
+export type { MainView } from '../ui-state'
 export type { FileTab } from '../viewmodels'
 
 /** The read seam the hooks consume — the engine, structurally. */

@@ -19,8 +19,8 @@ import {
   createAsyncStorageReplicaStorage,
   createKernelOutboxStorage,
   createReplica,
-  preparePrincipalNamespace,
   type KernelOutboxStorages,
+  preparePrincipalNamespace,
   REPLICA_KEY_PREFIX,
   type Replica,
   type ReplicaKind,
@@ -32,6 +32,7 @@ import {
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { ServerConfig } from '@podium/client-core/transport'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { PinState } from '@podium/client-core/viewmodels'
 import type {
   AgentKind,
@@ -57,11 +58,7 @@ import {
   type SqlDatabaseLike,
   SqliteSyncStore,
 } from '@podium/sync/adapters/mobile-sqlite'
-import {
-  ENQUEUEABLE_DELIVERY,
-  type OutboxAttribution,
-  type OutboxCommand,
-} from '@podium/sync/outbox'
+import type { OutboxAttribution, OutboxCommand } from '@podium/sync/outbox'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
 import {
@@ -74,6 +71,7 @@ import {
   useState,
 } from 'react'
 import { BootSplash } from '../components/BootSplash'
+import { fetchAuthStatus } from './auth'
 import {
   DEMO_ISSUES,
   DEMO_SESSIONS,
@@ -81,7 +79,6 @@ import {
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
-import { fetchAuthStatus } from './auth'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
 
 export interface MobileClientValue {
@@ -105,7 +102,7 @@ export interface MobileClientValue {
   hub: SocketHub | null
   trpc: MobileTrpc
   /** Principal-scoped UI preference store; no screen writes raw AsyncStorage. */
-  uiState: UiState
+  uiState: RoutedUiState
   /** The same optimistic draft-issue launch used by desktop's New Agent control. */
   spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
     sessionId: SessionId
@@ -238,12 +235,6 @@ export const MOBILE_REPLICA_DB = 'podium-replica.db'
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
 export const MOBILE_REPLICA_PRINCIPAL = 'default'
-
-/** `ENQUEUEABLE_DELIVERY` is declared against the WHOLE delivery union while
- *  `OutboxCommand` narrows to the single member it names. The cast is that
- *  narrowing and nothing else — it is the same value, reused rather than
- *  re-spelled, so a rename of the class reaches this table. */
-const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
 
 /** Re-exported for the tests and callers that named it here. The TABLE now
  *  lives beside `OutboxKinds` in client-core (POD-316) so the web recovery
@@ -637,7 +628,7 @@ function LiveBridge({
       serverConfig: config,
       hub,
       trpc,
-      uiState: replica.uiState(),
+      uiState: store.uiState,
       spawnDraftAgent: store.spawnDraftAgent,
       sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       issueById: (issueId) => issues.find((i) => i.id === issueId),
@@ -678,6 +669,7 @@ function LiveBridge({
       store.spawnDraftAgent,
       focusSessionIds,
       outboxSize,
+      store.uiState,
       eraseLocalData,
       readTranscript,
       subscribeTranscript,
