@@ -3,6 +3,10 @@
 Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for a
 contention-free acceptance measurement and the required paired-VPS soak.
 
+The branch was refreshed onto integration through `689a1b3c` and pushed at merge commit
+`8b7e12aa14c21d2f3f5754f639d2669d141cce12`. The two generated architecture documents were
+regenerated from the resolved code rather than hand-merged.
+
 ## Result
 
 - `apps/daemon/src/daemon.ts` is a 74-line composition root (down from 833 lines).
@@ -53,13 +57,16 @@ smoke passed with `codex-cli 0.146.0`.
   acceptance test now reaches the performance property after explicit ownership/auth updates;
   two measurements under host load average 58–63 on 8 CPUs exceeded the unchanged 25 ms p95
   threshold (35.84 ms and 33.23 ms), so neither is recorded as a valid green measurement.
-- `bun run typecheck`: all 25 workspace packages passed.
+- Post-merge `bun run typecheck`: 22/22 tasks passed across the 25-package workspace scope.
 - `bun run test:multi-instance`: the independent-runtime test passed 1/1 with 41 assertions,
   managed-account spawn passed 3/3, and the install-shell lane reported `ALL OK`.
 - `bun run audit:rearch`: passed at the checked-in baseline (31 items, 142 sites).
 - `bun run audit:machine-grants`: passed.
-- The composition graph is acyclic/current at 177 modules, construction order is current, and the
-  reactions ledger is current at 25 reactions.
+- On the pushed merge tip, the composition graph is acyclic/current at 177 modules, construction
+  order is current, and the reactions ledger is current at 25 reactions; all three passed without
+  `--write` after the generated documents were refreshed.
+- On that same tip, the machine-grants planted-fixture probe and clean gate passed, the systemd
+  render matched, and the rearchitecture audit held its exact baseline at 31 items / 142 sites.
 - The Codex guard suite passed 10 tests and skipped 1 in one file; the installed binary reported
   `codex-cli 0.146.0` and took the real-binary arm.
 - The production diff moves the existing `FIRST_ADMIN_USER_ID` legacy-binding migration input
