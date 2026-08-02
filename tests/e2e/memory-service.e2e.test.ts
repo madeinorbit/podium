@@ -464,6 +464,8 @@ describe('POD-1390 · memory service end-to-end (real daemon → server → clie
     await daemon.close()
 
     const memory = server.registry.modules.memory
+    /** How long the interrupted lake read took to be released after close. */
+    let abandonMs = Number.POSITIVE_INFINITY
 
     const noise: string[] = []
     const warn = console.warn
@@ -481,7 +483,9 @@ describe('POD-1390 · memory service end-to-end (real daemon → server → clie
       // gives the assertion below the power to fail. (Measured on the unfixed
       // tree: '[podium] transcript mirror failed for …: Error: timeout', ~10s
       // after a "clean" close.)
+      const startedWaiting = Date.now()
       await until(() => memory.pendingLakeReads === 0, 15_000)
+      abandonMs = Date.now() - startedWaiting
       // Plus a couple of paced turns (indexer/mirror breather is 25ms), so a
       // loop that merely hadn't reached its next checkpoint still gets to speak.
       await new Promise((r) => setTimeout(r, 250))
@@ -492,6 +496,12 @@ describe('POD-1390 · memory service end-to-end (real daemon → server → clie
     // "The process exited" is not clean shutdown. Nothing owned by the memory
     // service may still be writing once the store is closed.
     expect(noise).toEqual([])
+    // …and it must be quiet because the work STOPPED, not because someone
+    // stopped reporting it. A shutdown that only suppressed its logging would
+    // still be sitting on the interrupted ranged read here, and would not
+    // release it until the daemon-request timeout (10s). Anything near that
+    // bound means the loop outlived the close and merely kept quiet about it.
+    expect(abandonMs).toBeLessThan(5_000)
 
     // Durability, checked the only honest way: a NEW server on the same state
     // dir, with NO daemon attached, still answers the search. Nothing here can
