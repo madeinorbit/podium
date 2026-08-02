@@ -147,8 +147,7 @@ export function resolveHandoffPlacement(
   // identity always matches the tree it carries. Which candidate wins is the
   // exporter's call (it asks git); refuse up front only when neither exists.
   const issueWorktree =
-    issue?.machineId === session.machineId &&
-    issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
+    issue?.machineId === session.machineId && issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
       ? issue.worktreePath
       : undefined
   if (session.cwd === sourceRepo.path && !issueWorktree)

@@ -13,7 +13,7 @@
  * inside the function under test.
  */
 
-import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
 import { Session } from '../session'
@@ -41,8 +41,8 @@ function makeSession(over: { cwd?: string; machineId?: string; issueId?: string 
     createdAt: '2026-08-02T00:00:00.000Z',
     geometry: { cols: 80, rows: 24 },
     machineId: asMachineId(over.machineId ?? SOURCE),
-    issueId: over.issueId,
-    resume: { kind: 'claude-session', sessionId: 'conv-1' },
+    issueId: over.issueId ? asIssueId(over.issueId) : undefined,
+    resume: { kind: 'claude-session', value: 'conv-1' },
     toDaemon: vi.fn(),
   })
 }
@@ -108,9 +108,9 @@ describe('handoff placement: what it resolves', () => {
   })
 
   it('ignores repos registered on another machine', () => {
-    expect(() =>
-      resolve(ports({ repos: [repo({ machineId: TARGET })] })),
-    ).toThrow(/source repository is not registered/)
+    expect(() => resolve(ports({ repos: [repo({ machineId: TARGET })] }))).toThrow(
+      /source repository is not registered/,
+    )
   })
 
   it('[spec:SP-3f7a] anchors on the issue worktree when the session cwd drifted to the repo root', () => {
