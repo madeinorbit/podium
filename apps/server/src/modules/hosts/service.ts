@@ -1,13 +1,9 @@
 import type { AgentRuntimeState, HostMetricsWire, SessionId } from '@podium/model'
-import type {
-  ControlMessage,
-  DaemonMessage,
-  LiveServerMessage,
-  ServerMessage,
-} from '@podium/protocol'
+import type { DaemonMessage, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { EventBus } from '../bus'
+import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 
 /** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */
 export type MemoryBreakdown = Omit<
@@ -16,6 +12,10 @@ export type MemoryBreakdown = Omit<
 >
 
 const MEMORY_BREAKDOWN_TIMEOUT_MS = 10_000
+
+/** The host memory-probe request family (POD-318) — `undefined` is the timeout
+ *  answer, so the result type is deliberately nullable. */
+const MEMORY_BREAKDOWN = daemonRequestKind<MemoryBreakdown | undefined>('mb')
 const MEMORY_HIBERNATE_COOLDOWN_MS = 60_000
 const OUTPUT_QUIET_MS = 60_000
 // Four immediately, then four/minute: conservative enough to avoid a kill
@@ -58,16 +58,18 @@ export interface HostsDeps {
   hasValidTerminalProof(sessionId: SessionId): boolean
   /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
   terminalProofMissing(sessionId: SessionId): boolean
-  /** The registry's shared daemon request/response plumbing (timeout + resolver
-   *  registration + control-message routing). `machineId` undefined = default machine. */
-  daemonRequest<T>(
-    pending: Map<string, (r: T) => void>,
-    prefix: string,
-    timeoutMs: number,
-    onTimeout: () => T,
-    buildMsg: (requestId: string) => ControlMessage,
-    machineId?: string,
-  ): Promise<T>
+  /**
+   * The ONE daemon-RPC correlator (POD-318), taken as the broker's own exported
+   * port instead of a locally re-declared function type.
+   *
+   * The six-argument `daemonRequest` this replaces was a structural copy of the
+   * identical declaration in `conversations/service.ts` — and because it could
+   * only hand a resolver back, this service had to own `pendingBreakdowns` to
+   * receive it. The port owns the registry, the timeout and the
+   * answering-machine check (POD-1175); `machineId` undefined still means the
+   * default machine, resolved by the broker at send time.
+   */
+  daemonRequest: DaemonRequestPort
 }
 
 /**
@@ -87,7 +89,6 @@ export class HostsService {
   private readonly countHibernateBudgetByMachine = new Map<string, CountHibernateBudget>()
   private readonly lastCapUnmetByMachine = new Map<string, string>()
   private readonly missingProofLogged = new Set<string>()
-  private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
 
   constructor(
     private readonly deps: HostsDeps,
@@ -318,23 +319,24 @@ export class HostsService {
    *  answers in time. `machineId` targets a specific machine (the one whose chip
    *  was clicked); omitted → the default online machine. */
   memoryBreakdown(roots: string[], machineId?: string): Promise<MemoryBreakdown | undefined> {
-    return this.deps.daemonRequest<MemoryBreakdown | undefined>(
-      this.pendingBreakdowns,
-      'mb',
-      MEMORY_BREAKDOWN_TIMEOUT_MS,
-      () => undefined,
-      (requestId) => ({ type: 'memoryBreakdownRequest', requestId, roots }),
+    return this.deps.daemonRequest.request({
+      kind: MEMORY_BREAKDOWN,
+      timeoutMs: MEMORY_BREAKDOWN_TIMEOUT_MS,
+      onTimeout: () => undefined,
+      build: (requestId) => ({ type: 'memoryBreakdownRequest', requestId, roots }),
       machineId,
-    )
+    })
   }
 
-  /** Resolver for the daemon's memoryBreakdownResult reply. */
-  onMemoryBreakdownResult(msg: Extract<DaemonMessage, { type: 'memoryBreakdownResult' }>): void {
-    const resolve = this.pendingBreakdowns.get(msg.requestId)
-    if (resolve) {
-      this.pendingBreakdowns.delete(msg.requestId)
-      const { type: _type, requestId: _requestId, ...breakdown } = msg
-      resolve(breakdown)
-    }
+  /** The daemon's memoryBreakdownResult reply, settled through the one
+   *  correlator. `machineId` is who ANSWERED — a probe answered by a machine
+   *  other than the one it was sent to is dropped by the broker (POD-1175),
+   *  which matters here because a breakdown IS that machine's process list. */
+  onMemoryBreakdownResult(
+    machineId: string,
+    msg: Extract<DaemonMessage, { type: 'memoryBreakdownResult' }>,
+  ): void {
+    const { type: _type, requestId: _requestId, ...breakdown } = msg
+    this.deps.daemonRequest.settle(MEMORY_BREAKDOWN, msg.requestId, machineId, breakdown)
   }
 }

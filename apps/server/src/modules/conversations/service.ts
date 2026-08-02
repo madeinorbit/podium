@@ -6,15 +6,25 @@ import type {
   ResumeRef,
   TranscriptItem,
 } from '@podium/model'
-import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
+import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import { MirrorService } from '@podium/sync'
 import { fileChainSource, fileIdFor } from '@podium/transcript'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import { TranscriptIndexer } from '../../transcript-indexer'
+import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 
 const MIRROR_READ_TIMEOUT_MS = 10_000
+
+/** The mirror's ranged-read request family (POD-318). One prefix, one result
+ *  type, one registry — see `modules/daemon-request.ts`. */
+const MIRROR_READ = daemonRequestKind<{
+  data: string
+  fileSize: number
+  eof: boolean
+  error?: string
+}>('mr')
 
 /** The slice of the write-seam Ledger conversation writes go through
  *  ([spec:SP-3fe2] #257) — structural (like SessionLedger) so tests can fake it. */
@@ -46,15 +56,19 @@ export interface ConversationsDeps {
    * versions still need to hear it (only v1 does; v2 does not carry them).
    */
   onDiagnosticsChanged(diagnostics: readonly ConversationDiagnosticWire[]): void
-  /** The registry's shared daemon request/response plumbing. */
-  daemonRequest<T>(
-    pending: Map<string, (r: T) => void>,
-    prefix: string,
-    timeoutMs: number,
-    onTimeout: () => T,
-    buildMsg: (requestId: string) => ControlMessage,
-    machineId?: string,
-  ): Promise<T>
+  /**
+   * The ONE daemon-RPC correlator (POD-318), taken as the broker's own exported
+   * port rather than re-declared here.
+   *
+   * This used to be a structural COPY of a six-argument `daemonRequest` function
+   * type — the same port written out again in `hosts/service.ts` and implemented
+   * a third time in `machines/rpc.ts` (inventory §6.5 rule 1). The copy is also
+   * what forced the pending map below to exist: a function type that hands back
+   * a resolver can only work if the caller owns the registry. Depending on the
+   * port instead puts the registry, the timeout AND the answering-machine check
+   * (POD-1175) in the broker, and leaves this module with just the read.
+   */
+  daemonRequest: DaemonRequestPort
 }
 
 /**
@@ -93,10 +107,6 @@ export class ConversationsService {
   // once as the feed's translation and once as the advisory that followed it.
   // "Nothing to report" is a value, and it is the value this starts at.
   private lastDiagnosticsBroadcast = JSON.stringify([])
-  private readonly pendingMirrorReads = new Map<
-    string,
-    (r: { data: string; fileSize: number; eof: boolean; error?: string }) => void
-  >()
   // Transcript lake mirror (docs/spec/transcript-mirror.md) — constructed only when
   // mirrorLakeDir is set; undefined means zero mirror traffic (tests default).
   private readonly mirror: MirrorService | undefined
@@ -383,12 +393,11 @@ export class ConversationsService {
     machineId: string,
     req: { path: string; offset: number; maxBytes: number },
   ): Promise<{ data: string; fileSize: number; eof: boolean; error?: string }> {
-    return this.deps.daemonRequest(
-      this.pendingMirrorReads,
-      'mr',
-      MIRROR_READ_TIMEOUT_MS,
-      () => ({ data: '', fileSize: 0, eof: false, error: 'timeout' }),
-      (requestId) => ({
+    return this.deps.daemonRequest.request({
+      kind: MIRROR_READ,
+      timeoutMs: MIRROR_READ_TIMEOUT_MS,
+      onTimeout: () => ({ data: '', fileSize: 0, eof: false, error: 'timeout' }),
+      build: (requestId) => ({
         type: 'transcriptMirrorRead',
         requestId,
         path: req.path,
@@ -396,26 +405,27 @@ export class ConversationsService {
         maxBytes: req.maxBytes,
       }),
       machineId,
-    )
+    })
   }
 
-  /** Resolver for the daemon's transcriptMirrorResult reply. */
-  onTranscriptMirrorResult(msg: {
-    requestId: string
-    data: string
-    fileSize: number
-    eof: boolean
-    error?: string
-  }): void {
-    const resolve = this.pendingMirrorReads.get(msg.requestId)
-    if (resolve) {
-      this.pendingMirrorReads.delete(msg.requestId)
-      resolve({
-        data: msg.data,
-        fileSize: msg.fileSize,
-        eof: msg.eof,
-        ...(msg.error !== undefined ? { error: msg.error } : {}),
-      })
-    }
+  /** The daemon's transcriptMirrorResult reply, settled through the one
+   *  correlator. `machineId` is who ANSWERED: the broker drops a reply from a
+   *  machine other than the one this ranged read was sent to (POD-1175). */
+  onTranscriptMirrorResult(
+    machineId: string,
+    msg: {
+      requestId: string
+      data: string
+      fileSize: number
+      eof: boolean
+      error?: string
+    },
+  ): void {
+    this.deps.daemonRequest.settle(MIRROR_READ, msg.requestId, machineId, {
+      data: msg.data,
+      fileSize: msg.fileSize,
+      eof: msg.eof,
+      ...(msg.error === undefined ? {} : { error: msg.error }),
+    })
   }
 }

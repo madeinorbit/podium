@@ -1,6 +1,5 @@
+import type { HostMetricsWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type { SessionId } from '@podium/model'
-import type { HostMetricsWire } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
@@ -73,7 +72,13 @@ function harness(input: {
     },
     hasValidTerminalProof: (sessionId) => input.proven?.has(sessionId) ?? true,
     terminalProofMissing: (sessionId) => !(input.proven?.has(sessionId) ?? true),
-    daemonRequest: vi.fn() as HostsDeps['daemonRequest'],
+    // The auto-hibernate sweep makes no daemon round-trip, so an inert
+    // correlator is enough here — a call to one would be the failure.
+    daemonRequest: {
+      request: vi.fn(),
+      settle: vi.fn(),
+      nextRequestId: vi.fn(),
+    } as unknown as HostsDeps['daemonRequest'],
   }
   return { service: new HostsService(deps, new EventBus()), parked }
 }
@@ -110,7 +115,11 @@ describe('idle-session cap', () => {
   })
 
   it('allows zero and re-evaluates after every successful hibernation', () => {
-    const sessions = [session(asSessionId('one')), session(asSessionId('two')), session(asSessionId('three'))]
+    const sessions = [
+      session(asSessionId('one')),
+      session(asSessionId('two')),
+      session(asSessionId('three')),
+    ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
     service.onHostMetrics('local', sample(10))
@@ -200,7 +209,11 @@ describe('idle-session cap', () => {
   })
   it('retries memory pressure after a race without spending the cooldown', () => {
     const failures = new Set(['raced'])
-    const sessions = [session(asSessionId('raced')), session(asSessionId('next')), session(asSessionId('later'))]
+    const sessions = [
+      session(asSessionId('raced')),
+      session(asSessionId('next')),
+      session(asSessionId('later')),
+    ]
     const { service, parked } = harness({
       sessions,
       maxIdleSessions: null,
@@ -217,8 +230,12 @@ describe('idle-session cap', () => {
 
   it('keeps count-pressure burst budgets independent per machine', () => {
     const sessions = [
-      ...Array.from({ length: 5 }, (_, index) => session(asSessionId(`a${index}`), { machineId: 'a' })),
-      ...Array.from({ length: 5 }, (_, index) => session(asSessionId(`b${index}`), { machineId: 'b' })),
+      ...Array.from({ length: 5 }, (_, index) =>
+        session(asSessionId(`a${index}`), { machineId: 'a' }),
+      ),
+      ...Array.from({ length: 5 }, (_, index) =>
+        session(asSessionId(`b${index}`), { machineId: 'b' }),
+      ),
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 

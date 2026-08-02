@@ -74,7 +74,7 @@ export const DAEMON_FRAME_PORTS = {
   transcriptMirrorResult: ['conversations'],
   scanResult: ['conversations', 'rpc'],
 
-  // ---- RPC replies (correlated by requestId; POD-318 owns the correlator) ----
+  // ---- RPC replies, settled by the generic correlator (POD-318) ----
   scanReposResult: ['rpc'],
   browseDirsResult: ['rpc'],
   repoOpResult: ['rpc'],
@@ -122,6 +122,20 @@ export type SessionsDaemonFrameType = {
 export type SessionsDaemonFrame = Extract<DaemonMessage, { type: SessionsDaemonFrameType }>
 
 /**
+ * The RPC-owned subset, as a type — DERIVED from the table above rather than
+ * restated, so the correlator's fan-in stays total over exactly the frames the
+ * gateway routes to it. This is MEMBERSHIP, not sole ownership: `scanResult` is
+ * both a conversation discovery and an RPC reply, and belongs in both.
+ */
+export type RpcDaemonFrameType = {
+  [K in keyof typeof DAEMON_FRAME_PORTS]: 'rpc' extends (typeof DAEMON_FRAME_PORTS)[K][number]
+    ? K
+    : never
+}[keyof typeof DAEMON_FRAME_PORTS]
+
+export type RpcDaemonFrame = Extract<DaemonMessage, { type: RpcDaemonFrameType }>
+
+/**
  * HOW A MACHINE-ADJACENT FRAME CARRIES ITS MACHINE SCOPE.
  *
  * `docs/multi-user-readiness.md` §3.1.1: every per-machine fact — repos and
@@ -137,15 +151,18 @@ export type SessionsDaemonFrame = Extract<DaemonMessage, { type: SessionsDaemonF
  * - `principal` — the port method takes the resolved machine principal (or its
  *   machine id) as an argument. Scope is carried on the delivery path.
  * - `request-correlated` — the frame is a reply the server itself asked a NAMED
- *   machine for; the scope was fixed when the request was sent.
+ *   machine for; the scope was fixed when the request was sent, and the ANSWERER
+ *   is checked against it before the request settles.
  *
- * KNOWN GAP, recorded rather than papered over: the `request-correlated` rows
- * settle in `modules/machines/rpc.ts`, whose pending maps are keyed by
- * `requestId` ALONE — the answering machine is not compared against the machine
- * the request was sent to. The generic correlator is POD-318's deliverable and
- * this extraction deliberately does not re-create one inside the gateway, so the
- * gap is carried forward with the principal now available at the port boundary
- * for POD-318 to enforce against. See POD-1175.
+ * THE GAP THIS USED TO RECORD IS CLOSED (POD-1175, by POD-318). The
+ * `request-correlated` rows settled in pending maps keyed by `requestId` ALONE,
+ * so the claim above was an assertion nothing enforced: machine B's reply could
+ * settle a request sent to machine A. The maps are gone; every correlated reply
+ * now settles through `modules/daemon-request.ts`, which is handed
+ * `principal.machine` on the delivery path and REFUSES an answer from any
+ * machine other than the one the request was sent to (the request is left to
+ * time out). The gateway still re-creates no correlator of its own — it only
+ * carries the principal to the one that exists.
  */
 export const MACHINE_SCOPE_CARRIER = {
   inventoryReport: 'principal',

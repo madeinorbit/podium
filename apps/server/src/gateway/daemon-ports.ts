@@ -10,14 +10,19 @@
  * WHERE THE MACHINE PRINCIPAL APPEARS: on every method whose frame is
  * machine-adjacent under `docs/multi-user-readiness.md` §3.1.1, and on the
  * sessions port's whole surface (a daemon-observed session write is attributed
- * to the MACHINE, ADR 1's daemon writer class — never to a person). Ports whose
- * frames are request-correlated replies take the message alone; see
- * `MACHINE_SCOPE_CARRIER` for that audit and its recorded gap.
+ * to the MACHINE, ADR 1's daemon writer class — never to a person).
+ *
+ * IT APPEARS ON THE REQUEST-CORRELATED REPLIES TOO, since POD-318. Those methods
+ * used to take the message alone, which is exactly why `MACHINE_SCOPE_CARRIER`
+ * could only RECORD the request-correlated claim instead of enforcing it: the
+ * settle path never learned who answered. Every reply port below now takes the
+ * answering machine id as its first argument, and the correlator refuses a reply
+ * from a machine other than the one the request was sent to (POD-1175).
  */
 
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import type { ControlMessage, DaemonMessage, MachinePrincipal } from '@podium/protocol'
-import type { SessionsDaemonFrame } from './daemon-frame-routing'
+import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
 
 /** A frame of a given type. */
 export type DaemonFrame<T extends DaemonMessage['type']> = Extract<DaemonMessage, { type: T }>
@@ -62,13 +67,15 @@ export interface MachinesDaemonPort {
   recordInventory(machineId: string, inventory: DaemonFrame<'inventoryReport'>['inventory']): void
 }
 
-/** HOSTS. Health samples are per-machine facts and are scoped by the principal. */
+/** HOSTS. Health samples are per-machine facts and are scoped by the principal;
+ *  so is the memory-breakdown reply, which the correlator checks the sender of. */
 export interface HostsDaemonPort {
   onHostMetrics(machineId: string, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
-  onMemoryBreakdownResult(msg: DaemonFrame<'memoryBreakdownResult'>): void
+  onMemoryBreakdownResult(machineId: string, msg: DaemonFrame<'memoryBreakdownResult'>): void
 }
 
-/** CONVERSATIONS. Discovery is per-machine; the mirror read is request-correlated. */
+/** CONVERSATIONS. Discovery is per-machine; the mirror read is request-correlated
+ *  and settles through the same correlator, so it takes the answering machine. */
 export interface ConversationsDaemonPort {
   onDiscovery(
     machineId: string,
@@ -76,39 +83,27 @@ export interface ConversationsDaemonPort {
     diagnostics: ConversationDiagnosticWire[],
     removed?: string[],
   ): void
-  onTranscriptMirrorResult(msg: DaemonFrame<'transcriptMirrorResult'>): void
+  onTranscriptMirrorResult(machineId: string, msg: DaemonFrame<'transcriptMirrorResult'>): void
   triggerLakeSweep(machineId: string): void
 }
 
 /**
- * RPC REPLIES. Correlated by `requestId` — POD-318 owns the generic correlator
- * that replaces this hand-paired surface, so the port is stated as it is today
- * and the mux does not re-create a correlator behind the gateway boundary.
+ * RPC REPLIES — ONE METHOD, because there is one correlator (POD-318).
+ *
+ * This used to be twenty-three hand-paired `on*Result` methods, each mirroring a
+ * consumer-owned pending map. The maps are gone, so the pairing has nothing left
+ * to mirror: a correlated reply is settled by `requestId`, and which frame
+ * carried it is the OWNING MODULE's business, not the gateway's. The frame union
+ * is derived from `DAEMON_FRAME_PORTS`, so a new reply frame routed to `rpc`
+ * arrives here without touching this interface — and the module's own settle
+ * table is a compile error until it handles it.
+ *
+ * `machineId` is the ANSWERING machine, from the authenticated transport. It is
+ * the whole reason this port changed shape: without it the correlator cannot
+ * tell a reply to your request from a reply to someone else's (POD-1175).
  */
 export interface RpcDaemonPort {
-  onScanResult(msg: DaemonFrame<'scanResult'>): void
-  onScanReposResult(msg: DaemonFrame<'scanReposResult'>): void
-  onBrowseDirsResult(msg: DaemonFrame<'browseDirsResult'>): void
-  onRepoOpResult(msg: DaemonFrame<'repoOpResult'>): void
-  onHarnessExecResult(msg: DaemonFrame<'harnessExecResult'>): void
-  onUsageResult(msg: DaemonFrame<'usageResult'>): void
-  onAgentQuotaResult(msg: DaemonFrame<'agentQuotaResult'>): void
-  onImageUploadResult(msg: DaemonFrame<'imageUploadResult'>): void
-  onTranscriptReadResult(msg: DaemonFrame<'transcriptReadResult'>): void
-  onFileReadResult(msg: DaemonFrame<'fileReadResult'>): void
-  onFileWriteResult(msg: DaemonFrame<'fileWriteResult'>): void
-  onFileAssetResult(msg: DaemonFrame<'fileAssetResult'>): void
-  onDirListResult(msg: DaemonFrame<'dirListResult'>): void
-  onHandoffExportResult(msg: DaemonFrame<'handoffExportResult'>): void
-  onHandoffChunkReadResult(msg: DaemonFrame<'handoffChunkReadResult'>): void
-  onHandoffImportChunkResult(msg: DaemonFrame<'handoffImportChunkResult'>): void
-  onHandoffImportResult(msg: DaemonFrame<'handoffImportResult'>): void
-  onHandoffBindingFinalizeResult(msg: DaemonFrame<'handoffBindingFinalizeResult'>): void
-  onWorkspaceExportResult(msg: DaemonFrame<'workspaceExportResult'>): void
-  onWorkspaceImportResult(msg: DaemonFrame<'workspaceImportResult'>): void
-  onWorkspaceCleanResult(msg: DaemonFrame<'workspaceCleanResult'>): void
-  onCredentialExportResult(msg: DaemonFrame<'credentialExportResult'>): void
-  onCredentialInstallResult(msg: DaemonFrame<'credentialInstallResult'>): void
+  settleDaemonReply(machineId: string, msg: RpcDaemonFrame): void
 }
 
 /** HEADLESS turns. */

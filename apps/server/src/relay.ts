@@ -23,8 +23,8 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
-import { deviceGradeSoleOwner } from './device-grade-owner'
 import { REACTIONS, type ReactionDefinition } from './composition/reactions'
+import { deviceGradeSoleOwner } from './device-grade-owner'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -39,21 +39,22 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
 import { ConversationsService } from './modules/conversations/service'
+import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
-import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
+import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
-import { IssuePublisher } from './modules/issues/publish'
 import { issueDepProjectionRows, repoProjectionRows } from './modules/issues/projection'
+import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
-import { DaemonRequestBroker, DaemonRpcService } from './modules/machines/rpc'
+import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
@@ -78,7 +79,7 @@ import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
-import { HeadlessService } from './modules/superagent/headless'
+import type { HeadlessService } from './modules/superagent/headless'
 import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
@@ -568,8 +569,10 @@ export class SessionRegistry {
           conversationDiagnostics.current = diagnostics
           feedServing.publishAdvisory('conversation-diagnostics')
         },
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          requestBroker.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+        // ONE correlator, handed over as itself (POD-318). It was constructed
+        // above precisely so every consumer can take it directly instead of
+        // wrapping a not-yet-built service in a closure.
+        daemonRequest: requestBroker,
       },
       options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
     )
@@ -719,8 +722,7 @@ export class SessionRegistry {
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+        daemonRequest: requestBroker,
       },
       this.bus,
     )
