@@ -105,11 +105,18 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     return auth.ok ? resolved(auth.machineId, auth.name) : null
   },
 
-  /** ADR 5 D5 row 3, first contact. Single-use, short-TTL codes (`PairingManager`). */
+  /**
+   * ADR 5 D5 row 3, first contact. Single-use, short-TTL codes (`PairingManager`).
+   *
+   * The peer's `machineId` is a REQUEST. `authenticateDaemon` refuses when that
+   * id already has a row, so a pair code cannot rebind another machine's token
+   * (POD-1125). A null return covers invalid codes, disabled pairing, and that
+   * collision — the strategy maps all of them to auth-failed.
+   */
   redeemPairCode(code: string, request?: PairingRequest): PairedMachine | null {
     // A brand-new machine has no prior identity to authenticate, so it proposes
     // one. `MachinesService` decides what row results; this adapter passes the
-    // proposal through and reports back whatever came out.
+    // proposal through and reports back whatever came out (or null on refuse).
     if (request?.machineId === undefined) return null
     const auth = machines.authenticateDaemon({
       type: 'pair',

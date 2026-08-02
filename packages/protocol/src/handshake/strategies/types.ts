@@ -156,20 +156,12 @@ export interface MachineDirectory {
    *
    * Everything in {@link PairingRequest} is a REQUEST, not identity: the code is
    * the credential, and the directory decides which machine row results. A
-   * directory that lets a requested id rebind an EXISTING machine row would let a
-   * pair code take over another machine — see the caveat on `machineId`.
+   * directory MUST NOT let a requested id rebind an EXISTING machine row — that
+   * would let a pair code take over another machine's credential (POD-1125).
    */
   redeemPairCode(code: string, request?: PairingRequest): PairedMachine | null
 }
 
-/**
- * The self-describing fields a pairing peer sends. A brand-new machine has no
- * prior identity to authenticate, so it proposes one; the directory is what
- * decides. `machineId` is the load-bearing one and the directory MUST NOT let it
- * rebind an existing row — today's `upsertMachine` does, which is tracked
- * separately (machine identity is POD-318 / POD-1079's deliverable, not this
- * handshake's).
- */
 /**
  * Non-identity host metadata a peer reports about itself, passed through so the
  * directory can record it (today's `touchMachine` stores the hostname). It is
@@ -180,6 +172,12 @@ export interface PeerObservations {
   readonly hostname?: string
 }
 
+/**
+ * The self-describing fields a pairing peer sends. A brand-new machine has no
+ * prior identity to authenticate, so it proposes one; the directory is what
+ * decides. `machineId` is the load-bearing one and the directory MUST NOT let it
+ * rebind an existing row (server refuses pair when the id is already registered).
+ */
 export interface PairingRequest {
   readonly machineId?: string
   readonly name?: string
