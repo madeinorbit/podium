@@ -9,17 +9,17 @@
 POD-1316 is closed and its fix is present in this candidate at `3a92ed56`, but that does not make
 the complete Phase 4 exit gate green. The re-candidate proves that the runtime composition is
 acyclic and that session/issue paths, isolated redeploy, environment locality, and multi-instance
-isolation work. It also finds four independent acceptance gaps: the committed composition graph
+isolation work. It also finds five independent acceptance gaps: the committed composition graph
 documents are stale; the literal server god-object audit has 28 modules over 600 lines;
 the green E2E lane contains no memory-service E2E; and the required ten-condition production-tree
-mutation campaign was not performed at the candidate. A cold browser-redeploy checkout also fails
-before test discovery because the Playwright build omits a required workspace build. These gaps are
-tracked by POD-1384, POD-1385, POD-1390, and POD-1389 respectively.
+mutation campaign was not performed at the candidate; and a cold browser-redeploy checkout fails
+before test discovery because the Playwright build omits a required workspace build. The gaps are
+tracked by POD-1384, POD-1385, POD-1390, POD-1394, and POD-1389 respectively.
 
 The recursive Phase 4 subtree was re-derived rather than inferred from this issue's waits-on list.
 The named implementation children and corrective work, including POD-1078, POD-1079, POD-1315,
 POD-1316, POD-1343, POD-1351, and POD-1356, are present by ancestry or direct tree inspection.
-However, POD-1356 remains open in the tracker at report time and the four gate-created blocking
+However, POD-1356 remains open in the tracker at report time and the five gate-created blocking
 children above are open. Therefore the “all Phase 4 children closed with evidence” criterion is
 **refused** even though the original blocker that triggered this re-run is closed.
 
@@ -34,7 +34,7 @@ children above are open. Therefore the “all Phase 4 children closed with evide
 | Live redeploy keeps sessions | With the missing local model build supplied, the real authenticated browser test exits 0: 1/1. It logs in through `/auth/login`, restarts only the isolated server, and preserves the marker/grid. A zero-artifact cold checkout fails before discovery because the Playwright build does not build `@podium/model`; POD-1389 owns that harness self-containment defect. | **PRODUCT BEHAVIOR MET; ENVIRONMENT CHECK REFUSED** |
 | Multi-instance isolation stays green | Fresh isolated `bun run test:multi-instance` exits 0: Bun 1/1 with 41 expectations, Vitest 1 file/3 tests, installer `ALL OK`. | **MET** |
 | Landing evidence cited, not re-derived | At this same SHA, the POD-279 coordinator reports typecheck 22/22, `wsServer.client-auth` 7/7, and protocol wire goldens 90/0, all exit 0. The gate did not rerun those lanes. | **MET** |
-| Ten multi-user deliberate-violation probes | Three detector controls exit 0 and catch their planted scoped-feed, machine-grant, and durable-class violations. The focused multi-user run exits 0 at 14 files/251 tests; an additional composition/capability run exits 0 at 8 files/190 tests. POD-1078 also retains historical evidence of one real cross-user production mutation going red and being restored. There is no fresh candidate-wide production-code mutation-and-byte-restore campaign covering every one of the ten conditions. Detector-local fixtures and positive tests do not meet POD-422 checklist E's production-tree counterfactual standard. | **REFUSED** |
+| Ten multi-user deliberate-violation probes | Three detector controls exit 0 and catch their planted scoped-feed, machine-grant, and durable-class violations. The focused multi-user run exits 0 at 14 files/251 tests; an additional composition/capability run exits 0 at 8 files/190 tests. POD-1078 also retains historical evidence of one real cross-user production mutation going red and being restored. There is no fresh candidate-wide production-code mutation-and-byte-restore campaign covering every one of the ten conditions. Detector-local fixtures and positive tests do not meet POD-422 checklist E's production-tree counterfactual standard. POD-1394 owns the complete campaign. | **REFUSED** |
 | Deliberately open questions remain flagged | O1 existence leakage (including room occupancy), O2 opaque cross-boundary references, O3 permission-affecting reparent, and O4 per-class owner/grant inheritance remain explicitly open in `multi-user-readiness.md`, ADRs 1/2/3/4/7/9, and `rearchitecture-v3.md`; no implementer silently resolved them. | **MET** |
 | Phase 7 entry | The gate must compose with G5 and G6 only after every row above is met. | **BLOCKED** |
 
