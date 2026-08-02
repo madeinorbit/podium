@@ -843,8 +843,13 @@ describe('IssueService.start', () => {
    * clone has nowhere to fetch them from.
    */
   it('materialises the repo and the start point on the target BEFORE the worktree add', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     const order: string[] = []
+    // Two checkouts of the SAME repository, one per machine — the shape
+    // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
+    // resolve to one repoId and the guard lets the move through.
+    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
+    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async ({ repoPath, machineId, startPoint }) => {
       order.push(`prepare:${repoPath}:${machineId}:${startPoint}`)
@@ -879,6 +884,53 @@ describe('IssueService.start', () => {
     // The offline pre-flight still runs, now against the RESOLVED path — which is the
     // only path it could ever have been right about.
     expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
+  })
+
+  it('moves repoPath ONTO the target with the worktree, so the pair stays consistent', async () => {
+    // POD-1461. Leaving repoPath on the source produced a row whose repoPath said one
+    // machine and whose worktreePath + machineId said another, and every later path
+    // derived from that pair went to the wrong host — observed as a stop that ran
+    // `git -C <source> worktree remove <target>/...` and died with Permission denied,
+    // orphaning the checkout on the target.
+    const { svc, deps, store } = harness()
+    // Two checkouts of the SAME repository, one per machine — the shape
+    // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
+    // resolve to one repoId and the guard lets the move through.
+    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
+    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    deps.requireMachineForRepo = vi.fn()
+    deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/home/till/src/podium' }))
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+      parentBranch: 'main',
+    })
+    const started = await svc.start(created.id)
+    // The three fields that must agree, because the file-browser root, the sidebar
+    // worktree and the cwd of the next spawn all derive from them together.
+    expect(started.repoPath).toBe('/home/till/src/podium')
+    expect(started.worktreePath?.startsWith('/home/till/src/podium/')).toBe(true)
+    expect(started.machineId).toBe('mach-b')
+  })
+
+  it('refuses a target that is a DIFFERENT repository, before building anything', async () => {
+    // The identity guard rehome applies: a target whose repoId differs would silently
+    // renumber the issue into another repo. It must refuse on this path too.
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/somewhere/entirely-else' }))
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+      parentBranch: 'main',
+    })
+    await expect(svc.start(created.id)).rejects.toThrow(/not the same repository/)
+    // Nothing may be built before the refusal.
+    expect(deps.repoOp).not.toHaveBeenCalled()
   })
 
   it('leaves an unpinned start completely untouched — no cross-machine work at all', () => {

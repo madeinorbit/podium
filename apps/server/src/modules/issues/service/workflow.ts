@@ -48,12 +48,26 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   ): IssueWire | null {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) return null
-    const repos = this.d.store.repos
-    const from = row.repoId ?? repos.resolveRepoIdForPath(row.repoPath)
-    const target = repos.resolveRepoIdForPath(to.repoPath)
-    if (!target || (from && from !== target)) return null
+    if (!this.isSameRepoIdentity(row, to.repoPath)) return null
     row.repoPath = to.repoPath
     return this.update(id, { machineId: to.machineId, worktreePath: to.worktreePath })
+  }
+
+  /**
+   * Is `toRepoPath` the SAME repository this issue already belongs to (POD-1461)?
+   *
+   * Identity is origin-derived via repoId, so it survives two machines having two
+   * layouts — /home/mgw/src/podium here, /home/till/src/podium there. Extracted from
+   * {@link rehome} so the machine-pinned START applies the same rule rather than a
+   * second copy: a target repo with a different identity would silently renumber the
+   * issue into another repo, and that must be refused on BOTH paths that move an issue
+   * between machines, not just the one that happened to be written first.
+   */
+  private isSameRepoIdentity(row: IssueRow, toRepoPath: string): boolean {
+    const repos = this.d.store.repos
+    const from = row.repoId ?? repos.resolveRepoIdForPath(row.repoPath)
+    const target = repos.resolveRepoIdForPath(toRepoPath)
+    return Boolean(target) && (!from || from === target)
   }
 
   private worktreePathFor(repoPath: string, branch: string): string {
@@ -135,6 +149,14 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       })
       startRepoPath = prepared.repoPath
     }
+    // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
+    // rule rehome applies: a target whose repoId differs would renumber this issue into
+    // another repo. Checked here rather than after the add, so a refusal costs nothing.
+    if (startRepoPath !== row.repoPath && !this.isSameRepoIdentity(row, startRepoPath)) {
+      throw new Error(
+        `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
+      )
+    }
     if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, startRepoPath)
     const branch = this.slug(row.seq, row.title)
     const path = this.worktreePathFor(startRepoPath, branch)
@@ -164,6 +186,20 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     }
     row.branch = branch
     row.worktreePath = path
+    /**
+     * repoPath TRAVELS WITH the worktree (POD-1461).
+     *
+     * Leaving it on the source produced an inconsistent row — repoPath on one machine,
+     * worktreePath and machineId on another — and every later operation that derives a
+     * path from that pair then sent one machine's path to the other. Observed: stopping
+     * such a session ran `git -C <source>/podium worktree remove <target>/...` and died
+     * with "Permission denied", orphaning the checkout on the target.
+     *
+     * Handoff never had this bug because it commits through rehome, which moves the pair
+     * as one. This is the same move, so it obeys the same rule; the identity guard above
+     * is rehome's, applied before anything was built.
+     */
+    row.repoPath = startRepoPath
     row.stage = 'in_progress'
     row.assignee = `agent:${row.defaultAgent}`
     const wire = this.persistRow(row)
