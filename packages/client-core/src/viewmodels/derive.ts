@@ -85,6 +85,29 @@ import {
   type IssuePendingDecision,
 } from './slices/issues'
 
+import {
+  elevateCoordinatorSession,
+  isCoordinatorSession,
+  orderTabs,
+  orphanSessionFor,
+  pickPaneSession,
+  planWorktreeMoves,
+  type WorktreeMove,
+} from './slices/terminal'
+
+// POD-330: the workspace's own derivations — tab order, pane targeting and
+// worktree moves — live in the terminal slice. The SIDEBAR does not: that is
+// worklist, and putting it here is the mistake the first attempt made.
+export {
+  elevateCoordinatorSession,
+  isCoordinatorSession,
+  orderTabs,
+  orphanSessionFor,
+  pickPaneSession,
+  planWorktreeMoves,
+}
+export type { WorktreeMove }
+
 // POD-330: the issue entity's own derivations (nav model, sub-issue tree,
 // pending-decision family) live in the issues slice; the collection-level
 // "which session matters more" question is F3 (session-urgency). Both are
@@ -201,73 +224,6 @@ export {
 // from @podium/model above and re-exported, not redefined here (#194).
 
 
-/** One session's worktree change, as seen between two `sessions` snapshots. */
-export interface WorktreeMove {
-  sessionId: SessionId
-  from: string | null
-  to: string | null
-}
-
-/**
- * View policy for sessions whose worktree changed: the session the user is
- * looking at FOLLOWS (switch the whole view to its new worktree so it doesn't
- * vanish out of the tab strip mid-conversation); a background session's move
- * never yanks the view — it's reported (`moved`) for a toast instead.
- *
- * `follow` is non-null only when a visible-pane session moved OUT of the
- * currently-selected worktree into another known worktree. Moves are computed
- * on resolved worktree roots (worktreeForCwd), so a subdirectory cd is a no-op,
- * and first-sight sessions (no previous cwd) are never moves.
- */
-export function planWorktreeMoves(opts: {
-  prevCwds: Record<string, string>
-  sessions: SessionMeta[]
-  worktreePaths: string[]
-  selectedWorktree: string | null
-  visiblePanes: string[]
-}): { follow: string | null; moved: WorktreeMove[] } {
-  let follow: string | null = null
-  const moved: WorktreeMove[] = []
-  for (const s of opts.sessions) {
-    const prev = opts.prevCwds[s.sessionId]
-    if (prev === undefined || prev === s.cwd) continue
-    const from = worktreeForCwd(prev, opts.worktreePaths)
-    const to = worktreeForCwd(s.cwd, opts.worktreePaths)
-    if (from === to) continue // subdirectory cd / unresolvable churn — not a move
-    if (
-      follow === null &&
-      to !== null &&
-      from !== null &&
-      from === opts.selectedWorktree &&
-      opts.visiblePanes.includes(s.sessionId)
-    ) {
-      follow = to
-    } else {
-      moved.push({ sessionId: s.sessionId, from, to })
-    }
-  }
-  return { follow, moved }
-}
-
-/** When the selected path no longer resolves to a live worktree but still has
- *  sessions pinned to it (its worktree was removed out from under them), pick
- *  which orphan to surface in the workspace: the one already in pane A if it's
- *  one of them, else the first. Null when there's nothing to show — so the
- *  caller falls back to the empty "Select a worktree." placeholder. */
-export function orphanSessionFor(opts: {
-  selectedWorktree: string | null
-  sessions: SessionMeta[]
-  paneA: string | null
-}): SessionMeta | null {
-  if (!opts.selectedWorktree) return null
-  // Containment against just the selected path: the worktree is gone from the
-  // scan, so there's no root list to resolve against — but a session stamped
-  // with a subdirectory of the removed worktree is still its orphan.
-  const orphans = sessionsForWorktree(opts.sessions, opts.selectedWorktree, [opts.selectedWorktree])
-  return orphans.find((s) => s.sessionId === opts.paneA) ?? orphans[0] ?? null
-}
-
-
 export interface WorktreeNavView extends WorktreeView {
   repoName: string
   sessions: SessionMeta[]
@@ -302,57 +258,6 @@ export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
 // collapsed the ISO-string/epoch-ms twin predicates into one clock
 // representation, so `isIssueSnoozed` is gone and `isIssueDeferred` is the
 // single spelling for both the server and these viewmodels.
-
-/**
- * Tab-strip order for one worktree/issue. The user's manual (drag) order wins;
- * sessions it doesn't know about — panels opened after the last drag — append
- * at the end in arrival order. When `coordinatorSessionId` is set (issue
- * workspace, M6), that session is elevated first so the driver is unambiguous
- * among equal tabs. (Panel-pinning is retired, POD-169 — no pin-aware order.)
- */
-export function orderTabs(
-  sessions: SessionMeta[],
-  manualOrder: string[] | undefined,
-  coordinatorSessionId?: string | null,
-): SessionMeta[] {
-  const base = elevateCoordinatorSession(sessions, coordinatorSessionId)
-  if (!manualOrder || manualOrder.length === 0) return base
-  // Manual drag order wins, but still lift the coordinator to the front so a
-  // stale saved order can't bury the designated driver.
-  const position = orderMap(manualOrder)
-  const known = base
-    .filter((s) => position.has(s.sessionId))
-    .sort((a, b) => (position.get(a.sessionId) ?? 0) - (position.get(b.sessionId) ?? 0))
-  const unknown = base.filter((s) => !position.has(s.sessionId))
-  return elevateCoordinatorSession([...known, ...unknown], coordinatorSessionId)
-}
-
-/**
- * Move the designated coordinator session to the front of an issue's session
- * list (M6 / docs/agent-comms-target.html §05 q1). No-op when unset or when
- * the coordinator is not among the listed sessions (dangling-tolerant).
- */
-export function elevateCoordinatorSession(
-  sessions: SessionMeta[],
-  coordinatorSessionId: string | undefined | null,
-): SessionMeta[] {
-  if (!coordinatorSessionId) return sessions
-  const i = sessions.findIndex((s) => s.sessionId === coordinatorSessionId)
-  if (i <= 0) return sessions
-  const next = sessions.slice()
-  const [coord] = next.splice(i, 1)
-  if (!coord) return sessions
-  next.unshift(coord)
-  return next
-}
-
-/** True when this session is the issue's designated coordinator (M6). */
-export function isCoordinatorSession(
-  issue: Pick<IssueWire, 'coordinatorSessionId'>,
-  sessionId: SessionId,
-): boolean {
-  return typeof issue.coordinatorSessionId === 'string' && issue.coordinatorSessionId === sessionId
-}
 
 /** Sessions shown in the sidebar — shells never appear there (they stay in the
  *  main-view tab strip). */
@@ -609,30 +514,6 @@ export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
   }
   return groups
 }
-
-/** Pane target when a sidebar issue/worktree row is clicked: keep the current
- *  pane if it's already one of the row's members (a session in `members` or an
- *  id in `extraValidIds` — e.g. the row's open file tabs); otherwise open the
- *  row's most recently active session (lastActiveAt, ISO-comparable). Null =
- *  nothing to open (empty row) — clear the pane so the picker shows. */
-export function pickPaneSession(
-  members: SessionMeta[],
-  paneA: SessionId | null,
-  /** File-tab ids, which are NOT session ids — hence the plain string here. */
-  extraValidIds: readonly string[] = [],
-): SessionId | null {
-  if (
-    paneA != null &&
-    (members.some((s) => s.sessionId === paneA) || extraValidIds.includes(paneA))
-  ) {
-    return paneA
-  }
-  let best: SessionMeta | null = null
-  for (const s of members) if (!best || s.lastActiveAt > best.lastActiveAt) best = s
-  return best?.sessionId ?? null
-}
-
-
 
 /** Resolve the user's default agent kind for the unified split button. 'auto' (or
  *  unset) resolves to the most recently ACTIVE non-shell session's kind, falling
