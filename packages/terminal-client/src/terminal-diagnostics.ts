@@ -14,7 +14,7 @@ export interface TerminalDiagnosticsApi {
   /** Oldest-to-newest bounded lifecycle events. Omit sessionId for every mount. */
   snapshot(sessionId?: string): TerminalDiagnosticEntry[]
   clear(): void
-  /** Console tracing is otherwise opt-in via ?terminalDebug=1 or localStorage. */
+  /** Console tracing is otherwise opt-in via ?terminalDebug=1. */
   setConsoleEnabled(enabled: boolean): void
   /** Live-tap every recorded entry (see {@link onTerminalDiagnostic}). */
   onTrace(listener: TerminalDiagnosticListener): () => void
@@ -52,10 +52,11 @@ function consoleEnabled(): boolean {
       const value = new URLSearchParams(location.search).get('terminalDebug')
       if (value === '1' || value === 'true') return true
     }
-    return globalThis.localStorage?.getItem('podium.terminalDebug') === '1'
+    // URL-only: no raw localStorage (POD-329 ownership boundary).
   } catch {
     return false
   }
+  return false
 }
 
 function copyEntry(entry: TerminalDiagnosticEntry): TerminalDiagnosticEntry {

@@ -14,6 +14,29 @@ const PRODUCT_ROOTS = [
   join(ROOT, 'packages/terminal-client/src'),
 ]
 
+/**
+ * ONLY these product sources may call localStorage / AsyncStorage directly
+ * (POD-329). Theme raw access is inside ui-state via read/writePreAuthTheme;
+ * everything else is the replica persistence adapter family.
+ */
+const SANCTIONED_STORAGE_FILES = new Set([
+  relative(ROOT, UI_STATE_SOURCE),
+  'packages/client-core/src/replica/replica.ts',
+  'packages/client-core/src/replica/async-storage.ts',
+  'packages/client-core/src/replica/principal-storage.ts',
+  'packages/client-core/src/replica/contract.ts',
+  'packages/client-core/src/replica/kernel/side-cache.ts',
+  'packages/client-core/src/replica/kernel/facade.ts',
+  'packages/client-core/src/replica/legacy-snapshot.ts',
+  // Platform composition roots that *inject* storage into the replica factory.
+  'apps/web/src/lib/webReplica.ts',
+  'apps/web/src/lib/desktopReplica.ts',
+  'apps/web/src/lib/kernelReplica.ts',
+  'apps/web/src/lib/use-kernel-replica.ts',
+  'apps/web/src/lib/legacyStoreAttribution.ts',
+  'apps/mobile/src/client/MobileClientProvider.tsx',
+])
+
 function sources(dir: string): string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -92,9 +115,23 @@ describe('UI persistence ownership lint', () => {
       ...CLIENT_DEVICE_LOCAL_UI_KEYS,
       ...THEME_UI_KEYS,
       'podium:superfeed:cursor',
+      'podium.vreload',
+      'podium.outbox.v1',
     ]
     const preAuth = everyKnownKey.filter((key) => uiStateRoute(key).home === 'pre-auth-theme')
     expect([...new Set(preAuth)].sort()).toEqual([...THEME_UI_KEYS].sort())
+  })
+
+  it('every known non-UI key is classified (no silent local default)', () => {
+    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('known-unrouted')
+    expect(uiStateRoute('podium.vreload').home).toBe('known-unrouted')
+    expect(uiStateRoute('podium.outbox.v1').home).toBe('known-unrouted')
+    expect(uiStateRoute('podium.echoHud').home).toBe('device-local')
+    expect(uiStateRoute('podium.switchTrace').home).toBe('device-local')
+    expect(uiStateRoute('podium.sounds.ownerWindow').home).toBe('device-local')
+    expect(uiStateRoute('podium.htmlmode').home).toBe('per-user-replicated')
+    expect(uiStateRoute('podium.mdmode').home).toBe('per-user-replicated')
+    expect(uiStateRoute('podium.dock.section.git').home).toBe('per-user-replicated')
   })
 
   it('ui-state has exactly one unnamespaced READER, and it is the theme', () => {
@@ -111,5 +148,17 @@ describe('UI persistence ownership lint', () => {
     expect(directOwnedStorage("localStorage.setItem('podium.view', 'issues')")).toEqual([
       'podium.view',
     ])
+  })
+
+  it('no product file outside ui-state and the replica adapter touches localStorage/AsyncStorage', () => {
+    // Method access only — comments naming localStorage are not a finding.
+    const CALL =
+      /(?:(?:globalThis|window)\.)?localStorage\s*\??\.(?:getItem|setItem|removeItem|clear)\b|\bAsyncStorage\s*\??\.(?:getItem|setItem|removeItem|multiGet|multiSet|getAllKeys|clear)\b/
+    const offenders = PRODUCT_ROOTS.flatMap(sources)
+      .map((path) => ({ path, rel: relative(ROOT, path), text: readFileSync(path, 'utf8') }))
+      .filter(({ rel, text }) => !SANCTIONED_STORAGE_FILES.has(rel) && CALL.test(text))
+      .map(({ rel }) => rel)
+      .sort()
+    expect(offenders).toEqual([])
   })
 })

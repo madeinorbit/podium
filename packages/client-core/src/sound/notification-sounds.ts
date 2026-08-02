@@ -22,13 +22,10 @@
 
 import type { SessionId, SessionMeta } from '@podium/model'
 import type { UiState } from '../replica/replica'
+import { SOUND_OWNER_KEY, SOUNDS_ENABLED_KEY } from '../ui-state'
 import { play, prewarmAudio, type SoundName } from './cuelume'
 
-/** Device-local enable flag (UiState key). Absent = enabled. */
-export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'
-
-/** Same-origin window election: whichever window focused last owns playback. */
-const SOUND_OWNER_KEY = 'podium.sounds.ownerWindow'
+export { SOUNDS_ENABLED_KEY, SOUND_OWNER_KEY }
 
 const THROTTLE_MS = 2000
 
@@ -101,24 +98,15 @@ export class NotificationSounder {
   private flushTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(deps: NotificationSounderDeps) {
+    // Owner election lives in the principal-scoped ui-state collection — the
+    // only storage path feature code may use (POD-329). Same-origin tabs share
+    // the collection via the replica's storage events.
     this.deps = {
       windowFocused: () => typeof document === 'undefined' || document.hasFocus(),
       playCue: (cue) => play(CUE_SOUNDS[cue]),
       now: () => Date.now(),
-      readOwner: () => {
-        try {
-          return window.localStorage.getItem(SOUND_OWNER_KEY)
-        } catch {
-          return null
-        }
-      },
-      writeOwner: (id) => {
-        try {
-          window.localStorage.setItem(SOUND_OWNER_KEY, id)
-        } catch {
-          // Private browsing without storage: every window plays; harmless.
-        }
-      },
+      readOwner: () => deps.ui.get(SOUND_OWNER_KEY),
+      writeOwner: (id) => deps.ui.set(SOUND_OWNER_KEY, id),
       ...deps,
     }
   }

@@ -843,16 +843,13 @@ export class TerminalView {
   }
 }
 
-/** WebGL (GPU) rendering is on by default. Disable it with `?gpu=off` in the URL or
- *  `localStorage['podium:gpu'] = 'off'` when a GPU/driver renders the WebGL atlas without
- *  color. Guarded so it is a safe no-op (returns true) outside a browser, e.g. in tests. */
+/** WebGL (GPU) rendering is on by default. Disable with `?gpu=off` when a
+ *  GPU/driver renders the WebGL atlas without color. URL-only (POD-329: no raw
+ *  localStorage outside ui-state / replica adapter). Safe no-op outside a browser. */
 function gpuEnabled(): boolean {
   try {
     const loc = (globalThis as { location?: { search?: string } }).location
     if (loc?.search && new URLSearchParams(loc.search).get('gpu') === 'off') return false
-    if ((globalThis as { localStorage?: Storage }).localStorage?.getItem('podium:gpu') === 'off') {
-      return false
-    }
   } catch {
     // no DOM (tests / SSR) — leave GPU rendering enabled
   }

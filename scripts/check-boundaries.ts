@@ -1061,6 +1061,7 @@ export function checkFile(
     ...checkReplicaDirection(file, source),
     ...checkSyncKernelPurity(file, source),
     ...checkSessionBindingFieldAccess(file, source),
+    ...checkUiStorageOwnership(file, source),
   ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
@@ -1190,6 +1191,78 @@ export function checkHarnessClassifierBoundary(file: string, source: string): Vi
   return violations
 }
 
+// ---------------------------------------------------------------------------
+// UI storage ownership (POD-329) — the only places that may call localStorage /
+// AsyncStorage method APIs are the ui-state module and the replica persistence
+// adapter family (plus platform composition roots that inject storage).
+//
+// Theme pre-auth raw access lives inside ui-state.ts via read/writePreAuthTheme.
+// A new composition root that injects window.localStorage into createReplica
+// must be added to SANCTIONED_UI_STORAGE_FILES with a reason comment stating
+// why the next entry would need the same justification (POD-1251 standard).
+// ---------------------------------------------------------------------------
+
+/**
+ * Exact product files permitted to call localStorage / AsyncStorage methods.
+ * Adding an entry requires the same positive reason as the others: either the
+ * sole UI-state owner, the replica persistence adapter, or a composition root
+ * that *injects* storage into that adapter (never a feature component).
+ */
+const SANCTIONED_UI_STORAGE_FILES: ReadonlySet<string> = new Set([
+  // Sole UI persistence module — including the theme pre-auth exception.
+  'packages/client-core/src/ui-state.ts',
+  // Replica persistence adapter family.
+  'packages/client-core/src/replica/replica.ts',
+  'packages/client-core/src/replica/async-storage.ts',
+  'packages/client-core/src/replica/principal-storage.ts',
+  'packages/client-core/src/replica/contract.ts',
+  'packages/client-core/src/replica/kernel/side-cache.ts',
+  'packages/client-core/src/replica/kernel/facade.ts',
+  'packages/client-core/src/replica/legacy-snapshot.ts',
+  // Platform composition roots that inject storage into the replica factory.
+  // NEXT entry must be a composition root that wires StorageApi into createReplica
+  // (or its AsyncStorage twin), never a feature surface that reads a key ad hoc.
+  'apps/web/src/lib/webReplica.ts',
+  'apps/web/src/lib/desktopReplica.ts',
+  'apps/web/src/lib/kernelReplica.ts',
+  'apps/web/src/lib/use-kernel-replica.ts',
+  'apps/web/src/lib/legacyStoreAttribution.ts',
+  'apps/mobile/src/client/MobileClientProvider.tsx',
+])
+
+/** Product trees held to the storage-ownership rule (tests are exempt). */
+const UI_STORAGE_PRODUCT_PREFIXES = [
+  'apps/web/src/',
+  'apps/mobile/src/',
+  'packages/client-core/src/',
+  'packages/terminal-client/src/',
+] as const
+
+/** Method access only — bare mentions and comments are not a finding. */
+const UI_STORAGE_METHOD_CALL =
+  /(?:(?:globalThis|window)\.)?localStorage\s*\??\.(?:getItem|setItem|removeItem|clear)\b|\bAsyncStorage\s*\??\.(?:getItem|setItem|removeItem|multiGet|multiSet|getAllKeys|clear)\b/
+
+/**
+ * Rule: UI storage ownership (POD-329). Feature code routes every persisted
+ * key through ui-state / the replica adapter; direct browser or RN storage
+ * method calls outside the sanctioned set are a hard failure.
+ */
+export function checkUiStorageOwnership(file: string, source: string): Violation[] {
+  if (isTestFile(file)) return []
+  if (!UI_STORAGE_PRODUCT_PREFIXES.some((p) => file.startsWith(p))) return []
+  if (SANCTIONED_UI_STORAGE_FILES.has(file)) return []
+  // Comment-stripped so documenting the prohibition cannot trip the rule.
+  if (!UI_STORAGE_METHOD_CALL.test(stripComments(source))) return []
+  return [
+    {
+      file,
+      specifier: 'localStorage|AsyncStorage',
+      rule: 'ui-storage-ownership',
+      message: `${file}: direct localStorage/AsyncStorage method access is reserved for packages/client-core/src/ui-state.ts and the replica persistence adapter (POD-329). Route the key through ui-state or inject storage at a composition root.`,
+    },
+  ]
+}
+
 /** Check one file against the MANIFEST rules (layer, platform, role, harness). */
 export function checkManifestFile(
   file: string,
@@ -1199,6 +1272,10 @@ export function checkManifestFile(
   const violations: Violation[] = [
     ...findHarnessBranching(file, source, harnessLiterals),
     ...checkHarnessClassifierBoundary(file, source),
+    // POD-329 ownership also runs under the architecture-manifest path so
+    // `lint:architecture` (`--manifest-only`) cannot sail past a new raw-storage
+    // call while legacy `lint:boundaries` is continue-on-error.
+    ...checkUiStorageOwnership(file, source),
   ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {

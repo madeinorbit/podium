@@ -91,3 +91,42 @@ test('pane, split, dock tab, and legacy migration survive a real reload', async 
   await expect.poll(visiblePaneIds, { timeout: 30_000 }).toEqual(paneLayout)
   await expect(page.locator('[data-right-dock-panel="git"]')).toBeVisible({ timeout: 20_000 })
 })
+
+test('chat-versus-native mode switch persists across reload', async ({ page }) => {
+  // POD-329: one modeled panelMode + one derivation; the real toggle must
+  // survive a full reload and leave no raw legacy default key behind.
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openApp(page)
+
+  await page.waitForFunction(
+    () => !!(window as unknown as { __podium?: unknown }).__podium,
+    undefined,
+    { timeout: 30_000 },
+  )
+
+  // openApp seeds native default; the panel starts native.
+  const nativeTab = page.getByTestId('mode-native')
+  const chatTab = page.getByTestId('mode-chat')
+  await expect(nativeTab).toBeVisible({ timeout: 30_000 })
+  await expect(nativeTab).toHaveAttribute('aria-selected', 'true')
+
+  await chatTab.click()
+  await expect(chatTab).toHaveAttribute('aria-selected', 'true')
+  await expect(nativeTab).toHaveAttribute('aria-selected', 'false')
+
+  // Allow the replicated layout write to cross the durable Outbox boundary.
+  await page.waitForTimeout(1_000)
+  expect(await page.evaluate(() => localStorage.getItem('podium.panelModeDefault'))).toBeNull()
+
+  await page.reload()
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
+  await expect(page.getByTestId('mode-chat')).toBeVisible({ timeout: 30_000 })
+  await expect
+    .poll(async () => page.getByTestId('mode-chat').getAttribute('aria-selected'), {
+      timeout: 30_000,
+    })
+    .toBe('true')
+  await expect(page.getByTestId('mode-native')).toHaveAttribute('aria-selected', 'false')
+})

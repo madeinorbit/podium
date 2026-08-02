@@ -1,4 +1,5 @@
 import { readPreAuthTheme, writePreAuthTheme } from '@podium/client-core'
+import { THEME_UI_KEYS } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useStoreSelector } from './store'
@@ -21,8 +22,9 @@ export function resolveDark(mode: ThemeMode, prefersDark: boolean): boolean {
 // and by ThemeProvider (which wraps StoreProvider) — so the fast path must not
 // depend on the replica. ThemeUiStateMirror below write-throughs every change
 // into the ui-state collection so the one UI persistence layer stays complete.
-export const THEME_PRESET_KEY = 'podium.theme.preset'
-export const THEME_MODE_KEY = 'podium.theme.mode'
+// Spellings come from the model vocabulary (THEME_UI_KEYS) — no local restatement.
+export const THEME_PRESET_KEY = THEME_UI_KEYS[0]
+export const THEME_MODE_KEY = THEME_UI_KEYS[1]
 
 // PWA status-bar / address-bar tint per theme. Must mirror each preset/mode block's
 // --background in index.css; the anti-flash script in index.html duplicates these.

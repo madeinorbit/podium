@@ -1,10 +1,12 @@
+import { STICKY_PROMPTS_KEY } from '@podium/client-core/ui-state'
 import { useSyncExternalStore } from 'react'
 import type { UiState } from '@/app/replica'
 import { useStoreSelector } from '@/app/store'
 
+export { STICKY_PROMPTS_KEY }
+
 /** Device-local chat preference. Absent means enabled so the restored behavior
  * remains the default; only an explicit `false` opts this browser/device out. */
-export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 
 const subscribeUnavailable = (): (() => void) => () => {}
 const readUnavailable = (): null => null

@@ -15,11 +15,74 @@ import {
   checkRuntimeBarrelPurity,
   checkSessionBindingFieldAccess,
   checkSyncBrowserGraphAll,
+  checkUiStorageOwnership,
   clauseIsTypeOnly,
   extractImports,
   loadModelExportNames,
   SYNC_BROWSER_ENTRYPOINTS,
 } from './check-boundaries'
+
+describe('ui-storage-ownership (POD-329)', () => {
+  it('flags a feature-surface localStorage method call', () => {
+    const vs = checkUiStorageOwnership(
+      'apps/web/src/features/terminal/EchoHud.tsx',
+      "export const on = () => localStorage.getItem('podium.echoHud') === '1'",
+    )
+    expect(vs.map((v) => v.rule)).toEqual(['ui-storage-ownership'])
+    expect(vs[0]?.file).toBe('apps/web/src/features/terminal/EchoHud.tsx')
+  })
+
+  it('flags AsyncStorage method access outside the replica adapter', () => {
+    const vs = checkUiStorageOwnership(
+      'apps/mobile/src/screens/leak.ts',
+      "import AsyncStorage from '@react-native-async-storage/async-storage'\nvoid AsyncStorage.setItem('k', 'v')",
+    )
+    expect(vs.map((v) => v.rule)).toEqual(['ui-storage-ownership'])
+  })
+
+  it('allows the ui-state module and replica adapter', () => {
+    expect(
+      checkUiStorageOwnership(
+        'packages/client-core/src/ui-state.ts',
+        'globalThis.localStorage?.setItem(key, value)',
+      ),
+    ).toEqual([])
+    expect(
+      checkUiStorageOwnership(
+        'packages/client-core/src/replica/async-storage.ts',
+        'await AsyncStorage.getItem(k)',
+      ),
+    ).toEqual([])
+  })
+
+  it('does not fire on comments that merely name localStorage', () => {
+    // Mutant that must stay silent: documentation of the prohibition.
+    expect(
+      checkUiStorageOwnership(
+        'apps/web/src/features/x.ts',
+        '/** Never call localStorage.getItem from here — use ui-state. */\nexport const x = 1',
+      ),
+    ).toEqual([])
+  })
+
+  it('does not fire on bare localStorage identifiers without a method call', () => {
+    // Mutant that must stay silent: passing the storage object into the adapter.
+    expect(
+      checkUiStorageOwnership(
+        'apps/web/src/lib/shadow/runner.ts',
+        'const s = window.localStorage\nvoid s',
+      ),
+    ).toEqual([])
+  })
+
+  it('is wired through checkFile so lint:boundaries cannot skip it', () => {
+    const vs = checkFile(
+      'apps/web/src/features/rogue.ts',
+      "const v = localStorage.getItem('podium.view')",
+    )
+    expect(vs.some((v) => v.rule === 'ui-storage-ownership')).toBe(true)
+  })
+})
 
 describe('harness classifier manifest boundary', () => {
   it('keeps the engine inside harness and Claude rules inside their manifest', () => {

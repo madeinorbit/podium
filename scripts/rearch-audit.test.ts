@@ -1039,6 +1039,14 @@ describe('against the live repo', () => {
       // failure reds loudly instead of reading as a deletion. Asserted in
       // 'change-row-typings ERRORS when its control stops matching' above.
       'change-row-typings',
+      // POD-329 post-cutover consolidation: panelMode storage-key literals now
+      // live only as the two owner declarations in ui-state.ts (exempted by the
+      // detector). The planted-rogue control test above keeps the detector live.
+      'panel-mode-duality',
+      // POD-329: every apps/web `podium.*` storage-key literal moved into the
+      // ui-state module. Zero is the delivered state; a re-grown literal is a
+      // baseline ratchet failure, not a silent skip.
+      'web-storage-keys',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

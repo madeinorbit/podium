@@ -14,7 +14,7 @@ import { FLOW_SLATE } from '@/lib/issueColors'
  * collection — device-local like the theme, synced across tabs by ui-state's
  * storage events. Absent fields mean "use the terminal-client default".
  */
-export const TERMINAL_APPEARANCE_KEY = 'podium.terminal.appearance'
+export { TERMINAL_APPEARANCE_KEY } from '@podium/client-core/ui-state'
 
 export interface TerminalAppearanceSettings {
   fontSize?: number
