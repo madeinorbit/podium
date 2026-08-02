@@ -368,12 +368,19 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const maxNodes = t.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
       if (t.omitted > 0) {
         const hitNodes = t.totalNodes >= maxNodes
+        // The server stops walking AT the cap, so nobody knows the true subtree
+        // size — the raised caps are a guess and the rerun may truncate again.
+        // Hence `More:`, not `Full tree:`: a completeness promise this cannot
+        // keep would recreate the very silent miss this footer exists to kill.
+        // The guess is at least informed — `totalNodes + omitted` is a hard
+        // lower bound on the real size, so leaning on it converges in far fewer
+        // escalations than blind doubling. Both clamped to the proc's own input
+        // bounds so the suggested command is always one the server accepts.
+        const nextNodes = Math.min(1000, Math.max(maxNodes * 4, (t.totalNodes + t.omitted) * 2))
         out.push(
           '',
           `TRUNCATED: ${t.totalNodes} nodes shown, ${t.omitted} child issue${t.omitted === 1 ? '' : 's'} omitted by the ${hitNodes ? `node cap (--max-nodes ${maxNodes})` : `depth cap (--max-depth ${maxDepth})`}.`,
-          // Clamped to the proc's own input bounds so the suggested command is
-          // always one the server accepts.
-          `  Full tree: podium issue tree ${a.id} --max-depth ${Math.min(20, maxDepth + 3)} --max-nodes ${Math.min(1000, maxNodes * 4)}`,
+          `  More: podium issue tree ${a.id} --max-depth ${Math.min(20, maxDepth + 3)} --max-nodes ${nextNodes}`,
         )
       }
       return { text: out.join('\n'), data: t }

@@ -574,6 +574,22 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(byNodes.text).toContain('7 child issues omitted')
     expect(byNodes.text).toContain('node cap (--max-nodes 100)')
     expect(byNodes.text).toContain('podium issue tree 10 --max-depth 6 --max-nodes 400')
+    // The rerun is a GUESS — the server stopped walking at the cap, so it cannot
+    // know the true size. The label must not promise completeness (POD-1342):
+    // a user who trusts 'Full tree' and gets a second silent truncation is back
+    // to the exact miss this footer exists to kill.
+    expect(byNodes.text).toContain('More:')
+    expect(byNodes.text).not.toContain('Full tree')
+
+    // ...and the guess must clear the lower bound the footer itself reports
+    // (shown + omitted), so a tight cap converges instead of doubling for ever.
+    const { client: tight } = mockClient({
+      tree: capped({ totalNodes: 2, omitted: 24, maxNodes: 2 }),
+    })
+    const nudged = await cmd('tree').run(tight, { id: '1113', maxNodes: 2 })
+    // Anchored to the More: line — the line above it also quotes a --max-nodes.
+    const suggested = Number(nudged.text.match(/More:.*--max-nodes (\d+)/)![1])
+    expect(suggested).toBeGreaterThan(2 + 24) // blind doubling would suggest 8
 
     // Depth cap bit (node budget unspent) → --max-depth is the lever instead.
     const { client: depthClient } = mockClient({ tree: capped({ totalNodes: 4 }) })
