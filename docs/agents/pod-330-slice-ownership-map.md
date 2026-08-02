@@ -184,6 +184,35 @@ decision. They stay in worklist. Naming this here because it is the most plausib
 
 ---
 
+## 4b. Two ways this issue's instruments reported success while measuring nothing
+
+Both were caught during POD-330 and both belong to the same family, so they are recorded here for
+whoever picks the work up.
+
+**The render probe that reported `0` as a pass.** The first version of
+`apps/web/src/perf/slice-render-count.test.tsx` re-rendered the *same element object* on every
+simulated store publish. React bails out before the component runs in that case, so the probe
+recorded **zero derivation executions — and passed**, because zero is comfortably under any
+ceiling. It was caught only because zero was implausible, not because anything failed. The probe
+now asserts it fired before it trusts its own numbers:
+
+```ts
+expect(derivations.sidebarSections).toBeGreaterThan(atMount.sidebarSections)
+```
+
+> **Prove the instrument can say YES before believing what it says.** A performance probe that
+> measures nothing reports the best possible result, which makes it the most dangerous shape of
+> all.
+
+**Green from the wrong tree.** This worktree had **no `node_modules` at all**, so every
+`@podium/*` import resolved out to the *main* checkout rather than the code under test. The
+worklist suite appeared to be failing (`isIssueDeferred is not a function`) purely because of it,
+and — far more dangerous — **any green measured here before `bun install` was meaningless**. Green
+from the wrong tree is indistinguishable from green.
+
+Check `ls node_modules/@podium` in a fresh worktree before quoting any result from it. The linker
+is `hoisted` (see `bunfig.toml`), so the links land at the repo root, not under `apps/*`.
+
 ## 5. What this map commits to
 
 - `derive.ts` is deleted; nothing named `*-helpers` or `*-common` replaces it.
