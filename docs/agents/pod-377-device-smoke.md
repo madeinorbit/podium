@@ -21,13 +21,12 @@ Landed:
   on-device replica may be adopted only when attribution is certain.
 - The migration runner (`migrate.ts`): read → decide → one commit → retire keys, in that order.
 - POD-1220's caller, and with it the OUTBOX on SQLite (`podium-replica.db`).
+- POD-1241's wire cutover: `KernelReplica` + `FeedAuthorityClient` + `FeedSink`, so entity rows
+  and the cursor live in the same SQLite file and cold-start paint reads them from disk. The hub
+  advertises wire v2 when the feed sink is supplied.
 
-**Entities, the cursor and transcript windows are still on AsyncStorage, deliberately.** Mobile
-is a wire-v1 peer and the kernel replica facade refuses the v1 write-in path by design, so the
-v2 read model is POD-1241's scope. What POD-1220 moved is the family ADR 6 D1 forbids from
-living on AsyncStorage on any path and D4.3 calls a correctness bug to lose: the queued writes.
-The attribution gate governs exactly that family here — entities and the cursor are retired
-unconditionally either way — so the outbox is where a refusal is observable.
+**Transcript windows and ui-state remain on the AsyncStorage side-cache** (bulk / local prefs,
+not replica data). Entities and the outbox are both in `podium-replica.db`.
 
 ## Setup
 
@@ -68,21 +67,20 @@ exists; on a single-account server, record that and skip to "What to report".
 2. Queue an offline write as A, then **sign out**.
 3. Sign in as **user B** on the same device.
 4. **In the UI:** none of A's slice is visible anywhere — lists, search, recents, the tray.
-5. **On disk — and note WHICH store holds what, because the obvious query looks clean for the
-   wrong reason.** Pull the app container. The database is at
-   `Documents/SQLite/podium-replica.db` (expo's `openDatabaseSync` location).
+5. **On disk — both families live in SQLite now (POD-1241).** Pull the app container. The
+   database is at `Documents/SQLite/podium-replica.db` (expo's `openDatabaseSync` location).
 
-   - `select distinct principal from entities;` **is expected to return nothing.** Entities are
-     still on AsyncStorage (see "What is landed"), so an empty table here is the design, not a
-     pass. Reporting it as a pass is the specific mistake this bullet exists to prevent.
+   - `select distinct principal from entities;` must name **only B** after B is signed in and
+     has bootstrapped. A's entity rows must not appear under B's principal (and after A's
+     sign-out erase, A's principal region should be gone). An empty table for B after a
+     successful online session is a failure — it means the v2 feed never populated the cache.
    - `select principal, mutation_id, json_extract(record,'$.state'), json_extract(record,'$.input') from outbox;`
-     is the query that matters. A's entries must not appear under B's principal, and any entry
-     the gate refused must be `dead-letter` with `input` NULL — the payload is redacted on the
-     discard arm precisely so B cannot read what A typed.
-   - Grep the db file for the identifiable string from step 1 — it must not appear.
-   - Then check AsyncStorage too, since that is where B's entity slice actually lives: dump the
-     app's AsyncStorage and confirm no `podium.replica.*` key holds A's rows. A leak here is
-     invisible to every SQL query above.
+     A's entries must not appear under B's principal, and any entry the gate refused must be
+     `dead-letter` with `input` NULL — the payload is redacted on the discard arm precisely so
+     B cannot read what A typed.
+   - Grep the db file for the identifiable string from step 1 — it must not appear under B.
+   - AsyncStorage still holds side-cache (ui-state / transcript windows) under principal
+     prefixes: dump it and confirm no `podium.replica.*` key holds A's rows either.
 6. Airplane mode, force-quit, relaunch: **B's cold start offline shows only B's slice.** An
    empty list here is also a failure — it means B never got a scoped bootstrap.
 7. Sign back in as A: A's own queued write from step 2 is still theirs, and still recoverable.

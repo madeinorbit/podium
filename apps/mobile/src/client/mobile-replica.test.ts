@@ -1,11 +1,9 @@
 /**
- * THE ATTRIBUTION GATE, ON MOBILE, WITH AN EFFECT (POD-1220).
+ * THE ATTRIBUTION GATE + v2 FEED ASSEMBLY, ON MOBILE (POD-1220 + POD-1241).
  *
- * POD-377 built `migrateLegacyReplica` and POD-378 verified it; until this issue
- * NOTHING IN THE REPO CALLED IT. A gate with no caller reads identically to an
- * enforced one in every handoff that cites it, so the claim under test here is not
- * "the gate decides correctly" — `adoption.test.ts` owns that — but "this device
- * OBEYS it", which is a different claim and the one that was missing.
+ * POD-1220: the gate has a caller and an effect on the durable outbox.
+ * POD-1241: the composition root assembles KernelReplica + FeedAuthorityClient
+ * so entity rows land in SQLite and paint on cold start.
  *
  * WHY EVERY CASE RUNS OVER A REAL SQLITE FILE. The property is durability across a
  * process, and `:memory:` dies with the connection: an assertion that queued work
@@ -13,26 +11,31 @@
  * right thing. `readDurable` therefore opens its OWN connection and reads the tables
  * directly, so the store's in-memory mirror can never answer for the engine.
  *
- * WHY THE REFUSAL ARMS ARE THE POINT AND THE ADOPT ARM IS NOT. Trap 2 of this
- * issue's handoff: entities and the cursor are retired UNCONDITIONALLY here — the
- * outbox is the only family the gate governs on mobile — so a wiring that ran the
- * gate and then ignored its verdict would still make the audit count drop, still
- * migrate, still report `adopted=N`, and still be a privacy hole. The mutation that
- * proves otherwise is the refusal cases below: flip ONLY the evidence, and the user's
- * queued work must stop being drainable.
+ * WHY THE REFUSAL ARMS ARE THE POINT AND THE ADOPT ARM IS NOT (outbox). A wiring
+ * that ran the gate and then ignored its verdict would still make the audit count
+ * drop, still migrate, still report `adopted=N`, and still be a privacy hole. The
+ * mutation that proves otherwise is the refusal cases below: flip ONLY the
+ * evidence, and the user's queued work must stop being drainable.
  *
- * AND WHY THEY READ THROUGH `outboxStorage()` RATHER THAN THE TABLE. A
- * parked entry is still a ROW — dead-lettered, payload redacted, deliberately kept so
- * POD-316 can tell the user work was lost. Asserting the table is empty would fail on
- * correct behaviour; asserting the table is non-empty would pass on the hole. What
- * must be empty is what the ENGINE can replay, which is the storage pair the provider
- * hands it.
+ * WHY THEY READ THROUGH `outboxStorage()` RATHER THAN THE TABLE. A parked entry is
+ * still a ROW — dead-lettered, payload redacted. Asserting the table is empty would
+ * fail on correct behaviour; asserting it non-empty would pass on the hole. What
+ * must be empty is what the ENGINE can replay.
+ *
+ * WHY COLD-START PAINT RUNS AGAINST A SILENT AUTHORITY (POD-1241). An authority
+ * whose frames never arrive paints an empty slice that looks exactly like a
+ * working offline cold start. A test that only ever ran against a live feed
+ * cannot tell "store is wired" from "empty and quiet". The positive case seeds
+ * the store, silences the authority, and asserts rows paint; the negative case
+ * proves the same assertion goes red when the store is empty.
  */
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { REPLICA_KEY_PREFIX, type StorageApi } from '@podium/client-core/replica'
+import { asMutationId } from '@podium/model'
+import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import {
   LEGACY_STANDALONE_OUTBOX_KEY,
   type LegacyIdentityEvidence,
@@ -40,6 +43,15 @@ import {
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
+
+/**
+ * An authority that delivers NOTHING. Used so a cold-start paint assertion can
+ * only pass if the durable store is wired — a live feed cannot rescue it.
+ */
+const SILENT_AUTHORITY = async (): Promise<FeedChangesSinceReplyLenient> => ({
+  kind: 'bootstrap-required',
+  reason: 'silent-test-authority',
+})
 
 // ---------------------------------------------------------------------------
 // A REAL ENGINE, OR NOTHING
@@ -206,6 +218,8 @@ async function open(args: {
   file: string
   storage: StorageApi
   evidence?: LegacyIdentityEvidence
+  /** Defaults to a silent authority so cold-start cases cannot be rescued by a feed. */
+  fetchChangesSince?: () => Promise<FeedChangesSinceReplyLenient>
 }) {
   const degradations: string[] = []
   const opened = await openMobileReplica({
@@ -213,10 +227,36 @@ async function open(args: {
     deleteDatabase: () => rmSync(args.file, { force: true }),
     storage: args.storage,
     evidence: args.evidence ?? SINGLE_ACCOUNT,
+    fetchChangesSince: args.fetchChangesSince ?? SILENT_AUTHORITY,
     onDegraded: (message) => degradations.push(message),
     now: () => 1_700_000_009_000,
   })
   return { ...opened, degradations }
+}
+
+/** Seed one issue into the durable entity cache of an already-opened store. */
+function seedIssue(
+  store: { viewFor(principal: string): { cache: { applyAtomic(m: unknown): void } } },
+  principal: string,
+  issue: { id: string; title: string },
+): void {
+  store.viewFor(principal).cache.applyAtomic({
+    operations: [
+      {
+        kind: 'upsert',
+        entity: 'issue',
+        entityId: issue.id,
+        value: { id: issue.id, title: issue.title, status: 'open' },
+        provenance: {
+          seq: 1,
+          originId: 'o',
+          causationId: 'c',
+          mutationId: asMutationId('m-seed'),
+        },
+      },
+    ],
+    cursor: { feedId: 'feed', epoch: 'e1', seq: 1 },
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +324,11 @@ describe('the mobile replica composition root', () => {
     // adapter's commit is synchronous, and that is the property the whole
     // sync-save-over-async-apply binding rests on.
     expect(durableOutbox(file).map((row) => row.mutationId)).toEqual(['m-new'])
-    expect(device.keys()).toEqual(['podium.replica.principal.default.namespace.v1'])
+    // Side-cache may write ui-state keys under the principal prefix; the outbox
+    // and entity rows must NOT land on AsyncStorage (ADR 6 D1).
+    expect(device.keys()).toContain('podium.replica.principal.default.namespace.v1')
+    expect(device.keys().some((k) => k.includes('outbox'))).toBe(false)
+    expect(device.keys().some((k) => k.includes('sessions') || k.includes('issues'))).toBe(false)
   })
 
   for (const arm of UNATTRIBUTABLE) {
@@ -318,21 +362,34 @@ describe('the mobile replica composition root', () => {
     const file = freshDatabaseFile()
     const device = seededDevice()
 
+    // Seed the SQLite entity cache under an attributable open first, so the
+    // refusal has something real to discard — otherwise empty-after-refuse is
+    // indistinguishable from never having rows. Close without erase so the
+    // bytes remain for the second open to refuse.
+    const seeded = await open({ file, storage: legacyDevice({}) })
+    seedIssue(seeded.store, seeded.principal, { id: 'i-seed', title: 'should not survive' })
+    await seeded.store.settled()
+    expect(seeded.replica.rows('issues').map((r) => r.id)).toEqual(['i-seed'])
+    seeded.store.close()
+
     const { replica, outcome } = await open({
       file,
       storage: device,
       evidence: { kind: 'unknown' },
     })
 
-    // Entities and the cursor go unconditionally — there is no honest way to import
-    // a bare-integer cursor into `{feedId, epoch, seq}` (ADR 2 D1) — so this is the
-    // half the gate does NOT govern, asserted so the next reader does not mistake it
-    // for the gate working.
+    // Legacy AsyncStorage entities/cursor are retired by the migration; the
+    // SQLite entity cache is discarded by the same attribution decision that
+    // parks the outbox (POD-1241 extends the gate to the read path).
     expect(outcome.cursorDiscarded).toBe(true)
-    expect(device.keys()).toEqual(['podium.replica.principal.default.namespace.v1'])
+    expect(device.keys()).toContain('podium.replica.principal.default.namespace.v1')
+    expect(device.keys().some((k) => k.includes('outbox'))).toBe(false)
+    expect(device.keys()).not.toContain('podium.replica.sessions.v1')
+    expect(device.keys()).not.toContain('podium.replica.cursor.v1')
 
     const hydrated = await replica.hydrate()
     expect(hydrated.sessions).toEqual([])
+    expect(hydrated.issues).toEqual([])
     expect(hydrated.cursor).toBeNull()
   })
 
@@ -377,5 +434,215 @@ describe('the mobile replica composition root', () => {
     expect(outcome.adopted).toBe(0)
     expect(outcome.parked).toBe(0)
     expect(replica.outboxStorage().load()).toEqual([])
+  })
+
+  it('exposes a v2 feed sink so the hub advertises wire 2', async () => {
+    const file = freshDatabaseFile()
+    const { feed, attachHub } = await open({ file, storage: legacyDevice({}) })
+    expect(typeof feed.connected).toBe('function')
+    expect(typeof feed.disconnected).toBe('function')
+    expect(typeof feed.frame).toBe('function')
+    expect(typeof attachHub).toBe('function')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// COLD-START PAINT — the empty-slice failure POD-1241 exists to close
+// ---------------------------------------------------------------------------
+
+describe('cold-start paint from the durable store (POD-1241)', () => {
+  it('a cold start over a populated store paints the rows when the authority delivers nothing', async () => {
+    const file = freshDatabaseFile()
+
+    // First process: adopt, seed durable rows, settle, tear down.
+    const first = await open({ file, storage: legacyDevice({}) })
+    seedIssue(first.store, first.principal, { id: 'i-cold', title: 'from disk' })
+    await first.store.settled()
+    expect(first.replica.rows('issues').map((r) => r.id)).toEqual(['i-cold'])
+    // Do NOT erase — we want the file to survive for the second open. Close the
+    // store so the second open is a true process-boundary re-read.
+    first.store.close()
+
+    // Second process: same file, empty legacy device, SILENT authority.
+    // If paint came only from the feed, this goes red. If the store is wired,
+    // the rows are already durable and hydrate without a single frame.
+    const cold = await open({
+      file,
+      storage: legacyDevice({}),
+      fetchChangesSince: SILENT_AUTHORITY,
+    })
+    const hydrated = await cold.replica.hydrate()
+    expect(hydrated.issues).toMatchObject([{ id: 'i-cold', title: 'from disk' }])
+    expect(cold.replica.rows('issues').map((r) => r.id)).toEqual(['i-cold'])
+    // Cursor survived too — a cold start that forgot the watermark would look
+    // caught up forever or force a needless full bootstrap.
+    expect(hydrated.cursor).toBe(1)
+  })
+
+  it('the same assertion goes red when the store is empty and the authority is silent', async () => {
+    // THE FAILURE PROOF for the case above. Without this, a test that only
+    // ever ran against a live feed (or that never asserted rows) could not
+    // distinguish "working" from "empty and quiet" — the whole hazard.
+    const file = freshDatabaseFile()
+    const cold = await open({
+      file,
+      storage: legacyDevice({}),
+      fetchChangesSince: SILENT_AUTHORITY,
+    })
+    const hydrated = await cold.replica.hydrate()
+    expect(hydrated.issues).toEqual([])
+    expect(cold.replica.rows('issues')).toEqual([])
+    expect(hydrated.cursor).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FEED DELIVERY — empty-handler trap (POD-279 goal)
+// ---------------------------------------------------------------------------
+//
+// A test that only asserts "no rows after a quiet feed" passes identically
+// against a correct empty world AND against a sink that drops every frame.
+// Drive a feed that CARRIES rows and assert they arrive; assert empty separately.
+
+/** Wait until `probe` is true, or fail with `label` (no silent hangs). */
+async function waitUntil(label: string, probe: () => boolean, ms = 2_000): Promise<void> {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline) {
+    if (probe()) return
+    await new Promise((r) => setTimeout(r, 10))
+  }
+  throw new Error(`timed out waiting for ${label}`)
+}
+
+function bootstrapFrame(args: {
+  seq: number
+  changes: {
+    seq: number
+    entity: string
+    entityId: string
+    value: Record<string, unknown>
+  }[]
+}) {
+  return {
+    type: 'feedBootstrap' as const,
+    feedId: 'feed',
+    epoch: 'e1',
+    fromSeq: 0,
+    seq: args.seq,
+    minAvailableSeq: 0,
+    last: true,
+    changes: args.changes.map((c) => ({
+      seq: c.seq,
+      entity: c.entity,
+      entityId: c.entityId,
+      op: 'upsert' as const,
+      value: c.value,
+    })),
+  }
+}
+
+/** Bring the assembled sink online; push a bootstrap when the ladder asks. */
+function onlineWithBootstrap(
+  opened: Awaited<ReturnType<typeof open>>,
+  frame: ReturnType<typeof bootstrapFrame>,
+): void {
+  opened.attachHub({
+    requestFreshWorld: () => {
+      // Asynchronous, like the real server push after reconnect.
+      void Promise.resolve().then(() => {
+        opened.feed.frame(frame as never)
+      })
+    },
+  } as never)
+  opened.feed.connected()
+}
+
+describe('feed delivery through the assembled sink (POD-1241)', () => {
+  it('a bootstrap that carries rows paints them — proves the sink is not a silent drop', async () => {
+    const file = freshDatabaseFile()
+    const opened = await open({ file, storage: legacyDevice({}) })
+
+    // Pre-project empty so a missing onKernelEvent fan-out cannot be masked:
+    // the facade caches the empty projection, and only onKernelEvent clears it.
+    // Without that wiring, the store would hold the row and rows() would still
+    // answer empty — the empty-handler failure mode, one layer down.
+    expect(opened.replica.rows('issues')).toEqual([])
+
+    onlineWithBootstrap(
+      opened,
+      bootstrapFrame({
+        seq: 1,
+        changes: [
+          {
+            seq: 1,
+            entity: 'issue',
+            entityId: 'i-feed',
+            value: { id: 'i-feed', title: 'from feed', status: 'open' },
+          },
+        ],
+      }),
+    )
+
+    await waitUntil(
+      'feed bootstrap to paint i-feed (got: ' +
+        JSON.stringify(opened.replica.rows('issues').map((r) => r.id)) +
+        ')',
+      () => opened.replica.rows('issues').some((r) => r.id === 'i-feed'),
+    )
+    expect(opened.replica.rows('issues').map((r) => r.id)).toEqual(['i-feed'])
+    expect(opened.replica.getCursor()).toBe(1)
+  })
+
+  it('an empty bootstrap paints empty with a cursor — correct empty, not a drop', async () => {
+    // Separated from the case above on purpose. Empty alone cannot prove the
+    // sink works; together with "carries rows", empty is "correctly empty".
+    const file = freshDatabaseFile()
+    const opened = await open({ file, storage: legacyDevice({}) })
+    expect(opened.replica.rows('issues')).toEqual([])
+
+    onlineWithBootstrap(opened, bootstrapFrame({ seq: 3, changes: [] }))
+
+    await waitUntil(
+      'empty bootstrap to establish cursor=3 (got: ' + String(opened.replica.getCursor()) + ')',
+      () => opened.replica.getCursor() === 3,
+    )
+    expect(opened.replica.rows('issues')).toEqual([])
+    expect(opened.replica.getCursor()).toBe(3)
+  })
+
+  it('a delta after bootstrap adds the row the empty case cannot see', async () => {
+    const file = freshDatabaseFile()
+    const opened = await open({ file, storage: legacyDevice({}) })
+    expect(opened.replica.rows('issues')).toEqual([])
+
+    onlineWithBootstrap(opened, bootstrapFrame({ seq: 1, changes: [] }))
+    await waitUntil('cursor after empty bootstrap', () => opened.replica.getCursor() === 1)
+
+    opened.feed.frame({
+      type: 'feedDelta',
+      feedId: 'feed',
+      epoch: 'e1',
+      fromSeq: 1,
+      seq: 2,
+      minAvailableSeq: 0,
+      changes: [
+        {
+          seq: 2,
+          entity: 'issue',
+          entityId: 'i-delta',
+          op: 'upsert',
+          value: { id: 'i-delta', title: 'from delta', status: 'open' },
+        },
+      ],
+    } as never)
+
+    await waitUntil(
+      'delta to paint i-delta (got: ' +
+        JSON.stringify(opened.replica.rows('issues').map((r) => r.id)) +
+        ')',
+      () => opened.replica.rows('issues').some((r) => r.id === 'i-delta'),
+    )
+    expect(opened.replica.rows('issues').map((r) => r.id)).toEqual(['i-delta'])
+    expect(opened.replica.getCursor()).toBe(2)
   })
 })
