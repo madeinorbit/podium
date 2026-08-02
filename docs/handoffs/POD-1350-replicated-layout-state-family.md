@@ -32,3 +32,11 @@ It has a server row, command surface, and a closed key vocabulary shared with PO
 - Targeted vitest (model user-state, layout contracts, store, service, matrix): 79 green
 - `audit-durable-classes`: clean (90 stores)
 - `packages/model` + `packages/commands` typecheck: clean
+
+## POD-402 review follow-up (tip c0fc8b35)
+
+1. **Authz** — `layoutAuthzFailure` reads contract `roleFloor` live; trpc refuses before store. Test: no write when role is missing.
+2. **Feed** — `userLayout` MetadataEntityKind; service `ledger.capture`; visibility `per-user-state` via `keyedUserOf(parseLayoutRowId)`. Alice bootstrap sees rows; Bob empty; changesSince scoped.
+3. **Model** — `LayoutKeyField` on `LayoutState.entityId` and `LayoutSnapshot`; device-local keys fail parse.
+
+Client Outbox kinds remain POD-402 (not operational until both halves land).
