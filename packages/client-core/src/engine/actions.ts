@@ -19,8 +19,8 @@ import type {
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
-import type { Router } from '../router'
-import { routeDefaults } from '../router'
+import type { Router } from '../ui-state'
+import { routeDefaults } from '../ui-state'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
@@ -50,7 +50,6 @@ export const UI_LOCAL_ACTIONS = [
   'setPanelMode',
   'setDockShell',
   'setDockVisibleSession',
-  'setPanelRenderMode',
   'toggleSplit',
   'openFile',
   'openFileInWorktree',
@@ -137,7 +136,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   enqueueOverlayed<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): void
   revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void
   recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void
-  setPanelRenderMode(sessionId: SessionId, mode: 'chat' | 'native'): void
   spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
     sessionId: SessionId
     issueId: IssueId
@@ -261,7 +259,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       else delete dockShells[worktreePath]
       rt.apply({ dockShells })
     },
-    setPanelRenderMode: (sessionId, mode) => rt.setPanelRenderMode(sessionId, mode),
     toggleSplit: () => rt.apply({ split: !rt.state().split }),
     openFile: (sessionId, path) => {
       const scope: FileScope = { kind: 'session', sessionId }

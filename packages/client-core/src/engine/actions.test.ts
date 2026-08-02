@@ -1,7 +1,7 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { Router } from '../router'
+import type { Router } from '../ui-state'
 import type { SocketHub } from '../socket-transport'
 import {
   COMMAND_ACTIONS,

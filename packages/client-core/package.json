@@ -61,9 +61,9 @@
       "import": "./src/replica/feed/index.ts"
     },
     "./router": {
-      "@podium/source": "./src/router.ts",
-      "types": "./src/router.ts",
-      "import": "./src/router.ts"
+      "@podium/source": "./src/ui-state.ts",
+      "types": "./src/ui-state.ts",
+      "import": "./src/ui-state.ts"
     },
     "./api": {
       "@podium/source": "./src/api.ts",

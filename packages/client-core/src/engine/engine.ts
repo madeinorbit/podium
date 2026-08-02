@@ -45,12 +45,27 @@ import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica, UiState } from '../replica/replica'
 import {
   createRouter,
+  DOCK_SHELLS_KEY,
+  DOCK_TAB_KEY,
+  ISSUE_SEL_KEY,
   type MainView,
+  PANE_A_KEY,
+  PANE_B_KEY,
+  PANEL_MODE_KEY,
+  RECENT_FILES_KEY,
+  readStoredDockShells,
+  readStoredPanelModes,
+  readStoredRecentFiles,
+  readStoredView,
   type Router,
   type RouterWindow,
   type RouteState,
   routeDefaults,
-} from '../router'
+  SPLIT_KEY,
+  SUPER_OPEN_KEY,
+  VIEW_KEY,
+  WT_KEY,
+} from '../ui-state'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
 import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
@@ -83,23 +98,6 @@ import {
   pruneAwaiting,
   rowFingerprint,
 } from './overlay'
-import {
-  DOCK_SHELLS_KEY,
-  DOCK_TAB_KEY,
-  ISSUE_SEL_KEY,
-  PANE_A_KEY,
-  PANE_B_KEY,
-  PANEL_MODE_KEY,
-  RECENT_FILES_KEY,
-  readStoredDockShells,
-  readStoredPanelModes,
-  readStoredRecentFiles,
-  readStoredView,
-  SPLIT_KEY,
-  SUPER_OPEN_KEY,
-  VIEW_KEY,
-  WT_KEY,
-} from './persistence'
 import {
   createReplicaBinding,
   type ReplicaBinding,

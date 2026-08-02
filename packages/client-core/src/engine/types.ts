@@ -30,7 +30,7 @@ import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica, UiState } from '../replica/replica'
-import type { MainView } from '../router'
+import type { MainView } from '../ui-state'
 import type { SpawnTarget } from '../spawn-agent'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 
@@ -167,15 +167,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
   focusedPane: 'A' | 'B'
   setFocusedPane: (pane: 'A' | 'B') => void
-  /** Per-session chat-vs-native panel mode, persisted across reloads so a session
-   *  returns to the view the user last left it in. A missing entry falls back to the
-   *  per-device default; the hibernated/exited-forces-chat rule still wins over it. */
+  /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
-  /** The EFFECTIVE rendered mode per session (native terminal vs chat) as each
-   *  AgentPanel computes it — distinct from the saved `panelMode` override. Reported
-   *  up the viewState channel so the server has the signal; not persisted. */
-  setPanelRenderMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
   /** The right dock's shell per worktree (#23): worktreePath → the shell session
    *  living in the dock's Shell panel. Dock shells render THERE, not as workspace
    *  tabs — the tab strip filters every id in this map. Persisted so a reload
