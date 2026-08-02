@@ -203,6 +203,10 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'repo_prefixes', kind: 'drizzle-table', row: 'repo-prefix' },
   { store: 'pins', kind: 'drizzle-table', row: 'pins' },
   { store: 'tab_order', kind: 'drizzle-table', row: 'tab-order' },
+  // POD-1350. Sidebar/tab layout shell chrome — per-user-state, never grantable.
+  // Deliberately NOT `personal` (grantable) and NOT `secret` (must replicate to
+  // the owner's own devices). Key routing shared with POD-403.
+  { store: 'user_layout', kind: 'drizzle-table', row: 'sidebar-tab-layout' },
   {
     store: '<repo>/pspec/SP-xxxx.html',
     kind: 'filesystem',

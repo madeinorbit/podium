@@ -369,6 +369,39 @@ export const userPreferences = sqliteTable(
   (table) => [primaryKey({ columns: [table.userId, table.key], name: 'user_preferences_pk' })],
 )
 
+/**
+ * ONE PERSON'S SIDEBAR / TAB LAYOUT (POD-1350) — the per-user state family
+ * member that was client-local until multi-user required it to follow a person
+ * across devices.
+ *
+ * `key` is a member of `@podium/model`'s closed layout vocabulary
+ * (`isLayoutKey` / `LAYOUT_EXACT_KEYS` / `LAYOUT_KEY_PREFIXES`), the same list
+ * POD-403's routing table classifies as per-user-replicated. Device-local
+ * route, selection, focus, pane/split geometry and sidebar pixel width are
+ * deliberately NOT here.
+ *
+ * KEY-AT-A-TIME rather than one blob per user — concurrent multi-device writes
+ * of independent keys (dock tab vs superagent open) must not last-writer-wins
+ * over the whole shell. Values are JSON text; absence is the row being absent.
+ *
+ * NO foreign key to `users`, matching its preference sibling: a per-user row
+ * follows the USER and is scrubbed by the user's own deletion path.
+ *
+ * No SQL backfill: legacy values live in client ui-state; POD-403's one-shot
+ * migration forwards them once via `layout.set` then deletes the local keys.
+ */
+export const userLayout = sqliteTable(
+  'user_layout',
+  {
+    userId: text('user_id').notNull(),
+    key: text().notNull(),
+    /** The layout value as JSON text. */
+    value: text().notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.key], name: 'user_layout_pk' })],
+)
+
 export const conversations = sqliteTable(
   'conversations',
   {
