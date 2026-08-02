@@ -31,7 +31,7 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
-import { REACTIONS, type ReactionDefinition } from './composition/reactions'
+import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
 import { deviceGradeSoleOwner } from './device-grade-owner'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
@@ -139,6 +139,11 @@ interface SessionRegistryOptions {
   publicationWorker?: PublishWorkerClient
   /** Rollout-only semantic comparison of legacy and worker publications. */
   publicationShadowCompare?: boolean
+  /** Reaction contracts to publish on the module seam. Defaults to the registry;
+   *  injected only so the runtime refusal of an invalid principal is observable
+   *  (POD-1470). Whatever is passed goes through the same totality check the
+   *  registry does — a widened system writeScope fails construction. */
+  reactions?: readonly unknown[]
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -271,6 +276,10 @@ export class SessionRegistry {
     notificationPushers: NotificationPushers | undefined,
     options: SessionRegistryOptions,
   ) {
+    // Validated BEFORE anything is constructed: an invalid reaction principal — a
+    // system reaction widening its writeScope — must refuse the assembly outright
+    // rather than surface after services and timers exist (POD-1470).
+    const reactions = composeReactions(options.reactions ?? REACTIONS)
     this.store = store ?? new SessionStore(':memory:')
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
@@ -1508,7 +1517,7 @@ export class SessionRegistry {
       settings,
       layout,
       headless,
-      reactions: REACTIONS,
+      reactions,
       notify,
       issues,
       issueSessionLifecycle,

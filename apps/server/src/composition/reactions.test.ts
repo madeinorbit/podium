@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { assertReactionRegistryTotal, REACTIONS } from './reactions'
 
+const systemReaction = () => REACTIONS.find((reaction) => reaction.id === 'startup.boot-reconcile')!
+
 describe('reaction registry totality', () => {
   it('declares every operational and principal property', () => {
     expect(() => assertReactionRegistryTotal(REACTIONS)).not.toThrow()
@@ -26,12 +28,28 @@ describe('reaction registry totality', () => {
     expect(() => assertReactionRegistryTotal([incomplete])).toThrow('reauthorize')
   })
 
-  it('rejects a system reaction that can stamp a human or widen scope', () => {
+  // Each fixture violates exactly ONE clause, so the message it throws names which
+  // clause refused it. The previous single fixture set actor AND writeScope at once;
+  // the actor check fired first, and deleting the writeScope check changed nothing
+  // any test could see (POD-1470, mutant N5b).
+  it('rejects a system reaction that stamps a human, and only that', () => {
     const invalid = {
-      ...REACTIONS.find((reaction) => reaction.id === 'startup.boot-reconcile')!,
-      principal: { class: 'system', actor: 'human', writeScope: 'all' },
+      ...systemReaction(),
+      principal: { class: 'system', actor: 'human', writeScope: 'acted-on-entity' },
     }
-    expect(() => assertReactionRegistryTotal([invalid])).toThrow('system attribution')
+    expect(() => assertReactionRegistryTotal([invalid])).toThrow(
+      'system reactions must preserve system attribution',
+    )
+  })
+
+  it('rejects a system reaction that widens write scope, and only that', () => {
+    const invalid = {
+      ...systemReaction(),
+      principal: { class: 'system', actor: 'system', writeScope: 'all' },
+    }
+    expect(() => assertReactionRegistryTotal([invalid])).toThrow(
+      'system reactions must not widen write scope beyond the acted-on entity',
+    )
   })
 
   it('pins post-freeze reactions and their multi-user invariants', () => {
