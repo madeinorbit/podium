@@ -755,8 +755,7 @@ export class SessionRegistry {
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
         telegramRouteAvailable: (ownerUserId) =>
           this.store.telegramBindings.listForUser(ownerUserId).length === 1,
-        requestTelegram: (request) =>
-          this.bus.emit('notification.telegramRequested', request),
+        requestTelegram: (request) => this.bus.emit('notification.telegramRequested', request),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
         clients: (ownerUserId) =>
@@ -895,10 +894,15 @@ export class SessionRegistry {
         sourceMessageId: null,
       })
       if (!authorized.ok) return
-      void issueSessionLifecycle.resurrectSession({ sessionId }).then((result) => {
-        if (!result.ok)
-          console.warn('[podium] wake-on-queue failed for ' + sessionId + ': ' + result.reason)
-      })
+      void issueSessionLifecycle
+        .resurrectSession({ sessionId })
+        .then((result) => {
+          if (!result.ok)
+            console.warn('[podium] wake-on-queue failed for ' + sessionId + ': ' + result.reason)
+        })
+        .catch((err) => {
+          console.warn('[podium] wake-on-queue failed for ' + sessionId + ':', err)
+        })
     })
     this.bus.on('session.listChanged', () => {
       publisher.publishIssues(issues.allWire(), issues.allProjections())

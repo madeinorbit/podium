@@ -95,7 +95,7 @@ export interface NotifyDeps {
     state: AgentRuntimeState | undefined
     ownerUserId?: UserId
   }>
-  /** Lazy — production wires MessagingService after registry construction. */
+  /** Per-user route lookup and asynchronous delivery request. */
   telegramRouteAvailable?(ownerUserId: UserId): boolean
   requestTelegram?(input: { ownerUserId: UserId; text: string; sessionId?: SessionId }): void
 }

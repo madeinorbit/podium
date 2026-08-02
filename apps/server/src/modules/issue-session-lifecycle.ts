@@ -40,14 +40,12 @@ export class IssueSessionLifecycle {
 
   /** Stop every issue member before the single final worktree-free pass. */
   stopIssue(input: Parameters<SessionLifecycle['stopIssue']>[0]) {
-    return this.deps.sessions.stopIssue(input, this.deps.issues)
+    const issueId = this.deps.issues.resolveRef(input.issueId)
+    return this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues)
   }
 
   /** Carry the transport-derived caller through every handoff apply point. */
-  handoffSession(
-    input: Parameters<SessionLifecycle['handoffSession']>[0],
-    caller: HandoffCaller,
-  ) {
+  handoffSession(input: Parameters<SessionLifecycle['handoffSession']>[0], caller: HandoffCaller) {
     return this.deps.sessions.handoffSession(input, caller, this.deps.issues)
   }
   /** Soft-delete an issue and tombstone all of its local member sessions.

@@ -202,7 +202,8 @@ export const REACTIONS = [
     durability: 'in-memory',
     replay: {
       mode: 'none',
-      reason: 'Boot rebuilds row-derived projections; live-only daemon facts retry on the next event.',
+      reason:
+        'Boot rebuilds row-derived projections; live-only daemon facts retry on the next event.',
     },
     idempotency: {
       key: 'event kind + issue/session id + derived payload hash',
@@ -226,7 +227,8 @@ export const REACTIONS = [
     durability: 'in-memory',
     replay: {
       mode: 'none',
-      reason: 'Queued input remains durable; restart does not replay execution, and a later resume or send retries.',
+      reason:
+        'Queued input remains durable; restart does not replay execution, and a later resume or send retries.',
     },
     idempotency: { key: 'session id + queued principal reference', duplicatePolicy: 'coalesce' },
     ordering: 'After durable enqueue; before the inbox attempts ordered FIFO delivery.',
@@ -238,16 +240,19 @@ export const REACTIONS = [
       metrics: ['message delivery attempts'],
     },
     principal: delegated(),
-    scopeInvariant: 'Resolve the queued delegation live at apply; revocation prevents process wake and delivery.',
+    scopeInvariant:
+      'Resolve the queued delegation live at apply; revocation prevents process wake and delivery.',
   },
   {
     id: 'sessions.system-wake-on-queue',
-    description: 'Best-effort wake a parked session after system-attributed input is durably queued.',
+    description:
+      'Best-effort wake a parked session after system-attributed input is durably queued.',
     trigger: 'session.wakeRequested',
     durability: 'in-memory',
     replay: {
       mode: 'none',
-      reason: 'Queued input remains durable; restart does not replay execution, and a later system action retries.',
+      reason:
+        'Queued input remains durable; restart does not replay execution, and a later system action retries.',
     },
     idempotency: { key: 'session id + system job reference', duplicatePolicy: 'coalesce' },
     ordering: 'After durable enqueue; before the inbox attempts ordered FIFO delivery.',
@@ -259,8 +264,10 @@ export const REACTIONS = [
       metrics: ['message delivery attempts'],
     },
     principal: system(),
-    scopeInvariant: 'Acts only on the existing session binding and never stamps or impersonates a human.',
-  },  {
+    scopeInvariant:
+      'Acts only on the existing session binding and never stamps or impersonates a human.',
+  },
+  {
     id: 'messages.dead-letter-nudge',
     description: 'Notify the original sender after a durable queued message is refused at apply.',
     trigger: 'message.deadLettered',
@@ -435,8 +442,10 @@ export const REACTIONS = [
       metrics: ['Telegram send failures'],
     },
     principal: delegated(),
-    scopeInvariant: 'Route comes from the owner of the triggering session/subscriber; unknown or ambiguous chats fail closed.',
-  },  {
+    scopeInvariant:
+      'Route comes from the owner of the triggering session/subscriber; unknown or ambiguous chats fail closed.',
+  },
+  {
     id: 'messaging.telegram-outbound',
     description: 'Relay completed superagent turns to the owning user’s bound Telegram route.',
     trigger: 'superagent.turnEnded',
