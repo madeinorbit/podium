@@ -9,6 +9,14 @@ Design work on the web UI (and the Tauri desktop wrapper, which ships the same d
 
 Read both before designing or restyling any web UI surface. The `/impeccable` skill (project-scoped at `.claude/skills/impeccable/`) consumes these files; `apps/mobile` (React Native) has its own UX concept and is NOT covered by them.
 
+## Cached checks
+
+Run `bun run typecheck` and trust a cache hit — never force a recompute (110x cost;
+forced runs have starved the live host). Installs, linker changes, and base swaps
+invalidate the cache automatically. If you have a concrete reason to distrust the
+cache, run `bun run typecheck -- --uncached-because="<reason>"`; bare `--force` is
+refused. Details: AGENTS.md "Cached checks".
+
 ## Testing policy
 
 Match testing effort to regression risk. Simple, low-risk changes may skip automated tests when
