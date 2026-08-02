@@ -9,19 +9,20 @@
 POD-1316 is closed and its fix is present in this candidate at `3a92ed56`, but that does not make
 the complete Phase 4 exit gate green. The re-candidate proves that the runtime composition is
 acyclic and that session/issue paths, isolated redeploy, environment locality, and multi-instance
-isolation work. It also finds five independent acceptance gaps: the committed composition graph
-documents are stale; the literal server god-object audit has 28 modules over 600 lines;
-the green E2E lane contains no memory-service E2E; and the required ten-condition production-tree
-mutation campaign was not performed at the candidate; and a cold browser-redeploy checkout fails
-before test discovery because the Playwright build omits a required workspace build. The gaps are
-tracked by POD-1384, POD-1385, POD-1390, POD-1394, and POD-1389 respectively.
+isolation work. At that named SHA it also finds five acceptance gaps: stale composition documents;
+28 server modules over 600 lines; no memory-service E2E; no complete ten-condition production-tree
+mutation campaign; and a cold browser-redeploy checkout that cannot discover its test because a
+required workspace build is omitted. POD-1384, POD-1385, POD-1390, POD-1394, and POD-1389
+respectively own those frozen-candidate findings. POD-1384 is now void against current integration,
+as recorded below; later repair does not alter what the immutable candidate contained.
 
 The recursive Phase 4 subtree was re-derived rather than inferred from this issue's waits-on list.
 The named implementation children and corrective work, including POD-1078, POD-1079, POD-1315,
 POD-1316, POD-1343, POD-1351, and POD-1356, are present by ancestry or direct tree inspection.
-However, POD-1356 remains open in the tracker at report time and the five gate-created blocking
-children above are open. Therefore the “all Phase 4 children closed with evidence” criterion is
-**refused** even though the original blocker that triggered this re-run is closed.
+At the frozen verdict, POD-1356 and five gate-created blocking children were open. POD-1384 has
+since closed with its fix landed. Current tracker state still has POD-1356 plus the four substantive
+gate grounds POD-1385, POD-1389, POD-1390, and POD-1394 open. Therefore the “all Phase 4 children
+closed with evidence” criterion remains **refused**.
 
 ### Criterion verdicts
 
@@ -114,15 +115,21 @@ POD-1316 is therefore **met in the candidate**, not merely closed in the tracker
 
 ## Successor candidate and evidence limits
 
-The immutable `6fc75d09` refusal remains valid. POD-1384 has now closed after regeneration commit
-`7509f2b4`, which is the minimum successor tree that can satisfy the current-document criterion.
-Its evidence candidate `4b947e7d` contains that commit and reports all three generators exit 0:
-178 modules/286 edges/0 cycles, 52 constructor declarations with zero forward dependencies,
-deferred closures, or non-null late bindings, and 25 current reactions. The preserved negative
-suite passes 7/7. The graph delta adds the layout service and user-layout store plus their expected
-edges; the construction-order delta adds `layout | ledger`. Remaining changes are generated source
-locations and renumbering. This clears POD-1384 for a successor candidate only; it does not
-retroactively change the named `6fc75d09` result.
+The immutable `6fc75d09` refusal remains valid, but POD-1384 is **void as a refusal ground against
+the current tree**. `git merge-base --is-ancestor 6fc75d09 7509f2b4` succeeds: regeneration commit
+`7509f2b4` postdates the frozen candidate and is the minimum successor that can satisfy the
+current-document criterion. On integration `4b947e7d`, both generators passed without `--write`
+at 178 modules/286 edges/0 cycles and 52 constructor declarations with zero forward dependencies,
+deferred closures, or non-null late bindings; reactions were current at 25 and the preserved
+negative suite passed 7/7. The graph delta adds the layout service and user-layout store plus their
+expected edges; construction adds `layout | ledger`; the remaining changes are generated source
+locations and renumbering.
+
+The worker's `--write` re-run was bit-identical and added only the 72-line evidence record at
+`18f478d7`. The POD-279 coordinator then independently reran both no-write generators on
+`4b947e7d`, verified exit 0, merged the evidence, and reported integration `c0902647` with cached
+typecheck 22/22 and no ambient-principal change. Thus current composition documents are proven
+current; only the historical candidate result remains red.
 
 There is **no complete same-SHA landing record** for either `7509f2b4` or `4b947e7d`. The POD-279
 coordinator has same-tree typecheck 22/22, client-auth 1 file/7 tests, wire goldens 1 file/90 tests,
