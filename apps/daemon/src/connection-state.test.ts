@@ -31,7 +31,13 @@ function localOptions(
     localLink: {
       attach: ({ hello }) => {
         capture(hello)
-        return { established: true, reply: ok, machineId: 'machine-a', deliver: vi.fn(), close: vi.fn() }
+        return {
+          established: true,
+          reply: ok,
+          machineId: 'machine-a',
+          deliver: vi.fn(),
+          close: vi.fn(),
+        }
       },
     },
     ...extra,
@@ -53,7 +59,12 @@ function connection(options: DaemonOptions, identity: { token?: string } = {}) {
 
 describe('daemon connection credential state machine', () => {
   it.each([
-    ['daemon secret', { bootstrapToken: 'local-secret' }, {}, { kind: 'daemonSecret', secret: 'local-secret' }],
+    [
+      'daemon secret',
+      { bootstrapToken: 'local-secret' },
+      {},
+      { kind: 'daemonSecret', secret: 'local-secret' },
+    ],
     ['pair code', { pairCode: 'PAIR-1' }, {}, { kind: 'pairCode', code: 'PAIR-1' }],
     [
       'machine token',
@@ -63,7 +74,10 @@ describe('daemon connection credential state machine', () => {
     ],
   ] as const)('uses the shared handshake for the %s credential', async (_name, opts, identity, expected) => {
     let hello: PeerHello | undefined
-    const state = connection(localOptions((value) => (hello = value), opts), { ...identity })
+    const state = connection(
+      localOptions((value) => (hello = value), opts),
+      { ...identity },
+    )
     await state.start()
     expect(hello).toMatchObject({
       type: 'peerHello',

@@ -464,15 +464,15 @@ recorded here (phase agents append rows).
 
 | Scar | Where it lives today | Incident it encodes |
 |---|---|---|
-| Malformed-frame-per-reattach tolerated as benign | daemon connection handling (POD-327 relocates; must document in code) | One ZodError per (re)attach is NORMAL; treating it as fatal broke reattach |
-| `decideOnProtocolMismatch` / `decidePostUpdate` self-update policy | `daemon/self-update` module | Self-update decisions were once inline and cross-wired; keep/extend the module (POD-327) |
+| Malformed-frame-per-reattach tolerated as benign | `apps/daemon/src/frame-guards.ts` (`frame-guards.test.ts`) | One ZodError per (re)attach is NORMAL; treating it as fatal broke reattach |
+| `decideOnProtocolMismatch` / `decidePostUpdate` self-update policy | `apps/daemon/src/self-update.ts` (`self-update.test.ts`); both envelope rejection and HTTP 426 enter this policy | Self-update decisions were once inline and cross-wired; keep/extend the module (POD-327) |
 | Delete-tracking on replica sync (assign `undefined`, never `delete`) | replica delta application | Replica dropped nulled fields — stuck fields incident (POD-170-era); POD-378 carries the regression test |
 | `reclaimStaleScope` | session scope allocation | Scope-name collision killed a live agent |
-| Master-probe + exited-row heal on restart | server boot | Restart orphaned live sessions |
-| `seedBootState` on reattach | agent state pipeline | Reattach previously showed stale agent state |
-| Feature-detect `spawn({terminal})` | PTY spawn path | PTY black screens on stale-Bun daemon |
-| Masters in their own `systemd-run --scope` | session spawn | Redeploy's cgroup kill took live sessions down |
-| Codex trust-hash/TOML version guard (to be added) | codex adapter (POD-327) | Silent mis-hashing on unknown codex versions; must degrade loudly |
+| Master-probe + exited-row heal on restart | `apps/daemon/src/control/session.ts`; burst pacing in `apps/daemon/src/reattach-gates.ts` | Restart orphaned live sessions |
+| `seedBootState` on reattach | `apps/daemon/src/session-observers.ts`; wired by `host-runtime.ts` | Reattach previously showed stale agent state |
+| Feature-detect `spawn({terminal})` | `packages/pty/src/backends` (`bun-terminal-detect.bun.test.ts`) | PTY black screens on stale-Bun daemon |
+| Masters in their own `systemd-run --scope` | `packages/pty/src/abduco.ts` | Redeploy's cgroup kill took live sessions down |
+| Codex hooks/TOML version guard | `apps/daemon/src/codex-hooks.ts` (`codex-hooks.test.ts`); public hooks review only, private TOML trust state is never edited | Silent use of a changed private trust/hash representation; unknown versions now leave both files untouched and degrade via journal banner plus authenticated owner/admin issue-mail |
 
 (Phase 5, which touches the host layer, updates this registry for everything it
 relocates — an explicit AC on POD-327.)
@@ -2401,6 +2401,37 @@ twins; harness axiom at error; all-five-agents needs-attention e2e; Codex identi
 evidence (`tests/e2e/browser/codex-identity-real.browser.e2e.ts`); receipts SIGKILL→
 rebind check; instance-isolation assertion (SP-15aa); 48h remote-daemon soak evidenced
 with needs-human set at the gate. `podium issue tree 292`.
+
+#### POD-327 daemon decomposition (2026-08-02)
+
+`apps/daemon/src/daemon.ts` is a 74-line composition root. Host services and the
+`SessionBinding`-carrying exhaustive control context live in `host-runtime.ts`; instance
+selection/markers/runtime paths in `instance-bootstrap.ts`; frame size/parse/send guards in
+`frame-guards.ts`; reconnect, shared handshake, three credential choices, connectivity truth,
+and diagnostic retention in `connection-state.ts`. Reattach pacing and durable-backend selection
+retain their incident comments in `reattach-gates.ts` and `durable-backend.ts`. POD-600's
+classifier remains owned by `loop-attribution.ts` and is only enabled by the host runtime.
+
+The daemon dialer and gateway acceptor both run the protocol package's shared handshake tests.
+Machine principals are resolved by authenticated transport strategies; payload identity claims
+remain inert. Pair codes still carry the server-minted pairer's owner grant, the in-process link
+runs the same `daemonSecret` acceptor without ambient local trust, and authorization rejection is
+terminal `unauthorized` rather than an offline/backoff report.
+
+Codex hook installation probes `codex --version` before any file mutation. The exercised public
+hooks contract is 0.142–0.146; another or unparsable version leaves `hooks.json` and `config.toml`
+byte-for-byte untouched, writes a daemon banner, and sends a transport-scoped diagnostic that
+becomes one deterministic personal issue-mail for the affected machine's owner and each admin.
+
+**POD-327 paired-VPS soak runbook (human gate):** mint a join token as the intended owner, run
+`podium setup --join <TOKEN> --persist systemd` on the VPS, and attach the resulting machine to an
+isolated named-instance workload. Record the start/end timestamps and daemon/server versions;
+retain `podium status` plus `journalctl --user -u podium-daemon.service` at both boundaries. During
+the 48-hour window require continuous authenticated connectivity, successful token reconnects
+after ordinary network/server interruptions, no `unauthorized` or `blocked` transition, no manual
+daemon restart/re-pair/update, and continued spawn/reattach/control on the owned machine. Attach
+the status/log excerpts and workload observations to POD-327, then run `podium issue needs-human`
+on POD-327 for sign-off. Until that artifact exists, POD-327, POD-426, and POD-292 remain open.
 
 ### Phase 6 — Client engine split (POD-293) · exit gate POD-427
 

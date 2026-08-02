@@ -3,9 +3,9 @@ import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 describe('decideOnProtocolMismatch', () => {
   it('installed → self-update', () => {
-    expect(
-      decideOnProtocolMismatch({ installed: true, source: 'handshake-rejection' }),
-    ).toEqual({ action: 'self-update' })
+    expect(decideOnProtocolMismatch({ installed: true, source: 'handshake-rejection' })).toEqual({
+      action: 'self-update',
+    })
   })
   it('source/dev → just backoff', () => {
     expect(decideOnProtocolMismatch({ installed: false, source: 'handshake-rejection' })).toEqual({

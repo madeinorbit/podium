@@ -1,38 +1,30 @@
 import { createHash } from 'node:crypto'
 import { asIssueId, type IssueId, type UserId } from '@podium/model'
 import type { EventMap } from '../bus'
+import type { CreateIssueInput } from '../issues/service'
 
 export type MachineDiagnostic = EventMap['machine.diagnostic']
-
-interface DiagnosticIssueInput {
-  id: IssueId
-  repoPath: string
-  title: string
-  description: string
-  brief: string
-  startNow: false
-  ownerUserId: UserId
-  visibility: 'personal'
-  origin: 'agent'
-  audience: 'human'
-  createdByActor: string
-  createdByOnBehalfOf: null
-}
 
 export interface MachineDiagnosticRouterDeps {
   recipients(machineId: string): UserId[]
   repoPath(machineId: string): string | undefined
   issueExists(id: IssueId): boolean
-  createIssue(input: DiagnosticIssueInput): void
+  createIssue(input: CreateIssueInput): void
   sendMail(issueId: IssueId, body: string): void
   notify(userId: UserId, notice: { title: string; body: string }): void
   warn(message: string): void
 }
 
 const issueIdFor = (recipient: UserId, diagnostic: MachineDiagnostic): IssueId => {
-  const key = [recipient, diagnostic.machineId, diagnostic.code, diagnostic.observedVersion ?? 'none']
-    .join('\0')
-  return asIssueId(`iss_machine_diag_${createHash('sha256').update(key).digest('hex').slice(0, 24)}`)
+  const key = [
+    recipient,
+    diagnostic.machineId,
+    diagnostic.code,
+    diagnostic.observedVersion ?? 'none',
+  ].join('\0')
+  return asIssueId(
+    `iss_machine_diag_${createHash('sha256').update(key).digest('hex').slice(0, 24)}`,
+  )
 }
 
 /**

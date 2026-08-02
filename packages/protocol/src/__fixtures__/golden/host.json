@@ -184,6 +184,35 @@
       "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"idleCapUnmet\":1}"
     },
     {
+      "schema": "MachineDiagnosticMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "machineDiagnostic",
+        "code": "code",
+        "title": "title",
+        "body": "body"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineDiagnostic\",\"code\":\"code\",\"title\":\"title\",\"body\":\"body\"}"
+    },
+    {
+      "schema": "MachineDiagnosticMessage",
+      "variant": "full",
+      "wire": {
+        "type": "machineDiagnostic",
+        "code": "code",
+        "title": "title",
+        "body": "body",
+        "observedVersion": "observedVersion"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineDiagnostic\",\"code\":\"code\",\"title\":\"title\",\"body\":\"body\",\"observedVersion\":\"observedVersion\"}"
+    },
+    {
       "schema": "MachinesChangedMessage",
       "variant": "minimal",
       "wire": {

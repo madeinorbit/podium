@@ -45,7 +45,10 @@ interface SocketLike {
   on(event: 'message', listener: (raw: RawData) => void): this
   on(event: 'close', listener: () => void): this
   on(event: 'error', listener: (error: unknown) => void): this
-  on(event: 'unexpected-response', listener: (_req: unknown, res: { statusCode?: number }) => void): this
+  on(
+    event: 'unexpected-response',
+    listener: (_req: unknown, res: { statusCode?: number }) => void,
+  ): this
 }
 
 export interface DaemonConnectionDeps {
@@ -93,7 +96,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
   // per code/version until an authenticated machine transport exists; ordinary
   // runtime frames retain the historical drop-while-offline behavior.
-  const pendingDiagnostics = new Map<string, Extract<DaemonMessage, { type: 'machineDiagnostic' }>>()
+  const pendingDiagnostics = new Map<
+    string,
+    Extract<DaemonMessage, { type: 'machineDiagnostic' }>
+  >()
   let resolveStart!: () => void
   let rejectStart!: (error: Error) => void
   const ready = new Promise<void>((resolve, reject) => {
@@ -112,8 +118,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   const credential = (): PeerCredential | null => {
-    if (options.bootstrapToken)
-      return { kind: 'daemonSecret', secret: options.bootstrapToken }
+    if (options.bootstrapToken) return { kind: 'daemonSecret', secret: options.bootstrapToken }
     if (identity.token)
       return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
     if (options.pairCode) return { kind: 'pairCode', code: options.pairCode }
@@ -245,7 +250,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     ) {
       pairFallbackTried = true
       identity.token = undefined
-      console.warn('[podium:daemon] stored token rejected; retrying once with the supplied pair code.')
+      console.warn(
+        '[podium:daemon] stored token rejected; retrying once with the supplied pair code.',
+      )
       active?.close()
       return
     }

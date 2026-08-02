@@ -1,4 +1,13 @@
-import { AgentMemoryWire, AgentQuotaWire, HostMemoryWire, HostMetricsWire, MachineWire, ProjectMemoryWire, SessionIdField, UsageBucketWire } from '@podium/model'
+import {
+  AgentMemoryWire,
+  AgentQuotaWire,
+  HostMemoryWire,
+  HostMetricsWire,
+  MachineWire,
+  ProjectMemoryWire,
+  SessionIdField,
+  UsageBucketWire,
+} from '@podium/model'
 import { z } from 'zod'
 
 // MachineWire, host metrics + memory, usage buckets and agent/machine quota all
