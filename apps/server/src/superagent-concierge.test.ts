@@ -439,17 +439,22 @@ describe('search_all tool', () => {
       cwd: '/w',
     })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
-    registry.sessionStore.conversations.upsertConversations([
+    registry.gateway.routeDaemonFrame('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'native-conv' },
+    })
+    registry.sessionStore.conversations.index.upsert([
       {
         id: 'native-conv',
         agentKind: 'claude-code',
         providerId: 'claude-code-jsonl',
         title: 'capacitor deep dive',
         updatedAt: '2026-07-01T09:00:00.000Z',
-        machineId: 'm1',
+        machineId: 'local',
       },
     ])
-    const out = await sa.callMcpTool('search_all', { query: 'capacitor' })
+    const out = await sa.callMcpTool('search_all', { query: 'capacitor' }, asThreadId('global'))
     // One rendered line per hit: [kind] title (ref) — issues cite the display seq.
     expect(out).toContain(`[issue] replace the flux capacitor`)
     expect(out).toContain(`(#${issue.seq})`)
@@ -469,11 +474,17 @@ describe('search_all tool', () => {
       cwd: '/w',
     })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor session' })
-    const out = await sa.callMcpTool('search_all', { query: 'capacitor', kinds: ['issue'] })
+    const out = await sa.callMcpTool(
+      'search_all',
+      { query: 'capacitor', kinds: ['issue'] },
+      asThreadId('global'),
+    )
     expect(out).toContain('[issue]')
     expect(out).not.toContain('[session]')
-    expect(await sa.callMcpTool('search_all', { query: 'zzz-no-such-thing' })).toBe('(no results)')
-    expect(await sa.callMcpTool('search_all', {})).toBe('missing query')
+    expect(
+      await sa.callMcpTool('search_all', { query: 'zzz-no-such-thing' }, asThreadId('global')),
+    ).toBe('(no results)')
+    expect(await sa.callMcpTool('search_all', {}, asThreadId('global'))).toBe('missing query')
   })
 })
 

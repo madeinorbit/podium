@@ -13,10 +13,7 @@ import {
   ThreadIdField,
   WorkState,
 } from '@podium/model'
-import {
-  clientSwitchTraceSchema,
-  type FileReadResultMessage,
-} from '@podium/protocol'
+import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,
@@ -94,7 +91,6 @@ import type { RegistryModules } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
-import { searchAll } from './search'
 
 // The request Context, the shared `t` instance, and the ctx accessors live in
 // ./trpc so the derived issues router (modules/issues/trpc.ts) shares them

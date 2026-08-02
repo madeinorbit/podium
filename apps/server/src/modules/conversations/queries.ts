@@ -14,14 +14,14 @@
 
 import type { TransportTag } from '@podium/commands'
 import { z } from 'zod'
-import type { ConversationsService } from './service'
+import type { MemoryReaderView } from '../memory/service'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
 export interface ConversationQuery<In extends z.ZodTypeAny, Out> {
   readonly input: In
   readonly exposure: readonly TransportTag[]
-  readonly run: (service: ConversationsService, input: z.infer<In>) => Out
+  readonly run: (service: MemoryReaderView, input: z.infer<In>) => Out
 }
 
 /** Preserves the schema and return types through the object literal — without it
@@ -29,7 +29,7 @@ export interface ConversationQuery<In extends z.ZodTypeAny, Out> {
  *  `AppRouter` inference on the read. */
 const query = <In extends z.ZodTypeAny, Out>(
   input: In,
-  run: (service: ConversationsService, input: z.infer<In>) => Out,
+  run: (service: MemoryReaderView, input: z.infer<In>) => Out,
 ): ConversationQuery<In, Out> => ({ input, exposure: SERVED_ON, run })
 
 export const CONVERSATION_QUERIES = {

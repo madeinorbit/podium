@@ -83,14 +83,14 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 | Daemon sockets/pairing/auth, machine admin + routing; daemon request/response plumbing | `apps/server` `src/modules/machines/` (`service.ts`, `rpc.ts`) |
 | The issue tracker itself (`IssueService`: CRUD + stage machine, reads/reports, archive/drafts, mail, git workflow + assistant) | `apps/server` `src/modules/issues/service/` (seam-per-file class chain) |
 | Issue wire publishing, hub-issue mirror + write forwarding, daemon relay gate, in-process issue command surface (router-equal authz) | `apps/server` `src/modules/issues/` |
-| Conversation index + upstream mirror + transcript lake | `apps/server` `src/modules/conversations/` |
+| Personal memory: conversation registry, transcript lake/mirror, transcript index, subagent evidence repair, and scoped omni-search | `apps/server` `src/modules/memory/` (wire-only conversation procedures remain in `src/modules/conversations/`) |
 | Host health, auto-hibernate, memory breakdown | `apps/server` `src/modules/hosts/` |
 | Attention notifications (ntfy/telegram/in-app) | `apps/server` `src/modules/notify/` |
 | Settings, model catalog, telegram setup | `apps/server` `src/modules/settings/` |
 | Headless (PTY-less) harness sessions | `apps/server` `src/modules/superagent/` |
 | Hub-only modules (inbound daemon pairing, join command) + the core/hub/cloud role manifest | `apps/server` `src/hub/`, `src/roles.ts` |
 | Cloud/private extension seam (`PodiumPlugin`: Hono route registration + module/bus access) | `apps/server` `src/plugins.ts` (composed via `startServer({ plugins })`) |
-| Module composition (acyclic, dependency order: bus → machines/rpc → settings/notify/hosts → issues wire → sessions → conversations → issues → commands) + the facade older callers hold | `apps/server` `src/relay.ts` (`SessionRegistry`; router procs use the typed `ctx.modules` seam instead) |
+| Module composition (acyclic, dependency order generated from imports; memory precedes transcript RPC and sessions, with issues and application orchestrators later) + the facade older callers hold | `apps/server` `src/relay.ts` (`SessionRegistry`; router procs use the typed `ctx.modules` seam instead) |
 | React screens, command-center grid, modes | `apps/web` |
 | Per-machine agent lifecycle + discovery orchestration | `apps/daemon` |
 | Shared TS config | `tooling/tsconfig` |

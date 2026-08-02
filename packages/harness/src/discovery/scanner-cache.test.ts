@@ -69,7 +69,87 @@ function providerFor(files: string[], calls: { summarize: number }): Conversatio
   }
 }
 
+function summarizesToNothingProvider(
+  files: string[],
+  calls: { summarize: number },
+): ConversationProvider {
+  return {
+    id: 'fake-codex',
+    agentKind: 'codex',
+    defaultRoots: () => [],
+    async listRoot(root: string): Promise<ProviderRootListing> {
+      return { files: files.map((path) => ({ path })), diagnostics: [], state: { root } }
+    },
+    async summarizeFile(): Promise<ProviderSummaryResult> {
+      calls.summarize++
+      // Guardian rollouts / parse-diagnostic files: read, but no summary produced.
+      return { diagnostics: [] }
+    },
+    async scanRoot(): Promise<{ conversations: AgentConversationSummary[]; diagnostics: [] }> {
+      throw new Error('scanRoot should not be used by cached scanner')
+    },
+    async loadConversation(summary: AgentConversationSummary): Promise<AgentConversation> {
+      return { ...summary, messages: [] }
+    },
+  }
+}
+
 describe('scanAgentConversationsCached', () => {
+  test('caches a negative result so a no-summary file is not re-read next scan', async () => {
+    const root = await createRoot()
+    const file = await writeCandidate(root, 'guardian.jsonl', '2026-06-01T10:00:00.000Z')
+    const cache = new ConversationDiscoveryCache(':memory:')
+    const calls = { summarize: 0 }
+    const provider = summarizesToNothingProvider([file], calls)
+
+    const first = await scanAgentConversationsCached({
+      cache,
+      providers: [provider],
+      includeDefaults: false,
+      extraRoots: { codex: [root] },
+    })
+    const second = await scanAgentConversationsCached({
+      cache,
+      providers: [provider],
+      includeDefaults: false,
+      extraRoots: { codex: [root] },
+    })
+
+    // No conversation either time, and the head was read exactly ONCE (POD-624):
+    // the second scan is served by the negative cache instead of re-reading.
+    expect(first.conversations).toEqual([])
+    expect(second.conversations).toEqual([])
+    expect(calls.summarize).toBe(1)
+    cache.close()
+  })
+
+  test('re-summarizes a no-summary file after it changes', async () => {
+    const root = await createRoot()
+    const file = await writeCandidate(root, 'guardian.jsonl', '2026-06-01T10:00:00.000Z')
+    const cache = new ConversationDiscoveryCache(':memory:')
+    const calls = { summarize: 0 }
+    const provider = summarizesToNothingProvider([file], calls)
+
+    await scanAgentConversationsCached({
+      cache,
+      providers: [provider],
+      includeDefaults: false,
+      extraRoots: { codex: [root] },
+    })
+    await writeFile(file, '{"changed":true,"grew":true}\n')
+    await utimes(file, new Date('2026-06-01T10:05:00.000Z'), new Date('2026-06-01T10:05:00.000Z'))
+    await scanAgentConversationsCached({
+      cache,
+      providers: [provider],
+      includeDefaults: false,
+      extraRoots: { codex: [root] },
+    })
+
+    // The stale negative row is invalidated by the mtime/size change → re-read.
+    expect(calls.summarize).toBe(2)
+    cache.close()
+  })
+
   test('reuses cached summaries for unchanged files without re-summarizing', async () => {
     const root = await createRoot()
     const file = await writeCandidate(root, 'one.jsonl', '2026-06-01T10:00:00.000Z')

@@ -287,7 +287,7 @@ Rows are POD-364 §2's numbering. "Identity carried" is what each holds of Axis 
 | 18 | `FocusSessionInfo` | `modules/superagent/global.ts` | extends #16 | **elsewhere** (the one good composition example) |
 | 19 | `AnswerTargetSession` | `modules/superagent/answer-delivery.ts` | none | **not-identity** |
 | 20 | `CloudAgentSourceSession` | `apps/server/src/cloud-runtime.ts` | `resumeRef: string`, `agent` | **drop** — renames two identity facts; a third `resume` encoding |
-| 21 | `LakeReadSession` | `modules/conversations/service.ts` | `resume: {value}` | **elsewhere**, but the narrowed `resume` shape → **drop** (fourth encoding) |
+| 21 | `LakeReadSession` | `modules/memory/lake.ts` | `resume: {value}` | **elsewhere**, but the narrowed `resume` shape → **drop** (fourth encoding) |
 | 22 | `IssueTreeSession` | `modules/issues/service/types.ts` | `sessionId` | **elsewhere** (R4) |
 | 23 | `ShowSession` (CLI) | `packages/issue-client/src/commands.ts` | `sessionId` | **drop** (hand-copy of #22) |
 | 24 | `SessionStatusResult` | `modules/sessions/read-toolkit.ts` | `sessionId`, `machine` | **elsewhere** (R4 tier-1) |

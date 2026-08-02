@@ -163,7 +163,7 @@ classified here.
 | 14 | `BtwSessionInfo` | `apps/server/src/modules/superagent/btw.ts` | 4 | **R5** | **drifted duplicate** — a strict subset of #13, re-declared | personal |
 | 15 | `FocusSessionInfo` | `apps/server/src/modules/superagent/global.ts` | 1 + extends #13 | **R5** | legitimate — **and the one good composition example in the codebase**: `extends ConciergeSessionInfo` | personal |
 | 16 | `CloudAgentSourceSession` | `apps/server/src/cloud-runtime.ts` | 5 | **R5** | **drifted duplicate** — renames two facts: `agent` for `agentKind`, `resumeRef: string` for `resume: ResumeRef` (**D-1**, **D-3**) | personal |
-| 17 | `LakeReadSession` | `apps/server/src/modules/conversations/service.ts` | 3 | **R5** | legitimate, but narrows `resume` to `{value}` — a third `resume` shape | personal |
+| 17 | `LakeReadSession` | `apps/server/src/modules/memory/lake.ts` | 3 | **R5** | legitimate, but narrows `resume` to `{value}` — a third `resume` shape | personal |
 | 18 | `RefSessionLike` | `apps/web/src/lib/ref-miniview.ts` | 6 | **R5** | legitimate (documented structural subset of `SessionMeta`) | personal |
 | 19 | `IssueTreeSession` | `apps/server/src/modules/issues/service/types.ts` | 8 | **R4** | legitimate role (issue-tree read projection) — flattens `agentState.phase` to `phase`, renames name/title to `label` | personal |
 | 20 | `ShowSession` (CLI) | `packages/issue-client/src/commands.ts` | 10 | **R4** | **drifted duplicate of #19** — hand copy carrying *both* the flattened `phase` and a nested `agentState:{phase?}` | personal |

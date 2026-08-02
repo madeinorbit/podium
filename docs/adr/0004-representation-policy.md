@@ -59,7 +59,7 @@ with local type literals — i.e. not composed from a shared model field schema
 `BtwSessionInfo` (`…/btw.ts`), `FocusSessionInfo` (`…/global.ts`),
 `AnswerTargetSession` (`…/answer-delivery.ts`),
 `CloudAgentSourceSession` (`apps/server/src/cloud-runtime.ts`),
-`LakeReadSession` (`apps/server/src/modules/conversations/service.ts`),
+`LakeReadSession` (`apps/server/src/modules/memory/lake.ts`),
 `SessionCardModel` (`packages/client-core/src/viewmodels/session-card.ts` — mostly
 UI-derived fields plus restated `sessionId`),
 drizzle table `sessions` (`apps/server/src/migrations/schema.ts` — physical storage DDL).

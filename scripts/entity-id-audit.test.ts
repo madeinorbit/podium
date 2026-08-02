@@ -370,7 +370,7 @@ describe('the wider scope, reported but not ratcheted', () => {
 describe('brandOfPath', () => {
   it('singularises a plural tenant directory', () => {
     expect(brandOfPath('packages/commands/src/issues/contracts.ts')).toBe('Issue')
-    expect(brandOfPath('apps/server/src/modules/conversations/service.ts')).toBe('Conversation')
+    expect(brandOfPath('apps/server/src/modules/conversations/trpc.ts')).toBe('Conversation')
   })
 
   it('reads a kebab-cased multi-word tenant', () => {

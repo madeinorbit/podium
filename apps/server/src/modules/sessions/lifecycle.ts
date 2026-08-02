@@ -85,7 +85,7 @@ import type {
   TerminalCandidateFacts,
 } from '../../store'
 import type { EventBus } from '../bus'
-import type { ConversationsService } from '../conversations/service'
+import type { MemoryService } from '../memory/service'
 import type { WriteFunnel } from '../funnel'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
@@ -238,7 +238,7 @@ interface SessionLifecycleDeps {
   publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
-  conversations: ConversationsService
+  memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
   /** Cross-feature snapshot material read from the already-constructed durable authority. */
@@ -394,7 +394,7 @@ export class SessionLifecycle {
       toMachine: (machineId, message) => this.toMachine(machineId, message),
     })
     this.bindingReceipts = new SessionBindingReceipts({
-      store: this.store,
+      memory: this.deps.memory,
       now: () => this.now(),
       sessions: () => this.sessions.values(),
       session: (sessionId) => this.sessions.get(sessionId),
@@ -462,6 +462,7 @@ export class SessionLifecycle {
     this.repository = new SessionRepository({
       sessions: this.sessions,
       store: this.store,
+      memory: this.deps.memory,
       ledger: this.deps.ledger,
       publication: this.publication,
       funnel: this.funnel,
@@ -629,6 +630,7 @@ export class SessionLifecycle {
       state: this.state,
       projection: this.daemonProjection,
       store: this.store,
+      memory: this.deps.memory,
       observationLeases: this.observationLeases,
       persist: (session, additionalWrite) => this.repository.persist(session, additionalWrite),
       broadcastSessions: () => this.broadcastSessions(),
@@ -787,9 +789,6 @@ export class SessionLifecycle {
     return { ok: true }
   }
 
-  private conversations(): ConversationsService {
-    return this.deps.conversations
-  }
   /**
    * Allocate and durably store the observer lease before its control message is
    * sent. Shells and non-causal adapters intentionally have no lease.
@@ -868,7 +867,7 @@ export class SessionLifecycle {
     }
     // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
     // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
-    this.conversations().triggerLakeSweep(machineId)
+    this.deps.memory.triggerLakeSweep(machineId)
     // A freshly-(re)connected daemon knows no session's relay priority. Clear the
     // delta cache so every current session re-sends as a change, then push the full
     // map — otherwise a daemon restart would leave the scheduler at its default
@@ -949,7 +948,10 @@ export class SessionLifecycle {
             }
           : {}),
         ...(s.resume ? { resume: s.resume } : {}),
-        ...(this.rpc.transcriptPathHint(s) ?? {}),
+        ...(this.rpc.transcriptPathHint(
+          { kind: 'system', id: 'session-attach' },
+          { id: s.sessionId, machineId: s.machineId, ...(s.resume ? { resume: s.resume } : {}) },
+        ) ?? {}),
         // Spawn-time floor for observer-based harnesses (codex): lets a reattached
         // observer discover a lazily-created rollout it never saw before the restart.
         ...(Number.isFinite(Date.parse(s.createdAt))
@@ -1366,21 +1368,24 @@ export class SessionLifecycle {
       : undefined
   }
 
-  async resumeSession(input: {
-    ownerUserId?: UserId
-    agentKind: AgentKind
-    cwd: string
-    resume: ResumeRef
-    conversationId: string
-    title?: string
-    machineId?: string
-    /** Provenance for the FRESH-SPAWN fallback only (issue #60). When the resume
-     *  lands on an existing row (reuse/resurrect below), that row's original
-     *  spawnedBy is kept — a resume never rewrites who created the session. */
-    spawnedBy?: string
-    /** The calling principal's `use` decision per machine — see createSession. */
-    use?: MachineUseResolver
-  }, issues: SessionIssueWorkflowPort): Promise<{ sessionId: SessionId }> {
+  async resumeSession(
+    input: {
+      ownerUserId?: UserId
+      agentKind: AgentKind
+      cwd: string
+      resume: ResumeRef
+      conversationId: string
+      title?: string
+      machineId?: string
+      /** Provenance for the FRESH-SPAWN fallback only (issue #60). When the resume
+       *  lands on an existing row (reuse/resurrect below), that row's original
+       *  spawnedBy is kept — a resume never rewrites who created the session. */
+      spawnedBy?: string
+      /** The calling principal's `use` decision per machine — see createSession. */
+      use?: MachineUseResolver
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{ sessionId: SessionId }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
     // that row, never mint a parallel one. Each parallel row spawned its own
@@ -1736,14 +1741,17 @@ export class SessionLifecycle {
    * Self-stop (`selfStop`) defers the process kill so the CLI/relay reply
    * lands before the agent dies.
    */
-  async stopSession(input: {
-    sessionId: SessionId
-    force?: boolean
-    /** True when the CALLER is stopping itself — defer process kill. */
-    selfStop?: boolean
-    /** Parent-close/issue-stop provenance; direct forced stops derive below. */
-    stopReason?: 'self' | 'parent' | 'forced'
-  }, issues: SessionIssueWorkflowPort): Promise<{
+  async stopSession(
+    input: {
+      sessionId: SessionId
+      force?: boolean
+      /** True when the CALLER is stopping itself — defer process kill. */
+      selfStop?: boolean
+      /** Parent-close/issue-stop provenance; direct forced stops derive below. */
+      stopReason?: 'self' | 'parent' | 'forced'
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{
     ok: boolean
     reason?: string
     worktreeFreed?: boolean
@@ -1881,12 +1889,15 @@ export class SessionLifecycle {
    * Stop every session on an issue, then free the issue worktree (keep branch)
    * [spec:SP-9904].
    */
-  async stopIssue(input: {
-    issueId: string
-    force?: boolean
-    /** Session performing the stop (for self-stop deferral when it is a member). */
-    callerSessionId?: string
-  }, issues: SessionIssueWorkflowPort): Promise<{
+  async stopIssue(
+    input: {
+      issueId: string
+      force?: boolean
+      /** Session performing the stop (for self-stop deferral when it is a member). */
+      callerSessionId?: string
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{
     ok: boolean
     reason?: string
     stopped: string[]
@@ -1907,12 +1918,15 @@ export class SessionLifecycle {
       ...members.filter((m) => m.sessionId === input.callerSessionId),
     ]
     for (const m of ordered) {
-      const r = await this.stopSession({
-        sessionId: m.sessionId,
-        force: input.force,
-        selfStop: input.callerSessionId === m.sessionId,
-        stopReason: input.force ? 'forced' : 'parent',
-      }, issues)
+      const r = await this.stopSession(
+        {
+          sessionId: m.sessionId,
+          force: input.force,
+          selfStop: input.callerSessionId === m.sessionId,
+          stopReason: input.force ? 'forced' : 'parent',
+        },
+        issues,
+      )
       if (!r.ok) {
         return {
           ok: false,
@@ -2261,13 +2275,16 @@ export class SessionLifecycle {
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
-  resurrectSession({
-    sessionId,
-    adoptedBinding,
-  }: {
-    sessionId: SessionId
-    adoptedBinding?: SessionBindingAdoptLaunchInstruction
-  }, issues: SessionIssueWorkflowPort): Promise<{ ok: boolean; reason?: string }> {
+  resurrectSession(
+    {
+      sessionId,
+      adoptedBinding,
+    }: {
+      sessionId: SessionId
+      adoptedBinding?: SessionBindingAdoptLaunchInstruction
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<{ ok: boolean; reason?: string }> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     // Hibernated (parked on purpose) and exited (process died or was killed

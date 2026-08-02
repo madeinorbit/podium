@@ -120,7 +120,7 @@ entry itself.
 | `ConciergeSessionInfo` | R5 | `apps/server/src/modules/superagent/concierge.ts` | personal | pending → **POD-1141** |
 | `FocusSessionInfo` | R5 | `apps/server/src/modules/superagent/global.ts` | personal | composed |
 | `CloudAgentSourceSession` | R5 | `apps/server/src/cloud-runtime.ts` | personal | declared legitimate |
-| `LakeReadSession` | R5 | `apps/server/src/modules/conversations/service.ts` | personal | composed |
+| `LakeReadSession` | R5 | `apps/server/src/modules/memory/lake.ts` | personal | composed |
 | `RefSessionLike` | R5 | `apps/web/src/lib/ref-miniview.ts` | personal | pending → **POD-1141** |
 | `IssueTreeSession` | R4 | `packages/model/src/projections/session-read.ts` | personal | composed |
 | `ShowSession` | R4 | `packages/issue-client/src/commands.ts` | personal | composed |

@@ -1,6 +1,6 @@
 /**
  * THE JOIN — the one conversation write contract (L1) paired with the
- * `ConversationsService` method that implements it (L3), per ADR 3 D1.
+ * `MemoryReaderView` method that implements it (L3), per ADR 3 D1.
  *
  * The handler is the shipped method, unchanged. What this issue moves is where
  * the classification lives, not what the command does.
@@ -15,11 +15,11 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { z } from 'zod'
-import type { ConversationsService } from './service'
+import type { MemoryReaderView } from '../memory/service'
 
 /** A conversation handler is a method ON the service; everything it needs is
  *  already a constructor dependency. */
-export type ConversationHandler<In, Out> = (svc: ConversationsService, input: In) => Out
+export type ConversationHandler<In, Out> = (svc: MemoryReaderView, input: In) => Out
 
 export interface ConversationCommand {
   readonly contract: AnyCommandContract

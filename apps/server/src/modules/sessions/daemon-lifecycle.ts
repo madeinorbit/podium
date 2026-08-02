@@ -7,6 +7,7 @@ import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { harnessObservationProvider } from '../../harness-manifest'
 import type { ObservationLeaseRecord, SessionStore, TerminalCandidateFacts } from '../../store'
 import type { EventBus } from '../bus'
+import type { MemoryService } from '../memory/service'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionInbox } from './inbox'
 import type { Session } from './session'
@@ -21,6 +22,7 @@ export interface SessionDaemonLifecyclePorts {
   state: SessionStateService
   projection: SessionDaemonProjection
   store: SessionStore
+  memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>
   observationLeases: Map<SessionId, ObservationLeaseRecord>
   persist(session: Session, additionalWrite?: () => void): void
   broadcastSessions(): void
@@ -266,13 +268,13 @@ export class SessionDaemonLifecycle {
             session.resume = { kind: msg.resumeKind, value: msg.nextProviderSessionId }
             if (outcome.disposition !== 'advanced') return
             session.conversationPodiumId = msg.providerSessionId
-              ? this.store.conversations.linkConversationSegment({
+              ? this.ports.memory.linkConversationSegment({
                   machineId: session.machineId,
                   newNativeId: msg.nextProviderSessionId,
                   priorNativeId: msg.providerSessionId,
                   providerId: session.agentKind,
                 })
-              : this.store.conversations.ensureConversationIdentity({
+              : this.ports.memory.ensureConversationIdentity({
                   machineId: session.machineId,
                   nativeId: msg.nextProviderSessionId,
                   providerId: session.agentKind,

@@ -13,7 +13,7 @@
  *  - sessions (+ pins/snoozes/tab_order/session_drafts) → store/sessions.ts
  *  - issues (+ labels/deps/comments/mail)               → store/issues.ts
  *  - conversations (index/FTS/registry/mirror/transcript index)
- *                                                        → store/conversations.ts
+ *                                                        → store/conversations.ts + store/conversations/
  *  - sync (changes/applied_mutations/queued_messages/upstream_outbox)
  *                                                        → @podium/sync's SyncRepository
  *                                                          (query-only; schema DDL stays
@@ -187,7 +187,6 @@ export class SessionStore {
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects
     // and data heals) — never schema DDL.
     this.conversations.ensureFts()
-    this.conversations.repairSubagentSegmentPaths()
     this.superagent.seedGlobalThread()
     this.repos.importReposJson(this.path)
     this.backfillRepoIds()
@@ -229,6 +228,6 @@ export class SessionStore {
   adoptLocalRows(machineId: string): void {
     this.sessions.adoptLocalRows(machineId)
     this.repos.adoptLocalRows(machineId)
-    this.conversations.adoptLocalRows(machineId)
+    this.conversations.index.adoptLocalRows(machineId)
   }
 }

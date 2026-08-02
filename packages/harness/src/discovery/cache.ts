@@ -7,9 +7,19 @@ import type { AgentConversationSummary, AgentKind, ConversationFileStat } from '
 // Bump whenever summary DERIVATION changes, not just the row shape — cached
 // summaries outlive the code that wrote them. v2: subagent conversation ids
 // switched from the records' (parent) sessionId to the agent-* filename
-// (issue #94); v1 caches keep re-poisoning the parent's registry path.
-export const DISCOVERY_CACHE_SCHEMA_VERSION = 2
+// (issue #94); v1 caches keep re-poisoning the parent's registry path. v3: files
+// that summarize to nothing (guardian rollouts, parse-diagnostic files) are now
+// cached as negative rows (POD-624) so their heads aren't re-read every scan; the
+// bump discards v2 rows that never carried that distinction.
+export const DISCOVERY_CACHE_SCHEMA_VERSION = 3
 const DB_SCHEMA_VERSION = '1'
+
+// summary_json for a negative row: a file that was summarized but produced no
+// summary. Deliberately NOT valid JSON so an older binary's decodeSummary()
+// JSON.parse-fails and treats the row as a miss (re-summarize) rather than
+// decoding a bogus summary — negative caching stays safe under a downgrade even
+// beyond the schema-version guard.
+const NEGATIVE_SUMMARY_SENTINEL = '__negative__'
 
 export function defaultDiscoveryDbPath(): string {
   return join(stateDir(), 'discovery.db')
@@ -30,15 +40,27 @@ type CacheRow = {
  * - `skipped` is true when the steady-state short-circuit engaged: the seen-set
  *   and scope were identical to the previous call and no rows were written since,
  *   so no SQL was issued and no rows were touched.
- * - `deleted` is the number of cache rows pruned (always 0 when `skipped`).
+ * - `deleted` is the number of cache rows pruned (always 0 when `skipped`),
+ *   including negative rows that carry no conversation id.
  * - `removedIds` are the conversation ids of the pruned rows (always empty when
  *   `skipped`), so callers can emit a removal delta without re-listing the cache.
+ *   Negative rows (summarized-to-nothing) prune without contributing an id, so
+ *   `removedIds.length` can be less than `deleted`.
  */
 export type DeleteMissingResult = {
   skipped: boolean
   deleted: number
   removedIds: string[]
 }
+
+/**
+ * A fresh cache hit from {@link ConversationDiscoveryCache.getFreshEntry}: either a
+ * decoded summary, or a `negative` marker for a file that was summarized to nothing
+ * and should not be re-read until it changes.
+ */
+export type CacheEntry =
+  | { kind: 'summary'; summary: AgentConversationSummary }
+  | { kind: 'negative' }
 
 export class ConversationDiscoveryCache {
   private readonly db: SqlDatabase
@@ -62,11 +84,17 @@ export class ConversationDiscoveryCache {
     this.migrate()
   }
 
-  getFresh(
+  /**
+   * A fresh cache hit, discriminated so callers can tell a summarized-to-nothing
+   * file (`negative`) from a genuine summary. A negative hit still means "do not
+   * re-summarize this file" — its head hasn't changed — so the scanner can skip
+   * the re-read without producing a conversation. A miss returns `undefined`.
+   */
+  getFreshEntry(
     path: string,
     stats: ConversationFileStat,
     agentKind: AgentKind,
-  ): AgentConversationSummary | undefined {
+  ): CacheEntry | undefined {
     const row = this.db
       .prepare(
         `SELECT path, agent_kind, mtime_ms, size, schema_version, summary_json
@@ -78,7 +106,19 @@ export class ConversationDiscoveryCache {
     if (row.schema_version !== this.schemaVersion) return undefined
     if (row.size !== stats.size) return undefined
     if (Math.abs(row.mtime_ms - stats.mtimeMs) > 0.5) return undefined
-    return decodeSummary(row.summary_json)
+    if (row.summary_json === NEGATIVE_SUMMARY_SENTINEL) return { kind: 'negative' }
+    const summary = decodeSummary(row.summary_json)
+    // A row that can't decode is treated as a miss (re-summarize), never a hit.
+    return summary ? { kind: 'summary', summary } : undefined
+  }
+
+  getFresh(
+    path: string,
+    stats: ConversationFileStat,
+    agentKind: AgentKind,
+  ): AgentConversationSummary | undefined {
+    const entry = this.getFreshEntry(path, stats, agentKind)
+    return entry?.kind === 'summary' ? entry.summary : undefined
   }
 
   upsert(
@@ -106,6 +146,44 @@ export class ConversationDiscoveryCache {
       agentKind?: AgentKind
     }[],
   ): void {
+    this.upsertRows(
+      rows.map((row) => ({
+        path: row.path,
+        agentKind: row.agentKind ?? row.summary.agentKind,
+        stats: row.stats,
+        summaryJson: encodeSummary(row.summary),
+      })),
+    )
+  }
+
+  /**
+   * Cache files that were summarized but produced no summary (guardian rollouts,
+   * parse-diagnostic files) as negative rows keyed by size+mtime like positive
+   * ones (POD-624). Until the file changes, {@link getFreshEntry} then reports it
+   * as a `negative` hit so the scanner never re-reads its head. Rows are pruned by
+   * {@link deleteMissing} when the file vanishes, exactly like positive rows.
+   */
+  upsertManyNegative(
+    rows: readonly { path: string; stats: ConversationFileStat; agentKind: AgentKind }[],
+  ): void {
+    this.upsertRows(
+      rows.map((row) => ({
+        path: row.path,
+        agentKind: row.agentKind,
+        stats: row.stats,
+        summaryJson: NEGATIVE_SUMMARY_SENTINEL,
+      })),
+    )
+  }
+
+  private upsertRows(
+    rows: readonly {
+      path: string
+      agentKind: AgentKind
+      stats: ConversationFileStat
+      summaryJson: string
+    }[],
+  ): void {
     if (rows.length === 0) return
     const stmt = this.upsertPrepared()
     this.db.exec('BEGIN IMMEDIATE')
@@ -113,11 +191,11 @@ export class ConversationDiscoveryCache {
       for (const row of rows) {
         stmt.run(
           row.path,
-          row.agentKind ?? row.summary.agentKind,
+          row.agentKind,
           row.stats.mtimeMs,
           row.stats.size,
           this.schemaVersion,
-          encodeSummary(row.summary),
+          row.summaryJson,
         )
       }
       this.db.exec('COMMIT')
@@ -175,7 +253,7 @@ export class ConversationDiscoveryCache {
     }
 
     const allowed = agentKinds ? [...new Set(agentKinds)] : undefined
-    const removedIds = this.runPrune(existingPaths, allowed)
+    const { deleted, removedIds } = this.runPrune(existingPaths, allowed)
 
     // Record the converged state so the next identical tick can short-circuit.
     // Snapshot the seen-set since the caller may mutate/reuse theirs.
@@ -185,15 +263,15 @@ export class ConversationDiscoveryCache {
       seen: new Set(existingPaths),
     }
 
-    return { skipped: false, deleted: removedIds.length, removedIds }
+    return { skipped: false, deleted, removedIds }
   }
 
   private runPrune(
     existingPaths: ReadonlySet<string>,
     allowed: readonly AgentKind[] | undefined,
-  ): string[] {
+  ): { deleted: number; removedIds: string[] } {
     // An empty scope means "no kinds eligible" — nothing can be pruned.
-    if (allowed && allowed.length === 0) return []
+    if (allowed && allowed.length === 0) return { deleted: 0, removedIds: [] }
 
     this.db.exec('CREATE TEMP TABLE IF NOT EXISTS discovery_seen_paths (path TEXT PRIMARY KEY)')
     this.db.exec('DELETE FROM discovery_seen_paths')
@@ -222,12 +300,15 @@ export class ConversationDiscoveryCache {
       }
       sql += ' RETURNING summary_json'
       const rows = this.db.prepare(sql).all(...params) as { summary_json: string }[]
+      // `deleted` counts every pruned row (per DeleteMissingResult's contract);
+      // `removedIds` carries only the decodable conversation ids — negative rows
+      // (the summarized-to-nothing sentinel) prune silently, with no removal delta.
       const removedIds: string[] = []
       for (const row of rows) {
         const summary = decodeSummary(row.summary_json)
         if (summary) removedIds.push(summary.id)
       }
-      return removedIds
+      return { deleted: rows.length, removedIds }
     } finally {
       this.db.exec('DELETE FROM discovery_seen_paths')
     }
