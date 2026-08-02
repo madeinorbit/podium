@@ -76,7 +76,12 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
-import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
+import {
+  fleetViewFor,
+  machinesForPrincipal,
+  sessionCommandCtx,
+  visibleMachinesFor,
+} from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
@@ -1478,6 +1483,47 @@ export class SessionRegistry {
         }
         if (router === 'quota' && proc === 'summary') {
           return this.modules.rpc.agentQuotaAll()
+        }
+        /**
+         * `machines.list` for agents (POD-1386) — "what can I run on?".
+         *
+         * INHERITED, NOT RESTATED. This calls the SAME `visibleMachinesFor` the
+         * router serves at router.ts:399, and that is the whole design: the
+         * projection filters the see-set and stamps each row's `use` decision, and
+         * a second copy of that scoping decision is precisely how the property
+         * would quietly stop holding on ONE path while still holding on the other,
+         * with nothing to report it. There is no policy in this arm.
+         *
+         * WHY REPOS RIDE ALONG, AND WHY THEY ARE FILTERED TWICE. A machine's
+         * registered checkout paths are what makes an enumeration actionable —
+         * without them "which machine can take this work" is unanswerable — but
+         * `repos.listDetailed` returns every row across every machine, unscoped.
+         * Allowlisting that proc would disclose checkout paths on machines the
+         * caller cannot even see: a worse leak than the gap being closed. So the
+         * rows are cut to machines that survived the projection AND carry
+         * `use: 'granted'`, putting a checkout path in the same class the model
+         * already puts `inventory` in — "what can I run on your hardware, and as
+         * whom" is a `use` question, not a `see` question.
+         *
+         * A `see`-only machine therefore arrives with no repos and no inventory,
+         * and the CLI renders that as "not available to this session" rather than
+         * "none registered" — the two differ in what they are a fact ABOUT, and
+         * only the second would be a lie.
+         *
+         * TWO PROCS, ONE SHAPE EACH. `list` answers EXACTLY what the router
+         * answers — the same projection, the same array — because a proc that
+         * returned one shape over HTTP and another over the relay would be a trap
+         * for every caller that can reach both (`podium issue start --machine`
+         * resolves names over whichever transport it has). The repo join is a
+         * SECOND proc rather than a wider `list`.
+         */
+        if (router === 'machines' && proc === 'list') {
+          return Promise.resolve(visibleMachinesFor(this.modules, capability))
+        }
+        if (router === 'machines' && proc === 'listWithRepos') {
+          return Promise.resolve(
+            fleetViewFor(this.modules, capability, this.store.repos.listRepos()),
+          )
         }
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
