@@ -62,6 +62,13 @@ export class TranscriptIndexer {
    *  as either cursor moves (mirror append completes the line, or a truncate
    *  resets both). In-memory on purpose: a restart retries everything once. */
   private readonly lastBackfillGap = new Map<string, string>()
+  /**
+   * Set by {@link dispose}. The index loop is paced, so a shutdown almost always
+   * lands mid-window: without this the next turn resumed, appended to a SQLite
+   * handle its owner had already closed, and console.warn'd the failure after
+   * the server reported a clean stop (POD-1101 / POD-1390).
+   */
+  private stopped = false
 
   private readonly chunkDelayMs: number
   private readonly passBudgetBytes: number
@@ -78,6 +85,7 @@ export class TranscriptIndexer {
 
   /** Mirror hook: new bytes landed in the lake for this segment. */
   onBytes(machineId: string, nativeId: string, lakePath: string): void {
+    if (this.stopped) return
     const key = machineScopedKey(machineId, nativeId)
     const active = this.running.get(key)
     if (active) {
@@ -105,6 +113,7 @@ export class TranscriptIndexer {
    * is behind; single-flight per machine.
    */
   backfillMachine(machineId: string, lakePathFor: (nativeId: string) => string): void {
+    if (this.stopped) return
     if (this.backfilling.has(machineId)) return
     if (!this.deps.index.isAvailable) return
     // Unchanged-gap skip: drop segments whose (mirrored, indexed) pair is exactly
@@ -138,6 +147,7 @@ export class TranscriptIndexer {
       // so the next scan/attach trigger resumes exactly where this pass stopped.
       const pass = { remainingBytes: this.passBudgetBytes }
       for (const nativeId of nativeIds) {
+        if (this.stopped) return
         if (pass.remainingBytes <= 0) return
         const key = machineScopedKey(machineId, nativeId)
         // A live onBytes run is already catching this segment up — skip it here.
@@ -166,6 +176,15 @@ export class TranscriptIndexer {
     }
   }
 
+  /**
+   * Stop for good: no new window is read, no row is appended, and nothing after
+   * this point reaches the store or the console. Idempotent and synchronous —
+   * the owner calls it while the store is still open.
+   */
+  dispose(): void {
+    this.stopped = true
+  }
+
   /** Resolves when every in-flight index run and backfill sweep has settled —
    *  a test seam, not API. */
   async settled(): Promise<void> {
@@ -184,6 +203,7 @@ export class TranscriptIndexer {
   ): Promise<void> {
     try {
       for (;;) {
+        if (this.stopped) return
         const state = this.running.get(key)
         if (!state) return
         state.rerun = false
@@ -191,6 +211,10 @@ export class TranscriptIndexer {
         try {
           consumed = await this.indexWindow(machineId, nativeId, state.lakePath)
         } catch (err) {
+          // Disposed mid-window: the store is closing or closed, so the failure
+          // is an artifact of the shutdown rather than news. Reporting it is the
+          // noise that makes a clean stop look like a broken one.
+          if (this.stopped) return
           // Unreadable lake file / SQLite error: cursor untouched, the next
           // mirrored chunk or backfill sweep retries the same window.
           console.warn(`[podium] transcript index failed for ${nativeId}:`, err)
@@ -234,6 +258,9 @@ export class TranscriptIndexer {
       win *= 2 // a single record wider than the window — widen until its newline shows
     }
     if (lastNl < 0) return 0
+    // The read above is async; a dispose during it means the append below would
+    // hit a closed handle.
+    if (this.stopped) return 0
     const rows = extractMessageRows(buf.subarray(0, lastNl + 1))
     // Optimistic-concurrency check: an onTruncate during the (async) read above
     // reset the cursor — these rows were computed from dead content, drop them.

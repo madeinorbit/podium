@@ -115,6 +115,38 @@ export function spawnAgentHandler(
   const model = profile?.model ?? input.model
   const effort = profile?.effort ?? input.effort
   const machineId = profile?.machineId ?? issue.machineId
+  /**
+   * A DELEGATE CANNOT CROSS MACHINES AWAY FROM ITS ISSUE'S WORKTREE (POD-1386).
+   *
+   * `cwd` above is the issue's worktree path, and a worktree exists on exactly one
+   * machine. Spawning onto a different one sends that path to a host where it does
+   * not exist — so the delegate either lands somewhere unrelated or a second
+   * checkout of one branch appears on a second machine. Both LOOK like a
+   * successful spawn: the command returns an agent id, the sidebar shows a
+   * session, and the divergence only surfaces later as work that cannot be merged.
+   *
+   * This is reachable only through an execution profile, which is the one input
+   * that can name a machine independently of the issue (`profile?.machineId ??
+   * issue.machineId`) — every other caller inherits the issue's home and is
+   * therefore already correct.
+   *
+   * REFUSING IS THE WHOLE ANSWER, not a fallback. Silently retargeting to the
+   * issue's machine would ignore a placement the human configured, and silently
+   * honouring the profile would fork the worktree. The one operation that MOVES a
+   * worktree between machines is `sessions.handoff`, so the refusal names it.
+   *
+   * An issue with no worktree yet has nothing to diverge from, and a start on a
+   * pinned machine is a legitimate way to home it — so the guard keys on the
+   * worktree's existence, not on the pin.
+   */
+  if (issue.worktreePath && machineId && issue.machineId && machineId !== issue.machineId) {
+    throw new Error(
+      `issue ${issue.id} is homed on machine ${issue.machineId} and its worktree lives there; ` +
+        `spawning on ${machineId} would create a second checkout of the same branch. ` +
+        'Hand the session off to that machine first (`podium session handoff <id> --to <machine>`), ' +
+        "or clear the execution profile's machine.",
+    )
+  }
   // MACHINE PLACEMENT FAILS CLOSED — readiness §3.1.4 M1/M5/M6.
   //
   // `use` is a code-execution boundary, not a privacy one: it means arbitrary

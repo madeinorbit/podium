@@ -10,7 +10,19 @@
 import type { SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
+import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
+
+/** Map a raw `changes` SELECT row onto the composed lifecycle read shape. */
+function mapChangeLogReadRow(r: Record<string, unknown>): ChangeLogReadRow {
+  return {
+    seq: r.seq as number,
+    entity: r.entity as ChangeLogReadRow['entity'],
+    entityId: r.entity_id as string,
+    op: r.op as ChangeLogReadRow['op'],
+    payload: (r.payload as string | null) ?? null,
+  }
+}
 
 export class SyncRepository {
   constructor(private readonly db: SqlDatabase) {}
@@ -21,11 +33,11 @@ export class SyncRepository {
    * Append a batch of change rows in one transaction and return their assigned seqs
    * (contiguous — the whole batch commits inside BEGIN IMMEDIATE, so no interleaving).
    * The caller (Ledger) has already deduped; rows arrive only for real changes.
+   *
+   * Row type is {@link ChangeLogWriteRow} — composed from the lifecycle shape,
+   * not restated here (POD-1251).
    */
-  appendChanges(
-    rows: { entity: string; entityId: string; op: 'upsert' | 'remove'; payload: string | null }[],
-    eventTime: number,
-  ): number[] {
+  appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): number[] {
     if (rows.length === 0) return []
     const seqs: number[] = []
     // Stay below SQLite's conservative 999-parameter builds (100 × 5 = 500)
@@ -75,22 +87,13 @@ export class SyncRepository {
    * cursor is still within the retained range (see Ledger.changesSince) —
    * this is a plain range read.
    */
-  changesSince(
-    cursor: number,
-    limit = 10_000,
-  ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[] {
+  changesSince(cursor: number, limit = 10_000): ChangeLogReadRow[] {
     const rows = this.db
       .prepare(
         'SELECT seq, entity, entity_id, op, payload FROM changes WHERE seq > ? ORDER BY seq ASC LIMIT ?',
       )
       .all(cursor, limit) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      seq: r.seq as number,
-      entity: r.entity as string,
-      entityId: r.entity_id as string,
-      op: r.op as string,
-      payload: (r.payload as string | null) ?? null,
-    }))
+    return rows.map((r) => mapChangeLogReadRow(r))
   }
 
   /**
@@ -135,13 +138,7 @@ export class SyncRepository {
    * the Ledger's dedup baseline, so a restart emits deltas for anything that
    * changed while the server was down instead of silently rebasing.
    */
-  latestChangeStates(): {
-    seq: number
-    entity: string
-    entityId: string
-    op: string
-    payload: string | null
-  }[] {
+  latestChangeStates(): ChangeLogReadRow[] {
     const rows = this.db
       .prepare(
         `SELECT c.seq, c.entity, c.entity_id, c.op, c.payload FROM changes c
@@ -150,13 +147,7 @@ export class SyncRepository {
          ORDER BY c.seq`,
       )
       .all() as Record<string, unknown>[]
-    return rows.map((r) => ({
-      seq: r.seq as number,
-      entity: r.entity as string,
-      entityId: r.entity_id as string,
-      op: r.op as string,
-      payload: (r.payload as string | null) ?? null,
-    }))
+    return rows.map((r) => mapChangeLogReadRow(r))
   }
 
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----

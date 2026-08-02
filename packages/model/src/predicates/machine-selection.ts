@@ -35,6 +35,42 @@ export interface RecentSession {
   createdAt: string
 }
 
+/** A machine as a human names it on a command line (POD-1386). */
+export interface NameableMachine {
+  id: string
+  name: string
+  hostname: string
+}
+
+/**
+ * Resolve what a human typed — `--machine <name|id>` — to exactly one machine,
+ * or to `null`.
+ *
+ * EXACT MATCHES ONLY, and the order is id → name → hostname so an id can never
+ * be shadowed by someone else's chosen name. There is deliberately no prefix,
+ * fuzzy or case-insensitive fallback: the consequence of resolving wrongly is
+ * that real work starts on the wrong host, where it will look like it worked.
+ * An agent that guessed a name should be told it guessed.
+ *
+ * It lives here, beside the other machine predicates, because BOTH command
+ * surfaces need it — `podium machine show` / `podium session handoff --to` in
+ * the CLI and `podium issue start --machine` in the issue client — and a second
+ * copy of a matching rule is how two surfaces come to disagree about which host
+ * a name means.
+ *
+ * PASS IT AN ALREADY-SCOPED LIST. This is a pure lookup and enforces nothing: the
+ * caller supplies the machines the principal may see, so resolving against it can
+ * never name a machine the caller could not otherwise name.
+ */
+export function machineByRef<M extends NameableMachine>(machines: M[], ref: string): M | null {
+  return (
+    machines.find((machine) => machine.id === ref) ??
+    machines.find((machine) => machine.name === ref) ??
+    machines.find((machine) => machine.hostname === ref) ??
+    null
+  )
+}
+
 /** Machines that have this repo, regardless of online status. */
 export function machinesWithRepo<M extends SelectableMachine>(
   repo: RepoMachines,

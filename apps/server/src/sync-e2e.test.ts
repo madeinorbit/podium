@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  type MetadataDeltaMessage,
+  type FeedDeltaMessage,
   type ServerMessage,
   type SyncChangesSinceResult,
   WIRE_VERSION,
@@ -12,7 +12,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import type { AppRouter } from './router'
 import { startServer } from './server'
-import { SessionStore } from './store'
 
 // End-to-end over the REAL wiring (docs/spec/oplog-read-path.md §5): a booted
 // server, real WS upgrades through wsServer's hello parse, and sync.changesSince
@@ -51,6 +50,7 @@ describe('metadata oplog e2e (live server)', () => {
             type: 'hello',
             clientId: '',
             viewport: { cols: 80, rows: 24, dpr: 1 },
+            wireVersion: WIRE_VERSION,
             ...(caps ? { caps } : {}),
           }),
         )
@@ -68,13 +68,11 @@ describe('metadata oplog e2e (live server)', () => {
     }
   }
 
-  it('delivers deltas to a cap client, snapshots to a legacy one, and heals via tRPC', async () => {
+  it('delivers scoped deltas to a current client and heals via tRPC', async () => {
     const trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `${baseUrl}/trpc` })] })
 
     const capClient = connect(['metadataDelta'])
-    const legacy = connect()
     await capClient.ready
-    await legacy.ready
     await until(() => capClient.inbox.some((m) => m.type === 'welcome'))
 
     // Bootstrap over real HTTP tRPC: null cursor -> snapshot + cursor.
@@ -85,18 +83,15 @@ describe('metadata oplog e2e (live server)', () => {
     // A mutation through the real operator path (HTTP tRPC -> IssueService).
     await trpc.issues.create.mutate({ repoPath: '/repo', title: 'e2e issue', startNow: false })
 
-    await until(() => capClient.inbox.some((m) => m.type === 'metadataDelta'))
-    const delta = capClient.inbox.find((m) => m.type === 'metadataDelta') as MetadataDeltaMessage
+    await until(() => capClient.inbox.some((m) => m.type === 'feedDelta'))
+    const delta = capClient.inbox.find((m) => m.type === 'feedDelta') as FeedDeltaMessage
     expect(delta.changes.map((change) => change.entity).sort()).toEqual([
       'issue',
       'issueProjection',
     ])
     expect(delta.changes.every((change) => change.op === 'upsert')).toBe(true)
 
-    // The legacy socket saw a full issuesChanged and never a delta.
-    await until(() => legacy.inbox.some((m) => m.type === 'issuesChanged' && m.issues.length === 1))
-    expect(legacy.inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
-    // ...and the cap socket never got the issuesChanged rebroadcast (only the
+    // The cap socket never got the issuesChanged rebroadcast (only the
     // attach-time bootstrap, which arrives before hello lands).
     const capListRebroadcasts = capClient.inbox.filter(
       (m) => m.type === 'issuesChanged' && m.issues.length > 0,

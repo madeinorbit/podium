@@ -1,3 +1,5 @@
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { WIRE_VERSION } from '@podium/protocol'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../apps/server/src/relay'
@@ -15,6 +17,10 @@ function issueRow(seq: number): IssueRow {
   const timestamp = '2026-07-18T00:00:00.000Z'
   return {
     id: `iss_load_${seq}`,
+    ownerUserId: FIRST_ADMIN_USER_ID,
+    visibility: 'personal',
+    createdByActor: FIRST_ADMIN_USER_ID,
+    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
     repoPath: '/representative-load',
     seq,
     title: `Representative issue ${seq}`,
@@ -113,24 +119,30 @@ describe('loop split representative load [spec:SP-c29e]', () => {
           if (!sessionId) throw new Error('representative session fixture is empty')
           return sessionId
         })
-        const id = registry.clientGateway.attachClient(() => {}, {
-          sendPrepared: (bytes) => publications.push(bytes),
-          principal: 'load-operator',
-          scope: 'principal:load-operator',
-          serverRole: 'standalone',
-          protocolVersion: 1,
-          global: false,
-          snapshot: () => ({
-            revision: 1,
-            allowedSignature: JSON.stringify(allowedSessionIds),
-            allowedSessionIds,
-          }),
+        const id = registry.clientGateway.attachClient({
+          send: () => {},
+          userId: FIRST_ADMIN_USER_ID,
+          userRole: 'admin',
+          publication: {
+            sendPrepared: (bytes) => publications.push(bytes),
+            principal: FIRST_ADMIN_USER_ID,
+            scope: `principal:${FIRST_ADMIN_USER_ID}`,
+            serverRole: 'standalone',
+            protocolVersion: WIRE_VERSION,
+            global: false,
+            snapshot: () => ({
+              revision: 1,
+              allowedSignature: JSON.stringify(allowedSessionIds),
+              allowedSessionIds,
+            }),
+          },
         })
         clients.push({ id, publications, allowedSessionIds })
         registry.clientGateway.routeClientFrame(id, {
           type: 'hello',
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
+          wireVersion: WIRE_VERSION,
           caps: ['metadataDelta'],
         })
       }

@@ -192,6 +192,20 @@ export interface IssueDeps {
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: string, repoPath: string): void
+  /**
+   * The SAME repository, as THAT machine has it — cloning it there if it has none
+   * (POD-1386). Returns the target's own checkout path, which is almost never the
+   * source's: two machines have two layouts.
+   *
+   * Resolution is by `repoId`, the origin-derived identity POD-318 shipped, never
+   * by path equality. `requireMachineForRepo` compares the SOURCE path literally
+   * against the target's registered paths, so before this existed a machine pin
+   * refused on every correctly-configured second machine — the repo was there, it
+   * simply lived somewhere else. Injected by the relay from `SessionWorkspace`,
+   * which is where handoff already does this; optional so existing test deps
+   * literals stay valid.
+   */
+  ensureRepoOnMachine?(machineId: string, sourceRepoPath: string): Promise<string>
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

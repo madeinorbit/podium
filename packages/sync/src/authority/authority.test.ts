@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { OWNERSHIP_MATRIX, type MatrixRow } from '@podium/model'
 import { Authority } from './authority'
-import type { ScopedChange, StagedChangeSpec } from './change-lifecycle'
+import type { ChangeLogReadRow, ScopedChange, StagedChangeSpec } from './change-lifecycle'
 import {
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
@@ -32,8 +32,7 @@ const rowWith = (rule: string): string => {
  * was never reached rather than one that was undone.
  */
 function memoryStore() {
-  let rows: { seq: number; entity: string; entityId: string; op: string; payload: string | null }[] =
-    []
+  let rows: ChangeLogReadRow[] = []
   let nextSeq = 1
   const store: ChangeLogStore & { rows: typeof rows } = {
     get rows() {

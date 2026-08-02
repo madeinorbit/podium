@@ -99,8 +99,12 @@ async function bootstrapped(
   await h.replica.settled()
 }
 
-const session = (seq: number, id: string, name: string, extra: Partial<ChangeEnvelope> = {}) =>
-  upsertChange(seq, 'session', id, { name }, extra)
+const session = (
+  seq: number,
+  id: string,
+  name: string,
+  extra: import('./test-support').ChangeEnvelopeExtra = {},
+) => upsertChange(seq, 'session', id, { name }, extra)
 
 /** One cache operation, for the tests that drive the store port directly. */
 const upsertOp = (entityId: string): CacheOperation => ({
@@ -1099,22 +1103,8 @@ describe('the optimistic-overlay reducer seam', () => {
 
     h.replica.receive(
       deltaFrame(0, 3, [
-        {
-          seq: 1,
-          entity: 'session',
-          entityId: 'gone',
-          op: 'remove',
-          causationId: 'cmd-del',
-          mutationId: 'm-del',
-        },
-        {
-          seq: 2,
-          entity: 'session',
-          entityId: 'unshared',
-          op: 'evict',
-          causationId: 'cmd-ev',
-          mutationId: 'm-ev',
-        },
+        removeChange(1, 'session', 'gone', { causationId: 'cmd-del', mutationId: 'm-del' }),
+        evictChange(2, 'session', 'unshared', { causationId: 'cmd-ev', mutationId: 'm-ev' }),
         session(3, 'kept', 'c', { causationId: 'cmd-up', mutationId: 'm-up' }),
       ]),
     )

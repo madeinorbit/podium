@@ -141,6 +141,8 @@ export type LaunchPlan =
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
   | { kind: 'quota'; args: string[] }
+  /** `podium machine [list|show]`: read the fleet an agent may place work on. */
+  | { kind: 'machine'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'janitor'; serverUrl: string; takeover: boolean }
@@ -345,6 +347,7 @@ export function resolvePlan(
     // privacy question in front of the user, not bury it in the top-level help.
     'telemetry',
     'quota',
+    'machine',
   ])
   if (
     argv[0] === 'help' ||
@@ -412,6 +415,9 @@ export function resolvePlan(
   if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
   // `podium quota`: the same live harness plan limits shown in the web panel.
   if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
+  // `podium machine [list|show]`: which machines exist, which are usable, and what
+  // is registered on them — the read a coordinator needs before placing work.
+  if (argv[0] === 'machine') return { kind: 'machine', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -664,6 +670,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '                        Request a one-off session wake (agent sessions only)',
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
     '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
+    '  machine <command>     List machines and see which can take work',
     '  worktree [path]       Declare the worktree this agent session works in',
     "  workspace <command>   Fetch another agent's working state; clean up peeks",
     '',
@@ -1053,6 +1060,12 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'quota': {
       const { quotaCliMain } = await import('./quota-cli')
       await quotaCliMain(plan.args)
+      return
+    }
+    // `podium machine [list|show]`: the fleet read behind every placement decision.
+    case 'machine': {
+      const { machineCliMain } = await import('./machine-cli')
+      await machineCliMain(plan.args)
       return
     }
     case 'join-config': {
