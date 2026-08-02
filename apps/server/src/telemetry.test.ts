@@ -22,12 +22,14 @@ beforeEach(() => {
   process.env.PODIUM_STATE_DIR = dir
 })
 afterEach(() => {
-  delete process.env.PODIUM_STATE_DIR
+  process.env.PODIUM_STATE_DIR = priorStateDir
   rmSync(dir, { recursive: true, force: true })
 })
 
 const wire = (bus: EventBus) =>
   wireTelemetry({ bus, machineCount: () => 2, stateDir: dir, installRoot: '/opt/podium' })
+
+const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('no consent = no collection, however hard the bus is driven', () => {
   it('records nothing when telemetry was never asked about', () => {

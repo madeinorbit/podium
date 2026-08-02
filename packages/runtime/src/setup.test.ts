@@ -18,6 +18,8 @@ import {
   wssFrom,
 } from './setup'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('setup core', () => {
   let dir: string
   beforeEach(() => {
@@ -25,7 +27,7 @@ describe('setup core', () => {
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 

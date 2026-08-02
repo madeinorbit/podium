@@ -47,6 +47,7 @@ function harness() {
       onClientAttached: vi.fn(),
       onClientReclaim: vi.fn(),
       onClientDetached: vi.fn(),
+      onRoomJoined: vi.fn(),
       onSessionClientFrame: vi.fn(),
       // The no-publication branch of the real sink, which is what these
       // fixtures' connections are.
@@ -292,6 +293,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
           onClientAttached: vi.fn(),
           onClientReclaim: vi.fn(),
           onClientDetached: vi.fn(),
+          onRoomJoined: vi.fn(),
           onSessionClientFrame: vi.fn(),
           deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
           onFeedPublished: vi.fn(),
@@ -369,6 +371,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
           onClientAttached: vi.fn(),
           onClientReclaim: vi.fn(),
           onClientDetached: vi.fn(),
+          onRoomJoined: vi.fn(),
           onSessionClientFrame: vi.fn(),
           deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
           onFeedPublished: vi.fn(),

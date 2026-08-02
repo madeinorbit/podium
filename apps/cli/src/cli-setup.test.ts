@@ -12,6 +12,8 @@ import {
   shouldRunCliSetup,
 } from './cli-setup'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('shouldRunCliSetup (when `podium setup` launches the terminal flow)', () => {
   it('does not launch setup for a bare `podium` on an already-configured box', () => {
     expect(shouldRunCliSetup({ forceSetup: false, firstRunNeedsSetup: false, isTTY: true })).toBe(
@@ -49,7 +51,7 @@ describe('runCliSetup', () => {
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 

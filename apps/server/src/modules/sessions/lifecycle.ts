@@ -94,6 +94,7 @@ import type { MachinesService, MachineUseResolver } from '../machines/service'
 import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
+import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
@@ -591,7 +592,11 @@ export class SessionLifecycle {
       publication: this.publication,
       state: this.state,
       inbox: this.inbox,
-      machines: this.machines,
+      machinesForPrincipal: (principal) =>
+        projectMachinesForPrincipal(
+          { machines: this.machines },
+          userCommandPrincipal(asUserId(principal.user), principal.role),
+        ),
       browserOpen: this.browserOpen,
       mutate: (sessionId, change, issueRelevant) =>
         this.repository.mutateSessionView(sessionId, change, issueRelevant),

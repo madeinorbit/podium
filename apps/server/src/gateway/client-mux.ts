@@ -74,8 +74,10 @@ type Dispatcher = {
 const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame): void =>
   mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg)
 
-const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): void =>
-  mux.presence.route(conn, msg)
+const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): void => {
+  const joined = mux.presence.route(conn, msg)
+  if (joined) mux.ports.sessions.onRoomJoined(conn, joined)
+}
 
 const DISPATCH: Dispatcher = {
   // ---- sessions ----
