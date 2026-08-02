@@ -224,6 +224,28 @@ and clean-tree result—must be committed or attached. The campaign also correct
 `audit:scoped-feed` alone misses a real cross-principal leak and the shipped remove-for-eviction
 site; future gate runs must cite the running-object guards that actually caught those mutants.
 
+The re-review at candidate `4b5c3a43` and evidence tip `ce16e98c` clears the durable-record ground:
+25 raw JSON records, edit definitions, and both batch drivers are committed, and the runner now
+writes pre-mutation breadcrumbs and restores on SIGTERM/SIGINT or `--restore-orphans`. It also adds
+useful caught mutants for feed identity persistence, delegation-chain identity, refusal payload,
+the tenant-visible floor, and the SYSTEM declaration.
+
+It still does not clear the campaign. POD-1410's fix merge `bbd05a08` is present on current
+integration but is not an ancestor of either reviewed SHA (`merge-base --is-ancestor` exits 1), so
+C3b still survives in this candidate. POD-1412 remains open and C6c still survives. The compound
+rows also do not cover every clause they claim: N1 mutates epoch persistence but not global sequence
+or mid-session grant/revoke delivery; N2 mutates delegation-root identity but not revoke-at-next-
+apply or machine migration/fact scoping; N3b mutates refusal payload but not timing/drop/disconnect
+equivalence; and N5 is explicitly a declaration-string check, not running-object evidence that
+steward, expiry, boot reconcile, and derived writes retain scope and never widen visibility. Under
+the object-walking evidence rule, those claims remain unproved. The transcript also retains stale
+P2 prose saying breadcrumbs are only a future mitigation even though its protocol and runner say
+they are implemented; that internal contradiction should be corrected in the next artifact.
+
+Review therefore remains **refused**. Re-request only after both blocker fixes are present in one
+named candidate, the original campaign is rerun there, and the uncovered compound subclauses have
+their own production mutation-and-restore records.
+
 
 There is **no complete same-SHA landing record yet** for current integration `d8fba769`. The
 POD-279 coordinator has earlier same-tree typecheck 22/22, client-auth 1 file/7 tests, wire
