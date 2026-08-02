@@ -29,6 +29,8 @@ import { runWorkflowCli, type WorkflowCliDeps } from '../../cli/src/workflow-cli
 import { makeIssueClient } from './issue-client'
 import { startServer } from './server'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('podium workflow CLI ↔ live server over the derived surface (e2e)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
@@ -53,7 +55,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
   afterAll(async () => {
     await server.close()
     rmSync(stateDir, { recursive: true, force: true })
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
   })
 
   it('create → publish → assign → prime → status → checkpoint round-trips on the derived procedures', async () => {

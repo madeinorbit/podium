@@ -64,7 +64,7 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   await relay.close()
-  delete process.env.PODIUM_STATE_DIR
+  process.env.PODIUM_STATE_DIR = priorStateDir
   delete process.env.PODIUM_TELEMETRY_ENDPOINT
   rmSync(dir, { recursive: true, force: true })
 })
@@ -78,6 +78,8 @@ const emitter = () =>
     platform: 'linux',
     arch: 'x64',
   })
+
+const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('opt in → flush → the wire', () => {
   it('sends exactly what `podium telemetry show` printed, byte for byte', async () => {
