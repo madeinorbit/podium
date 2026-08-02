@@ -176,8 +176,11 @@ Note that the audit's own `--probe` pass is **green in the same run** — the in
 every planted fixture and spared the clean one. This is a true positive on the real tree, not
 a detector defect.
 
-Filed as **POD-1475 (Enrollment ledger off the ownership matrix)**, `discovered-from`
-POD-426, and POD-426 now waits on it.
+Filed as **POD-1477 (Enrollment ledger off the ownership matrix)**, parented under POD-292,
+`discovered-from` POD-426, and POD-426 waits on it. (First filed bare as POD-1475, which
+stranded in the Proposed lane where no agent can close it; the coordinator re-homed it and
+re-pointed the blocking edge. A blocking edge into Proposed can never clear — worth knowing
+before filing another.)
 
 ## Instruments proven able to refuse
 
@@ -226,16 +229,16 @@ identical results unless noted.
 ### The three unit-lane failures
 
 1. **`audit-durable-classes.test.ts`** — `enrollment-ledger.ts` off the matrix. Phase 5
-   defect. **POD-1475.** Blocks this gate.
+   defect. **POD-1477.** Blocks this gate. Still open.
 2. **`audit-god-objects.test.ts`** — `machines/service.ts` at 929 physical past its reviewed
-   budget of 800. Already filed as **POD-1458**. See the verdict below.
+   budget of 800. **POD-1458**, since closed by POD-1467 at `b9c6b79f`. See the verdict below.
 3. **`terminal-view.scheme-notify.test.ts`** (3 tests) — all three die with the same
    `TypeError: undefined is not an object (evaluating 'this.dimensions.device')` inside
    `@xterm/addon-webgl`, raised from `setAppearance` before any assertion runs, so these
    tests currently assert nothing. Deterministic in isolation, so not the load-flake class.
    **Not attributable to Phase 5** — the WebGL usage, `forceRepaint` and `setAppearance` all
    predate the phase, and the test file's last three commits are transport refactors. Filed
-   as **POD-1476**; does not block Phase 5 exit, but does keep the lane red.
+   as **POD-1478**; does not block Phase 5 exit, but does keep the lane red.
 
 ## Verdict on POD-1458
 
@@ -251,6 +254,13 @@ is green.** Both halves matter, so stating them separately:
   Any claim that the workspace lane is green requires it closed. It must not be resolved by
   raising the budget silently — the ledger's own header says growth past a budget voids the
   review argument.
+
+**Resolved after this gate ran, and resolved the right way.** The coordinator reports POD-1467
+landed as `b9c6b79f`: `machines/service.ts` 929 → 695, with the credential lifecycle cut out
+to `enrollment.ts` behind an `EnrollmentHost` port and the **budget left at 800** — decomposed,
+not re-baselined. `bun run audit:god-objects` is reported **exit 0 with zero items** for the
+first time. That is their measurement at `b9c6b79f`, not this gate's at `a573534c`; it removes
+one of the three unit-lane failures below and will be re-derived at the re-gate SHA.
 
 ## Two evidence hazards this run found
 
@@ -292,15 +302,23 @@ suggests.
 
 ## What is missing before a PASS
 
-1. **POD-1475** — put `enrollment-ledger.ts` on `DURABLE_STORES` with its visibility class
+1. **POD-1477** — put `enrollment-ledger.ts` on `DURABLE_STORES` with its visibility class
    and owner (per-machine pairing facts inherit the machine's scoping), or on
    `NON_CLASS_WRITE_SITES` with the argument. `audit:durable-classes` must reach exit 0.
-2. **POD-1458** — re-review or decompose `machines/service.ts`; do not raise the budget
-   silently. Required for a green `test:unit`, not for Phase 5's own criteria.
-3. **POD-1476** — restore the colour-scheme tests to actually asserting. Not Phase 5's, but
+   **The single blocker.** In progress.
+2. ~~**POD-1458**~~ — closed by POD-1467 at `b9c6b79f` (decomposed to 695, budget held at 800).
+3. **POD-1478** — restore the colour-scheme tests to actually asserting. Not Phase 5's, but
    the lane is not green until it lands.
-4. Re-run at the resulting SHA: `bun run test:unit`, `audit:durable-classes`,
-   `audit:god-objects`, and the full `apps/server/src/modules/sessions/` directory.
+4. Re-run at the resulting SHA, and **only** these: `bun run test:unit`,
+   `audit:durable-classes`, `audit:god-objects`, and the full
+   `apps/server/src/modules/sessions/` directory. Everything else in this document is
+   **measured at `a573534c`** and does not need re-deriving.
 
-A4's missing instrument is recorded as a standing gap rather than a blocker: the criterion
-passes on inspection today, and nothing in the lane would notice if it stopped.
+## Gaps filed rather than left in prose
+
+- **POD-1481** (parent 1348) — the A4 lane check: assert every section 7 scar-registry row
+  resolves to a real file and test path, with a `--probe` mode that plants a stale row and
+  requires the check to fire. A criterion whose only instrument is a human reading carefully
+  is not enforced.
+- **POD-1482** (parent 1349) — `test:bun` red and out of CI, leaving the daemon's real
+  Bun-terminal PTY cases uncovered in a host-tightening phase.
