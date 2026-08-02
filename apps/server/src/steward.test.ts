@@ -1,6 +1,7 @@
 import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
+import { FIRST_ADMIN_USER_ID } from './command-principal'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
@@ -1034,7 +1035,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     })
     // …and the switch now does what its label says.
     expect(notify).toHaveBeenCalledTimes(1)
-    expect(notify.mock.calls[0]![0]).toMatchObject({
+    expect(notify.mock.calls[0]![0]).toBe(FIRST_ADMIN_USER_ID)
+    expect(notify.mock.calls[0]![1]).toMatchObject({
       title: 'Podium: issue.closed',
       body: expect.stringContaining(x.id),
     })

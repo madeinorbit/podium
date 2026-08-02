@@ -9,7 +9,6 @@ import {
   type TelegramConfig,
 } from '../../notify'
 import type { EventBus } from '../bus'
-import type { TelegramNoticePort } from '../messaging/types'
 
 export interface NotificationPushers {
   ntfy(topic: string, notice: AttentionNotice): void
@@ -97,7 +96,8 @@ export interface NotifyDeps {
     ownerUserId?: UserId
   }>
   /** Lazy — production wires MessagingService after registry construction. */
-  telegramNotice?: () => TelegramNoticePort | undefined
+  telegramRouteAvailable?(ownerUserId: UserId): boolean
+  requestTelegram?(input: { ownerUserId: UserId; text: string; sessionId?: SessionId }): void
 }
 
 /**
@@ -133,16 +133,33 @@ export class NotifyService {
     return info.name || info.title || info.cwd.split('/').pop() || 'agent'
   }
 
-  private sendTelegram(config: TelegramConfig, notice: AttentionNotice, sessionId?: string): void {
-    const text = `${notice.title}\n\n${notice.body}`
-    const port = this.deps.telegramNotice?.()
-    if (port) {
-      port.sendNotice(text, config, sessionId ? { sessionId } : undefined)
+  private sendTelegram(
+    ownerUserId: UserId | undefined,
+    config: TelegramConfig,
+    notice: AttentionNotice,
+    sessionId?: SessionId,
+  ): void {
+    if (ownerUserId && this.deps.requestTelegram) {
+      this.deps.requestTelegram({
+        ownerUserId,
+        text: notice.title + '\n\n' + notice.body,
+        ...(sessionId ? { sessionId } : {}),
+      })
       return
     }
     this.pushers.telegram(config, notice)
   }
 
+  private telegramEnabled(
+    ownerUserId: UserId,
+    settings: NotificationSettings,
+    botToken: string,
+  ): boolean {
+    if (!botToken.trim()) return false
+    return this.deps.telegramRouteAvailable
+      ? this.deps.telegramRouteAvailable(ownerUserId)
+      : isTelegramEnabled(settings, botToken)
+  }
   private notifyAttentionForNewExternalTargets(
     previous: NotificationSettings,
     next: NotificationSettings,
@@ -174,7 +191,8 @@ export class NotifyService {
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
       if (!notice) continue
       if (sendNtfy) this.pushers.ntfy(nextNtfy, notice)
-      if (sendTelegram) this.sendTelegram(telegram, notice, info.sessionId)
+      if (sendTelegram && this.telegramEnabled(ownerUserId, next, botToken))
+        this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)
     }
   }
 
@@ -192,13 +210,17 @@ export class NotifyService {
    *  - No in-app `attentionEvent`. That message is keyed on a session; a
    *    subscription's subscriber may be an issue.
    */
-  notifyExternal(notice: AttentionNotice): void {
+  notifyExternal(notice: AttentionNotice, ownerUserId?: UserId): void {
     const settings = this.deps.getSettings().notifications
     if (this.deps.notificationsEnabled?.() === false) return
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
     const botToken = this.deps.telegramBotToken()
-    if (isTelegramEnabled(settings, botToken))
-      this.sendTelegram(telegramConfig(settings, botToken), notice)
+    if (
+      ownerUserId
+        ? this.telegramEnabled(ownerUserId, settings, botToken)
+        : isTelegramEnabled(settings, botToken)
+    )
+      this.sendTelegram(ownerUserId, telegramConfig(settings, botToken), notice)
   }
 
   /**
@@ -269,12 +291,12 @@ export class NotifyService {
     }
     const botToken = this.deps.telegramBotToken()
     const telegram = telegramConfig(settings, botToken)
-    const telegramEnabled = isTelegramEnabled(settings, botToken)
+    const telegramEnabled = this.telegramEnabled(ownerUserId, settings, botToken)
     if (settings.ntfyTopic || telegramEnabled) {
       const someoneWatching = [...this.deps.clients(ownerUserId)].some((c) => c.visible)
       if (!someoneWatching) {
         if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
-        if (telegramEnabled) this.sendTelegram(telegram, notice, info.sessionId)
+        if (telegramEnabled) this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)
       }
     }
   }

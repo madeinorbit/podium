@@ -60,7 +60,6 @@ import { principalMailPolicy } from './modules/messages/handlers/context'
 import { QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS, MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
-import type { TelegramNoticePort } from './modules/messaging/types'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -110,8 +109,6 @@ interface SessionRegistryOptions {
    *  assembly (core never imports hub/pairing; see roles.ts). Absent = pairing
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   pairing?: PairingCodes
-  /** Lazy — production wires MessagingService after registry construction. */
-  telegramNotice?: () => TelegramNoticePort | undefined
   /** Deterministic publication-worker fault injection for service-level tests. */
   publicationWorker?: PublishWorkerClient
   /** Rollout-only semantic comparison of legacy and worker publications. */
@@ -756,6 +753,10 @@ export class SessionRegistry {
           this.store.settings.getSettingsFor(ownerUserId),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
+        telegramRouteAvailable: (ownerUserId) =>
+          this.store.telegramBindings.listForUser(ownerUserId).length === 1,
+        requestTelegram: (request) =>
+          this.bus.emit('notification.telegramRequested', request),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
         clients: (ownerUserId) =>
@@ -773,7 +774,6 @@ export class SessionRegistry {
             ownerUserId: FIRST_ADMIN_USER_ID,
           })),
         notificationsEnabled: () => featureEnabled('notifications'),
-        ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
       this.bus,
@@ -1775,6 +1775,7 @@ export class SessionRegistry {
       messages: this.store.messages,
       issues,
       listSessions: () => sessionsSvc.listSessions(),
+      sessionOwner: (sessionId) => sessionsSvc.sessionOwner(sessionId)?.owner,
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
       sendTextWhenReady: (sessionId, text, mutationId) => {
         const result = sessionsSvc.queueText({
@@ -1787,7 +1788,7 @@ export class SessionRegistry {
       },
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.
-      notify: (notice) => notify.notifyExternal(notice),
+      notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
       getSettings: () => this.store.settings.getSettings(),
       // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: stitch issue
       // stage + last commit (best-effort daemon git) into the system notice.

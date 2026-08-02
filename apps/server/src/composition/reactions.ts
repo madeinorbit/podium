@@ -414,6 +414,29 @@ export const REACTIONS = [
     scopeInvariant: 'Visibility is evaluated for each authenticated subscriber before delivery.',
   },
   {
+    id: 'messaging.telegram-attention',
+    description: 'Route notification policy decisions to the owning user Telegram binding.',
+    trigger: 'notification.telegramRequested',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason: 'Attention pushes are best-effort and are never replayed after restart.',
+    },
+    idempotency: {
+      key: 'owner user + session or notification fact + attention transition',
+      duplicatePolicy: 'deduplicate',
+    },
+    ordering: 'Per-owner EventBus request order; topic routing is resolved at send time.',
+    retry: 'Best-effort drop; the durable phase or steward breadcrumb remains observable.',
+    failureOwner: 'Telegram messaging bridge',
+    observability: {
+      registry: true,
+      events: ['notification.telegramRequested', 'session.phase', 'steward.notify'],
+      metrics: ['Telegram send failures'],
+    },
+    principal: delegated(),
+    scopeInvariant: 'Route comes from the owner of the triggering session/subscriber; unknown or ambiguous chats fail closed.',
+  },  {
     id: 'messaging.telegram-outbound',
     description: 'Relay completed superagent turns to the owning user’s bound Telegram route.',
     trigger: 'superagent.turnEnded',

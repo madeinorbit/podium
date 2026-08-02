@@ -82,6 +82,12 @@ export interface EventMap {
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */
   'attention.raised': { sessionId: SessionId; title: string; body: string }
+  /** Per-user Telegram delivery requested after notification policy decides to push. */
+  'notification.telegramRequested': {
+    ownerUserId: UserId
+    text: string
+    sessionId?: SessionId
+  }
   /** Settings were replaced via setSettings (previous → next). */
   'settings.changed': {
     previous: import('@podium/runtime').PodiumSettings
