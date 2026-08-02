@@ -15,7 +15,7 @@
 
 import type { ConversationDiagnosticWire } from '@podium/model'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import { SubscriptionRegistry } from '@podium/protocol'
+import { type SubscriberId, SubscriptionRegistry } from '@podium/protocol'
 import { type Authority, type FeedIdentity, FeedIdentityRegistry, Ledger } from '@podium/sync'
 import { SessionStore } from '../store'
 import { type ClientPrincipal, userClientPrincipal } from './client-principal'
