@@ -72,6 +72,8 @@ smoke passed with `codex-cli 0.146.0`.
 
 - The integration oracle is green. The separate load acceptance still needs one low-contention
   run at its unchanged thresholds; a host-starved timing sample is not promoted to green.
+- The complete rebased `bun run test` census must be repeated in the same credible window; focused
+  and integration results do not substitute for the full unit/web/mobile/Bun lane.
 - `bun run lint:boundaries` still reports the unrelated POD-1321 daemon-lifecycle import and dead
   allowlist entry, with no POD-327 path in the output. POD-1321 received issue mail with the
   current output.

@@ -2431,7 +2431,9 @@ carry explicit owner, transport principal, minted host-machine, and current-wire
 acceptance reaches its measured property but still requires a contention-free pass: two runs at
 host load average 58–63 on 8 CPUs exceeded the unchanged 25 ms p95 threshold and are not accepted
 as oracle evidence. The boundary audit also retains the unrelated POD-1321 allowlist failure.
-Phase-5 exit therefore remains open on that valid timing measurement and the soak below.
+The complete rebased unit/web/mobile/Bun census also remains to be repeated outside this saturated
+host window. Phase-5 exit therefore remains open on those valid oracle measurements and the soak
+below.
 
 **POD-327 paired-VPS soak runbook (human gate):** mint a join token as the intended owner, run
 `podium setup --join <TOKEN> --persist systemd` on the VPS, and attach the resulting machine to an
