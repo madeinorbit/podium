@@ -33,7 +33,6 @@ export interface PresenceRoutingDeps {
   readonly clients: ClientRegistry
   readonly visibility: VisibilityResolver
   readonly now?: () => number
-  readonly onJoined?: (conn: ClientConn, room: RoomRef) => void
 }
 
 const identityOf = (principal: Principal): PresenceIdentity => {
@@ -84,12 +83,13 @@ export class PresenceRouting {
     return { subscriberId: asSubscriberId(conn.id), principal: conn.principal }
   }
 
-  route(conn: ClientConn, frame: PresenceRoomClientMessage): void {
+  route(conn: ClientConn, frame: PresenceRoomClientMessage): RoomRef | undefined {
     const target = this.target(conn)
     switch (frame.type) {
       case 'presenceSubscribe':
         if (this.port.join(target, frame.room, frame.token)) {
-          this.deps.onJoined?.(conn, frame.room)
+          this.scheduleFlush()
+          return frame.room
         }
         this.scheduleFlush()
         return

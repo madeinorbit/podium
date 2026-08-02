@@ -2,6 +2,7 @@ import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium
 import {
   asSubscriberId,
   principalRoutingKey,
+  type Principal,
   type RoomRef,
   SubscriptionRegistry,
 } from '@podium/protocol'
@@ -47,10 +48,7 @@ function connection(
 }
 
 function setup(
-  opts: {
-    visible?: boolean | ((principal: ClientConn['principal']) => boolean)
-    now?: () => number
-  } = {},
+  opts: { visible?: boolean | ((principal: Principal) => boolean); now?: () => number } = {},
 ) {
   const subscriptions = new SubscriptionRegistry()
   const clients = new ClientRegistry()
