@@ -29,7 +29,30 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // name always wins — so it grants no reach over any other session.
   // stop = clean end + free worktree keep branch [spec:SP-9904]; self/subtree
   // free, outside needs --outside-scope (gated in the dispatch arm).
-  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read', 'title', 'stop']),
+  // handoff = move a LIVE session to another machine (POD-642), exposed to agents
+  // by POD-1386. It is the one entry here that causes execution on a second
+  // machine, and it is safe to carry for the reason the coordinator is built
+  // around: `use` is asserted on BOTH machines before anything stops, and the
+  // target is re-authorized at each apply point, so the relay grants reach to the
+  // command, never to a machine. Unlike spawn/kill it moves a session the caller
+  // can already drive rather than creating or destroying one.
+  sessions: new Set([
+    'sendText',
+    'resumeAndSend',
+    'continue',
+    'status',
+    'read',
+    'title',
+    'stop',
+    'handoff',
+  ]),
+  // Read-only fleet enumeration (POD-1386): "what can I run on?". The answer is
+  // the SAME authorization projection the router serves — see-set filtered, `use`
+  // stamped per row — so this allowlist entry grants reach to a projection, not to
+  // the machines table. An agent that could not see a machine still cannot.
+  // `list` is byte-identical to the router's; `listWithRepos` adds the registered
+  // checkout paths, use-gated (see the arm in relay.ts for why they are not one proc).
+  machines: new Set(['list', 'listWithRepos']),
   // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
   // spawn/bounded await, and the stop-hook's single-reminder query. Sender and
   // parent identity are stamped from the capability; MessageGate owns target-
