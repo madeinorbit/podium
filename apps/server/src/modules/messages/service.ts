@@ -59,7 +59,13 @@ import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
-import { compareCursor, cursorOf, type DeliveryTarget, deliveryTargetKey } from './targets'
+import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
+import {
+  cursorOf,
+  DELIVERY_TARGET_PAGE_LIMIT,
+  type DeliveryTarget,
+  deliveryTargetKey,
+} from './targets'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
@@ -338,32 +344,6 @@ export function senderFromPrincipal(principal: CommandPrincipal): MessageSender 
 /** How the target session presents at delivery time. */
 type TargetState = 'idle' | 'running' | 'parked'
 
-/** The low-frequency sweep remains a bounded safety net while event coverage is
- * proven. One pass never revisits an unbounded historical queue. [spec:SP-c29e] */
-export const DELIVERY_RETRY_BACKSTOP_LIMIT = 100
-/** Five minutes: event triggers are primary; this only heals a missed edge. */
-export const DELIVERY_RETRY_BACKSTOP_MS = 5 * 60_000
-
-interface DeliveryTargetWork {
-  target: DeliveryTarget
-  after?: MessagePageCursor
-  through?: MessagePageCursor
-  preferred?: SessionMeta
-  enqueuedAt: number
-}
-
-export interface MessageDeliveryStats {
-  pendingTargetCount: number
-  coalescedTriggerCount: number
-  oldestJobAgeMs: number
-  retryPageCursor: MessagePageCursor | null
-  retryPagesProcessed: number
-  triggerFailures: number
-}
-
-const DELIVERY_TARGET_PAGE_LIMIT = 200
-const DELIVERY_RECONCILE_PAGE_LIMIT = 100
-
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 
 const URGENCY_ORDER: MessageUrgency[] = ['fyi', 'next-turn', 'interrupt']
@@ -393,6 +373,10 @@ export class MessageDeliveryService {
    *  Owns their state and their timers outright; this service supplies only the
    *  keys it is the one able to resolve, and disposes it. */
   private readonly brakes: DeliveryBrakes
+  /** WHEN a delivery is attempted — the coalesced trigger queue, the boot
+   *  reconcile walk and the slow retry backstop, with the eleven fields that
+   *  answer for them and all three of their timers (POD-1397). */
+  private readonly scheduler: DeliveryScheduler
 
   constructor(private readonly deps: MessageDeliveryDeps) {
     this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
@@ -403,6 +387,11 @@ export class MessageDeliveryService {
       onCooldownElapsed: (targets) => {
         for (const target of targets) this.queueDeliveryTarget(target)
       },
+    })
+    this.scheduler = new DeliveryScheduler({
+      messages: deps.messages,
+      now: deps.now,
+      runner: this.deliveryRunner(),
     })
     this.render = new MessageRenderer({
       issues: deps.issues,
@@ -417,20 +406,6 @@ export class MessageDeliveryService {
     return this.render.renderFor(message, receiverSessionId)
   }
 
-  /** Bounded delivery jobs coalesce by durable recipient principal. */
-  private readonly pendingDeliveryTargets = new Map<string, DeliveryTargetWork>()
-  /** A synchronous idle drain owns these finite-snapshot targets. Fresh,
-   * reentrant triggers are retained separately for the next macrotask. */
-  private readonly activeBoundaryTargets = new Map<string, number>()
-  private readonly deferredBoundaryTargets = new Map<string, DeliveryTarget>()
-  private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
-  private reconcileTimer: ReturnType<typeof setTimeout> | null = null
-  private retryBackstopTimer: ReturnType<typeof setTimeout> | null = null
-  private retryBackstopCursor: MessagePageCursor | null = null
-  private retryPassStartedAt: number | null = null
-  private retryPagesProcessed = 0
-  private coalescedTriggerCount = 0
-  private triggerFailures = 0
   /** Last resolved issue per session. This is the before-state needed for detach,
    * reassignment, inferred-cwd movement, and remove events. */
   private readonly sessionIssueTargets = new Map<string, string>()
@@ -490,11 +465,55 @@ export class MessageDeliveryService {
     }
   }
 
-  /** Begin a bounded startup walk. Each page schedules the next macrotask so
-   * every durable principal is enumerated without one unbounded boot turn. */
+  /**
+   * The delivery reasoning the scheduler calls back through. Built once, in the
+   * constructor: the scheduler decides WHEN, these methods decide WHAT, and
+   * neither reaches into the other's state.
+   */
+  private deliveryRunner(): DeliveryRunner {
+    return {
+      targetOf: (message) => this.deliveryTargetOf(message),
+      listSessions: () => this.deps.sessions.listSessions(),
+      nowMs: () => this.nowMs(),
+      drainPreferred: (session, messages, nowMs) => this.drainPreferred(session, messages, nowMs),
+      attemptOne: (message, allSessions, nowMs) => {
+        if (!this.prepareQueuedAttemptSafely(message, nowMs)) return
+        this.attemptDelivery(message, [...allSessions], { viaSweep: true })
+        this.scheduleQueuedWakeRetry(message)
+      },
+    }
+  }
+
+  /**
+   * The idle drain for ONE preferred session. Total by contract — see
+   * {@link DeliveryRunner.drainPreferred}: it reports its own failure and still
+   * returns the ids it took, because a row that falls out of the handled set is
+   * a row delivered twice.
+   */
+  private drainPreferred(
+    session: SessionMeta,
+    messages: readonly MessageRow[],
+    nowMs: number,
+  ): readonly string[] {
+    if (this.stateOf(session) !== 'idle') return []
+    const handled = messages.map((message) => message.id)
+    if (this.draftHoldActive(session)) return handled
+    const eligible = messages.filter((message) => this.prepareQueuedAttemptSafely(message, nowMs))
+    eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    try {
+      this.deliverBatch(session, eligible)
+      for (const message of eligible) this.scheduleQueuedWakeRetry(message)
+    } catch (error) {
+      this.scheduler.recordTriggerFailure(`preferred session ${session.sessionId}`, error)
+    }
+    return handled
+  }
+
+  /** Begin a bounded startup walk. The session→issue before-state is this
+   *  service's to restore; the walk itself is the scheduler's. */
   reconcileQueued(): void {
     const sessions = this.deps.sessions.listSessions()
-    if (this.deps.messages.countQueued() === 0) {
+    if (this.scheduler.queueIsEmpty()) {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
       // common empty-queue boot path.
@@ -507,150 +526,26 @@ export class MessageDeliveryService {
     for (const session of sessions) {
       this.onSessionEligibilityChanged(session.sessionId, session)
     }
-    this.runReconcilePage()
-  }
-
-  private runReconcilePage(after?: MessagePageCursor): void {
-    this.reconcileTimer = null
-    let page: MessageRow[]
-    try {
-      page = this.deps.messages.listQueuedPage({
-        ...(after ? { after } : {}),
-        limit: DELIVERY_RECONCILE_PAGE_LIMIT,
-      })
-    } catch (error) {
-      this.recordTriggerFailure('startup page query', error)
-      return
-    }
-    for (const message of page) {
-      const target = this.deliveryTargetOf(message)
-      if (target) this.queueDeliveryTarget(target)
-    }
-    this.flushDeliveryTriggers()
-    if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return
-    const next = cursorOf(page.at(-1)!)
-    this.reconcileTimer = setTimeout(() => this.runReconcilePage(next), 0)
-    this.reconcileTimer.unref?.()
+    this.scheduler.reconcile()
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
   flushDeliveryTriggers(onlyPreferredSessionId?: string): void {
-    if (this.deliveryTriggerTimer) {
-      clearTimeout(this.deliveryTriggerTimer)
-      this.deliveryTriggerTimer = null
-    }
-    if (this.pendingDeliveryTargets.size === 0) return
-    const works: DeliveryTargetWork[] = []
-    if (onlyPreferredSessionId) {
-      for (const [key, work] of this.pendingDeliveryTargets) {
-        if (work.preferred?.sessionId !== onlyPreferredSessionId) continue
-        works.push(work)
-        this.pendingDeliveryTargets.delete(key)
-      }
-      // Non-boundary/reentrant work is deliberately retained for the next
-      // macrotask; it cannot expand this synchronous finite snapshot.
-      if (this.pendingDeliveryTargets.size > 0) this.scheduleDeliveryFlush()
-    } else {
-      works.push(...this.pendingDeliveryTargets.values())
-      this.pendingDeliveryTargets.clear()
-    }
-    if (works.length === 0) return
-    const selected = new Map<string, MessageRow>()
-    const preferredGroups = new Map<
-      string,
-      { session: SessionMeta; messages: Map<string, MessageRow> }
-    >()
+    this.scheduler.flushDeliveryTriggers(onlyPreferredSessionId)
+  }
 
-    for (const work of works) {
-      let page: MessageRow[]
-      try {
-        page = this.deps.messages.pendingForPage(work.target, {
-          ...(work.after ? { after: work.after } : {}),
-          ...(work.through ? { through: work.through } : {}),
-          limit: DELIVERY_TARGET_PAGE_LIMIT,
-        })
-      } catch (error) {
-        this.recordTriggerFailure(`target page ${deliveryTargetKey(work.target)}`, error)
-        continue
-      }
-      const pageCursor = page.length > 0 ? cursorOf(page.at(-1)!) : undefined
-      if (
-        page.length === DELIVERY_TARGET_PAGE_LIMIT &&
-        pageCursor &&
-        (!work.through || compareCursor(pageCursor, work.through) < 0)
-      ) {
-        this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
-      }
-      for (const message of page) {
-        selected.set(message.id, message)
-        if (!work.preferred) continue
-        let group = preferredGroups.get(work.preferred.sessionId)
-        if (!group) {
-          group = { session: work.preferred, messages: new Map() }
-          preferredGroups.set(work.preferred.sessionId, group)
-        }
-        group.messages.set(message.id, message)
-      }
-    }
-
-    if (selected.size === 0) return
-    const all = this.deps.sessions.listSessions()
-    const nowMs = this.nowMs()
-    const handled = new Set<string>()
-    for (const group of preferredGroups.values()) {
-      const session = group.session
-      if (this.stateOf(session) !== 'idle') continue
-      const messages = [...group.messages.values()]
-      for (const message of messages) handled.add(message.id)
-      if (this.draftHoldActive(session)) continue
-      const eligible = messages.filter((message) => this.prepareQueuedAttemptSafely(message, nowMs))
-      eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-      try {
-        this.deliverBatch(session, eligible)
-        for (const message of eligible) this.scheduleQueuedWakeRetry(message)
-      } catch (error) {
-        this.recordTriggerFailure(`preferred session ${session.sessionId}`, error)
-      }
-    }
-    for (const message of selected.values()) {
-      if (handled.has(message.id)) continue
-      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
-      try {
-        this.attemptDelivery(message, all, { viaSweep: true })
-        this.scheduleQueuedWakeRetry(message)
-      } catch (error) {
-        this.recordTriggerFailure(`message ${message.id}`, error)
-      }
-    }
+  /** Slow delivery backstop [spec:SP-c29e]. */
+  sweep(): void {
+    this.scheduler.sweep()
   }
 
   deliveryStats(): MessageDeliveryStats {
-    const now = this.nowMs()
-    let oldest = this.retryPassStartedAt
-    for (const work of this.pendingDeliveryTargets.values()) {
-      oldest = oldest === null ? work.enqueuedAt : Math.min(oldest, work.enqueuedAt)
-    }
-    return {
-      pendingTargetCount: this.pendingDeliveryTargets.size,
-      coalescedTriggerCount: this.coalescedTriggerCount,
-      oldestJobAgeMs: oldest === null ? 0 : Math.max(0, now - oldest),
-      retryPageCursor: this.retryBackstopCursor,
-      retryPagesProcessed: this.retryPagesProcessed,
-      triggerFailures: this.triggerFailures,
-    }
+    return this.scheduler.deliveryStats()
   }
 
   dispose(): void {
-    if (this.deliveryTriggerTimer) clearTimeout(this.deliveryTriggerTimer)
-    if (this.reconcileTimer) clearTimeout(this.reconcileTimer)
-    if (this.retryBackstopTimer) clearTimeout(this.retryBackstopTimer)
-    this.deliveryTriggerTimer = null
-    this.reconcileTimer = null
-    this.retryBackstopTimer = null
+    this.scheduler.dispose()
     this.brakes.dispose()
-    this.pendingDeliveryTargets.clear()
-    this.activeBoundaryTargets.clear()
-    this.deferredBoundaryTargets.clear()
     this.sessionIssueTargets.clear()
   }
 
@@ -660,66 +555,16 @@ export class MessageDeliveryService {
     after?: MessagePageCursor,
     through?: MessagePageCursor,
   ): void {
-    const key = deliveryTargetKey(target)
-    if (!after && !through && this.activeBoundaryTargets.has(key)) {
-      if (this.deferredBoundaryTargets.has(key)) this.coalescedTriggerCount += 1
-      else this.deferredBoundaryTargets.set(key, target)
-      return
-    }
-
-    try {
-      if (this.deps.messages.countPending(target) === 0) return
-    } catch (error) {
-      this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
-      return
-    }
-
-    const existing = this.pendingDeliveryTargets.get(key)
-    if (existing) {
-      this.coalescedTriggerCount += 1
-      if (through) existing.through = through
-      if (!after) existing.after = undefined
-      else if (existing.after && compareCursor(after, existing.after) < 0)
-        existing.after = after
-      else if (!existing.after) existing.after = after
-      if (preferred) existing.preferred = preferred
-    } else {
-      this.pendingDeliveryTargets.set(key, {
-        target,
-        ...(after ? { after } : {}),
-        ...(through ? { through } : {}),
-        ...(preferred ? { preferred } : {}),
-        enqueuedAt: this.nowMs(),
-      })
-    }
-    this.scheduleDeliveryFlush()
-  }
-
-  private scheduleDeliveryFlush(): void {
-    if (this.deliveryTriggerTimer) return
-    this.deliveryTriggerTimer = setTimeout(() => {
-      this.deliveryTriggerTimer = null
-      try {
-        this.flushDeliveryTriggers()
-      } catch (error) {
-        this.recordTriggerFailure('coalesced delivery flush', error)
-      }
-    }, 0)
-    this.deliveryTriggerTimer.unref?.()
+    this.scheduler.queueDeliveryTarget(target, preferred, after, through)
   }
 
   private prepareQueuedAttemptSafely(message: MessageRow, nowMs: number): boolean {
     try {
       return this.prepareQueuedAttempt(message, nowMs)
     } catch (error) {
-      this.recordTriggerFailure(`prepare message ${message.id}`, error)
+      this.scheduler.recordTriggerFailure(`prepare message ${message.id}`, error)
       return false
     }
-  }
-
-  private recordTriggerFailure(context: string, error: unknown): void {
-    this.triggerFailures += 1
-    console.warn(`[podium] message delivery trigger failed (${context})`, error)
   }
 
   private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
@@ -1278,34 +1123,12 @@ export class MessageDeliveryService {
     // enqueue the same durable target keys and synchronously flush so existing
     // turn-boundary ordering remains exact. The keyed gate handles confirmation,
     // draft holds, FIFO/pointer batching, cooldown, and duplicate events.
-    for (const key of boundaryThrough.keys()) {
-      this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
-    }
-    try {
+    this.scheduler.runBoundaryDrain([...boundaryThrough.keys()], session.sessionId, () => {
       this.onSessionEligibilityChanged(session.sessionId, session, {
         preferThisIdleSession: true,
         boundaryThrough,
       })
-      do {
-        this.flushDeliveryTriggers(session.sessionId)
-        // Each preferred continuation is bounded by the captured high-water.
-        // A fresh/reentrant trigger is held for the next macrotask instead of
-        // resetting this snapshot's cursor or expanding its synchronous work.
-      } while (
-        [...this.pendingDeliveryTargets.values()].some(
-          (work) => work.preferred?.sessionId === session.sessionId,
-        )
-      )
-    } finally {
-      for (const key of boundaryThrough.keys()) {
-        const depth = this.activeBoundaryTargets.get(key) ?? 0
-        if (depth <= 1) this.activeBoundaryTargets.delete(key)
-        else this.activeBoundaryTargets.set(key, depth - 1)
-      }
-      const deferred = [...this.deferredBoundaryTargets.values()]
-      this.deferredBoundaryTargets.clear()
-      for (const target of deferred) this.queueDeliveryTarget(target)
-    }
+    })
   }
 
   /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human
@@ -1362,55 +1185,6 @@ export class MessageDeliveryService {
     if (!current || current.status !== 'queued' || current.injectedAt) return
     const key = this.wakeKeyOfRow(current)
     if (this.brakes.isWakeHot(key)) this.scheduleWakeRetry(key, current)
-  }
-
-  /** Slow delivery backstop. Calendar expiry belongs exclusively to the fenced
-   *  janitor; this actor-owned retry may resolve live session state. [spec:SP-c29e] */
-  sweep(): void {
-    const now = this.deps.now()
-    if (this.retryBackstopTimer) return
-    this.retryBackstopCursor = null
-    this.retryPassStartedAt = Date.parse(now)
-    this.runRetryBackstopPage()
-  }
-
-  private runRetryBackstopPage(after?: MessagePageCursor): void {
-    this.retryBackstopTimer = null
-    let page: MessageRow[]
-    try {
-      page = this.deps.messages.listQueuedPage({
-        ...(after ? { after } : {}),
-        limit: DELIVERY_RETRY_BACKSTOP_LIMIT,
-      })
-    } catch (error) {
-      this.recordTriggerFailure('retry page query', error)
-      this.retryBackstopCursor = null
-      this.retryPassStartedAt = null
-      return
-    }
-
-    const all = this.deps.sessions.listSessions()
-    const nowMs = this.nowMs()
-    for (const message of page) {
-      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
-      try {
-        this.attemptDelivery(message, all, { viaSweep: true })
-        this.scheduleQueuedWakeRetry(message)
-      } catch (error) {
-        this.recordTriggerFailure(`retry message ${message.id}`, error)
-      }
-    }
-    this.retryPagesProcessed += 1
-
-    if (page.length < DELIVERY_RETRY_BACKSTOP_LIMIT) {
-      this.retryBackstopCursor = null
-      this.retryPassStartedAt = null
-      return
-    }
-    const next = cursorOf(page.at(-1)!)
-    this.retryBackstopCursor = next
-    this.retryBackstopTimer = setTimeout(() => this.runRetryBackstopPage(next), 0)
-    this.retryBackstopTimer.unref?.()
   }
 
   /** Deliver a pending batch into an idle session. Inline rows go FIFO; fyi

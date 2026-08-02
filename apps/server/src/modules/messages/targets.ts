@@ -22,8 +22,13 @@ export type DeliveryTarget = { kind: 'session' | 'issue'; id: string }
 
 /** Coalescing key. Every map keyed by a target uses this and only this, so two
  *  owners naming the same target always produce the same string. */
-export const deliveryTargetKey = (target: DeliveryTarget): string =>
-  `${target.kind}:${target.id}`
+export const deliveryTargetKey = (target: DeliveryTarget): string => `${target.kind}:${target.id}`
+
+/** One page of a target's pending rows. Shared because the scheduler's drain
+ *  and the service's turn-boundary confirm loop page the same repository, and a
+ *  boundary that walked a different page size than the drain it precedes would
+ *  confirm a different set than it delivered. */
+export const DELIVERY_TARGET_PAGE_LIMIT = 200
 
 /** The (createdAt, id) pair that orders and pages the queue. */
 export function cursorOf(message: MessageRow): MessagePageCursor {
