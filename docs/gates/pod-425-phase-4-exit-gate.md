@@ -1,5 +1,120 @@
 # POD-425 Phase 4 exit gate
 
+## Re-candidate verdict — 2026-08-02
+
+**Candidate:** `6fc75d094e8c7adde42654a9b2acff78fda95377`
+**Audit branch tip before this report:** `8469640083f06d88c0a0f952678d5eaa5de177d1`
+**Verdict:** **REFUSED — Phase 7 entry remains blocked.**
+
+POD-1316 is closed and its fix is present in this candidate at `3a92ed56`, but that does not make
+the complete Phase 4 exit gate green. The re-candidate proves that the runtime composition is
+acyclic and that session/issue paths, isolated redeploy, environment locality, and multi-instance
+isolation work. It also finds four independent acceptance gaps: the committed composition graph
+documents are stale; the literal server god-object audit has 28 modules over 600 lines;
+the green E2E lane contains no memory-service E2E; and the required ten-condition production-tree
+mutation campaign was not performed at the candidate. A cold browser-redeploy checkout also fails
+before test discovery because the Playwright build omits a required workspace build. These gaps are
+tracked by POD-1384, POD-1385, POD-1390, and POD-1389 respectively.
+
+The recursive Phase 4 subtree was re-derived rather than inferred from this issue's waits-on list.
+The named implementation children and corrective work, including POD-1078, POD-1079, POD-1315,
+POD-1316, POD-1343, POD-1351, and POD-1356, are present by ancestry or direct tree inspection.
+However, POD-1356 remains open in the tracker at report time and the four gate-created blocking
+children above are open. Therefore the “all Phase 4 children closed with evidence” criterion is
+**refused** even though the original blocker that triggered this re-run is closed.
+
+### Criterion verdicts
+
+| Criterion | Evidence at candidate `6fc75d09` | Verdict |
+| --- | --- | --- |
+| Composition root acyclic | The real generated graph has 178 modules, 286 edges, and 0 cycles. Construction has 52 declarations, 0 forward dependencies, 0 deferred closures, and 0 non-null late bindings. The reactions ledger is current at 25. Four negative-test files pass 15/15 and exercise runtime import cycles, dependencies on later services, non-null late binding, `this.modules` reads, deferred closures around already-constructed services, and reaction totality. | **MET** |
+| God-object audit items zero | `sessions/service.ts` is deleted. IssueService composes six capabilities over one store with no inheritance or protected-state sharing. The literal production-server size screen nevertheless reports 28 TypeScript modules over 600 lines, from 616 to 2,955 lines. The remaining paths and counts are recorded on POD-1385. | **REFUSED** |
+| Module graph documents committed and current | The three documents exist, but `server-composition-graph.ts` and `server-construction-order.ts` both exit 1 without `--write`. A disposable exact-candidate regeneration reports 166 insertions/161 deletions. Only `reactions-ledger.ts` exits 0. POD-1384 owns the stale generated documents. | **REFUSED** |
+| Session, issue, and memory E2E green | Isolated `bun run test:e2e` exits 0: 8 files/31 tests. Its eight files exercise session and issue/feed behavior but contain no named memory service, transcript lake/index, or omni-search E2E. POD-1390 owns the missing memory proof. | **PARTIAL / REFUSED** |
+| Live redeploy keeps sessions | With the missing local model build supplied, the real authenticated browser test exits 0: 1/1. It logs in through `/auth/login`, restarts only the isolated server, and preserves the marker/grid. A zero-artifact cold checkout fails before discovery because the Playwright build does not build `@podium/model`; POD-1389 owns that harness self-containment defect. | **PRODUCT BEHAVIOR MET; ENVIRONMENT CHECK REFUSED** |
+| Multi-instance isolation stays green | Fresh isolated `bun run test:multi-instance` exits 0: Bun 1/1 with 41 expectations, Vitest 1 file/3 tests, installer `ALL OK`. | **MET** |
+| Landing evidence cited, not re-derived | At this same SHA, the POD-279 coordinator reports typecheck 22/22, `wsServer.client-auth` 7/7, and protocol wire goldens 90/0, all exit 0. The gate did not rerun those lanes. | **MET** |
+| Ten multi-user deliberate-violation probes | Three detector controls exit 0 and catch their planted scoped-feed, machine-grant, and durable-class violations. The focused multi-user run exits 0 at 14 files/251 tests; an additional composition/capability run exits 0 at 8 files/190 tests. POD-1078 also retains historical evidence of one real cross-user production mutation going red and being restored. There is no fresh candidate-wide production-code mutation-and-byte-restore campaign covering every one of the ten conditions. Detector-local fixtures and positive tests do not meet POD-422 checklist E's production-tree counterfactual standard. | **REFUSED** |
+| Deliberately open questions remain flagged | O1 existence leakage (including room occupancy), O2 opaque cross-boundary references, O3 permission-affecting reparent, and O4 per-class owner/grant inheritance remain explicitly open in `multi-user-readiness.md`, ADRs 1/2/3/4/7/9, and `rearchitecture-v3.md`; no implementer silently resolved them. | **MET** |
+| Phase 7 entry | The gate must compose with G5 and G6 only after every row above is met. | **BLOCKED** |
+
+### Structural and audit detail
+
+The three composition commands were run without `--write`. The graph and construction commands
+correctly refused their stale checked-in outputs, while the reactions ledger passed. Regeneration
+was used only in a disposable exact-candidate worktree to measure the drift; no candidate file was
+changed. The 4-file/15-test refusal suite proves that the instruments can say no, not merely that
+the current tree happens to pass its topology checks.
+
+`bun scripts/rearch-audit.ts --phase POD-318` exits 0 and prints the declared three-site legacy
+placeholder residue with its justification and expiry. `bun run audit:rearch` exits 0 at the exact
+31-item/142-site baseline. Those green audit results do not override the separate literal
+approximately-600-line gate criterion. The size screen's 28 paths are:
+
+```text
+2955 modules/sessions/lifecycle.ts
+2595 modules/messages/service.ts
+2026 relay.ts
+1664 modules/issues/registry.ts
+1404 migrations/schema.ts
+1187 modules/superagent/service.ts
+1152 modules/issues/service/workflow.ts
+1080 steward.ts
+969  modules/superagent/tools.ts
+934  modules/issues/service/core.ts
+915  modules/machines/rpc.ts
+879  store/issues.ts
+820  modules/issues/service/crud.ts
+810  modules/messaging/service.ts
+779  store/sessions.ts
+738  modules/issues/service/reads.ts
+724  modules/workflows/service.ts
+716  modules/sessions/session.ts
+713  modules/settings/service.ts
+685  composition/reactions.ts
+672  store/types.ts
+651  server.ts
+649  modules/sessions/command-plane.ts
+648  modules/automations/service.ts
+625  modules/machines/service.ts
+622  store/workflows.ts
+621  modules/sessions/session-state/service.ts
+616  modules/sessions/handoff/coordinator.ts
+```
+
+### Isolation and environment evidence
+
+Every runtime lane used fresh `PODIUM_STATE_DIR` and host roots, explicit ports, and only its own
+PID markers. The live instance on 18787 was never addressed, restarted, or reaped. Before and
+after the E2E, redeploy, and multi-instance legs, `/home/mgw/.podium/config.json` had identical
+mtime `1785661627` (`2026-08-02 11:07:07.128162673 +0200`). All temporary roots, PID markers, and
+ports were released.
+
+A detached exact-candidate checkout started with zero `node_modules`; frozen install exited 0,
+created all 25 local `node_modules/@podium` workspace links, and the runtime-resolution integration
+test passed 1 file/3 tests. Thus the former cross-checkout resolution defect is fixed in this
+candidate. The cold browser lane then exposed a narrower build-orchestration defect: the declared
+Playwright web server builds protocol/web/mobile but not model, so it cannot import
+`packages/model/dist/index.js`. Building only `@podium/model` made the unchanged isolated restart
+test pass 1/1. This separates a valid product redeploy proof from an invalid cold-harness proof.
+
+The passing restart emitted the already-tracked POD-1101 shutdown race (`RangeError: Cannot use a
+closed database` from the transcript indexer after store close). It is not counted as a new issue,
+but reinforces why memory E2E and clean teardown cannot be inferred from the session-preservation
+assertion.
+
+### POD-1316 disposition
+
+Candidate ancestry contains `3a92ed56`. The corrected integration test passes 1 file/1 test
+without increasing its timeout or restoring an ambient/test principal. It deliberately codifies
+the protocol decision: current wire 2 receives scoped feed frames; stale wire 1 cannot express
+`evict`, receives `scoping-requires-eviction`, and remains silent on the entity plane. The
+coordinator independently inspected the assertion change and the unchanged fail-closed auth gate.
+POD-1316 is therefore **met in the candidate**, not merely closed in the tracker.
+
+## Historical candidate report — `aba864a9`
+
+
 **Gate run:** 2026-08-02  
 **Candidate:** `aba864a9e2531cd8b543633ef48bb60b8f7d76a4`  
 **Verdict:** **REFUSED — Phase 7 entry is not unblocked.**
