@@ -21,7 +21,42 @@ import { Switch } from '@/components/ui/switch'
 import { issueAgentLabel } from '@/lib/issue-agents'
 import { cn } from '@/lib/utils'
 import type { Automation, AutomationRun } from './AutomationsView'
+import { automationClassOf, automationRight } from './automation-form'
 import { cronSummary, formatTime } from './cron-format'
+
+/**
+ * The rights this card's affordances need, from the SAME predicate the composer
+ * evaluates (POD-409) — so an act the principal may not perform is unreachable
+ * from the list as well as from the dialog, rather than gated in whichever
+ * surface remembered to check.
+ *
+ * A row that is IN this list is visible by definition: an evicted automation
+ * (POD-1077 — visibility revoked without the revision moving) simply leaves the
+ * replica, so it leaves the list with no tombstone and no delete affordance to
+ * click. There is nothing here to render for it, which is the intended shape.
+ *
+ * `hasUsableTarget` is true for an existing row: its machine binding was resolved
+ * when it was created, the server re-authorizes each fire, and gating the card's
+ * enable toggle on a live machine lookup would make a temporarily offline host
+ * look like a permissions problem.
+ */
+function cardRights(a: Automation): {
+  edit: ReturnType<typeof automationRight>
+  toggle: ReturnType<typeof automationRight>
+  remove: ReturnType<typeof automationRight>
+} {
+  const ctx = {
+    systemClass: automationClassOf(a) === 'system',
+    owned: true,
+    visible: true,
+    hasUsableTarget: true,
+  }
+  return {
+    edit: automationRight('edit', ctx),
+    toggle: automationRight(a.enabled ? 'disable' : 'enable', ctx),
+    remove: automationRight('delete', ctx),
+  }
+}
 
 /** The repo basename, falling back to the full path — repos are shown by name. */
 function repoLabel(path: string): string {
@@ -144,6 +179,7 @@ function AutomationCard({
   onRemove: () => void
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const rights = cardRights(a)
   const lastRun = runs[0]
   const completedOneOff = a.scheduleKind === 'once' && a.lastRunAt !== null
   const scheduleSummary =
@@ -216,14 +252,15 @@ function AutomationCard({
           type="button"
           className="flex size-7 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
           aria-label={`Edit ${a.name}`}
-          disabled={busy}
+          title={rights.edit.allowed ? undefined : rights.edit.message}
+          disabled={busy || !rights.edit.allowed}
           onClick={onEdit}
         >
           <Pencil size={14} aria-hidden="true" />
         </button>
         <Switch
           checked={a.enabled}
-          disabled={busy || completedOneOff}
+          disabled={busy || completedOneOff || !rights.toggle.allowed}
           onCheckedChange={onToggle}
           aria-label={`${a.enabled ? 'Disable' : 'Enable'} ${a.name}`}
         />
@@ -232,7 +269,8 @@ function AutomationCard({
           type="button"
           className="flex size-7 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-red-500 disabled:opacity-50"
           aria-label={`Delete ${a.name}`}
-          disabled={busy}
+          title={rights.remove.allowed ? undefined : rights.remove.message}
+          disabled={busy || !rights.remove.allowed}
           onClick={onRemove}
         >
           <Trash2 size={14} aria-hidden="true" />

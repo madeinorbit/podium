@@ -5,6 +5,7 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { userAutomations } from './automation-form'
 import { NewAutomationDialog } from './NewAutomationDialog'
 import { ScheduledSection } from './ScheduledSection'
 import { TriggersSection } from './TriggersSection'
@@ -42,9 +43,11 @@ export function AutomationsView(): JSX.Element {
       <div className="flex-1 overflow-y-auto p-3 md:p-4">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
           <TriggersSection trpc={trpc} />
+          {/* §3.1.6 S5: the steward, expiry jobs and boot reconcile have no human
+              behind them. They are not user work and are not listed here. */}
           <ScheduledSection
             trpc={trpc}
-            automations={automations}
+            automations={userAutomations(automations)}
             automationRuns={automationRuns}
             error={error}
             onEdit={setDialogAutomation}

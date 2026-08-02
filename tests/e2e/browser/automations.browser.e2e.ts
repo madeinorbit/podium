@@ -18,8 +18,11 @@ test('desktop header links + a scheduled automation that persists', async ({ pag
   await expect(header).toBeVisible({ timeout: 60_000 })
 
   // Both preserved destinations are present in the redesigned desktop header.
-  const issuesLink = header.getByRole('button', { name: 'Issues', exact: true })
-  const automationsLink = header.getByRole('button', { name: 'Automations', exact: true })
+  // Selectors key on the destination test-id, not the label: "Issues" became
+  // "Tasks" in the POD-650 naming trial and silently broke this spec at its
+  // second assertion, so nothing below it had run since.
+  const issuesLink = header.getByTestId('topbar-nav-issues')
+  const automationsLink = header.getByTestId('topbar-nav-automations')
   await expect(issuesLink).toBeVisible()
   await expect(automationsLink).toBeVisible()
 
@@ -45,6 +48,11 @@ test('desktop header links + a scheduled automation that persists', async ({ pag
   await expect(dialog.getByText('New automation')).toBeVisible()
   await dialog.getByLabel('Name').fill('Nightly test sweep')
   await dialog.getByLabel('Task prompt').fill('Run the test suite and report what broke.')
+
+  // POD-409: the composer authors a DELEGATION, and says whose it is
+  // (docs/multi-user-readiness.md §3.1.6 S6). No sharing UX is offered here.
+  await expect(dialog.getByText('runs as you', { exact: false })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /share/i })).toHaveCount(0)
 
   // The cron preview reacts to the frequency picker (daily 09:00 is the default).
   await expect(dialog.locator('code')).toHaveText('0 9 * * *')
@@ -81,7 +89,7 @@ test('desktop header links + a scheduled automation that persists', async ({ pag
   await expect(editDialog.getByText('Edit automation')).toBeVisible()
   await expect(editDialog.getByLabel('Cron expression')).toHaveValue('0 9 * * 1')
   await expect(editDialog.getByLabel('Session mode')).toContainText(
-    'Fresh issue and session each run',
+    'Fresh task and session each run',
   )
   await editDialog.getByLabel('Session mode').click()
   await page.getByRole('option', { name: 'Resume the previous session' }).click()
@@ -92,7 +100,7 @@ test('desktop header links + a scheduled automation that persists', async ({ pag
   // ── The assertion the mock could never make: it survives a reload ──────────
   await page.reload()
   await expect(header).toBeVisible({ timeout: 20_000 })
-  await header.getByRole('button', { name: 'Automations', exact: true }).click()
+  await header.getByTestId('topbar-nav-automations').click()
   await expect(view.getByText('Nightly test sweep', { exact: true })).toBeVisible()
   await expect(view.getByText('Resume previous session', { exact: false })).toBeVisible()
 
@@ -120,7 +128,7 @@ test('a one-off automation persists its exact future run', async ({ page }) => {
 
   const header = page.getByTestId('desktop-topbar')
   await expect(header).toBeVisible({ timeout: 60_000 })
-  await header.getByRole('button', { name: 'Automations', exact: true }).click()
+  await header.getByTestId('topbar-nav-automations').click()
 
   const view = page.getByRole('region', { name: 'Automations' })
   await view.getByRole('button', { name: 'New automation' }).click()
@@ -148,7 +156,7 @@ test('a one-off automation persists its exact future run', async ({ page }) => {
 
   await page.reload()
   await expect(header).toBeVisible({ timeout: 20_000 })
-  await header.getByRole('button', { name: 'Automations', exact: true }).click()
+  await header.getByTestId('topbar-nav-automations').click()
   await expect(view.getByText('Quota wakeup', { exact: true })).toBeVisible()
   await view.getByRole('button', { name: 'Edit Quota wakeup' }).click()
   await expect(page.getByRole('dialog').getByLabel('Run at')).toHaveValue(runAt)
