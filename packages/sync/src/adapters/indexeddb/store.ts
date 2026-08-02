@@ -67,11 +67,7 @@ import type {
   OutboxStorePort,
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
-import {
-  mergeScrubReports,
-  planSecretScrub,
-  type SecretScrubReport,
-} from '../secret-scrub'
+import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import type {
   CacheMutation,
   OwnedSyncSpan,
@@ -327,6 +323,44 @@ export class IndexedDbSyncStore {
     const view = new IndexedDbStoreView(this, principal)
     this.views.set(principal, view)
     return view
+  }
+
+  /**
+   * Erase one principal's complete durable namespace.
+   *
+   * Sign-out and stale-namespace retention are different from D7 cache healing:
+   * authored outbox rows belong to the signed-out principal too, so this is the
+   * one lifecycle operation that intentionally spans entities, cursor AND
+   * outbox. The three regions are deleted in one native transaction; a crash
+   * leaves either the full old namespace or none of it.
+   */
+  async erasePrincipal(principal: string): Promise<void> {
+    this.guardReadable()
+    await this.unitOfWork.transact(async (span) => {
+      const draft = this.draftFor(span)
+      for (const row of this.entitiesOf(principal).values()) {
+        draft.ops.push({
+          kind: 'delete',
+          store: ENTITY_STORE,
+          key: [principal, row.entity, row.entityId],
+        })
+      }
+      draft.entities.set(principal, new Map())
+      draft.cursors.set(principal, null)
+      draft.ops.push({ kind: 'delete', store: META_STORE, key: [principal, CURSOR_KEY] })
+      draft.touchedCache = true
+
+      for (const row of this.outboxOf(principal)) {
+        draft.ops.push({
+          kind: 'delete',
+          store: OUTBOX_STORE,
+          key: [principal, row.mutationId],
+        })
+      }
+      draft.outbox.set(principal, [])
+      draft.touchedOutbox = true
+    })
+    this.views.delete(principal)
   }
 
   /**

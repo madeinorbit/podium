@@ -137,14 +137,14 @@ export const grokManifest: AgentManifest = {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: 'grok', args: ['-p', ...(model ? ['--model', model] : []), prompt] }
+    return { cmd: 'grok', args: [...(model ? ['--model', model] : []), '--single', prompt] }
   }),
 
   headless: supported({
     driver: 'resume-exec',
     outputFormat: 'text',
-    // -s/--session-id is create-or-resume — the daemon mints the UUID on the
-    // first turn, so every turn uses the same pinned invocation.
+    // The daemon mints a UUID for --session-id on the first turn; later turns
+    // use --resume with that same id.
     resumeIdAllocation: 'daemon-minted-uuid',
     buildExec: supported((opts) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
@@ -155,13 +155,13 @@ export const grokManifest: AgentManifest = {
       return {
         cmd: 'grok',
         args: [
-          '-p',
           ...(opts.resumeValue
             ? ['--resume', opts.resumeValue]
             : ['--session-id', opts.sessionId ?? '']),
           ...(model ? ['--model', model] : []),
           ...(opts.permissionMode === 'auto' ? ['--permission-mode', 'auto'] : []),
           ...(rules ? ['--rules', rules] : []),
+          '--single',
           opts.prompt,
         ],
       }

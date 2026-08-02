@@ -21,4 +21,5 @@ export * from './kernel'
 export * from './legacy-wire-v1-binding'
 
 export * from './legacy-wire-v1-feed'
+export * from './principal-storage'
 export * from './replica'

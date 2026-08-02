@@ -460,12 +460,12 @@ describe('the side cache', () => {
       ).toEqual(['m2'])
     })
 
-    it('LEAVES the legacy blobs in place, so turning the flag back off loses nothing', () => {
+    it('retires the raw blob after the acting principal has a durable copy', () => {
       const storage = memoryStorage()
       const raw = JSON.stringify([queued('m1')])
       storage.setItem('podium.outbox.v1', raw)
       createSideCache({ storage, enumerateKeys: () => [] })
-      expect(storage.getItem('podium.outbox.v1')).toBe(raw)
+      expect(storage.getItem('podium.outbox.v1')).toBeNull()
     })
 
     it('is idempotent by mutationId — a second boot does not duplicate the queue', () => {
