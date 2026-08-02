@@ -1,0 +1,140 @@
+POD-327 failed candidate preflight — 2026-08-02
+
+Candidate commit: 5d814dd54dbf67f97c5d052445473b6be82b0bc1
+Candidate binary SHA-256: f7dbbfd353711f5e9cb3033830f1ea2ddc70eaf80620fef7b154b9ae5568674a
+Live server commit: f97ed4fc2269a8abd2c8c49a22ca9c7770b3ff96 (not a descendant)
+VPS machine id: c2ba4db0-eeb8-4768-a9be-98816c878a68
+Verdict: INVALID / NOT STARTED. No soak time counts.
+
+Continuous monitor output
+=========================
+POD327_SAMPLE_BEGIN
+2026-08-02T13:01:58Z
+ActiveState=active
+SubState=running
+WatchdogTimestamp=Sun 2026-08-02 15:01:46 CEST
+MainPID=1305562
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-08-02 15:01:04 CEST
+ExecMainStatus=0
+Podium — mode: daemon
+  ● daemon  up  pid 1305562  (55s)
+  ✓ server link → wss://ludovico.shetland-banjo.ts.net:55555: connected (last contact 9m ago)
+  URL: http://localhost:18787
+POD327_SAMPLE_END
+POD327_SAMPLE_BEGIN
+2026-08-02T13:02:59Z
+ActiveState=active
+SubState=running
+WatchdogTimestamp=Sun 2026-08-02 15:02:46 CEST
+MainPID=1305562
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-08-02 15:01:04 CEST
+ExecMainStatus=0
+Podium — mode: daemon
+  ● daemon  up  pid 1305562  (1m)
+  ✓ server link → wss://ludovico.shetland-banjo.ts.net:55555: connected (last contact 10m ago)
+  URL: http://localhost:18787
+POD327_SAMPLE_END
+POD327_SAMPLE_BEGIN
+2026-08-02T13:04:00Z
+ActiveState=active
+SubState=running
+WatchdogTimestamp=Sun 2026-08-02 15:03:46 CEST
+MainPID=1305562
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-08-02 15:01:04 CEST
+ExecMainStatus=0
+Podium — mode: daemon
+  ● daemon  up  pid 1305562  (2m)
+  ! server link → wss://ludovico.shetland-banjo.ts.net:55555: disconnected (retrying every ~1s) (last contact 11m ago)
+  URL: http://localhost:18787
+POD327_SAMPLE_END
+POD327_SAMPLE_BEGIN
+2026-08-02T13:05:01Z
+ActiveState=active
+SubState=running
+WatchdogTimestamp=Sun 2026-08-02 15:05:01 CEST
+MainPID=1305562
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-08-02 15:01:04 CEST
+ExecMainStatus=0
+Podium — mode: daemon
+  ● daemon  up  pid 1305562  (3m)
+  ! server link → wss://ludovico.shetland-banjo.ts.net:55555: disconnected (retrying every ~1s) (last contact 12m ago)
+  URL: http://localhost:18787
+POD327_SAMPLE_END
+POD327_SAMPLE_BEGIN
+2026-08-02T13:06:02Z
+ActiveState=active
+SubState=running
+WatchdogTimestamp=Sun 2026-08-02 15:06:01 CEST
+MainPID=1305562
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-08-02 15:01:04 CEST
+ExecMainStatus=0
+Podium — mode: daemon
+  ● daemon  up  pid 1305562  (4m)
+  ! server link → wss://ludovico.shetland-banjo.ts.net:55555: disconnected (retrying every ~1s) (last contact 13m ago)
+  URL: http://localhost:18787
+POD327_SAMPLE_END
+POD327_SAMPLE_BEGIN
+2026-08-02T13:07:03Z
+ActiveState=active
+SubState=running
+WatchdogTimestamp=Sun 2026-08-02 15:07:01 CEST
+MainPID=1305562
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-08-02 15:01:04 CEST
+ExecMainStatus=0
+Podium — mode: daemon
+  ● daemon  up  pid 1305562  (6m)
+  ! server link → wss://ludovico.shetland-banjo.ts.net:55555: disconnected (retrying every ~1s) (last contact 14m ago)
+  URL: http://localhost:18787
+POD327_SAMPLE_END
+POD327_SAMPLE_BEGIN
+2026-08-02T13:08:04Z
+ActiveState=active
+SubState=running
+WatchdogTimestamp=Sun 2026-08-02 15:08:01 CEST
+MainPID=1305562
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-08-02 15:01:04 CEST
+ExecMainStatus=0
+Podium — mode: daemon
+  ● daemon  up  pid 1305562  (7m)
+  ! server link → wss://ludovico.shetland-banjo.ts.net:55555: disconnected (retrying every ~1s) (last contact 15m ago)
+  URL: http://localhost:18787
+POD327_SAMPLE_END
+
+Daemon journal boundary
+=======================
+Aug 02 15:01:04 vmi3407763 systemd[113829]: Stopping podium-daemon.service - Podium per-machine agent daemon...
+Aug 02 15:01:04 vmi3407763 systemd[113829]: Stopped podium-daemon.service - Podium per-machine agent daemon.
+Aug 02 15:01:04 vmi3407763 systemd[113829]: Starting podium-daemon.service - Podium per-machine agent daemon...
+Aug 02 15:01:06 vmi3407763 podium[1305562]: [podium] codex hooks installed/refreshed
+Aug 02 15:01:16 vmi3407763 podium[1305562]: podium daemon up → wss://ludovico.shetland-banjo.ts.net:55555
+Aug 02 15:01:16 vmi3407763 systemd[113829]: Started podium-daemon.service - Podium per-machine agent daemon.
+Aug 02 15:08:38 vmi3407763 systemd[113829]: Stopping podium-daemon.service - Podium per-machine agent daemon...
+Aug 02 15:08:38 vmi3407763 systemd[113829]: Stopped podium-daemon.service - Podium per-machine agent daemon.
+Aug 02 15:08:38 vmi3407763 systemd[113829]: Starting podium-daemon.service - Podium per-machine agent daemon...
+Aug 02 15:08:39 vmi3407763 podium[1307089]: [podium] codex hooks installed/refreshed
+Aug 02 15:08:40 vmi3407763 podium[1307089]: podium daemon up → wss://ludovico.shetland-banjo.ts.net:55555
+Aug 02 15:08:40 vmi3407763 systemd[113829]: Started podium-daemon.service - Podium per-machine agent daemon.
+
+Recovery boundary
+=================
+2026-08-02T13:08:44Z
+Restored binary SHA-256: 308759ec1e0b2527b3ee801436a26a62e82a10732db6c7cb8ab9cc21db68aa57
+ActiveState=active
+SubState=running
+NRestarts=0
+Server link: connected (last contact 5s ago)
+Monitor unit: inactive/dead, Result=success
