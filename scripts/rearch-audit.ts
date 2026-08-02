@@ -918,6 +918,11 @@ export const CHECKS: AuditCheck[] = [
     // NOT a regression against main: main runs a different detector under this key
     // (exported names in one file, no change-row-audit.ts at all) — one instrument
     // over both trees gives integration 12, MAIN 22.
+    //
+    // POD-1251 drove the live count 15 → 0 by composition. The zero is the target
+    // state, not detector drift: `changeRowRestatements` runs a planted restatement
+    // CONTROL on every collect and THROWS when that stops matching (POD-1417), so
+    // this item may sit in ZERO_BY_DESIGN on the same terms as per-user-singletons.
     unit: "a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model's change field schemas",
     collect: (ctx) => changeRowRestatements(ctx),
   },
