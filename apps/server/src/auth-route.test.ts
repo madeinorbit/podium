@@ -38,6 +38,16 @@ describe('auth-route', () => {
     expect(await res.json()).toEqual({ needsAuth: false, authed: false })
   })
 
+  test('status reports the composition-root principal without deriving an open-mode user', async () => {
+    const res = await makeApp({ resolveUserId: () => FIRST_ADMIN_USER_ID }).request('/auth/status')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      needsAuth: false,
+      authed: true,
+      userId: FIRST_ADMIN_USER_ID,
+    })
+  })
+
   test('status reports needsAuth=true once a password is set', async () => {
     await setPassword('hunter2', dir)
     const res = await makeApp().request('/auth/status')

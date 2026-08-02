@@ -83,10 +83,12 @@ describe('mobile SQLite adapter — store obligations', () => {
 
       // A second connection, with a mirror of its own, moves the record on.
       const second = await open()
-      await second.viewFor(ADA).outbox.apply(
-        { put: [record('sending')], expect: [{ mutationId: M, expect: 'queued' }] },
-        undefined,
-      )
+      await second
+        .viewFor(ADA)
+        .outbox.apply(
+          { put: [record('sending')], expect: [{ mutationId: M, expect: 'queued' }] },
+          undefined,
+        )
       second.close()
 
       // The first connection still believes `queued` — its mirror says so, so the
@@ -327,5 +329,48 @@ describe('mobile SQLite adapter — store obligations', () => {
     ])
     expect(durable.cursors.map((r) => r.principal)).toEqual([GRACE])
     store.close()
+  })
+
+  it('sign-out erases entity, cursor and outbox for only that principal', async () => {
+    const store = await open()
+    for (const principal of [ADA, GRACE]) {
+      const view = store.viewFor(principal)
+      await store.unitOfWork.transact(async (span) => {
+        await view.outbox.apply(
+          { put: [record('queued')], expect: [{ mutationId: M, expect: 'absent' }] },
+          span,
+        )
+        view.cache.applyAtomic(
+          {
+            operations: [
+              {
+                kind: 'upsert',
+                entity: 'issue',
+                entityId: 'SHARED-1',
+                value: { owner: principal },
+                provenance: { seq: 1 },
+              },
+            ],
+            cursor: CURSOR_1,
+          },
+          span,
+        )
+      })
+    }
+
+    await store.erasePrincipal(ADA)
+    store.close()
+
+    const durable = readDurable(file)
+    expect(durable.entities).toEqual([
+      {
+        principal: GRACE,
+        entity: 'issue',
+        entityId: 'SHARED-1',
+        value: { owner: GRACE },
+      },
+    ])
+    expect(durable.cursors.map((row) => row.principal)).toEqual([GRACE])
+    expect(durable.outbox.map((row) => row.principal)).toEqual([GRACE])
   })
 })
