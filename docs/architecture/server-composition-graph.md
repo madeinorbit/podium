@@ -5,7 +5,7 @@
 
 Root: `apps/server/src/relay.ts`
 
-Runtime modules: 169. Runtime edges: 277. Cycles: 0.
+Runtime modules: 169. Runtime edges: 276. Cycles: 0.
 
 ## Verified topological order
 
@@ -18,11 +18,11 @@ Runtime modules: 169. Runtime edges: 277. Cycles: 0.
 7. `apps/server/src/device-grade-owner.ts`
 8. `apps/server/src/features.ts`
 9. `apps/server/src/file-relay-policy.ts`
-10. `apps/server/src/gateway/client-registry.ts`
-11. `apps/server/src/gateway/browser-open.ts`
-12. `apps/server/src/gateway/client-frame-routing.ts`
-13. `apps/server/src/gateway/client-principal.ts`
-14. `apps/server/src/gateway/client-mux.ts`
+10. `apps/server/src/gateway/browser-open.ts`
+11. `apps/server/src/gateway/client-frame-routing.ts`
+12. `apps/server/src/gateway/client-principal.ts`
+13. `apps/server/src/gateway/client-mux.ts`
+14. `apps/server/src/gateway/client-registry.ts`
 15. `apps/server/src/gateway/daemon-frame-routing.ts`
 16. `apps/server/src/gateway/daemon-mux.ts`
 17. `apps/server/src/gateway/legacy-wire-v1-adapter.ts`
@@ -191,7 +191,7 @@ Runtime modules: 169. Runtime edges: 277. Cycles: 0.
 | `apps/server/src/device-grade-owner.ts` | — |
 | `apps/server/src/features.ts` | — |
 | `apps/server/src/file-relay-policy.ts` | — |
-| `apps/server/src/gateway/browser-open.ts` | `apps/server/src/gateway/client-registry.ts` |
+| `apps/server/src/gateway/browser-open.ts` | — |
 | `apps/server/src/gateway/client-frame-routing.ts` | — |
 | `apps/server/src/gateway/client-mux.ts` | `apps/server/src/gateway/client-frame-routing.ts`<br>`apps/server/src/gateway/client-principal.ts` |
 | `apps/server/src/gateway/client-principal.ts` | — |

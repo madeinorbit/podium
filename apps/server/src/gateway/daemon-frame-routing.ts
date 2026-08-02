@@ -184,6 +184,19 @@ export const PRINCIPAL_SCOPED_FRAMES = Object.entries(MACHINE_SCOPE_CARRIER)
   .map(([type]) => type) as MachineAdjacentFrameType[]
 
 /**
+ * Machine-adjacent frames that are REPLIES to a request the server sent.
+ *
+ * These also have to reach their port with the answering machine, or the
+ * correlator has nothing to compare the target against and the
+ * `request-correlated` claim goes back to being unenforceable. `daemon-mux.test.ts`
+ * audits every row here, so dropping the principal from one of these dispatch
+ * lines — the exact shape the code had before POD-318 — fails the mux's suite.
+ */
+export const REQUEST_CORRELATED_FRAMES = Object.entries(MACHINE_SCOPE_CARRIER)
+  .filter(([, carrier]) => carrier === 'request-correlated')
+  .map(([type]) => type) as MachineAdjacentFrameType[]
+
+/**
  * Which port(s) own a frame, or `null` when the type is unknown. A null answer
  * means REFUSE — the gateway never guesses an owner, exactly as it never guesses
  * a plane.
