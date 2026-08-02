@@ -2,7 +2,7 @@ import { type CommandDef, defineCommands, type LockCommandName } from '@podium/c
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { authorize } from '../../issue-authz'
-import type { IssueCaller } from '../issues/registry'
+import type { IssueCaller } from '../issues/command-ctx'
 import type { IssueService } from '../issues/service'
 import type { LockCallerIdentity, LockHolderId, LockService } from './service'
 

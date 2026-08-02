@@ -1,6 +1,6 @@
 import type { IssueWire } from '@podium/model'
-import { onBehalfOfUser, type CommandPrincipal } from '../command-principal'
-import type { IssueCaller } from '../modules/issues/registry'
+import { type CommandPrincipal, onBehalfOfUser } from '../command-principal'
+import type { IssueCaller } from '../modules/issues/command-ctx'
 import type { IssueAttentionCapability } from '../modules/issues/service'
 
 export type IssueAttachInput = Parameters<IssueAttentionCapability['attachSession']>[0]

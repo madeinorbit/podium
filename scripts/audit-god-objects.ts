@@ -532,6 +532,15 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     argument:
       'The orchestrator tool belt: one entry per tool, each a spec plus the implementation the MCP surface and the harness allowlist both read. It exports no class and owns no state; every tool is independently readable and independently removable, and the file length is the number of tools the superagent has. Grouping the tools into themed files would create several import sites for one allowlist that must stay exhaustive, which is the property `harnessAllowedTools` depends on.',
   },
+  {
+    file: 'apps/server/src/modules/issues/registry.ts',
+    kind: 'declaration-table',
+    budget: 1400,
+    review: 'POD-1398',
+    table: 'issueRegistry',
+    argument:
+      'One row per issue command: the handler, the tRPC `kind` it mounts as, and the target extractor, joined by `def()` to the L1 contract that owns its schema and policy. POD-1398 removed the two objects this file also shipped — `IssueCommandCtx` (what a handler is handed) went to `command-ctx.ts` and `IssueCommandDispatcher` (how a row is chosen and run) to `dispatcher.ts`, in that dependency order, so the table now imports the context as a TYPE only and nothing imports the table back. What is left holds no state and exports no object; its length is the number of commands the issue tracker has, and every row is independently readable. Splitting the rows into themed files would split the `satisfies Record<IssueContractName, AnyIssueCommandDef>` pin, which is the only thing making handler-to-contract coverage total in both directions.',
+  },
 
   // -- The composition root ---------------------------------------------------
   {
