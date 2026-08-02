@@ -373,7 +373,13 @@ export async function startServer(
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
-  registerAuthRoute(app, { store: store.auth, users: store.users })
+  registerAuthRoute(app, {
+    store: store.auth,
+    users: store.users,
+    // One principal resolver for every human-client transport. The status route
+    // reports this result; it does not recreate the open/dev bootstrap fallback.
+    resolveUserId: (cookie) => requestPrincipal(cookie)?.user,
+  })
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
