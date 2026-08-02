@@ -1,8 +1,12 @@
 # POD-1396 — finishing the `lifecycle.ts` decomposition
 
-**State:** 2955 → 2749 lines, 93 methods, four modules extracted.
+**State:** 2955 → 2700 lines, 91 methods, **five** modules extracted.
 **Target:** under the 600-line review signal, or an argued exception its own
-predicate can satisfy. At 2749 it is not that, and no honest exception exists.
+predicate can satisfy. At 2700 it is not that, and no honest exception exists.
+
+Re-measure before trusting these numbers — this file has already gone stale once
+during the work it describes, which is the same failure its parent audit exists
+to catch.
 
 ## What has come out so far
 
@@ -12,6 +16,7 @@ predicate can satisfy. At 2749 it is not that, and no honest exception exists.
 | `terminal-proof.ts` | "may this session be parked?" | lifecycle already passed `terminalCandidateFacts` into daemon-lifecycle as an explicit **port** |
 | `machine-reconciler.ts` | daemon appear/vanish reconciliation | the gateway already owned the transport half and called lifecycle for the session half |
 | `naming.ts` | the curated name slot + provenance | two setters distinguishable only by the user-sovereign rule between them |
+| `launch-config.ts` | model/effort/credential for a spawn frame | exactly two callers need exactly this — initial spawn and resurrect-respawn |
 
 Ordering note that cost nothing to preserve and would have cost a lot to lose:
 the lease book came out **first**, as ownership rather than a code move. Moving
@@ -20,7 +25,7 @@ god-object audit greener and the design worse.
 
 ## What is left, measured
 
-93 methods, 2592 lines inside method bodies. The blocks that matter:
+91 methods, 2542 lines inside method bodies. The blocks that matter:
 
 ```
  372  constructor                  the per-module composition root
@@ -34,7 +39,6 @@ god-object audit greener and the design worse.
   61  finishResurrect
   59  reattachMessageFor
   48  tryAutoArchiveStoppedObserved
-  45  modelDefaults
   44  handoffSession
   41  killSession / handoffs
   39  emitSessionExited / removeSessionRuntime
@@ -107,7 +111,7 @@ Landing all four leaves a facade of delegations plus small methods, roughly
 
 ## The rule this file exists to keep
 
-Do not ledger-exempt any of this to force the audit to zero. A 2749-line
+Do not ledger-exempt any of this to force the audit to zero. A 2700-line
 `lifecycle.ts` talked into `cohesive-owner` would be the exact disease the
 instrument was built to detect, committed by its author. If a residue genuinely
 is a justified exception, argue it **with the predicate** — and note that the
@@ -116,7 +120,7 @@ which today the constructor alone violates.
 
 ## Verification bar for each cut
 
-Established over the four already landed, and worth keeping:
+Established over the five already landed, and worth keeping:
 
 1. `bun run typecheck` — 22/22.
 2. Targeted suites for the moved behaviour, green.
@@ -129,7 +133,7 @@ Established over the four already landed, and worth keeping:
    this work (287 → 286) and the explanation was a lint autofix converting
    already-type-only imports, not coupling improving.
 5. Dispose contracts: check whether the extracted module owns a timer, loop or
-   async work. None of the four so far did — but that was checked, not assumed.
+   async work. None of the five so far did — but that was checked, not assumed.
    POD-1390 proved this is where a split silently drops behaviour.
 
 ## Two files whose lane verdict is ORDER-DEPENDENT
