@@ -21,8 +21,9 @@
  *    PODIUM_STATE_DIR keeps it.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { assertHermeticStateDir } from './test-hermetic-state-guard'
 
 // PODIUM_CODEX_HOOK_* (the codex hook ingest locator — PODIUM_CODEX_HOOK_URL today, plus any
 // locator POD-565's official-hooks migration adds) is scrubbed by prefix so a codex session's
@@ -55,6 +56,25 @@ for (const key of Object.keys(process.env)) {
   }
 }
 process.env.PODIUM_NO_RELAY = '1'
+
+// A live Podium session may prepend helper shims below ~/.podium to PATH. Even when tests use
+// an isolated PODIUM_STATE_DIR, every child command lookup would still stat that live tree.
+// Remove the default live state root and its descendants before any test or agent CLI starts.
+const liveDefaultStateDir = join(homedir(), '.podium')
+if (process.env.PATH) {
+  process.env.PATH = process.env.PATH.split(delimiter)
+    .filter((entry) => {
+      if (!entry) return true
+      const pathFromLiveState = relative(liveDefaultStateDir, resolve(entry))
+      const isWithinLiveState =
+        pathFromLiveState === '' ||
+        (pathFromLiveState !== '..' &&
+          !pathFromLiveState.startsWith(`..${sep}`) &&
+          !isAbsolute(pathFromLiveState))
+      return !isWithinLiveState
+    })
+    .join(delimiter)
+}
 
 // ---- tmp-dir containment [spec:SP-0be7] (POD-518) -------------------------------------------
 // INVARIANT: everything a test process (and any child it spawns) writes to "tmp" lands inside
@@ -100,3 +120,4 @@ if (!process.env.PODIUM_STATE_DIR) {
   // container above, so the exit cleanup removes it too.
   process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-test-'))
 }
+assertHermeticStateDir()

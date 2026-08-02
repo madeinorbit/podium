@@ -37,6 +37,7 @@ import {
   FeedSink,
   PushedBootstrapSource,
   type ReplicaMode,
+  preparePrincipalNamespace,
   resolveReplicaMode,
 } from '@podium/client-core/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
@@ -50,17 +51,11 @@ import type { Trpc } from '@/app/trpc'
 
 /** The IndexedDB database the web client's kernel replica lives in. */
 export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
+/** Root below which every localStorage side-cache key is principal-bound. */
+export const KERNEL_SIDE_CACHE_PREFIX = 'podium.kernel-replica'
 
-/**
- * The principal this client's slice is stored under.
- *
- * `CLIENT_PRINCIPAL_GRADE` is still `device` (one shared password — see the
- * shadow-comparison basis §5), so there is exactly one principal a browser can
- * name and it is this constant. It is NOT a placeholder to be filled in with a
- * user id later without thought: when per-user login lands, an existing store
- * keyed `default` holds rows captured before anyone could be attributed, and
- * POD-377's rule applies — adopt only when attribution is CERTAIN.
- */
+/** The caller supplies the authenticated principal. Every cache and side-cache
+ * address below is bound to it before the first row is read. */
 
 export interface KernelAssembly {
   /** Handed to the engine; called once. */
@@ -76,6 +71,8 @@ export interface KernelAssembly {
   attachHub(hub: SocketHub): void
   /** Additional kernel-event listener (the shadow harness takes one). */
   onKernelEvent(listener: (event: ReplicaEvent) => void): () => void
+  /** Fail-closed sign-out: erase this principal's IDB and side-cache namespace. */
+  erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
 }
 
@@ -87,28 +84,9 @@ export interface OpenKernelAssemblyOptions {
   readonly factory?: IdbFactoryLike
   /** Surfaced rather than swallowed (ADR 6 D4). */
   readonly onDegraded?: (detail: unknown) => void
-  /**
-   * WHO THIS DEVICE'S EXISTING STORE BELONGS TO — the attribution gate's input.
-   *
-   * POD-377 built `decideLegacyAdoption` and POD-378 verified it; nothing on
-   * either client ever called it (POD-1239). A gate with no caller is
-   * indistinguishable from an enforced one in every handoff that cites it, and
-   * this one guards a privacy rule: POD-307 says an unattributable store is
-   * DISCARDED and re-bootstrapped, never adopted, because on a shared device
-   * adoption is how one person's cached rows become another person's history.
-   *
-   * The DEFAULT is `single-account`, and that is a claim about this tree rather
-   * than a convenience: `CLIENT_PRINCIPAL_GRADE` is still `device` — one shared
-   * password, `client_sessions` has no user column — so no user identities exist
-   * in the system at all and the store can only be the one operator's. That is
-   * the arm's definition verbatim.
-   *
-   * IT IS INJECTED, NOT HARDCODED, for two reasons. When per-user login lands,
-   * this becomes `multi-user` with the device's identity ledger and the default
-   * stops being true — a hardcoded arm would keep silently adopting. And a test
-   * can present `unknown` or a foreign ledger and observe the REFUSAL, which is
-   * the only way to know the gate can say no.
-   */
+  /** Identity evidence for the pre-namespace legacy-adoption gate. The web boot
+   * root derives multi-user evidence from existing principal namespace markers;
+   * tests can inject unknown/foreign evidence to exercise fail-closed refusal. */
   readonly evidence: LegacyIdentityEvidence
 }
 
@@ -126,6 +104,25 @@ export async function openKernelAssembly(
       console.warn('[podium] kernel replica storage degraded', detail)
     },
   })
+  const enumerateLocalKeys = (): string[] => Object.keys(globalThis.localStorage)
+  const namespace = preparePrincipalNamespace({
+    storage: globalThis.localStorage,
+    enumerateKeys: enumerateLocalKeys,
+    basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+    principal: options.principal,
+  })
+  if (!namespace.durable) {
+    store.close()
+    throw new Error('principal namespace marker is unavailable')
+  }
+  // Apply the same bounded-retention decision to transactional regions before
+  // the acting slice is read.
+  for (const stalePrincipal of namespace.evictedPrincipals) {
+    await store.erasePrincipal(stalePrincipal)
+  }
+  // Identity evidence now lives in per-principal namespace markers. Retire the
+  // old raw ledger; theme is the sole raw pre-auth exception.
+  globalThis.localStorage.removeItem('podium-kernel-identity-ledger')
   const view = store.viewFor(options.principal)
 
   // ---- THE ATTRIBUTION GATE, before a single row is read ------------------
@@ -171,15 +168,18 @@ export async function openKernelAssembly(
     api: trpc,
     onDegraded: (detail) => options.onDegraded?.(detail),
   })
+  const side = createSideCache({
+    storage: globalThis.localStorage,
+    storageEventApi: globalThis.window,
+    enumerateKeys: enumerateLocalKeys,
+    keyPrefix: namespace.keyPrefix,
+    // The same verdict governs the legacy QUEUE: an unattributable device's
+    // unsent writes are not this user's to replay.
+    adoptLegacyOutbox: adoption.adopt,
+  })
   const facade = createKernelReplica({
     cache: view.cache,
-    side: createSideCache({
-      storage: globalThis.localStorage,
-      storageEventApi: globalThis.window,
-      // The same verdict governs the legacy QUEUE: an unattributable device's
-      // unsent writes are not this user's to replay.
-      adoptLegacyOutbox: adoption.adopt,
-    }),
+    side,
   })
 
   const kernel = new KernelReplica({
@@ -224,7 +224,13 @@ export async function openKernelAssembly(
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    erasePrincipalData: async () => {
+      side.dispose()
+      namespace.erase()
+      await store.erasePrincipal(options.principal)
+    },
     dispose: async () => {
+      side.dispose()
       await store.settled()
       store.close()
     },

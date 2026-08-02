@@ -14,6 +14,7 @@ function makeService(): MachinesService {
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
     clients: () => [],
+    machinesForPrincipal: () => [],
   } satisfies MachinesDeps
   return new MachinesService(deps)
 }
@@ -141,6 +142,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       hostMachineId: store.hostMachineId,
       sessionsChangedForMachine: () => {},
       clients: () => [],
+      machinesForPrincipal: () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }

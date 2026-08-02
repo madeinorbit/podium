@@ -509,6 +509,16 @@ describe('SocketHub reconnect + heartbeat', () => {
     expect(sockets[1]?.parsed()).toContainEqual({ type: 'attach', sessionId: 's1' })
   })
 
+  it('retries when the initial connection closes before opening', () => {
+    vi.useFakeTimers()
+    const { sockets, hub, errors } = multiSetup()
+    hub.connect()
+    sockets[0]?.close()
+    expect(errors).toEqual(['WebSocket connection closed before connecting'])
+    vi.advanceTimersByTime(30_000)
+    expect(sockets).toHaveLength(2)
+  })
+
   it('keeps retrying with backoff until the server is back', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()

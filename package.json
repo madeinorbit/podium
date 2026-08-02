@@ -40,7 +40,7 @@
     "host": "bun run --filter @podium/web dev & bun --conditions=@podium/source --watch scripts/host.ts",
     "host:web": "bun run --filter @podium/web dev",
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "bun scripts/typecheck.ts",
     "test": "bun run test:unit && bun run test:web && bun run test:mobile && bun run test:bun:unit",
     "test:unit": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node --project normalized-wire",
     "test:web": "bun run --cwd apps/web test:unit",

@@ -52,6 +52,8 @@
 
 import {
   createReplica,
+  preparePrincipalNamespace,
+  REPLICA_KEY_PREFIX,
   type Replica,
   type StorageApi,
   type StorageEventApi,
@@ -69,6 +71,8 @@ import {
 } from './legacyStoreAttribution'
 
 export interface CreateWebReplicaOptions {
+  /** Authenticated principal whose slice and every persisted key this is. */
+  readonly principal?: string
   /**
    * WHO THIS DEVICE'S EXISTING STORE BELONGS TO — the attribution gate's input.
    *
@@ -115,6 +119,16 @@ export interface CreateWebReplicaOptions {
 export function createWebReplica(options: CreateWebReplicaOptions = {}): Replica {
   const storage = options.storage ?? window.localStorage
   const now = options.now ?? Date.now
+  const injected = options.storage !== undefined
+  const enumerateKeys =
+    options.enumerateKeys ?? (injected ? () => [] : () => Object.keys(window.localStorage))
+  const namespace = preparePrincipalNamespace({
+    storage,
+    enumerateKeys,
+    basePrefix: REPLICA_KEY_PREFIX,
+    principal: options.principal ?? WEB_REPLICA_PRINCIPAL,
+    now: () => now(),
+  })
 
   // ---- THE ATTRIBUTION GATE, before a single row is read -------------------
   //
@@ -138,15 +152,23 @@ export function createWebReplica(options: CreateWebReplicaOptions = {}): Replica
   // The browser's three ambient values, unchanged when nothing is injected —
   // POD-1239's "byte-for-byte what it was" still holds. An injected store gets
   // NEITHER of the other two by default; see the options doc for why.
-  const injected = options.storage !== undefined
   const replica = createReplica({
-    storage,
-    storageEventApi: options.storageEventApi ?? (injected ? undefined : window),
-    enumerateKeys:
-      options.enumerateKeys ?? (injected ? () => [] : () => Object.keys(window.localStorage)),
+    ...(namespace.durable
+      ? {
+          storage,
+          storageEventApi: options.storageEventApi ?? (injected ? undefined : window),
+          enumerateKeys,
+        }
+      : {}),
+    keyPrefix: namespace.keyPrefix,
   })
 
   if (!adoption.adopt) {
+    // The namespaced cache may be invisible to an injected store's deliberately
+    // absent key enumerator. Reset through the replica as well so its in-memory
+    // collections and cursor are empty before any caller can observe them; the
+    // reset contract preserves every outbox home and UI state.
+    replica.resetCache()
     // AFTER the construction, because the three outbox homes are read through the
     // replica's own seams — one decoder shared with the writer rather than a
     // second parse of the collection blob format.

@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
+import {
+  asSessionId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+  parseIssueDepId,
+  parseLayoutRowId,
+} from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -70,7 +76,7 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
@@ -78,6 +84,7 @@ import type { SnapshotTail } from './modules/sessions/publication/coordinator'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
+import { LayoutService } from './modules/layout/service'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -132,6 +139,8 @@ export interface RegistryModules {
   memory: MemoryService
   hosts: HostsService
   settings: SettingsService
+  /** Per-user sidebar/tab layout (POD-1350) — store + feed publish behind one service. */
+  layout: LayoutService
   issueSessionLifecycle: IssueSessionLifecycle
   headless: HeadlessService
   notify: NotifyService
@@ -322,6 +331,11 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clientRegistry.values(),
+      machinesForPrincipal: (principal, machineService) =>
+        machinesForPrincipal(
+          { machines: machineService },
+          userCommandPrincipal(asUserId(principal.user), principal.role),
+        ),
     })
     // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
     // this registry mints names a machine (POD-318), and a machine id with no row is
@@ -371,6 +385,9 @@ export class SessionRegistry {
     const visibility = new GrantEdgeVisibilityPolicy({
       classOf: (entity) => {
         if (entity === 'repo') return 'deployment-substrate'
+        // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
+        // filter. Must NOT fall through to personal or unclassified.
+        if (entity === 'userLayout') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issue' ||
@@ -416,9 +433,18 @@ export class SessionRegistry {
           const run = this.store.automations.getRun(ref.entityId)
           return run ? this.store.automations.get(run.automationId)?.ownerUserId === userId : false
         }
+        // per-user-state is decided by keyedUserOf, not mayRead.
+        if (ref.entity === 'userLayout') return false
         return false
       },
-      keyedUserOf: () => null,
+      keyedUserOf: (ref) => {
+        if (ref.entity !== 'userLayout') return null
+        try {
+          return parseLayoutRowId(ref.entityId).userId
+        } catch {
+          return null
+        }
+      },
     })
     const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
       const row = this.store.sync
@@ -491,6 +517,22 @@ export class SessionRegistry {
       current: readonly import('@podium/model').ConversationDiagnosticWire[]
     } = { current: [] }
     const subscriptions = new SubscriptionRegistry()
+    const roomVisibility: VisibilityResolver = {
+      canSee: (principal, ref) => {
+        if (principal.kind !== 'user') return false
+        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
+        return visibility.mayDeliver(
+          { kind: 'user', userId: principal.user },
+          { entity: ref.kind, entityId: ref.id },
+        )
+      },
+    }
+    const presence = new PresenceRouting({
+      subscriptions,
+      clients: clientRegistry,
+      visibility: roomVisibility,
+      now: this.now,
+    })
     const feedServing = new FeedServing({
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
@@ -506,6 +548,7 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
       subscriptions,
+      onVisibilityChanged: (subscriberIds) => presence.revalidateSubscribers(subscriberIds),
       diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({
@@ -709,6 +752,7 @@ export class SessionRegistry {
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
+      subscriptions,
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
@@ -1387,6 +1431,9 @@ export class SessionRegistry {
     })
     this.issues = issues
     this.issueCommands = issueCommands
+    // Layout service is composed here (not reached from tRPC via sessionStore) so
+    // the transport only names familyState(ctx).modules.layout — router-triple-access.
+    const layout = new LayoutService({ layout: this.store.layout, ledger })
     this.modules = {
       bus: this.bus,
       funnel,
@@ -1396,6 +1443,7 @@ export class SessionRegistry {
       memory,
       hosts,
       settings,
+      layout,
       headless,
       reactions: REACTIONS,
       notify,
@@ -1883,22 +1931,6 @@ export class SessionRegistry {
     // that both surfaces arrive on the same socket.
     // The CLIENT plane's mux. Every client frame is session-owned today except
     // `ping`, which the mux answers itself — see gateway/client-frame-routing.ts.
-    const roomVisibility: VisibilityResolver = {
-      canSee: (principal, ref) => {
-        if (principal.kind !== 'user') return false
-        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
-        return visibility.mayDeliver(
-          { kind: 'user', userId: principal.user },
-          { entity: ref.kind, entityId: ref.id },
-        )
-      },
-    }
-    const presence = new PresenceRouting({
-      subscriptions,
-      clients: clientRegistry,
-      visibility: roomVisibility,
-      now: this.now,
-    })
     this.clientGateway = new ClientMux({
       registry: clientRegistry,
       ports: { sessions: sessionsSvc },
@@ -1967,6 +1999,11 @@ export class SessionRegistry {
   /** The backing store — shared with services that persist their own tables (superagent). */
   get sessionStore(): SessionStore {
     return this.store
+  }
+
+  /** Write-seam ledger — layout (and other non-session modules) capture entity rows here. */
+  get changeLedger(): Ledger {
+    return this.ledger
   }
 
   dispose(): void {

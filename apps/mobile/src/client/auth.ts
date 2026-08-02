@@ -3,13 +3,18 @@
 export interface AuthStatus {
   needsAuth: boolean
   authed: boolean
+  userId: string | null
 }
 
 export async function fetchAuthStatus(httpOrigin: string): Promise<AuthStatus> {
   const res = await fetch(httpOrigin + '/auth/status', { credentials: 'include' })
   if (!res.ok) throw new Error('auth status failed: ' + res.status)
   const body = (await res.json()) as Partial<AuthStatus>
-  return { needsAuth: body.needsAuth === true, authed: body.authed === true }
+  return {
+    needsAuth: body.needsAuth === true,
+    authed: body.authed === true,
+    userId: typeof body.userId === 'string' && body.userId.length > 0 ? body.userId : null,
+  }
 }
 
 /** Returns null on success, or a human-readable error message. */

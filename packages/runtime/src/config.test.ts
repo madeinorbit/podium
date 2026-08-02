@@ -23,12 +23,15 @@ import {
 
 describe('podium config', () => {
   let dir: string
+  let priorStateDir: string | undefined
   beforeEach(() => {
+    priorStateDir = process.env.PODIUM_STATE_DIR
     dir = mkdtempSync(join(tmpdir(), 'podium-cfg-'))
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -121,6 +124,22 @@ describe('podium config', () => {
 })
 
 describe('layered resolvers (#251): env → config.json → default', () => {
+  let dir: string
+  let priorStateDir: string | undefined
+  beforeEach(() => {
+    priorStateDir = process.env.PODIUM_STATE_DIR
+    dir = mkdtempSync(join(tmpdir(), 'podium-resolvers-'))
+    process.env.PODIUM_STATE_DIR = dir
+  })
+  afterEach(() => {
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('keeps layered-resolver config writes in throwaway state', () => {
+    expect(configPath()).toBe(join(dir, 'config.json'))
+  })
   it('resolvePort: PODIUM_PORT > config.port > 18787; junk env falls through', () => {
     expect(resolvePort({ port: 2000 }, { PODIUM_PORT: '3000' })).toBe(3000)
     expect(resolvePort({ port: 2000 }, {})).toBe(2000)

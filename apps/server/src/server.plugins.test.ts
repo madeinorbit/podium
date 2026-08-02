@@ -10,6 +10,8 @@ import { startServer } from './server'
 // the OSS tree ships none and never references cloud code by path. This test
 // plugin exercises exactly what the seam promises: route registration on the
 // live Hono app, and typed access to the composed modules/bus/config/role.
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('startServer plugin seam', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
@@ -41,7 +43,7 @@ describe('startServer plugin seam', () => {
 
   afterAll(async () => {
     await handle.close()
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(stateDir, { recursive: true, force: true })
   })
 

@@ -5,6 +5,8 @@ import { loadConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyChannel } from './cli-channel'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('applyChannel', () => {
   let dir: string
   beforeEach(() => {
@@ -12,7 +14,7 @@ describe('applyChannel', () => {
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 

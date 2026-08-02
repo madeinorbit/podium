@@ -1,4 +1,7 @@
+import { homedir } from 'node:os'
+import { delimiter, join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'bun:test'
+import { assertHermeticStateDir } from '../../../test-hermetic-state-guard'
 
 /**
  * Bun-runtime twin of packages/runtime/src/hermetic-env.test.ts: proves the hermetic harness
@@ -17,5 +20,11 @@ describe('hermetic bun test env', () => {
     // The codex hook ingest locator is scrubbed too (POD-565 coordination) so a codex
     // session's tests can't POST to the live daemon's hook ingest.
     expect(process.env.PODIUM_CODEX_HOOK_URL).toBeUndefined()
+    const liveStateDir = resolve(join(homedir(), '.podium'))
+    const pathEntries = (process.env.PATH ?? '').split(delimiter).map((entry) => resolve(entry))
+    expect(
+      pathEntries.some((entry) => entry === liveStateDir || entry.startsWith(`${liveStateDir}${sep}`)),
+    ).toBe(false)
+    expect(() => assertHermeticStateDir({}, liveStateDir)).toThrow(/PODIUM_STATE_DIR is required/)
   })
 })

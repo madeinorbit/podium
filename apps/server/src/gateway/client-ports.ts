@@ -14,7 +14,7 @@
  * whose signature never had it.
  */
 
-import type { ServerMessage } from '@podium/protocol'
+import type { RoomRef, ServerMessage } from '@podium/protocol'
 import type { SessionsClientFrame } from './client-frame-routing'
 import type { ClientConn } from './client-registry'
 import type { ClientPrincipal } from './client-principal'
@@ -29,8 +29,9 @@ export interface SessionsClientPort {
   /**
    * A client connection was admitted and registered: send it the world it is
    * owed (session list or prepared publication, issues, automations, drafts,
-   * conversations, machines, approvals, host snapshot, parked open-url
-   * requests). Runs AFTER `welcome`, which the gateway owns.
+   * conversations, machines, approvals and host snapshot). Parked browser-open
+   * requests wait for a successful session-room join. Runs AFTER `welcome`,
+   * which the gateway owns.
    */
   onClientAttached(principal: ClientPrincipal, conn: ClientConn): void
   /** Move controller roles from a reconnecting user's stale connection before
@@ -60,6 +61,8 @@ export interface SessionsClientPort {
    * one recipient, so it cannot ride the per-connection call above.
    */
   onFeedPublished(seq: number): void
+  /** A stream room join succeeded; apply feature-owned join consequences. */
+  onRoomJoined(conn: ClientConn, room: RoomRef): void
   /** One session-owned frame, attributed to the connection it arrived on. */
   onSessionClientFrame(principal: ClientPrincipal, conn: ClientConn, msg: SessionsClientFrame): void
 }

@@ -110,11 +110,14 @@ export interface PodiumClientApi {
   }
   pins: {
     list: ApiQuery<void, PinState>
-    set: ApiMutation<{ kind: PinKind; id: string; pinned: boolean }, PinState>
+    set: ApiMutation<WithMutationId<{ kind: PinKind; id: string; pinned: boolean }>, PinState>
   }
   tabs: {
     listOrders: ApiQuery<void, Record<string, string[]>>
-    setOrder: ApiMutation<{ worktree: string; sessionIds: string[] }, Record<string, string[]>>
+    setOrder: ApiMutation<
+      WithMutationId<{ worktree: string; sessionIds: string[] }>,
+      Record<string, string[]>
+    >
   }
   files: {
     read: ApiQuery<
@@ -150,7 +153,7 @@ export interface PodiumClientApi {
   }
   settings: {
     get: ApiQuery<void, PodiumSettings>
-    updatePersonal: ApiMutation<{ values: Record<string, unknown> }, PodiumSettings>
+    updatePersonal: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, PodiumSettings>
   }
   superagent: {
     startBtw: ApiMutation<{ sessionId: SessionId }>

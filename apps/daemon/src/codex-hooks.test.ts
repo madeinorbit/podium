@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -210,10 +210,20 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
 // trust bypass cannot run any user/project hooks. Production never sets it.
 describe('codex hooks real-binary smoke', () => {
   const auth = join(homedir(), '.codex', 'auth.json')
-  const enabled = process.env.PODIUM_REAL_CLI === '1' && existsSync(auth)
+  const enabled =
+    process.env.PODIUM_REAL_CLI === '1' &&
+    existsSync(auth) &&
+    (() => {
+      try {
+        execFileSync('codex', ['--version'], { timeout: 10_000, stdio: 'ignore' })
+        return true
+      } catch {
+        return false
+      }
+    })()
 
   it.skipIf(!enabled)(
-    'official hook payload reaches the ingest URL',
+    '[real-agent:codex] official hook payload reaches the ingest URL',
     async () => {
       try {
         await execFileAsync('codex', ['--version'], { timeout: 10_000 })

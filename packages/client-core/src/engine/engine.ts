@@ -4,7 +4,7 @@
  * object. It owns:
  *
  *  - SocketHub lifecycle + subscription wiring (via the P5a `on()` seam),
- *  - replica hydration + hydrate-first paint (seedMetadata),
+ *  - replica snapshot consumption (hydration/publication live in replica-binding),
  *  - the outbox (durable offline writes) + drain-on-reconnect — whose pending
  *    entries double as THE optimistic overlay (#263, see overlay.ts: replica =
  *    server truth only, snapshots fold rows + pending mutations' patches),
@@ -20,10 +20,8 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
-import type { IssueProjectionRow } from '../replica/contract'
 import type {
   AgentKind,
-  ArtifactId,
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
@@ -35,17 +33,15 @@ import type {
   MachineWire,
   SessionId,
   SessionMeta,
-  WorkState,
 } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
-import { resolveSessionIdentifier } from '@podium/protocol'
-import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
-import type { FeedSinkPort, SocketHub } from '../socket-transport'
+import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
+import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica, UiState } from '../replica/replica'
 import {
   createRouter,
@@ -55,6 +51,7 @@ import {
   type RouteState,
   routeDefaults,
 } from '../router'
+import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
 import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
@@ -62,19 +59,17 @@ import {
   type DockTab,
   dedupeSessionsByResume,
   EMPTY_PINS,
-  type FileScope,
   type FileTab,
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,
-  type PinKind,
   type PinState,
   planWorktreeMoves,
   type RecentFileEntry,
   readStoredDockTab,
   reposToViews,
-  tabIdFor,
 } from '../viewmodels'
+import { createEngineActions } from './actions'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
@@ -105,6 +100,11 @@ import {
   VIEW_KEY,
   WT_KEY,
 } from './persistence'
+import {
+  createReplicaBinding,
+  type ReplicaBinding,
+  type ReplicaPublication,
+} from './replica-binding'
 import {
   defaultFormatError,
   NOOP_NOTICES,
@@ -262,6 +262,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly router: Router
   readonly ui: UiState
 
+  private readonly replicaBinding: ReplicaBinding
+
   private readonly api: TApi
   private readonly notices: StoreNotices
   private readonly onFatalError: (message: string) => void
@@ -342,6 +344,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.replica = init.createReplicaFn()
     this.ui = this.replica.uiState()
+    this.replicaBinding = createReplicaBinding({ replica: this.replica })
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,
       api: this.api,
@@ -398,13 +401,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // them BEFORE any subscriber reads — the old useReplicaRows path exposed
     // persisted rows at the very first render, and an empty initial snapshot
     // regressed that into "not found" flashes until start() (a passive effect)
-    // ran. start() stays network/subscription arming only. (The async
-    // `hydrate()` in start() still covers storages that load asynchronously.)
-    const seedSessions = this.replica.rows('sessions')
+    // ran. ReplicaBinding also owns async hydrate for adapters that need it.
+    const replicaSeed = this.replicaBinding.snapshot()
+    const seedSessions = replicaSeed.sessions
     this.baseSessions =
       seedSessions.length === 0 ? seedSessions : dedupeSessionsByResume(seedSessions)
-    this.baseIssues = this.replica.rows('issues')
-    this.baseIssueProjections = this.replica.rows('issueProjections')
+    this.baseIssues = replicaSeed.issues
+    this.baseIssueProjections = replicaSeed.issueProjections
     // Baseline for the worktree-follow diff: the seeded rows are "first sight",
     // not moves (matches the old effect's first observed sessions snapshot).
     this.prevCwds = Object.fromEntries(this.baseSessions.map((s) => [s.sessionId, s.cwd]))
@@ -430,9 +433,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       sessions: seededSessionFold.rows,
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
-      conversations: this.replica.rows('conversations'),
-      automations: this.replica.rows('automations'),
-      automationRuns: this.replica.rows('automationRuns'),
+      conversations: replicaSeed.conversations,
+      automations: replicaSeed.automations,
+      automationRuns: replicaSeed.automationRuns,
       pendingSpawnIds: EMPTY_ID_SET,
       hostMetrics: [],
       machines: [],
@@ -537,19 +540,29 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // armed even if no replica change ever recomputes them.
     this.armAwaitingSweep()
 
-    // Entity state, single-sourced: the hub writes ONLY into the replica
-    // (onMetadataApplied) and the engine re-reads rows on collection changes.
-    // In private browsing the same collections run in memory, so there is no
-    // parallel entity path.
-    offs.push(this.replica.subscribeRows('sessions', () => this.refreshSessionRows()))
-    offs.push(this.replica.subscribeRows('issues', () => this.refreshIssueRows()))
+    // Entity state, single-sourced. ReplicaBinding owns preload + row
+    // subscriptions and publishes a coalesced slice; engine.ts never hydrates or
+    // reaches collection listeners directly.
     offs.push(
-      this.replica.subscribeRows('issueProjections', () => this.refreshIssueProjectionRows()),
+      this.replicaBinding.start({
+        publish: (publication) => this.publishReplica(publication),
+        hydrated: (snap) => {
+          // Wire-v1 compatibility. The kernel feed's persisted slice is already
+          // the first Store paint and must never be copied into v1 hub lists.
+          if (
+            !this.onFeed &&
+            snap.sessions.length +
+              snap.issues.length +
+              snap.conversations.length +
+              snap.automations.length +
+              snap.automationRuns.length >
+              0
+          ) {
+            this.hub.seedMetadata(snap)
+          }
+        },
+      }),
     )
-    offs.push(this.replica.subscribeRows('conversations', () => this.refreshConversationRows()))
-    offs.push(this.replica.subscribeRows('automations', () => this.refreshAutomationRows()))
-    offs.push(this.replica.subscribeRows('automationRuns', () => this.refreshAutomationRunRows()))
-    this.refreshAllRows()
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
@@ -616,34 +629,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.onVisibilityChange()
 
-    // Hydrate-first paint (docs/spec/thin-client-replica.md §2.2): seed the hub's
-    // entity lists from the persisted replica so last-known data shows before
-    // (or without) the network answering. The hydrate microtask resolves before
-    // the deferred connect below, and `seedMetadata` refuses to clobber server
-    // truth if a heal somehow lands first. `hydrate` never throws (a poisoned
-    // replica clears itself and cold-starts).
-    void this.replica.hydrate().then((snap) => {
-      if (
-        // ON THE FEED PATH THERE IS NOTHING TO SEED, and seeding would be
-        // wrong rather than merely redundant: `seedMetadata` fills the hub's
-        // WIRE-v1 metadata lists, which a v2 hub never reads and never
-        // reconciles. Cold-start paint is preserved by a different mechanism —
-        // the kernel Replica's store is already open, so `rows()` reads the
-        // persisted slice on the first render, before any frame arrives.
-        !this.onFeed &&
-        snap.sessions.length +
-          snap.issues.length +
-          snap.conversations.length +
-          snap.automations.length +
-          snap.automationRuns.length >
-          0
-      ) {
-        this.hub.seedMetadata(snap)
-      }
-      // Re-read rows after preload — belt-and-braces for a collection whose
-      // load didn't emit change events.
-      this.refreshAllRows()
-    })
     this.connectTimer = setTimeout(() => {
       this.connectTimer = null
       try {
@@ -657,14 +642,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       this.booted = true
       // Sidebar prefs load out of band so boot fans out only repos + pins + tab
       // orders (never gated on settings or a conversation scan).
-      void this.api.settings.get
-        .query()
-        .then((s) => this.apply({ sidebarSettings: s.sidebar }))
-        .catch(() => {})
+      void this.refreshPersonalSettings().catch(() => {})
+      // These enrichments are network-derived, not the source of truth for the
+      // principal slice. A cold offline boot must keep serving the persisted
+      // replica instead of replacing it with a fatal connection screen.
       void Promise.all([this.refreshRepos(), this.refreshPins(), this.refreshTabOrders()]).catch(
-        (e) => {
-          this.onFatalError(this.formatError(e, 'Could not load Podium data'))
-        },
+        () => {},
       )
     }
 
@@ -1012,43 +995,28 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // ----------------------------------------------------------- replica ↔ state
 
-  private refreshAllRows(): void {
-    this.refreshSessionRows()
-    this.refreshIssueRows()
-    this.refreshIssueProjectionRows()
-    this.refreshConversationRows()
-    this.refreshAutomationRows()
-    this.refreshAutomationRunRows()
-  }
-
-  private refreshSessionRows(): void {
-    const rows = this.replica.rows('sessions')
-    // Collapse duplicate rows for the same underlying conversation (e.g. a
-    // Codex thread surfaced twice on resume).
-    this.baseSessions = rows.length === 0 ? rows : dedupeSessionsByResume(rows)
-    this.recomputeSessions()
-  }
-
-  private refreshIssueRows(): void {
-    this.baseIssues = this.replica.rows('issues')
-    this.recomputeIssues()
-  }
-
-  private refreshIssueProjectionRows(): void {
-    this.baseIssueProjections = this.replica.rows('issueProjections')
-    this.recomputeIssueProjections()
-  }
-
-  private refreshConversationRows(): void {
-    this.apply({ conversations: this.replica.rows('conversations') })
-  }
-
-  private refreshAutomationRows(): void {
-    this.apply({ automations: this.replica.rows('automations') })
-  }
-
-  private refreshAutomationRunRows(): void {
-    this.apply({ automationRuns: this.replica.rows('automationRuns') })
+  private publishReplica(publication: ReplicaPublication): void {
+    const { snapshot, changed } = publication
+    if (changed.has('sessions')) {
+      const rows = snapshot.sessions
+      // Collapse duplicate rows for the same underlying conversation (e.g. a
+      // Codex thread surfaced twice on resume).
+      this.baseSessions = rows.length === 0 ? rows : dedupeSessionsByResume(rows)
+      this.recomputeSessions()
+    }
+    if (changed.has('issues')) {
+      this.baseIssues = snapshot.issues
+      this.recomputeIssues()
+    }
+    if (changed.has('issueProjections')) {
+      this.baseIssueProjections = snapshot.issueProjections
+      this.recomputeIssueProjections()
+    }
+    const patch: Partial<EngineState> = {}
+    if (changed.has('conversations')) patch.conversations = snapshot.conversations
+    if (changed.has('automations')) patch.automations = snapshot.automations
+    if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
+    this.apply(patch)
   }
 
   /** The pending overlays for one entity, in application order: resolved
@@ -1161,6 +1129,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Returns true to keep the entry DURABLY in storage (finding 1) until
    *  covering truth retires it. */
   private onMutationApplied(entry: OutboxEntry): boolean {
+    if (this.reconcileActionState(entry)) return false
     const overlay = overlayForOutboxEntry(entry)
     if (overlay?.op !== 'patch') return false
     const row =
@@ -1239,6 +1208,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Definitive failure — retirement rule (b): the wiring already surfaced the
    *  poison toast; repaint without the dropped entry's overlay. */
   private onMutationDropped(entry: OutboxEntry): void {
+    this.reconcileActionState(entry)
     this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
@@ -1246,6 +1216,22 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  outbox subscription (armed in start()) already repaints on any queue
    *  change; recomputing here as well keeps actions optimistic before start()
    *  and after dispose() (the duplicate recompute is a no-op publish). */
+  private reconcileActionState(entry: OutboxEntry): boolean {
+    if (entry.kind === 'pinSet') {
+      void this.refreshPins().catch(() => {})
+      return true
+    }
+    if (entry.kind === 'tabSetOrder') {
+      void this.refreshTabOrders().catch(() => {})
+      return true
+    }
+    if (entry.kind === 'settingsUpdatePersonal') {
+      void this.refreshPersonalSettings().catch(() => {})
+      return true
+    }
+    return false
+  }
+
   private async enqueueOverlayed<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
@@ -1320,6 +1306,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.apply({ tabOrders: await this.api.tabs.listOrders.query() })
   }
 
+  private async refreshPersonalSettings(): Promise<void> {
+    const settings = await this.api.settings.get.query()
+    this.apply({ sidebarSettings: settings.sidebar })
+  }
+
   private getUserFocus(): UserFocus {
     const st = this.state
     const paneIds = [st.paneA, st.split ? st.paneB : null].filter((x): x is SessionId => x != null)
@@ -1370,545 +1361,121 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   // ------------------------------------------------------------------- actions
+  private spawnDraftAgent(args: {
+    target: SpawnTarget
+    agentKind: AgentKind
+    firstPrompt?: string
+  }): { sessionId: SessionId; issueId: IssueId } {
+    const sessionId = asSessionId(randomUUID())
+    const issueId = asIssueId(`iss_${randomUUID()}`)
+    const nowIso = new Date().toISOString()
+    const sortKey = optimisticDraftSortKey(
+      this.state.issues,
+      args.target.repoPath,
+      args.target.repoId,
+    )
+    this.spawnOverlays = [
+      ...this.spawnOverlays,
+      insertOverlay(
+        'sessions',
+        sessionId,
+        optimisticStartingSession({
+          sessionId,
+          issueId,
+          agentKind: args.agentKind,
+          cwd: args.target.path,
+          nowIso,
+        }),
+      ),
+      insertOverlay(
+        'issues',
+        issueId,
+        optimisticDraftIssue({
+          issueId,
+          repoPath: args.target.repoPath,
+          repoId: args.target.repoId,
+          sortKey,
+          agentKind: args.agentKind,
+          nowIso,
+        }),
+      ),
+    ]
+    this.recomputeSessions()
+    this.recomputeIssues()
+    void createDraftAgent({
+      trpc: this.api,
+      sessionId,
+      issueId,
+      target: args.target,
+      agentKind: args.agentKind,
+      firstPrompt: args.firstPrompt,
+    }).catch((error) => {
+      const arrived = (): boolean => this.baseSessions.some((row) => row.sessionId === sessionId)
+      const settleFailure = (): void => {
+        if (arrived()) {
+          console.debug(
+            '[podium] spawn transport failed after the session was created — treating as success',
+            sessionId,
+            error,
+          )
+          return
+        }
+        this.spawnOverlays = this.spawnOverlays.filter(
+          (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
+        )
+        this.recomputeSessions()
+        this.recomputeIssues()
+        this.notices.error(
+          `Couldn't start the agent — ${error instanceof Error ? error.message : 'unknown error'}`,
+        )
+      }
+      if (arrived()) {
+        settleFailure()
+      } else {
+        const timer = setTimeout(() => {
+          this.spawnConfirmTimers.delete(timer)
+          settleFailure()
+        }, this.spawnConfirmGraceMs)
+        this.spawnConfirmTimers.add(timer)
+      }
+    })
+    return { sessionId, issueId }
+  }
 
-  /** The imperative store actions — the old provider's trpc.* closures, moved
-   *  here mostly verbatim. Built once so every snapshot carries the same
-   *  function identities. */
   private buildStatics(): Omit<Store<TApi>, keyof EngineState> {
-    const api = this.api
     return {
       hub: this.hub,
-      trpc: api,
+      trpc: this.api,
       replica: this.replica,
       uiState: this.ui,
       httpOrigin: this.httpOrigin,
       getUserFocus: () => this.getUserFocus(),
       refreshRepos: () => this.refreshRepos(),
-      setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
-        this.apply({ pins: await api.pins.set.mutate({ kind, id, pinned }) })
-      },
-      // Optimistic: dnd-kit hands back the new order on drop, and waiting on the
-      // round-trip would make the tab snap back for a frame. Server result reconciles.
-      setTabOrder: async (worktree: string, sessionIds: string[]) => {
-        this.apply({ tabOrders: { ...this.state.tabOrders, [worktree]: sessionIds } })
-        this.apply({ tabOrders: await api.tabs.setOrder.mutate({ worktree, sessionIds }) })
-      },
-      setView: (v: MainView) => {
-        const cur = this.router.current()
-        if (cur.view === v) return
-        // Switching surface closes per-surface overlays (issue page, settings
-        // deep-link, search) but keeps the workspace pane context.
-        this.router.navigate({ ...routeDefaults(v), worktree: cur.worktree, pane: cur.pane })
-      },
-      // Tab changes are real history entries (/settings/:tab): back/forward moves
-      // between the tabs you visited, and a deep link lands directly on its tab.
-      setSettingsTab: (tab: string | null) => {
-        const cur = this.router.current()
-        if (cur.view === 'settings') {
-          if (cur.settingsTab !== tab) this.router.navigate({ ...cur, settingsTab: tab })
-        } else if (tab !== null) {
-          this.router.navigate({
-            ...cur,
-            view: 'settings',
-            settingsTab: tab,
-            issueId: null,
-          })
-        }
-      },
-      setOpenIssueId: (id: IssueId | null) => {
-        const cur = this.router.current()
-        if (cur.view === 'issues' && cur.issueId === id) return
-        this.router.navigate({ ...cur, view: 'issues', issueId: id })
-      },
-      setPeekIssueId: (id: IssueId | null) => this.apply({ peekIssueId: id }),
-      setSuperThreadId: (id: string) => this.apply({ superThreadId: id }),
-      setSuperOpen: (open: boolean) => this.apply({ superOpen: open }),
-      setDockTab: (tab: DockTab) => this.apply({ dockTab: tab }),
-      startBtw: async (sessionId: SessionId) => {
-        // Open the superagent dock on the session's btw thread immediately; the
-        // server seeds it (and runs the orientation turn) in the background.
-        this.apply({ superThreadId: `btw_${sessionId}`, superOpen: true })
-        await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
-        // Seeding + the orientation turn are done now — nudge the view to refetch.
-        this.apply({ superRefreshKey: this.state.superRefreshKey + 1 })
-      },
-      tldrSession: async (sessionId: SessionId, answerText: string) => {
-        const threadId = `btw_${sessionId}`
-        this.apply({ superThreadId: threadId, superOpen: true })
-        // Ensure the thread is seeded with this session's context before we ask.
-        await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
-        const prompt = answerText.trim()
-          ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
-          : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."
-        await api.superagent.sendTurn.mutate({ threadId, text: prompt }).catch(() => {})
-        this.apply({ superRefreshKey: this.state.superRefreshKey + 1 })
-      },
-      setPaletteOpen: (open: boolean) => this.apply({ paletteOpen: open }),
-      setSelectedWorktree: (path: string | null) => this.apply({ selectedWorktree: path }),
-      setSelectedIssueId: (id: IssueId | null) => this.apply({ selectedIssueId: id }),
-      // Selecting a pane also focuses it — clicking/opening a pane is a reasonable
-      // proxy for input focus, and the terminal components don't expose a focus seam.
-      setPane: (pane: 'A' | 'B', id: SessionId | null) =>
-        this.apply(
-          pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane },
-        ),
-      setFocusedPane: (pane: 'A' | 'B') => this.apply({ focusedPane: pane }),
-      // [spec:SP-a1c0] (#411) THE central navigate-to-session action: any surface
-      // that references a session (approval popup, notifications, mail, activity
-      // entries) jumps through here — never roll per-feature navigation.
-      //
-      // Landing on a session takes all four pieces, the same ones the sidebar's
-      // selectIssue sets: its issue, its WORKTREE (the workspace renders the
-      // selected worktree's sessions — without it the pane is ignored), the pane
-      // itself, and the workspace VIEW. Setting only the pane made the URL flip
-      // and revert (#411 follow-up): mirrorUrl bails unless the view is already
-      // 'workspace', so the navigation never landed. The router is the single URL
-      // writer, so the surface switch goes through it with the pane in hand rather
-      // than through setView (which would re-apply the CURRENT route's stale pane).
-      // `sessionIdOrRef`, NOT a `SessionId`: `resolveSessionIdentifier` accepts a
-      // human ref (`POD-13-A`) as well as an id — the same ref-vs-id boundary the
-      // server draws at `IssueService.resolveRef` (POD-362).
-      navigateToSession: (sessionIdOrRef: string) => {
-        const st = this.state
-        const meta = resolveSessionIdentifier(sessionIdOrRef, st.sessions)
-        if (!meta) return
-        // The worktree that contains the session's cwd (deepest match wins — nested
-        // worktrees); a session outside every known worktree keeps the selection.
-        const worktree =
-          reposToViews(st.repos)
-            .flatMap((repo) => repo.worktrees)
-            .map((w) => w.path)
-            .filter((p) => meta.cwd === p || meta.cwd.startsWith(`${p}/`))
-            .sort((a, b) => b.length - a.length)[0] ?? st.selectedWorktree
-        this.apply({
-          ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
-          ...(worktree ? { selectedWorktree: worktree } : {}),
-          paneA: meta.sessionId,
-          focusedPane: 'A',
-        })
-        this.router.navigate({
-          ...routeDefaults('workspace'),
-          ...(worktree ? { worktree } : {}),
-          pane: meta.sessionId,
-        })
-      },
-      setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => {
-        const m = this.state.panelMode
-        if (m[sessionId] === mode) return
-        this.apply({ panelMode: { ...m, [sessionId]: mode } })
-      },
-      setDockVisibleSession: (sessionId: SessionId | null) =>
-        this.apply({ dockVisibleSession: sessionId }),
-      setDockShell: (worktreePath: string, sessionId: SessionId | null) => {
-        const m = this.state.dockShells
-        if ((m[worktreePath] ?? null) === sessionId) return
-        const next = { ...m }
-        if (sessionId) next[worktreePath] = sessionId
-        else delete next[worktreePath]
-        this.apply({ dockShells: next })
-      },
-      setPanelRenderMode: (sessionId: SessionId, mode: 'chat' | 'native') => {
-        if (this.panelRenderModes[sessionId] === mode) return
-        this.panelRenderModes = { ...this.panelRenderModes, [sessionId]: mode }
-        this.reportViewState()
-      },
-      toggleSplit: () => this.apply({ split: !this.state.split }),
-      openFile: (sessionId: SessionId, path: string) => {
-        const scope: FileScope = { kind: 'session', sessionId }
-        const id = tabIdFor(scope, path)
-        const st = this.state
-        const session = st.sessions.find((s) => s.sessionId === sessionId)
-        const cwd = session?.cwd ?? ''
-        // The known worktree containing the session's cwd (deepest match wins,
-        // as in navigateToSession) — a cwd deeper than the worktree root would
-        // otherwise select a path the workspace can't render.
-        const worktreePath =
-          reposToViews(st.repos)
-            .flatMap((repo) => repo.worktrees)
-            .map((w) => w.path)
-            .filter((p) => cwd === p || cwd.startsWith(`${p}/`))
-            .sort((a, b) => b.length - a.length)[0] ?? cwd
-        // Owner (POD-149): the session's explicit issue, else the issue whose
-        // workspace this open happened in. The strip shows the tab only there.
-        // An already-open tab keeps its original owner (reveal must navigate to
-        // the strip that actually lists it, or the pane bounces).
-        const existing = st.fileTabs.find((t) => t.id === id)
-        const issueId = existing
-          ? existing.issueId
-          : (session?.issueId ?? st.selectedIssueId ?? undefined)
-        const fileTabs = existing
-          ? st.fileTabs
-          : [...st.fileTabs, { id, scope, path, worktreePath, ...(issueId ? { issueId } : {}) }]
-        this.apply({ fileTabs })
-        this.revealFileTab({
-          tabId: id,
-          ...(worktreePath ? { worktreePath } : {}),
-          ...(issueId ? { issueId } : {}),
-        })
-        this.recordRecentFile({
-          path,
-          worktreePath,
-          ...(session?.machineId ? { machineId: session.machineId } : {}),
-        })
-      },
-      openFileInWorktree: (args: {
-        machineId?: string
-        root: string
-        path: string
-        issueId?: IssueId
-      }) => {
-        const scope: FileScope = { kind: 'worktree', machineId: args.machineId, root: args.root }
-        const id = tabIdFor(scope, args.path)
-        const st = this.state
-        // Owner (POD-149): an explicit issue from the caller (issue pages,
-        // legacy artifacts) wins; a dock/file-browser open belongs to whatever
-        // issue workspace it happened in. An already-open tab keeps its owner.
-        const existing = st.fileTabs.find((t) => t.id === id)
-        const issueId = existing
-          ? existing.issueId
-          : (args.issueId ?? st.selectedIssueId ?? undefined)
-        const fileTabs = existing
-          ? st.fileTabs
-          : [
-              ...st.fileTabs,
-              {
-                id,
-                scope,
-                path: args.path,
-                worktreePath: args.root,
-                ...(issueId ? { issueId } : {}),
-              },
-            ]
-        this.apply({ fileTabs })
-        this.revealFileTab({
-          tabId: id,
-          worktreePath: args.root,
-          ...(issueId ? { issueId } : {}),
-        })
-        this.recordRecentFile({
-          path: args.path,
-          worktreePath: args.root,
-          ...(args.machineId ? { machineId: args.machineId } : {}),
-        })
-      },
-      // Open a permanent artifact snapshot as a file tab ([spec:SP-0fc9] #441):
-      // reads ride the server-local artifact store (the source file may be
-      // gone), and `issueId` keeps the dock's Issue panel on the artifact's
-      // issue instead of re-homing by cwd containment.
-      openArtifact: (args: {
-        issueId: IssueId
-        artifactId: ArtifactId
-        path: string
-        worktreePath?: string
-      }) => {
-        const scope: FileScope = {
-          kind: 'artifact',
-          issueId: args.issueId,
-          artifactId: args.artifactId,
-        }
-        const id = tabIdFor(scope, args.path)
-        const st = this.state
-        const fileTabs = st.fileTabs.some((t) => t.id === id)
-          ? st.fileTabs
-          : [
-              ...st.fileTabs,
-              {
-                id,
-                scope,
-                path: args.path,
-                worktreePath: args.worktreePath ?? '',
-                issueId: args.issueId,
-              },
-            ]
-        this.apply({ fileTabs })
-        this.revealFileTab({
-          tabId: id,
-          issueId: args.issueId,
-          ...(args.worktreePath ? { worktreePath: args.worktreePath } : {}),
-        })
-        this.recordRecentFile({
-          path: args.path,
-          worktreePath: args.worktreePath ?? '',
-          artifact: { issueId: args.issueId, artifactId: args.artifactId },
-        })
-      },
-      closeFileTab: (id: string) => {
-        const st = this.state
-        this.apply({
-          fileTabs: st.fileTabs.filter((t) => t.id !== id),
-          paneA: st.paneA === id ? null : st.paneA,
-          paneB: st.paneB === id ? null : st.paneB,
-        })
-      },
-      readFileScoped: ((scope: FileScope, path: string) =>
-        scope.kind === 'session'
-          ? api.files.read.query({ sessionId: scope.sessionId, path })
-          : scope.kind === 'artifact'
-            ? api.files.read.query({ issueId: scope.issueId, artifactId: scope.artifactId, path })
-            : api.files.read.query({
-                machineId: scope.machineId,
-                root: scope.root,
-                path,
-              })) as Store<TApi>['readFileScoped'],
-      writeFileScoped: ((args: {
-        scope: FileScope
-        path: string
-        content: string
-        baseHash?: string
-      }) => {
-        // Artifact snapshots are immutable ([spec:SP-0fc9] #441) — never hit the API.
-        if (args.scope.kind === 'artifact')
-          return Promise.reject(new Error('artifact snapshots are read-only'))
-        return args.scope.kind === 'session'
-          ? api.files.write.mutate({
-              sessionId: args.scope.sessionId,
-              path: args.path,
-              content: args.content,
-              baseHash: args.baseHash,
-            })
-          : api.files.write.mutate({
-              machineId: args.scope.machineId,
-              root: args.scope.root,
-              path: args.path,
-              content: args.content,
-              baseHash: args.baseHash,
-            })
-      }) as Store<TApi>['writeFileScoped'],
-      listDir: ((args: { machineId?: string; root: string; path?: string }) =>
-        api.files.list.query(args)) as Store<TApi>['listDir'],
-      gitStatus: ((args: { machineId?: string; root: string }) =>
-        api.git.status.query(args)) as Store<TApi>['gitStatus'],
-      gitLog: ((args: { machineId?: string; root: string }) =>
-        api.git.log.query(args)) as Store<TApi>['gitLog'],
-      gitDiffFile: ((args: { machineId?: string; root: string; path: string }) =>
-        api.git.diffFile.query(args)) as Store<TApi>['gitDiffFile'],
-      spawnDraftAgent: (args: {
-        target: SpawnTarget
-        agentKind: AgentKind
-        firstPrompt?: string
-      }): { sessionId: SessionId; issueId: IssueId } => {
-        // Client-minted ids (server reuses them verbatim) so the optimistic rows
-        // reconcile by id when the broadcast lands — no temp-id swap, no flicker.
-        // MINT SITE: the optimistic client-side session id.
-        const sessionId = asSessionId(randomUUID())
-        // MINT SITE: the optimistic client-side issue id.
-        const issueId = asIssueId(`iss_${randomUUID()}`)
-        const nowIso = new Date().toISOString()
-        // Mirror the server's stable project identity and new-at-top sort key
-        // before painting. Without these, the placeholder forms a temporary
-        // group at the end and only jumps into place when server truth arrives.
-        const sortKey = optimisticDraftSortKey(
-          this.state.issues,
-          args.target.repoPath,
-          args.target.repoId,
-        )
-        // Unified overlay bookkeeping (#263): the placeholders are pending
-        // insert overlays — same fold, same retirement (server truth with the
-        // same ids lands → retire). Only the TRANSPORT differs from outboxed
-        // mutations: a spawn rides direct tRPC (it must fail fast and loudly,
-        // not silently queue offline), so failure rolls the overlays back here
-        // rather than through the outbox's poison path.
-        this.spawnOverlays = [
-          ...this.spawnOverlays,
-          insertOverlay(
-            'sessions',
-            sessionId,
-            optimisticStartingSession({
-              sessionId,
-              issueId,
-              agentKind: args.agentKind,
-              cwd: args.target.path,
-              nowIso,
-            }),
-          ),
-          insertOverlay(
-            'issues',
-            issueId,
-            optimisticDraftIssue({
-              issueId,
-              repoPath: args.target.repoPath,
-              repoId: args.target.repoId,
-              sortKey,
-              agentKind: args.agentKind,
-              nowIso,
-            }),
-          ),
-        ]
-        this.recomputeSessions()
-        this.recomputeIssues()
-        // Fire the create in the background; roll the overlays back if it never
-        // reaches the server (the real broadcast otherwise supersedes them).
-        void createDraftAgent({
-          trpc: api,
-          sessionId,
-          issueId,
-          target: args.target,
-          agentKind: args.agentKind,
-          firstPrompt: args.firstPrompt,
-        }).catch((err) => {
-          // A rejection is NOT definitive once the create may have reached the
-          // server (#263 review finding 4): the broadcast can mint the real
-          // row while the HTTP response is lost. If the session row (client-
-          // minted id) is already in the replica — or arrives within a short
-          // grace — the spawn SUCCEEDED: no toast, no rollback (the insert
-          // overlay already retired against the real row).
-          const arrived = (): boolean => this.baseSessions.some((s) => s.sessionId === sessionId)
-          const settleFailure = (): void => {
-            if (arrived()) {
-              console.debug(
-                '[podium] spawn transport failed after the session was created — treating as success',
-                sessionId,
-                err,
-              )
-              return
-            }
-            this.spawnOverlays = this.spawnOverlays.filter(
-              (o) => o.id !== sessionId && o.id !== issueId,
-            )
-            this.recomputeSessions()
-            this.recomputeIssues()
-            this.notices.error(
-              `Couldn't start the agent — ${err instanceof Error ? err.message : 'unknown error'}`,
-            )
-          }
-          if (arrived()) {
-            settleFailure()
-          } else {
-            // Retained + cleared in dispose() (#263 review round 2): a
-            // replaced engine firing this after its successor took over would
-            // roll back overlays / toast against state it no longer owns.
-            const timer = setTimeout(() => {
-              this.spawnConfirmTimers.delete(timer)
-              settleFailure()
-            }, this.spawnConfirmGraceMs)
-            this.spawnConfirmTimers.add(timer)
-          }
-        })
-        return { sessionId, issueId }
-      },
-      killSession: async (sessionId: SessionId) => {
-        await api.sessions.kill.mutate({ sessionId }).catch(() => {})
-        const st = this.state
-        this.apply({
-          fileTabs: st.fileTabs.filter(
-            (t) => !(t.scope.kind === 'session' && t.scope.sessionId === sessionId),
-          ),
-          paneA: st.paneA === sessionId ? null : st.paneA,
-          paneB: st.paneB === sessionId ? null : st.paneB,
-          pins: { ...st.pins, panels: st.pins.panels.filter((id) => id !== sessionId) },
-          tabOrders: Object.fromEntries(
-            Object.entries(st.tabOrders).map(([wt, ids]) => [
-              wt,
-              ids.filter((id) => id !== sessionId),
-            ]),
-          ),
-        })
-      },
-      continueSession: async (sessionId: SessionId) => {
-        await api.sessions.continue.mutate({ sessionId }).catch(() => {})
-        // After the manual nudge, offer to make it automatic — once, and only when
-        // it isn't already on / hasn't already been answered.
-        try {
-          const settings = await api.settings.get.query()
-          if (shouldPromptAutoContinue(settings)) {
-            this.apply({ autoContinuePromptSessionId: sessionId })
-          }
-        } catch {
-          // Non-fatal: the nudge already happened; just skip the offer.
-        }
-      },
-      closeAutoContinuePrompt: () => this.apply({ autoContinuePromptSessionId: null }),
-      hibernateSession: async (sessionId: SessionId) => {
-        await api.sessions.hibernate.mutate({ sessionId }).catch(() => {})
-      },
-      resurrectSession: async (sessionId: SessionId) => {
-        try {
-          const result = await api.sessions.resurrect.mutate({ sessionId })
-          if (!result.ok) {
-            this.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
-          }
-        } catch (err) {
-          this.notices.error(
-            `Couldn't resume the session — ${err instanceof Error ? err.message : 'unknown error'}`,
-          )
-        }
-      },
-      resumeAndSend: async (sessionId: SessionId, text: string) => {
-        // Outboxed: the wake+deliver is durably queued server-side once it lands,
-        // and the outbox carries it there across offline gaps/reloads.
-        await this.outbox.enqueue('resumeAndSend', { sessionId, text })
-      },
-      // Curation mutations are optimistic via ONE mechanism (#263): enqueueing
-      // IS the optimistic apply — the pending entry's patch paints over server
-      // truth on the very next snapshot (the outbox notifies synchronously),
-      // survives being authored offline (durable queue), and retires per the
-      // rule in overlay.ts. The replica itself stays server truth only.
-      renameSession: async (sessionId: SessionId, name: string) => {
-        await this.enqueueOverlayed('rename', { sessionId, name })
-      },
-      archiveSession: async (sessionId: SessionId, archived: boolean) => {
-        // Archiving "files the work away": it also lands the session in the board's
-        // Done lane. Unarchiving only restores it — it doesn't reopen the work state.
-        await this.enqueueOverlayed('setArchived', { sessionId, archived })
-        if (archived) await this.enqueueOverlayed('setWorkState', { sessionId, workState: 'done' })
-        // Filing the work away also drops it from pinned panels — a pinned tab for an
-        // archived session is dead weight, exactly as closing/killing it removes the
-        // pin (mirrors killSession's local pin filter). Unlike kill, archiving doesn't
-        // delete the row server-side, so the panel pin would otherwise survive in the
-        // DB and resurrect on reload — clear it on the server too to make it stick.
-        if (archived) {
-          const pins = this.state.pins
-          this.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
-          // Pins stay direct (not outboxed) — low offline value, follow-on phase.
-          await api.pins.set.mutate({ kind: 'panel', id: sessionId, pinned: false }).catch(() => {})
-        }
-      },
-      setWorkState: async (sessionId: SessionId, workState: WorkState | null) => {
-        await this.enqueueOverlayed('setWorkState', { sessionId, workState })
-      },
-      setSnooze: async (sessionId: SessionId, until: string | null) => {
-        await this.enqueueOverlayed('snoozeSet', { sessionId, until })
-      },
-      clearSnooze: async (sessionId: SessionId) => {
-        await this.enqueueOverlayed('snoozeClear', { sessionId })
-      },
-      // Mark a session / issue read (issue #124): the pending entry stamps
-      // readAt (from its queuedAt) + clears unread until server truth covers
-      // it. markSessionUnread (#138) is the email-style inverse.
-      markSessionRead: async (sessionId: SessionId) => {
-        await this.enqueueOverlayed('sessionMarkRead', { sessionId })
-      },
-      markSessionUnread: async (sessionId: SessionId) => {
-        await this.enqueueOverlayed('sessionMarkUnread', { sessionId })
-      },
-      markIssueRead: async (id: string) => {
-        await this.enqueueOverlayed('issueMarkRead', { id })
-      },
-      markIssueUnread: async (id: string) => {
-        await this.enqueueOverlayed('issueMarkUnread', { id })
-      },
-      setIssueTucked: async (id: string, tucked: boolean) => {
-        await this.enqueueOverlayed('issueSetTucked', { id, tucked })
-      },
-      setSessionDraft: (sessionId: SessionId, text: string) => {
-        this.adoptSessionDraft(sessionId, text)
-        this.hub.sendSessionDraft(sessionId, text)
-      },
-      setSidebarSettings: async (next: Partial<SidebarSettings>) => {
-        // Optimistic update so the UI reorders instantly.
-        this.apply({ sidebarSettings: { ...this.state.sidebarSettings, ...next } })
-        // Persist by loading the full settings blob, patching sidebar, and saving.
-        try {
-          const values = Object.fromEntries(
-            Object.entries(next).map(([key, value]) => [`sidebar.${key}`, value]),
-          )
-          const updated = await api.settings.updatePersonal.mutate({ values })
-          this.apply({ sidebarSettings: updated.sidebar })
-        } catch {
-          // best-effort — the optimistic state already applied
-        }
-      },
-    } as Omit<Store<TApi>, keyof EngineState>
+      ...createEngineActions({
+        api: this.api,
+        hub: this.hub,
+        outbox: this.outbox,
+        router: this.router,
+        notices: this.notices,
+        state: () => this.state,
+        apply: (patch) => this.apply(patch),
+        enqueueOverlayed: (kind, input) => {
+          void this.enqueueOverlayed(kind, input)
+        },
+        revealFileTab: (args) => this.revealFileTab(args),
+        recordRecentFile: (entry) => this.recordRecentFile(entry),
+        setPanelRenderMode: (sessionId, mode) => {
+          if (this.panelRenderModes[sessionId] === mode) return
+          this.panelRenderModes = { ...this.panelRenderModes, [sessionId]: mode }
+          this.reportViewState()
+        },
+        spawnDraftAgent: (args) => this.spawnDraftAgent(args),
+        setSessionDraft: (sessionId, text) => {
+          this.adoptSessionDraft(sessionId, text)
+          this.hub.sendSessionDraft(sessionId, text)
+        },
+      }),
+    }
   }
 }
 

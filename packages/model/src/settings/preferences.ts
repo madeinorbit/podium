@@ -125,8 +125,8 @@ export const Roles = z.object({
 export type Roles = z.infer<typeof Roles>
 export type RoleName = keyof Roles
 
-/** Sidebar layout. Layout is per person by definition (matrix `tab-order`'s
- *  conflict note says exactly that about its sibling). */
+/** Sidebar repo sort/order preferences (personal). Distinct from shell layout
+ *  chrome in `user_layout` (POD-1350 / matrix `sidebar-tab-layout`). */
 export const Sidebar = z.object({
   repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
   repoOrder: z.array(z.string()).default([]),
