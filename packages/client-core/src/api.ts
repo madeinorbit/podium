@@ -20,6 +20,7 @@ import type {
   AgentKind,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  LayoutSnapshot,
   SessionId,
   WorkState,
 } from '@podium/model'
@@ -154,6 +155,11 @@ export interface PodiumClientApi {
   settings: {
     get: ApiQuery<void, PodiumSettings>
     updatePersonal: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, PodiumSettings>
+  }
+  layout: {
+    get: ApiQuery<void, LayoutSnapshot>
+    set: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, LayoutSnapshot>
+    clear: ApiMutation<WithMutationId<{ keys: string[] }>, LayoutSnapshot>
   }
   superagent: {
     startBtw: ApiMutation<{ sessionId: SessionId }>
