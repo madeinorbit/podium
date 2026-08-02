@@ -508,9 +508,14 @@ rejected for single-operator Podium:
 
 **Binding code / docs (characterization at decision time):**
 
-- Trust argument: `packages/runtime/src/session-mint.ts` module comment
+- Trust argument + **instrument** `HOST_LOCAL_MINT_TRUST`:
+  `packages/runtime/src/session-mint.ts` (multi-user must flip
+  `assumesSingleOperator` / `mintBoundToIdentity` together)
+- Tripwire tests: `packages/runtime/src/session-mint.test.ts` (coherence +
+  `client_sessions` column pin reading `apps/server` schema)
 - Verb: `apps/cli/src/auth-cli.ts` (`podium auth mint-session`)
 - Agent use of the same path: `docs/agents/driving-podium.md` (auth section)
+- Decision record: `docs/decisions/1402-host-local-mint-trust.md`
 
 ---
 

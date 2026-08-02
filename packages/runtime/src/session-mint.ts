@@ -46,6 +46,34 @@ import { openDatabase } from './sqlite'
  *  hub. Mirrored by apps/server's AuthRepository.createClientSession default. */
 export const BREAK_GLASS_LABEL = 'break-glass'
 
+/**
+ * POD-1402 decision instrument (ADR 3 D14).
+ *
+ * Single-operator host: mint from state-dir write access is ACCEPT — agent relay scope is
+ * accident prevention, not adversarial containment of a co-resident process.
+ *
+ * Multi-user (POD-1067+) MUST flip this before a second human principal exists:
+ *   1. set `assumesSingleOperator: false`
+ *   2. set `mintBoundToIdentity: true` and actually bind mint to an identity (password
+ *      step-up, OS keyring, user principal) — not file mode alone
+ * The tripwire tests that import this object fail if (1) happens without (2), or if
+ * `client_sessions` gains a per-user column while (1) is still true.
+ */
+export const HOST_LOCAL_MINT_TRUST = {
+  decision: 'ACCEPT',
+  issue: 'POD-1402',
+  /** While true, FS write access to podium.db is a sufficient mint root. */
+  assumesSingleOperator: true,
+  /**
+   * Must become true in the same change that sets assumesSingleOperator false.
+   * False today because there is no second human and mint stays FS-bound.
+   */
+  mintBoundToIdentity: false,
+  reopenWhen:
+    'A second human principal exists on one instance (multi-user / POD-1067)',
+  reopenIssue: 'POD-1067',
+} as const
+
 /** Matches the browser login's TTL (auth-route.ts SESSION_TTL_MS): a credential the
  *  operator has to re-mint every few hours is one they'll paste into a script instead. */
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000

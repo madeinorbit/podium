@@ -1,10 +1,19 @@
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   BREAK_GLASS_LABEL,
+  HOST_LOCAL_MINT_TRUST,
   listSessions,
   mintBreakGlassSession,
   mintBusyTimeoutMs,
@@ -159,4 +168,101 @@ it('prefers an explicit PODIUM_SESSION_TOKEN over the cache', () => {
 
 it('resolves to undefined when there is no credential anywhere', () => {
   expect(resolveSessionToken({}, dir)).toBeUndefined()
+})
+
+// ─── POD-1402: host-local mint trust (ACCEPT under single-operator) ─────────
+//
+// Live probe (agent shell, 2026-08-02): `podium auth mint-session` +
+// `PODIUM_SESSION_TOKEN=$TOKEN env -u PODIUM_AGENT_RELAY podium issue promote …`
+// reached the Authority as operator. Trust root is write access to podium.db only
+// (strace: config.json, instance.json, podium.db[+wal/shm] — not auth.json).
+//
+// Shape: decision instrument, not a security lock. Multi-user must reopen (see
+// HOST_LOCAL_MINT_TRUST). Coherence test fails if assumesSingleOperator flips
+// without mintBoundToIdentity.
+
+it('POD-1402 instrument: single-operator mint trust is coherent', () => {
+  const t = HOST_LOCAL_MINT_TRUST
+  expect(t.decision).toBe('ACCEPT')
+  expect(t.issue).toBe('POD-1402')
+  expect(t.reopenIssue).toBe('POD-1067')
+  if (t.assumesSingleOperator) {
+    // ACCEPT still in force: mint may stay FS-bound.
+    expect(
+      t.mintBoundToIdentity,
+      'POD-1402: assumesSingleOperator=true implies mintBoundToIdentity=false',
+    ).toBe(false)
+  } else {
+    // Multi-user landed: mint MUST be bound to an identity, not file mode alone.
+    expect(
+      t.mintBoundToIdentity,
+      'POD-1402: assumesSingleOperator=false requires mintBoundToIdentity=true — rebind mint before shipping a second human',
+    ).toBe(true)
+  }
+})
+
+// MintOptions has no password / principal / agent-env field. A process that can
+// write the state dir mints; relay env is not consulted (agent shells included).
+it('POD-1402: mint needs only state-dir write access — no password, no principal', () => {
+  seedDatabase(dir)
+  // No auth.json in dir; mint still succeeds. That is the ACCEPT trust root.
+  expect(existsSync(join(dir, 'auth.json'))).toBe(false)
+  const minted = mintBreakGlassSession({ stateDir: dir, ttlMs: 60_000 })
+  expect(minted.token.length).toBeGreaterThan(20)
+  expect(listSessions(dir)).toHaveLength(1)
+})
+
+/**
+ * Schema tripwire (POD-1402 instrument). Reads the Authority drizzle schema from
+ * this worktree via a relative path so we do not depend on @podium/* resolution
+ * (worktrees often resolve workspace packages to the main checkout).
+ *
+ * A per-user column on client_sessions means "write the DB" no longer implies
+ * "sole owner". While HOST_LOCAL_MINT_TRUST.assumesSingleOperator is true, that
+ * column must not exist — multi-user must flip the trust object and bind mint.
+ */
+it('POD-1402 tripwire: client_sessions has no per-user binding while mint is FS-only', () => {
+  const schemaPath = join(
+    import.meta.dirname,
+    '../../../apps/server/src/migrations/schema.ts',
+  )
+  const src = readFileSync(schemaPath, 'utf8')
+  const tableMatch = /export const clientSessions = sqliteTable\(\s*'client_sessions',\s*\{([^}]+)\}/s.exec(
+    src,
+  )
+  expect(
+    tableMatch,
+    `POD-1402 tripwire could not find clientSessions table in ${schemaPath}`,
+  ).not.toBeNull()
+  const body = tableMatch![1]!
+  const columnKeys = [...body.matchAll(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]!)
+
+  if (HOST_LOCAL_MINT_TRUST.assumesSingleOperator) {
+    const forbidden = [
+      'userId',
+      'user_id',
+      'ownerId',
+      'owner_id',
+      'accountId',
+      'account_id',
+      'principalId',
+      'principal_id',
+    ]
+    for (const bad of forbidden) {
+      expect(
+        columnKeys,
+        `POD-1402: client_sessions gained '${bad}' while assumesSingleOperator=true. ` +
+          `FS-only mint ACCEPT has ended — bind mint to an identity before multi-user.`,
+      ).not.toContain(bad)
+    }
+    expect(
+      columnKeys.sort(),
+      `POD-1402: client_sessions column set drifted (measured: ${columnKeys.join(',')})`,
+    ).toEqual(['createdAt', 'expiresAt', 'label', 'tokenHash'].sort())
+  } else {
+    expect(
+      HOST_LOCAL_MINT_TRUST.mintBoundToIdentity,
+      'POD-1402: multi-user requires mintBoundToIdentity=true',
+    ).toBe(true)
+  }
 })
