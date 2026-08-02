@@ -42,16 +42,36 @@ god-object audit greener and the design worse.
 
 ## Proposed remaining cuts, in dependency order
 
-**1. `session-start.ts` (~450 lines).** `createSession`, `spawn`,
-`modelDefaults`, `accountEnv`, `reattachMessageFor`. One job: turn a
-create/resume/reattach request into a daemon spawn or reattach message, with the
-launch configuration resolved from settings and accounts.
+**1. `session-start.ts` (~330 lines, was ~450 before `launch-config.ts` came
+out).** `createSession` (173) and `spawn` (157). One job: turn a create request
+into a live session and its daemon spawn frame.
+
+*Measured coupling — this is the port list, not a guess.* `spawn` touches 12
+lifecycle members, `createSession` 8:
+
+```
+spawn          broadcastSessions, deps, launchConfig, machines, repository,
+               sessions, settingsViewer, state, store, terminalProof,
+               toMachine, view
+createSession  bus, deps, machines, sessionOwner, setSessionDraft,
+               settingsViewer, store, spawn
+```
+
+Twelve ports is large but in line with `machine-reconciler.ts`, which also takes
+twelve. Every one is already a collaborator or an existing port — none of them
+requires reaching into another module's internals, which is what makes this a
+seam rather than a tangle.
 
 *Hazard:* `settingsViewer()` has five callers and returns `FIRST_ADMIN_USER_ID`.
 It must **stay in lifecycle** and be passed as a port. Moving it would relocate
 an ambient-principal site, and the production count (77) must not change. Verify
 with `grep -rn FIRST_ADMIN_USER_ID apps packages --include=*.ts | grep -v test`
-before and after.
+before and after. POD-1408 exists because that concept has at least three
+spellings, so grep the constant, not the idea.
+
+*Hazard:* `createSession` calls `spawn`. Keep them in the SAME module — splitting
+them puts a call across a new boundary for no gain, and `spawn` is not
+independently meaningful.
 
 **2. `session-teardown.ts` (~450 lines).** `stopSession`, `stopIssue`,
 `hibernateSession`, `killSession`, `killStoppedSession`, `removeSessionRuntime`,
@@ -73,9 +93,14 @@ above shrinks it, so doing it first means doing it twice.
 
 *Hazard, and the reason this one is last rather than first:* construction order
 is a real contract, and `scripts/server-construction-order.ts` only walks the
-**relay** root — it will not catch a reordering inside this constructor. Extract
-as a builder returning the collaborator set, and change no ordering in the same
-commit as the move.
+**relay** root — it will not catch a reordering inside this constructor. **That
+blind spot is now tracked as POD-1411**, because it is a gap in the instrument
+the gate cites for ordering, sitting directly beneath a 372-line block with real
+ordering semantics. Until it closes, nothing is watching this constructor.
+
+Therefore: extract as a builder returning the collaborator set, and change **no
+ordering** in the same commit as the move. Say so explicitly in the commit
+rather than letting a green generator imply a check it did not perform.
 
 Landing all four leaves a facade of delegations plus small methods, roughly
 400–600 lines, which is at or under the signal.
@@ -107,12 +132,23 @@ Established over the four already landed, and worth keeping:
    async work. None of the four so far did — but that was checked, not assumed.
    POD-1390 proved this is where a split silently drops behaviour.
 
-## Known red to ignore
+## Two files whose lane verdict is ORDER-DEPENDENT
 
-`apps/server/src/modules/sessions/oracle-authz.test.ts` — one case,
-`sessions.handoff` returning "no such procedure" instead of the permission
-message. POD-1386's allowlist entry without its dispatch arm. Attributed and
-being fixed; not caused by this work.
+Fixed as of `dfa58a4f` — `oracle-authz.test.ts` is 29/29 again and a red there is
+now a real signal. But POD-1394 measured both of these as order-dependent, in
+*opposite* directions:
+
+| file | scoped | in a full lane |
+| --- | --- | --- |
+| `modules/sessions/oracle-authz.test.ts` | red | green |
+| `wsServer.client-auth.test.ts` | green | red |
+
+So **a green on either file inside a multi-file run is not evidence about that
+file.** If a count you are quoting hinges on either, re-run it standalone. Both
+were verified standalone at `6c56bbf0`: 29/29 and 7/7.
+
+This does not affect the decomposition. It affects how you read your own lane
+output, which is the more dangerous of the two.
 
 ## Known coverage hole — do not build on it
 
