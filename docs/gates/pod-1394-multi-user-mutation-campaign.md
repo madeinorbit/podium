@@ -1,8 +1,13 @@
 # POD-1394 — Multi-user mutation probe campaign: transcript
 
-**Candidate SHA:** `7ceec3f7` (this branch, merging integration through POD-1410's `bbd05a08` and
-POD-1412's fix). Every mutant below was executed at this SHA. Earlier full runs at `d8fba769` and
-`4b5c3a43` are superseded, not merely appended — their records are in git history.
+**GATE CANDIDATE: `c3b8247e`** (named by POD-279). Standing here: **31 mutants, 30 caught,
+1 survivor** — 14 re-run at this SHA, 16 carried by byte-identical diff, 1 new mutant (`N6`) against
+refusal surface that landed in the intervening 78 commits. See *Gate candidate `c3b8247e`* below for
+the split and the carry rule.
+
+**Base measurement: `7ceec3f7`.** The per-mutant verdict table and all diagnostics below were
+measured there. Earlier full runs at `d8fba769` and `4b5c3a43` are superseded; their records are in
+git history.
 **Date:** 2026-08-02
 
 ## Status against POD-425's refusals (`dd017634`, `2f17c125`)
@@ -19,7 +24,9 @@ POD-1412's fix). Every mutant below was executed at this SHA. Earlier full runs 
 
 ## Result
 
-**30 production mutants, 29 caught, 1 survivor.** Every caught row exits non-zero with a diagnostic
+**At the base measurement `7ceec3f7`: 30 production mutants, 29 caught, 1 survivor.** At the gate
+candidate `c3b8247e`: **31 mutants, 30 caught, 1 survivor** (the extra is `N6`). Every caught row
+exits non-zero with a diagnostic
 naming the property that was broken. The single survivor is filed as **POD-1429** and is a genuine
 clause gap, described below.
 
@@ -62,7 +69,10 @@ Every mutant went through one runner (`pod-1394-mutate.py`) that ABORTS rather t
 SIGTERM/SIGINT/atexit handlers restore before exit, and `--restore-orphans` replays any breadcrumb,
 so recovery does not require the process that made the mess.
 
-## Verdict — one line per mutant, all at `7ceec3f7`
+## Verdict — one line per mutant, measured at the base `7ceec3f7`
+
+Re-run status at the gate candidate `c3b8247e` is in the split section above: 14 of these were re-run
+there and all stayed CAUGHT; the other 16 are carried on byte-identical subject AND guardrail.
 
 | Mutant | Cond | What was planted | File:line | Exit | Diagnostic |
 | --- | --- | --- | --- | ---: | --- |
