@@ -26,12 +26,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import {
-  deliversUnwrapped,
-  exemptFromBrakes,
-  type MailSenderPrincipal,
-  senderBrakeKey,
-} from '@podium/commands'
+import { exemptFromBrakes, type MailSenderPrincipal, senderBrakeKey } from '@podium/commands'
 import {
   actorAgent,
   actorSystem,
@@ -62,6 +57,7 @@ import type { NotificationFactsRepository } from '../../store/notification-facts
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
+import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
@@ -69,9 +65,6 @@ export const HOP_LIMIT = 5
 export const WAKE_COOLDOWN_MS = 10 * 60_000
 /** Message-triggered spawns per issue per UTC day (brake 2). */
 export const SPAWN_BUDGET_PER_DAY = 10
-/** Bodies past this render as a pointer, not inline (issue-addressed only —
- *  they are readable via `podium issue mail inbox`). */
-export const INLINE_BODY_MAX = 6_000
 /** A pushed message becomes `delivered` only when its envelope echoes back as a
  *  turn in the target's transcript [POD-834 §04d]. If no echo confirms within
  *  this window the push was lost (drain refused, session died, an ESC ate it) and
@@ -130,15 +123,6 @@ export type SendDisposition =
   | 'spawning'
   | 'dead_letter'
 
-/** How a rendered message is confirmed as reaching the agent [POD-834]:
- *   - `echo`      enveloped body carrying the msg id → confirmed by transcript echo;
- *   - `pointer`   a coalesced "you have mail" nudge (fyi / oversized issue mail) →
- *                 the body isn't shown inline, so it is confirmed by an inbox READ,
- *                 never echo — and is never auto-requeued (no re-nudge storm);
- *   - `unwrapped` an operator's byte-faithful body (no envelope, no id) → no echo
- *                 is possible, so injection itself is the confirmation. */
-type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
-
 /**
  * The L1 principal projection of a sender, for the policy functions in
  * `@podium/commands`.
@@ -154,15 +138,6 @@ type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
  */
 const principalOf = (from: MessageSender): MailSenderPrincipal =>
   ({ ...from, user: from.attribution?.onBehalfOf ?? null }) as MailSenderPrincipal
-
-const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
-  ({
-    kind: m.fromKind,
-    user: m.attribution?.onBehalfOf ?? null,
-    ...(m.fromIssue ? { issueId: m.fromIssue } : {}),
-    ...(m.fromSession ? { sessionId: m.fromSession } : {}),
-    ...(m.fromName ? { name: m.fromName } : {}),
-  }) as MailSenderPrincipal
 
 /** The authenticated sender principal — derived by the SURFACE from its caller
  *  identity (capability / in-process authority), never from client input. */
@@ -310,57 +285,6 @@ export interface MessageDeliveryDeps {
   now(): string
 }
 
-/**
- * SUBSTRATE-boundary body sanitizer: message bodies are typed into the target
- * agent's PTY inside a bracketed paste (ESC[200~ … ESC[201~), so a body
- * containing the paste-END marker would terminate the paste early and
- * everything after it would run as raw keystrokes — command injection into
- * another agent session. Strip every C0/C1 control character except newline
- * and tab (killing ESC neutralizes ESC[201~ and all other escape sequences).
- * Applied at rendering/delivery ONLY — typeText itself stays byte-faithful for
- * operator/UI direct typing.
- */
-export function sanitizeBody(body: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars is the point
-  return body.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u0080-\u009f]/g, '')
-}
-
-/** Render the delivery envelope. Server-only: bodies never carry frames of
- *  their own — a spoofed "[podium message …]" inside `body` lands INSIDE the
- *  real frame and reads as quoted text. */
-export function renderEnvelope(
-  m: MessageRow,
-  fromLabel: string,
-  toLabel: string,
-  note?: string,
-): string {
-  // The seance constraint [spec:SP-34d7 read-toolkit tier 4]: a question's
-  // frame binds the receiver — answer from existing context, reply, then
-  // RESUME. Server-rendered like the rest of the frame, never client text.
-  const questionRule =
-    m.kind === 'question'
-      ? `[this is a question: answer it from your existing context with \`podium mail reply ${m.id}\`, ` +
-        `then RETURN TO WHAT YOU WERE DOING — do not take up new work because of it]\n`
-      : ''
-  // A --expect-response message [spec:SP-bf44] carries the same reply directive a
-  // question does, minus the answer-then-resume binding: the sender wants a reply
-  // (else the steward will nag them that none came), but it is not a seance. A
-  // question already gets its own, stronger rule above, so this is question-exempt.
-  const responseRule =
-    m.expectsResponse && m.kind !== 'question'
-      ? `[a response was requested: reply within this thread (\`podium mail reply ${m.id}\`) ` +
-        `when you have handled it — any substantive reply satisfies it]\n`
-      : ''
-  return (
-    `[podium message ${m.id} · from ${fromLabel} · to ${toLabel} · reply: podium mail reply ${m.id}]\n` +
-    `${m.body}\n` +
-    (note ? `${note}\n` : '') +
-    questionRule +
-    responseRule +
-    `[end podium message ${m.id}]`
-  )
-}
-
 /** Derive the sender principal from an authz capability (the relay/registry
  *  caller identity). ONLY the unconstrained scope ('all') is the operator —
  *  "unwrapped = the human" is an invariant the receiver's prime rules trust,
@@ -480,9 +404,24 @@ export class MessageDeliveryService {
   private readonly attentionEmitted = new Set<string>()
 
   private readonly notificationArbiter: NotificationArbiter
+  /** Envelope/pointer rendering and the confirmation mode that follows from it
+   *  (POD-1397). Holds no state; owned rather than injected because its deps are
+   *  a narrowing of this service's own. */
+  private readonly render: MessageRenderer
 
   constructor(private readonly deps: MessageDeliveryDeps) {
     this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
+    this.render = new MessageRenderer({
+      issues: deps.issues,
+      listSessions: () => deps.sessions.listSessions(),
+      ...(deps.machineName ? { machineName: (id: string) => deps.machineName!(id) } : {}),
+    })
+  }
+
+  /** The exact text a receiver would see — the delivery service's own view of
+   *  its renderer, kept public because callers ask this service, not its parts. */
+  renderFor(message: MessageRow, receiverSessionId?: string): string {
+    return this.render.renderFor(message, receiverSessionId)
   }
 
   /** Bounded delivery jobs coalesce by durable recipient principal. */
@@ -1205,7 +1144,7 @@ export class MessageDeliveryService {
   ): DeliveryOutcome {
     const sessions = this.deps.sessions
     const principal = this.inboxPrincipal(message)
-    const text = this.renderFor(message, sessionId)
+    const text = this.render.renderFor(message, sessionId)
     const input = {
       sessionId,
       text,
@@ -1226,7 +1165,7 @@ export class MessageDeliveryService {
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
-    const confirmed = this.confirmedOnInjection(message)
+    const confirmed = this.render.confirmedOnInjection(message)
     if (confirmed) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification) — the injection IS the
@@ -1341,7 +1280,7 @@ export class MessageDeliveryService {
           })
           for (const message of page) {
             if (!message.injectedAt || message.deliveredTo !== session.sessionId) continue
-            if (this.deliveryMode(message) === 'pointer') continue
+            if (this.render.isPointer(message)) continue
             this.markDelivered(message, session.sessionId, 'boundary')
           }
           if (page.length < DELIVERY_TARGET_PAGE_LIMIT) break
@@ -1404,7 +1343,7 @@ export class MessageDeliveryService {
    *  passes (after which the sweep re-pushes it as a lost push). */
   private awaitingConfirmation(m: MessageRow, nowMs: number): boolean {
     if (!m.injectedAt) return false
-    if (this.deliveryMode(m) === 'pointer') return true
+    if (this.render.isPointer(m)) return true
     return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
   }
 
@@ -1506,14 +1445,12 @@ export class MessageDeliveryService {
     // sender. They stay queued for their real recipient's own idle drain.
     const rows = batch.filter((m) => m.fromSession !== session.sessionId)
     if (rows.length === 0) return
-    const pointerRows = rows.filter(
-      (m) => m.toKind === 'issue' && (m.urgency === 'fyi' || m.body.length > INLINE_BODY_MAX),
-    )
+    const pointerRows = rows.filter((m) => this.render.isPointer(m))
     const inlineRows = rows.filter((m) => !pointerRows.includes(m))
     for (const m of inlineRows) {
       const r = sessions.sendText({
         sessionId: session.sessionId,
-        text: this.renderFor(m, session.sessionId),
+        text: this.render.renderFor(m, session.sessionId),
         inputOrigin: 'mail',
         principal: this.inboxPrincipal(m),
         sourceMessageId: m.id,
@@ -1526,7 +1463,7 @@ export class MessageDeliveryService {
       const m = pointerRows[0]!
       const r = sessions.sendText({
         sessionId: session.sessionId,
-        text: this.renderFor(m, session.sessionId),
+        text: this.render.renderFor(m, session.sessionId),
         inputOrigin: 'mail',
         principal: this.inboxPrincipal(m),
         sourceMessageId: m.id,
@@ -1538,7 +1475,7 @@ export class MessageDeliveryService {
       // wait — the sweep never re-nudges a pointer row [POD-834].
       const r = sessions.sendText({
         sessionId: session.sessionId,
-        text: this.pointerText(pointerRows),
+        text: this.render.pointerText(pointerRows),
         inputOrigin: 'mail',
         principal: {
           kind: 'system',
@@ -1557,17 +1494,9 @@ export class MessageDeliveryService {
    *  never chased, so both are confirmed now; everything else is injected and
    *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
   private recordPush(message: MessageRow, sessionId: SessionId): void {
-    if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId, 'injection')
+    if (this.render.confirmedOnInjection(message))
+      this.markDelivered(message, sessionId, 'injection')
     else this.markInjected(message, sessionId)
-  }
-
-  /** The coalesced pointer rendering (also used for oversized bodies). */
-  pointerText(rows: MessageRow[]): string {
-    const senders = [...new Set(rows.map((m) => this.fromLabel(m)))]
-    return (
-      `[podium] ${rows.length} message(s) from ${senders.join(', ')} — ` +
-      `run 'podium issue mail inbox' to read them`
-    )
   }
 
   // ---- acks & reads (#237 phase 3) [spec:SP-34d7 acks] ----
@@ -1668,7 +1597,7 @@ export class MessageDeliveryService {
     const out: { id: string; from: string; body: string }[] = []
     for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
       if (!this.deps.messages.markReminded(m.id, at)) continue
-      out.push({ id: m.id, from: this.fromLabel(m), body: m.body })
+      out.push({ id: m.id, from: this.render.fromLabel(m), body: m.body })
     }
     return out
   }
@@ -2153,114 +2082,6 @@ export class MessageDeliveryService {
     this.deps.messages.recordWakeCooldown(key, attemptedAt)
     const parsed = Date.parse(attemptedAt)
     this.lastWakeAt.set(key, Number.isFinite(parsed) ? parsed : this.nowMs())
-  }
-
-  // ---- rendering ----
-
-  /** The exact text the receiver sees: enveloped for every principal EXCEPT the
-   *  operator — only the human's own words land unwrapped. Oversized
-   *  issue-addressed bodies render as an inbox pointer instead of inline. */
-  renderFor(message: MessageRow, receiverSessionId?: string): string {
-    if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
-      return this.pointerText([message])
-    }
-    // Operator bodies are BYTE-FAITHFUL: the human's bytes are their own —
-    // they can already type anything directly into their own terminal, so
-    // there is no escalation to prevent. Unwrapped AND unsanitized. The ONE
-    // exception is a question [spec:SP-34d7 read-toolkit tier 4]: the ask
-    // round-trip needs the reply frame (message id + `podium mail reply`) or
-    // the target can never ack and awaitAck always times out — so operator
-    // questions render the frame around the still-byte-faithful body.
-    if (message.fromKind === 'operator') {
-      if (message.kind !== 'question') return message.body
-      return renderEnvelope(message, 'the operator', this.toLabel(message))
-    }
-    // Substrate boundary: every NON-operator delivered body is control-stripped
-    // so it can never break out of the bracketed paste (ESC[201~) in typeText.
-    const body = sanitizeBody(message.body)
-    return renderEnvelope(
-      { ...message, body },
-      this.fromLabel(message),
-      this.toLabel(message),
-      this.crossMachineNote(message, receiverSessionId),
-    )
-  }
-
-  /** Cross-machine provenance [spec:SP-6d57]: when the sending session runs on a
-   *  DIFFERENT machine than the receiver, say so and how to inspect its working
-   *  state — built only from what podium already knows (session machineIds),
-   *  zero storage. */
-  private crossMachineNote(message: MessageRow, receiverSessionId?: string): string | undefined {
-    if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
-    const sessions = this.deps.sessions.listSessions()
-    const senderMachine = sessions.find((s) => s.sessionId === message.fromSession)?.machineId
-    const receiverMachine = sessions.find((s) => s.sessionId === receiverSessionId)?.machineId
-    if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined
-    const name = this.deps.machineName?.(senderMachine) ?? senderMachine
-    return `[this agent runs on machine "${name}" — inspect its working tree with: podium workspace fetch ${message.fromSession}]`
-  }
-
-  private fromLabel(message: MessageRow): string {
-    if (message.fromKind === 'agent') {
-      if (message.fromIssue) {
-        // Nice-id form (#474): `issue:POD-13` — clickable in the web transcript
-        // and the reference form agents are told to use; `#seq` only before a
-        // repo prefix exists (niceRef's own fallback).
-        const issues = this.deps.issues
-        const issue = issues.getMeta(message.fromIssue)
-        return issue ? `issue:${issues.niceRef(issue)}` : message.fromIssue
-      }
-      if (message.fromSession) return `session:${message.fromSession}`
-      return 'agent'
-    }
-    if (message.fromKind === 'system')
-      return `system${message.fromName ? `:${message.fromName}` : ''}`
-    return message.fromKind // superagent
-  }
-
-  private toLabel(message: MessageRow): string {
-    if (message.toKind === 'issue') {
-      const issues = this.deps.issues
-      const issue = issues.getMeta(message.toId ?? '')
-      return issue ? `your issue ${issues.niceRef(issue)}` : `your issue ${message.toId}`
-    }
-    if (message.toKind === 'session') return 'your session'
-    return 'the operator'
-  }
-
-  /** How a message reaches the agent, deciding how (and whether) its delivery is
-   *  confirmed [POD-834]. Kept in lockstep with `deliverBatch`'s pointer filter
-   *  and `renderFor`: an issue-addressed fyi / oversized body is a pull-path
-   *  nudge (confirmed by an inbox read); an operator's byte-faithful body carries
-   *  no id and is confirmed on injection; everything else echoes back its id. */
-  private deliveryMode(message: MessageRow): DeliveryMode {
-    if (
-      message.toKind === 'issue' &&
-      (message.urgency === 'fyi' || message.body.length > INLINE_BODY_MAX)
-    ) {
-      return 'pointer'
-    }
-    if (deliversUnwrapped(principalOfRow(message), message.kind)) return 'unwrapped'
-    return 'echo'
-  }
-
-  /** A message whose push into the PTY is itself the confirmation — no transcript
-   *  echo is awaited and the sweep never re-injects it [POD-853]. Two cases: an
-   *  unwrapped operator body (no id to echo), and a best-effort ack/notification.
-   *  Pointer/pull-path rows are NOT confirmed on injection (an inbox read confirms
-   *  those), so best-effort applies only to inline echo-mode rows. */
-  private confirmedOnInjection(message: MessageRow): boolean {
-    const mode = this.deliveryMode(message)
-    return mode === 'unwrapped' || (mode === 'echo' && this.isBestEffort(message))
-  }
-
-  /** Fire-and-forget kinds [POD-853, spec:SP-34d7 acks & notifications]: an ack is
-   *  never itself acked and its ack-confirms-original side effect fires at send
-   *  time regardless; a steward/subscription notification never expects an ack.
-   *  Chasing their transcript echo only risks the mid-turn re-inject loop, so they
-   *  are delivered once (injection = confirmation) and never auto-requeued. */
-  private isBestEffort(message: MessageRow): boolean {
-    return message.kind === 'ack' || message.kind === 'notification'
   }
 
   /** Record a push toward a live PTY without claiming the agent saw it: stamps

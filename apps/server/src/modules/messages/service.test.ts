@@ -13,16 +13,15 @@ import { SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import { MessageGate } from './gate'
+import { INLINE_BODY_MAX, sanitizeBody } from './render'
 import {
   ECHO_CONFIRM_WINDOW_MS,
   HOP_LIMIT,
-  INLINE_BODY_MAX,
   INTERRUPT_DELIVERY_CEILING_MS,
   MAX_ECHO_REQUEUES,
   MessageDeliveryService,
   NEXT_TURN_DELIVERY_BUDGET_MS,
   SPAWN_BUDGET_PER_DAY,
-  sanitizeBody,
   senderFromCapability,
   WAKE_COOLDOWN_MS,
 } from './service'
