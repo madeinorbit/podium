@@ -330,9 +330,19 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
 // ---------------------------------------------------------------------------
 
 describe('a wake refuses to start a process without `use` on the target machine (POD-1193)', () => {
+  /** Global use/reachability — fine for single-target denials. */
   const machines = (opts: { use: boolean; reachable: boolean }) => ({
     mayUse: () => opts.use,
     isReachable: () => opts.reachable,
+  })
+  /**
+   * TWO MACHINES — the vacuity trap (POD-1424 class). A single global mayUse
+   * cannot tell "enforces per-machine use" from "always deny / always allow".
+   * `usable` is the set of machine ids this principal may place work on.
+   */
+  const machinesFor = (usable: ReadonlySet<string>, reachable = true) => ({
+    mayUse: (machineId: string) => usable.has(machineId),
+    isReachable: () => reachable,
   })
 
   const parkedOnAlice = (h: ReturnType<typeof mailHarness>) => {
@@ -470,6 +480,87 @@ describe('a wake refuses to start a process without `use` on the target machine 
       {
         to: issue.id,
         body: 'spin someone up',
+        lifecycle: 'wake',
+      },
+    )) as { ok: boolean; disposition: string; reason?: string }
+
+    expect(r).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: target is not available',
+    })
+    expect(h.wakeSpawns).toEqual([])
+  })
+
+  it('two machines: use on Alice does not license a wake on Bob — and the reverse holds', async () => {
+    // Multi-actor: the principal may USE only Alice's laptop. Waking a parked
+    // session on Bob must dead-letter; waking one on Alice must resume.
+    const usable = new Set(['mac_alices_laptop'])
+    const h = mailHarness({ machines: machinesFor(usable) })
+    const issue = h.createIssue({ title: 'shared work' })
+    h.put(
+      {
+        sessionId: asSessionId('sOnAlice'),
+        issueId: issue.id,
+        status: 'hibernated',
+        machineId: 'mac_alices_laptop',
+      },
+      {
+        sessionId: asSessionId('sOnBob'),
+        issueId: issue.id,
+        status: 'hibernated',
+        machineId: 'mac_bobs_workstation',
+      },
+    )
+    const cap = h.agentCap(issue.id, asSessionId('sMe'))
+
+    const onBob = (await h.gate.dispatch(cap, undefined, 'send', {
+      to: 'sOnBob',
+      body: 'wake bob',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string; reason?: string }
+    expect(onBob).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: target is not available',
+    })
+    expect(h.pushes.filter((p) => p.sessionId === 'sOnBob')).toEqual([])
+
+    const onAlice = (await h.gate.dispatch(cap, undefined, 'send', {
+      to: 'sOnAlice',
+      body: 'wake alice',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string }
+    expect(onAlice.ok).toBe(true)
+    expect(onAlice.disposition).not.toBe('dead_letter')
+    expect(h.pushes.some((p) => p.fn === 'queueText' && p.sessionId === 'sOnAlice')).toBe(true)
+  })
+
+  it('unresumable wake re-checks the ISSUE machine when it differs from the session machine', async () => {
+    // M6 witness: session lives on Alice (usable); issue is pinned to Bob
+    // (not usable). Resume fails with 'no resume ref' → trySpawn would place
+    // on Bob. Without the issue-machine re-check the spawn would fire.
+    const usable = new Set(['mac_alices_laptop'])
+    const h = mailHarness({ machines: machinesFor(usable) })
+    const issue = h.createIssue({ title: 'cross-machine' })
+    h.issues.update(issue.id, { machineId: asMachineId('mac_bobs_workstation') })
+    h.put({
+      sessionId: asSessionId('sUnresumable'),
+      issueId: issue.id,
+      status: 'hibernated',
+      machineId: 'mac_alices_laptop',
+    })
+    h.transport.ok = false
+    h.transport.reason = 'no resume ref'
+    h.transport.failSessions = ['sUnresumable']
+
+    const r = (await h.gate.dispatch(
+      h.agentCap(issue.id, asSessionId('sMe')),
+      undefined,
+      'send',
+      {
+        to: 'sUnresumable',
+        body: 'resurrect elsewhere',
         lifecycle: 'wake',
       },
     )) as { ok: boolean; disposition: string; reason?: string }
