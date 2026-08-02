@@ -5,7 +5,7 @@ import {
   resolveSpawnTargetMachine,
   usableMachines,
   type MachineGrants,
-} from './machines'
+} from './authority'
 
 // ---------------------------------------------------------------------------
 // POD-330 / multi-user doc §3.1.4 — MACHINES PUBLISH VERBS, NOT A BOOLEAN.

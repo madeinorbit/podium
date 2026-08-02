@@ -23,7 +23,7 @@ import type { GitRepositoryWire, RepoId, SessionMeta } from '@podium/model'
 import { indexSessionOwnership, sessionsForWorktree, type SessionOwnershipIndex } from '../../session-ownership'
 import { sortSessionsForSidebar } from '../../session-urgency'
 import type { PinState, RepoView, WorktreeView } from '../../types'
-import { reposToViews } from '../machines'
+import { reposToViews } from '../machines/facts'
 import type { IssueNavigationModel } from '../issues'
 
 export interface WorktreeNavView extends WorktreeView {

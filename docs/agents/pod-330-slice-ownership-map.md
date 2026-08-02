@@ -309,6 +309,42 @@ reference is honest about the existence of work you cannot see, and hiding leaks
   see": a count IS an existence fact, and §3.1.2 lists counts as an open policy question, so
   publishing one by default would settle it silently.
 
+## 4e. The ~400-line criterion: one split, one argued exception
+
+Two modules were over the acceptance criterion's ~400 lines (both were under it at their cut —
+390 and 380 — and grew afterwards). They got opposite answers, on purpose.
+
+**`slices/machines.ts` (464) was SPLIT, and the line count was the prompt rather than the reason.**
+Asked what questions it answered, it had three:
+
+| module | lines | question |
+|---|---|---|
+| `slices/machines/facts.ts` | 217 | what IS on this machine — repos, worktrees, host metrics |
+| `slices/machines/authority.ts` | 160 | what may this principal DO with it — see / use / manage |
+| `slices/machines/placement.ts` | 126 | where does a new agent GO — worktree, machine, agent kind |
+
+The facts/authority line is the one worth having: a FACT the authority sends is not a DECISION the
+authority made, and `use` is a code-execution boundary. Placement separates from authority for the
+same reason in the other direction — placement that could also authorize would be a
+code-execution decision hidden inside a layout helper. A split by line count would have put half
+the verbs in each file.
+
+**`session-status.ts` (451) was NOT split, and the exception is argued with a predicate a test
+enforces** (`session-status.invariant.test.ts`). F1 answers exactly one question, and its stated
+membership invariant is the thing that would actually be violated if it drifted:
+
+> one session in — optionally with its own issue — one presentation value out. No collections, no
+> cross-entity state, no ordering, no lists.
+
+The test's mechanical half: **no exported function may take a COLLECTION of sessions, and the
+module may not import a slice.** Both mutate to red (an exported `anyWorking(all: SessionMeta[])`,
+and an added slice import), and the parser asserts it matched something before trusting its own
+verdicts — a source-scanning check that matches nothing passes every assertion it makes.
+
+The day that predicate fails is the day the exception expires, because it means the one question
+has become two. That is the difference between an exception and a note: **an exception is a claim
+with a check attached; a note is a claim.**
+
 ## 5. What this map commits to
 
 - `derive.ts` is deleted; nothing named `*-helpers` or `*-common` replaces it.
