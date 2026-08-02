@@ -918,6 +918,11 @@ export const CHECKS: AuditCheck[] = [
     // NOT a regression against main: main runs a different detector under this key
     // (exported names in one file, no change-row-audit.ts at all) — one instrument
     // over both trees gives integration 12, MAIN 22.
+    //
+    // POD-1251 drove the live count 15 → 0 by composition. The zero is the target
+    // state, not detector drift: `changeRowRestatements` runs a planted restatement
+    // CONTROL on every collect and THROWS when that stops matching (POD-1417), so
+    // this item may sit in ZERO_BY_DESIGN on the same terms as per-user-singletons.
     unit: "a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model's change field schemas",
     collect: (ctx) => changeRowRestatements(ctx),
   },
@@ -1208,12 +1213,12 @@ export const CHECKS: AuditCheck[] = [
     id: 'panel-mode-duality',
     title: 'panelMode storage duality',
     phase: 'POD-329',
-    unit: 'panelMode storage-key literal outside the engine persistence module',
+    unit: 'panelMode storage-key literal outside the ui-state module',
     collect: (ctx) =>
       grep(ctx, {
         roots: ['apps', 'packages'],
         pattern: /'podium\.panelMode(?:Default)?'/,
-        skip: (file) => file === 'packages/client-core/src/engine/persistence.ts',
+        skip: (file) => file === 'packages/client-core/src/ui-state.ts',
       }),
   },
   {
