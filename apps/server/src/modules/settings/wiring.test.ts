@@ -50,7 +50,7 @@ const SECRET = 'sk-ant-real-material-do-not-log'
 function harness(role: UserRole | undefined) {
   const store = new SessionStore(':memory:')
   const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
-  registry.modules.machines.ensureLocalMachine()
+  registry.modules.machines.ensureHostMachine('machine-under-test')
 
   // Override only after boot has loaded the real migration account. The command
   // gate must see the requested role (including unreadable), while unrelated

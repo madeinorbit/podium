@@ -76,8 +76,6 @@ export interface EventMap {
   'machine.disconnected': { machineId: string }
   /** Durable machine metadata changed; session machine-name projections recapture. */
   'machine.metadataChanged': { machineId: string }
-  /** Placeholder rows were durably adopted by a real local machine. */
-  'machine.rowsAdopted': { machineId: string }
   /** A host reported a fresh metrics sample. */
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */

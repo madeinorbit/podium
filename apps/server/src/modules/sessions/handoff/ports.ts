@@ -16,11 +16,15 @@
  * possible, not decoration.
  *
  * WHAT IS DELIBERATELY NOT HERE: a second daemon correlator. The request/reply
- * correlation already lives in `modules/machines/rpc.ts` (`this.request` with a
- * per-kind pending map), and POD-318 folds the hand-paired
+ * correlation lives in `modules/daemon-request.ts` — ONE registry for every
+ * daemon round-trip in the server since POD-318, which folded the hand-paired
  * `onHandoffExportResult` / `onHandoffImportChunkResult` / `onHandoffImportResult`
- * handlers into the generic correlator. {@link HandoffRpcPort} is the SHAPE the
- * legs are consumed through — four request/result pairs, awaited — and nothing
+ * handlers (and their per-kind pending maps) into it. The five legs below
+ * inherit its answering-machine check for free: a handoff export answered by a
+ * machine other than the one it was sent to is dropped (POD-1175), which matters
+ * here more than anywhere, because these legs move a live agent — and its staged
+ * worktree bytes — BETWEEN two machines. {@link HandoffRpcPort} is the SHAPE the
+ * legs are consumed through — five request/result pairs, awaited — and nothing
  * more; it must not grow a correlation mechanism of its own.
  */
 

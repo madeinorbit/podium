@@ -319,7 +319,7 @@ describe('search.query tRPC', () => {
   function caller() {
     const registry = new SessionRegistry()
     registries.push(registry)
-    registry.gateway.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {

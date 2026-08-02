@@ -620,13 +620,22 @@ describe('resolvePlan — takeover is opt-in (#18)', () => {
 })
 
 describe('daemonOptionsForPlan', () => {
-  it('authenticates all-in-one daemon as the local machine', () => {
+  it('authenticates the all-in-one daemon as THIS HOST, by its minted id', () => {
+    // The id comes from `<stateDir>/machine.id` (POD-318) — the same file the
+    // split-mode daemon and the server read — so it is passed in here rather than
+    // asserted as a constant. What this pins is that the option carries the HOST's
+    // identity and the loopback secret together.
     expect(
-      daemonOptionsForPlan({ mode: 'all-in-one', showSetupHint: false }, 18787, 'local-secret'),
+      daemonOptionsForPlan(
+        { mode: 'all-in-one', showSetupHint: false },
+        18787,
+        'local-secret',
+        'host-machine-id',
+      ),
     ).toEqual({
       serverUrl: 'ws://localhost:18787',
       bootstrapToken: 'local-secret',
-      machineId: 'local',
+      machineId: 'host-machine-id',
       installCodexHooks: true,
       installGrokHooks: true,
     })

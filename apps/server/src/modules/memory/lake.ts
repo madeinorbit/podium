@@ -1,12 +1,21 @@
 import type { AgentKind, ResumeRef, TranscriptItem } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
 import { MirrorService } from '@podium/sync'
 import { fileChainSource, fileIdFor } from '@podium/transcript'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { ConversationsRepository } from '../../store/conversations'
+import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 import { TranscriptIndexer } from './transcript-indexer'
 
 const READ_TIMEOUT_MS = 10_000
+
+/** The mirror's ranged-read request family (POD-318). One prefix, one result
+ *  type, one registry — see `modules/daemon-request.ts`. */
+const MIRROR_READ = daemonRequestKind<{
+  data: string
+  fileSize: number
+  eof: boolean
+  error?: string
+}>('mr')
 
 export interface LakeReadSession {
   machineId: string
@@ -17,14 +26,19 @@ export interface LakeReadSession {
 export interface TranscriptLakeDeps {
   store: ConversationsRepository
   now(): number
-  daemonRequest<T>(
-    pending: Map<string, (result: T) => void>,
-    prefix: string,
-    timeoutMs: number,
-    onTimeout: () => T,
-    buildMessage: (requestId: string) => ControlMessage,
-    machineId?: string,
-  ): Promise<T>
+  /**
+   * The ONE daemon-RPC correlator (POD-318), taken as the broker's own exported
+   * port rather than re-declared here.
+   *
+   * This used to be a structural COPY of a six-argument `daemonRequest` function
+   * type — the same port written out again in `hosts/service.ts` and implemented
+   * a third time in `machines/rpc.ts` (inventory §6.5 rule 1). The copy is also
+   * what forced the pending map below to exist: a function type that hands back
+   * a resolver can only work if the caller owns the registry. Depending on the
+   * port instead puts the registry, the timeout AND the answering-machine check
+   * (POD-1175) in the broker, and leaves this owner with just the read.
+   */
+  daemonRequest: DaemonRequestPort
 }
 
 /**
@@ -32,10 +46,6 @@ export interface TranscriptLakeDeps {
  * consumed unchanged; this owner only supplies its repositories and hooks.
  */
 export class TranscriptLake {
-  private readonly pendingReads = new Map<
-    string,
-    (result: { data: string; fileSize: number; eof: boolean; error?: string }) => void
-  >()
   private readonly mirror?: MirrorService
   private readonly indexer?: TranscriptIndexer
 
@@ -103,12 +113,11 @@ export class TranscriptLake {
     machineId: string,
     request: { path: string; offset: number; maxBytes: number },
   ): Promise<{ data: string; fileSize: number; eof: boolean; error?: string }> {
-    return this.deps.daemonRequest(
-      this.pendingReads,
-      'mr',
-      READ_TIMEOUT_MS,
-      () => ({ data: '', fileSize: 0, eof: false, error: 'timeout' }),
-      (requestId) => ({
+    return this.deps.daemonRequest.request({
+      kind: MIRROR_READ,
+      timeoutMs: READ_TIMEOUT_MS,
+      onTimeout: () => ({ data: '', fileSize: 0, eof: false, error: 'timeout' }),
+      build: (requestId) => ({
         type: 'transcriptMirrorRead',
         requestId,
         path: request.path,
@@ -116,24 +125,27 @@ export class TranscriptLake {
         maxBytes: request.maxBytes,
       }),
       machineId,
-    )
+    })
   }
 
-  onMirrorResult(message: {
-    requestId: string
-    data: string
-    fileSize: number
-    eof: boolean
-    error?: string
-  }): void {
-    const resolve = this.pendingReads.get(message.requestId)
-    if (!resolve) return
-    this.pendingReads.delete(message.requestId)
-    resolve({
+  /** The daemon's transcriptMirrorResult reply, settled through the one
+   *  correlator. `machineId` is who ANSWERED: the broker drops a reply from a
+   *  machine other than the one this ranged read was sent to (POD-1175). */
+  onMirrorResult(
+    machineId: string,
+    message: {
+      requestId: string
+      data: string
+      fileSize: number
+      eof: boolean
+      error?: string
+    },
+  ): void {
+    this.deps.daemonRequest.settle(MIRROR_READ, message.requestId, machineId, {
       data: message.data,
       fileSize: message.fileSize,
       eof: message.eof,
-      ...(message.error !== undefined ? { error: message.error } : {}),
+      ...(message.error === undefined ? {} : { error: message.error }),
     })
   }
 }

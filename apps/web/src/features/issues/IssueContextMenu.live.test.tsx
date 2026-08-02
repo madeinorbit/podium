@@ -1,7 +1,9 @@
 import {
   asIssueId,
+  asMachineId,
   asSessionId,
   type IssueWire,
+  type MachineId,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
@@ -39,9 +41,9 @@ vi.mock('@/app/store', () => {
   }
 })
 
-const LUD = 'ludovico'
-const MAC = 'mac'
-const repoWire = (machineId: string, path: string, worktrees: string[]) => ({
+const LUD = asMachineId('ludovico')
+const MAC = asMachineId('mac')
+const repoWire = (machineId: MachineId, path: string, worktrees: string[]) => ({
   path,
   kind: 'repository' as const,
   originUrl: 'git@github.com:madeinorbit/podium.git',
@@ -49,7 +51,7 @@ const repoWire = (machineId: string, path: string, worktrees: string[]) => ({
   machineId,
   worktrees: worktrees.map((w) => ({ path: w, branch: 'issue/779' })),
 })
-const machine = (id: string) => ({
+const machine = (id: MachineId) => ({
   id,
   name: id,
   hostname: id,
@@ -71,7 +73,11 @@ const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'
     updatedAt: 't',
     unread: false,
     ...over,
-  }) as SessionMeta
+    // Through `unknown`: this builder takes the INPUT side (plain-string ids) and
+    // hands back the parsed side, and since POD-318 branded `machineId` the two
+    // shapes no longer overlap structurally. A fixture builder is exactly the
+    // construction site `wire-input.ts` describes.
+  }) as unknown as SessionMeta
 
 function open(issue: IssueWire & { memberSessionIds?: string[] }): void {
   render(

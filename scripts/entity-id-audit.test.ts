@@ -178,8 +178,7 @@ describe('classifyRhs', () => {
     expect(classifyRhs('z.union([z.string(), z.null()])')).toBe('zod-string')
   })
 
-  it('names the carve-out marker and the other two forms', () => {
-    expect(classifyRhs('machineIdBlockedOnPOD318.optional()')).toBe('carveout-marker')
+  it('names the other two forms', () => {
     expect(classifyRhs('text("session_id").notNull()')).toBe('db-column')
     expect(classifyRhs('string')).toBe('ts-string')
   })
@@ -429,11 +428,12 @@ describe('the MachineId carve-out (ADR 1 Amendment 2 D16.2)', () => {
     expect(machineIdUnbrandedFields(ctxOf(source))).toHaveLength(1)
   })
 
-  it('counts the sanctioned marker too — one debt, two spellings', () => {
-    // D16.2 asks for "a narrower, VISIBLE debt". A carve-out nobody counts is
-    // not visible, so the marker form is debt here even though it is correct.
-    const source = SCAFFOLD + 'export const A = z.object({ machineId: machineIdBlockedOnPOD318 })'
-    expect(machineIdUnbrandedFields(ctxOf(source))).toHaveLength(1)
+  it('does NOT count a branded machine-id field — the debt is the raw string', () => {
+    // POD-318 retired the sentinels and bound every machine-id field to the brand,
+    // which is what drove this count to zero. The counterfactual for the assertion
+    // above: the detector distinguishes the two, so "zero" means branded, not blind.
+    const source = SCAFFOLD + 'export const A = z.object({ machineId: MachineIdField })'
+    expect(machineIdUnbrandedFields(ctxOf(source))).toHaveLength(0)
   })
 })
 

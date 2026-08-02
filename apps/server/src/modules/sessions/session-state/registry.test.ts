@@ -40,7 +40,7 @@ function fixture() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessionState = new SessionStateRegistry({
     sessions: reg.modules.sessions,
     state: reg.modules.sessions.state,
@@ -455,7 +455,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     })
     const reg = new SessionRegistry(store)
     registries.push(reg)
-    reg.gateway.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionState = new SessionStateRegistry({
       sessions: reg.modules.sessions,
       state: reg.modules.sessions.state,

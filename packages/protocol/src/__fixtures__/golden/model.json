@@ -5482,24 +5482,6 @@
       "encoded": "\"x\""
     },
     {
-      "schema": "machineIdBlockedOnPOD318",
-      "variant": "minimal",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
-      "schema": "machineIdBlockedOnPOD318",
-      "variant": "full",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
       "schema": "MachineIdField",
       "variant": "minimal",
       "wire": "",

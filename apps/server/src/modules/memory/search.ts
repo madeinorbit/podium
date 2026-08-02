@@ -1,9 +1,8 @@
 import { asIssueId, machineScopedKey } from '@podium/model'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { MemoryReader } from './types'
-import { MemoryVisibilityPolicy } from './visibility'
+import type { MemoryVisibilityPolicy } from './visibility'
 
 const TYPE_WEIGHT: Record<SearchResultWire['kind'], number> = {
   session: 1.2,
@@ -65,12 +64,17 @@ export class MemorySearchService {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     return this.store.conversations.index
       .searchCandidates(opts)
-      .filter((row) =>
-        this.visibility.mayRead(reader, {
-          class: 'conversation',
-          machineId: row.machineId ?? LOCAL_PLACEHOLDER,
-          nativeId: row.id,
-        }),
+      .filter(
+        (row) =>
+          // POD-318: every stored row carries its reporting machine, and there is
+          // no placeholder left to substitute — a machine-less row is unreadable
+          // rather than readable-as-local.
+          row.machineId !== undefined &&
+          this.visibility.mayRead(reader, {
+            class: 'conversation',
+            machineId: row.machineId,
+            nativeId: row.id,
+          }),
       )
       .slice(0, limit)
   }
@@ -204,7 +208,7 @@ export class MemorySearchService {
       const normalized = bestRank !== undefined && bestRank < 0 ? row.rank / bestRank : 1
       const session = sessions.find(
         (candidate) =>
-          (candidate.machineId ?? LOCAL_PLACEHOLDER) === row.machineId &&
+          candidate.machineId === row.machineId &&
           candidate.resumeValue === row.nativeId &&
           this.visibility.mayRead(reader, { class: 'session', id: candidate.id }),
       )

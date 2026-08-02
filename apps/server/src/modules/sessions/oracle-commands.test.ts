@@ -50,7 +50,7 @@ function goLive(
   sessionId: SessionId,
   phase: 'idle' | 'working' | 'errored' = 'idle',
 ): void {
-  o.reg.gateway.routeDaemonFrame('local', {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -58,13 +58,13 @@ function goLive(
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.gateway.routeDaemonFrame('local', {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
     sessionId,
     resume: RESUME,
     confidence: 'exact',
   })
-  o.reg.gateway.routeDaemonFrame('local', {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId,
     state: { phase, since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -183,7 +183,7 @@ describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate REFUSES with a reason (never a throw) when the session is not running`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', { type: 'agentExit', sessionId, code: 0 })
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
 
     expect(await o.call.sessions.hibernate({ sessionId })).toEqual({
       ok: false,
@@ -194,7 +194,7 @@ describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate refuses a live session with no resume ref — parking it would lose the conversation`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -253,13 +253,13 @@ describe('oracle: resurrect', () => {
   it(`${MUST_NOT_CHANGE}: an exited AGENT with no resume ref cannot be resurrected; a shell can (a fresh spawn IS its recovery)`, async () => {
     const o = makeOracle()
     const agent = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId: agent.sessionId,
       code: 1,
     })
     const shell = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId: shell.sessionId,
       code: 1,
@@ -452,7 +452,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
     expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: false })
     expect(ptyFrames(o.daemon)).toEqual([])
 
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'errored', since: new Date().toISOString(), nativeSubagentCount: 0 },

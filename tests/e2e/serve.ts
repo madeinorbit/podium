@@ -8,8 +8,8 @@
  * Pair with: bun run --filter @podium/web build && bun run --filter @podium/web preview -- --host --port 4318
  */
 import { networkInterfaces } from 'node:os'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../../apps/daemon/src/daemon'
-import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -28,7 +28,7 @@ const server = await startServer({ port: PORT })
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
-  machineId: LOCAL_MACHINE_ID,
+  machineId: readOrCreateLocalMachineId(),
   hooks: { port: 0 },
   agentRelay: { port: 0 },
 })

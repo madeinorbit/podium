@@ -173,7 +173,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     function seed() {
       const reg = new SessionRegistry()
-      reg.gateway.attachDaemon('local', () => {})
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -208,7 +208,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('entering working after the user typed into the PTY consumes it', () => {
       const { reg, sessionId, createdAt } = seed()
       typeIntoPty(reg, sessionId, createdAt)
-      reg.gateway.routeDaemonFrame('local', {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -218,7 +218,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('a forced turn with NO user input (stop-hook/mail wake) preserves it [POD-118]', () => {
       const { reg, sessionId, createdAt } = seed()
-      reg.gateway.routeDaemonFrame('local', {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -229,7 +229,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a boot replay of the turn that produced the offer (older event-time) leaves it', () => {
       const { reg, sessionId, createdAt } = seed()
       typeIntoPty(reg, sessionId, createdAt)
-      reg.gateway.routeDaemonFrame('local', {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(minusMinute(createdAt)),
@@ -241,7 +241,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const { reg, sessionId, createdAt } = seed()
       typeIntoPty(reg, sessionId, createdAt)
       // Turn end after the offer — the offer is exactly for this moment.
-      reg.gateway.routeDaemonFrame('local', {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: idle(plusMinute(createdAt)),
@@ -249,14 +249,14 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
       // working → working (hook updates mid-turn) never re-triggers: only the
       // ENTRY into working counts, so an offer set mid-turn survives its turn.
-      reg.gateway.routeDaemonFrame('local', {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
       })
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       typeIntoPty(reg, sessionId, createdAt)
-      reg.gateway.routeDaemonFrame('local', {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(plusMinute(createdAt))),

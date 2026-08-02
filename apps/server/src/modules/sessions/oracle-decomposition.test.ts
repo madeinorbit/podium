@@ -225,7 +225,7 @@ describe('oracle: activity flush and cumulative compute', () => {
       agentKind: 'claude-code',
       cwd: '/work',
     })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -235,7 +235,7 @@ describe('oracle: activity flush and cumulative compute', () => {
     })
     const writes = vi.spyOn(o.store.sessions, 'upsertSession')
     for (let seq = 0; seq < 3; seq++) {
-      o.reg.gateway.routeDaemonFrame('local', {
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'agentFrame',
         sessionId,
         seq,
@@ -265,7 +265,7 @@ describe('oracle: activity flush and cumulative compute', () => {
       state('working', 0, '2026-08-01T00:01:00.000Z'),
       state('idle', 2_000, '2026-08-01T00:01:02.000Z'),
     ]) {
-      o.reg.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: next })
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: next })
     }
     expect(
       o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.workingMsTotal,
@@ -306,9 +306,9 @@ describe('oracle: priority pushes', () => {
     o.reg.clientGateway.routeClientFrame(clientId, viewState)
     expect(priorities(o.daemon)).toEqual([])
 
-    o.reg.gateway.detachDaemon('local')
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const reconnected: ControlMessage[] = []
-    o.reg.gateway.attachDaemon('local', (message) => reconnected.push(message))
+    o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (message) => reconnected.push(message))
     expect(priorities(reconnected)).toEqual(
       expect.arrayContaining([
         { type: 'sessionPriority', sessionId: first, priority: 1 },
@@ -357,7 +357,7 @@ describe('oracle: native identity receipts', () => {
     const f = twoUserOracle()
     f.o.daemon.length = 0
 
-    f.o.reg.gateway.routeDaemonFrame('local', {
+    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: f.bob.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-bob' },
@@ -381,7 +381,7 @@ describe('oracle: native identity receipts', () => {
     const f = twoUserOracle()
     const shared = { kind: 'codex-thread', value: 'thread-shared' } as const
 
-    f.o.reg.gateway.routeDaemonFrame('local', {
+    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: f.alice.sessionId,
       resume: shared,
@@ -390,7 +390,7 @@ describe('oracle: native identity receipts', () => {
     })
     f.o.daemon.length = 0
 
-    f.o.reg.gateway.routeDaemonFrame('local', {
+    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: f.bob.sessionId,
       resume: shared,
@@ -453,7 +453,7 @@ describe('oracle: browser-open forwarding', () => {
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'forged-open' }),
     )
 
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'sessionOpenUrl',
       sessionId,
       requestId: 'open-1',

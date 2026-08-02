@@ -25,6 +25,10 @@ export class ReposRepository {
     private readonly db: SqlDatabase,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
+    /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
+     *  half of a path-fallback repo id for a path no repo row claims, and the owner
+     *  stamped on rows imported from the legacy `repos.json`. */
+    private readonly hostMachineId: string,
   ) {}
 
   /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
@@ -198,7 +202,7 @@ export class ReposRepository {
   // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host, so remote-machine
   // repos simply get the path-fallback id until a scan reports their origin (updateRepoOrigin then
   // upgrades it). An explicit `prefix` overrides derivation (validated + uniqueness-checked, #474).
-  addRepo(path: string, machineId = '__local__', originUrl?: string, prefix?: string): void {
+  addRepo(path: string, machineId: string, originUrl?: string, prefix?: string): void {
     const normalizedPath = normalizeRepoPath(path)
     const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
     const repoName = normalizedPath.split('/').pop() ?? null
@@ -285,8 +289,16 @@ export class ReposRepository {
     }
   }
 
-  /** repo_id for an issue's repoPath: the longest registered repo root that contains
-   *  it (any machine), else the deterministic '__local__' path-fallback. */
+  /**
+   * repo_id for an issue's repoPath: the longest registered repo root that contains it
+   * (any machine), else the deterministic (machine, path) fallback for THIS host.
+   *
+   * The stored id always wins, which is the property that made POD-318 safe to land
+   * without rewriting a single `repo_id`: a repo that has a row keeps whatever id it
+   * was minted with, opaque and untouched, no matter what machine the row now names.
+   * Only a path NO repo row claims reaches the derivation, and it derives under this
+   * host's real id because that is the machine the caller is talking about.
+   */
   resolveRepoIdForPath(repoPath: string): RepoId {
     const normalizedRepoPath = normalizeRepoPath(repoPath)
     const match = this.listRepos()
@@ -297,10 +309,12 @@ export class ReposRepository {
           normalizedRepoPath.startsWith(r.path === '/' ? r.path : `${r.path}/`),
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
-    return match?.repoId ?? deriveRepoId({ machineId: '__local__', path: normalizedRepoPath })
+    return (
+      match?.repoId ?? deriveRepoId({ machineId: this.hostMachineId, path: normalizedRepoPath })
+    )
   }
 
-  removeRepo(path: string, machineId = '__local__'): void {
+  removeRepo(path: string, machineId: string): void {
     const normalizedPath = normalizeRepoPath(path)
     const rows = this.db.prepare('SELECT path FROM repos WHERE machine_id = ?').all(machineId) as {
       path: string
@@ -309,11 +323,6 @@ export class ReposRepository {
     for (const row of rows) {
       if (normalizeRepoPath(row.path) === normalizedPath) remove.run(machineId, row.path)
     }
-  }
-
-  /** Multi-machine adoption: rewrite placeholder '__local__' rows to the real id. */
-  adoptLocalRows(machineId: string): void {
-    this.db.prepare("UPDATE repos SET machine_id = ? WHERE machine_id = '__local__'").run(machineId)
   }
 
   // ---- per-boot data heals (idempotent; invoked by the SessionStore facade) ----
@@ -352,7 +361,7 @@ export class ReposRepository {
   }
 
   /** One-time import of a legacy ~/.podium/repos.json sitting next to the db. */
-  importReposJson(dbPath: string): void {
+  importReposJson(dbPath: string, machineId: string): void {
     if (dbPath === ':memory:') return
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM repos').get() as { c: number }).c
     if (count > 0) return
@@ -370,10 +379,10 @@ export class ReposRepository {
     }
     if (!Array.isArray(parsed)) return
     const insert = this.db.prepare(
-      "INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES ('__local__', ?, NULL, ?, ?)",
+      'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES (?, ?, NULL, ?, ?)',
     )
     const now = new Date().toISOString()
     for (const p of parsed)
-      if (typeof p === 'string') insert.run(p, p.split('/').pop() ?? null, now)
+      if (typeof p === 'string') insert.run(machineId, p, p.split('/').pop() ?? null, now)
   }
 }

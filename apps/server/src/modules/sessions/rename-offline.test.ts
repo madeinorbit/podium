@@ -61,7 +61,7 @@ function revocableStack() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessions = reg.modules.sessions
   const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 

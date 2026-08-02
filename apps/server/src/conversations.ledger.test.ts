@@ -1,7 +1,7 @@
 import {
-  FIRST_ADMIN_USER_ID,
   type ConversationSummaryWire,
   type ConversationSummaryWireInput,
+  FIRST_ADMIN_USER_ID,
 } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
@@ -111,7 +111,9 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       transact: (fn) => store.transact(fn),
     })
     // Seed one row so the delete half of the batch has something to bite on.
-    store.conversations.index.upsert([{ id: 'c-old', agentKind: 'claude-code', providerId: 'p' }])
+    store.conversations.index.upsert([
+      { id: 'c-old', agentKind: 'claude-code', providerId: 'p', machineId: store.hostMachineId },
+    ])
     const cursorBefore = ledger.cursor()
     expect(() =>
       ledger.commit({
@@ -120,7 +122,12 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         // the outer rollback must unwind them together.
         write: () => {
           store.conversations.index.upsert([
-            { id: 'c-new', agentKind: 'claude-code', providerId: 'p' },
+            {
+              id: 'c-new',
+              agentKind: 'claude-code',
+              providerId: 'p',
+              machineId: store.hostMachineId,
+            },
           ])
           store.conversations.index.delete(['c-old'])
         },
@@ -138,7 +145,12 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ledger.commit({
       write: () => {
         store.conversations.index.upsert([
-          { id: 'c-new', agentKind: 'claude-code', providerId: 'p' },
+          {
+            id: 'c-new',
+            agentKind: 'claude-code',
+            providerId: 'p',
+            machineId: store.hostMachineId,
+          },
         ])
         store.conversations.index.delete(['c-old'])
       },

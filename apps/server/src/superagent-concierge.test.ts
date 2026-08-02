@@ -36,10 +36,10 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
-  registry.gateway.attachDaemon('local', (m) => {
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -50,7 +50,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
     if (m.type === 'headlessTurnRequest') {
       turnReqs.push(m)
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'headlessTurnResult',
           requestId: m.requestId,
           ok: true,
@@ -439,7 +439,7 @@ describe('search_all tool', () => {
       cwd: '/w',
     })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
@@ -451,7 +451,10 @@ describe('search_all tool', () => {
         providerId: 'claude-code-jsonl',
         title: 'capacitor deep dive',
         updatedAt: '2026-07-01T09:00:00.000Z',
-        machineId: 'local',
+        // Memory visibility is default-closed (POD-322): the conversation is only
+        // readable through a session that resumes it ON THE SAME MACHINE — which
+        // since POD-318 is this host's minted id, not a sentinel.
+        machineId: registry.sessionStore.hostMachineId,
       },
     ])
     const out = await sa.callMcpTool('search_all', { query: 'capacitor' }, asThreadId('global'))

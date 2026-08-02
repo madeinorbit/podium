@@ -9,54 +9,54 @@ Verified constructor declarations: 51. Forward dependencies: 0. Deferred service
 
 | Order | Declaration | Earlier declaration dependencies | Source line |
 |---:|---|---|---:|
-| 1 | `currentSettings` | — | 248 |
-| 2 | `featureEnabled` | `currentSettings` | 252 |
-| 3 | `principalForCapability` | — | 256 |
-| 4 | `workflowCallerForCapability` | `principalForCapability` | 263 |
-| 5 | `mutations` | — | 294 |
-| 6 | `sessionInstructions` | — | 295 |
-| 7 | `liveSessions` | — | 296 |
-| 8 | `clientRegistry` | — | 299 |
-| 9 | `issueAccess` | — | 301 |
-| 10 | `machines` | `clientRegistry` | 306 |
-| 11 | `requestBroker` | `machines` | 312 |
-| 12 | `settings` | — | 316 |
-| 13 | `feedMayReadIssue` | — | 335 |
-| 14 | `visibility` | `feedMayReadIssue` | 349 |
-| 15 | `durableChangeValueOf` | — | 401 |
-| 16 | `anchors` | `durableChangeValueOf` | 412 |
-| 17 | `ledger` | `anchors`, `visibility` | 446 |
-| 18 | `conversationDiagnostics` | — | 468 |
-| 19 | `subscriptions` | — | 471 |
-| 20 | `feedServing` | `conversationDiagnostics`, `ledger`, `subscriptions` | 472 |
-| 21 | `funnel` | `feedServing`, `ledger` | 489 |
-| 22 | `snapshotTail` | `conversationDiagnostics`, `ledger` | 498 |
-| 23 | `publisher` | `ledger` | 510 |
-| 24 | `specs` | — | 537 |
-| 25 | `broadcastWorktreesChanged` | `clientRegistry` | 548 |
-| 26 | `memory` | `conversationDiagnostics`, `feedServing`, `ledger`, `requestBroker` | 556 |
-| 27 | `rpc` | `liveSessions`, `machines`, `memory`, `requestBroker` | 576 |
-| 28 | `capabilityForLiveSession` | `issueAccess`, `liveSessions` | 599 |
-| 29 | `liveSessionOwnership` | `liveSessions` | 617 |
-| 30 | `mail` | `capabilityForLiveSession`, `feedMayReadIssue`, `liveSessionOwnership`, `machines`, `principalForCapability` | 628 |
-| 31 | `queuedMessageApply` | `mail` | 671 |
-| 32 | `sessionsSvc` | `broadcastWorktreesChanged`, `clientRegistry`, `funnel`, `issueAccess`, `ledger`, `liveSessions`, `machines`, `memory`, `queuedMessageApply`, `rpc`, `sessionInstructions`, `snapshotTail` | 678 |
-| 33 | `hosts` | `clientRegistry`, `liveSessions`, `machines`, `rpc`, `sessionsSvc` | 701 |
-| 34 | `headless` | `sessionsSvc` | 726 |
-| 35 | `notify` | `clientRegistry`, `featureEnabled`, `sessionsSvc` | 741 |
-| 36 | `issueArtifacts` | `rpc` | 790 |
-| 37 | `issues` | `broadcastWorktreesChanged`, `funnel`, `issueArtifacts`, `ledger`, `machines`, `publisher`, `rpc`, `sessionsSvc` | 794 |
-| 38 | `issueSessionLifecycle` | `issues`, `ledger`, `sessionsSvc` | 884 |
-| 39 | `locks` | `funnel`, `issues`, `liveSessions` | 909 |
-| 40 | `lockCommands` | `issues`, `locks` | 932 |
-| 41 | `messagesSvc` | `funnel`, `issues`, `machines`, `mail`, `sessionsSvc` | 948 |
-| 42 | `workflows` | `issues`, `liveSessions`, `machines`, `messagesSvc`, `principalForCapability`, `sessionsSvc` | 1003 |
-| 43 | `messageGate` | `issues`, `mail`, `messagesSvc`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1132 |
-| 44 | `readToolkit` | `issues`, `messagesSvc`, `rpc`, `sessionsSvc` | 1178 |
-| 45 | `issueAttach` | `issues` | 1191 |
-| 46 | `automations` | `issues`, `ledger`, `machines`, `sessionsSvc` | 1202 |
-| 47 | `approvals` | `automations`, `clientRegistry`, `issues`, `machines`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1235 |
-| 48 | `issueCommands` | `issueAttach`, `issueSessionLifecycle`, `issues`, `messagesSvc`, `mutations`, `rpc`, `sessionsSvc` | 1334 |
-| 49 | `agentRelayGate` | `approvals`, `currentSettings`, `featureEnabled`, `issueCommands`, `issueSessionLifecycle`, `issues`, `lockCommands`, `machines`, `messageGate`, `readToolkit`, `sessionsSvc`, `specs`, `workflowCallerForCapability`, `workflows` | 1401 |
-| 50 | `roomVisibility` | `visibility` | 1868 |
-| 51 | `presence` | `clientRegistry`, `roomVisibility`, `subscriptions` | 1878 |
+| 1 | `currentSettings` | — | 250 |
+| 2 | `featureEnabled` | `currentSettings` | 254 |
+| 3 | `principalForCapability` | — | 258 |
+| 4 | `workflowCallerForCapability` | `principalForCapability` | 265 |
+| 5 | `mutations` | — | 296 |
+| 6 | `sessionInstructions` | — | 297 |
+| 7 | `liveSessions` | — | 298 |
+| 8 | `clientRegistry` | — | 301 |
+| 9 | `issueAccess` | — | 303 |
+| 10 | `machines` | `clientRegistry` | 308 |
+| 11 | `requestBroker` | `machines` | 326 |
+| 12 | `settings` | — | 330 |
+| 13 | `feedMayReadIssue` | — | 349 |
+| 14 | `visibility` | `feedMayReadIssue` | 363 |
+| 15 | `durableChangeValueOf` | — | 415 |
+| 16 | `anchors` | `durableChangeValueOf` | 426 |
+| 17 | `ledger` | `anchors`, `visibility` | 460 |
+| 18 | `conversationDiagnostics` | — | 482 |
+| 19 | `subscriptions` | — | 485 |
+| 20 | `feedServing` | `conversationDiagnostics`, `ledger`, `subscriptions` | 486 |
+| 21 | `funnel` | `feedServing`, `ledger` | 503 |
+| 22 | `snapshotTail` | `conversationDiagnostics`, `ledger` | 512 |
+| 23 | `publisher` | `ledger` | 524 |
+| 24 | `specs` | — | 551 |
+| 25 | `broadcastWorktreesChanged` | `clientRegistry` | 562 |
+| 26 | `memory` | `conversationDiagnostics`, `feedServing`, `ledger`, `requestBroker` | 570 |
+| 27 | `rpc` | `liveSessions`, `machines`, `memory`, `requestBroker` | 592 |
+| 28 | `capabilityForLiveSession` | `issueAccess`, `liveSessions` | 615 |
+| 29 | `liveSessionOwnership` | `liveSessions` | 633 |
+| 30 | `mail` | `capabilityForLiveSession`, `feedMayReadIssue`, `liveSessionOwnership`, `machines`, `principalForCapability` | 644 |
+| 31 | `queuedMessageApply` | `mail` | 687 |
+| 32 | `sessionsSvc` | `broadcastWorktreesChanged`, `clientRegistry`, `funnel`, `issueAccess`, `ledger`, `liveSessions`, `machines`, `memory`, `queuedMessageApply`, `rpc`, `sessionInstructions`, `snapshotTail` | 694 |
+| 33 | `hosts` | `clientRegistry`, `liveSessions`, `machines`, `requestBroker`, `sessionsSvc` | 717 |
+| 34 | `headless` | `sessionsSvc` | 741 |
+| 35 | `notify` | `clientRegistry`, `featureEnabled`, `sessionsSvc` | 750 |
+| 36 | `issueArtifacts` | `rpc` | 799 |
+| 37 | `issues` | `broadcastWorktreesChanged`, `funnel`, `issueArtifacts`, `ledger`, `machines`, `publisher`, `rpc`, `sessionsSvc` | 803 |
+| 38 | `issueSessionLifecycle` | `issues`, `ledger`, `sessionsSvc` | 893 |
+| 39 | `locks` | `funnel`, `issues`, `liveSessions` | 918 |
+| 40 | `lockCommands` | `issues`, `locks` | 941 |
+| 41 | `messagesSvc` | `funnel`, `issues`, `machines`, `mail`, `sessionsSvc` | 957 |
+| 42 | `workflows` | `issues`, `liveSessions`, `machines`, `messagesSvc`, `principalForCapability`, `sessionsSvc` | 1012 |
+| 43 | `messageGate` | `issues`, `mail`, `messagesSvc`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1141 |
+| 44 | `readToolkit` | `issues`, `messagesSvc`, `rpc`, `sessionsSvc` | 1187 |
+| 45 | `issueAttach` | `issues` | 1200 |
+| 46 | `automations` | `issues`, `ledger`, `machines`, `sessionsSvc` | 1211 |
+| 47 | `approvals` | `automations`, `clientRegistry`, `issues`, `machines`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1244 |
+| 48 | `issueCommands` | `issueAttach`, `issueSessionLifecycle`, `issues`, `messagesSvc`, `mutations`, `rpc`, `sessionsSvc` | 1343 |
+| 49 | `agentRelayGate` | `approvals`, `currentSettings`, `featureEnabled`, `issueCommands`, `issueSessionLifecycle`, `issues`, `lockCommands`, `machines`, `messageGate`, `readToolkit`, `sessionsSvc`, `specs`, `workflowCallerForCapability`, `workflows` | 1410 |
+| 50 | `roomVisibility` | `visibility` | 1877 |
+| 51 | `presence` | `clientRegistry`, `roomVisibility`, `subscriptions` | 1887 |

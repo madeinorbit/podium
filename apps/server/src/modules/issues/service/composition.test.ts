@@ -24,7 +24,7 @@ describe('issue tracker capability composition', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: () => ({ sessionId: asSessionId('composition-test') }),
+      spawnSession: () => ({ sessionId: asSessionId('composition-test') , machine: 'machine-under-test' }),
       repoOp: async () => ({ ok: true, output: '' }),
       ...issueTestPlumbing(),
     }

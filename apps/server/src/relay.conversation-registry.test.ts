@@ -92,18 +92,18 @@ describe('SessionRegistry conversation registry', () => {
   it('transcriptRead carries the recorded segment path as pathHint', () => {
     const registry = makeRegistry()
     const daemon: unknown[] = []
-    registry.gateway.attachDaemon('local', (m) => daemon.push(m))
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/moved/to',
     })
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-x' },
     })
     // A discovery scan recorded where the file actually lives (original bucket).
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'conversationsChanged',
       conversations: [
         conv('native-x', { path: '/home/u/.claude/projects/-original-spot/native-x.jsonl' }),
@@ -124,13 +124,13 @@ describe('SessionRegistry conversation registry', () => {
 
   it('sessionResumeRef stamps the session and a roll keeps the same identity', () => {
     const registry = makeRegistry()
-    registry.gateway.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
 
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
@@ -140,7 +140,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(podiumId).toMatch(/^conv_/)
 
     // The harness rolls into a fresh file (resume): new native id, SAME identity.
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },

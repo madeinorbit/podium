@@ -18,7 +18,6 @@ import { AgentKind } from '@podium/model'
 export type SessionWirePrincipal = SessionStatePrincipal
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { type ControlMessage, type MetadataChange } from '@podium/protocol'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
@@ -328,7 +327,7 @@ export class SessionRepository {
     if (r.originKind === 'resume' && !r.conversationId) {
       console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
     }
-    const machineId = r.machineId ?? LOCAL_PLACEHOLDER
+    const machineId = r.machineId
     let session!: Session
     session = new Session({
       sessionId: r.id,
@@ -482,11 +481,10 @@ export class SessionRepository {
     // No fan-out: there are no clients at boot. Conversations are deliberately
     // NOT reconciled at boot: they are daemon-fed, and an empty list at boot
     // means "not scanned yet", not "all gone".
-    // Boot ordering (#247): this runs BEFORE server.ts calls ensureLocalMachine,
-    // so placeholder rows reconcile here with machineId '__local__'. That stale
-    // baseline is unobservable and self-healing: adoption
-    // (ensureLocalMachine → adoptPlaceholderRows) explicitly captures affected
-    // sessions before its broadcast — all before the server accepts connections.
+    // Boot ordering (#247), SETTLED by POD-318: rows carry a real machine id before
+    // this runs. `SessionStore` folds any pre-POD-318 sentinel rows onto this host's
+    // minted id as it OPENS — ahead of this reconcile, and ahead of the registry that
+    // calls it — so there is no stale machine baseline here to be captured later.
     const recovered = this.ports.ledger.reconcile(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),

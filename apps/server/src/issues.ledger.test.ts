@@ -43,7 +43,7 @@ function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: () => ({ sessionId: asSessionId('s1') }),
+    spawnSession: () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: {
       run: plumbing.funnel.run,
@@ -286,7 +286,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       store,
       listSessions: () => [],
       getSettings: () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
-      spawnSession: () => ({ sessionId: asSessionId('s1') }),
+      spawnSession: () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
       repoOp: async () => ({ ok: true, output: '' }),
       funnel: {
         run: plumbing2.funnel.run,

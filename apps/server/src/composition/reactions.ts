@@ -103,21 +103,6 @@ export const REACTIONS = [
     scopeInvariant: 'Projection refresh retains every session owner and visibility.',
   },
   {
-    id: 'sessions.machine-row-adoption',
-    description:
-      'Retarget live placeholder sessions after fleet commits durable local-row adoption.',
-    trigger: 'machine.rowsAdopted',
-    durability: 'in-memory',
-    replay: { mode: 'none', reason: 'Startup loads already-adopted durable session rows.' },
-    idempotency: { key: 'machineId + sessionId', duplicatePolicy: 'safe-repeat' },
-    ordering: 'Emitted after the fleet transaction; handled in EventBus order per machine.',
-    retry: 'A restart reloads the durable adopted rows; a repeated event is safe.',
-    failureOwner: 'sessions derived-field maintainer',
-    observability: { registry: true, events: ['machine.rowsAdopted'], metrics: [] },
-    principal: system(),
-    scopeInvariant: 'Adoption changes instance-local machine identity only, never user ownership.',
-  },
-  {
     id: 'sessions.feed-cursor',
     description: 'Advance the live session publication cursor after the ordered feed publishes.',
     trigger: 'feed.published',

@@ -85,7 +85,7 @@
  */
 
 import { z } from 'zod'
-import { machineIdBlockedOnPOD318, RepoIdField, SessionIdField } from '../ids'
+import { MachineIdField, RepoIdField, SessionIdField } from '../ids'
 import { AgentKind, HarnessAgent } from './agent'
 
 // ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@ export type HostMemoryWire = z.infer<typeof HostMemoryWire>
 /** `SEE` — health/liveness sample, plus the machine identity it is about. */
 export const HostMetricsWire = z.object({
   hostname: z.string(),
-  machineId: machineIdBlockedOnPOD318.optional(), // server-filled before broadcast
+  machineId: MachineIdField.optional(), // server-filled before broadcast
   name: z.string().optional(), // server-filled before broadcast
   sampledAt: z.string(), // ISO 8601
   memory: HostMemoryWire,
@@ -182,11 +182,13 @@ export type HostMetricsWire = z.infer<typeof HostMetricsWire>
  *  verb; `inventory` is what a principal with `see` but not `use` must not
  *  learn, and it is a single field so the projection split is a field drop. */
 export const MachineWire = z.object({
-  /** THE machine id itself, and the sharpest carve-out of the seven: the server
-   *  UPSERTS this row with `id: LOCAL_MACHINE_ID = 'local'` (`ensureLocalMachine`),
-   *  so branding this field would mint a well-typed `MachineId` for the sentinel
-   *  at its source. ADR 1 Amendment 2 D16.2. */
-  id: machineIdBlockedOnPOD318,
+  /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
+   *  ORDERING constraint rather than a preference: while the server upserted this
+   *  row with the constant `'local'`, branding here would have minted a well-typed
+   *  `MachineId` for a sentinel at its source. POD-318 retired the constant (the row
+   *  carries the id minted in `<stateDir>/machine.id`) and `MachineId` refuses both
+   *  literals, so the brand lands. */
+  id: MachineIdField,
   name: z.string(),
   hostname: z.string(),
   online: z.boolean(),
@@ -284,7 +286,7 @@ export type AgentQuotaWire = z.infer<typeof AgentQuotaWire>
  *  single-machine; the server fans out one request per online machine and tags
  *  each reply. */
 export const MachineQuotaWire = z.object({
-  machineId: machineIdBlockedOnPOD318,
+  machineId: MachineIdField,
   machineName: z.string(),
   hostname: z.string(),
   agents: z.array(AgentQuotaWire),
@@ -318,10 +320,11 @@ export const GitRepositoryWire = z.object({
   originUrl: z.string().optional(),
   // Always present on the wire; defaults to [] so producers may omit it safely.
   worktrees: z.array(GitWorktreeWire).default([]),
-  /** Server-stamped on scanReposAll(); the daemon never sets this. CARVED OUT:
-   *  `repos.machine_id` DEFAULTS to '__local__', so the database manufactures the
-   *  sentinel for any insert that omits the column (ADR 1 Amendment 2 D16.2). */
-  machineId: machineIdBlockedOnPOD318.optional(),
+  /** Server-stamped on scanReposAll(); the daemon never sets this. It used to be
+   *  carved out of the brand because `repos.machine_id` DEFAULTED to `'__local__'`
+   *  and the database manufactured that sentinel for any insert omitting the column
+   *  — POD-318 dropped the default and every writer names a real machine. */
+  machineId: MachineIdField.optional(),
   /** Server-stamped stable repo identity (#74); the daemon never sets this. */
   repoId: RepoIdField.optional(),
 })

@@ -92,7 +92,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -120,7 +120,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -140,7 +140,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving an already-parked session does not re-kill it`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,

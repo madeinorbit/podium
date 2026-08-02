@@ -6,7 +6,7 @@ import { SessionStore } from './store'
 function registryWithDaemon(store = new SessionStore(':memory:')) {
   const messages: unknown[] = []
   const registry = new SessionRegistry(store)
-  registry.gateway.attachDaemon('local', (message) => messages.push(message))
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => messages.push(message))
   return { registry, store, messages }
 }
 

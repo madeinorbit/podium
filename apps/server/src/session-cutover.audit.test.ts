@@ -758,16 +758,14 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     expect(dispatchSessionCommand(ctx, 'kill', { sessionId: created.sessionId })).toBeUndefined()
   })
 
-  it('THE ALL-IN-ONE CASE: a non-owner may not execute on the `local` daemon', async () => {
+  it('THE ALL-IN-ONE CASE: a non-owner may not execute on the host daemon', async () => {
     // §3.1.4 M4, the sharpest case: the server runs on someone's Mac, so anyone who
-    // can authenticate would otherwise inherit execute on that Mac. The sentinel has
-    // no row in the machines table, so this also proves the synthesized-row arm is
-    // not an exemption.
+    // can authenticate would otherwise inherit execute on that Mac.
     const o = makeOracle()
-    // A session on the host this server runs on — the sentinel, exactly as a
-    // single-machine install produces it (no explicit placement, no machines row).
+    // A session on the host this server runs on, exactly as a single-machine
+    // install produces it (no explicit placement).
     const target = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-    expect(o.meta(target.sessionId).machineId).toBeDefined()
+    expect(o.meta(target.sessionId).machineId).toBe(o.store.hostMachineId)
     // A colleague authenticated to this instance: not the installer, no grant.
     const ctx = ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
 
@@ -775,7 +773,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
       dispatchSessionCommand(ctx, 'kill', { sessionId: target.sessionId }),
     )
     // Outside the see set, so it reads exactly like a machine that was never paired.
-    expect(message).toBe("unknown machine 'local'")
+    expect(message).toBe(`unknown machine '${o.store.hostMachineId}'`)
   })
 
   it('HANDOFF gates both machines, and its contract says so', () => {

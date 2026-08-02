@@ -1,4 +1,4 @@
-import type { MachineQuotaWire } from '@podium/model'
+import { asMachineId, type MachineQuotaWire } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   QuotaCliError,
@@ -12,7 +12,7 @@ const NOW = Date.parse('2026-07-29T10:00:00.000Z')
 
 const machines: MachineQuotaWire[] = [
   {
-    machineId: 'm1',
+    machineId: asMachineId('m1'),
     machineName: 'workstation',
     hostname: 'devbox',
     agents: [

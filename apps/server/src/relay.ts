@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
@@ -6,7 +7,7 @@ import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
-import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
+import { stateDir } from '@podium/runtime/local-machine'
 import {
   DEVICE_GRADE_PRINCIPAL,
   FeedIdentityRegistry,
@@ -23,8 +24,8 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
-import { deviceGradeSoleOwner } from './device-grade-owner'
 import { REACTIONS, type ReactionDefinition } from './composition/reactions'
+import { deviceGradeSoleOwner } from './device-grade-owner'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -38,23 +39,24 @@ import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
-import { MemoryService } from './modules/memory/service'
+import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
-import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
+import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
-import { IssuePublisher } from './modules/issues/publish'
 import { issueDepProjectionRows, repoProjectionRows } from './modules/issues/projection'
+import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
-import { DaemonRequestBroker, DaemonRpcService } from './modules/machines/rpc'
+import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
+import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
 import { QueuedMessageApply } from './modules/messages/queued-apply'
@@ -78,7 +80,7 @@ import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
-import { HeadlessService } from './modules/superagent/headless'
+import type { HeadlessService } from './modules/superagent/headless'
 import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
@@ -305,10 +307,22 @@ export class SessionRegistry {
     )
     const machines = new MachinesService({
       store: this.store,
+      // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
+      // the store, and every consumer takes the store's copy. A second `readOrCreate*`
+      // call anywhere in the process would be a second opinion about who this host is.
+      hostMachineId: this.store.hostMachineId,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clientRegistry.values(),
     })
+    // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
+    // this registry mints names a machine (POD-318), and a machine id with no row is
+    // a machine nobody may use — so the row has to exist before the registry can be
+    // asked for anything, and making it a construction invariant is how no
+    // composition gets to forget. The composition root calls `ensureHostMachine`
+    // again with the real hostname and the loopback bootstrap secret; that call is
+    // an idempotent UPDATE of this row, not a rival insert.
+    machines.ensureHostMachine(hostname())
     const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: () => machines.defaultMachine(),
@@ -568,8 +582,10 @@ export class SessionRegistry {
           conversationDiagnostics.current = diagnostics
           feedServing.publishAdvisory('conversation-diagnostics')
         },
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          requestBroker.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+        // ONE correlator, handed over as itself (POD-318). It was constructed
+        // above precisely so every consumer can take it directly instead of
+        // wrapping a not-yet-built service in a closure.
+        daemonRequest: requestBroker,
       },
       options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
     )
@@ -718,8 +734,7 @@ export class SessionRegistry {
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+        daemonRequest: requestBroker,
       },
       this.bus,
     )
@@ -729,12 +744,6 @@ export class SessionRegistry {
     })
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     this.bus.on('machine.metadataChanged', ({ machineId }) => {
-      sessionsSvc.sessionsChangedForMachine(machineId)
-    })
-    this.bus.on('machine.rowsAdopted', ({ machineId }) => {
-      for (const session of sessionsSvc.sessions.values()) {
-        if (session.machineId === LOCAL_PLACEHOLDER) session.machineId = machineId
-      }
       sessionsSvc.sessionsChangedForMachine(machineId)
     })
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session

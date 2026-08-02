@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
@@ -100,7 +100,7 @@ function seedSession(store: SessionStore, i: number): string {
     lastInputAt: null,
     lastResumedAt: null,
     spawnedBy: null,
-    machineId: 'm1',
+    machineId: asMachineId('m1'),
     headless: false,
     issueId: asIssueId(`iss_${i % ISSUE_COUNT}`),
   })

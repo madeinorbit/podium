@@ -1,5 +1,4 @@
 import { asIssueId, asSessionId } from '@podium/model'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { SessionRow, SessionStore } from '../../store'
 import type { MemoryReader } from './types'
 
@@ -101,7 +100,7 @@ export class MemoryVisibilityPolicy {
     const keys = new Set(evidence.map((segment) => `${segment.machineId}\0${segment.nativeId}`))
     return this.store.sessions.loadSessions().some((row) => {
       if (!row.resumeValue && !row.conversationId) return false
-      const rowMachine = row.machineId ?? LOCAL_PLACEHOLDER
+      const rowMachine = row.machineId
       const matches =
         (row.resumeValue && keys.has(`${rowMachine}\0${row.resumeValue}`)) ||
         (row.conversationId && keys.has(`${rowMachine}\0${row.conversationId}`))

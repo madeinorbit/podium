@@ -6,13 +6,22 @@ import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import {
-  LOCAL_MACHINE_ID,
   readOrCreateDaemonSecret,
+  readOrCreateLocalMachineId,
   stateDir,
-} from '../../apps/server/src/local-machine'
+} from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { SessionStore } from '../../apps/server/src/store'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+
+/** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
+ *  file the server and the split-mode daemon read. There is no `'local'` constant
+ *  any more; a machine id is minted material.
+ *
+ *  A FUNCTION, not a module-level constant: these harnesses point PODIUM_STATE_DIR
+ *  at an isolated directory AFTER the imports run, and a constant would have read
+ *  (and minted into) the real state dir before that happened. */
+const hostMachineId = (): string => readOrCreateLocalMachineId()
 
 // Own isolated state dir / port (distinct from relay.e2e 9921, multi-machine 9922).
 const ISOLATION_PORT = 9923
@@ -40,12 +49,13 @@ async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
 // Regression: scripts/daemon.ts runs the daemon as a SEPARATE process with no access to
 // the server's in-process bootstrap token, so it never authenticated → no machine
 // registered → existing `machine_id='__local__'` rows (tagged by the v4 migration) were
-// never adopted and vanished. Fix has two layers: (1) the server adopts those rows at
-// STARTUP onto the stable local machine, independent of any daemon — so the data is
-// safe even if the daemon never connects; (2) a shared on-disk secret lets the local
-// daemon authenticate without pairing and attach to that same machine.
+// never adopted and vanished. Fix has two layers: (1) the SERVER folds those rows onto
+// this host's minted machine id when it opens the database (POD-318's one-time upgrade),
+// independent of any daemon — so the data is safe even if the daemon never connects;
+// (2) a shared on-disk secret lets the local daemon authenticate without pairing and
+// attach as that same machine, whose id it reads from the same state dir.
 describe('e2e: split server/daemon local transition', () => {
-  it('adopts pre-existing __local__ rows at server startup, before any daemon connects', async () => {
+  it('folds pre-existing sentinel rows onto this host at startup, before any daemon connects', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-split-'))
 
     // An UPGRADED single-machine DB: a session + repo stranded at machine_id='__local__'.
@@ -78,19 +88,19 @@ describe('e2e: split server/daemon local transition', () => {
 
     try {
       // LAYER 1 — the disaster cannot recur: with NO daemon connected yet, the server has
-      // already adopted the legacy rows onto the local machine. Even if the daemon never
+      // already folded the legacy rows onto this host. Even if the daemon never
       // authenticates, the sessions/repos are attributed and visible.
       const before = srv.registry.modules.sessions
         .listSessions()
         .find((s) => s.sessionId === 'leg-1')
-      expect(before?.machineId).toBe(LOCAL_MACHINE_ID)
+      expect(before?.machineId).toBe(hostMachineId())
       expect(
-        srv.registry.sessionStore.repos.listRepos(LOCAL_MACHINE_ID).map((r) => r.path),
+        srv.registry.sessionStore.repos.listRepos(hostMachineId()).map((r) => r.path),
       ).toContain('/tmp/legacy-repo')
       expect(srv.registry.sessionStore.repos.listRepos('__local__')).toHaveLength(0)
       // The local machine exists but is OFFLINE until its daemon attaches.
       expect(
-        srv.registry.modules.machines.listMachines().find((m) => m.id === LOCAL_MACHINE_ID)?.online,
+        srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())?.online,
       ).toBe(false)
 
       // LAYER 2 — the split daemon (no in-process token; reads the shared secret file, and
@@ -98,7 +108,7 @@ describe('e2e: split server/daemon local transition', () => {
       const daemon = await startDaemon({
         serverUrl,
         bootstrapToken: readOrCreateDaemonSecret(stateDir()),
-        machineId: LOCAL_MACHINE_ID,
+        machineId: hostMachineId(),
         identityDir: tmp,
         launch: fixtureLaunch,
         backend: 'none',
@@ -111,7 +121,7 @@ describe('e2e: split server/daemon local transition', () => {
         // The local machine is now online (the daemon attached to it, not a second one).
         await waitFor(
           () =>
-            srv.registry.modules.machines.listMachines().find((m) => m.id === LOCAL_MACHINE_ID)
+            srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())
               ?.online === true,
         )
         expect(srv.registry.modules.machines.listMachines()).toHaveLength(1)
@@ -119,7 +129,7 @@ describe('e2e: split server/daemon local transition', () => {
         const after = srv.registry.modules.sessions
           .listSessions()
           .find((s) => s.sessionId === 'leg-1')
-        expect(after?.machineId).toBe(LOCAL_MACHINE_ID)
+        expect(after?.machineId).toBe(hostMachineId())
         expect(after?.machineId).not.toBe('__local__')
       } finally {
         await daemon.close({ reapSessions: true })

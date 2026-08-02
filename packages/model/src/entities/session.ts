@@ -54,7 +54,7 @@ import {
   AccountIdField,
   ConversationIdField,
   IssueIdField,
-  machineIdBlockedOnPOD318,
+  MachineIdField,
   SessionIdField,
 } from '../ids'
 import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
@@ -287,14 +287,13 @@ export const SessionMetaEntity = z.object({
   observedEffort: z.string().optional(),
   // The machine (daemon) this session runs on. machineId is the stable join key;
   // machineName is the display label (server-resolved from the machines table).
-  // OPTIONAL during build-out so every task stays typecheck-green: Task 5 always
-  // emits them, and the web treats absent as the local machine.
-  // machineId is CARVED OUT of the brand flip, not missed: it can hold
-  // '__local__' (the `sessions.machine_id` column DEFAULT) or 'local'
-  // (LOCAL_MACHINE_ID), and ADR 1 Amendment 2 D16.2 forbids branding a site that
-  // can hold either until POD-318 retires them — a brand that validates length
-  // and not shape would launder the sentinel instead of flagging it.
-  machineId: machineIdBlockedOnPOD318.optional(),
+  // OPTIONAL on the WIRE so every task stays typecheck-green: Task 5 always emits
+  // them. (The durable row is NOT optional — `SessionRow.machineId` is required
+  // since POD-318.) It was carved out of the brand flip while the column DEFAULTED
+  // to '__local__' and the constant 'local' existed: ADR 1 Amendment 2 D16.2 forbids
+  // branding a site that can hold a sentinel, because a length-only brand launders
+  // it. Both are retired and `MachineId` refuses them, so the brand lands.
+  machineId: MachineIdField.optional(),
   machineName: z.string().optional(),
   /** Snooze state — orthogonal to agentState. `undefined`/absent = not snoozed;
    *  `null` = snoozed until the next message; an ISO string = snoozed until that

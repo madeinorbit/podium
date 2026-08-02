@@ -64,7 +64,7 @@ function stack() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return { store, sessions: reg.modules.sessions, mutations: reg.modules.mutations }
 }
 

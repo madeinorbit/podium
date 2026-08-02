@@ -1,6 +1,5 @@
-import { asSessionId, FIRST_ADMIN_USER_ID, type SessionMeta, SOLE_USER_ID } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, type SessionMeta, SOLE_USER_ID, asMachineId} from '@podium/model'
 import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -102,7 +101,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
             lastInputAt: null,
             lastResumedAt: null,
             spawnedBy: null,
-            machineId: 'm1',
+            machineId: asMachineId('m1'),
             headless: false,
             issueId: null,
           }),
@@ -275,9 +274,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
-    // ensureLocalMachine → adoptPlaceholderRows rewrites machineId in memory and
-    // in the store WITHOUT a persist(); the machine seam captures the derived flip.
-    registry.modules.machines.ensureLocalMachine('adopting-host')
+    // The session was created ON this host already (POD-318: no placeholder, no
+    // adoption). What `ensureHostMachine` changes is the machine ROW's name, and the
+    // machine seam captures the derived machineName flip WITHOUT a session persist.
+    const host = registry.modules.machines.hostMachineId
+    registry.modules.machines.ensureHostMachine('adopting-host')
     registry.modules.sessions.flushBroadcasts()
     const afterAdopt = registry.modules.sessions.syncChangesSince(cursor)
     expect(afterAdopt.kind).toBe('delta')
@@ -285,10 +286,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const adopted = afterAdopt.changes.find(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
-    expect(adopted?.value?.machineId).toBe(LOCAL_MACHINE_ID)
+    expect(adopted?.value?.machineId).toBe(host)
     expect(adopted?.value?.machineName).toBe('adopting-host')
     // Rename: machineName is stamped at wire time, no session row changes.
-    registry.modules.machines.renameMachine(LOCAL_MACHINE_ID, 'renamed-host')
+    registry.modules.machines.renameMachine(host, 'renamed-host')
     registry.modules.sessions.flushBroadcasts()
     const afterRename = registry.modules.sessions.syncChangesSince(afterAdopt.cursor)
     expect(afterRename.kind).toBe('delta')
@@ -298,7 +299,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ) as { value?: SessionMeta } | undefined
     expect(renamed?.value?.machineName).toBe('renamed-host')
     // Revoke: deleting the machine row changes the derived name to its id fallback.
-    registry.modules.machines.revokeMachine(LOCAL_MACHINE_ID)
+    registry.modules.machines.revokeMachine(host)
     registry.modules.sessions.flushBroadcasts()
     const afterRevoke = registry.modules.sessions.syncChangesSince(afterRename.cursor)
     expect(afterRevoke.kind).toBe('delta')
@@ -306,19 +307,20 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const revoked = afterRevoke.changes.find(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
-    expect(revoked?.value?.machineName).toBe(LOCAL_MACHINE_ID)
+    expect(revoked?.value?.machineName).toBe(host)
   })
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    // Attaching the local daemon adopts the placeholder session onto LOCAL_MACHINE_ID.
-    registry.gateway.attachDaemon(LOCAL_MACHINE_ID, () => {})
+    // The host daemon attaches under the id the session is already attributed to.
+    const host = registry.modules.machines.hostMachineId
+    registry.gateway.attachDaemon(host, () => {})
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
     // The disconnect sweep flips live/starting → 'reconnecting' with NO persist;
     // the disconnect seam captures the touched sessions as one explicit batch.
-    registry.gateway.detachDaemon(LOCAL_MACHINE_ID)
+    registry.gateway.detachDaemon(host)
     registry.modules.sessions.flushBroadcasts()
     const healed = registry.modules.sessions.syncChangesSince(cursor)
     expect(healed.kind).toBe('delta')
@@ -550,7 +552,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('retains dirty live-view and machine patches across one append failure', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    registry.modules.machines.ensureLocalMachine('first-host')
+    registry.modules.machines.ensureHostMachine('first-host')
     registry.modules.sessions.flushBroadcasts()
     const events: ProjectionEvent[] = []
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
@@ -615,7 +617,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
     )
     failAndHeal(
-      () => registry.modules.machines.renameMachine(LOCAL_MACHINE_ID, 'healed-host'),
+      () =>
+        registry.modules.machines.renameMachine(
+          registry.modules.machines.hostMachineId,
+          'healed-host',
+        ),
       (value) => expect(value.machineName).toBe('healed-host'),
     )
     off()
@@ -890,10 +896,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(listed).toEqual(broadcast)
 
     // And pin the stamp the mapper owns, so mutating it inside sessionWire() is a
-    // kill rather than a survivor. Resolved against the session's OWN machineId:
-    // a freshly created session sits on the '__local__' placeholder until a real
-    // machine adopts it, not on LOCAL_MACHINE_ID — asserting the latter is what
-    // this test got wrong on its first run.
+    // kill rather than a survivor. Resolved against the session's OWN machineId,
+    // which since POD-318 is this host's minted id from the moment the session is
+    // created — there is no placeholder phase to get wrong.
     expect(listed?.machineName).toBe(registry.modules.machines.machineName(listed?.machineId ?? ''))
     expect(listed?.machineName).not.toBe(undefined)
   })

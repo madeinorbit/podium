@@ -3,7 +3,7 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { ControlMessage } from '@podium/protocol'
@@ -30,7 +30,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   const reg = new SessionRegistry()
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
@@ -57,7 +57,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
 }
 
 function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
-  reg.gateway.routeDaemonFrame('local', {
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -65,7 +65,7 @@ function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  reg.gateway.routeDaemonFrame('local', {
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
@@ -289,7 +289,7 @@ describe('stopSession [spec:SP-9904]', () => {
     reg.modules.issues.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-remote',
       branch: 'issue/remote',
-      machineId: 'machine-remote',
+      machineId: asMachineId('machine-remote'),
     })
     const freed = await reg.modules.issues.freeWorktreeKeepBranch(issue.id)
     expect(freed.ok).toBe(true)

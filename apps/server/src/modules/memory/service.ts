@@ -1,13 +1,13 @@
-import {
-  type ConversationDiagnosticWire,
-  type ConversationId,
-  type ConversationSummaryWire,
+import type {
+  ConversationDiagnosticWire,
+  ConversationId,
+  ConversationSummaryWire,
 } from '@podium/model'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
-import type { ControlMessage, MetadataChange } from '@podium/protocol'
+import type { MetadataChange } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { SessionStore } from '../../store'
-import { TranscriptLake, type LakeReadSession } from './lake'
+import type { DaemonRequestPort } from '../daemon-request'
+import { type LakeReadSession, TranscriptLake } from './lake'
 import { MemorySearchService } from './search'
 import type { MemoryReader } from './types'
 import { MemoryVisibilityPolicy } from './visibility'
@@ -28,14 +28,9 @@ export interface MemoryServiceDeps {
   now(): number
   ledger: MemoryLedger
   onDiagnosticsChanged(diagnostics: readonly ConversationDiagnosticWire[]): void
-  daemonRequest<T>(
-    pending: Map<string, (result: T) => void>,
-    prefix: string,
-    timeoutMs: number,
-    onTimeout: () => T,
-    buildMessage: (requestId: string) => ControlMessage,
-    machineId?: string,
-  ): Promise<T>
+  /** The ONE daemon-RPC correlator (POD-318) — the broker's exported port,
+   *  passed straight through to the lake's ranged reads. */
+  daemonRequest: DaemonRequestPort
 }
 
 /**
@@ -227,9 +222,13 @@ export class MemoryService {
     input: { id: string; name?: string; summary?: string },
   ): void {
     const current = this.latestConversations.find((conversation) => conversation.id === input.id)
-    const machineId = this.machineByConversation.get(input.id) ?? LOCAL_PLACEHOLDER
+    // Both come from the same `onDiscovery` push (POD-318): there is no
+    // placeholder machine to fall back to any more, so a conversation with no
+    // known machine is as unreadable as one that does not exist.
+    const machineId = this.machineByConversation.get(input.id)
     if (
       !current ||
+      !machineId ||
       !this.visibility.mayRead(reader, {
         class: 'conversation',
         machineId,
@@ -307,14 +306,20 @@ export class MemoryService {
     return this.lake.readWindow(session, input)
   }
 
-  onTranscriptMirrorResult(message: {
-    requestId: string
-    data: string
-    fileSize: number
-    eof: boolean
-    error?: string
-  }): void {
-    this.lake.onMirrorResult(message)
+  /** `machineId` is the machine that ANSWERED (from the authenticated transport,
+   *  never a frame body): the broker refuses a reply from any machine other than
+   *  the one the ranged read was sent to (POD-1175). */
+  onTranscriptMirrorResult(
+    machineId: string,
+    message: {
+      requestId: string
+      data: string
+      fileSize: number
+      eof: boolean
+      error?: string
+    },
+  ): void {
+    this.lake.onMirrorResult(machineId, message)
   }
 }
 

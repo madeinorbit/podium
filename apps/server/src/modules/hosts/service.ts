@@ -1,13 +1,8 @@
-import type { AgentRuntimeState, HostMetricsWire, SessionId } from '@podium/model'
-import type {
-  ControlMessage,
-  DaemonMessage,
-  LiveServerMessage,
-  ServerMessage,
-} from '@podium/protocol'
+import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@podium/model'
+import type { DaemonMessage, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { EventBus } from '../bus'
+import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 
 /** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */
 export type MemoryBreakdown = Omit<
@@ -16,6 +11,10 @@ export type MemoryBreakdown = Omit<
 >
 
 const MEMORY_BREAKDOWN_TIMEOUT_MS = 10_000
+
+/** The host memory-probe request family (POD-318) — `undefined` is the timeout
+ *  answer, so the result type is deliberately nullable. */
+const MEMORY_BREAKDOWN = daemonRequestKind<MemoryBreakdown | undefined>('mb')
 const MEMORY_HIBERNATE_COOLDOWN_MS = 60_000
 const OUTPUT_QUIET_MS = 60_000
 // Four immediately, then four/minute: conservative enough to avoid a kill
@@ -58,16 +57,18 @@ export interface HostsDeps {
   hasValidTerminalProof(sessionId: SessionId): boolean
   /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
   terminalProofMissing(sessionId: SessionId): boolean
-  /** The registry's shared daemon request/response plumbing (timeout + resolver
-   *  registration + control-message routing). `machineId` undefined = default machine. */
-  daemonRequest<T>(
-    pending: Map<string, (r: T) => void>,
-    prefix: string,
-    timeoutMs: number,
-    onTimeout: () => T,
-    buildMsg: (requestId: string) => ControlMessage,
-    machineId?: string,
-  ): Promise<T>
+  /**
+   * The ONE daemon-RPC correlator (POD-318), taken as the broker's own exported
+   * port instead of a locally re-declared function type.
+   *
+   * The six-argument `daemonRequest` this replaces was a structural copy of the
+   * identical declaration in `conversations/service.ts` — and because it could
+   * only hand a resolver back, this service had to own `pendingBreakdowns` to
+   * receive it. The port owns the registry, the timeout and the
+   * answering-machine check (POD-1175); `machineId` undefined still means the
+   * default machine, resolved by the broker at send time.
+   */
+  daemonRequest: DaemonRequestPort
 }
 
 /**
@@ -87,7 +88,6 @@ export class HostsService {
   private readonly countHibernateBudgetByMachine = new Map<string, CountHibernateBudget>()
   private readonly lastCapUnmetByMachine = new Map<string, string>()
   private readonly missingProofLogged = new Set<string>()
-  private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
 
   constructor(
     private readonly deps: HostsDeps,
@@ -103,13 +103,13 @@ export class HostsService {
 
   /** Inbound daemon hostMetrics sample: tag it with the reporting machine so clients
    *  can attribute it and the per-machine cooldown/candidate scoping works. */
-  onHostMetrics(machineId: string, sample: Omit<HostMetricsWire, 'machineId' | 'name'>): void {
+  onHostMetrics(machineId: MachineId, sample: Omit<HostMetricsWire, 'machineId' | 'name'>): void {
     const tagged: HostMetricsWire = {
       ...sample,
       machineId,
       name: this.deps.machineName(machineId),
     }
-    const idleCapUnmet = this.maybeAutoHibernate(tagged)
+    const idleCapUnmet = this.maybeAutoHibernate(machineId, tagged)
     this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
     this.broadcastHostMetrics()
   }
@@ -128,10 +128,16 @@ export class HostsService {
     for (const c of this.deps.clients()) c.send(msg)
   }
 
-  /** Apply memory and idle-count pressure independently [spec:SP-c29e]. */
-  private maybeAutoHibernate(sample: HostMetricsWire): number | undefined {
+  /** Apply memory and idle-count pressure independently [spec:SP-c29e].
+   *
+   *  `machineId` is a PARAMETER, not `sample.machineId`: the reporting machine is a
+   *  fact of the authenticated frame this sample arrived on, and the wire field is
+   *  optional (a daemon does not name itself per sample — the socket does). Reading it
+   *  off the payload meant a `?? '__local__'` fallback on all three of these methods,
+   *  i.e. a scope that silently collapsed to a placeholder if the tag were ever
+   *  dropped. Passing it down cannot. */
+  private maybeAutoHibernate(machineId: string, sample: HostMetricsWire): number | undefined {
     const cfg = this.deps.getSettings().hibernation
-    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
     if (!cfg.enabled) {
       this.lastCapUnmetByMachine.delete(machineId)
       return
@@ -173,17 +179,22 @@ export class HostsService {
       this.lastCapUnmetByMachine.delete(machineId)
       return
     }
-    return this.applyCountPressure(sample, cfg.idleMinutes, cfg.maxIdleSessions, now, failed)
+    return this.applyCountPressure(
+      machineId,
+      cfg.idleMinutes,
+      cfg.maxIdleSessions,
+      now,
+      failed,
+    )
   }
 
   private applyCountPressure(
-    sample: HostMetricsWire,
+    machineId: string,
     idleMinutes: number,
     targetCount: number,
     now: number,
     failed: Set<string>,
   ): number | undefined {
-    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
     const budget = this.countBudgetFor(machineId, now)
 
     while (true) {
@@ -198,7 +209,7 @@ export class HostsService {
 
       const candidates = this.eligibleCandidates(machineId, idleMinutes, now, failed)
       if (candidates.length === 0) {
-        this.reportCapUnmet(sample, targetCount, overage)
+        this.reportCapUnmet(machineId, targetCount, overage)
         return overage
       }
 
@@ -221,7 +232,7 @@ export class HostsService {
       }
       budget.tokens -= 1
       console.info(
-        `[podium] idle-session target ${targetCount} on ${sample.hostname} — hibernating idle session ${target.sessionId}`,
+        `[podium] idle-session target ${targetCount} on ${this.deps.machineName(machineId)} — hibernating idle session ${target.sessionId}`,
       )
     }
   }
@@ -304,13 +315,12 @@ export class HostsService {
     return budget
   }
 
-  private reportCapUnmet(sample: HostMetricsWire, targetCount: number, overage: number): void {
-    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
+  private reportCapUnmet(machineId: string, targetCount: number, overage: number): void {
     const signature = `${targetCount}:${overage}`
     if (this.lastCapUnmetByMachine.get(machineId) === signature) return
     this.lastCapUnmetByMachine.set(machineId, signature)
     console.info(
-      `[podium] idle-session cap unmet: ${overage} protected/ineligible on ${sample.hostname} (target ${targetCount})`,
+      `[podium] idle-session cap unmet: ${overage} protected/ineligible on ${this.deps.machineName(machineId)} (target ${targetCount})`,
     )
   }
 
@@ -318,23 +328,24 @@ export class HostsService {
    *  answers in time. `machineId` targets a specific machine (the one whose chip
    *  was clicked); omitted → the default online machine. */
   memoryBreakdown(roots: string[], machineId?: string): Promise<MemoryBreakdown | undefined> {
-    return this.deps.daemonRequest<MemoryBreakdown | undefined>(
-      this.pendingBreakdowns,
-      'mb',
-      MEMORY_BREAKDOWN_TIMEOUT_MS,
-      () => undefined,
-      (requestId) => ({ type: 'memoryBreakdownRequest', requestId, roots }),
+    return this.deps.daemonRequest.request({
+      kind: MEMORY_BREAKDOWN,
+      timeoutMs: MEMORY_BREAKDOWN_TIMEOUT_MS,
+      onTimeout: () => undefined,
+      build: (requestId) => ({ type: 'memoryBreakdownRequest', requestId, roots }),
       machineId,
-    )
+    })
   }
 
-  /** Resolver for the daemon's memoryBreakdownResult reply. */
-  onMemoryBreakdownResult(msg: Extract<DaemonMessage, { type: 'memoryBreakdownResult' }>): void {
-    const resolve = this.pendingBreakdowns.get(msg.requestId)
-    if (resolve) {
-      this.pendingBreakdowns.delete(msg.requestId)
-      const { type: _type, requestId: _requestId, ...breakdown } = msg
-      resolve(breakdown)
-    }
+  /** The daemon's memoryBreakdownResult reply, settled through the one
+   *  correlator. `machineId` is who ANSWERED — a probe answered by a machine
+   *  other than the one it was sent to is dropped by the broker (POD-1175),
+   *  which matters here because a breakdown IS that machine's process list. */
+  onMemoryBreakdownResult(
+    machineId: string,
+    msg: Extract<DaemonMessage, { type: 'memoryBreakdownResult' }>,
+  ): void {
+    const { type: _type, requestId: _requestId, ...breakdown } = msg
+    this.deps.daemonRequest.settle(MEMORY_BREAKDOWN, msg.requestId, machineId, breakdown)
   }
 }

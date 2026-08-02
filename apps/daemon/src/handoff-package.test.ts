@@ -122,7 +122,7 @@ describe('handoff package', () => {
       snapshotFlattened: true as const,
       worktreeName: 'w',
       bundleBase: ['a'.repeat(40)],
-      sourceMachineId: 'm',
+      sourceMachineId: asMachineId('m'),
       exportedAt: new Date(0).toISOString(),
     }
     const claude = {

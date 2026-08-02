@@ -14,8 +14,13 @@ export class ConversationsRepository {
   readonly mirror: TranscriptMirrorRepository
   readonly transcriptIndex: TranscriptIndexRepository
 
-  constructor(db: SqlDatabase) {
-    this.index = new ConversationIndexRepository(db)
+  constructor(
+    db: SqlDatabase,
+    /** This host's minted machine id — the machine a row this composition has to
+     *  CONJURE belongs to (POD-318). See {@link ConversationIndexRepository.setMeta}. */
+    hostMachineId: string,
+  ) {
+    this.index = new ConversationIndexRepository(db, hostMachineId)
     this.registry = new ConversationRegistryRepository(db)
     this.mirror = new TranscriptMirrorRepository(db)
     this.transcriptIndex = new TranscriptIndexRepository(db)

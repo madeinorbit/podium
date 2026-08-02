@@ -4,7 +4,12 @@ import type { ConversationIndexRow } from '../types'
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(
+    private readonly db: SqlDatabase,
+    /** This host's minted machine id — the machine a row this repository has to
+     *  CONJURE belongs to. See {@link setMeta}. */
+    private readonly hostMachineId: string,
+  ) {}
 
   ensureFts(): void {
     try {
@@ -28,7 +33,7 @@ export class ConversationIndexRepository {
     }
   }
 
-  upsert(rows: (ConversationIndexRow & { machineId?: string })[]): void {
+  upsert(rows: (ConversationIndexRow & { machineId: string })[]): void {
     if (rows.length === 0) return
     const stmt = this.db.prepare(`INSERT INTO conversations
       (id,agent_kind,title,project_path,provider_id,resume_kind,resume_value,created_at,
@@ -56,7 +61,7 @@ export class ConversationIndexRepository {
           row.createdAt ?? null,
           row.updatedAt ?? null,
           row.messageCount ?? null,
-          row.machineId ?? '__local__',
+          row.machineId,
           row.parentConversationId ?? null,
         )
     })
@@ -89,11 +94,16 @@ export class ConversationIndexRepository {
 
   setMeta(id: string, meta: { name?: string; summary?: string }): void {
     if (!this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)) {
+      // Curating a conversation nobody has discovered yet CREATES the row, and
+      // since POD-318 the machine column has no default to manufacture one — so
+      // this names the host, which is where a local curation act happens. It used
+      // to lean on the `'__local__'` default, silently.
       this.db
         .prepare(
-          "INSERT INTO conversations (id,agent_kind,provider_id) VALUES (?,'claude-code','unknown')",
+          `INSERT INTO conversations (id,agent_kind,provider_id,machine_id)
+             VALUES (?,'claude-code','unknown',?)`,
         )
-        .run(id)
+        .run(id, this.hostMachineId)
     }
     if (meta.name !== undefined)
       this.db.prepare('UPDATE conversations SET name=? WHERE id=?').run(meta.name, id)
@@ -152,11 +162,5 @@ export class ConversationIndexRepository {
   search(opts: { query?: string; projectPath?: string; limit?: number }): ConversationIndexRow[] {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     return this.searchCandidates(opts).slice(0, limit)
-  }
-
-  adoptLocalRows(machineId: string): void {
-    this.db
-      .prepare("UPDATE conversations SET machine_id=? WHERE machine_id='__local__'")
-      .run(machineId)
   }
 }

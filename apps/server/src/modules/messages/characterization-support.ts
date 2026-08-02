@@ -207,7 +207,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: () => ({ sessionId: asSessionId('unused') }),
+    spawnSession: () => ({ sessionId: asSessionId('unused') , machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
     ...issueTestPlumbing(),
     now,

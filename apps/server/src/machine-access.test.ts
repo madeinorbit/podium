@@ -145,43 +145,33 @@ describe("the owner column decides: the machine's owner holds all three verbs, n
   })
 })
 
-describe('the local sentinels are a synthesized host row, not an exemption', () => {
-  // `local` and `__local__` routinely have NO machines-table row: a fresh
-  // session sits on the placeholder until a real machine adopts it, and on a
-  // single-machine install nothing ever does.
+describe('the retired sentinels get no arm of their own (POD-318)', () => {
+  // `'local'` and `'__local__'` used to routinely have NO machines-table row —
+  // a fresh session sat on the placeholder until something adopted it — so this
+  // module carried a SYNTHESIZED row for them, owned by the instance installer.
+  // The host's row is written at boot now, before any session can exist, and the
+  // two literals name nothing at all. What replaces the arm is the plain rule.
   const noRows = ownershipTable(new Map())
 
-  it.each([
-    'local',
-    '__local__',
-  ])('the instance owner may use %s even with no row in the table', (sentinel) => {
-    expect(checkMachineUse(user(OWNER), sentinel, noRows)).toBeUndefined()
-  })
-
-  it('M4 still holds on the sentinel: a second human is refused, exactly like anywhere else', () => {
-    // This is the property the arm would destroy if it granted by id rather
-    // than by resolving an owner. The host is owned by whoever set the instance
-    // up; authenticating to a server running on their Mac confers nothing.
-    expect(checkMachineUse(user(COLLEAGUE), 'local', noRows)).toBe('absent')
-    expect(checkMachineUse(user(COLLEAGUE), '__local__', noRows)).toBe('absent')
-  })
-
-  it('the arm covers the sentinels and NOTHING else — an unknown id is still absent', () => {
-    // The guard against the arm becoming the permissive default: these ids are
-    // unknown in exactly the same way the sentinels are, and they stay refused.
-    for (const unknown of ['localhost', 'local-2', 'Local', '__local', 'not-local', 'box']) {
+  it.each(['local', '__local__', 'localhost', 'local-2', 'Local', '__local', 'box'])(
+    'no row means absent, for %s exactly like any other unknown id',
+    (unknown) => {
       expect(checkMachineUse(user(OWNER), unknown, noRows)).toBe('absent')
-    }
-  })
+      expect(checkMachineUse(user(COLLEAGUE), unknown, noRows)).toBe('absent')
+    },
+  )
 
-  it('a REAL row for the sentinel wins over the synthesized one', () => {
-    // `ensureLocalMachine` seeds `local` on a normal boot, and once POD-1079
-    // gives that row an owner, the row is the authority — the synthesized answer
-    // is a fallback for its absence, not an override of its content.
-    const owned = ownershipTable(new Map([['local', { owner: COLLEAGUE, grants: [] }]]))
+  it('the HOST is usable because it has a real owned row, not because of its id', () => {
+    // The counterfactual for the assertion above: the same gate says YES here,
+    // so "absent everywhere" cannot be what these tests are actually pinning.
+    // `ensureHostMachine` writes exactly this row at boot, under a minted UUID.
+    const host = '9f1d0c2e-7c4a-4a1f-8f2e-2a0d0b7c9e51'
+    const owned = ownershipTable(new Map([[host, { owner: OWNER, grants: [] }]]))
 
-    expect(checkMachineUse(user(COLLEAGUE), 'local', owned)).toBeUndefined()
-    expect(checkMachineUse(user(OWNER), 'local', owned)).toBe('absent')
+    expect(checkMachineUse(user(OWNER), host, owned)).toBeUndefined()
+    // …and M4 still holds on it: a second human authenticating to a server on
+    // the owner's Mac is refused execute, exactly as on any machine they do not own.
+    expect(checkMachineUse(user(COLLEAGUE), host, owned)).toBe('absent')
   })
 })
 

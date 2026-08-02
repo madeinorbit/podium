@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import type { Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
@@ -10,7 +10,7 @@ import { type MachinesDeps, MachinesService } from './service'
 function makeService(): MachinesService {
   const deps = {
     store: {} as MachinesDeps['store'],
-    retargetPlaceholderSessions: () => {},
+    hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
     clients: () => [],
   } satisfies MachinesDeps
@@ -136,7 +136,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     const store = new SessionStore(':memory:')
     const svc = new MachinesService({
       store,
-      retargetPlaceholderSessions: () => {},
+      hostMachineId: store.hostMachineId,
       sessionsChangedForMachine: () => {},
       clients: () => [],
     } satisfies MachinesDeps)

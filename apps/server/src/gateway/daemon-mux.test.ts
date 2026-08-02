@@ -10,17 +10,18 @@ import {
   attributionOf,
   DAEMON_PLANE_CLASS,
   type DaemonMessage,
+  edgeOf,
   HOST_EDGE_FRAMES,
   type MachinePrincipal,
-  edgeOf,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   DAEMON_FRAME_PORTS,
   type DaemonPortId,
+  daemonPortsFor,
   MACHINE_SCOPE_CARRIER,
   PRINCIPAL_SCOPED_FRAMES,
-  daemonPortsFor,
+  REQUEST_CORRELATED_FRAMES,
 } from './daemon-frame-routing'
 import { DaemonMux, inProcessMachinePrincipal } from './daemon-mux'
 import type { DaemonFeaturePorts } from './daemon-ports'
@@ -174,6 +175,40 @@ describe('machine scope and the writer class', () => {
     }
   })
 
+  it('delivers every REQUEST-CORRELATED reply with the ANSWERING machine id (POD-1175)', () => {
+    // The carrier table has always CLAIMED that a correlated reply's scope was
+    // fixed when the request was sent. Nothing enforced it while the settle path
+    // never learned who answered — precisely why POD-1175 existed. The
+    // correlator can only compare answerer against target if the mux hands it
+    // over, so every row is audited here rather than assumed.
+    expect(REQUEST_CORRELATED_FRAMES.length).toBeGreaterThan(0)
+    for (const type of REQUEST_CORRELATED_FRAMES) {
+      const { ports, calls } = fakePorts()
+      muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
+      expect(calls[0]?.args[0], `'${type}' reached its port without its answerer`).toBe(
+        PRINCIPAL.machine,
+      )
+    }
+  })
+
+  it('hands EVERY rpc-owned reply to the one correlator, answerer first', () => {
+    // Twenty-three `onXResult(msg)` methods collapsed into one
+    // `settleDaemonReply` (POD-318). This pins that the collapse is total: no
+    // reply frame keeps a private door into the rpc port, and none of them
+    // arrives anonymously.
+    const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
+      (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
+    )
+    expect(rpcFrames.length).toBe(23)
+    for (const type of rpcFrames) {
+      const { ports, calls } = fakePorts()
+      muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
+      const rpcCall = calls.find((c) => c.port === 'rpc')
+      expect(rpcCall?.method, `'${type}' did not reach the correlator`).toBe('settleDaemonReply')
+      expect(rpcCall?.args[0]).toBe(PRINCIPAL.machine)
+    }
+  })
+
   it('audits the machine-adjacent set against the port rule rather than a hand list', () => {
     // Every frame the port rule calls an inventory/host probe or a repo-shaped
     // reply must appear in the scope audit with a named carrier. This is the
@@ -235,7 +270,8 @@ describe('attach / detach orchestration', () => {
     new DaemonMux({ ports, bus: bus as never }).attachDaemon('local', () => {})
     expect(calls.map((c) => `${c.port}.${c.method}`)).toEqual([
       'machines.attach',
-      'machines.adoptPlaceholderRows',
+      // No adoption step: POD-318 writes every row under a real machine id from
+      // boot, so an attaching daemon has nothing to claim — it becomes reachable.
       'machines.flushQueued',
       'sessions.onMachineAttached',
       'machines.broadcastMachines',
@@ -243,7 +279,9 @@ describe('attach / detach orchestration', () => {
     expect(bus.emit).toHaveBeenCalledWith('machine.connected', { machineId: 'local' })
   })
 
-  it('adopts placeholder rows for the LOCAL machine only', () => {
+  it('claims nothing on attach — no machine is special any more', () => {
+    // The step used to fire for the hard-coded local machine and for nothing else.
+    // Both halves of that are gone; an attach is an attach.
     const { ports, calls } = fakePorts()
     muxWith(ports).attachDaemon('m2', () => {})
     expect(calls.map((c) => c.method)).not.toContain('adoptPlaceholderRows')

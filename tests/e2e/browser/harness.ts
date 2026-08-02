@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { type DaemonHandle, startDaemon } from '../../../apps/daemon/src/daemon'
 import { type ServerHandle, startServer } from '../../../apps/server/src/server'
 
@@ -22,7 +22,7 @@ export async function startRelay(): Promise<Relay> {
   const daemon: DaemonHandle = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
     bootstrapToken: server.bootstrapToken,
-    machineId: LOCAL_MACHINE_ID,
+    machineId: readOrCreateLocalMachineId(),
     hooks: { port: 0 },
     agentRelay: { port: 0 },
     // Spawn the deterministic fixture; label it by its cwd so each session renders distinct content.
