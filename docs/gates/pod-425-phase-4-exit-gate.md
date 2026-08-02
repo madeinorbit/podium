@@ -33,16 +33,19 @@ afterward and are not treated as a fix for ordinary worktree installation.
 ## Process closure
 
 - POD-645 and POD-734 are now `done`.
-- POD-1078 is still `in_progress`. Its owner was mailed the required exit evidence: one shared
-  registry, ephemeral/gated rooms, non-distinguishing refusal, and drop-not-buffer pressure
-  behavior, each with a deliberate violation and candidate SHA.
+- POD-1078 is still `in_progress`. Its owner reports review-ready evidence at branch
+  `45f7420d` (4 files/66 deliberate-violation tests and 1 file/2 real-server pressure tests),
+  but that work is neither closed nor landed in candidate `aba864a9`; this gate was instructed
+  not to independently verify it before landing.
 - POD-1079 is `done`.
 - POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where the defaulted first-admin principal remains. POD-1316 remains open and leaves the real wire-window integration test unauthenticated and timing out at the fail-closed client gate.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
 - POD-1351 is an open blocking child: POD-318's phase-close audit refuses three undeclared
   residue families.
-- POD-1356 is an open blocking child: the isolated browser harness has no authenticated account,
-  so it cannot create the session required by the redeploy proof.
+- POD-1356 is an open blocking child: Phase 3's fail-closed transport gate correctly rejects the
+  isolated browser harness because it has no authenticated account or session cookie, so the
+  harness cannot create the session required by the redeploy proof. This is the same removed-
+  ambient-auth test-infrastructure class as POD-1316.
 - POD-1343 remains real work, but the same resolution failure reproduces before Phase 4. It was
   corrected to top-level `discovered-from` work rather than used as evidence of a Phase 4
   regression.
@@ -86,7 +89,12 @@ Podium could not open its private replica
 authenticated account is unavailable
 ```
 
-Every exact PID marker disappeared and every port was released. Immediately before and after these runs and the multi-instance lane, `/home/mgw/.podium/config.json` had unchanged mtime `1785657372` (`2026-08-02 09:56:12.911369050 +0200`). The live instance was never redeployed.
+This is not evidence of a product restart failure: the Phase 3 authentication boundary is working
+and terminates the unauthenticated socket before replica open. The missing proof must authenticate
+the harness through a real account/login and session cookie; restoring an ambient principal or
+raising the timeout would not satisfy the gate.
+
+Every exact PID marker disappeared and every port was released. Immediately before and after these runs and the multi-instance lane, `/home/mgw/.podium/config.json` had unchanged mtime `1785657372` (`2026-08-02 09:56:12.911369050 +0200`). Because another live process rewrites that file periodically, the paired unchanged value is positive evidence that the isolated run did not interfere with the live instance. The live instance was never redeployed.
 
 ## Deliberate-violation probes
 
