@@ -5,6 +5,7 @@
  * event-subscriptions design Phase B).
  */
 
+import { ISSUE_EVENTS_DEFAULT_LIMIT } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { Subscription } from './types'
 
@@ -70,7 +71,7 @@ export class EventsRepository {
       where.push('repo_path = ?')
       params.push(opts.repoPath)
     }
-    params.push(opts?.limit ?? 200)
+    params.push(opts?.limit ?? ISSUE_EVENTS_DEFAULT_LIMIT)
     const rows = this.db
       .prepare(`SELECT * FROM podium_events WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`)
       .all(...(params as never[])) as Record<string, unknown>[]

@@ -1669,6 +1669,11 @@ describe('IssueService.tree (issue #82)', () => {
     expect(capped.root.children.length).toBe(2)
     expect(capped.root.omittedChildren).toBe(3)
     expect(capped.omitted).toBe(3)
+    // The payload echoes the caps actually applied so the CLI truncation notice
+    // names the real cap instead of a duplicated guess (POD-1342).
+    expect(capped.maxNodes).toBe(3)
+    expect(capped.maxDepth).toBe(3) // untouched → the default
+    expect(t.maxNodes).toBe(100)
   })
 
   it('truncates descriptions to 300 chars and throws on an unknown ref', () => {

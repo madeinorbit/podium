@@ -1,4 +1,10 @@
-import { IssueColor, TITLE_RULE_TERSE } from '@podium/protocol'
+import {
+  ISSUE_EVENTS_DEFAULT_LIMIT,
+  ISSUE_TREE_DEFAULT_MAX_DEPTH,
+  ISSUE_TREE_DEFAULT_MAX_NODES,
+  IssueColor,
+  TITLE_RULE_TERSE,
+} from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
 
@@ -312,14 +318,26 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'tree',
     summary:
-      'Whole epic in ONE call: tree <id> — the issue + all descendants (depth ≤3, ≤100 nodes) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and every agent’s actual harness/model/effort/context/state/coordinator. Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
-    args: z.strictObject({ id: idArg }),
+      'Whole epic in ONE call: tree <id> [--max-depth n] [--max-nodes n] — the issue + all descendants (default depth ≤3, ≤100 nodes; raise with the flags) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and every agent’s actual harness/model/effort/context/state/coordinator. Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
+    args: z.strictObject({
+      id: idArg,
+      maxDepth: z.coerce.number().int().min(0).max(20).optional(),
+      maxNodes: z.coerce.number().int().min(1).max(1000).optional(),
+    }),
     positionals: ['id'],
     async run(c, a) {
-      const t = (await c.issues.tree.query({ id: a.id as string })) as {
+      const t = (await c.issues.tree.query({
+        id: a.id as string,
+        ...(a.maxDepth != null ? { maxDepth: a.maxDepth as number } : {}),
+        ...(a.maxNodes != null ? { maxNodes: a.maxNodes as number } : {}),
+      })) as {
         root: TreeNode
         totalNodes: number
         omitted: number
+        // Absent on older servers — fall back to the shared defaults so the
+        // footer still names a cap rather than `undefined`.
+        maxDepth?: number
+        maxNodes?: number
       }
       const out: string[] = []
       const walk = (n: TreeNode, depth: number): void => {
@@ -343,6 +361,21 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         if (n.omittedChildren > 0) out.push(`${'  '.repeat(depth + 1)}(+${n.omittedChildren} more)`)
       }
       walk(t.root, 0)
+      // A capped tree used to just end (POD-1342): nothing said the walk stopped
+      // early, so `(+3 more)` deep in the output was the only hint and an empty
+      // branch looked like a leaf. Name the cap that bit and the exact rerun.
+      const maxDepth = t.maxDepth ?? ISSUE_TREE_DEFAULT_MAX_DEPTH
+      const maxNodes = t.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
+      if (t.omitted > 0) {
+        const hitNodes = t.totalNodes >= maxNodes
+        out.push(
+          '',
+          `TRUNCATED: ${t.totalNodes} nodes shown, ${t.omitted} child issue${t.omitted === 1 ? '' : 's'} omitted by the ${hitNodes ? `node cap (--max-nodes ${maxNodes})` : `depth cap (--max-depth ${maxDepth})`}.`,
+          // Clamped to the proc's own input bounds so the suggested command is
+          // always one the server accepts.
+          `  Full tree: podium issue tree ${a.id} --max-depth ${Math.min(20, maxDepth + 3)} --max-nodes ${Math.min(1000, maxNodes * 4)}`,
+        )
+      }
       return { text: out.join('\n'), data: t }
     },
   },
@@ -1244,7 +1277,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'events',
-    summary: 'Event log since a cursor: events --since <id> [--kind a,b] [--limit n].',
+    summary: `Event log since a cursor: events --since <id> [--kind a,b] [--limit n]. Returns at most ${ISSUE_EVENTS_DEFAULT_LIMIT} events per call; page with --since <last id>.`,
     args: z.strictObject({
       since: z.coerce.number().int().min(0).default(0),
       kind: z.string().optional(),
@@ -1258,20 +1291,35 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             .map((s) => s.trim())
             .filter(Boolean)
         : undefined
+      // Send the limit explicitly even when unset: a full page is how we detect
+      // truncation, so the CLI must KNOW the cap the server applied (POD-1342).
+      const limit = (a.limit as number | undefined) ?? ISSUE_EVENTS_DEFAULT_LIMIT
       const rows = (await c.issues.events.query({
         since: a.since as number,
         ...(kinds?.length ? { kinds } : {}),
         ...(a.repoPath ? { repoPath: a.repoPath as string } : {}),
-        ...(a.limit != null ? { limit: a.limit as number } : {}),
+        limit,
       })) as { id: number; ts: string; kind: string; subject: string; payload: unknown }[]
-      return {
-        text: rows.length
-          ? rows
-              .map((e) => `[${e.id}] ${e.ts} ${e.kind} ${e.subject} ${JSON.stringify(e.payload)}`)
-              .join('\n')
-          : '(no events)',
-        data: rows,
+      const lines = rows.map(
+        (e) => `[${e.id}] ${e.ts} ${e.kind} ${e.subject} ${JSON.stringify(e.payload)}`,
+      )
+      // A full page means there are probably more: without this the log simply
+      // stopped at 200 with no sign the tail was cut off.
+      if (rows.length >= limit) {
+        const next = [
+          `podium issue events --since ${rows[rows.length - 1]!.id}`,
+          kinds?.length ? `--kind ${kinds.join(',')}` : '',
+          a.limit != null ? `--limit ${limit}` : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        lines.push(
+          '',
+          `TRUNCATED: hit the ${limit}-event limit; there may be more.`,
+          `  Next page: ${next}`,
+        )
       }
+      return { text: lines.length ? lines.join('\n') : '(no events)', data: rows }
     },
   },
   {

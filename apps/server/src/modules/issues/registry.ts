@@ -480,9 +480,18 @@ const defs = {
   }),
   tree: def({
     kind: 'query',
-    input: byId,
+    // The depth/node caps are callable (POD-1342): the CLI's truncation footer
+    // tells the reader to raise them, so they have to be raisable over the wire.
+    input: byId.extend({
+      maxDepth: z.number().int().min(0).max(20).optional(),
+      maxNodes: z.number().int().min(1).max(1000).optional(),
+    }),
     action: 'read',
-    handler: (ctx, input) => ctx.issues.tree(input.id),
+    handler: (ctx, input) =>
+      ctx.issues.tree(input.id, {
+        ...(input.maxDepth != null ? { maxDepth: input.maxDepth } : {}),
+        ...(input.maxNodes != null ? { maxNodes: input.maxNodes } : {}),
+      }),
   }),
   depReport: def({
     kind: 'query',

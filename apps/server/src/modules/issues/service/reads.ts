@@ -14,6 +14,8 @@ import type {
 import {
   DELEGATION_RULE,
   formatIssueRef,
+  ISSUE_TREE_DEFAULT_MAX_DEPTH,
+  ISSUE_TREE_DEFAULT_MAX_NODES,
   LOCK_RULE,
   SPINOFF_RULE,
   TITLE_RULE,
@@ -126,8 +128,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  Children omitted by the depth or node cap are counted on their parent
    *  (`omittedChildren`) and in the total (`omitted`). */
   tree(ref: string, opts: { maxDepth?: number; maxNodes?: number } = {}): IssueTree {
-    const maxDepth = opts.maxDepth ?? 3
-    const maxNodes = opts.maxNodes ?? 100
+    const maxDepth = opts.maxDepth ?? ISSUE_TREE_DEFAULT_MAX_DEPTH
+    const maxNodes = opts.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
     const rootRow = this.rowOrThrow(this.resolveRef(ref))
     const byParent = new Map<string, IssueRow[]>()
     for (const r of this.rows.values()) {
@@ -205,7 +207,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       }
     }
     const root = node(rootRow, 0)
-    return { root, totalNodes: count, omitted }
+    return { root, totalNodes: count, omitted, maxDepth, maxNodes }
   }
 
   /** Dependency status over a set of issues — an issue's subtree (id given,

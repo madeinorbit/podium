@@ -215,6 +215,17 @@ export const ISSUE_COMMAND_NAMES = [
 export type IssueCommandName = (typeof ISSUE_COMMAND_NAMES)[number]
 
 /**
+ * Output caps the bounded issue READ commands apply server-side. Declared here
+ * because two sides must agree on them: the server enforces them, and the CLI
+ * names the cap (and the flag that raises it) in its truncation footer. A cap
+ * the notice quotes wrongly is worse than no notice, so neither side hardcodes
+ * its own copy.
+ */
+export const ISSUE_TREE_DEFAULT_MAX_DEPTH = 3
+export const ISSUE_TREE_DEFAULT_MAX_NODES = 100
+export const ISSUE_EVENTS_DEFAULT_LIMIT = 200
+
+/**
  * THE canonical lock-command name list [spec:SP-85d1] — the def keys of the
  * server's `lock` registry (advisory named lease locks), declared here for the
  * same reason as {@link ISSUE_COMMAND_NAMES}: the server registry is

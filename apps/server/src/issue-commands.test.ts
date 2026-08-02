@@ -540,6 +540,102 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(out.data).toBe(treeData)
   })
 
+  // POD-1342: a capped tree used to just stop, so the reader could not tell a
+  // real leaf from a cut-off branch. These pin the notice AND its rerun command.
+  it('tree footers the truncation, names the binding cap and a runnable rerun', async () => {
+    const leaf = {
+      seq: 11,
+      title: 'Child',
+      stage: 'backlog',
+      priority: 2,
+      needsHuman: false,
+      blocksDeps: [],
+      description: '',
+      closed: false,
+      blocked: false,
+      ready: true,
+      omittedChildren: 0,
+      children: [],
+      sessions: [],
+    }
+    const capped = (over: Record<string, unknown>) => ({
+      root: { ...leaf, seq: 10, title: 'Epic', children: [leaf] },
+      totalNodes: 100,
+      omitted: 7,
+      maxDepth: 3,
+      maxNodes: 100,
+      ...over,
+    })
+
+    // Node cap bit (totalNodes reached maxNodes) → --max-nodes is the lever.
+    const { client: nodeClient } = mockClient({ tree: capped({}) })
+    const byNodes = await cmd('tree').run(nodeClient, { id: '10' })
+    expect(byNodes.text).toContain('TRUNCATED')
+    expect(byNodes.text).toContain('7 child issues omitted')
+    expect(byNodes.text).toContain('node cap (--max-nodes 100)')
+    expect(byNodes.text).toContain('podium issue tree 10 --max-depth 6 --max-nodes 400')
+
+    // Depth cap bit (node budget unspent) → --max-depth is the lever instead.
+    const { client: depthClient } = mockClient({ tree: capped({ totalNodes: 4 }) })
+    const byDepth = await cmd('tree').run(depthClient, { id: '10' })
+    expect(byDepth.text).toContain('depth cap (--max-depth 3)')
+    expect(byDepth.text).not.toContain('node cap')
+
+    // Nothing omitted → no footer at all.
+    const { client: whole } = mockClient({ tree: capped({ omitted: 0 }) })
+    expect((await cmd('tree').run(whole, { id: '10' })).text).not.toContain('TRUNCATED')
+
+    // The raised caps reach the proc (the footer's advice has to actually work).
+    const { client: raised, calls } = mockClient({ tree: capped({ omitted: 0 }) })
+    await cmd('tree').run(raised, { id: '10', maxDepth: 6, maxNodes: 400 })
+    expect(calls).toContainEqual({
+      path: 'tree',
+      kind: 'query',
+      input: { id: '10', maxDepth: 6, maxNodes: 400 },
+    })
+    // --max-depth 6 arrives as a number even though argv hands over a string.
+    expect(cmd('tree').args.parse({ id: '10', maxDepth: '6' })).toMatchObject({ maxDepth: 6 })
+  })
+
+  it('events footers the page limit with the exact --since cursor for the next page', async () => {
+    const page = (n: number, from = 0) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: from + i + 1,
+        ts: 't',
+        kind: 'issue.closed',
+        subject: 'iss_a',
+        payload: {},
+      }))
+
+    // A full page is indistinguishable from "that was all" without the notice.
+    const { client, calls } = mockClient({ events: page(3) })
+    const out = await cmd('events').run(client, { since: 0, limit: 3, kind: 'issue.closed' })
+    expect(out.text).toContain('TRUNCATED: hit the 3-event limit')
+    expect(out.text).toContain('podium issue events --since 3 --kind issue.closed --limit 3')
+    expect(out.data).toEqual(page(3)) // --json consumers keep the bare row array
+    expect(calls).toContainEqual({
+      path: 'events',
+      kind: 'query',
+      input: { since: 0, kinds: ['issue.closed'], limit: 3 },
+    })
+
+    // Short page → no notice.
+    const { client: short } = mockClient({ events: page(2) })
+    expect((await cmd('events').run(short, { since: 0, limit: 3 })).text).not.toContain('TRUNCATED')
+
+    // No --limit: the CLI still sends one, so it knows the cap it must name.
+    const { client: dflt, calls: dfltCalls } = mockClient({ events: page(200) })
+    const capped = await cmd('events').run(dflt, { since: 0 })
+    expect(dfltCalls).toContainEqual({
+      path: 'events',
+      kind: 'query',
+      input: { since: 0, limit: 200 },
+    })
+    expect(capped.text).toContain('TRUNCATED: hit the 200-event limit')
+    expect(capped.text).toContain('podium issue events --since 200')
+    expect(capped.text).not.toContain('--limit') // not echoed when the user never set one
+  })
+
   it('show lists sessions with kind/model/state/coordinator [spec:SP-99d3]', async () => {
     const issue = {
       id: 'iss_1',
