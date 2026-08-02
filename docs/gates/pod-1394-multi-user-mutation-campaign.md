@@ -18,8 +18,11 @@ Every mutant went through one runner (`mutate.py`) that ABORTS rather than repor
 
 1. `git status --porcelain` empty before the mutation.
 2. Each anchor matches **exactly once** in the target file (abort otherwise), with its line recorded.
-3. Apply; assert the file's sha256 **moved**; grep back and assert the replacement text is present.
-   A mutant that never applied otherwise produces a green that reads exactly like a working guardrail.
+3. Apply; assert the file's sha256 **moved**; grep back. A mutant that never applied otherwise
+   produces a green that reads exactly like a working guardrail. For a **replacement** the grep-back
+   asserts the new text is present and the anchor is gone; for a **deletion** it asserts the anchor
+   is ABSENT — see P1 below, because the naive form of this check is vacuous for deletions and the
+   campaign had to fix its own runner mid-flight.
 4. Run the guardrail; record exit code, elapsed, and the diagnostic text.
 5. Restore the original bytes; assert sha256 **identical** to the original, every anchor count back
    to 1, and `git status --porcelain` empty again.
@@ -146,6 +149,49 @@ that accepts slowly rather than failing.
 2. **The `remove-for-revocation` source-text check cannot see the real production site.** It keys on
    functions whose *name* names revocation; the shipped site is `anchorFor`, which does not. `C4c`
    exits 0 against `audit:scoped-feed` and is caught only by the running objects.
+
+## Process findings — the runner's own blind spots
+
+These are not code defects. They are defects in *how the campaign proves things*, and each was found
+by the campaign turning on itself mid-run.
+
+### P1 — a deletion mutant can SELF-CERTIFY
+
+The runner's grep-back originally asserted *"the replacement text is present in the file"*. For a
+**deletion** the replacement is the empty string, and `"" in text` is **vacuously true**. A deletion
+that never applied would therefore have passed grep-back and gone on to report its guardrail's green
+as evidence — the precise failure grep-back exists to prevent, reintroduced by the check itself.
+
+Found when `C3b` (a deletion) crashed the runner on an unrelated `IndexError`. Fixed mid-campaign:
+for an empty replacement the runner asserts the **anchor is ABSENT**; for a non-empty one it asserts
+the replacement is present **and** the anchor is gone (unless the anchor is a substring of the
+replacement). `C3b` was then re-run under the corrected runner, so POD-1410 rests on a deletion that
+provably applied.
+
+### P2 — the `finally` block protects a RUN, not a SESSION
+
+The runner guarantees a mutant never outlives its run. It does **not** guarantee a mutant never
+outlives the *agent*. During `C1b-full` — an 18-minute full-lane run — the worktree carried a live
+mutant in `relay.ts` for the whole duration. Had the session been killed in that window, the mutant
+would have survived in the tree with nothing scheduled to remove it, and a branch carrying a live
+mutant looks exactly like a branch carrying a bug.
+
+It did not happen here: `C1b-full` completed (exit 1, 1098.8 s) and its `finally` restored
+`relay.ts` to sha256 `ce4c4e7b1989...`, anchor count 1, `git status` empty — re-verified afterwards
+from a clean session. But the hazard is structural and scales with run length: the longer the
+guardrail takes, the wider the window.
+
+**Mitigations for the next campaign of this shape:** keep long full-lane runs to the few questions
+that genuinely need them (this campaign used one); prefer scoped runs, which shrink the window from
+minutes to seconds; and write the mutant's identity and original hash to disk *before* applying —
+the per-mutant JSON record here is written only on success, so a killed run leaves no breadcrumb
+naming what is still applied.
+
+### P3 — a piped guardrail command cannot produce evidence
+
+`C4c`'s first invocation ended in `| tail -25`, so the recorded exit code was `tail`'s `0` while the
+guardrail underneath had failed. Re-run unpiped as `C4c-runtime` -> exit 1. Any guardrail whose exit
+code passes through a pipe is reporting the pipe.
 
 ## Reds observed that are NOT this campaign's
 
