@@ -359,18 +359,18 @@ describe('SessionRegistry session.phase events', () => {
   it('skips the prev-undefined seed and logs only real phase transitions', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    reg.gateway.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     // First state after boot/spawn: prev is undefined → no phantom row.
-    reg.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: st('working') })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: st('working') })
     expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: st('idle', { kind: 'question' }),
     })
     // Same-phase refresh → no second row.
-    reg.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: st('idle') })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: st('idle') })
     const evs = store.events.listEventsSince(0, { kinds: ['session.phase'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({

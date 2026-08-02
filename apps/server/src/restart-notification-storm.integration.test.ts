@@ -126,7 +126,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       let store = new SessionStore(dbPath)
       let registry = new SessionRegistry(store, { ntfy, telegram })
       const controls: ControlMessage[] = []
-      const attach = () => registry.gateway.attachDaemon('local', (msg) => controls.push(msg))
+      const attach = () => registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (msg) => controls.push(msg))
       attach()
       registry.modules.settings.setSettingsFor(
         FIRST_ADMIN_USER_ID,
@@ -158,7 +158,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         cwd: join(root, 'child'),
         spawnedBy: `session:${parentId}`,
       })
-      registry.gateway.routeDaemonFrame('local', {
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId: childId,
         resume: {
@@ -179,7 +179,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         return lease.observationGeneration
       }
       const deliver = (value: AgentObservation) =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'agentObservation',
           observation: value,
         })
@@ -247,7 +247,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         if (kind === 'daemon-only') {
           // The server survives. Replacing the daemon forces a provider-history
           // fold against the durable checkpoint after the new lease is issued.
-          registry.gateway.detachDaemon('local')
+          registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
           attach()
         } else {
           // Both server restart modes reopen the durable store. Their daemon

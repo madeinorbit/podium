@@ -52,8 +52,8 @@ const pastesContaining = (daemon: ControlMessage[], text: string): string[] =>
 /** live claude session with a resume ref, parked via hibernate. */
 function hibernatedSession(reg: SessionRegistry): string {
   const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
-  reg.gateway.routeDaemonFrame('local', bind(sessionId))
-  reg.gateway.routeDaemonFrame('local', {
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'abc-123' },
@@ -67,7 +67,7 @@ function hibernatedSession(reg: SessionRegistry): string {
 function settle(reg: SessionRegistry, sessionId: string): void {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: asSessionId(sessionId),
       seq: seq++,
@@ -84,7 +84,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon('local', (message) => daemon.push(message))
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
 
       const source = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -95,8 +95,8 @@ describe('queueText (durable outbox sends)', () => {
         cwd: '/target',
         spawnedBy: `session:${source}`,
       }).sessionId
-      reg.gateway.routeDaemonFrame('local', bind(target))
-      reg.gateway.routeDaemonFrame('local', {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId: target,
         resume: { kind: 'claude-session', value: 'revocation-proof' },
@@ -133,7 +133,7 @@ describe('queueText (durable outbox sends)', () => {
           expect.objectContaining({ type: 'spawn', sessionId: target }),
         ),
       )
-      reg.gateway.routeDaemonFrame('local', bind(target))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
       settle(reg, target)
 
       expect(pastesContaining(daemon, 'must not cross revocation')).toEqual([])
@@ -151,7 +151,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
@@ -177,7 +177,7 @@ describe('queueText (durable outbox sends)', () => {
       // ...and nothing is typed while the respawn is still starting.
       expect(pastesContaining(daemon, 'wake-up-msg')).toHaveLength(0)
 
-      reg.gateway.routeDaemonFrame('local', bind(asSessionId(sessionId)))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       settle(reg, sessionId)
 
       // Exactly ONE bracketed-paste input containing the text (no double-type).
@@ -196,7 +196,7 @@ describe('queueText (durable outbox sends)', () => {
     const reg = new SessionRegistry()
     try {
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon('local', (message) => daemon.push(message))
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
@@ -229,7 +229,7 @@ describe('queueText (durable outbox sends)', () => {
       )
       expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(0)
 
-      reg.gateway.routeDaemonFrame('local', bind(asSessionId(sessionId)))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       settle(reg, sessionId)
 
       expect(pastesContaining(daemon, 'continue-night-work')).toEqual([
@@ -256,13 +256,13 @@ describe('queueText (durable outbox sends)', () => {
   it('refuses a parked agent with no resume ref and queues NOTHING', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame('local', bind(sessionId))
-    reg.gateway.routeDaemonFrame('local', { type: 'agentExit', sessionId, code: 1 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 1 })
     daemon.length = 0
 
     expect(reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' })).toEqual({
@@ -282,7 +282,7 @@ describe('queueText (durable outbox sends)', () => {
       const storeA = new SessionStore(file)
       const regA = new SessionRegistry(storeA)
       const daemonA: ControlMessage[] = []
-      regA.gateway.attachDaemon('local', (m) => daemonA.push(m))
+      regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
       expect(
         regA.modules.sessions.queueText({
@@ -308,8 +308,8 @@ describe('queueText (durable outbox sends)', () => {
       ).toBe(1)
 
       const daemonB: ControlMessage[] = []
-      regB.gateway.attachDaemon('local', (m) => daemonB.push(m))
-      regB.gateway.routeDaemonFrame('local', bind(asSessionId(sessionId)))
+      regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (m) => daemonB.push(m))
+      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
       await vi.advanceTimersByTimeAsync(7_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
@@ -330,12 +330,12 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
       reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
       reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
@@ -363,7 +363,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -378,7 +378,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(1)
 
       // The PTY finally binds → a fresh attempt re-arms and delivers after settle.
-      reg.gateway.routeDaemonFrame('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       settle(reg, sessionId)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
       expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
@@ -389,7 +389,7 @@ describe('queueText (durable outbox sends)', () => {
 
   it('surfaces the queued count on the P2 delta stream (session upsert with queuedMessageCount 1)', () => {
     const reg = new SessionRegistry()
-    reg.gateway.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = hibernatedSession(reg)
 
     const inbox: ServerMessage[] = []
@@ -425,7 +425,7 @@ describe('queueText (durable outbox sends)', () => {
 
   it('clears an existing snooze when a message is queued (fresh user intent)', () => {
     const reg = new SessionRegistry()
-    reg.gateway.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = hibernatedSession(reg)
     reg.modules.sessions.setSnooze({
       userId: SOLE_USER_ID,
@@ -510,12 +510,12 @@ describe('framework idempotency (modules.mutations)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
       const send = () =>
         reg.modules.mutations.once('send-1', 'sessions.sendText', () =>

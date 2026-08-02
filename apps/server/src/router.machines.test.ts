@@ -19,7 +19,7 @@ function machineCaller() {
   // Pairing is a hub-role capability, injected the way server assembly does it.
   const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
   registry.modules.machines.ensureHostMachine('machine-under-test')
-  registry.gateway.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
@@ -108,7 +108,7 @@ describe('sessions.create with machineId', () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store)
     registry.modules.machines.ensureHostMachine('machine-under-test')
-    registry.gateway.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })

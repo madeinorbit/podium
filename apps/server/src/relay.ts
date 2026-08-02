@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
@@ -314,6 +315,14 @@ export class SessionRegistry {
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clientRegistry.values(),
     })
+    // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
+    // this registry mints names a machine (POD-318), and a machine id with no row is
+    // a machine nobody may use — so the row has to exist before the registry can be
+    // asked for anything, and making it a construction invariant is how no
+    // composition gets to forget. The composition root calls `ensureHostMachine`
+    // again with the real hostname and the loopback bootstrap secret; that call is
+    // an idempotent UPDATE of this row, not a rival insert.
+    machines.ensureHostMachine(hostname())
     const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: () => machines.defaultMachine(),

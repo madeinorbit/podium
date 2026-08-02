@@ -85,7 +85,7 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
     expect(store.sessions.loadSessions().map((s) => s.machineId)).toEqual([HOST, HOST])
     expect(store.repos.listRepos().map((r) => r.machineId)).toEqual([HOST])
     expect(
-      store.conversations.listConversations().map((c) => c.machineId),
+      store.conversations.searchConversations({ query: '' }).map((c) => c.machineId),
     ).toEqual([HOST])
     // ONE machine row, RENAMED rather than replaced: a duplicate would have split
     // the fleet in half, and a fresh insert would have dropped the owner the
@@ -144,26 +144,66 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
       data: 'x',
     })
     registry.gateway.attachDaemon(HOST, (m) => delivered.push(m))
-    expect(delivered).toHaveLength(1)
+    expect(delivered).toContainEqual({
+      type: 'input',
+      sessionId: asSessionId('s-placeholder'),
+      data: 'x',
+    })
     store.close()
   })
 
-  it('refuses to boot when the rewrite did not run — mixed identities fail loudly', () => {
-    // The residue check, exercised directly: rows carrying a sentinel while the
-    // fleet answers to a UUID is the state that must never be SERVED, so the
-    // upgrade reports it as an error rather than leaving them invisible.
+  it('covers EVERY table with a machine column, not the three that had a default', () => {
+    // `issues.machine_id` is an issue's machine pin — ordinary user data that could
+    // name the machine the UI called `local`. `conversation_segments`,
+    // `approval_requests` and `execution_profiles` carry one too. A hand-written
+    // list of "sessions, repos, conversations" would leave all four behind.
+    const path = tmpDb()
+    seedLegacyDb(path)
+    const db = openDatabase(path)
+    db.exec(`
+      INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
+                          created_at, updated_at, machine_id)
+        VALUES ('iss_1', '/r', 1, 'pinned', 'backlog', 'main', 'claude-code', 't', 't', 'local');
+      INSERT INTO conversation_segments
+        (machine_id, native_id, provider_id, podium_id, seq_in_conv, linked_by, created_at)
+        VALUES ('__local__', 'n1', 'claude-jsonl', 'c-legacy', 0, 'test', 't');
+    `)
+    db.close()
+
+    const store = new SessionStore(path, HOST)
+    store.migrateLegacyMachineIdentity(HOST)
+
+    expect(store.issues.getIssue('iss_1')?.machineId).toBe(HOST)
+    store.close()
+  })
+
+  it('refuses to boot when a sentinel survives — mixed identities fail loudly', () => {
+    // The residue check, exercised for real. It re-DISCOVERS the machine columns
+    // rather than restating the rewrite's list, so a table the rewrite cannot reach
+    // is exactly what it is there to catch — and the boot stops instead of serving
+    // rows the fleet can no longer see.
     const path = tmpDb()
     seedLegacyDb(path)
     const store = new SessionStore(path, HOST)
-    const db = openDatabase(path)
-
-    expect(() => store.migrateLegacyMachineIdentity(HOST)).not.toThrow()
-    // Re-introduce one, exactly as a forgotten writer would.
-    db.exec("UPDATE sessions SET machine_id = '__local__' WHERE id = 's-local'")
-    db.close()
-
     expect(() => store.migrateLegacyMachineIdentity(HOST)).not.toThrow()
     store.close()
+
+    // A table with a machine column and a VIEW in front of it: the discovery reads
+    // `sqlite_master` tables, the rewrite writes through the same name, and a
+    // read-only table is one the UPDATE silently cannot move.
+    const db = openDatabase(path)
+    db.exec(`
+      CREATE TABLE legacy_pins (id TEXT PRIMARY KEY, machine_id TEXT NOT NULL);
+      INSERT INTO legacy_pins VALUES ('p1', '__local__');
+      CREATE TRIGGER legacy_pins_frozen BEFORE UPDATE ON legacy_pins
+        BEGIN SELECT RAISE(IGNORE); END;
+    `)
+    db.close()
+
+    // The store runs the upgrade when it OPENS, so this is the boot failing.
+    expect(() => new SessionStore(path, HOST)).toThrow(
+      /legacy machine identity survived the boot upgrade.*legacy_pins: 1/s,
+    )
   })
 })
 
@@ -216,7 +256,9 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
       cwd: '/w',
     })
 
-    expect(registry.modules.sessions.getSession(sessionId)?.machineId).toBe(HOST)
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.machineId,
+    ).toBe(HOST)
     expect(store.sessions.loadSessions()[0]?.machineId).toBe(HOST)
     store.close()
   })

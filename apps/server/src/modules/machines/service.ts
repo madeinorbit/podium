@@ -578,20 +578,15 @@ export class MachinesService {
    * real machine to belong to whether or not the daemon has connected. Nothing
    * adopts anything afterwards.
    *
-   * The legacy upgrade rides here because this is the first moment both facts exist
-   * — the new id, and an open database that may still hold rows from the era of
-   * `'local'` / `'__local__'`. See `SessionStore.migrateLegacyMachineIdentity` for
-   * why it is one transaction with a residue check rather than a standing heal.
-   * Idempotent. Tests omit `secret` (a random throwaway — they attach via the
-   * registry without authenticating).
+   * The legacy `'local'` machines row is NOT dealt with here: the store folded it
+   * onto this id (`migrateLegacyMachineIdentity`) when it opened, before anything
+   * could read it, so by the time this runs the row is already the host's — and the
+   * upsert below therefore UPDATES it, carrying its credential, owner and grant
+   * edges forward rather than inserting a rival. Idempotent. Tests omit `secret`
+   * (a random throwaway — they attach via the registry without authenticating).
    */
   ensureHostMachine(hostname: string, secret: string = randomUUID()): string {
     const id = this.deps.hostMachineId
-    // FIRST: fold any pre-POD-318 rows onto this id, while the machines table may
-    // still contain the legacy `'local'` row. Doing it before the upsert lets the
-    // rename carry that row's credential/owner/grants forward instead of racing a
-    // freshly inserted row for the same id.
-    this.deps.store.migrateLegacyMachineIdentity(id)
     this.deps.store.machines.upsertMachine({
       id,
       name: hostname,

@@ -14,7 +14,7 @@ import { SuperagentService } from './modules/superagent'
 
 function caller() {
   const registry = new SessionRegistry()
-  registry.gateway.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })

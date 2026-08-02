@@ -223,16 +223,16 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     ).toBe("unknown machine 'box'")
   })
 
-  it("M4: a non-owner authenticated to a server running on the owner's machine cannot execute on `local`", async () => {
-    // The default ownership index — the one the router actually builds — over
-    // the real machines table.
-    // The row must exist BEFORE the registry is built: the machines service
-    // caches its records, so a row inserted afterwards reads as an unknown
-    // machine — and an unknown machine has no owner to be denied on behalf of,
-    // which would have made this test pass for the wrong reason. It did, on the
-    // first run, and that is what the fixture ordering here is guarding.
-    const o = makeOracle({ offlineMachines: [{ id: 'local', name: 'This Mac' }] })
+  it("M4: a non-owner authenticated to a server running on the owner's machine cannot execute on it", async () => {
+    // The default ownership index — the one the router actually builds — over the
+    // real machines table. The HOST is the sharpest case for M4 and since POD-318
+    // it is an ordinary machine with an ordinary row: `ensureHostMachine` wrote it
+    // at construction, owned by whoever set the instance up. There is no sentinel
+    // arm underneath any more, so this exercises the same rule as any other machine.
+    const o = makeOracle()
+    const host = o.store.hostMachineId
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    expect(o.meta(sessionId).machineId).toBe(host)
 
     // The instance owner — whoever set it up — may kill it.
     const asOwner = ctxFor(o, human(FIRST_ADMIN_USER_ID))
@@ -240,7 +240,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     const asColleague = ctxFor(o, human(COLLEAGUE))
 
     expect(await messageOf(() => dispatchSessionCommand(asColleague, 'kill', { sessionId }))).toBe(
-      "unknown machine 'local'",
+      `unknown machine '${host}'`,
     )
     expect(dispatchSessionCommand(asOwner, 'kill', { sessionId })).toBeUndefined()
   })

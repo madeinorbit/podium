@@ -19,7 +19,7 @@ function makeRegistry(): { reg: SessionRegistry; daemon: ControlMessage[] } {
   const reg = new SessionRegistry()
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   return { reg, daemon }
 }
 
@@ -29,7 +29,7 @@ function bindLive(
   cwd: string,
   opts: { resume?: boolean } = {},
 ): void {
-  reg.gateway.routeDaemonFrame('local', {
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -38,7 +38,7 @@ function bindLive(
     geometry: { cols: 80, rows: 24 },
   })
   if (opts.resume !== false) {
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-1' },
@@ -144,7 +144,7 @@ describe('archive parks the session process [POD-108]', () => {
     expect(meta(reg, sessionId)?.status).toBe('live')
 
     const reattached: ControlMessage[] = []
-    reg.gateway.attachDaemon('local', (m) => {
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
       daemon.push(m)
       reattached.push(m)
     })

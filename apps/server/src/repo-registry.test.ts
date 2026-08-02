@@ -11,7 +11,7 @@ import { SessionStore } from './store'
  *  single-store behavior these tests assert. */
 function singleMachineRepos(store: SessionStore): RepoRegistry {
   const registry = new SessionRegistry(store)
-  registry.gateway.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   return new RepoRegistry(registry, store)
 }
 

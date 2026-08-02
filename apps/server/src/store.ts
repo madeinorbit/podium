@@ -213,6 +213,16 @@ export class SessionStore {
 
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects
     // and data heals) — never schema DDL.
+    //
+    // THE MACHINE-IDENTITY UPGRADE RUNS FIRST, ahead of every reader in the process
+    // (POD-318). It is not just that nothing may WRITE a pre-upgrade row: nothing may
+    // READ one either. `SessionRegistry` loads the sessions map in its constructor,
+    // and the composition root constructs it before it can call `ensureHostMachine`
+    // — so an upgrade that ran there would leave live Session objects remembering a
+    // sentinel while the rows underneath them had moved. Sequencing it here makes
+    // "no reader ever sees a legacy machine id" true by construction instead of by
+    // call-order discipline.
+    this.migrateLegacyMachineIdentity(this.hostMachineId)
     this.conversations.ensureFts()
     this.conversations.repairSubagentSegmentPaths()
     this.superagent.seedGlobalThread()

@@ -37,14 +37,14 @@ async function harness() {
   const bindReqs: BindReq[] = []
   const spawns: SpawnMsg[] = []
   const interrupts: string[] = []
-  registry.gateway.attachDaemon('local', (m) => {
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'headlessTurnRequest') turnReqs.push(m)
     if (m.type === 'headlessBind') bindReqs.push(m)
     if (m.type === 'spawn') spawns.push(m)
     if (m.type === 'headlessInterrupt') interrupts.push(m.sessionId)
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -54,7 +54,7 @@ async function harness() {
     }
     if (m.type === 'transcriptRead') {
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -75,7 +75,7 @@ async function harness() {
     req: TurnReq,
     result?: { ok?: boolean; error?: string; harnessSessionId?: string; output?: string },
   ) => {
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'headlessTurnResult',
       requestId: req.requestId,
       ok: result?.ok ?? true,
@@ -370,7 +370,7 @@ describe('sendTurn (headless harness turns)', () => {
       text: 'hi',
     })
     const req = h.turnReqs[0]!
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'headlessTurnEvent',
       requestId: req.requestId,
       sessionId: podiumSessionId,
@@ -746,7 +746,7 @@ describe('boot reconciliation for headless sessions', () => {
     const reborn = new SessionRegistry(store)
     registries.push(reborn)
     const replayed: TurnReq[] = []
-    reborn.gateway.attachDaemon('local', (message) => {
+    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
@@ -778,7 +778,7 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const replayed: TurnReq[] = []
     const acknowledgements: TurnAck[] = []
-    reborn.gateway.attachDaemon('local', (message) => {
+    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
       if (message.type === 'headlessTurnAck') acknowledgements.push(message)
     })
@@ -797,7 +797,7 @@ describe('boot reconciliation for headless sessions', () => {
     })
     expect(replay.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
 
-    reborn.gateway.routeDaemonFrame('local', {
+    reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
       type: 'headlessTurnResult',
       requestId: replay.requestId,
       ok: true,
@@ -838,11 +838,11 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const binds: BindReq[] = []
     const reattaches: string[] = []
-    reborn.gateway.attachDaemon('local', (m) => {
+    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (m) => {
       if (m.type === 'headlessBind') {
         binds.push(m)
         queueMicrotask(() =>
-          reborn.gateway.routeDaemonFrame('local', {
+          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
             type: 'headlessBindResult',
             requestId: m.requestId,
             ok: true,

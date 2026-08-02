@@ -554,7 +554,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
       issueId: issue.id,
     })
     // Live and idle, so the push lands rather than queueing.
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -562,7 +562,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },

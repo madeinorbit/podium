@@ -36,10 +36,10 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
-  registry.gateway.attachDaemon('local', (m) => {
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -50,7 +50,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
     if (m.type === 'headlessTurnRequest') {
       turnReqs.push(m)
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'headlessTurnResult',
           requestId: m.requestId,
           ok: true,

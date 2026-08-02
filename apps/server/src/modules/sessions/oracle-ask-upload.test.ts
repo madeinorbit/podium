@@ -66,7 +66,7 @@ function answerUploads(
 
 /** A live idle claude-code session the seance can address. */
 function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = '/p'): void {
-  o.reg.gateway.routeDaemonFrame('local', {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -74,7 +74,7 @@ function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = 
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.gateway.routeDaemonFrame('local', {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -415,7 +415,7 @@ describe('oracle: sessions.uploadImage', () => {
     try {
       const o = makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      o.reg.gateway.routeDaemonFrame('local', {
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'bind',
         sessionId,
         cmd: 'claude',
@@ -428,7 +428,7 @@ describe('oracle: sessions.uploadImage', () => {
       // the machine is not there. A deaf-but-attached daemon is a different state
       // (below) and would let a future "refuse immediately when offline" change
       // land while this test stayed green.
-      o.reg.gateway.detachDaemon('local')
+      o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
       expect(o.meta(sessionId).status).toBe('reconnecting')
       expect(o.reg.modules.machines.onlineMachineIds()).toEqual([])
       o.daemon.length = 0
@@ -465,7 +465,7 @@ describe('oracle: sessions.uploadImage', () => {
       // Attached and considered ONLINE, but never answers. Kept as its own
       // characterization because the two states are genuinely different inputs
       // that today produce the same output — which is the fact worth pinning.
-      o.reg.gateway.attachDaemon('local', (msg) => o.daemon.push(msg))
+      o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (msg) => o.daemon.push(msg))
       expect(o.reg.modules.machines.onlineMachineIds()).toEqual(['local'])
 
       const settled = o.call.sessions

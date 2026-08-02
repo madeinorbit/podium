@@ -20,13 +20,13 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
 
   function setup() {
     const reg = new SessionRegistry()
-    reg.gateway.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
     const s1 = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo/w',
     }).sessionId
-    reg.gateway.routeDaemonFrame('local', bind(s1))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))

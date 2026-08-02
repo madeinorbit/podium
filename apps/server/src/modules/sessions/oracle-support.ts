@@ -167,7 +167,6 @@ export interface OfflineMachine {
 export function makeOracle(
   opts: { machineId?: string; offlineMachines?: OfflineMachine[] } = {},
 ): Oracle {
-  const machineId = opts.machineId ?? 'local'
   const store = new SessionStore(':memory:')
   for (const machine of opts.offlineMachines ?? []) {
     store.machines.upsertMachine({
@@ -193,6 +192,12 @@ export function makeOracle(
   }
   const reg = new SessionRegistry(store)
   registries.push(reg)
+  // The daemon the oracle attaches is THIS HOST's (POD-318): the registry
+  // provisioned its row on construction, so it has a credential to have
+  // authenticated with and an owner to be granted `use` by — the same posture a
+  // real boot leaves behind. A caller naming its own machineId is asking for a
+  // machine the fixture has NOT registered, which is a refusal, on purpose.
+  const machineId = opts.machineId ?? store.hostMachineId
   const daemon: ControlMessage[] = []
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
