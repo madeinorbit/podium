@@ -9,7 +9,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import { AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { type AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { sessionSpawnerParentId } from '../../steward'
 
 /**
@@ -112,6 +112,10 @@ import {
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import { DEFAULT_GEOMETRY, type SessionSpawnResult } from './session-shared'
+
+export { DEFAULT_GEOMETRY, type SessionSpawnResult }
+
 import { SessionLaunchConfig } from './launch-config'
 import { SessionMachineReconciler } from './machine-reconciler'
 import { normalizeAgentName, SessionNaming } from './naming'
@@ -125,16 +129,15 @@ import {
 import type { SessionProjectionEvent } from './publish-worker-actor'
 import { PublishWorkerClient } from './publish-worker-client'
 import { SessionRepository } from './repository'
-import { type PublicationAuthority, Session } from './session'
+import type { PublicationAuthority, Session } from './session'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionBindingReceipts } from './session-binding'
+import { SessionStart } from './session-start'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
 import { SessionTerminalProof } from './terminal-proof'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
-
-export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 
 /**
  * Idempotency records outlive any sane replay horizon, then get pruned. ADR 2 D11
@@ -267,16 +270,6 @@ interface SessionLifecycleDeps {
  * is the composition root that wires this to the other modules and keeps thin
  * public delegates.
  */
-export interface SessionSpawnResult {
-  sessionId: SessionId
-  agentId: string
-  harness: AgentKind
-  model: string | null
-  effort: string | null
-  machine: string
-  machineId: string
-  accountId: AccountId | null
-}
 
 export class SessionLifecycle {
   /** Live maps — public: the composition root's cross-module closures (and the
@@ -303,6 +296,8 @@ export class SessionLifecycle {
   private readonly naming: SessionNaming
   /** Model/effort/credential resolution for a spawn frame (POD-1396). */
   private readonly launchConfig: SessionLaunchConfig
+  /** Request resolution + spawn-frame construction (POD-1396). */
+  private readonly sessionStart: SessionStart
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -512,6 +507,39 @@ export class SessionLifecycle {
       listSessions: () => this.view.list(),
       now: () => this.now(),
       appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+    })
+    // CONSTRUCTED HERE, NOT EARLIER, AND THE POSITION IS LOAD-BEARING.
+    // SessionStart takes view, repository and state as direct references, so it
+    // must be built after all three exist. The compiler caught this when it was
+    // placed with the other POD-1396 modules near the top of the constructor
+    // ("Property 'view' is used before being assigned") — worth recording
+    // because scripts/server-construction-order.ts walks only the RELAY root and
+    // would NOT have caught a reordering in here (POD-1411).
+    this.sessionStart = new SessionStart({
+      store: this.store,
+      view: this.view,
+      repository: this.repository,
+      state: this.state,
+      launchConfig: this.launchConfig,
+      terminalProof: this.terminalProof,
+      settingsViewer: () => this.settingsViewer(),
+      durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
+      hasSession: (sessionId) => this.sessions.has(sessionId),
+      registerSession: (session) => {
+        this.sessions.set(session.sessionId, session)
+      },
+      sessionMachineId: (sessionId) => this.sessions.get(sessionId)?.machineId,
+      defaultMachine: () => this.machines.defaultMachine(),
+      machineName: (machineId) => this.machines.machineName(machineId),
+      resolveMachineForAgent: (requested, cwd, agentKind, use) =>
+        this.machines.resolveMachineForAgent(requested, cwd, agentKind, use),
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+      broadcastSessions: () => this.broadcastSessions(),
+      soleOwnerForCwd: (cwd) => this.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
+      instructionsForStart: (i) => this.deps.instructionsForStart(i),
+      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
+      setSessionDraft: (i, fromClientId) => this.setSessionDraft(i, fromClientId),
+      emitSessionCreated: (payload) => this.bus.emit('session.created', payload),
     })
     this.headless = new HeadlessService({
       durableLabelFor: (sessionId) => this.deps.durableLabelFor(sessionId),
@@ -1108,174 +1136,10 @@ export class SessionLifecycle {
    *  `initialPrompt` hands the fresh session the human's first prompt: for argv-capable
    *  agents (claude/codex/grok) it rides the launch command (`claude "<prompt>"`,
    *  race-free); for the rest it's seeded into the composer draft. */
-  createSession(input: {
-    /** Authenticated human owner; every production caller supplies this. */
-    ownerUserId?: UserId
-    agentKind?: AgentKind
-    cwd: string
-    title?: string
-    /** Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60]. Lands in the
-     *  `name` slot with `nameSource='agent'` (NOT the derived `title` slot). Same
-     *  normalize rules as setAgentName; optional — absent leaves the child unnamed
-     *  so it self-titles as today. */
-    name?: string
-    machineId?: string
-    initialPrompt?: string
-    /** Per-ticket model/effort override; absent = use the settings defaults. */
-    model?: string
-    effort?: string
-    /** Resolved account selection from an execution profile; never credential material. */
-    accountId?: AccountId
-    /** Deliberately spawn with a model slug the live catalog doesn't list (bypasses
-     *  the unknown-MODEL rejection only) [spec:SP-cc60]. Recorded in events when it
-     *  takes effect. */
-    forceUnknownModel?: boolean
-    /** Creation provenance (issue #60). Deliberately NOT defaulted here — the tRPC
-     *  router stamps 'user' (its callers are the human seams); programmatic callers
-     *  (issues, superagent) pass their own value. Absent = unknown. */
-    spawnedBy?: string
-    /** OPTIONAL workflow pass-through metadata (#285 via #237 [spec:SP-34d7
-     *  cross-harness]) — persisted verbatim, never interpreted here. */
-    workflowRunId?: string
-    workflowStepId?: string
-    executionProfileId?: string
-    /** Explicit issue attachment (issue-as-workspace). Absent = derive: a session
-     *  spawned inside a worktree owned by exactly one non-archived issue is
-     *  "continuing that issue" and gets its id stamped. */
-    issueId?: IssueId
-    /** Client-supplied id (optimistic UI): use this verbatim instead of minting a
-     *  fresh uuid, so an optimistic client row reconciles onto the real session
-     *  without a swap. Absent = mint one (unchanged default behavior). */
-    sessionId?: SessionId
-    /** Explicit workflow override; absent = issue → repository → global default. */
-    workflowRevisionId?: string
-    /** The CALLING principal's per-machine `use` decision (ADR 3 Am1 D18). Absent
-     *  = not evaluated, which is what every non-command-plane caller (issue
-     *  start, superagent, boot reconcile) passes today. Threaded into placement
-     *  so an IMPLICIT machine pick can never land on a machine the principal may
-     *  not execute on — readiness §3.1.4 M5's "must not offer". */
-    use?: MachineUseResolver
-    /** Authenticated transport principal translated at the command composition
-     * root. Internal pre-account callers default to the one authenticated user
-     * here on the server; the daemon never invents one. */
-    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
-  }): SessionSpawnResult {
-    // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
-    // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
-    // the issue's `defaultAgent` `as AgentKind` at the boundary). 'auto' is NOT a
-    // valid AgentKind: persisting or broadcasting it fails the sessionsChanged
-    // zod-parse and silently wipes the whole session list on every client.
-    // safeParse anything that isn't a real kind back to the coding role's harness.
-    const requested = AgentKind.safeParse(input.agentKind)
-    const agentKind = requested.success
-      ? requested.data
-      : resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding').harness
-    // Reject an explicit model/effort the live catalog doesn't list BEFORE any spawn
-    // side effect [spec:SP-cc60]. The last line of defense for the agent-spawn path
-    // (issue start/add-session pre-check earlier, before mutating start state).
-    const { forced } = assertModelSelectionValid(this.store.settings.getModelCatalog(), {
-      agentKind,
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      ...(input.forceUnknownModel ? { force: true } : {}),
-    })
-    // Spawner name is validated before any side effect so a bad title never
-    // leaves a half-spawned session. Fresh sessions have no user name to refuse.
-    let curatedName: string | undefined
-    if (input.name !== undefined) {
-      const norm = normalizeAgentName(input.name)
-      if (!norm.ok) throw new Error(norm.reason)
-      curatedName = norm.name
-    }
-    // Explicit attachment wins; otherwise starting in an issue-owned worktree
-    // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? this.deps.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
-    // MINT SITE: a server-minted session id. The brand belongs where the id is
-    // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const preparedInstructions = this.deps.instructionsForStart({
-      sessionId,
-      cwd: input.cwd,
-      agentKind,
-      ...(issueId ? { issueId } : {}),
-      ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
-    })
-    const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
-    // Session ownership is declared per class: an issue-owned child inherits the
-    // issue owner; otherwise a binding resolves to its on-behalf-of human. The
-    // explicit owner is the transport composition root's already-resolved answer,
-    // never a wire field. The final fallback exists only for legacy in-process
-    // callers with no binding.
-    const parentOwner = issueId ? this.store.issues.getIssue(issueId)?.ownerUserId : undefined
-    const bindingOwner =
-      input.binding?.principal.kind === 'user'
-        ? input.binding.principal.userId
-        : input.binding?.principal.kind === 'agent'
-          ? this.sessionOwner(input.binding.principal.parentBindingId)?.owner
-          : undefined
-    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
-    const machineId = this.machines.resolveMachineForAgent(
-      input.machineId,
-      input.cwd,
-      agentKind,
-      input.use,
-    )
-    const spawned = this.spawn({
-      agentKind,
-      ownerUserId,
-      cwd: input.cwd,
-      ...(input.title !== undefined ? { title: input.title } : {}),
-      ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
-      origin: { kind: 'spawn' },
-      machineId,
-      bindingMachineAccess: input.use?.(machineId) === 'denied' ? 'denied' : 'allowed',
-      ...(useArgv ? { initialPrompt: taskPrompt } : {}),
-      ...(preparedInstructions.instructions.length
-        ? { instructions: preparedInstructions.instructions }
-        : {}),
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
-      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
-      ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
-      ...(issueId ? { issueId } : {}),
-      binding: input.binding ?? {
-        // One ownership answer feeds both the durable row and the daemon binding;
-        // this seam never invents a different principal.
-        principal: { kind: 'user', userId: ownerUserId },
-      },
-      sessionId,
-    })
-    preparedInstructions.commit()
-    if (taskPrompt !== undefined && !useArgv) {
-      this.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
-    }
-    // Fire-and-forget notification (post-spawn, so subscribers observe the new
-    // world). Its one consumer today is the opt-in telemetry usage counter
-    // [spec:SP-f933], which is why the payload carries the harness kind and
-    // nothing else — no cwd, no prompt, no issue id.
-    this.bus.emit('session.created', { sessionId: spawned.sessionId, agentKind })
-    // Forcing an unlisted model is a deliberate override — make it durable and
-    // observable across every spawn path [spec:SP-cc60]. Only emitted when the force
-    // actually bypassed an unknown model (a known model needs no force).
-    if (forced) {
-      this.store.events.appendEvent({
-        ts: new Date().toISOString(),
-        kind: 'agent.model_forced',
-        subject: spawned.sessionId,
-        payload: {
-          sessionId: spawned.sessionId,
-          harness: agentKind,
-          ...(input.model !== undefined ? { model: input.model } : {}),
-          ...(issueId ? { issueId } : {}),
-          ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-        },
-      })
-    }
-    return spawned
+  /** Create a session: resolve the request, then spawn it. Delegated to
+   *  {@link SessionStart}, which owns both halves. */
+  createSession(input: Parameters<SessionStart['create']>[0]): SessionSpawnResult {
+    return this.sessionStart.create(input)
   }
 
   /** The capability a relayed agent session presents: worker, scoped to the issue whose
@@ -2375,140 +2239,8 @@ export class SessionLifecycle {
     }
   }
 
-  private spawn(input: {
-    agentKind: AgentKind
-    ownerUserId?: UserId
-    cwd: string
-    title?: string
-    /** Curated name at birth (spawner-prescribed or other); pairs with nameSource. */
-    name?: string
-    nameSource?: 'user' | 'agent'
-    origin: SessionMeta['origin']
-    resume?: ResumeRef
-    machineId?: string
-    initialPrompt?: string
-    instructions?: AgentInstruction[]
-    /** Per-ticket model/effort override; absent = use the settings defaults. */
-    model?: string
-    effort?: string
-    accountId?: AccountId
-    spawnedBy?: string
-    workflowRunId?: string
-    workflowStepId?: string
-    executionProfileId?: string
-    issueId?: IssueId
-    /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
-    sessionId?: SessionId
-    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
-    bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
-  }): SessionSpawnResult {
-    // A server-minted uuid was unique by construction; a client-supplied id is
-    // not. Reject a collision rather than let `sessions.set` overwrite the live
-    // Session (orphaning its PTY/daemon binding) or re-fire a spawn. `withMutation`
-    // already dedupes a genuine retry before we get here, so a hit is a real clash.
-    if (input.sessionId && this.sessions.has(input.sessionId)) {
-      throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
-    }
-    // MINT SITE: a server-minted session id. The brand belongs where the id is
-    // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const machineId = input.machineId
-      ? asMachineId(input.machineId)
-      : this.machines.defaultMachine()
-    const launch = this.launchConfig.modelDefaults(
-      input.agentKind,
-      input.model !== undefined || input.effort !== undefined
-        ? { model: input.model, effort: input.effort }
-        : undefined,
-    )
-    const accountId =
-      input.agentKind === 'shell'
-        ? undefined
-        : (input.accountId ??
-          resolveRole(this.store.settings.getSettingsFor(this.settingsViewer()), 'coding')
-            .accountId)
-    const session = new Session({
-      sessionId,
-      durableLabel: this.deps.durableLabelFor(sessionId),
-      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
-      agentKind: input.agentKind,
-      cwd: input.cwd,
-      title: input.title || basename(input.cwd) || input.cwd,
-      ...(launch.model ? { model: launch.model } : {}),
-      ...(launch.effort ? { effort: launch.effort } : {}),
-      ...(accountId ? { accountId } : {}),
-      origin: input.origin,
-      createdAt: new Date().toISOString(),
-      geometry: { ...DEFAULT_GEOMETRY },
-      machineId,
-      // Bind the route to the live machineId (tracks the local-adoption reassignment).
-      toDaemon: (msg) => this.toMachine(this.sessions.get(sessionId)?.machineId ?? machineId, msg),
-      onActivity: () => {
-        // Shell busy transitions advance lastActiveAt (their only activity signal);
-        // persist so that recency is durable across a restart, then rebroadcast.
-        this.repository.persist(session)
-        this.broadcastSessions()
-      },
-      ...(input.resume ? { resume: input.resume } : {}),
-      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
-      ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
-      ...(input.issueId ? { issueId: input.issueId } : {}),
-      ...(input.name ? { name: input.name } : {}),
-      ...(input.nameSource ? { nameSource: input.nameSource } : {}),
-    })
-    this.sessions.set(sessionId, session)
-    // Naming point (#474): input.issueId is the resolved birth issue (or absent
-    // for a genuinely issueless spawn) — allocate the permanent ref now.
-    const additionalWrite = this.view.prepareRefAllocation(session)
-    this.repository.persist(session, additionalWrite)
-    const observationLease = this.terminalProof.fence(session)
-    this.toMachine(machineId, {
-      type: 'spawn',
-      sessionId,
-      durableLabel: session.durableLabel,
-      agentKind: input.agentKind,
-      cwd: input.cwd,
-      ...(input.binding
-        ? {
-            binding: {
-              transitionId: `spawn:${sessionId}`,
-              machineAccess: input.bindingMachineAccess ?? 'allowed',
-              ...input.binding,
-              ...(input.issueId ? { issueId: input.issueId } : {}),
-            },
-          }
-        : {}),
-      ...(observationLease
-        ? {
-            observationGeneration: observationLease.observationGeneration,
-            observationBindingVersion: observationLease.bindingVersion,
-            observationProviderSessionId: observationLease.providerSessionId,
-            ...(observationLease.checkpoint
-              ? { observationCheckpoint: observationLease.checkpoint }
-              : {}),
-          }
-        : {}),
-      ...(input.resume ? { resume: input.resume } : {}),
-      ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
-      ...(input.instructions?.length ? { instructions: input.instructions } : {}),
-      geometry: { ...DEFAULT_GEOMETRY },
-      ...launch,
-      ...this.launchConfig.accountEnv(input.agentKind, accountId),
-      ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
-    })
-    this.broadcastSessions()
-    return {
-      sessionId,
-      agentId: sessionId,
-      harness: input.agentKind,
-      model: launch.model ?? null,
-      effort: launch.effort ?? null,
-      machine: this.machines.machineName(machineId),
-      machineId,
-      accountId: accountId ?? null,
-    }
+  private spawn(input: Parameters<SessionStart['spawn']>[0]): SessionSpawnResult {
+    return this.sessionStart.spawn(input)
   }
 
   /**
