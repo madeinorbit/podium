@@ -72,6 +72,14 @@
  * And multi-user is NOT multi-tenancy (ADR 1 D5): nothing here carries an
  * instance partition.
  *
+ * **Amended by POD-1495, and the distinction is the whole of it.** `MachineWire`
+ * now carries `owned` — a VIEWER-RELATIVE boolean, "are you this machine's
+ * owner". That is not the `owner` field refused above: no user id crosses the
+ * wire, and "someone else's" and "nobody's" are one indistinguishable `false`,
+ * so the ownership GRAPH this paragraph protects is still server-side. What it
+ * buys is a settings panel that can withhold an owner-only control instead of
+ * offering it to everyone and letting the server refuse.
+ *
  * ## Embeds found (for the de-nesting work)
  *
  * - `MachineWire.inventory` — issue-owned detail of the machine, not an
