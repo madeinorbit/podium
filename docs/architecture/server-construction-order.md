@@ -48,16 +48,16 @@ Verified constructor declarations: 52. Forward dependencies: 0. Deferred service
 | 37 | `notify` | `clientRegistry`, `featureEnabled`, `sessionsSvc` | 809 |
 | 38 | `issueArtifacts` | `rpc` | 858 |
 | 39 | `issues` | `broadcastWorktreesChanged`, `funnel`, `issueArtifacts`, `ledger`, `machines`, `publisher`, `rpc`, `sessionsSvc` | 862 |
-| 40 | `issueSessionLifecycle` | `issues`, `ledger`, `sessionsSvc` | 952 |
-| 41 | `locks` | `funnel`, `issues`, `liveSessions` | 977 |
-| 42 | `lockCommands` | `issues`, `locks` | 1000 |
-| 43 | `messagesSvc` | `funnel`, `issues`, `machines`, `mail`, `sessionsSvc` | 1016 |
-| 44 | `workflows` | `issues`, `liveSessions`, `machines`, `messagesSvc`, `principalForCapability`, `sessionsSvc` | 1071 |
-| 45 | `messageGate` | `issues`, `mail`, `messagesSvc`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1200 |
-| 46 | `readToolkit` | `issues`, `messagesSvc`, `rpc`, `sessionsSvc` | 1246 |
-| 47 | `issueAttach` | `issues` | 1259 |
-| 48 | `automations` | `issues`, `ledger`, `machines`, `sessionsSvc` | 1270 |
-| 49 | `approvals` | `automations`, `clientRegistry`, `issues`, `machines`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1303 |
-| 50 | `issueCommands` | `issueAttach`, `issueSessionLifecycle`, `issues`, `messagesSvc`, `mutations`, `rpc`, `sessionsSvc` | 1402 |
-| 51 | `layout` | `ledger` | 1463 |
-| 52 | `agentRelayGate` | `approvals`, `currentSettings`, `featureEnabled`, `issueCommands`, `issueSessionLifecycle`, `issues`, `lockCommands`, `machines`, `messageGate`, `readToolkit`, `sessionsSvc`, `specs`, `workflowCallerForCapability`, `workflows` | 1494 |
+| 40 | `issueSessionLifecycle` | `issues`, `ledger`, `sessionsSvc` | 956 |
+| 41 | `locks` | `funnel`, `issues`, `liveSessions` | 981 |
+| 42 | `lockCommands` | `issues`, `locks` | 1004 |
+| 43 | `messagesSvc` | `funnel`, `issues`, `machines`, `mail`, `sessionsSvc` | 1020 |
+| 44 | `workflows` | `issues`, `liveSessions`, `machines`, `messagesSvc`, `principalForCapability`, `sessionsSvc` | 1075 |
+| 45 | `messageGate` | `issues`, `mail`, `messagesSvc`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1204 |
+| 46 | `readToolkit` | `issues`, `messagesSvc`, `rpc`, `sessionsSvc` | 1250 |
+| 47 | `issueAttach` | `issues` | 1263 |
+| 48 | `automations` | `issues`, `ledger`, `machines`, `sessionsSvc` | 1274 |
+| 49 | `approvals` | `automations`, `clientRegistry`, `issues`, `machines`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1307 |
+| 50 | `issueCommands` | `issueAttach`, `issueSessionLifecycle`, `issues`, `messagesSvc`, `mutations`, `rpc`, `sessionsSvc` | 1406 |
+| 51 | `layout` | `ledger` | 1467 |
+| 52 | `agentRelayGate` | `approvals`, `currentSettings`, `featureEnabled`, `issueCommands`, `issueSessionLifecycle`, `issues`, `lockCommands`, `machines`, `messageGate`, `readToolkit`, `sessionsSvc`, `specs`, `workflowCallerForCapability`, `workflows` | 1498 |
