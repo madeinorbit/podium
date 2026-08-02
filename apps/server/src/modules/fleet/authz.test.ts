@@ -663,6 +663,68 @@ describe('the derived fleet router actually calls the gate', () => {
     }
   })
 
+  it('the SERVED adoption reads the ledger, not the row — a crashed transfer is not adoptable', async () => {
+    // THIS TEST EXISTS BECAUSE OF A MUTANT THAT DID NOT FIRE, and the reason it
+    // did not is worth writing down. Rewriting `fleetAuthzDeps`'s
+    // `effectiveOwner` to read `ownership.rowFor(...)?.owner` reddened nothing,
+    // while a throw in the same position reddened the wiring test above — so the
+    // line is entered, and the silence is not an assertion gap either. It is
+    // GENUINE EQUIVALENCE, with the argument: `ownershipFromMachines` is built
+    // over `ownershipRows()`, which already overlays `effectiveOwner` for
+    // D19.4d rule 4. The "row" the gate can reach is ALREADY ledger-derived, so
+    // the two expressions cannot disagree in production. The separate dep stays
+    // because it says which question is being asked rather than relying on that
+    // overlay staying in place, but no test can distinguish them and none should
+    // pretend to.
+    //
+    // What this test DOES pin is the served behaviour that matters: a machine
+    // whose ledger has an owner is not adoptable no matter what the row says.
+    //
+    // `skipRowUpdate` is the crash-injection seam D19.4d ships for exactly this
+    // state: the ledger append committed, the row write did not. The machine is
+    // the colleague's as of that append, and the row still says nobody's.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-stale-'))
+    try {
+      const { call, store, registry } = caller(null, { stateDir: dir })
+      // The colleague must RESOLVE, or `effectiveOwner` projects null for the
+      // quarantine reason instead of the stale-row reason and the test would be
+      // measuring the wrong disagreement.
+      store.users.create(
+        {
+          id: COLLEAGUE,
+          displayName: 'Colleague',
+          role: 'member',
+          createdAt: '2026-07-30T00:00:00.000Z',
+          disabledAt: null,
+        },
+        'hash',
+      )
+      registry.modules.machines.transferOwnership('m1', COLLEAGUE, { skipRowUpdate: true })
+
+      // The two genuinely disagree. Assert BOTH, or the test proves nothing
+      // about which one was read.
+      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+      expect(registry.modules.machines.effectiveOwner('m1')).toBe(COLLEAGUE)
+
+      // REFUSED, and the shape says which layer refused. Because ownership is
+      // ledger-derived all the way up, the admin does not hold `see` on a
+      // machine the ledger already gave away — so the refusal is the
+      // absent-shaped one from the VERB check, before the unowned precondition
+      // is ever consulted. A gate that had read the raw row would have seen null,
+      // granted an admin `see` on the quarantine arm, and handed the colleague's
+      // machine away.
+      await expect(call.machines.adopt({ id: 'm1', newOwnerUserId: OWNER })).rejects.toThrow(
+        /unknown machine/,
+      )
+      // Nothing was written: not the row, and — the one that counts — not the
+      // ledger, which still records the colleague and only the colleague.
+      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+      expect(registry.modules.machines.effectiveOwner('m1')).toBe(COLLEAGUE)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('refuses to rename an UNOWNED machine (admin may see it, nobody may manage it)', async () => {
     // D19.4b quarantine: the caller is admin-grade so the machine is visible
     // (admins hold `see` on unowned rows) but manage is still refused — not with

@@ -291,14 +291,29 @@ describe('the thirteen fleet contracts', () => {
     const byFloor = Object.fromEntries(
       Object.entries(FLEET_CONTRACTS).map(([n, c]) => [n, c.policy.roleFloor]),
     )
-    // The pairing mint has no row to own — the machine does not exist yet — so
-    // the floor is the only gate there is (ADR 9 D3 rule 5). Everything else
-    // has an owner column, and a floor of `admin` there would make ADR 9 D6
-    // M1's "Owner + admins" unreachable for the owner.
-    expect(byFloor['machines.pairingCode']).toBe('admin')
-    for (const name of FOURTEEN.filter((n) => n !== 'machines.pairingCode')) {
+    // TWO admin floors, and they are the same argument twice rather than two
+    // exceptions. The rule is "admin only where no ownership check could ever
+    // admit a member", so the question per command is whether there is an owner
+    // for such a check to read.
+    //
+    //  - `machines.pairingCode` mints a credential for a machine that does not
+    //    exist yet, so there is no row to own (ADR 9 D3 rule 5).
+    //  - `machines.adopt` (POD-1494) acts on a machine whose owner is precisely
+    //    what is MISSING — its declared precondition is `unowned`. An owner
+    //    check could not admit a member here either, because there is no owner
+    //    column with anybody in it.
+    //
+    // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
+    // D6 M1's "Owner + admins" unreachable for the owner themselves.
+    const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt']
+    for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
+    for (const name of FOURTEEN.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
     }
+    // Non-vacuity: the admin set is a strict, non-empty subset. If a refactor
+    // made every floor `admin` the loop above would pass and this would not.
+    expect(ADMIN_FLOOR.length).toBeLessThan(FOURTEEN.length)
+    expect(Object.values(byFloor).some((f) => f === 'member')).toBe(true)
   })
 
   it('validates through the SAME schema the shipped procedure validated with', () => {
