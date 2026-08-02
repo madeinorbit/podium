@@ -1855,6 +1855,17 @@ describe('agent state', () => {
 
     try {
       const reg = new SessionRegistry(store, { ntfy, telegram })
+      const telegramRequest = vi.fn()
+      reg.bus.on('notification.telegramRequested', telegramRequest)
+      store.telegramBindings.upsert({
+        chatId: '-100123',
+        userId: FIRST_ADMIN_USER_ID,
+        boundAt: '2026-07-30T00:00:00.000Z',
+        boundBy: {
+          actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+          onBehalfOf: FIRST_ADMIN_USER_ID,
+        },
+      })
       reg.gateway.attachDaemon('local', () => {})
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -1887,13 +1898,15 @@ describe('agent state', () => {
         title: 'keyboard needs you',
         body: 'SQLite or Postgres?',
       })
-      expect(telegram).toHaveBeenCalledWith(
-        { botToken: '123456:secret', chatId: '-100123' },
-        { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
-      )
+      expect(telegramRequest).toHaveBeenCalledWith({
+        ownerUserId: FIRST_ADMIN_USER_ID,
+        sessionId,
+        text: 'keyboard needs you\n\nSQLite or Postgres?',
+      })
+      expect(telegram).not.toHaveBeenCalled()
 
       ntfy.mockClear()
-      telegram.mockClear()
+      telegramRequest.mockClear()
       const visible = sink()
       const visibleId = attachTestClient(reg.clientGateway, visible.send)
       reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
@@ -1909,6 +1922,7 @@ describe('agent state', () => {
       })
 
       expect(ntfy).not.toHaveBeenCalled()
+      expect(telegramRequest).not.toHaveBeenCalled()
       expect(telegram).not.toHaveBeenCalled()
     } finally {
       store.close()
@@ -2069,6 +2083,17 @@ describe('agent state', () => {
 
     try {
       const reg = new SessionRegistry(store, { ntfy, telegram })
+      const telegramRequest = vi.fn()
+      reg.bus.on('notification.telegramRequested', telegramRequest)
+      store.telegramBindings.upsert({
+        chatId: '-100123',
+        userId: FIRST_ADMIN_USER_ID,
+        boundAt: '2026-07-30T00:00:00.000Z',
+        boundBy: {
+          actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+          onBehalfOf: FIRST_ADMIN_USER_ID,
+        },
+      })
       reg.gateway.attachDaemon('local', () => {})
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -2106,13 +2131,15 @@ describe('agent state', () => {
         },
       })
 
-      expect(telegram).toHaveBeenCalledWith(
-        { botToken: '123456:secret', chatId: '-100123' },
-        { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
-      )
+      expect(telegramRequest).toHaveBeenCalledWith({
+        ownerUserId: FIRST_ADMIN_USER_ID,
+        sessionId,
+        text: 'keyboard needs you\n\nSQLite or Postgres?',
+      })
+      expect(telegram).not.toHaveBeenCalled()
       expect(ntfy).not.toHaveBeenCalled()
 
-      telegram.mockClear()
+      telegramRequest.mockClear()
       const updated = reg.modules.settings.getSettings()
       reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
         ...updated,
@@ -2122,7 +2149,7 @@ describe('agent state', () => {
         },
       })
 
-      expect(telegram).not.toHaveBeenCalled()
+      expect(telegramRequest).not.toHaveBeenCalled()
     } finally {
       store.close()
     }
@@ -2926,7 +2953,9 @@ describe('hibernation', () => {
     reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
 
-    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
     expect(daemon).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
@@ -2950,7 +2979,9 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
-    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
     expect(daemon).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
@@ -2971,7 +3002,9 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
-    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toMatchObject({ sessionId, agentKind: 'shell', cwd: '/w' })
     expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()

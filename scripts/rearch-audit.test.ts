@@ -888,6 +888,10 @@ describe('against the live repo', () => {
       // detector now proves its zero against both surviving source roots and a
       // synthetic sync+async control pair, throwing if either anchor disappears.
       'durable-host-sync-async-twins',
+      // POD-321 removed the final constructor future reference. The detector is
+      // anchored by the planted definite-assignment control test above and scans
+      // both production composition roots, so zero here is the delivered state.
+      'composition-root-forward-refs',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
