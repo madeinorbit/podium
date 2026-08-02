@@ -644,10 +644,30 @@ export class Outbox<M extends Record<string, object>> {
     return this.init.isOnline?.() ?? true
   }
 
+  /**
+   * NOTIFY EVEN WHEN THE DURABLE WRITE REFUSED (POD-1231).
+   *
+   * `save()` throws when the store denies the write — at quota, most often. The
+   * throw is deliberate and stays: a caller must not believe a queued write is
+   * safe when it is not. But notifying subscribers AFTER it meant the throw
+   * skipped the notification, and the entry that was already in `this.entries`
+   * became invisible to every count and badge derived from it. Measured on the
+   * kernel side cache at a real byte ceiling: five entries in memory, four
+   * notifications, four rows on disk. The one write the user could not be told
+   * about was the one that needed telling.
+   *
+   * The subscriber sees the in-memory size, which is the true one — the entry
+   * exists and will still drain this session. Durability is a separate claim,
+   * carried by the throw and by `OutboxNotDurableError`, and conflating the two
+   * is what made a lost write look like a queue that had never grown.
+   */
   private persist(): void {
     if (this.disposed) return
-    this.save()
-    for (const cb of this.subs) cb(this.entries.length)
+    try {
+      this.save()
+    } finally {
+      for (const cb of this.subs) cb(this.entries.length)
+    }
   }
 
   private save(): void {
