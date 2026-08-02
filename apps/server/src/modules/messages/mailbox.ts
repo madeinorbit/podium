@@ -13,6 +13,18 @@
  * waits (`awaitAck`, `awaitDelivered`) are self-limiting polls with an
  * injectable clock and sleep, holding no timer between calls.
  *
+ * THOSE TWO ARE DELIBERATELY OUTSIDE THE DISPOSAL CONTRACT, and the exception is
+ * worth stating rather than leaving to be rediscovered. Each iteration sleeps on
+ * a fresh `setTimeout` that nothing retains, so there is no handle for a
+ * `dispose()` to clear and no timer that outlives the deadline. The consequence:
+ * if the service is disposed while a caller is mid-await, the loop wakes ONCE
+ * more and reads `getMessage()` from a store that may already be shut. That is
+ * the same family as POD-1390 but not its severity — one poll, 250–500ms,
+ * read-only, and the caller is still holding the promise it asked for. Giving
+ * these an abort would mean deciding what a caller mid-`sendAndConfirm` should
+ * observe at shutdown, which is a real question and not this issue's.
+ * [POD-1385 review of POD-1397]
+ *
  * It composes over the delivery service rather than reaching into it: the one
  * send path, the transition ledger and the sender label all arrive as ports.
  * This is the shape POD-320 established for `issues/service`.
