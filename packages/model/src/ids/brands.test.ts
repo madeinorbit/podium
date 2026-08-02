@@ -7,7 +7,15 @@ import { HandoffManifest } from '../entities/handoff'
 import { IssueDepWire, IssueWire } from '../entities/issue'
 import { AgentMemoryWire, GitRepositoryWire, MachineWire } from '../entities/machine'
 import { SessionMeta, SessionOrigin } from '../entities/session'
-import { MachineId, MachineIdField, SessionId, SessionIdField } from './brands'
+import {
+  agentIdentityFromSessionId,
+  asSessionId,
+  MachineId,
+  MachineIdField,
+  SessionId,
+  SessionIdField,
+  sessionIdFromAgentIdentity,
+} from './brands'
 
 /**
  * WHY THIS FILE EXISTS: branding is a compile-time construct, and the two things
@@ -28,6 +36,32 @@ describe('the field schema does not tighten what parses', () => {
   it('parses a value through unchanged — the brand adds no transformation', () => {
     expect(SessionIdField.parse('s1')).toBe('s1')
     expect(MachineIdField.parse('m1')).toBe('m1')
+  })
+})
+
+/**
+ * POD-1164: for a Podium agent session the actor brand and the work brand share
+ * one minted string. These helpers are the ONLY legal conversion; inventing a
+ * second id (or substituting a harness-native agent_id) is the defect they
+ * exist to make unrepresentable at call sites.
+ */
+describe('agent identity shares the session mint (POD-1164)', () => {
+  it('round-trips the same string both ways', () => {
+    const session = asSessionId('sess-minted-by-server')
+    const actor = agentIdentityFromSessionId(session)
+    expect(actor).toBe('sess-minted-by-server')
+    expect(sessionIdFromAgentIdentity(actor)).toBe(session)
+    expect(sessionIdFromAgentIdentity(actor)).toBe('sess-minted-by-server')
+  })
+
+  it('does not invent a second id — the conversion is pure reclassification', () => {
+    // Mutating either helper to prefix/suffix/hash would break the live path:
+    // capabilityForSession stamps actorSessionId with the map key, and consumers
+    // walk sessions / stamp started_by_session / build `session:` keys from it.
+    const session = asSessionId('abc')
+    const actor = agentIdentityFromSessionId(session)
+    expect(String(actor)).toBe(String(session))
+    expect(String(sessionIdFromAgentIdentity(actor))).toBe(String(session))
   })
 })
 
