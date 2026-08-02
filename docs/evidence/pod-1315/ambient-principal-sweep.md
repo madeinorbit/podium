@@ -13,14 +13,43 @@ addComment(
 
 A caller that omitted the argument acted as the instance administrator, silently.
 
-**It was reachable from the authenticated transport, not only from a forgetful
-future caller.** `modules/issues/registry.ts` passed `ctx.caller.principal`,
-which is typed `CommandPrincipal | undefined` — `IssueCaller.principal` is
-optional. When it was absent the argument was `undefined`, the default fired,
-and the comment was attributed to the first admin. The type system never
-complained because a defaulted parameter accepts `undefined` as readily as an
-omitted argument. The brief's assessment that every production caller passes one
-explicitly was true of the *call sites*; it was not true of the *values*.
+### Was it live? No — and the retraction is worth recording
+
+An earlier draft of this document claimed the default was already firing on the
+authenticated transport, because `registry.ts:1045` passed `ctx.caller.principal`
+and `IssueCaller.principal` is declared optional. **That claim was wrong.** It
+was reached by reading the type rather than the producers. Every producer:
+
+| Site | What it yields |
+|---|---|
+| `trpc.ts:38` | `Context.principal` is `CommandPrincipal` — **not** optional. Its comment: *"the authenticated principal below is mandatory so no production or test transport can silently become the historical ambient operator."* |
+| `trpc.ts:65` | `issueCaller(ctx)` copies that mandatory field through unchanged. |
+| `issues/trpc.ts:60` | the tRPC path calls `run(issueCaller(ctx), …)` — principal always present. |
+| `registry.ts:1619` | `asIssueTrpc` (in-process MCP) resolves a principal unconditionally before building the caller. |
+| `registry.ts:1584` | `dispatch()` fills in a resolved principal when a caller lacks one, *before* any handler runs. |
+
+So `ctx.caller.principal` was never `undefined` on a production path, and no
+comment was ever attributed to the first admin because of this default. The
+brief's original assessment — latent, not a live defect — was correct.
+
+What is true, and is the reason the issue was still worth its run:
+
+1. **The type was laxer than every producer.** `IssueCaller.principal` is
+   optional, and the defaulted parameter made passing that possibly-undefined
+   value type-legal. The guarantee `Context.principal`'s comment asserts was held
+   by a mandatory field and by `dispatch()`'s fill-in — belt and braces that
+   happened to hold — and *not* by the signature. Nothing would have reported it
+   if a new dispatcher, or a change to that field's optionality, removed the
+   braces.
+2. **The fail-open one layer down was real, and it fired.**
+   `IssueCommentsMailModule.addComment` declared `principal?: CommandPrincipal`
+   and wrote `actor`/`onBehalfOf` only when one was passed. Six git-workflow
+   sites called it directly and passed none, so those comments have been landing
+   with **no attribution at all** — silently anonymous rather than silently
+   admin. Smaller than escalation, but it is the harm that was actually
+   occurring, and the same fix closes it.
+
+**Latent escalation, live attribution loss.**
 
 ## The fix
 
