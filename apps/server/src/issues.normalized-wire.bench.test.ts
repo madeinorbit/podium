@@ -135,8 +135,10 @@ function world() {
 }
 
 it('session-free residue at live scale never couples session changes back to issues', {
-  // The 622-file node lane contends for CPU; isolated live-scale runs take about 75s.
-  timeout: 180_000,
+  // Quiet isolated runs take about 75s; this 8-vCPU host measured 177.3s at load
+  // 24.6 even after isolation. Four times the quiet baseline is a wedge watchdog,
+  // not the detector: the exact zero-build and zero-scan assertions below are.
+  timeout: 300_000,
 }, () => {
   const { registry, sessionIds, attachBuilds, attachScans } = world()
   // BOUNDED, not pinned at ISSUE_COUNT. Main measures one build per issue at
