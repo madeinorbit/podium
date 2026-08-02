@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
+import {
+  asSessionId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+  parseIssueDepId,
+  parseLayoutRowId,
+} from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -376,6 +382,9 @@ export class SessionRegistry {
     const visibility = new GrantEdgeVisibilityPolicy({
       classOf: (entity) => {
         if (entity === 'repo') return 'deployment-substrate'
+        // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
+        // filter. Must NOT fall through to personal or unclassified.
+        if (entity === 'userLayout') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issue' ||
@@ -421,9 +430,20 @@ export class SessionRegistry {
           const run = this.store.automations.getRun(ref.entityId)
           return run ? this.store.automations.get(run.automationId)?.ownerUserId === userId : false
         }
+        // per-user-state is decided by keyedUserOf, not mayRead.
+        if (ref.entity === 'userLayout') return false
         return false
       },
-      keyedUserOf: () => null,
+      keyedUserOf: (ref) => {
+        if (ref.entity !== 'userLayout') return null
+        try {
+          // layoutRowId is (userId, key); the human half is the only principal
+          // that may see the row (ADR 9 D3 rule 4).
+          return parseLayoutRowId(ref.entityId).userId
+        } catch {
+          return null
+        }
+      },
     })
     const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
       const row = this.store.sync
@@ -1974,6 +1994,11 @@ export class SessionRegistry {
   /** The backing store — shared with services that persist their own tables (superagent). */
   get sessionStore(): SessionStore {
     return this.store
+  }
+
+  /** Write-seam ledger — layout (and other non-session modules) capture entity rows here. */
+  get changeLedger(): Ledger {
+    return this.ledger
   }
 
   dispose(): void {
