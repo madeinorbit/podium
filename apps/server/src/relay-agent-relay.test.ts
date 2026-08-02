@@ -2,6 +2,7 @@ import type { ControlMessage } from '@podium/protocol'
 import { sessionTitleRule } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 
 /**
  * The nudge's own opening sentence, taken from the source of truth rather than
@@ -33,12 +34,32 @@ describe('server agent relay handler (P1b)', () => {
   const machineId = 'm1'
   const repoPath = '/r'
   let registry: SessionRegistry
+  let store: SessionStore
   let A: { id: string; title: string }
   let B: { id: string }
   let sA: string
 
   beforeEach(() => {
-    registry = new SessionRegistry()
+    // Two machines with a checkout each, seeded through an injected store the way the
+    // sibling machine tests do. The default fixture has a daemon SOCKET but no machines
+    // ROW, so a fleet read comes back empty — and an empty array satisfies every per-row
+    // assertion without executing one of them. This seeding is what lets those fail.
+    store = new SessionStore(':memory:')
+    store.machines.upsertMachine({
+      id: machineId,
+      name: 'ludovico',
+      hostname: 'ludovico.local',
+      tokenHash: 'hash-1',
+    })
+    store.machines.upsertMachine({
+      id: 'm2',
+      name: 'quiet-box',
+      hostname: 'quiet-box.example.net',
+      tokenHash: 'hash-2',
+    })
+    store.repos.addRepo('/home/a/src/podium', machineId)
+    store.repos.addRepo('/home/b/src/podium', 'm2')
+    registry = new SessionRegistry(store)
     registries.push(registry)
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.
     // B is unrelated. (create + set worktreePath directly, as capabilityForSession's test does.)
@@ -146,6 +167,96 @@ describe('server agent relay handler (P1b)', () => {
     const r = await reply
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/not permitted via relay/)
+  })
+
+  /**
+   * POD-1424 — an agent could not enumerate machines at all. The server has had the
+   * projection since POD-318 but the relay refused to carry it, so a coordinating
+   * agent read the sqlite machines table directly or asked `tailscale status`.
+   *
+   * THESE EXIST BECAUSE OF A SPECIFIC FAILURE MODE. RELAY_ALLOWED and the dispatch
+   * arm in relay.ts are two separate edits, and an allowlist entry WITHOUT its arm
+   * does not refuse — it answers "no such procedure", leaving the capability neither
+   * refused nor served while every unit test stays green. So each case asserts on the
+   * PAYLOAD, not merely that the call was permitted: a missing arm fails them.
+   */
+  describe('machines enumeration (POD-1424)', () => {
+    it('serves the machine projection an agent needs to choose a host', async () => {
+      const reply = captureReply(registry, machineId)
+      registry.modules.sessions.onDaemonMessageFrom(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-machines-list',
+        sessionId: sA,
+        router: 'machines',
+        proc: 'list',
+      })
+      const r = await reply
+      // Assert the ERROR first: a missing dispatch arm answers "no such procedure",
+      // and `expect(ok).toBe(true)` would report only "expected false to be true"
+      // while the sentence naming the actual fault sat unread in r.error.
+      expect(r.error).toBeUndefined()
+      expect(r.ok).toBe(true)
+      // Shape, not identity: the rows are whatever the machines table holds. What is
+      // pinned is that every row carries what a placement decision reads — liveness,
+      // and this caller's `use` verdict.
+      const rows = r.result as { id: string; online: boolean; use?: string }[]
+      expect(rows.map((row) => row.id).sort()).toEqual(['m1', 'm2'])
+      for (const row of rows) {
+        expect(typeof row.id).toBe('string')
+        expect(typeof row.online).toBe('boolean')
+        expect(row.use).toBe('granted')
+      }
+    })
+
+    it('joins registered checkout paths onto the machines the caller may use', async () => {
+      const reply = captureReply(registry, machineId)
+      registry.modules.sessions.onDaemonMessageFrom(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-machines-fleet',
+        sessionId: sA,
+        router: 'machines',
+        proc: 'listWithRepos',
+      })
+      const r = await reply
+      expect(r.error).toBeUndefined()
+      expect(r.ok).toBe(true)
+      const view = r.result as {
+        machines: { id: string; use?: string }[]
+        repos: { machineId: string; path: string }[]
+      }
+      // Both halves, with content: a bare machine list cannot answer "which machine
+      // can take this work", because work is placed into a checkout. The second
+      // machine's path is the one that matters — a join that only ever reported the
+      // CALLER's own machine would look right against a one-machine fixture and would
+      // make the whole command useless for its only purpose.
+      expect(view.machines.map((m) => m.id).sort()).toEqual(['m1', 'm2'])
+      expect([...view.repos].sort((a, b) => a.machineId.localeCompare(b.machineId))).toEqual([
+        { machineId: 'm1', path: '/home/a/src/podium' },
+        { machineId: 'm2', path: '/home/b/src/podium' },
+      ])
+      // Narrowed to the placement fields on purpose — a view whose job is choosing a
+      // host has no reason to carry an origin URL or a repoId.
+      for (const repo of view.repos) {
+        expect(Object.keys(repo).sort()).toEqual(['machineId', 'path'])
+      }
+    })
+
+    it('still refuses a machines proc that is not on the allowlist', async () => {
+      const reply = captureReply(registry, machineId)
+      registry.modules.sessions.onDaemonMessageFrom(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-machines-revoke',
+        sessionId: sA,
+        router: 'machines',
+        proc: 'revoke',
+        input: { id: machineId },
+      })
+      const r = await reply
+      expect(r.ok).toBe(false)
+      // Admitting and administering machines stays operator-side: opening the router
+      // for enumeration must not open it for revoke/rename/pairingCode.
+      expect(r.error).toMatch(/not permitted via relay/)
+    })
   })
 
   it('relays the read-only multi-machine quota summary used by the panel', async () => {

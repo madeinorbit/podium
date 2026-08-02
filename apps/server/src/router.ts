@@ -49,6 +49,7 @@ import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
+import { machinesWithUse } from './modules/machines/fleet-view'
 import { specsInputs } from './modules/specs/service'
 import { UserFocus } from './modules/superagent'
 import { type WorkflowCaller, workflowInputs } from './modules/workflows/service'
@@ -1165,7 +1166,11 @@ export const appRouter = t.router({
     // the machine dropdown. Single-machine: just the one 'local' machine. CORE —
     // a node reads its own (and its hub-mirrored) fleet; only ADMITTING and
     // administering machines is the hub's job (hubProc below).
-    list: t.procedure.query(({ ctx }) => mods(ctx).machines.listMachines()),
+    // POD-1424: rows carry this caller's `use` verdict. The agent relay serves the
+    // SAME shape from the same projection — `podium issue start --machine` resolves
+    // a machine name over whichever transport it has, and a proc answering one shape
+    // over HTTP and another over the relay would be a trap for exactly that caller.
+    list: t.procedure.query(({ ctx }) => machinesWithUse(mods(ctx).machines.listMachines())),
     rename: hubProc
       .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
       .mutation(({ ctx, input }) => {

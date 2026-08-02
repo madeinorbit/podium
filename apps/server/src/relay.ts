@@ -32,6 +32,7 @@ import { IssueService } from './modules/issues/service'
 import { UpstreamIssuesService } from './modules/issues/upstream'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
+import { fleetViewFor, machinesWithUse } from './modules/machines/fleet-view'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
@@ -643,6 +644,33 @@ export class SessionRegistry {
         if (router === 'quota' && proc === 'summary') {
           return this.modules.rpc.agentQuotaAll()
         }
+        /**
+         * `machines.list` / `machines.listWithRepos` for agents (POD-1424) —
+         * "what can I run on?".
+         *
+         * TWO PROCS, ONE SHAPE EACH. `list` answers EXACTLY what the router's
+         * machines.list answers, from the same `listMachines()` call, because a
+         * proc that returned one shape over HTTP and another over the relay is a
+         * trap for every caller that can reach both — `podium issue start
+         * --machine` resolves names over whichever transport it happens to have.
+         * The `use` stamp is the only addition, and it is additive.
+         *
+         * WHY REPOS ARE A SECOND PROC AND NOT A WIDER `list`. A machine's
+         * registered checkout paths are what make an enumeration actionable —
+         * without them "which machine can take this work" is unanswerable — but
+         * `repos.listDetailed` returns every row across every machine, unscoped.
+         * Allowlisting THAT would disclose checkout paths more widely than the
+         * gap being closed. So the join happens here, cut by the `use` verdict
+         * that fleet-view.ts owns.
+         */
+        if (router === 'machines' && proc === 'list') {
+          return Promise.resolve(machinesWithUse(this.modules.machines.listMachines()))
+        }
+        if (router === 'machines' && proc === 'listWithRepos') {
+          return Promise.resolve(
+            fleetViewFor(this.modules.machines.listMachines(), this.store.repos.listRepos()),
+          )
+        }
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
         }
@@ -914,6 +942,54 @@ export class SessionRegistry {
               })
               if (!r.ok) throw new Error(r.reason ?? 'stop refused')
               return r
+            })()
+          }
+          // Move a LIVE session to another machine (POD-642), opened to agents by
+          // POD-1424. Scope-gated against the TARGET session's issue exactly like
+          // sessions.stop — moving a peer's session is a write on that peer.
+          //
+          // NO LOCAL PRE-FLIGHT. Whether the target is online, whether the harness
+          // is exportable, and whether the move is permitted are all decided by
+          // handoffSession at apply time, with reasons this arm cannot reconstruct.
+          // Re-deciding any of them here would flatten "refused" and "unreachable"
+          // into one guess, and would be a second copy of a rule that can drift.
+          if (proc === 'handoff') {
+            return (async () => {
+              const raw = (input ?? {}) as Record<string, unknown>
+              if (typeof raw.sessionId !== 'string' || !raw.sessionId) {
+                throw new Error('sessionId is required')
+              }
+              if (typeof raw.machineId !== 'string' || !raw.machineId) {
+                throw new Error('machineId is required')
+              }
+              const target = sessionsSvc
+                .listSessions()
+                .find((session) => session.sessionId === raw.sessionId)
+              if (!target) throw new Error('session not found')
+              const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+              if (targetIssueId) {
+                checkIssueAccess(
+                  { capability, ...(overrideScope ? { overrideScope: true } : {}) },
+                  issues,
+                  'sessions.handoff',
+                  'write',
+                  targetIssueId,
+                )
+              } else {
+                const isOperator = capability.scope.kind === 'all'
+                const isParent =
+                  capability.actorSessionId !== undefined &&
+                  target.spawnedBy === `session:${capability.actorSessionId}`
+                if (!isOperator && !isParent) {
+                  throw new Error(
+                    'target session has no issue; only its parent or the operator may hand it off',
+                  )
+                }
+              }
+              return sessionsSvc.handoffSession({
+                sessionId: raw.sessionId,
+                machineId: raw.machineId,
+              })
             })()
           }
           if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
