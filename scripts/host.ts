@@ -19,8 +19,8 @@
  * serving, invisible to Restart=always), systemd watchdog pet, and bounded close.
  */
 import { bootProcess } from '@podium/runtime/boot'
-import { startDaemon } from '../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { startDaemon } from '../apps/daemon/src/daemon'
 import { startServer } from '../apps/server/src/server'
 
 await bootProcess({

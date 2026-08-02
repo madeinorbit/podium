@@ -41,9 +41,7 @@ describe('readOrCreateLocalMachineId', () => {
   })
 
   it('is per state dir, so two instances on one host are two machines', () => {
-    expect(readOrCreateLocalMachineId(stateDir())).not.toBe(
-      readOrCreateLocalMachineId(stateDir()),
-    )
+    expect(readOrCreateLocalMachineId(stateDir())).not.toBe(readOrCreateLocalMachineId(stateDir()))
   })
 
   it('the wx loser re-reads the winner: a cold server+daemon race yields ONE identity', () => {

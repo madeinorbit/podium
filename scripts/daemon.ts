@@ -24,11 +24,8 @@
 
 import { bootProcess } from '@podium/runtime/boot'
 import { resolvePort } from '@podium/runtime/config'
+import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../apps/daemon/src/daemon'
-import {
-  readOrCreateDaemonSecret,
-  readOrCreateLocalMachineId,
-} from '@podium/runtime/local-machine'
 
 const port = resolvePort()
 

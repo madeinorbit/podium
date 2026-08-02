@@ -8,8 +8,8 @@
  * Pair with: bun run --filter @podium/web build && bun run --filter @podium/web preview -- --host --port 4318
  */
 import { networkInterfaces } from 'node:os'
-import { startDaemon } from '../../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
 
 const PORT = Number(process.env.PORT ?? 8787)

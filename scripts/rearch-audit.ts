@@ -539,6 +539,19 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
       },
     ],
   },
+  {
+    id: 'legacy-machine-identity-upgrade',
+    owner: 'POD-318',
+    expiry:
+      'deleted when no supported install can still be carrying pre-POD-318 rows — i.e. when an upgrade path that skips this boot is no longer offered',
+    note: "The ONE-TIME rewrite of `'local'` / `'__local__'` onto this host's minted machine id. It is the only place either literal is still spelled, and it is spelled there so that a database written before POD-318 can be read at all. It is an UPGRADE WITH A DELETION HORIZON, not a standing heal: after the first boot on any given install it matches nothing, and no writer left in the tree can give it new work — which is what the `local-placeholders` counter (3, all of them here and in the brand refusal) and `MachineId`'s outright refusal of both literals together guarantee.",
+    sites: [
+      {
+        file: 'apps/server/src/store.ts',
+        needle: 'migrateLegacyMachineIdentity(hostMachineId: string): void {',
+      },
+    ],
+  },
 ]
 
 export const CHECKS: AuditCheck[] = [

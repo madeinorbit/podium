@@ -16,7 +16,7 @@
  *    allowlist, and turns both daemon failure modes into TRPCErrors.
  */
 
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -321,7 +321,7 @@ describe('oracle: sessions.uploadImage', () => {
     // side effects, and a handler swap is exactly the kind of ordering
     // dependence that makes a test flake instead of characterize.
     const o = makeOracle({ offlineMachines: [{ id: 'other', name: 'other' }] })
-    const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), 'other')
+    const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -368,7 +368,7 @@ describe('oracle: sessions.uploadImage', () => {
     const seen = answerUploads(
       o,
       () => ({ path: '/Users/someone/.podium/uploads/x.png' }),
-      'someones-laptop',
+      asMachineId('someones-laptop'),
     )
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
