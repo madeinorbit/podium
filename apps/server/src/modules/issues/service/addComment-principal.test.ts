@@ -54,30 +54,40 @@ function harness() {
   return { store, svc, issue }
 }
 
+/**
+ * THE TYPE-LEVEL GUARD — NEVER INVOKED, AND THAT IS THE POINT.
+ *
+ * These three calls are assertions addressed to `tsgo`, not to vitest. They must
+ * not run: `@ts-expect-error` suppresses the COMPILER, not the runtime, so a
+ * version of this written as `it(...)` bodies executes `addComment` with
+ * `principal === undefined` and dies in `attributionOf` — which is what the
+ * first draft of this file did, failing three tests while proving exactly the
+ * same thing it proves here. Declared-and-uncalled is the shape that gets the
+ * checking without the execution.
+ *
+ * Each probe passes only while the call beneath it is a type error. Re-add a
+ * default (or make the parameter optional again) and the call becomes legal, the
+ * directive becomes UNUSED, and `tsgo --noEmit` fails the build with TS2578 —
+ * this file does not have to run at all for the guard to bite.
+ */
+function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string): void {
+  // @ts-expect-error POD-1315: omitting the principal must not compile. If this
+  // directive is reported unused, a default has come back — restore the fix, do
+  // not delete the directive.
+  svc.addComment(id, 'mike', 'no principal named')
+
+  // @ts-expect-error POD-1315: same guard one layer down. `IssueService` is an
+  // INTERSECTION that includes this module's signature, so leaving the module's
+  // parameter optional would keep 3-argument calls legal even with the facade's
+  // default removed. Both surfaces are pinned deliberately.
+  svc.commentsMail.addComment(id, 'mike', 'no principal named')
+
+  // @ts-expect-error POD-1315: an optional parameter would accept this too.
+  svc.addComment(id, 'mike', 'explicitly nobody', undefined)
+}
+void _addCommentRefusesAnUnnamedCaller
+
 describe('addComment requires an explicit principal', () => {
-  it('refuses a call that names no principal — flat service surface', () => {
-    const { svc, issue } = harness()
-    // @ts-expect-error POD-1315: omitting the principal must not compile. If this
-    // directive is reported unused, a default has come back — restore the fix,
-    // do not delete the directive.
-    svc.addComment(issue.id, 'mike', 'no principal named')
-  })
-
-  it('refuses a call that names no principal — capability module surface', () => {
-    const { svc, issue } = harness()
-    // @ts-expect-error POD-1315: same guard one layer down. The flat service's
-    // type is an INTERSECTION that includes this module's signature, so leaving
-    // the module's parameter optional would keep 3-argument calls legal even
-    // with the facade's default removed. Both surfaces are pinned deliberately.
-    svc.commentsMail.addComment(issue.id, 'mike', 'no principal named')
-  })
-
-  it('refuses `undefined` passed explicitly, not just an omitted argument', () => {
-    const { svc, issue } = harness()
-    // @ts-expect-error POD-1315: an optional parameter would accept this too.
-    svc.addComment(issue.id, 'mike', 'explicitly nobody', undefined)
-  })
-
   it('attributes the comment to the named human, never to the first admin', () => {
     const { store, svc, issue } = harness()
     const alice = asUserId('user:alice')
