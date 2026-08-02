@@ -1,12 +1,13 @@
 # POD-327 daemon decomposition evidence
 
 Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for the
-measured interaction-latency red, current oracle drift, and the required paired-VPS soak.
+proven interaction-latency regression, an interrupted oracle unit lane, and the required
+paired-VPS soak.
 
-The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. The current pushed
-tip is catch-up merge `8b4a3249895505b725963e231e29c7b2f381d0d7`, incorporating
-integration through `29897756`. Generated architecture documents were regenerated from resolved
-code rather than hand-merged.
+The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. Catch-up merge
+`197271ca` incorporates integration through `3336ae8b` and the POD-1350 oracle repairs at
+`97d7b0aa`. Generated architecture documents were regenerated from resolved code rather than
+hand-merged.
 
 ## Result
 
@@ -71,6 +72,12 @@ smoke passed with `codex-cli 0.146.0`.
   requested lower-load run started at 23.16 / 27.54 / 35.16 and ended at
   19.68 / 26.24 / 34.49; it failed 1/1 file and 1/1 test at 36.4404 ms p95. Because load fell
   during that run, this is recorded as a real red against the unchanged 25 ms budget.
+- The same interaction was run at the exact pre-decomposition parent `dcb06719` in an isolated
+  worktree. Only today's mandatory fixture facts were backported: complete issue ownership,
+  `instanceId`, authenticated client transport, and `WIRE_VERSION`; scale, 250-cycle interaction
+  loop, shadow comparison, and thresholds remained unchanged. It passed 1/1 file and 1/1 test
+  while load rose only from 26.80 / 32.73 / 42.21 to 27.39 / 32.34 / 41.78. The current failure at
+  lower load is therefore a regression, not an historically unachievable budget.
 - Post-merge `bun run typecheck`: 22/22 tasks passed across the 25-package workspace scope.
 - `bun run test:multi-instance`: the independent-runtime test passed 1/1 with 41 assertions,
   managed-account spawn passed 3/3, and the install-shell lane reported `ALL OK`.
@@ -99,22 +106,20 @@ smoke passed with `codex-cli 0.146.0`.
 
 - The unchanged 25 ms load acceptance is now a measured red, not an unmeasured gate: p95 was
   36.4404 ms while host load fell from 23.16 / 27.54 / 35.16 to 19.68 / 26.24 / 34.49 on 8 CPUs.
-  The budget has not been relaxed. Diagnose and fix the cost, then rerun the exact command with
-  pre/post load evidence.
-- The full oracle started at load 18.51 / 25.51 / 34.07, rose mid-run to
-  37.59 / 49.16 / 44.80 after foreign full-unit runners started, and ended at
-  72.69 / 58.73 / 49.21. Its unit lane was deterministically red: 4 failed, 650 passed, and
-  3 skipped files; 7 failed, 9,409 passed, and 20 skipped tests. The failures are an uncensused
-  `layout` router, stale visibility inventory, stale/invalid layout and machine-use wire fixtures,
-  and sync composition still asserting eight entity arms after the ninth landed. POD-1350 and
-  POD-1359 received the exact findings.
-- The oracle integration lane recorded 1 failed and 39 passed files; 1 failed, 288 passed, and
-  6 skipped tests. Its sole daemon memory-breakdown wait timeout coincided with 5.5–10.4 seconds
-  of measured runqueue wait and the loop classifier's `starved` verdict, so it is contended rather
-  than a functional verdict. E2E was green at 8/8 files and 31/31 tests. Multi-instance was green:
-  runtime 1/1 with 41 assertions, managed-account 1 file / 3 tests, and installer `ALL OK`.
-  Typecheck was green at 22/22 tasks across 25 packages. The oracle remains red until the
-  deterministic drift is repaired and the integration lane is rerun without starvation.
+  The pre-decomposition control passed under greater load, proving a regression. The budget has
+  not been relaxed. Diagnose and fix the cost, then rerun the exact command with pre/post load.
+- POD-1350 and POD-1359 repaired the deterministic layout/machine oracle drift. The four exact
+  files pass 4/4 and 128/128 tests. The repaired-tip oracle started at
+  24.91 / 31.47 / 41.30, reached 103.44 / 69.03 / 53.57 mid-run, and ended at
+  60.81 / 73.98 / 63.26. Its unit process was killed with exit 143 after 486 seconds, before a
+  final Test Files/Tests census. It had emitted one timing-shaped rearchitecture-audit failure
+  taking 45.459 seconds; this is interrupted/contended evidence, not a functional verdict.
+- The repaired oracle's configured integration suite passed 40/40 files with 289 tests passed and
+  6 skipped. Its chained acceptance failed 1/1 at 29.1407 ms under the severe-load portion and
+  does not replace the valid quiet regression measurement. E2E passed 8/8 files and 31/31 tests.
+  Multi-instance passed runtime 1/1 with 41 assertions, managed-account 1 file / 3 tests, and
+  installer `ALL OK`. Typecheck passed 22/22 tasks. The oracle remains red until the unit lane
+  completes with a census and the latency regression is fixed.
 - `bun run lint:boundaries` still reports the unrelated POD-1321 daemon-lifecycle import and dead
   allowlist entry, with no POD-327 path in the output. POD-1321 received issue mail with the
   current output.
