@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **45 of 77 classes have mutable visibility.** This is the majority of
+1. **45 of 78 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -113,7 +113,8 @@ disappearance a scoped feed must be able to signal.
 | `issue-message-read-at` | Issue message / issue `readAt` (moved by Amendment 1 D10) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `subscription-deliveries` | Subscription delivery receipts (`subscription_deliveries`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |
 | `pins` | Pins | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
-| `tab-order` | Tab order / sidebar layout | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
+| `tab-order` | Tab order | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
+| `sidebar-tab-layout` | Sidebar / tab layout | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `preferences-personal-keys` | Preferences — PERSONAL keys (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic, …) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `preferences-instance-keys` | Preferences — INSTANCE / deployment keys (instance-level settings, feature flags) | deployment-substrate | — | Tenant-visible from creation. Note the RATCHET: moving a class INTO deployment-substrate, or widening a grant verb set, requires an ADR 1 amendment (D9.3) — privacy is free, exposure is reviewed. |
 | `server-owned-secrets` | Server-owned secrets (`apiKeys.*`, `integrations.linearApiKey`, `notifications.telegramBotToken`) | secret | — | Never replicated, so replica visibility cannot change. What multi-user changes is WHO MAY ROTATE: management is ADMIN-GRADE once there is more than one human (D15) — "any authenticated principal may replace the org’s provider key" is a privilege escalation with a billing blast radius. |
