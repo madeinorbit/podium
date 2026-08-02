@@ -1250,15 +1250,17 @@ export class SessionRegistry {
       // ensureTargetRepo, which handoff has always used for the same two problems.
       prepareMachineStart: async ({ repoPath, machineId, startPoint }) => {
         const target = await sessionsSvc.resolveRepoOnMachine(repoPath, machineId)
-        if (startPoint) {
-          await sessionsSvc.ensureRefOnMachine({
-            sourceRepoPath: repoPath,
-            targetRepoPath: target.path,
-            targetMachineId: machineId,
-            ref: startPoint,
-          })
-        }
-        return { repoPath: target.path }
+        if (!startPoint) return { repoPath: target.path }
+        // The start point that comes BACK may be a commit id rather than the branch name
+        // that went in: a bundled branch arrives as objects, not as a ref, so the name
+        // does not resolve on the target even though the commit does.
+        const ensured = await sessionsSvc.ensureRefOnMachine({
+          sourceRepoPath: repoPath,
+          targetRepoPath: target.path,
+          targetMachineId: machineId,
+          ref: startPoint,
+        })
+        return { repoPath: target.path, startPoint: ensured.startPoint }
       },
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),

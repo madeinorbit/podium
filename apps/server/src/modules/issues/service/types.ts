@@ -235,7 +235,7 @@ export interface IssueDeps {
     repoPath: string
     machineId: string
     startPoint?: string
-  }): Promise<{ repoPath: string }>
+  }): Promise<{ repoPath: string; startPoint?: string }>
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

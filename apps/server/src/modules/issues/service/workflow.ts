@@ -141,6 +141,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
      * actionable message for.
      */
     let startRepoPath = row.repoPath
+    let startPoint = row.parentBranch
     if (row.machineId && this.d.prepareMachineStart) {
       const prepared = await this.d.prepareMachineStart({
         repoPath: row.repoPath,
@@ -148,6 +149,11 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
       })
       startRepoPath = prepared.repoPath
+      // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
+      // resolve on the target even though its commit does. prepareMachineStart hands
+      // back whatever the target can actually resolve — the name when it was already
+      // there, a commit id when it had to be shipped.
+      if (prepared.startPoint) startPoint = prepared.startPoint
     }
     // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
     // rule rehome applies: a target whose repoId differs would renumber this issue into
@@ -163,7 +169,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const res = await this.d.repoOp(
       'worktreeAdd',
       startRepoPath,
-      { path, branch, startPoint: row.parentBranch },
+      { path, branch, ...(startPoint ? { startPoint } : {}) },
       row.machineId ?? undefined,
     )
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)

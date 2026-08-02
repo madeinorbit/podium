@@ -915,6 +915,36 @@ describe('IssueService.start', () => {
     expect(started.machineId).toBe('mach-b')
   })
 
+  it('starts from the commit id when the branch had to be SHIPPED to the target', async () => {
+    // A bundled branch arrives as OBJECTS, not as a ref: on vmi the commit resolved and
+    // FETCH_HEAD held it while `rev-parse issue/1424-…` still said "Needed a single
+    // revision". A branch name is machine-local; a commit id is not. So the worktree add
+    // must start from whatever the TARGET can resolve, which prepareMachineStart returns.
+    const { svc, deps, store } = harness()
+    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
+    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    deps.requireMachineForRepo = vi.fn()
+    const sha = 'e348cfe3b3bc5a1af2712b1614ea25c1b320fe03'
+    deps.prepareMachineStart = vi.fn(async () => ({
+      repoPath: '/home/till/src/podium',
+      startPoint: sha,
+    }))
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+      parentBranch: 'issue/1424-local-only',
+    })
+    await svc.start(created.id)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/home/till/src/podium',
+      expect.objectContaining({ startPoint: sha }),
+      'mach-b',
+    )
+  })
+
   it('refuses a target that is a DIFFERENT repository, before building anything', async () => {
     // The identity guard rehome applies: a target whose repoId differs would silently
     // renumber the issue into another repo. It must refuse on this path too.

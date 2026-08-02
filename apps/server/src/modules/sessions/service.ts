@@ -3306,10 +3306,12 @@ export class SessionsService {
     targetRepoPath: string
     targetMachineId: string
     ref: string
-  }): Promise<{ transferred: boolean }> {
+  }): Promise<{ transferred: boolean; startPoint: string }> {
     const source = this.store.repos.listRepos().find((r) => r.path === input.sourceRepoPath)
     if (!source) throw new Error(`no registered repository at ${input.sourceRepoPath}`)
-    if (source.machineId === input.targetMachineId) return { transferred: false }
+    if (source.machineId === input.targetMachineId) {
+      return { transferred: false, startPoint: input.ref }
+    }
 
     const already = await this.rpc.repoOp(
       'revParseVerify',
@@ -3317,7 +3319,34 @@ export class SessionsService {
       { ref: input.ref },
       input.targetMachineId,
     )
-    if (already.ok) return { transferred: false }
+    if (already.ok) return { transferred: false, startPoint: input.ref }
+
+    /**
+     * THE START POINT THAT CROSSES IS A SHA, NOT A NAME.
+     *
+     * bundleFetch deliberately does not create or move a branch — it makes the OBJECTS
+     * reachable and leaves ref management to the caller. So after a successful transfer
+     * the commit EXISTS on the target while a ref by that name still does not, and both
+     * the verification below and the worktree add that follows would fail on the name.
+     * Measured on vmi3407763: e348cfe3 resolved and FETCH_HEAD held it, while
+     * `rev-parse issue/1424-…` still said "Needed a single revision".
+     *
+     * A branch name is machine-local; a commit id is not. So resolve on the SOURCE, carry
+     * the sha, and verify and start from the sha on the target.
+     */
+    const sourceRef = await this.rpc.repoOp(
+      'revParseVerify',
+      input.sourceRepoPath,
+      { ref: input.ref },
+      source.machineId,
+    )
+    if (!sourceRef.ok) {
+      throw new Error(`source machine cannot resolve ${input.ref}: ${sourceRef.output}`)
+    }
+    const sha = sourceRef.output.trim().split(/\s+/u)[0] ?? ''
+    if (!/^[0-9a-f]{40}$/u.test(sha)) {
+      throw new Error(`source machine returned an unusable commit id for ${input.ref}: ${sha}`)
+    }
 
     // What can we bundle FROM? Only commits BOTH sides can name.
     const candidates = [...new Set(['main', 'origin/main', input.ref])]
@@ -3368,18 +3397,19 @@ export class SessionsService {
     if (!fetched.ok)
       throw new Error(`could not fetch ${input.ref} on the target: ${fetched.output}`)
 
+    // Verify the COMMIT, not the name: the objects are what travelled.
     const landed = await this.rpc.repoOp(
       'revParseVerify',
       input.targetRepoPath,
-      { ref: input.ref },
+      { ref: sha },
       input.targetMachineId,
     )
     if (!landed.ok) {
       throw new Error(
-        `${input.ref} still does not resolve on the target after the bundle transferred`,
+        `${input.ref} (${sha.slice(0, 12)}) still does not resolve on the target after the bundle transferred: ${landed.output}`,
       )
     }
-    return { transferred: true }
+    return { transferred: true, startPoint: sha }
   }
 
   /**
