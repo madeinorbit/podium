@@ -289,3 +289,141 @@ describe('MachineRepoDiscovery.scan', () => {
     }
   })
 })
+
+/**
+ * A repository that MOVED on its machine (POD-1498).
+ *
+ * The stale row blocks its own replacement: auto-registration refuses to add a second
+ * copy of an origin already registered on the machine, and when the repo moves, the
+ * stale row is what makes that true. Nothing prunes a path that stopped existing, so
+ * the server serves a dead path forever — measured on vmi3407763 after its home moved
+ * till -> mgw, where every placement died with "cannot change to /home/till/src/podium".
+ *
+ * This is the one operation in discovery that can DESTROY a registration, so the tests
+ * that matter most are the ones proving it REFUSES.
+ */
+describe('moved-repo heal (POD-1498)', () => {
+  const ORIGIN = 'git@github.com:o/podium.git'
+  const OLD = '/home/till/src/podium'
+  const NEW = '/home/mgw/src/podium'
+
+  function movedService(opts: {
+    pathExists?: (path: string, machineId: string) => Promise<boolean>
+    found?: Array<{ path: string; originUrl?: string }>
+  }) {
+    const rows = [row('vmi', OLD, ORIGIN)]
+    const removed: Array<{ path: string; machineId: string }> = []
+    const added: Array<{ path: string; machineId: string; originUrl?: string }> = []
+    const svc = new MachineRepoDiscovery({
+      listRepos: () => rows,
+      addRepo: (path, machineId, originUrl) => {
+        added.push({ path, machineId, ...(originUrl ? { originUrl } : {}) })
+      },
+      removeRepo: (path, machineId) => {
+        removed.push({ path, machineId })
+        const i = rows.findIndex((r) => r.path === path && r.machineId === machineId)
+        if (i >= 0) rows.splice(i, 1)
+      },
+      ...(opts.pathExists ? { pathExists: opts.pathExists } : {}),
+      scanRepos: async () => scanResult(opts.found ?? [{ path: NEW, originUrl: ORIGIN }]),
+      machineName: (id) => `name:${id}`,
+      localMachineId: 'local',
+    })
+    return { svc, added, removed, rows }
+  }
+
+  it('REFUSES to prune a registered path that is absent from the scan but STILL ON DISK', async () => {
+    // The dangerous case, and the one nobody writes by default. A scan walks only a
+    // machine's registered ROOTS, so "not found by the scan" also covers "moved outside
+    // the roots". Pruning on that inference would deregister a healthy repo — so the
+    // probe, not the scan, decides.
+    const probed: string[] = []
+    const { svc, added, removed } = movedService({
+      pathExists: async (path) => {
+        probed.push(path)
+        return true // still there — the scan simply could not see it
+      },
+    })
+    await svc.scan('vmi', { deep: false })
+    expect(probed).toContain(OLD)
+    expect(removed, 'a healthy repo was deregistered on scan-coverage evidence').toEqual([])
+    expect(added).toEqual([])
+  })
+
+  it('replaces the row when the path is GONE and exactly one same-origin path appears', async () => {
+    const { svc, added, removed } = movedService({ pathExists: async () => false })
+    await svc.scan('vmi', { deep: false })
+    // REPLACE, not join: resolveRepoOnMachine takes the FIRST row by rowid, so leaving
+    // the old row in place would keep the dead path winning.
+    expect(removed).toEqual([{ path: OLD, machineId: 'vmi' }])
+    expect(added).toEqual([{ path: NEW, machineId: 'vmi', originUrl: ORIGIN }])
+  })
+
+  it('carries the origin across, so the repoId stays origin-derived and still matches', async () => {
+    // A path-fallback repoId would be machine-specific and resolveRepoOnMachine could
+    // never match it against the other machine's copy.
+    const { svc, added } = movedService({ pathExists: async () => false })
+    await svc.scan('vmi', { deep: false })
+    expect(added[0]?.originUrl).toBe(ORIGIN)
+  })
+
+  it('REFUSES to move when TWO same-origin candidates appear — that is ambiguity', async () => {
+    const { svc, added, removed } = movedService({
+      pathExists: async () => false,
+      found: [
+        { path: NEW, originUrl: ORIGIN },
+        { path: '/home/mgw/bak_podium', originUrl: ORIGIN },
+      ],
+    })
+    await svc.scan('vmi', { deep: false })
+    expect(removed, 'picked one of two candidates instead of asking').toEqual([])
+    expect(added).toEqual([])
+  })
+
+  it('REFUSES to move when the probe cannot answer — unreachable is not gone', async () => {
+    const { svc, added, removed } = movedService({
+      pathExists: async () => {
+        throw new Error('daemon unreachable')
+      },
+    })
+    await svc.scan('vmi', { deep: false })
+    expect(removed).toEqual([])
+    expect(added).toEqual([])
+  })
+
+  it('does nothing at all when no probe is wired — the heal is opt-in', async () => {
+    const rows = [row('vmi', OLD, ORIGIN)]
+    const removed: Array<{ path: string }> = []
+    const svc = new MachineRepoDiscovery({
+      listRepos: () => rows,
+      addRepo: () => {},
+      removeRepo: (path) => {
+        removed.push({ path })
+      },
+      scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
+      machineName: (id) => `name:${id}`,
+      localMachineId: 'local',
+    })
+    await svc.scan('vmi', { deep: false })
+    expect(removed).toEqual([])
+  })
+
+  it('never probes a repo the scan DID find — the probe is a round trip', async () => {
+    const probed: string[] = []
+    const rows = [row('vmi', NEW, ORIGIN)]
+    const svc = new MachineRepoDiscovery({
+      listRepos: () => rows,
+      addRepo: () => {},
+      removeRepo: () => {},
+      pathExists: async (path) => {
+        probed.push(path)
+        return true
+      },
+      scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
+      machineName: (id) => `name:${id}`,
+      localMachineId: 'local',
+    })
+    await svc.scan('vmi', { deep: false })
+    expect(probed).toEqual([])
+  })
+})
