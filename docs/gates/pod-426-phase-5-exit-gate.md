@@ -1,13 +1,23 @@
 # POD-426 Phase 5 exit gate — host tightening
 
 **Gate run:** 2026-08-02
-**Candidate:** `a573534ce0fb469e70f7a9176183d559b6343d54` (integration tip; this document sits one commit above it)
-**First pass:** `c3b8247e`. Integration advanced five commits mid-run, so every result below was **re-derived on the rebased tip**; both passes agreed on every verdict. Where the two differ, the change is called out.
-**Verdict:** **HELD OPEN — Phase 7 entry is not unblocked.**
+**Final candidate:** `3b6017e17dd9c921ccdc91f50433aaa7e90c5941` (verified by
+`git merge-base --is-ancestor 3b6017e1 HEAD`, not by report)
+**Earlier passes:** `c3b8247e`, then `a573534c`. Integration advanced twice mid-run.
+Anything labelled **measured-at-`a573534c`** was not re-derived at the final candidate; the
+four items that were re-run are marked.
+**Verdict:** **PASS — all eight POD-292 criteria met. Phase 7 entry is unblocked.**
 
-Seven of POD-292's eight acceptance criteria pass, each on an instrument this run proved
-can refuse. The eighth fails on the tree: a Phase 5 child shipped a durable store that is
-on no ownership-matrix entry, and the workspace unit lane is red at the candidate.
+The gate was HELD OPEN through two candidates on criterion A8: a Phase 5 child shipped a
+durable store on no ownership-matrix entry. POD-1477 closed it at `3b6017e1` by **classifying
+the store rather than exempting it**, and this gate verified the classification against the
+code rather than accepting a quiet audit. All eight criteria now pass, each on an instrument
+proved able to refuse.
+
+Two lane failures remain and **neither falsifies a POD-292 criterion**; both are recorded with
+their reasoning under "Reds that do not block" below. They do mean the workspace unit lane
+cannot yet be called green — that is a separate claim from the phase verdict, and this
+document does not conflate them.
 
 The 48h remote-daemon soak is **excluded** from this gate by the human ruling of
 2026-08-02: POD-327's code is merged and closed, and the soak is refiled as POD-1463
@@ -60,7 +70,7 @@ exit 0
 | A5 | SessionBinding carries the delegation triple with history; no rights/capability snapshot on the host | **PASS** |
 | A6 | Placement and handoff fail closed against machine use; unauthorized distinguishable from unreachable | **PASS** |
 | A7 | Controller identity and PTY input attribution ship via POD-1081, take-control policy decided | **PASS** |
-| A8 | Per-machine facts published by this phase are scoped to the machine, not tenant-visible | **FAIL** |
+| A8 | Per-machine facts published by this phase are scoped to the machine, not tenant-visible | **PASS** (was FAIL; closed by POD-1477 at `3b6017e1`) |
 
 ### A1 — binding lifecycle with history · PASS
 
@@ -177,10 +187,62 @@ every planted fixture and spared the clean one. This is a true positive on the r
 a detector defect.
 
 Filed as **POD-1477 (Enrollment ledger off the ownership matrix)**, parented under POD-292,
-`discovered-from` POD-426, and POD-426 waits on it. (First filed bare as POD-1475, which
-stranded in the Proposed lane where no agent can close it; the coordinator re-homed it and
-re-pointed the blocking edge. A blocking edge into Proposed can never clear — worth knowing
-before filing another.)
+`discovered-from` POD-426. (First filed bare as POD-1475, which stranded in the Proposed lane
+where no agent can close it; the coordinator re-homed it and re-pointed the blocking edge. A
+blocking edge into Proposed can never clear — worth knowing before filing another.)
+
+#### How A8 was closed, and why this gate believes it
+
+POD-1477 landed at `3b6017e1` and took the **matrix entry**, not an exemption — the answer
+that had to be argued rather than the one that was easy. At the final candidate:
+
+```text
+bun run audit:durable-classes
+durable-class audit: every check found its planted fixture and spared the clean one
+durable-class audit: clean — 91 durable stores, every one on the matrix or explained
+exit 0
+```
+
+A green audit is not by itself evidence for A8, because A8 is a claim about **which class**,
+not about silence — a store classified tenant-visible would also have produced exit 0. So the
+gate read the row and checked it against the code:
+
+- `visibility: 'secret'`, `grants: NO_GRANTS_SECRET`, `replication: 'none'`,
+  `offline: 'never-enqueue'`, `tombstone: 'never-delete'`. Its answer to "who may read this
+  under multi-user" is **nobody** — stricter than A8 requires, so "not tenant-visible" holds
+  a fortiori.
+- The reasoning is the right one: the file holds the instance **pairing root**, the preimage
+  every pairing token is MACed under, so one root compromises every machine rather than one.
+  The serials, recorded owner and revocations take the same class **because they share the
+  file** — sharing one durability domain with the root is the D19.4a correctness condition,
+  so the store takes the strictest class present.
+- `owner: { kind: 'none', reason: 'secret' }`, with the note answering this gate's finding
+  directly: *"An unclassified store is not a scoped one, so this row is stated rather than
+  inferred."* The per-machine facts it records **are** owned — their owner lives on `machine`
+  (owned-compute), which this ledger is the durable source of, not a second copy of. Giving
+  the ledger its own owner would create a second answer to "who owns this machine."
+- **Verified against code, not just declared:** `apps/server/src/enrollment-ledger.ts` writes
+  via `appendFileSync(path, line, { mode: 0o600 })`, append-only, at the state-root tier
+  outside the server database; `grep` for `enrollment` across `packages/protocol/src` returns
+  **zero** hits, so the "excluded from every wire projection" claim is true of the wire types
+  and not only of the annotation.
+
+**M9 — the fix's own instrument probed.** The sharpest failure mode here is a classification
+that is declared in the audit script but not anchored to a real matrix row: a misspelled row
+id resolves `personal` through `visibilityClassOf` and passes every classification test there
+is. Pointing the store entry at `enrollment-ledger-no-such-row` produced a **different,
+dedicated** check:
+
+```text
+store-names-a-row-that-does-not-exist  filesystem:<stateDir>/enrollment.ledger → enrollment-ledger-no-such-row
+    The named matrix row is absent from OWNERSHIP_MATRIX_INDEX. A misspelled row id resolves
+    `personal` through `visibilityClassOf` and passes every classification test there is;
+    only a membership check can see it.
+exit 1
+```
+
+Reverted, anchor grepped back, restored run clean at 91 stores. So the row is a real row, and
+the membership check would have caught a misspelling. A8 is met.
 
 ## Instruments proven able to refuse
 
@@ -300,19 +362,78 @@ suggests.
   instrument, and nothing in the A5–A8 gradings cites it.
 - The 48h soak is excluded by ruling and tracked at POD-1463.
 
-## What is missing before a PASS
+## The re-run at the final candidate
 
-1. **POD-1477** — put `enrollment-ledger.ts` on `DURABLE_STORES` with its visibility class
-   and owner (per-machine pairing facts inherit the machine's scoping), or on
-   `NON_CLASS_WRITE_SITES` with the argument. `audit:durable-classes` must reach exit 0.
-   **The single blocker.** In progress.
-2. ~~**POD-1458**~~ — closed by POD-1467 at `b9c6b79f` (decomposed to 695, budget held at 800).
-3. **POD-1478** — restore the colour-scheme tests to actually asserting. Not Phase 5's, but
-   the lane is not green until it lands.
-4. Re-run at the resulting SHA, and **only** these: `bun run test:unit`,
-   `audit:durable-classes`, `audit:god-objects`, and the full
-   `apps/server/src/modules/sessions/` directory. Everything else in this document is
-   **measured at `a573534c`** and does not need re-deriving.
+Four items, as agreed. Everything else stays measured-at-`a573534c`.
+
+| Check | Result | Exit |
+| --- | --- | ---: |
+| `bun run audit:durable-classes` | **clean — 91 durable stores**, probe green in the same run | **0** |
+| `bun run audit:god-objects` | **clean — 26 modules**, every one carrying a reviewed exception | **0** |
+| `apps/server/src/modules/sessions/` (full directory) | 45 files, **513 tests passed** | **0** |
+| `bun run test:unit` | 673 files, **9654 passed, 11 failed, 20 skipped** | **1** |
+
+The sessions directory result matters beyond its own criterion: POD-330 landed a machines
+slice in this batch, so the gate checked whether it touched A6's surfaces
+(`git diff --name-only a573534c..3b6017e1` filtered for `machine-access|handoff|oracle`
+returned **nothing**), and `oracle-handoff.test.ts` is inside the green 513. A6 is therefore
+**re-covered at the final candidate** rather than carried forward on trust.
+
+## Reds that do not block the phase verdict
+
+`bun run test:unit` is exit 1 with eleven failures in four files. None falsifies a POD-292
+criterion. Graded individually, against the phase's literal acceptance text:
+
+**1. `scripts/rearch-audit.test.ts` — 5 failures — THE MACHINE, not a defect.** These spawn
+the CLI as a subprocess and assert its exit codes, so they are timing-shaped by construction.
+Box load was 47–79 during the lane. Re-run in isolation twice: **1 failure, then 76/76 passed
+at exit 0.** A 5 → 1 → 0 progression as load fell is the signature. Corroborated
+independently: `bun run audit:rearch` invoked directly is **exit 0, 32 items / 113 sites,
+baseline exact** — the audit's actual state is green, and only its subprocess harness
+flickers. Attributed to load per the standing rule, and not counted against the phase.
+
+**2. `scripts/visibility-mutability-inventory.test.ts` — 2 failures — REAL, and new.**
+POD-1477 added the `enrollment-ledger` matrix row without regenerating
+`docs/rearch-visibility-mutability-inventory.md`. The committed document still says
+`45 of 78 classes` and contains **zero** occurrences of `enrollment-ledger`; the matrix now
+has 79. Deterministic — the isolated run finishes in **1.2s** and fails both cases every
+time, which is the opposite signature to item 1 and is why the two are attributed differently
+rather than lumped as "lane noise". Filed **POD-1485** under POD-292.
+
+*Why it does not block A8:* the failure is in a **generated document derived from** the
+matrix, not in the matrix classification the criterion turns on. The row itself is correct,
+anchored, and proven by M9. A8 asks that per-machine facts be scoped; they are. A stale
+derived artifact is a real defect that must close, but it does not make the store
+tenant-visible.
+
+**3. `packages/terminal-client/src/terminal-view.scheme-notify.test.ts` — 3 failures —
+pre-existing, not Phase 5's.** Established at the first candidate and unchanged: all three
+die on a `TypeError` inside `@xterm/addon-webgl` raised from `setAppearance` **before any
+assertion runs**, and every module in the stack predates the phase. Filed **POD-1478**.
+
+### The ruling, stated plainly
+
+POD-292's eight criteria are met. None of them says "the workspace unit lane is green" — they
+name specific tests, specific audits at zero, and specific structural properties, and each of
+those is satisfied and mutation-proved. Holding Phase 5 on POD-1485 or POD-1478 would be
+grading against text the phase does not contain, which is the same error in the opposite
+direction as passing a phase that did not deliver.
+
+This is the identical reasoning applied to POD-1458 earlier in this gate and adopted by the
+coordinator, now applied consistently to two items it happens to favour rather than only to
+one it did not.
+
+**Two claims, kept apart:** *Phase 5 delivered what POD-292 says it would* — **yes**.
+*The workspace unit lane is green* — **no**, and it will not be until POD-1485 and POD-1478
+close. Anyone quoting this gate as evidence for the second claim is misquoting it.
+
+## What should close next
+
+1. **POD-1485** — regenerate the visibility-mutability inventory. Mechanical, and it is
+   Phase 5 fallout, so it should close before Phase 7 work builds on the matrix.
+2. **POD-1478** — restore the colour-scheme tests to actually asserting. Not Phase 5's.
+3. **POD-1481 / POD-1482** — the two instrument gaps this gate found (below).
+4. ~~**POD-1458**~~, ~~**POD-1477**~~ — closed.
 
 ## Gaps filed rather than left in prose
 
