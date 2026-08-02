@@ -78,6 +78,8 @@ export interface EventMap {
   /** Agent mail was sent to an issue (issue #103) — the sessions module picks a
    *  live member session to nudge. */
   'issue.mailSent': { seq: number; worktreePath?: string }
+  /** Durable refusal committed; sender notification is an asynchronous nudge. */
+  'message.deadLettered': { messageId: string; reason: string }
   /** The hub-reachability flag flipped (spec §2.3) — the conversation and issue
    *  mirrors rebroadcast their stale overlays on this. */
   'upstream.staleChanged': { stale: boolean }

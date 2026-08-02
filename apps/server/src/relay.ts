@@ -57,6 +57,7 @@ import { DaemonRequestBroker, DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
+import { QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS, MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { TelegramNoticePort } from './modules/messaging/types'
@@ -593,15 +594,91 @@ export class SessionRegistry {
       readTranscriptFromLake: (session, input) =>
         conversations.readTranscriptFromLake(session, input),
     })
+    const capabilityForLiveSession = (sessionId: SessionId) => {
+      const session = liveSessions.get(sessionId)
+      if (!session) return { role: 'worker', scope: { kind: 'none' } } as const
+      const issueId = session.issueId ?? issueAccess.issueForCwd(session.cwd)
+      return issueId
+        ? {
+            role: 'worker' as const,
+            scope: { kind: 'subtree' as const, rootId: issueId },
+            actorSessionId: sessionId,
+            onBehalfOf: session.ownerUserId,
+          }
+        : {
+            role: 'worker' as const,
+            scope: { kind: 'none' as const },
+            actorSessionId: sessionId,
+            onBehalfOf: session.ownerUserId,
+          }
+    }
+    const liveSessionOwnership = (sessionId: SessionId) => {
+      const session = liveSessions.get(sessionId)
+      if (!session) return undefined
+      return {
+        owner: session.ownerUserId,
+        grants: this.store.grants
+          .listForResource('session', sessionId)
+          .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+          .map((edge) => edge.grantee),
+      }
+    }
+    const mail = principalMailPolicy({
+      principalForCapability,
+      principalForMessage: (message) => {
+        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
+        if (message.fromSession) {
+          try {
+            return principalForCapability(capabilityForLiveSession(message.fromSession))
+          } catch {
+            return undefined
+          }
+        }
+        if (!message.attribution?.onBehalfOf) return undefined
+        const userId = asUserId(message.attribution?.onBehalfOf)
+        const role = this.store.users.roleOf(userId)
+        return role ? userCommandPrincipal(userId, role) : undefined
+      },
+      policyFor: (principal) => {
+        const userId = onBehalfOfUser(principal)
+        return {
+          ceiling: {
+            canSee: (ref) => {
+              if (principal.kind === 'system') return true
+              if (userId === null) return false
+              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
+              if (ref.kind === 'session') {
+                const owner = liveSessionOwnership(asSessionId(ref.id))
+                return owner?.owner === userId || owner?.grants.includes(userId) === true
+              }
+              return false
+            },
+          },
+          machines: {
+            mayUse: (machineId) =>
+              principal.kind === 'system' ||
+              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
+            isReachable: (machineId) => machines.hasDaemon(machineId),
+          },
+        }
+      },
+    })
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
+    const queuedMessageApply = new QueuedMessageApply({
+      messages: this.store.messages,
+      events: this.store.events,
+      authorize: mail.authorizeAtApply,
+      bus: this.bus,
+      now: () => new Date(this.now()).toISOString(),
+    })
     const sessionsSvc = new SessionLifecycle({
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
-      authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
-      rejectQueuedMessage: (messageId, reason) => messagesSvc.rejectQueuedInput(messageId, reason),
+      authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
+      rejectQueuedMessage: (messageId, reason) => queuedMessageApply.reject(messageId, reason),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -800,46 +877,6 @@ export class SessionRegistry {
     // rejection path (ADR 3 D8 / Amendment 1 D16) is now LIVE end to end rather
     // than only unit-tested against the handler, so POD-1075's real ceiling
     // arrives at a composition root that already carries it.
-    const mail = principalMailPolicy({
-      principalForCapability,
-      principalForMessage: (message) => {
-        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
-        if (message.fromSession) {
-          try {
-            return principalForCapability(sessionsSvc.capabilityForSession(message.fromSession))
-          } catch {
-            return undefined
-          }
-        }
-        if (!message.attribution?.onBehalfOf) return undefined
-        const userId = asUserId(message.attribution?.onBehalfOf)
-        const role = this.store.users.roleOf(userId)
-        return role ? userCommandPrincipal(userId, role) : undefined
-      },
-      policyFor: (principal) => {
-        const userId = onBehalfOfUser(principal)
-        return {
-          ceiling: {
-            canSee: (ref) => {
-              if (principal.kind === 'system') return true
-              if (userId === null) return false
-              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
-              if (ref.kind === 'session') {
-                const owner = sessionsSvc.sessionOwner(asSessionId(ref.id))
-                return owner?.owner === userId || owner?.grants.includes(userId) === true
-              }
-              return false
-            },
-          },
-          machines: {
-            mayUse: (machineId) =>
-              principal.kind === 'system' ||
-              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
-            isReachable: (machineId) => machines.hasDaemon(machineId),
-          },
-        }
-      },
-    })
     const messagesSvc = new MessageDeliveryService({
       authorizeAtApply: mail.authorizeAtApply,
       messages: this.store.messages,
@@ -873,6 +910,9 @@ export class SessionRegistry {
       machineName: (id) => machines.listMachines().find((m) => m.id === id)?.name ?? id,
       now: () => new Date(this.now()).toISOString(),
     })
+    this.bus.on('message.deadLettered', ({ messageId, reason }) =>
+      messagesSvc.notifyQueuedInputRejected(messageId, reason),
+    )
     // Event-complete delivery eligibility [spec:SP-c29e]: every durable session
     // or issue metadata transition lands here after commit. Session upserts cover
     // bind/live, resume-ref, attachment/CWD and draft changes; issue upserts cover
