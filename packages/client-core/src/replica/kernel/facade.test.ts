@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryStorage } from '../replica'
 import { createKernelReplica, type KernelCacheRead } from './facade'
 import { entityForKind, kindForEntity, rowKey } from './kinds'
-import { createSideCache } from './side-cache'
+import { createSideCache, OutboxNotDurableError } from './side-cache'
 
 /** A cache the test drives directly. The kernel Replica writes through the real
  *  one; this facade only ever READS, so a read-only double is the whole port. */
@@ -597,8 +597,113 @@ describe('the side cache', () => {
         enumerateKeys: () => [],
         onDegraded: (error) => degraded.push(error),
       })
-      expect(() => side.outboxStorage().save([entry])).toThrow(/QuotaExceeded/)
+      expect(() => side.outboxStorage().save([entry])).toThrow(OutboxNotDurableError)
       expect(degraded).toHaveLength(1)
+      expect((degraded[0] as OutboxNotDurableError).cause).toMatchObject({
+        name: 'QuotaExceededError',
+      })
+    })
+
+    it('NAMES the writes that are not durable, rather than saying they MAY be lost', () => {
+      // POD-785 watched the ambiguous form fire in a real client: "queued offline
+      // writes MAY be LOST on reload". It names no mutation and cannot be told
+      // apart from a run that lost nothing, so a reader can do nothing with it.
+      // The property under test is that the report is DETERMINATE — which writes
+      // are on disk, which are not.
+      const storage = denyingStorage(() => false)
+      const side = createSideCache({ storage, enumerateKeys: () => [] })
+      side.outboxStorage().save([entry, { ...entry, mutationId: 'm2' }])
+
+      // Now the store refuses, and a third write is attempted over the two that
+      // are already durable.
+      const degraded: unknown[] = []
+      const denying = {
+        ...storage,
+        setItem: (k: string, v: string) => {
+          if (k.includes('outbox')) {
+            const error = new Error('QuotaExceededError')
+            error.name = 'QuotaExceededError'
+            throw error
+          }
+          storage.setItem(k, v)
+        },
+      }
+      const side2 = createSideCache({
+        storage: denying,
+        enumerateKeys: () => [],
+        onDegraded: (error) => degraded.push(error),
+      })
+      expect(() =>
+        side2
+          .outboxStorage()
+          .save([entry, { ...entry, mutationId: 'm2' }, { ...entry, mutationId: 'm3' }]),
+      ).toThrow(OutboxNotDurableError)
+
+      const failure = degraded[0] as OutboxNotDurableError
+      expect(failure.notDurable).toEqual(['m3'])
+      expect(failure.durable).toEqual(['m1', 'm2'])
+      expect(failure.message).toContain('1 of 3')
+      expect(failure.message).toContain('m3')
+      expect(failure.message).not.toContain('may be LOST')
+    })
+
+    it('BOUNDS the loss: entries already on disk survive a refused rewrite', () => {
+      // The blob is rewritten WHOLESALE, which invites the reading that a quota
+      // failure takes the entire queue with it. Measured here rather than
+      // assumed: setItem throws and leaves the previous value in place, so the
+      // shortfall is exactly the entries the failed write was adding. This is
+      // what licenses `notDurable` being a diff rather than "everything".
+      const storage = denyingStorage(() => false)
+      const side = createSideCache({ storage, enumerateKeys: () => [] })
+      side.outboxStorage().save([entry, { ...entry, mutationId: 'm2' }])
+      const denying = {
+        ...storage,
+        setItem: (k: string, v: string) => {
+          if (k.includes('outbox')) throw new Error('QuotaExceededError')
+          storage.setItem(k, v)
+        },
+      }
+      const side2 = createSideCache({ storage: denying, enumerateKeys: () => [] })
+      expect(() =>
+        side2.outboxStorage().save([entry, { ...entry, mutationId: 'm2' }, { ...entry, mutationId: 'm3' }]),
+      ).toThrow()
+      // The reload's view: the two that were durable are still there.
+      expect(
+        createSideCache({ storage, enumerateKeys: () => [] })
+          .outboxStorage()
+          .load()
+          .map((e) => e.mutationId),
+      ).toEqual(['m1', 'm2'])
+    })
+
+    it('an UNREADABLE store reports every entry as unaccounted for, not as durable', () => {
+      // The read-back that makes the report determinate must not itself become a
+      // way to under-report: a store that refuses reads yields NOTHING durable,
+      // which is the honest reading, rather than an empty `notDurable` that would
+      // say the write was fine.
+      const degraded: unknown[] = []
+      // Readable during construction (the legacy fold reads before anything
+      // else), hostile from the first real write onward.
+      let hostileNow = false
+      const hostile = createSideCache({
+        storage: {
+          getItem: (k: string) => {
+            if (hostileNow && k.includes('outbox')) throw new Error('SecurityError')
+            return null
+          },
+          setItem: (k: string) => {
+            if (hostileNow && k.includes('outbox')) throw new Error('QuotaExceededError')
+          },
+          removeItem: () => {},
+        },
+        enumerateKeys: () => [],
+        onDegraded: (error) => degraded.push(error),
+      })
+      hostileNow = true
+      expect(() => hostile.outboxStorage().save([entry])).toThrow(OutboxNotDurableError)
+      const failure = degraded.at(-1) as OutboxNotDurableError
+      expect(failure.notDurable).toEqual(['m1'])
+      expect(failure.durable).toEqual([])
     })
 
     it('the awaiting-truth stage is held to the same standard', () => {
@@ -608,7 +713,7 @@ describe('the side cache', () => {
         enumerateKeys: () => [],
         onDegraded: (error) => degraded.push(error),
       })
-      expect(() => side.outboxAwaitingStorage().save([entry])).toThrow(/QuotaExceeded/)
+      expect(() => side.outboxAwaitingStorage().save([entry])).toThrow(OutboxNotDurableError)
       expect(degraded).toHaveLength(1)
     })
 

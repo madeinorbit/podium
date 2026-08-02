@@ -215,6 +215,36 @@ describe('storage-neutral outbox', () => {
     off()
   })
 
+  it('notifies subscribers even when the DURABLE write refused (POD-1231)', () => {
+    // Measured on the kernel side cache at a real byte ceiling: five entries in
+    // memory, four notifications, four rows on disk. `save()` threw and the
+    // notification sat AFTER it, so the one entry nobody could be told about was
+    // the one that needed telling — every count derived from this subscription
+    // omitted a write that existed.
+    //
+    // The size reported is the IN-MEMORY one, which is the true one: the entry
+    // is queued and will still drain this session. Durability is the separate
+    // claim, and it still fails loudly — the throw below is asserted, not
+    // swallowed, because a caller must not believe the write is safe.
+    const sizes: number[] = []
+    const ob = make({
+      isOnline: () => false,
+      storage: {
+        load: () => [],
+        save: (entries) => {
+          if (entries.length > 1) throw new Error('QuotaExceededError')
+        },
+      },
+    })
+    ob.subscribe((n) => sizes.push(n))
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    expect(() => ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })).toThrow(
+      /QuotaExceeded/,
+    )
+    expect(sizes).toEqual([1, 2])
+    expect(ob.size()).toBe(2)
+  })
+
   it('onApplied fires after the executor resolves, BEFORE subscribers observe the shrunken queue', async () => {
     const events: string[] = []
     const { executors } = makeExecutors()
