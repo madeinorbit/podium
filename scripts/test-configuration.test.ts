@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
+import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
+import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
@@ -56,6 +58,16 @@ const namedProject = (value: unknown, name: string) => {
   return project
 }
 const nodeProject = (value: unknown) => namedProject(value, 'node')
+const webServerCommand = (value: unknown): string => {
+  const webServer = (value as { webServer?: unknown }).webServer
+  const server = Array.isArray(webServer) ? webServer[0] : webServer
+  if (!server || typeof server !== 'object' || !('command' in server)) {
+    throw new Error('Playwright webServer command is missing')
+  }
+  const command = server.command
+  if (typeof command !== 'string') throw new Error('Playwright webServer command is not a string')
+  return command
+}
 
 describe('test lane configuration', () => {
   it('never collects ignored nested worktrees', () => {
@@ -68,9 +80,7 @@ describe('test lane configuration', () => {
       './test-hermetic-vitest-hooks.ts',
     ])
     const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
-    expect(bunfig).toContain(
-      'preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]',
-    )
+    expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')
   })
 
   it('keeps retries out of the default project and scopes them to integration', () => {
@@ -160,6 +170,19 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
+  })
+
+  it('builds browser workspace dependencies in cold-checkout order [POD-1389]', () => {
+    // Inspect the configured commands rather than the filesystem. A model dist
+    // borrowed from this or a neighboring checkout must not make this guard green.
+    const modelBuild = 'bun run --filter @podium/model build'
+    const protocolBuild = 'bun run --filter @podium/protocol build'
+    for (const playwright of [browserConfig, phase3BrowserConfig]) {
+      const command = webServerCommand(playwright)
+      expect(command).toContain(modelBuild)
+      expect(command).toContain(protocolBuild)
+      expect(command.indexOf(modelBuild)).toBeLessThan(command.indexOf(protocolBuild))
+    }
   })
 
   it('keeps every browser suite reachable from a script and a CI job [POD-1227]', () => {
