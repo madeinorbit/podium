@@ -517,6 +517,11 @@ export class WorkflowService implements WorkflowEngine {
       status: row.status,
       supersedesRunId: row.supersedesRunId,
       steps: this.deps.store.getRunSteps(row.id),
+      // The attribution PAIR for every recorded act on this run (readiness
+      // §3.1.3 A3). Projected HERE, at the one place a run becomes a wire, so
+      // the surfaces that display it cannot diverge on where it came from — and
+      // so it can never be supplied by a caller.
+      history: this.deps.store.listRunEvents(row.id),
       startedAt: row.startedAt,
       completedAt: row.completedAt,
     }

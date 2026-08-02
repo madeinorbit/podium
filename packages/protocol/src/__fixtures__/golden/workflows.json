@@ -215,10 +215,12 @@
         "message": "message",
         "warnings": []
       },
-      "parseAdded": {},
+      "parseAdded": {
+        "run.history": []
+      },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"run\":{\"id\":\"run.id\",\"subjectKind\":\"issue\",\"subjectId\":\"run.subjectId\",\"coordinatorSessionId\":\"run.coordinatorSessionId\",\"revision\":{\"id\":\"run.revision.id\",\"workflowId\":\"run.revision.workflowId\",\"version\":1,\"instructions\":\"run.revision.instructions\",\"steps\":[],\"createdAt\":\"run.revision.createdAt\",\"publishedAt\":null},\"status\":\"active\",\"supersedesRunId\":null,\"steps\":[],\"startedAt\":\"run.startedAt\",\"completedAt\":null},\"currentStep\":null,\"nextStep\":null,\"message\":\"message\",\"warnings\":[]}"
+      "encoded": "{\"run\":{\"id\":\"run.id\",\"subjectKind\":\"issue\",\"subjectId\":\"run.subjectId\",\"coordinatorSessionId\":\"run.coordinatorSessionId\",\"revision\":{\"id\":\"run.revision.id\",\"workflowId\":\"run.revision.workflowId\",\"version\":1,\"instructions\":\"run.revision.instructions\",\"steps\":[],\"createdAt\":\"run.revision.createdAt\",\"publishedAt\":null},\"status\":\"active\",\"supersedesRunId\":null,\"steps\":[],\"history\":[],\"startedAt\":\"run.startedAt\",\"completedAt\":null},\"currentStep\":null,\"nextStep\":null,\"message\":\"message\",\"warnings\":[]}"
     },
     {
       "schema": "WorkflowNextActionWire",
@@ -289,6 +291,15 @@
               "warnings": ["run.steps[0].warnings[0]"],
               "startedAt": "run.steps[0].startedAt",
               "completedAt": "run.steps[0].completedAt"
+            }
+          ],
+          "history": [
+            {
+              "kind": "run.history[0].kind",
+              "actorKind": "run.history[0].actorKind",
+              "actorId": "run.history[0].actorId",
+              "onBehalfOf": "run.history[0].onBehalfOf",
+              "createdAt": "run.history[0].createdAt"
             }
           ],
           "startedAt": "run.startedAt",
@@ -382,7 +393,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"run\":{\"id\":\"run.id\",\"subjectKind\":\"issue\",\"subjectId\":\"run.subjectId\",\"coordinatorSessionId\":\"run.coordinatorSessionId\",\"revision\":{\"id\":\"run.revision.id\",\"workflowId\":\"run.revision.workflowId\",\"version\":1,\"instructions\":\"run.revision.instructions\",\"steps\":[{\"id\":\"run.revision.steps[0].id\",\"title\":\"run.revision.steps[0].title\",\"instructions\":\"run.revision.steps[0].instructions\",\"completionGuidance\":\"run.revision.steps[0].completionGuidance\",\"executionProfileId\":\"run.revision.steps[0].executionProfileId\"}],\"createdAt\":\"run.revision.createdAt\",\"publishedAt\":\"run.revision.publishedAt\"},\"status\":\"active\",\"supersedesRunId\":\"run.supersedesRunId\",\"steps\":[{\"stepId\":\"run.steps[0].stepId\",\"position\":1,\"title\":\"run.steps[0].title\",\"instructions\":\"run.steps[0].instructions\",\"completionGuidance\":\"run.steps[0].completionGuidance\",\"executionProfileId\":\"run.steps[0].executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"run.steps[0].executionProfileSnapshot.id\",\"name\":\"run.steps[0].executionProfileSnapshot.name\",\"accountId\":\"run.steps[0].executionProfileSnapshot.accountId\",\"machineId\":\"run.steps[0].executionProfileSnapshot.machineId\",\"harness\":\"run.steps[0].executionProfileSnapshot.harness\",\"model\":\"run.steps[0].executionProfileSnapshot.model\",\"effort\":\"run.steps[0].executionProfileSnapshot.effort\",\"createdAt\":\"run.steps[0].executionProfileSnapshot.createdAt\",\"updatedAt\":\"run.steps[0].executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"run.steps[0].assignedSessionId\",\"attempt\":1,\"summary\":\"run.steps[0].summary\",\"evidence\":{\"summary\":\"run.steps[0].evidence.summary\",\"tests\":[\"run.steps[0].evidence.tests[0]\"],\"artifacts\":[\"run.steps[0].evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"run.steps[0].observation.cwd\",\"worktree\":\"run.steps[0].observation.worktree\",\"branch\":\"run.steps[0].observation.branch\",\"head\":\"run.steps[0].observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"run.steps[0].observation.observedAt\"},\"warnings\":[\"run.steps[0].warnings[0]\"],\"startedAt\":\"run.steps[0].startedAt\",\"completedAt\":\"run.steps[0].completedAt\"}],\"startedAt\":\"run.startedAt\",\"completedAt\":\"run.completedAt\"},\"currentStep\":{\"stepId\":\"currentStep.stepId\",\"position\":1,\"title\":\"currentStep.title\",\"instructions\":\"currentStep.instructions\",\"completionGuidance\":\"currentStep.completionGuidance\",\"executionProfileId\":\"currentStep.executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"currentStep.executionProfileSnapshot.id\",\"name\":\"currentStep.executionProfileSnapshot.name\",\"accountId\":\"currentStep.executionProfileSnapshot.accountId\",\"machineId\":\"currentStep.executionProfileSnapshot.machineId\",\"harness\":\"currentStep.executionProfileSnapshot.harness\",\"model\":\"currentStep.executionProfileSnapshot.model\",\"effort\":\"currentStep.executionProfileSnapshot.effort\",\"createdAt\":\"currentStep.executionProfileSnapshot.createdAt\",\"updatedAt\":\"currentStep.executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"currentStep.assignedSessionId\",\"attempt\":1,\"summary\":\"currentStep.summary\",\"evidence\":{\"summary\":\"currentStep.evidence.summary\",\"tests\":[\"currentStep.evidence.tests[0]\"],\"artifacts\":[\"currentStep.evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"currentStep.observation.cwd\",\"worktree\":\"currentStep.observation.worktree\",\"branch\":\"currentStep.observation.branch\",\"head\":\"currentStep.observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"currentStep.observation.observedAt\"},\"warnings\":[\"currentStep.warnings[0]\"],\"startedAt\":\"currentStep.startedAt\",\"completedAt\":\"currentStep.completedAt\"},\"nextStep\":{\"stepId\":\"nextStep.stepId\",\"position\":1,\"title\":\"nextStep.title\",\"instructions\":\"nextStep.instructions\",\"completionGuidance\":\"nextStep.completionGuidance\",\"executionProfileId\":\"nextStep.executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"nextStep.executionProfileSnapshot.id\",\"name\":\"nextStep.executionProfileSnapshot.name\",\"accountId\":\"nextStep.executionProfileSnapshot.accountId\",\"machineId\":\"nextStep.executionProfileSnapshot.machineId\",\"harness\":\"nextStep.executionProfileSnapshot.harness\",\"model\":\"nextStep.executionProfileSnapshot.model\",\"effort\":\"nextStep.executionProfileSnapshot.effort\",\"createdAt\":\"nextStep.executionProfileSnapshot.createdAt\",\"updatedAt\":\"nextStep.executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"nextStep.assignedSessionId\",\"attempt\":1,\"summary\":\"nextStep.summary\",\"evidence\":{\"summary\":\"nextStep.evidence.summary\",\"tests\":[\"nextStep.evidence.tests[0]\"],\"artifacts\":[\"nextStep.evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"nextStep.observation.cwd\",\"worktree\":\"nextStep.observation.worktree\",\"branch\":\"nextStep.observation.branch\",\"head\":\"nextStep.observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"nextStep.observation.observedAt\"},\"warnings\":[\"nextStep.warnings[0]\"],\"startedAt\":\"nextStep.startedAt\",\"completedAt\":\"nextStep.completedAt\"},\"message\":\"message\",\"warnings\":[\"warnings[0]\"]}"
+      "encoded": "{\"run\":{\"id\":\"run.id\",\"subjectKind\":\"issue\",\"subjectId\":\"run.subjectId\",\"coordinatorSessionId\":\"run.coordinatorSessionId\",\"revision\":{\"id\":\"run.revision.id\",\"workflowId\":\"run.revision.workflowId\",\"version\":1,\"instructions\":\"run.revision.instructions\",\"steps\":[{\"id\":\"run.revision.steps[0].id\",\"title\":\"run.revision.steps[0].title\",\"instructions\":\"run.revision.steps[0].instructions\",\"completionGuidance\":\"run.revision.steps[0].completionGuidance\",\"executionProfileId\":\"run.revision.steps[0].executionProfileId\"}],\"createdAt\":\"run.revision.createdAt\",\"publishedAt\":\"run.revision.publishedAt\"},\"status\":\"active\",\"supersedesRunId\":\"run.supersedesRunId\",\"steps\":[{\"stepId\":\"run.steps[0].stepId\",\"position\":1,\"title\":\"run.steps[0].title\",\"instructions\":\"run.steps[0].instructions\",\"completionGuidance\":\"run.steps[0].completionGuidance\",\"executionProfileId\":\"run.steps[0].executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"run.steps[0].executionProfileSnapshot.id\",\"name\":\"run.steps[0].executionProfileSnapshot.name\",\"accountId\":\"run.steps[0].executionProfileSnapshot.accountId\",\"machineId\":\"run.steps[0].executionProfileSnapshot.machineId\",\"harness\":\"run.steps[0].executionProfileSnapshot.harness\",\"model\":\"run.steps[0].executionProfileSnapshot.model\",\"effort\":\"run.steps[0].executionProfileSnapshot.effort\",\"createdAt\":\"run.steps[0].executionProfileSnapshot.createdAt\",\"updatedAt\":\"run.steps[0].executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"run.steps[0].assignedSessionId\",\"attempt\":1,\"summary\":\"run.steps[0].summary\",\"evidence\":{\"summary\":\"run.steps[0].evidence.summary\",\"tests\":[\"run.steps[0].evidence.tests[0]\"],\"artifacts\":[\"run.steps[0].evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"run.steps[0].observation.cwd\",\"worktree\":\"run.steps[0].observation.worktree\",\"branch\":\"run.steps[0].observation.branch\",\"head\":\"run.steps[0].observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"run.steps[0].observation.observedAt\"},\"warnings\":[\"run.steps[0].warnings[0]\"],\"startedAt\":\"run.steps[0].startedAt\",\"completedAt\":\"run.steps[0].completedAt\"}],\"history\":[{\"kind\":\"run.history[0].kind\",\"actorKind\":\"run.history[0].actorKind\",\"actorId\":\"run.history[0].actorId\",\"onBehalfOf\":\"run.history[0].onBehalfOf\",\"createdAt\":\"run.history[0].createdAt\"}],\"startedAt\":\"run.startedAt\",\"completedAt\":\"run.completedAt\"},\"currentStep\":{\"stepId\":\"currentStep.stepId\",\"position\":1,\"title\":\"currentStep.title\",\"instructions\":\"currentStep.instructions\",\"completionGuidance\":\"currentStep.completionGuidance\",\"executionProfileId\":\"currentStep.executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"currentStep.executionProfileSnapshot.id\",\"name\":\"currentStep.executionProfileSnapshot.name\",\"accountId\":\"currentStep.executionProfileSnapshot.accountId\",\"machineId\":\"currentStep.executionProfileSnapshot.machineId\",\"harness\":\"currentStep.executionProfileSnapshot.harness\",\"model\":\"currentStep.executionProfileSnapshot.model\",\"effort\":\"currentStep.executionProfileSnapshot.effort\",\"createdAt\":\"currentStep.executionProfileSnapshot.createdAt\",\"updatedAt\":\"currentStep.executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"currentStep.assignedSessionId\",\"attempt\":1,\"summary\":\"currentStep.summary\",\"evidence\":{\"summary\":\"currentStep.evidence.summary\",\"tests\":[\"currentStep.evidence.tests[0]\"],\"artifacts\":[\"currentStep.evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"currentStep.observation.cwd\",\"worktree\":\"currentStep.observation.worktree\",\"branch\":\"currentStep.observation.branch\",\"head\":\"currentStep.observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"currentStep.observation.observedAt\"},\"warnings\":[\"currentStep.warnings[0]\"],\"startedAt\":\"currentStep.startedAt\",\"completedAt\":\"currentStep.completedAt\"},\"nextStep\":{\"stepId\":\"nextStep.stepId\",\"position\":1,\"title\":\"nextStep.title\",\"instructions\":\"nextStep.instructions\",\"completionGuidance\":\"nextStep.completionGuidance\",\"executionProfileId\":\"nextStep.executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"nextStep.executionProfileSnapshot.id\",\"name\":\"nextStep.executionProfileSnapshot.name\",\"accountId\":\"nextStep.executionProfileSnapshot.accountId\",\"machineId\":\"nextStep.executionProfileSnapshot.machineId\",\"harness\":\"nextStep.executionProfileSnapshot.harness\",\"model\":\"nextStep.executionProfileSnapshot.model\",\"effort\":\"nextStep.executionProfileSnapshot.effort\",\"createdAt\":\"nextStep.executionProfileSnapshot.createdAt\",\"updatedAt\":\"nextStep.executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"nextStep.assignedSessionId\",\"attempt\":1,\"summary\":\"nextStep.summary\",\"evidence\":{\"summary\":\"nextStep.evidence.summary\",\"tests\":[\"nextStep.evidence.tests[0]\"],\"artifacts\":[\"nextStep.evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"nextStep.observation.cwd\",\"worktree\":\"nextStep.observation.worktree\",\"branch\":\"nextStep.observation.branch\",\"head\":\"nextStep.observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"nextStep.observation.observedAt\"},\"warnings\":[\"nextStep.warnings[0]\"],\"startedAt\":\"nextStep.startedAt\",\"completedAt\":\"nextStep.completedAt\"},\"message\":\"message\",\"warnings\":[\"warnings[0]\"]}"
     },
     {
       "schema": "WorkflowRevisionWire",
@@ -425,6 +436,36 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"workflowId\":\"workflowId\",\"version\":1,\"instructions\":\"instructions\",\"steps\":[{\"id\":\"steps[0].id\",\"title\":\"steps[0].title\",\"instructions\":\"steps[0].instructions\",\"completionGuidance\":\"steps[0].completionGuidance\",\"executionProfileId\":\"steps[0].executionProfileId\"}],\"createdAt\":\"createdAt\",\"publishedAt\":\"publishedAt\"}"
+    },
+    {
+      "schema": "WorkflowRunEventWire",
+      "variant": "minimal",
+      "wire": {
+        "kind": "kind",
+        "actorKind": "actorKind",
+        "actorId": null,
+        "onBehalfOf": null,
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"kind\",\"actorKind\":\"actorKind\",\"actorId\":null,\"onBehalfOf\":null,\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "WorkflowRunEventWire",
+      "variant": "full",
+      "wire": {
+        "kind": "kind",
+        "actorKind": "actorKind",
+        "actorId": "actorId",
+        "onBehalfOf": "onBehalfOf",
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"kind\",\"actorKind\":\"actorKind\",\"actorId\":\"actorId\",\"onBehalfOf\":\"onBehalfOf\",\"createdAt\":\"createdAt\"}"
     },
     {
       "schema": "WorkflowRunStatus",
@@ -564,10 +605,12 @@
         "startedAt": "startedAt",
         "completedAt": null
       },
-      "parseAdded": {},
+      "parseAdded": {
+        "history": []
+      },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"subjectKind\":\"issue\",\"subjectId\":\"subjectId\",\"coordinatorSessionId\":\"coordinatorSessionId\",\"revision\":{\"id\":\"revision.id\",\"workflowId\":\"revision.workflowId\",\"version\":1,\"instructions\":\"revision.instructions\",\"steps\":[],\"createdAt\":\"revision.createdAt\",\"publishedAt\":null},\"status\":\"active\",\"supersedesRunId\":null,\"steps\":[],\"startedAt\":\"startedAt\",\"completedAt\":null}"
+      "encoded": "{\"id\":\"id\",\"subjectKind\":\"issue\",\"subjectId\":\"subjectId\",\"coordinatorSessionId\":\"coordinatorSessionId\",\"revision\":{\"id\":\"revision.id\",\"workflowId\":\"revision.workflowId\",\"version\":1,\"instructions\":\"revision.instructions\",\"steps\":[],\"createdAt\":\"revision.createdAt\",\"publishedAt\":null},\"status\":\"active\",\"supersedesRunId\":null,\"steps\":[],\"history\":[],\"startedAt\":\"startedAt\",\"completedAt\":null}"
     },
     {
       "schema": "WorkflowRunWire",
@@ -639,13 +682,22 @@
             "completedAt": "steps[0].completedAt"
           }
         ],
+        "history": [
+          {
+            "kind": "history[0].kind",
+            "actorKind": "history[0].actorKind",
+            "actorId": "history[0].actorId",
+            "onBehalfOf": "history[0].onBehalfOf",
+            "createdAt": "history[0].createdAt"
+          }
+        ],
         "startedAt": "startedAt",
         "completedAt": "completedAt"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"subjectKind\":\"issue\",\"subjectId\":\"subjectId\",\"coordinatorSessionId\":\"coordinatorSessionId\",\"revision\":{\"id\":\"revision.id\",\"workflowId\":\"revision.workflowId\",\"version\":1,\"instructions\":\"revision.instructions\",\"steps\":[{\"id\":\"revision.steps[0].id\",\"title\":\"revision.steps[0].title\",\"instructions\":\"revision.steps[0].instructions\",\"completionGuidance\":\"revision.steps[0].completionGuidance\",\"executionProfileId\":\"revision.steps[0].executionProfileId\"}],\"createdAt\":\"revision.createdAt\",\"publishedAt\":\"revision.publishedAt\"},\"status\":\"active\",\"supersedesRunId\":\"supersedesRunId\",\"steps\":[{\"stepId\":\"steps[0].stepId\",\"position\":1,\"title\":\"steps[0].title\",\"instructions\":\"steps[0].instructions\",\"completionGuidance\":\"steps[0].completionGuidance\",\"executionProfileId\":\"steps[0].executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"steps[0].executionProfileSnapshot.id\",\"name\":\"steps[0].executionProfileSnapshot.name\",\"accountId\":\"steps[0].executionProfileSnapshot.accountId\",\"machineId\":\"steps[0].executionProfileSnapshot.machineId\",\"harness\":\"steps[0].executionProfileSnapshot.harness\",\"model\":\"steps[0].executionProfileSnapshot.model\",\"effort\":\"steps[0].executionProfileSnapshot.effort\",\"createdAt\":\"steps[0].executionProfileSnapshot.createdAt\",\"updatedAt\":\"steps[0].executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"steps[0].assignedSessionId\",\"attempt\":1,\"summary\":\"steps[0].summary\",\"evidence\":{\"summary\":\"steps[0].evidence.summary\",\"tests\":[\"steps[0].evidence.tests[0]\"],\"artifacts\":[\"steps[0].evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"steps[0].observation.cwd\",\"worktree\":\"steps[0].observation.worktree\",\"branch\":\"steps[0].observation.branch\",\"head\":\"steps[0].observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"steps[0].observation.observedAt\"},\"warnings\":[\"steps[0].warnings[0]\"],\"startedAt\":\"steps[0].startedAt\",\"completedAt\":\"steps[0].completedAt\"}],\"startedAt\":\"startedAt\",\"completedAt\":\"completedAt\"}"
+      "encoded": "{\"id\":\"id\",\"subjectKind\":\"issue\",\"subjectId\":\"subjectId\",\"coordinatorSessionId\":\"coordinatorSessionId\",\"revision\":{\"id\":\"revision.id\",\"workflowId\":\"revision.workflowId\",\"version\":1,\"instructions\":\"revision.instructions\",\"steps\":[{\"id\":\"revision.steps[0].id\",\"title\":\"revision.steps[0].title\",\"instructions\":\"revision.steps[0].instructions\",\"completionGuidance\":\"revision.steps[0].completionGuidance\",\"executionProfileId\":\"revision.steps[0].executionProfileId\"}],\"createdAt\":\"revision.createdAt\",\"publishedAt\":\"revision.publishedAt\"},\"status\":\"active\",\"supersedesRunId\":\"supersedesRunId\",\"steps\":[{\"stepId\":\"steps[0].stepId\",\"position\":1,\"title\":\"steps[0].title\",\"instructions\":\"steps[0].instructions\",\"completionGuidance\":\"steps[0].completionGuidance\",\"executionProfileId\":\"steps[0].executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"steps[0].executionProfileSnapshot.id\",\"name\":\"steps[0].executionProfileSnapshot.name\",\"accountId\":\"steps[0].executionProfileSnapshot.accountId\",\"machineId\":\"steps[0].executionProfileSnapshot.machineId\",\"harness\":\"steps[0].executionProfileSnapshot.harness\",\"model\":\"steps[0].executionProfileSnapshot.model\",\"effort\":\"steps[0].executionProfileSnapshot.effort\",\"createdAt\":\"steps[0].executionProfileSnapshot.createdAt\",\"updatedAt\":\"steps[0].executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"steps[0].assignedSessionId\",\"attempt\":1,\"summary\":\"steps[0].summary\",\"evidence\":{\"summary\":\"steps[0].evidence.summary\",\"tests\":[\"steps[0].evidence.tests[0]\"],\"artifacts\":[\"steps[0].evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"steps[0].observation.cwd\",\"worktree\":\"steps[0].observation.worktree\",\"branch\":\"steps[0].observation.branch\",\"head\":\"steps[0].observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"steps[0].observation.observedAt\"},\"warnings\":[\"steps[0].warnings[0]\"],\"startedAt\":\"steps[0].startedAt\",\"completedAt\":\"steps[0].completedAt\"}],\"history\":[{\"kind\":\"history[0].kind\",\"actorKind\":\"history[0].actorKind\",\"actorId\":\"history[0].actorId\",\"onBehalfOf\":\"history[0].onBehalfOf\",\"createdAt\":\"history[0].createdAt\"}],\"startedAt\":\"startedAt\",\"completedAt\":\"completedAt\"}"
     },
     {
       "schema": "WorkflowScope",

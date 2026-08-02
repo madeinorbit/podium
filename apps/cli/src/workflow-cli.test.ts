@@ -52,6 +52,9 @@ function run(status: WorkflowRunWire['status'] = 'active'): WorkflowRunWire {
     },
     status,
     supersedesRunId: null,
+    // POD-647: the run's recorded acts, each with its attribution pair. The CLI
+    // renders none of them; the fixture carries the field because the wire does.
+    history: [],
     steps: [
       {
         stepId: 'build',
