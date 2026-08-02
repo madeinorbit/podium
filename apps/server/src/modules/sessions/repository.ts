@@ -16,20 +16,22 @@ import { AgentKind } from '@podium/model'
  * overloading `null`.
  */
 export type SessionWirePrincipal = SessionStatePrincipal
+
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import { type ControlMessage, type MetadataChange } from '@podium/protocol'
-import { type EntityChangeSpec } from '@podium/sync'
-import { AutoContinueController } from '../../auto-continue'
+import type { ControlMessage, MetadataChange } from '@podium/protocol'
+import type { EntityChangeSpec } from '@podium/sync'
+import type { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
-import type { ObservationLeaseRecord, SessionRow, SessionStore } from '../../store'
+import type { SessionRow, SessionStore } from '../../store'
 import type { WriteFunnel } from '../funnel'
 import type { MemoryService } from '../memory/service'
-import { SessionPublicationCoordinator } from './publication/coordinator'
+import type { SessionLedger } from './lifecycle'
+import type { SessionObservationLeases } from './observation-leases'
+import type { SessionPublicationCoordinator } from './publication/coordinator'
 import type { SessionProjectionEvent } from './publish-worker-actor'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
-import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
-import { SessionView } from './view'
-import type { SessionLedger } from './lifecycle'
+import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
+import type { SessionView } from './view'
 
 export interface SessionRepositoryPorts {
   sessions: Map<SessionId, Session>
@@ -40,7 +42,7 @@ export interface SessionRepositoryPorts {
   funnel: WriteFunnel
   view: SessionView
   state: SessionStateService
-  observationLeases: Map<SessionId, ObservationLeaseRecord>
+  observationLeases: SessionObservationLeases
   autoContinue(): AutoContinueController
   toMachine(machineId: string, message: ControlMessage): void
   broadcastSessions(): void
@@ -82,7 +84,7 @@ export class SessionRepository {
   private get state(): SessionStateService {
     return this.ports.state
   }
-  private get observationLeases(): Map<SessionId, ObservationLeaseRecord> {
+  private get observationLeases(): SessionObservationLeases {
     return this.ports.observationLeases
   }
   private get autoContinue(): AutoContinueController {
@@ -421,10 +423,7 @@ export class SessionRepository {
   }
 
   loadFromStore(): void {
-    this.observationLeases.clear()
-    for (const lease of this.store.observationCheckpoints.loadAll()) {
-      this.observationLeases.set(lease.sessionId, lease)
-    }
+    this.observationLeases.hydrate(this.store.observationCheckpoints.loadAll())
 
     // Shared draft documents hydrate here; viewer rows remain lazy per principal.
     this.state.setDraftSyncEnabled(
@@ -436,7 +435,7 @@ export class SessionRepository {
       const session = this.sessionFromStoredRow(r, 'boot')
       if (!session) continue
       this.installStoredSession(session, offers)
-      const checkpoint = this.observationLeases.get(r.id)?.checkpoint
+      const checkpoint = this.observationLeases.checkpointOf(r.id)
       if (checkpoint) {
         session.applyObservationCheckpoint(checkpoint)
         // Only the current state of a durably accepted LIVE cursor may restore

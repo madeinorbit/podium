@@ -103,6 +103,16 @@ export const RepoOp = z.enum([
   'log',
   'branches',
   'revParseVerify',
+  // OBJECT TRANSFER BETWEEN MACHINES (POD-1405), the object half of what handoff
+  // does with a whole session package. A second machine cannot start work on a
+  // branch whose base is on NO shared remote — our integration branches never
+  // reach origin — so the commits have to move directly. `bundleCreate` writes a
+  // delta bundle into the daemon's own handoff stage; `bundleFetch` reads one
+  // that arrived there and fetches it into the target repository. Neither takes a
+  // filesystem path from the caller: both derive it from an opaque token, so the
+  // server names a TRANSFER, never a location on someone else's disk.
+  'bundleCreate',
+  'bundleFetch',
   'worktreeAdd',
   // stop→resume [spec:SP-9904]: re-materialize a worktree for an EXISTING branch
   // (no -b/-B). worktreeAdd always creates a new branch; this attaches the

@@ -1191,6 +1191,65 @@ describe('IssueService.start', () => {
     expect(svc.get(created.id)?.machineId).toBe('mach-b')
   })
 
+  /**
+   * POD-1405 — the target needs the COMMITS, not just the repository. Our
+   * integration branches never reach origin, so a freshly cloned repo on another
+   * machine cannot fetch the start point from anywhere.
+   */
+  it('materialises the parent branch on the target before creating the worktree', async () => {
+    const { svc, deps, store } = harness()
+    const origin = 'git@github.com:o/podium.git'
+    store.repos.addRepo('/r', 'mach-a', origin)
+    store.repos.addRepo('/home/other/src/podium', 'mach-b', origin)
+    deps.ensureRepoOnMachine = vi.fn(async () => '/home/other/src/podium')
+    deps.requireMachineForRepo = vi.fn()
+    const order: string[] = []
+    deps.ensureRefOnMachine = vi.fn(async () => {
+      order.push('ensureRef')
+    })
+    const realRepoOp = deps.repoOp
+    deps.repoOp = vi.fn(async (op: string, ...rest: unknown[]) => {
+      if (op === 'worktreeAdd') order.push('worktreeAdd')
+      return (realRepoOp as (...a: unknown[]) => Promise<{ ok: boolean; output: string }>)(
+        op,
+        ...rest,
+      )
+    }) as typeof deps.repoOp
+
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      parentBranch: 'integration/x',
+      machineId: asMachineId('mach-b'),
+    })
+    await svc.start(created.id)
+
+    // The ref is materialised on the TARGET's own repo path, for the start point
+    // the worktree will actually be created from.
+    expect(deps.ensureRefOnMachine).toHaveBeenCalledWith(
+      'mach-b',
+      '/home/other/src/podium',
+      'integration/x',
+    )
+    // ORDER IS THE PROPERTY: a worktree add that runs first fails on a start
+    // point the target cannot resolve, which is the whole defect.
+    expect(order).toEqual(['ensureRef', 'worktreeAdd'])
+  })
+
+  it('does not reach for commits when the issue has no machine pin', async () => {
+    const { svc, deps } = harness()
+    deps.ensureRefOnMachine = vi.fn(async () => {})
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Local',
+      startNow: false,
+      parentBranch: 'integration/x',
+    })
+    await svc.start(created.id)
+    expect(deps.ensureRefOnMachine).not.toHaveBeenCalled()
+  })
+
   it('leaves an issue alone when the target machine holds the repo at the same path', async () => {
     const { svc, deps } = harness()
     deps.ensureRepoOnMachine = vi.fn(async () => '/r')

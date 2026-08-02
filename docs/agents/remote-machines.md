@@ -61,6 +61,19 @@ Names resolve **exactly** — id, then name, then hostname. There is no prefix o
 fuzzy matching, because resolving wrongly starts real work on a host you never
 named, where it looks like it worked.
 
+**The checkout path does not have to match.** Two machines have two layouts —
+`/home/a/src/podium` here, `/home/b/src/podium` there — and placement resolves by
+repository *identity*, not by path. If the target has no checkout at all, one is
+cloned. You do not need to pre-arrange anything.
+
+**The branch does not have to be on a remote.** Starting from a local-only branch
+(any `integration/*`) works: the target cannot fetch those from anywhere, because
+they never reach `origin`, so the commits it is missing are bundled and moved to
+it directly. This is a no-op when the target already resolves the start point,
+which is every same-machine start and every start from a branch that *is* on
+origin. If it fails, it fails there with a message about the ref rather than
+surfacing later as a confusing `worktree add` error.
+
 ### Moving work that has already started
 
 ```
@@ -143,6 +156,25 @@ daemon has nothing to connect to, and steps 2–3 will appear to succeed anyway.
    `podium machine list` should now show it `online` with its harness inventory.
    Until it appears there, nothing can be scheduled onto it regardless of what
    `systemctl` says locally.
+
+## Reading a test result on a loaded box
+
+Relevant here because this is the page about offloading work, and the reason to
+offload is that a saturated host stops producing verdicts.
+
+**Report the exit code, not the summary line.** `Test Files 86 passed (87)` with
+no red `×` reads as green and is not: the missing file's worker had died, and its
+tests never ran. Vitest exits non-zero for this, correctly — but a report built by
+grepping for `Tests`/`Test Files` strips exactly the signal that would have said
+so. Measured on this box at load 82: `Worker exited unexpectedly with signal
+SIGILL`, one file unaccounted for, summary all-green, exit 1.
+
+**A single run is not a verdict under load.** Three runs of overlapping scope on
+one unchanged commit gave: clean; three failures; and a dead worker. Nothing in
+the tree changed between them. If a result matters, run it again, and prefer the
+narrowest scope that covers what you changed — a targeted file at 20 seconds is
+better evidence than a 470-second sweep whose workers are competing with sixty
+other processes.
 
 ## A note on how this was missing
 

@@ -54,11 +54,12 @@ import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
+import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { issueDepProjectionRows, repoProjectionRows } from './modules/issues/projection'
 import { IssuePublisher } from './modules/issues/publish'
-import { IssueCommandDispatcher } from './modules/issues/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
+import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
@@ -90,7 +91,6 @@ import type { SnapshotTail } from './modules/sessions/publication/coordinator'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
-import { LayoutService } from './modules/layout/service'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -886,6 +886,14 @@ export class SessionRegistry {
       // start finds the repository on the target instead of demanding the source's path.
       ensureRepoOnMachine: (machineId, repoPath) =>
         sessionsSvc.workspace.resolveRepoOnMachine(repoPath, machineId),
+      // POD-1405: move the base commits when the target cannot reach them — our
+      // integration branches are on no shared remote, so a fetch cannot help it.
+      ensureRefOnMachine: (machineId, repoPath, ref) =>
+        sessionsSvc.workspace.ensureRefOnMachine({
+          targetMachineId: machineId,
+          targetRepoPath: repoPath,
+          ref,
+        }),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),

@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { clientAuthGuard, hashToken, registerAuthRoute } from './auth-route'
+import {
+  clientAuthGuard,
+  hashToken,
+  isRequestAuthed,
+  registerAuthRoute,
+  requestUserId,
+} from './auth-route'
 import { setPassword } from './auth-store'
 import { SessionStore } from './store'
 
@@ -272,6 +278,62 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('set-cookie')).toBeNull()
+  })
+})
+
+/**
+ * Gate-level coverage for requestUserId / isRequestAuthed (POD-1410).
+ *
+ * The store predicate alone is not enough: requestPrincipal trusts this gate
+ * with no second expiry check. A mutant that drops the isClientSessionValid
+ * call still lets getClientSession return the user for an expired-but-present
+ * row — and every earlier test either hit the store directly or only exercised
+ * valid / missing-token paths, so the expired cookie case was invisible.
+ */
+describe('requestUserId / isRequestAuthed (auth gate)', () => {
+  const nowMs = Date.UTC(2026, 5, 15, 12, 0, 0)
+
+  function cookieFor(token: string): string {
+    return `podium_session=${token}`
+  }
+
+  test('resolves a valid session cookie to its user', () => {
+    const token = 'gate-valid-token'
+    store.auth.createClientSession(
+      hashToken(token),
+      FIRST_ADMIN_USER_ID,
+      new Date(nowMs + 60_000).toISOString(),
+    )
+    const cookie = cookieFor(token)
+    expect(requestUserId(store.auth, cookie, nowMs)).toBe(FIRST_ADMIN_USER_ID)
+    expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(true)
+  })
+
+  test('rejects an expired session cookie (present row, past expiresAt)', () => {
+    const token = 'gate-expired-token'
+    // Row still exists — getClientSession would return the userId. The gate must
+    // still refuse: expiry is enforced here, not only in the store helper.
+    store.auth.createClientSession(
+      hashToken(token),
+      FIRST_ADMIN_USER_ID,
+      new Date(nowMs - 1_000).toISOString(),
+    )
+    const cookie = cookieFor(token)
+    expect(store.auth.getClientSession(hashToken(token))?.userId).toBe(FIRST_ADMIN_USER_ID)
+    expect(requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
+    expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
+  })
+
+  test('rejects an unknown session cookie', () => {
+    const cookie = cookieFor('never-issued-token')
+    expect(requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
+    expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
+  })
+
+  test('rejects a missing or empty cookie header', () => {
+    expect(requestUserId(store.auth, undefined, nowMs)).toBeUndefined()
+    expect(requestUserId(store.auth, '', nowMs)).toBeUndefined()
+    expect(isRequestAuthed(store.auth, undefined, nowMs)).toBe(false)
   })
 })
 
