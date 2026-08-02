@@ -54,6 +54,7 @@ import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
 import { inboxPrincipalFromCommand } from './inbox'
+import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { SessionLifecycle } from './lifecycle'
 import {
   assertMayCommandSession,
@@ -76,16 +77,14 @@ import {
 export type SessionCommandServices = Pick<
   SessionLifecycle,
   | 'createSession'
-  | 'resumeSession'
   | 'workspace'
   | 'killSession'
   | 'hibernateSession'
-  | 'resurrectSession'
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
-  | 'stopSession'
->
+> &
+  Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'>
 
 /**
  * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) [spec:SP-34d7] — as a dispatch of

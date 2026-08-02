@@ -467,7 +467,7 @@ describe('inventory checks', () => {
 
   it('composition-root forward refs match `let x!: T`, not a plain lazy local', () => {
     const ctx = ctxOf({
-      'apps/server/src/server.ts': [
+      'apps/server/src/relay.ts': [
         '  let messaging!: MessagingService',
         '  let webDir = process.env.PODIUM_WEB_DIR',
       ].join('\n'),

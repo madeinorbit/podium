@@ -416,7 +416,7 @@ async function handoffRegistry(
       machineId: 'm1',
     })
   }
-  const { sessionId } = await reg.modules.sessions.resumeSession({
+  const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
     agentKind: 'claude-code',
     cwd: '/source/repo/.worktrees/x',
     resume: { kind: 'claude-session', value: 'native-id' },
@@ -433,7 +433,7 @@ describe('session handoff orchestration', () => {
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
       const { reg, source, target, sessionId } = await handoffRegistry()
-      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+      await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
       expect(reg.modules.sessions.listSessions()).toMatchObject([
         { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
       ])
@@ -449,7 +449,7 @@ describe('session handoff orchestration', () => {
 
   it('ignores a stale source cwd frame after handoff', async () => {
     const { reg, sessionId } = await handoffRegistry()
-    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+    await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
 
     reg.gateway.routeDaemonFrame('m1', {
       type: 'sessionCwd',
@@ -476,7 +476,7 @@ describe('session handoff orchestration', () => {
 
   it('clones and registers the repository before handing off to a fresh target', async () => {
     const { reg, target, sessionId, store } = await handoffRegistry({ targetHasRepo: false })
-    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+    await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
     const targetRepo = store.repos.listRepos('m2')[0]
     expect(targetRepo).toMatchObject({
       machineId: 'm2',
@@ -540,7 +540,7 @@ describe('session handoff orchestration', () => {
       worktreePath: '/source/repo/.worktrees/x',
       machineId: 'm1',
     })
-    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+    await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
     expect(source).toContainEqual(
       expect.objectContaining({
         type: 'handoffExportRequest',
@@ -552,14 +552,14 @@ describe('session handoff orchestration', () => {
 
   it('protects worktrees owned by another target session during import', async () => {
     const { reg, target, sessionId } = await handoffRegistry()
-    await reg.modules.sessions.resumeSession({
+    await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'claude-code',
       cwd: '/target/repo/.claude/worktrees/shared',
       resume: { kind: 'claude-session', value: 'other-native-id' },
       conversationId: 'other-native-id',
       machineId: 'm2',
     })
-    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+    await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
     expect(target).toContainEqual(
       expect.objectContaining({
         type: 'handoffImportRequest',
@@ -580,7 +580,7 @@ describe('session handoff orchestration', () => {
       const { reg, sessionId } = await handoffRegistry()
       const client: ServerMessage[] = []
       attachTestClient(reg.clientGateway, (message) => client.push(message))
-      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+      await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
       expect(client.filter((m) => m.type === 'worktreesChanged')).toEqual([
         { type: 'worktreesChanged', repoPath: '/target/repo', machineId: 'm2' },
         { type: 'worktreesChanged', repoPath: '/source/repo', machineId: 'm1' },
@@ -605,7 +605,7 @@ describe('session handoff orchestration', () => {
       })
       const before = reg.modules.issues.get(issueId!)
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
-      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+      await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         // The ROOT, even though the agent resumed in .../x/apps/web.
         worktreePath: '/target/repo/.worktrees/x',
@@ -631,7 +631,7 @@ describe('session handoff orchestration', () => {
         withIssue: true,
         oldDaemon: true,
       })
-      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
+      await reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER)
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
         repoPath: '/source/repo',
@@ -646,7 +646,7 @@ describe('session handoff orchestration', () => {
   it('resumes the unchanged source row when export fails', async () => {
     const { reg, source, sessionId } = await handoffRegistry({ failExport: true })
     await expect(
-      reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER),
+      reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER),
     ).rejects.toThrow('export exploded')
     expect(reg.modules.sessions.listSessions()).toMatchObject([
       { sessionId, machineId: 'm1', cwd: '/source/repo/.worktrees/x', status: 'starting' },

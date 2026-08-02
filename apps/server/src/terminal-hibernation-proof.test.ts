@@ -413,7 +413,7 @@ describe('durable terminal hibernation proof', () => {
   it('manual stop cancels the proof and auto-reap cannot double-act', async () => {
     const { registry, daemon, sessionId, confirm } = harness()
     confirm(1)
-    expect((await registry.modules.sessions.stopSession({ sessionId })).ok).toBe(true)
+    expect((await registry.modules.issueSessionLifecycle.stopSession({ sessionId })).ok).toBe(true)
     const kills = daemon.filter((message) => message.type === 'kill').length
     expect(
       registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }).ok,

@@ -47,7 +47,7 @@ import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
-import { repoProjectionRows } from './modules/issues/projection'
+import { issueDepProjectionRows, repoProjectionRows } from './modules/issues/projection'
 import { IssueCommandDispatcher } from './modules/issues/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
@@ -402,6 +402,17 @@ export class SessionRegistry {
       },
       keyedUserOf: () => null,
     })
+    const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
+      const row = this.store.sync
+        .latestChangeStates()
+        .find((candidate) => candidate.entity === ref.entity && candidate.entityId === ref.entityId)
+      if (!row || row.op !== 'upsert' || row.payload === null) return undefined
+      try {
+        return JSON.parse(row.payload)
+      } catch {
+        return undefined
+      }
+    }
     const anchors: VisibilityAnchorPort = {
       visibilityEdge: (ref) => {
         if (ref.entity !== 'issue') return null
@@ -422,28 +433,19 @@ export class SessionRegistry {
               ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
               : [],
           ),
-          ...(issues?.allDepProjections() ?? [])
-            .filter((row) => parseIssueDepId(row.id)?.fromId === ref.entityId)
-            .map((row) => ({ entity: 'issueDep' as const, entityId: row.id })),
+          ...this.store.sync
+            .latestChangeStates()
+            .filter(
+              (row) =>
+                row.entity === 'issueDep' &&
+                row.op === 'upsert' &&
+                parseIssueDepId(row.entityId)?.fromId === ref.entityId,
+            )
+            .map((row) => ({ entity: 'issueDep' as const, entityId: row.entityId })),
         ]
         return { audience, subjects }
       },
-      currentValueOf: (ref) => {
-        if (ref.entity === 'issue') return issues?.get(ref.entityId) ?? undefined
-        if (ref.entity === 'issueProjection') {
-          return issues?.allProjections()?.find((row) => row.id === ref.entityId)?.value
-        }
-        if (ref.entity === 'issueDep') {
-          return issues?.allDepProjections()?.find((row) => row.id === ref.entityId)?.value
-        }
-        if (ref.entity === 'session') {
-          return sessionsSvc.listSessions().find((session) => session.sessionId === ref.entityId)
-        }
-        if (ref.entity === 'conversation') {
-          return conversations?.allConversations().find((row) => row.id === ref.entityId)
-        }
-        return undefined
-      },
+      currentValueOf: (ref) => durableChangeValueOf(ref),
     }
     const ledger = new Ledger({
       visibility,
@@ -532,7 +534,7 @@ export class SessionRegistry {
         // deleted): `undefined` means only "cannot project; do not touch the
         // kind". A build that has never heard of the 'issueDep' kind ignores
         // the rows and advances its cursor.
-        const depRows = issues?.allDepProjections()
+        const depRows = issueDepProjectionRows(this.store.issues.listAllIssueDeps())
         if (depRows) ledger.reconcile('issueDep', depRows)
       },
     })
@@ -696,7 +698,6 @@ export class SessionRegistry {
       rpc,
       conversations,
       issueAccess,
-      issues: () => issues,
       snapshotTail,
       onWorktreesChanged: broadcastWorktreesChanged,
       instructionsForStart: (input) => sessionInstructions.prepare(input),
@@ -881,6 +882,23 @@ export class SessionRegistry {
           break
         }
       }
+    })
+    const issueSessionLifecycle = new IssueSessionLifecycle({
+      issues,
+      sessions: sessionsSvc,
+      ledger,
+    })
+    this.bus.on('session.wakeRequested', ({ sessionId, principal }) => {
+      const authorized = sessionsSvc.authorizeQueuedInputAtApply({
+        sessionId,
+        principal,
+        sourceMessageId: null,
+      })
+      if (!authorized.ok) return
+      void issueSessionLifecycle.resurrectSession({ sessionId }).then((result) => {
+        if (!result.ok)
+          console.warn('[podium] wake-on-queue failed for ' + sessionId + ': ' + result.reason)
+      })
     })
     this.bus.on('session.listChanged', () => {
       publisher.publishIssues(issues.allWire(), issues.allProjections())
@@ -1167,11 +1185,6 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
 
-    const issueSessionLifecycle = new IssueSessionLifecycle({
-      issues,
-      sessions: sessionsSvc,
-      ledger,
-    })
     const issueAttach = new IssueAttachOrchestrator({
       transact: (work) => this.store.transact(work),
       attention: issues.attention,
@@ -1349,8 +1362,39 @@ export class SessionRegistry {
         return r.ok ? { ok: true, via: r.via } : r
       },
       // issue stop [spec:SP-9904]: park every member session + free worktree.
-      stopIssueSessions: (input) => sessionsSvc.stopIssue(input),
+      stopIssueSessions: (input) => issueSessionLifecycle.stopIssue(input),
     })
+    this.issues = issues
+    this.issueCommands = issueCommands
+    this.modules = {
+      bus: this.bus,
+      funnel,
+      sessions: sessionsSvc,
+      machines,
+      rpc,
+      conversations,
+      hosts,
+      settings,
+      headless,
+      reactions: REACTIONS,
+      notify,
+      issues,
+      issueSessionLifecycle,
+      issuePublisher: publisher,
+      issueCommands,
+      specs,
+      approvals,
+      workflows,
+      locks,
+      lockCommands,
+      messages: messagesSvc,
+      messageGate,
+      readToolkit,
+      issueArtifacts,
+      automations,
+      perf,
+      mutations,
+    }
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -1634,7 +1678,7 @@ export class SessionRegistry {
                   }
                 }
               }
-              const r = await sessionsSvc.stopSession({
+              const r = await issueSessionLifecycle.stopSession({
                 sessionId,
                 force: raw.force === true,
                 selfStop,
@@ -1810,37 +1854,6 @@ export class SessionRegistry {
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()
 
-    this.issues = issues
-    this.issueCommands = issueCommands
-    this.modules = {
-      bus: this.bus,
-      funnel,
-      sessions: sessionsSvc,
-      machines,
-      rpc,
-      conversations,
-      hosts,
-      settings,
-      headless,
-      reactions: REACTIONS,
-      notify,
-      issues,
-      issueSessionLifecycle,
-      issuePublisher: publisher,
-      issueCommands,
-      specs,
-      approvals,
-      workflows,
-      locks,
-      lockCommands,
-      messages: messagesSvc,
-      messageGate,
-      readToolkit,
-      issueArtifacts,
-      automations,
-      perf,
-      mutations,
-    }
     // THE GATEWAY (POD-317 / POD-389). The daemon socket mux is composed HERE,
     // over the feature ports, so no feature module owns another feature's
     // traffic. `agentRelay` is its own port and receives exactly the two relay

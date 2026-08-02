@@ -22,7 +22,7 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipFromMachines } from '../../machine-access'
-import { machinesForPrincipal } from './command-ctx'
+import { machinesForPrincipal, sessionCommandServices } from './command-ctx'
 import {
   bindingPrincipalFor,
   createdOwnership,
@@ -90,7 +90,7 @@ function ctxFor(
 ): SessionCommandCtx {
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
-    sessions: () => modules.sessions,
+    sessions: () => sessionCommandServices(modules),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
     // principal's own capability, through the real gate. Substituting the

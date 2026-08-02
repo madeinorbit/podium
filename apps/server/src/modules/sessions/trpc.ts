@@ -346,7 +346,7 @@ function handoffProcedure(): HandoffProcedure {
     .input(sessionHandoffInput)
     .mutation(
       ({ ctx, input }): Promise<SessionHandoffOutput> =>
-        familyState(ctx).modules.sessions.handoffSession(input, { capability: ctx.capability, principal: ctx.principal }),
+        familyState(ctx).modules.issueSessionLifecycle.handoffSession(input, { capability: ctx.capability, principal: ctx.principal }),
     ) as HandoffProcedure
 }
 

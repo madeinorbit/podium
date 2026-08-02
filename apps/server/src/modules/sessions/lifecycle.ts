@@ -88,12 +88,12 @@ import type { EventBus } from '../bus'
 import type { ConversationsService } from '../conversations/service'
 import type { WriteFunnel } from '../funnel'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
-import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
 import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
+import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import { machineUseGateForCapability } from './handoff/access'
@@ -241,8 +241,6 @@ interface SessionLifecycleDeps {
   conversations: ConversationsService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
-  /** Cross-feature workflows pending extraction to L3 orchestrators. */
-  issues(): IssueService
   /** Cross-feature snapshot material read from the already-constructed durable authority. */
   snapshotTail(): SnapshotTail
   /** POD-665: a worktree appeared/vanished out from under connected clients —
@@ -420,7 +418,7 @@ export class SessionLifecycle {
       store: this.store,
       rpc: this.rpc,
       machines: this.machines,
-      issues: () => this.issues(),
+      issueAccess: this.deps.issueAccess,
       getSession: (sessionId) => this.sessions.get(sessionId),
       settingsViewer: () => this.settingsViewer(),
       onWorktreesChanged: (repoPath, machineId) =>
@@ -534,7 +532,7 @@ export class SessionLifecycle {
         sendInput: (machineId, message) => this.toMachine(machineId, message),
       },
       authorization: {
-        authorizeAtDrain: (input) => this.authorizeInboxAtDrain(input),
+        authorizeAtDrain: (input) => this.authorizeQueuedInputAtApply(input),
         rejected: ({ sourceMessageId, reason }) => {
           if (sourceMessageId) this.deps.rejectQueuedMessage?.(sourceMessageId, reason)
         },
@@ -563,7 +561,10 @@ export class SessionLifecycle {
       prepareSend: (sessionId, attribution, kind) =>
         this.prepareInboxSend(sessionId, attribution, kind),
       ownerOf: (sessionId) => this.sessionOwner(sessionId)?.owner,
-      resurrect: (sessionId) => this.resurrectSession({ sessionId }),
+      resurrect: async (sessionId, principal) => {
+        this.bus.emit('session.wakeRequested', { sessionId, principal })
+        return { ok: true }
+      },
     })
     this.sendText = (input) => this.inbox.sendText(input)
     this.interruptText = (input) => this.inbox.interruptText(input)
@@ -701,7 +702,7 @@ export class SessionLifecycle {
     })
   }
 
-  private authorizeInboxAtDrain(input: {
+  authorizeQueuedInputAtApply(input: {
     sessionId: SessionId
     principal: InboxPrincipalReference
     sourceMessageId: string | null
@@ -783,10 +784,6 @@ export class SessionLifecycle {
       return refused
     }
     return { ok: true }
-  }
-
-  private issues(): IssueService {
-    return this.deps.issues()
   }
 
   private conversations(): ConversationsService {
@@ -1382,7 +1379,7 @@ export class SessionLifecycle {
     spawnedBy?: string
     /** The calling principal's `use` decision per machine — see createSession. */
     use?: MachineUseResolver
-  }): Promise<{ sessionId: SessionId }> {
+  }, issues: SessionIssueWorkflowPort): Promise<{ sessionId: SessionId }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
     // that row, never mint a parallel one. Each parallel row spawned its own
@@ -1394,7 +1391,7 @@ export class SessionLifecycle {
     const existing = this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
-        const woke = await this.resurrectSession({ sessionId: existing.sessionId })
+        const woke = await this.resurrectSession({ sessionId: existing.sessionId }, issues)
         if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
       } else {
         // Reopening a still-live but long-idle session also resets its hibernation
@@ -1745,7 +1742,7 @@ export class SessionLifecycle {
     selfStop?: boolean
     /** Parent-close/issue-stop provenance; direct forced stops derive below. */
     stopReason?: 'self' | 'parent' | 'forced'
-  }): Promise<{
+  }, issues: SessionIssueWorkflowPort): Promise<{
     ok: boolean
     reason?: string
     worktreeFreed?: boolean
@@ -1830,7 +1827,7 @@ export class SessionLifecycle {
         input.sessionId,
       )
       if (stillUsing.length === 0) {
-        const freed = await this.issues().freeWorktreeKeepBranch(issueId, {
+        const freed = await issues.freeWorktreeKeepBranch(issueId, {
           force: input.force === true,
         })
         if (!freed.ok) {
@@ -1888,7 +1885,7 @@ export class SessionLifecycle {
     force?: boolean
     /** Session performing the stop (for self-stop deferral when it is a member). */
     callerSessionId?: string
-  }): Promise<{
+  }, issues: SessionIssueWorkflowPort): Promise<{
     ok: boolean
     reason?: string
     stopped: string[]
@@ -1914,7 +1911,7 @@ export class SessionLifecycle {
         force: input.force,
         selfStop: input.callerSessionId === m.sessionId,
         stopReason: input.force ? 'forced' : 'parent',
-      })
+      }, issues)
       if (!r.ok) {
         return {
           ok: false,
@@ -1933,7 +1930,7 @@ export class SessionLifecycle {
     if (wt) {
       const stillUsing = liveSessionsUsingWorktree(wt, this.listSessions())
       if (stillUsing.length === 0) {
-        const freed = await this.issues().freeWorktreeKeepBranch(input.issueId, {
+        const freed = await issues.freeWorktreeKeepBranch(input.issueId, {
           force: input.force === true,
         })
         if (!freed.ok) {
@@ -2181,8 +2178,9 @@ export class SessionLifecycle {
   handoffSession(
     input: { sessionId: SessionId; machineId: string },
     caller: HandoffCaller,
+    issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return this.handoffs().handoff(input, caller, this.machineUseGate(caller))
+    return this.handoffs(issues).handoff(input, caller, this.machineUseGate(caller))
   }
 
   /**
@@ -2221,7 +2219,7 @@ export class SessionLifecycle {
    * the session, and a per-call coordinator would start every dispatch with an
    * empty map — a guard that still looked implemented.
    */
-  private handoffs(): HandoffCoordinator {
+  private handoffs(issues: SessionIssueWorkflowPort): HandoffCoordinator {
     if (this.handoffCoordinator) return this.handoffCoordinator
     const ports: HandoffPorts = {
       rpc: this.rpc,
@@ -2236,7 +2234,7 @@ export class SessionLifecycle {
       listRepos: () => this.store.repos.listRepos(),
       listMachines: () => this.machines.listMachines(),
       issueMeta: (issueId) => this.deps.issueAccess.getMeta(issueId) ?? undefined,
-      rehomeIssue: (issueId, where) => this.issues().rehome(issueId, where),
+      rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
       ensureTargetRepo: (sourceRepo, targetMachineId) =>
         this.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
       persist: (session) => this.repository.persist(session),
@@ -2248,8 +2246,8 @@ export class SessionLifecycle {
       toMachine: (machineId, message) => this.toMachine(machineId, message),
       onWorktreesChanged: (repoPath, machineId) =>
         this.deps.onWorktreesChanged(repoPath, machineId),
-      resumeSession: (resumeInput) => this.resumeSession(resumeInput),
-      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput),
+      resumeSession: (resumeInput) => this.resumeSession(resumeInput, issues),
+      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput, issues),
       recordEvent: (event) => {
         this.store.events.appendEvent(event)
       },
@@ -2268,7 +2266,7 @@ export class SessionLifecycle {
   }: {
     sessionId: SessionId
     adoptedBinding?: SessionBindingAdoptLaunchInstruction
-  }): Promise<{ ok: boolean; reason?: string }> {
+  }, issues: SessionIssueWorkflowPort): Promise<{ ok: boolean; reason?: string }> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     // Hibernated (parked on purpose) and exited (process died or was killed
@@ -2289,7 +2287,7 @@ export class SessionLifecycle {
     // The common hibernate→wake path resolves synchronously, and the spawn
     // must too: queueText fire-and-forgets this call and its callers rely on
     // the spawn being on the wire before queueText returns [POD-197].
-    const ensured = this.workspace.ensureSessionWorktree(session)
+    const ensured = this.workspace.ensureSessionWorktree(session, issues)
     if (ensured instanceof Promise) {
       return ensured.then((e) => this.finishResurrect(session, e, adoptedBinding))
     }

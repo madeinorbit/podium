@@ -159,7 +159,7 @@ export interface SessionInboxDeps {
   needsSubmitVerification(agentKind: AgentKind): boolean
   prepareSend(sessionId: SessionId, attribution: Attribution, kind: 'text' | 'answer'): void
   ownerOf(sessionId: SessionId): UserId | null | undefined
-  resurrect(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
+  resurrect(sessionId: SessionId, principal: InboxPrincipalReference): Promise<{ ok: boolean; reason?: string }>
 }
 
 export interface InboxSendInput {
@@ -237,7 +237,7 @@ export class SessionInbox {
       this.deps.broadcast()
     }
     if (parked) {
-      void this.deps.resurrect(input.sessionId).then((result) => {
+      void this.deps.resurrect(input.sessionId, principal).then((result) => {
         if (!result.ok)
           console.warn(`[podium] wake-on-queue failed for ${input.sessionId}: ${result.reason}`)
       })

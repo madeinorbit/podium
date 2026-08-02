@@ -9,6 +9,7 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
+import type { InboxPrincipalReference } from './sessions/inbox'
 import type {
   AgentObservation,
   DaemonMessage,
@@ -45,6 +46,8 @@ export interface EventMap {
   'session.created': { sessionId: SessionId; agentKind: AgentKind }
   /** A session's process ended (agentExit / reattachFailed death). */
   'session.exited': { sessionId: SessionId; code: number }
+  /** Durable queued input requested a best-effort asynchronous wake. */
+  'session.wakeRequested': { sessionId: SessionId; principal: InboxPrincipalReference }
   /** System derived-field maintenance driven by committed/live session facts. */
   'issue.sessionDerived':
     | { kind: 'gitActivity'; sessionId: SessionId; commits?: string[]; touched?: string[] }
