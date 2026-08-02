@@ -296,6 +296,22 @@ export function unfilteredFanOut(
  *
  * Scanned on the schema BLOCK rather than the file, so an unrelated `owner` in a
  * neighbouring type is not a finding.
+ *
+ * WHAT IS FORBIDDEN IS AN IDENTITY, NOT THE WORD (amended by POD-1495). The rule
+ * above is about the ownership GRAPH: a field naming WHO owns a machine tells
+ * every principal with `see` who everyone else is. A VIEWER-RELATIVE boolean —
+ * `owned`, "are you this machine's owner" — discloses nothing of the kind: it
+ * says only what the caller already knows about itself, and "someone else's" and
+ * "nobody's" are one indistinguishable `false`. Without it the settings panel
+ * cannot withhold an owner-only control (`machines.transferOwnership`) and has to
+ * offer it on every row and let the server refuse.
+ *
+ * So the check now looks for a field whose VALUE could carry a user id, and the
+ * probe pair below still plants `ownerUserId` and still catches it. Anything
+ * declared with a UserId — `owner: UserIdField`, `ownerUserId: z.string()` — is a
+ * finding; a boolean is not. A future field that smuggles an identity through a
+ * loose type is the residual risk, and it is the same risk any grep-shaped gate
+ * carries.
  */
 export function ownerOnMachineWire(machineEntitySource: string): Finding[] {
   const block = /export const MachineWire = z\.object\(\{[\s\S]*?\n\}\)/.exec(machineEntitySource)
@@ -308,7 +324,9 @@ export function ownerOnMachineWire(machineEntitySource: string): Finding[] {
       },
     ]
   }
-  return /owner/i.test(block[0])
+  // An owner-shaped KEY whose value is anything but a boolean. `owned:
+  // z.boolean()` passes; `ownerUserId: z.string()` and `owner: UserIdField` do not.
+  return /\bowner\w*\s*:\s*(?!z\.boolean\(\))/i.test(block[0])
     ? [
         {
           check: 'owner-on-wire',
@@ -449,6 +467,16 @@ function probe(): Finding[] {
   expectClean(
     'owner-on-wire',
     ownerOnMachineWire('export const MachineWire = z.object({\n  id: z.string(),\n  name: z.string(),\n})'),
+  )
+  // POD-1495's amendment, PINNED: the viewer-relative boolean is clean, and it
+  // sits next to the planted `ownerUserId` above which is still a finding. An
+  // amendment that quietly disabled the check would show up as that probe going
+  // silent, not as this one passing.
+  expectClean(
+    'owner-on-wire',
+    ownerOnMachineWire(
+      'export const MachineWire = z.object({\n  id: z.string(),\n  owned: z.boolean().optional(),\n})',
+    ),
   )
   return broken
 }

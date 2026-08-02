@@ -139,6 +139,13 @@ export interface MachineGrantSource {
  * see the machine, which is a disclosure decision nobody made. This reads the
  * stored rows instead.
  *
+ * STILL TRUE AFTER POD-1495, and worth saying because that issue added an
+ * ownership-shaped field to `MachineWire`. What it added is `owned`, the
+ * VIEWER's own answer — computed here by {@link isMachineOwner} and projected as
+ * a boolean. No owner id crosses the wire, and "someone else's" is
+ * indistinguishable from "nobody's" on the client, so the disclosure this
+ * comment refuses is still not made.
+ *
  * `ownerUserId` is REQUIRED and nullable rather than optional: a source that
  * cannot say who owns a machine must say `null` — "nobody, so `use` is refused
  * to everyone" — and an absent key would be indistinguishable from a source that
