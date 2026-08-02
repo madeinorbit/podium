@@ -1,7 +1,9 @@
 # POD-1399 — the handoff coordinator, cut into four phases
 
-Branched from `1de31536`. `apps/server/src/modules/sessions/handoff/` only; no
-sibling's files were touched.
+Rebased onto integration `183f25f8` (37 commits, including POD-1397's messages
+split). Every number below is measured on the REBASED tip, not the pre-rebase
+one. `apps/server/src/modules/sessions/handoff/` only, plus this note and two
+generated/architecture records; no sibling's source was touched.
 
 ## What was wrong with it
 
@@ -58,13 +60,17 @@ ordering survives a reshape — which is how the deleted `sleep` went unnoticed 
 25/25. So that region was moved and not touched:
 
 ```
-HEAD~ coordinator.ts:185-443  ==  transfer.ts:107-365     259 lines, diff-empty
+57ba56b9^ coordinator.ts:185-443  ==  transfer.ts:107-365   259 lines, diff-empty
+md5 ae31aa85961501c10d0618b982c4ace7 on both sides
 ```
 
-byte for byte, including indentation and comments. The free names it reads are
-bound by a destructure ABOVE line 107. One line inside the moved span changed in
-an earlier commit — `this.recordHandoff(...)` became `recordHandoff(ports, ...)`
-— and it sits after the import leg, outside the region in question.
+byte for byte, including indentation and comments — `57ba56b9` is the commit
+that moved it, and its parent is the last tree that still had it inline. The
+md5 is quoted so the claim survives a further rebase renumbering the SHAs. The
+free names the region reads are bound by a destructure ABOVE line 107. One line
+inside the moved span changed in an earlier commit — `this.recordHandoff(...)`
+became `recordHandoff(ports, ...)` — and it sits after the import leg, outside
+the region in question.
 
 This is the claim. The oracle's 26/26 is not the claim, and must not be read as
 one.
@@ -101,21 +107,80 @@ named case.
 G is the one that matters for the move: the clause POD-1409 added still sees the
 region in its new file.
 
+**Five of the twelve were re-run on the rebased tip** — C, B and E (the three
+whose subject code the rebase could have reached) and G and H (the two the
+oracle's partial net depends on). All five went red on the same named cases.
+The rest were not re-run; their subject lines are byte-identical across the
+rebase, which is a weaker claim than re-running them and is stated as such.
+
+## A finding about the METHOD, not the code
+
+`git add -A` in a worktree where you are planting mutants is how a mutant
+escapes. Mine nearly did: a concurrent test lane had planted `"x-planted": 99`
+over `"publish-computed-fanout": 0` in `scripts/rearch-audit-baseline.json` —
+its own fixture, correctly restored a second later — and a `git add -A` of mine
+committed that instant. The commit message said "regenerate the composition
+graph"; the diff said otherwise.
+
+Two things about it are worth keeping:
+
+- **The tell was not the test failing.** It was `git log -1 -- <file>` naming
+  MY commit as the last to touch a file I had never edited. Nothing else
+  flagged it: the working tree was correct within seconds, so `git status` was
+  clean and every gate passed.
+- **It cost nothing to fix and would have cost a lot to find later.** A bisect
+  landing on that commit would have hit a rearch-audit failure with no
+  relationship to the commit's subject. The rebase has since dropped the
+  restoring commit entirely (its patch became empty once the plant was removed
+  from the commit that introduced it), so the landed history never contains the
+  planted state.
+
+Stage by path. On a shared box, `-A` stages whatever another process happens to
+be holding open at that instant.
+
 ## Gates
+
+All measured on the rebased tip.
 
 | gate | result |
 | --- | --- |
-| `bun run typecheck` (workspace) | 22/22, exit 0 |
-| `bun run audit:god-objects` | 2 items, exit 1 — `lifecycle.ts` (POD-1396) and `messages/service.ts` (POD-1397). This file is out of the population. |
-| `bun scripts/audit-ambient-principals.ts` | 41 usage sites, baseline 41, no drift, exit 0 |
+| `bun run typecheck` (workspace) | `Tasks: 22 successful, 22 total` / `Cached: 20 cached, 22 total` / 1m6.9s, **exit 0** |
+| `bun run audit:god-objects` | **1 item**, exit 1 — `lifecycle.ts` alone (2450/1702). This file is out of the population; the probe passed first, so the instrument was shown able to say YES before its NO was believed. |
+| handoff + oracle suites | `Test Files 10 passed (10)` / `Tests 126 passed (126)`, **exit 0** |
+| `bun scripts/audit-ambient-principals.ts` | 41 usage sites, baseline 41, no drift, **exit 0** |
+| `bun scripts/server-composition-graph.ts` | acyclic and current, 199 modules, **Cycles: 0**, exit 0 |
+| `bun run test:unit` (full lane) | `Test Files 1 failed / 663 passed / 3 skipped (667)` · `Tests 4 failed / 9563 passed / 20 skipped (9587)` · **exit 1** — see below |
+
+**The lane's exit 1 is not this branch.** All four failures are in
+`scripts/rearch-audit.test.ts`, and they split into two causes, both established
+rather than assumed:
+
+- **Three are load.** Each spawns a full-tree audit subprocess against a 20 s or
+  40 s timeout and took 33–52 s on a box at load 82. Re-run alone, all three
+  pass.
+- **One is a real defect that lives on integration.** `exits 0 when the tree
+  matches the committed baseline` fails with `expected 1 to be +0`, because
+  `bun scripts/rearch-audit.ts` reports `representation-registry-rot` growing
+  `0 → 1`: `apps/server/src/modules/sessions/lifecycle.ts:1 SessionSpawnResult:
+  registered but no longer declared at this site`.
+
+  Verified as NOT this branch's, by checking out integration alone in a
+  throwaway worktree and running the audit there: identical finding, identical
+  line, with none of this branch's commits present. This branch touches no
+  `lifecycle.ts` and the string `SessionSpawnResult` appears zero times in its
+  diff. It is filed separately.
+
+  It matters beyond this issue because `audit:rearch` is one of the standing
+  post-merge gates — whoever merges next inherits a red gate they did not cause.
 | `bun run lint:boundaries` | exit 1, pre-existing — 0 findings name `handoff/` |
 | `bun run lint:shadowing` | exit 1, pre-existing — `packages/harness/src/registry.ts` |
 | `bunx biome check handoff/` | exit 1 on four files byte-identical to the base commit (`access.ts`, `refusal.ts`, `refusal.test.ts`, `ports.types.test.ts`); the new and changed files are clean |
 
 ## What a later reader should not assume
 
-- The audit exiting 1 is correct until POD-1396 and POD-1397 land. This item is
-  gone from its population; the criterion is not met yet.
+- The audit exiting 1 is correct until `lifecycle.ts` is answered for. This item
+  is gone from its population; the criterion is not met yet, and one file
+  leaving the list is not the criterion being met.
 - The chunk transfer and the import leg still have no factual assertion of their
   own. Nothing in this issue added one, because nothing in this issue changed
   that region. The next change there does need one, to POD-1390's M5 standard.
