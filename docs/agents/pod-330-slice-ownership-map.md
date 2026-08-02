@@ -369,7 +369,12 @@ That is the honest limit of §4e's predicate, and it applies to F1's just as muc
 
 The mechanical half is still worth having: it catches the drift a reviewer would have to notice by
 reading, and it fails loudly on the day someone hands F1 a list. It just must not be mistaken for
-the whole invariant. Where the two halves disagree, the WRITTEN QUESTION should be widened or the
+the whole invariant — so **both files are now named for the half they enforce**:
+`session-status.shape-clause.test.ts` and `session-urgency.shape-clause.test.ts`. A test called
+`*.invariant.test.ts` claims the whole sentence and delivers half of it, which is the same
+overstatement in a filename. Each header writes out the clause it checks AND the clause it cannot,
+and F3's says in as many words that it would have refused `isCoordinatorSession` and would NOT have
+refused `elevateCoordinatorSession`. Where the two halves disagree, the WRITTEN QUESTION should be widened or the
 symbol moved — a module whose stated question no longer describes its contents is worse than one
 13% over its line budget, because the sentence is what does the arbitration next time.
 

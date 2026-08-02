@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 // ---------------------------------------------------------------------------
-// POD-330 — F1's ARGUED EXCEPTION to the ~400-line criterion, with a predicate
-// instead of a promise.
+// POD-330 — F1's SHAPE CLAUSE. Half of an invariant, and the half that a test
+// can actually hold.
 //
 // session-status.ts is over the acceptance criterion's ~400 lines. It is not
 // split, because it answers exactly ONE question — what one session is doing —
@@ -18,11 +18,27 @@ import { describe, expect, it } from 'vitest'
 //   one session in — optionally with its own issue — one presentation value out.
 //   No collections, no cross-entity state, no ordering, no lists.
 //
-// The predicate below is the mechanical half: no exported function may take a
-// COLLECTION of sessions, and the module may not import from a slice. Those two
-// are what would actually be violated if someone started moving list logic in
-// here — and the day the predicate fails is the day the exception expires and
-// the file has to be split for a real reason.
+// WHAT THIS FILE CHECKS, AND WHAT IT CANNOT. The invariant has two clauses:
+//
+//   SHAPE (checkable, and checked here): one session in — optionally with its
+//     issue — one presentation value out. No collections. No slice imports.
+//   QUESTION (not checkable, and NOT checked anywhere): "what one session is
+//     doing". A presentation value about one session, not about the world.
+//
+// The file is named for the half it enforces, because the other half is exactly
+// where the drift that produces god objects arrives: nobody ever adds a symbol
+// whose SHAPE looks wrong. POD-1503 demonstrated it on F3 an hour after this
+// test landed — `elevateCoordinatorSession` satisfied F3's shape clause
+// verbatim while answering a question F3 does not ask (it honours an external
+// designation rather than comparing sessions), and the shape clause admitted it
+// without the question clause ever being consulted. See map §4e.1.
+//
+// A SHAPE PREDICATE IS A NECESSARY CONDITION, NOT A SUFFICIENT ONE. Treating
+// this file as full enforcement of F1's invariant is the mistake it is named to
+// prevent.
+//
+// The day this predicate fails is still the day the size exception expires: a
+// collection parameter here means the one question became two.
 //
 // Deliberately source-level rather than behavioural: the invariant is about what
 // the module is ALLOWED to be handed, which no runtime call can observe.
@@ -40,7 +56,7 @@ function exportedSignatures(source: string): { name: string; params: string }[] 
   return out
 }
 
-describe('F1 session-status: the invariant that earns its size exception', () => {
+describe('F1 session-status: the SHAPE clause (the checkable half of the invariant)', () => {
   it('finds the exported functions at all (the check can fire)', () => {
     const sigs = exportedSignatures(SOURCE)
     // A parser that matched nothing would pass every assertion below. Name the
@@ -71,7 +87,7 @@ describe('F1 session-status: the invariant that earns its size exception', () =>
     }
   })
 
-  it('the exception is scoped: this is the only file claiming it', () => {
+  it('the size exception this clause supports is still in force', () => {
     // If the module ever needs a second exception, that is the signal that the
     // one question has become two — which is a reason to split, not to widen.
     const lines = SOURCE.split('\n').length
