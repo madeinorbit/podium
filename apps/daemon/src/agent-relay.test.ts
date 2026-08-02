@@ -93,7 +93,7 @@ describe('agent relay server', () => {
     }
   })
 
-  it('POST /agent/<sessionId> relays and returns the result', async () => {
+  it('POST /session/<sessionId> relays and returns the result', async () => {
     const seen: any[] = []
     const srv = await startAgentRelayServer({
       port: 0,
@@ -103,8 +103,10 @@ describe('agent relay server', () => {
       },
     })
     try {
-      // endpointFor emits the new /agent/ path.
-      expect(srv.endpointFor('sX')).toMatch(/\/agent\/sX$/)
+      // endpointFor emits the current /session/ path — the variable handed to a
+      // shell says "session", so the URL it names must too (the path is what a
+      // human reads to infer what authority the relay carries).
+      expect(srv.endpointFor('sX')).toMatch(/\/session\/sX$/)
       const res = await fetch(srv.endpointFor('sX'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -118,10 +120,16 @@ describe('agent relay server', () => {
     }
   })
 
-  // Read-side tolerance (one release): a session spawned before the rename keeps
-  // POSTing to the legacy /issue/<sid> path after a daemon redeploy. The server
-  // must still serve it, even though endpointFor only ever emits /agent/.
-  it('POST legacy /issue/<sessionId> is still served (read-side tolerance)', async () => {
+  // Read-side tolerance: a session spawned before a rename keeps POSTing to the
+  // path baked into its env at spawn time, and a daemon redeploy must not strand
+  // it. Every historical prefix stays served even though endpointFor only ever
+  // emits the current one. Dropping an arm here breaks every live session at the
+  // next restart — the failure this arm exists to prevent.
+  it.each([
+    'issue',
+    'agent',
+    'session',
+  ])('POST /%s/<sessionId> routes to the same relay handler', async (prefix) => {
     const seen: any[] = []
     const srv = await startAgentRelayServer({
       port: 0,
@@ -131,7 +139,7 @@ describe('agent relay server', () => {
       },
     })
     try {
-      const res = await fetch(`http://127.0.0.1:${srv.port}/issue/sLegacy`, {
+      const res = await fetch(`http://127.0.0.1:${srv.port}/${prefix}/sLegacy`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ proc: 'ready', input: { repoPath: '/r' } }),
@@ -145,7 +153,7 @@ describe('agent relay server', () => {
     }
   })
 
-  it('POST /agent/<sessionId>/open captures the raw URL without entering the command relay', async () => {
+  it('POST /session/<sessionId>/open captures the raw URL without entering the command relay', async () => {
     const opened: Array<{ sessionId: string; url: string }> = []
     let relayCalls = 0
     const srv = await startAgentRelayServer({
