@@ -259,6 +259,19 @@ interface SessionLifecycleDeps {
     workflowRevisionId?: string
     existingOnly?: boolean
   }): PreparedSessionInstructions
+  /**
+   * Presence-room occupancy for a session (POD-1081). When provided,
+   * `clientCount` is derived from it and attach/watch policy can consult the
+   * same room world. Optional so unit fixtures without the stream plane keep
+   * using the attach-set size.
+   */
+  sessionOccupancyCount?(sessionId: SessionId): number | undefined
+  /**
+   * Join/leave the session presence room when a PTY attaches or detaches so
+   * occupancy and attach stay one mechanism (POD-1081 §5).
+   */
+  sessionRoomJoin?(client: ClientConn, sessionId: SessionId): void
+  sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void
 }
 
 /**
@@ -496,6 +509,9 @@ export class SessionLifecycle {
       store: this.store,
       machines: this.machines,
       state: this.state,
+      sessionOccupancyCount: this.deps.sessionOccupancyCount
+        ? (sessionId) => this.deps.sessionOccupancyCount?.(sessionId)
+        : undefined,
     })
     this.repository = new SessionRepository({
       sessions: this.sessions,
@@ -639,6 +655,8 @@ export class SessionLifecycle {
         this.bus.emit('session.wakeRequested', { sessionId, principal })
         return { ok: true }
       },
+      // Take-control / hold-control re-auth at every apply (POD-1081).
+      authorizeDrive: (principal, sessionId) => this.authorizeClientDrive(principal, sessionId),
     })
     this.sendText = (input) => this.inbox.sendText(input)
     this.interruptText = (input) => this.inbox.interruptText(input)
@@ -678,6 +696,17 @@ export class SessionLifecycle {
         )
       },
       editDraft: (message, clientId) => this.state.handleDraftEdit(message, clientId),
+      sessionOwner: (sessionId) => this.sessionOwner(sessionId),
+      machineUseFor: (principal, sessionId) => this.machineUseForClient(principal, sessionId),
+      sessionOccupancyCount: this.deps.sessionOccupancyCount
+        ? (sessionId) => this.deps.sessionOccupancyCount?.(sessionId)
+        : undefined,
+      sessionRoomJoin: this.deps.sessionRoomJoin
+        ? (client, sessionId) => this.deps.sessionRoomJoin?.(client, sessionId)
+        : undefined,
+      sessionRoomLeave: this.deps.sessionRoomLeave
+        ? (client, sessionId) => this.deps.sessionRoomLeave?.(client, sessionId)
+        : undefined,
     })
 
     this.autoContinue = new AutoContinueController({
@@ -1092,6 +1121,30 @@ export class SessionLifecycle {
       ),
     ]
     return { owner: parentOwner, grants }
+  }
+
+  /**
+   * Machine `use` for a browser principal against the session's host
+   * (POD-1081 §4). Independent of session grants — share is not a back door.
+   */
+  machineUseForClient(
+    principal: ClientPrincipal,
+    sessionId: SessionId,
+  ): 'granted' | 'denied' | 'absent' {
+    const session = this.sessions.get(sessionId) ?? this.store.sessions.getSession(sessionId)
+    if (!session) return 'absent'
+    const command = userCommandPrincipal(asUserId(principal.user), principal.role)
+    const ownership = ownershipFromMachines(this.machines)
+    // machineUseDecision collapses absent+denied to 'denied' when the principal
+    // cannot see the machine; attach maps both to terminalOutcome unauthorized.
+    return machineUseDecision(command, session.machineId, ownership) === 'granted'
+      ? 'granted'
+      : 'denied'
+  }
+
+  /** Live drive gate for requestControl / controller input (POD-1081 §3). */
+  authorizeClientDrive(principal: ClientPrincipal, sessionId: SessionId): boolean {
+    return this.clientControl.authorizeDrive(principal, sessionId)
   }
 
   /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent

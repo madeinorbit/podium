@@ -72,6 +72,7 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     welcome: noop,
     pong: noop,
     attached: noop,
+    terminalOutcome: noop,
     outputFrame: noop,
     controllerChanged: noop,
     geometry: noop,

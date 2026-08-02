@@ -580,6 +580,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const firstClient = attachTestClient(registry.clientGateway, () => {})
     failAndHeal(
       () => registry.clientGateway.routeClientFrame(firstClient, { type: 'attach', sessionId }),
+      // POD-1081: clientCount is room occupancy (per principal), not attach-set size.
       (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
     )
     registry.clientGateway.routeClientFrame(firstClient, {
@@ -599,11 +600,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (value) => expect(value.geometry).toEqual({ cols: 123, rows: 47 }),
     )
 
+    // A second CONNECTION of the SAME principal does not change occupancy
+    // (ADR 7 D9.4: two tabs are one member). Control transfer still dirties.
     const secondClient = attachTestClient(registry.clientGateway, () => {})
-    failAndHeal(
-      () => registry.clientGateway.routeClientFrame(secondClient, { type: 'attach', sessionId }),
-      (value) => expect(value.clientCount).toBe(2),
-    )
+    registry.clientGateway.routeClientFrame(secondClient, { type: 'attach', sessionId })
+    registry.modules.sessions.flushBroadcasts()
     failAndHeal(
       () =>
         registry.clientGateway.routeClientFrame(secondClient, {
@@ -614,6 +615,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     )
     failAndHeal(
       () => registry.clientGateway.routeClientFrame(secondClient, { type: 'detach', sessionId }),
+      // First principal still in the room; controller reverts to first connection.
       (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
     )
     failAndHeal(

@@ -5,12 +5,13 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import type { ControlMessage, PresenceIdentity, ServerMessage } from '@podium/protocol'
 import type { ClientConn } from '../../gateway/client-registry'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 import type { Send } from './session'
+import { controlSubjectFromClient, identityOf } from './session-control-policy'
 
 const MAX_REPLAY_BYTES = 256 * 1024
 const MAX_TRANSCRIPT_ITEMS = 12_000
@@ -58,7 +59,18 @@ export interface SessionTerminalInit {
 export class SessionTerminal {
   geometry: Geometry
   epoch = 0
+  /** Websocket connection id of the current controller (device, not person). */
   controllerId: string | null = null
+  /**
+   * WHO is driving — stamped from the authenticated transport principal
+   * (POD-1081 / ADR 3 D7). Null when nobody holds control.
+   */
+  controllerIdentity: PresenceIdentity | null = null
+  /**
+   * LIVE-ONLY attribution of the last accepted PTY input (POD-1081 §2).
+   * Not durable in the transcript; blank after restart.
+   */
+  lastInputAttribution: Attribution | null = null
 
   private outputAtMs_ = 0
   private inputAtMs_ = 0
@@ -136,7 +148,7 @@ export class SessionTerminal {
 
   attachClient(client: ClientConn, sinceSeq?: number): void {
     this.clients.set(client.id, client)
-    if (this.controllerId === null) this.controllerId = client.id
+    if (this.controllerId === null) this.setController(client.id, client)
     const oldest = this.outputLog[0]?.seq
     const newest = this.outputLog.at(-1)?.seq
     let frames = this.outputLog
@@ -157,6 +169,7 @@ export class SessionTerminal {
       type: 'attached',
       sessionId: this.init.sessionId,
       controllerId: this.controllerId,
+      controllerIdentity: this.controllerIdentity,
       geometry: { ...this.geometry },
       epoch: this.epoch,
       resumed,
@@ -183,7 +196,14 @@ export class SessionTerminal {
   }
 
   reassignController(fromId: string, toId: string): void {
-    if (this.controllerId === fromId) this.controllerId = toId
+    // Socket reclaim: the connection id changes while the principal stays the
+    // same. The new id may not yet be in `clients` (reclaim runs before re-attach
+    // finishes), so we update the id unconditionally and refresh identity when
+    // the client record is already present.
+    if (this.controllerId !== fromId) return
+    this.controllerId = toId
+    const next = this.clients.get(toId)
+    if (next) this.controllerIdentity = identityOf(controlSubjectFromClient(next.principal))
   }
 
   subscribeTranscript(client: ClientConn, since?: string): void {
@@ -239,14 +259,21 @@ export class SessionTerminal {
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     if (this.controllerId !== clientId) return
-    this.controllerId = this.clients.keys().next().value ?? null
-    if (this.controllerId !== null) {
+    // Disconnect: reassign to the next attached client (preemption policy §3).
+    // Identity rides with the new controller; no refuse step.
+    const nextId = this.clients.keys().next().value ?? null
+    if (nextId !== undefined && nextId !== null) {
+      const next = this.clients.get(nextId)
+      this.setController(nextId, next)
       this.broadcast({
         type: 'controllerChanged',
         sessionId: this.init.sessionId,
         controllerId: this.controllerId,
+        controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
       })
+    } else {
+      this.clearController()
     }
   }
 
@@ -254,7 +281,7 @@ export class SessionTerminal {
     for (const client of this.clients.values()) client.viewports.delete(this.init.sessionId)
     this.clients.clear()
     this.transcriptSubscribers.clear()
-    this.controllerId = null
+    this.clearController()
   }
 
   handleInput(clientId: string, data: string, attribution?: Attribution): void {
@@ -264,12 +291,40 @@ export class SessionTerminal {
       this.markShellBusy()
     }
     this.recordInputActivity()
+    // Live-only keystroke attribution (POD-1081 §2). Durable retention is the
+    // inbox/chat path, not the per-keystroke PTY stream.
+    if (attribution) this.lastInputAttribution = attribution
     this.init.toDaemon({
       type: 'input',
       sessionId: this.init.sessionId,
       data,
       inputOrigin: 'human',
       ...(attribution ? { attribution } : {}),
+    })
+  }
+
+  /**
+   * Record live attribution for an inbox/daemon-originated input that bypasses
+   * controller gating (chat send, answer, agent type). Still live-only for the
+   * last-keystroke field; the durable half is the queue row.
+   */
+  noteInputAttribution(attribution: Attribution | null): void {
+    if (attribution) this.lastInputAttribution = attribution
+  }
+
+  /**
+   * Drop control because the current holder is no longer authorized (revoked
+   * human / machine use). Called at the next apply — never by a reaper.
+   */
+  revokeController(): void {
+    if (this.controllerId === null && this.controllerIdentity === null) return
+    this.clearController()
+    this.broadcast({
+      type: 'controllerChanged',
+      sessionId: this.init.sessionId,
+      controllerId: null,
+      controllerIdentity: null,
+      geometry: { ...this.geometry },
     })
   }
 
@@ -320,7 +375,8 @@ export class SessionTerminal {
   requestControl(clientId: string): void {
     const client = this.clients.get(clientId)
     if (!client || this.controllerId === clientId) return
-    this.controllerId = clientId
+    // Preemptive transfer — current controller cannot refuse (policy §3).
+    this.setController(clientId, client)
     this.epoch += 1
     const viewport = client.viewports.get(this.init.sessionId)
     if (client.viewVisible.has(this.init.sessionId) && viewport) {
@@ -337,6 +393,7 @@ export class SessionTerminal {
       type: 'controllerChanged',
       sessionId: this.init.sessionId,
       controllerId: clientId,
+      controllerIdentity: this.controllerIdentity,
       geometry: { ...this.geometry },
     })
     this.broadcast({
@@ -345,6 +402,17 @@ export class SessionTerminal {
       cols: this.geometry.cols,
       rows: this.geometry.rows,
     })
+  }
+
+  /**
+   * Force controller identity to an agent principal (no browser socket holds
+   * control). Used when the session's agent is the driver — the normal case
+   * under multi-user readiness §3.1.3 — after a human disconnects or is revoked.
+   */
+  setAgentController(identity: PresenceIdentity, attribution?: Attribution | null): void {
+    this.controllerId = null
+    this.controllerIdentity = identity
+    if (attribution) this.lastInputAttribution = attribution
   }
 
   redraw(): void {
@@ -398,6 +466,20 @@ export class SessionTerminal {
     ;[this.inputCount_, this.outputCount_, this.activityCount_] = state.counts
     this.activityDirty_ = state.dirty
     ;[this.shellBusy_, this.shellCommandRunning] = state.shell
+  }
+
+  private setController(clientId: string, client: ClientConn | undefined): void {
+    this.controllerId = clientId
+    if (!client) {
+      this.controllerIdentity = null
+      return
+    }
+    this.controllerIdentity = identityOf(controlSubjectFromClient(client.principal))
+  }
+
+  private clearController(): void {
+    this.controllerId = null
+    this.controllerIdentity = null
   }
 
   private setGeometry(cols: number, rows: number): void {
