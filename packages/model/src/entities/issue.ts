@@ -81,7 +81,7 @@
  */
 
 import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
-import { IssueIdField, machineIdBlockedOnPOD318, RepoIdField, SessionIdField, UserIdField } from '../ids'
+import { IssueIdField, MachineIdField, RepoIdField, SessionIdField, UserIdField } from '../ids'
 import { z } from 'zod'
 import { SessionMeta } from './session'
 import {
@@ -154,9 +154,9 @@ const IssueWireCore = z.object({
   defaultModel: IssueAgentDefaults.shape.defaultModel,
   defaultEffort: IssueAgentDefaults.shape.defaultEffort,
   // Machine (daemon) this issue's agents run on; absent = pick by repo affinity.
-  // CARVED OUT of the brand flip (ADR 1 Amendment 2 D16.2): resolvable to
-  // LOCAL_MACHINE_ID = 'local' today, and a length-only brand would launder that
-  // sentinel rather than flag it. POD-318 retires it, then this becomes MachineIdField.
+  // Carved out of the brand flip while it could resolve to the constant `'local'`
+  // (ADR 1 Amendment 2 D16.2 — a length-only brand launders a sentinel rather than
+  // flagging it). POD-318 retired it; the brand lands.
   machineId: IssueWorkspace.shape.machineId,
   linearId: IssueLinear.shape.linearId,
   linearIdentifier: IssueLinear.shape.linearIdentifier,

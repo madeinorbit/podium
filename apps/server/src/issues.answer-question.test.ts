@@ -32,15 +32,16 @@ function harness(
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now: () => '2026-07-14T00:00:00.000Z',
   }
   const svc = new IssueService(deps)
   const dispatcher = new IssueCommandDispatcher({
-    issues: () => svc,
+    issues: svc,
     deleteIssue: () => undefined,
+    attachSession: (_caller, input) => svc.attachSession(input),
     restoreIssue: () => undefined,
     // A ledger with no durable store: never dedupes, so every call runs — the
     // pass-through this file's cases assume. Idempotency itself is characterized

@@ -1,8 +1,8 @@
-import { FIRST_ADMIN_USER_ID, asSessionId, type SessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRuntimeState } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type {
   AgentObservation,
   ControlMessage,
@@ -13,6 +13,7 @@ import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 type RestartKind = 'daemon-only' | 'server-only' | 'server-and-daemon'
 
@@ -125,10 +126,10 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       let store = new SessionStore(dbPath)
       let registry = new SessionRegistry(store, { ntfy, telegram })
       const controls: ControlMessage[] = []
-      const attach = () =>
-        registry.gateway.attachDaemon('local', (msg) => controls.push(msg))
+      const attach = () => registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (msg) => controls.push(msg))
       attach()
-      registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, 
+      registry.modules.settings.setSettingsFor(
+        FIRST_ADMIN_USER_ID,
         normalizeSettings({
           notifications: {
             web: true,
@@ -143,7 +144,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // (POD-420): configuring it is `setSecret`'s job, which is the only path
       // authorized to write credential material.
       registry.modules.settings.setSecret('notifications.telegramBotToken', 'fixture-token')
-      registry.clientGateway.attachClient((message) => web.push(message))
+      attachTestClient(registry.clientGateway, (message) => web.push(message))
       const parentId = `parent-${provider}`
       const childId = asSessionId(`child-${provider}`)
       registry.modules.sessions.createSession({
@@ -157,7 +158,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         cwd: join(root, 'child'),
         spawnedBy: `session:${parentId}`,
       })
-      registry.gateway.routeDaemonFrame('local', {
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId: childId,
         resume: {
@@ -178,7 +179,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         return lease.observationGeneration
       }
       const deliver = (value: AgentObservation) =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'agentObservation',
           observation: value,
         })
@@ -246,7 +247,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         if (kind === 'daemon-only') {
           // The server survives. Replacing the daemon forces a provider-history
           // fold against the durable checkpoint after the new lease is issued.
-          registry.gateway.detachDaemon('local')
+          registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
           attach()
         } else {
           // Both server restart modes reopen the durable store. Their daemon
@@ -256,7 +257,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           store.close()
           store = new SessionStore(dbPath)
           registry = new SessionRegistry(store, { ntfy, telegram })
-          registry.clientGateway.attachClient((message) => web.push(message))
+          attachTestClient(registry.clientGateway, (message) => web.push(message))
           attach()
         }
         const generation = currentGeneration()

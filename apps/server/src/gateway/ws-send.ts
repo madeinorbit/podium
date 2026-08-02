@@ -21,12 +21,23 @@ export interface SendSocket {
   terminate(): void
 }
 
-export function safeSend(
+export function safeSend(ws: SendSocket, msg: Parameters<typeof encodeFn>[0], limit: number): void {
+  safeSendEncoded(ws, encode(msg), limit)
+}
+
+/** Lossy stream send: pressure drops this frame and NEVER terminates the socket. */
+export function safeSendLossy(
   ws: SendSocket,
   msg: Parameters<typeof encodeFn>[0],
   limit: number,
-): void {
-  safeSendEncoded(ws, encode(msg), limit)
+): boolean {
+  if (ws.readyState !== 1 /* OPEN */ || ws.bufferedAmount > limit) return false
+  try {
+    ws.send(encode(msg))
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Same backpressure/dead-socket gate for bytes already encoded in the worker. */

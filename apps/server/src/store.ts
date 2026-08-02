@@ -13,7 +13,7 @@
  *  - sessions (+ pins/snoozes/tab_order/session_drafts) → store/sessions.ts
  *  - issues (+ labels/deps/comments/mail)               → store/issues.ts
  *  - conversations (index/FTS/registry/mirror/transcript index)
- *                                                        → store/conversations.ts
+ *                                                        → store/conversations.ts + store/conversations/
  *  - sync (changes/applied_mutations/queued_messages/upstream_outbox)
  *                                                        → @podium/sync's SyncRepository
  *                                                          (query-only; schema DDL stays
@@ -29,8 +29,10 @@
  *  - automations (automations/automation_runs)           → store/automations.ts
  */
 
+import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
@@ -53,10 +55,10 @@ import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
-import { SessionsRepository } from './store/sessions'
 import { ServerSecretsRepository } from './store/server-secrets'
-import { SettingsAuditRepository } from './store/settings-audit'
+import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
+import { SettingsAuditRepository } from './store/settings-audit'
 import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
 import { UsersRepository } from './store/users'
@@ -123,7 +125,30 @@ export class SessionStore {
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
 
-  constructor(private readonly path: string = defaultDbPath()) {
+  /**
+   * The id of the machine this store's rows are written on — `<stateDir>/machine.id`,
+   * read by the composition root and handed down (`readOrCreateLocalMachineId`).
+   *
+   * It is a CONSTRUCTOR ARGUMENT rather than a file read here because the store must
+   * not decide who it is: the server, the split daemon and the CLI all read the same
+   * file, and a second reader is a second opinion waiting to happen.
+   *
+   * The default MINTS one instead of falling back to a constant. An unconfigured
+   * store — a test fixture, a script — is genuinely a fresh host with no prior rows,
+   * and saying so with a real UUID keeps the "an id is minted material or nothing"
+   * rule true everywhere. The old `'__local__'` default said the opposite: that
+   * unattributed rows are a legitimate durable state.
+   */
+  readonly hostMachineId: MachineId
+
+  constructor(
+    private readonly path: string = defaultDbPath(),
+    hostMachineId: string = randomUUID(),
+  ) {
+    // The value crosses into its id space HERE, once: it arrives as the bytes of a
+    // state-dir file (or a fresh mint) and leaves as the machine identity every row,
+    // route and grant in this process is keyed by.
+    this.hostMachineId = asMachineId(hostMachineId)
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = openDatabase(path)
     this.db.exec('PRAGMA journal_mode = WAL')
@@ -158,11 +183,13 @@ export class SessionStore {
     this.issues = new IssuesRepository(this.db, (repoPath) =>
       this.repos.resolveRepoIdForPath(repoPath),
     )
-    this.repos = new ReposRepository(this.db, (repoId, repoPath) =>
-      this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
+    this.repos = new ReposRepository(
+      this.db,
+      (repoId, repoPath) => this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
+      this.hostMachineId,
     )
     this.approvals = new ApprovalsRepository(this.db)
-    this.conversations = new ConversationsRepository(this.db)
+    this.conversations = new ConversationsRepository(this.db, this.hostMachineId)
     this.sync = new SyncRepository(this.db)
     this.auth = new AuthRepository(this.db)
     this.superagent = new SuperagentRepository(this.db)
@@ -186,10 +213,19 @@ export class SessionStore {
 
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects
     // and data heals) — never schema DDL.
+    //
+    // THE MACHINE-IDENTITY UPGRADE RUNS FIRST, ahead of every reader in the process
+    // (POD-318). It is not just that nothing may WRITE a pre-upgrade row: nothing may
+    // READ one either. `SessionRegistry` loads the sessions map in its constructor,
+    // and the composition root constructs it before it can call `ensureHostMachine`
+    // — so an upgrade that ran there would leave live Session objects remembering a
+    // sentinel while the rows underneath them had moved. Sequencing it here makes
+    // "no reader ever sees a legacy machine id" true by construction instead of by
+    // call-order discipline.
+    this.migrateLegacyMachineIdentity(this.hostMachineId)
     this.conversations.ensureFts()
-    this.conversations.repairSubagentSegmentPaths()
     this.superagent.seedGlobalThread()
-    this.repos.importReposJson(this.path)
+    this.repos.importReposJson(this.path, this.hostMachineId)
     this.backfillRepoIds()
     // #474: assign human-facing prefixes to any repos still missing one (heals
     // rows inserted by importReposJson or before the prefix migration).
@@ -221,14 +257,88 @@ export class SessionStore {
   }
 
   /**
-   * Rewrite all rows carrying the placeholder `'__local__'` machine_id to the
-   * real machineId — the one genuinely CROSS-aggregate write (sessions, repos
-   * and conversations all carry machine ids). Idempotent: re-running after
-   * adoption is a no-op (no rows will match `__local__` any more).
+   * ONE-TIME BOOT UPGRADE — the only place the retired sentinels are still spelled.
+   *
+   * Installs that predate POD-318 carry a `machines` row literally called `'local'`
+   * and rows all over the schema pointing at it, or at the `'__local__'` column
+   * default three tables used to have. A static SQL migration cannot fix them,
+   * because the value they must become — this host's minted UUID — does not exist
+   * until the state dir has a `machine.id` file. So the rewrite is code, run once at
+   * boot, in one transaction, and it is an UPGRADE WITH A DELETION HORIZON rather
+   * than a standing heal: the name says migrate, not heal or adopt, because nothing
+   * here is supposed to still be finding work a year from now.
+   *
+   * THE TABLE LIST IS READ FROM THE DATABASE, not written out here, and that is
+   * load-bearing. A hand-written list of "sessions, repos, conversations" is what
+   * the placeholder era actually shipped, and it was already wrong: `issues`,
+   * `conversation_segments`, `approval_requests` and `execution_profiles` all carry
+   * a `machine_id` too — an issue pinned to the machine the UI called `local` is
+   * ordinary user data. Asking sqlite which tables have the column means a table
+   * that grows one tomorrow is covered by construction instead of being remembered.
+   *
+   * IDEMPOTENCE IS BY CONSTRUCTION, not by a flag: every statement is
+   * `WHERE … IN ('local','__local__')`, and after the first run nothing matches —
+   * there is no writer left in the codebase that can produce either value, which is
+   * what the `local-placeholders` audit counter and the brand refusal on `MachineId`
+   * together guarantee. A second boot updates zero rows, and so does the millionth.
+   *
+   * THE RESIDUE CHECK IS THE POINT, and it is deliberately a SECOND READ of the
+   * database rather than a restatement of what was just written: it re-discovers the
+   * columns and counts what is left. Non-zero means this boot is about to serve
+   * MIXED IDENTITIES — the fleet answering to a UUID while rows still name a
+   * sentinel — which is precisely how the placeholder era stranded people's
+   * sessions. It fails loudly here instead of quietly.
+   *
+   * The `machines` row is RENAMED rather than re-inserted so its credential, owner
+   * and grant edges survive the change of id; a fresh insert would have left a
+   * second row and split the fleet in half.
    */
-  adoptLocalRows(machineId: string): void {
-    this.sessions.adoptLocalRows(machineId)
-    this.repos.adoptLocalRows(machineId)
-    this.conversations.adoptLocalRows(machineId)
+  migrateLegacyMachineIdentity(hostMachineId: string): void {
+    const LEGACY = ["'local'", "'__local__'"].join(', ')
+    /** Every `(table, column)` in THIS database that holds a machine id. */
+    const machineColumns = (): { table: string; column: string }[] => {
+      const tables = this.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        .all() as { name: string }[]
+      const found: { table: string; column: string }[] = []
+      for (const { name } of tables) {
+        const columns = this.db.prepare(`PRAGMA table_info("${name}")`).all() as { name: string }[]
+        if (name === 'machines') {
+          if (columns.some((c) => c.name === 'id')) found.push({ table: name, column: 'id' })
+          continue
+        }
+        if (columns.some((c) => c.name === 'machine_id'))
+          found.push({ table: name, column: 'machine_id' })
+      }
+      return found
+    }
+    this.transact(() => {
+      for (const { table, column } of machineColumns()) {
+        // OR REPLACE: a row already carrying the host id on the same primary key
+        // wins, rather than aborting the whole upgrade on a unique constraint.
+        this.db
+          .prepare(
+            `UPDATE OR REPLACE "${table}" SET "${column}" = ? WHERE "${column}" IN (${LEGACY})`,
+          )
+          .run(hostMachineId)
+      }
+      const residue = machineColumns()
+        .map(({ table, column }) => ({
+          table,
+          count: (
+            this.db
+              .prepare(`SELECT COUNT(*) AS c FROM "${table}" WHERE "${column}" IN (${LEGACY})`)
+              .get() as { c: number }
+          ).c,
+        }))
+        .filter(({ count }) => count > 0)
+      if (residue.length > 0) {
+        throw new Error(
+          `legacy machine identity survived the boot upgrade (${residue
+            .map(({ table, count }) => `${table}: ${count}`)
+            .join(', ')}) — refusing to serve mixed machine identities`,
+        )
+      }
+    })
   }
 }

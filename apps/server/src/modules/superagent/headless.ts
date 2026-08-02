@@ -8,7 +8,7 @@ import type {
   SessionId,
   ThreadId,
 } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asSessionId, type MachineId } from '@podium/model'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -23,8 +23,8 @@ export interface HeadlessDeps {
   getSession(sessionId: SessionId): Session | undefined
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
-  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): string
-  defaultMachine(): string
+  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): MachineId
+  defaultMachine(): MachineId
   toMachine(machineId: string, msg: ControlMessage): void
   /** Mint a globally unique requestId with the given prefix (shared counter —
    *  ids must never collide across the registry's pending maps). */
@@ -42,6 +42,29 @@ export interface HeadlessDeps {
  * daemon — it only sees turn requests and transcript binds.
  */
 export class HeadlessService {
+  /**
+   * NOT folded into the daemon-RPC correlator (POD-318) — judged, not skipped.
+   *
+   * `pendingTurns` is a STREAMING SUBSCRIPTION, not a request/reply: a
+   * `headlessTurnEvent` looks the entry up mid-flight and calls `onEvent`
+   * WITHOUT settling it, many times, before the terminal `headlessTurnResult`
+   * arrives. The send is also compensated — a throw from `toMachine` unwinds the
+   * registration and resolves a retryable failure — which the broker's
+   * fire-and-forget send has no notion of. Bending the broker into a
+   * subscription hub to absorb this would grow the mechanism that was just
+   * collapsed.
+   *
+   * `pendingBinds` alone WOULD fold trivially, and folding it would earn the
+   * wrong-machine check (POD-1175) for headless binds. It is left here anyway:
+   * splitting one module's correlation across two mechanisms costs more clarity
+   * than the single map saves. The residual gap is that a headless turn or bind
+   * reply is still accepted from any attached daemon; both are already targeted
+   * by `getSession(...).machineId`, so closing it is a follow-up on the
+   * subscription lifecycle, not on this module's plumbing.
+   *
+   * What IS shared is the id space: `deps.nextRequestId` is the broker's mint,
+   * so a turn/bind id can never collide with an RPC id.
+   */
   private readonly pendingTurns = new Map<
     string,
     {

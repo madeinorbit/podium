@@ -37,7 +37,7 @@
 import { z } from 'zod'
 import {
   IssueIdField,
-  machineIdBlockedOnPOD318,
+  MachineIdField,
   RepoIdField,
   SessionIdField,
   UserIdField,
@@ -234,7 +234,7 @@ export const IssueWorkspace = z.object({
   worktreePath: z.string().nullable(),
   branch: z.string().nullable(),
   parentBranch: z.string(),
-  machineId: machineIdBlockedOnPOD318.optional(),
+  machineId: MachineIdField.optional(),
 })
 export type IssueWorkspace = z.infer<typeof IssueWorkspace>
 

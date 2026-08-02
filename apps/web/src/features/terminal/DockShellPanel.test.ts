@@ -1,16 +1,17 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveShellMachineLabel } from './DockShellPanel'
 
 const machines = [
-  { id: 'machine-local', name: 'podium-host' },
-  { id: 'machine-remote', name: 'build-box' },
+  { id: asMachineId('machine-local'), name: 'podium-host' },
+  { id: asMachineId('machine-remote'), name: 'build-box' },
 ]
 
 describe('resolveShellMachineLabel', () => {
   it('prefers the running session machine name over the requested target', () => {
     expect(
       resolveShellMachineLabel(
-        { machineId: 'machine-remote', machineName: 'remote.example' },
+        { machineId: asMachineId('machine-remote'), machineName: 'remote.example' },
         machines,
         'machine-local',
       ),
@@ -22,6 +23,6 @@ describe('resolveShellMachineLabel', () => {
   })
 
   it('falls back to the stable machine id when no display name is known', () => {
-    expect(resolveShellMachineLabel({ machineId: 'unlisted' }, machines)).toBe('unlisted')
+    expect(resolveShellMachineLabel({ machineId: asMachineId('unlisted') }, machines)).toBe('unlisted')
   })
 })

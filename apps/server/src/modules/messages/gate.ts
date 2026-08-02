@@ -39,11 +39,11 @@ import { dispatchMailCommand, isMailProcExposedOn, type MailProcName } from './r
 import type { MessageDeliveryService } from './service'
 
 export interface MessageGateDeps {
-  messages(): MessageDeliveryService
-  issues(): IssueService
+  messages: MessageDeliveryService
+  issues: IssueService
   listSessions(): SessionMeta[]
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
-   *  SessionsService.createSession, the one spawn path. Absent = spawn proc
+   *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
   spawnSession?(input: {
     ownerUserId: UserId
@@ -172,7 +172,7 @@ export class MessageGate {
     if ((this.principalForCapability === undefined) !== (this.policyFor === undefined)) {
       throw new Error('MessageGate: principalForCapability and policyFor must be wired together')
     }
-    if (this.policyFor !== undefined && deps.messages().appliedPolicy !== 'dynamic') {
+    if (this.policyFor !== undefined && deps.messages.appliedPolicy !== 'dynamic') {
       throw new Error('MessageGate: principal policy requires dynamic apply-time authorization')
     }
     const ceiling = opts?.ceiling ?? SINGLE_USER_CEILING
@@ -189,7 +189,7 @@ export class MessageGate {
     //  - a real ceiling here with NO apply port there = half a ceiling;
     //  - an apply port built from a DIFFERENT object = two ceilings.
     // A harness with neither is the single-user default and is left alone.
-    const applied = deps.messages().appliedCeiling
+    const applied = deps.messages.appliedCeiling
     if (opts?.ceiling !== undefined && applied === undefined) {
       throw new Error(
         'MessageGate: a ceiling was supplied but MessageDeliveryService carries no apply-time port — wire both from mailPolicy()',

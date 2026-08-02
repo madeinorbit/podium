@@ -23,7 +23,7 @@ const bind = (sessionId: SessionId) =>
 
 function regWithDaemon() {
   const reg = new SessionRegistry()
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
 }
 
@@ -32,7 +32,7 @@ function liveSession(reg: SessionRegistry): string {
     agentKind: 'claude-code',
     cwd: '/repo',
   })
-  reg.gateway.routeDaemonFrame('local', bind(sessionId))
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
   return sessionId
 }
 
@@ -66,7 +66,7 @@ describe('session.exited → lock auto-release wiring', () => {
     )) as { granted: boolean }
     expect(q.granted).toBe(false)
 
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId: asSessionId(dying),
       code: 0,
@@ -106,7 +106,7 @@ describe('session.exited → lock auto-release wiring', () => {
   it('hibernation keeps the leases (intentional park, not a death)', async () => {
     const reg = regWithDaemon()
     const parked = liveSession(reg)
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: asSessionId(parked),
       resume: { kind: 'claude', value: 'conv-1' },
@@ -115,7 +115,7 @@ describe('session.exited → lock auto-release wiring', () => {
     const r = reg.modules.sessions.hibernateSession({ sessionId: asSessionId(parked) })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no release.
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId: asSessionId(parked),
       code: 0,
@@ -128,7 +128,7 @@ describe('session.exited → lock auto-release wiring', () => {
     const reg = regWithDaemon()
     const doomed = liveSession(reg)
     await acquireAs(reg, doomed, 'merge:main')
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'spawnError',
       sessionId: asSessionId(doomed),
       message: 'boom',

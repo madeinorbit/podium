@@ -9,7 +9,7 @@ import type {
 } from './publish-worker-actor.js'
 import { isCompiledBunfsUrl, publishWorkerEmbeddedTarget } from './publish-worker-embed.js'
 import type { PublishWorkerCommand, PublishWorkerResult } from './publish-worker-protocol.js'
-import type { SessionProjectionEvent } from './service.js'
+import type { SessionProjectionEvent } from './publish-worker-actor.js'
 
 export interface PublishWorkerLike {
   postMessage(message: unknown): void

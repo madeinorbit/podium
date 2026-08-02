@@ -54,7 +54,7 @@ export const sessions = sqliteTable(
     name: text(),
     archived: integer().default(0).notNull(),
     workState: text('work_state'),
-    machineId: text('machine_id').default('__local__').notNull(),
+    machineId: text('machine_id').notNull(),
     lastOutputAt: text('last_output_at'),
     lastInputAt: text('last_input_at'),
     lastResumedAt: text('last_resumed_at'),
@@ -384,7 +384,7 @@ export const conversations = sqliteTable(
     createdAt: text('created_at'),
     updatedAt: text('updated_at'),
     messageCount: integer('message_count'),
-    machineId: text('machine_id').default('__local__').notNull(),
+    machineId: text('machine_id').notNull(),
     parentConversationId: text('parent_conversation_id'),
   },
   (table) => [
@@ -447,7 +447,7 @@ export const machines = sqliteTable('machines', {
 export const repos = sqliteTable(
   'repos',
   {
-    machineId: text('machine_id').default('__local__').notNull(),
+    machineId: text('machine_id').notNull(),
     path: text().notNull(),
     originUrl: text('origin_url'),
     repoName: text('repo_name'),

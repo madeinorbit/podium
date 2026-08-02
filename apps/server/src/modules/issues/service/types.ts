@@ -1,6 +1,5 @@
 import type {
   ArtifactId,
-  IssueColorSlot,
   IssueId,
   IssueTree,
   IssueTreeNode,
@@ -9,7 +8,7 @@ import type {
   SessionId,
   SessionMeta,
 } from '@podium/model'
-import type { MetadataChange, RepoOp, ServerMessage } from '@podium/protocol'
+import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
@@ -177,7 +176,11 @@ export interface IssueDeps {
     harness?: string
     model?: string | null
     effort?: string | null
-    machine?: string
+    /** The machine the session landed on. REQUIRED (POD-318): the spawn path resolves a
+     *  machine before it creates anything, so a spawn result that cannot say where the
+     *  work went is a spawn that did not happen. It used to be optional, and the issue
+     *  workflow made up `'__local__'` when it was missing. */
+    machine: string
   }
   repoOp(
     op: RepoOp,

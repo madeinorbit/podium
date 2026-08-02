@@ -89,14 +89,14 @@
  * {@link rawStringEntityIds} — POD-301's item. Every id field declared as a bare
  * zod string where the brand exists and nothing carves it out.
  *
- * {@link machineIdUnbrandedFields} — POD-318's item, split out because ADR 1
- * Amendment 2 D16.2 is normative that `MachineId` must NOT be adopted at any
- * field until `local` / `__local__` are retired: branding a sentinel *launders*
- * it rather than flagging it. D16.2 asks for "a narrower, visible debt" and an
- * unratcheted carve-out is not visible, so the carve-out sites are counted here
- * — under POD-318 — instead of being silently excluded from POD-301's count.
- * Both the bare `z.string()` spelling and the sanctioned
- * `machineIdBlockedOnPOD318` marker are counted: they are the same debt.
+ * {@link machineIdUnbrandedFields} — POD-318's item, kept separate from POD-301's
+ * because ADR 1 Amendment 2 D16.2 made it a DIFFERENT debt with a different
+ * precondition: `MachineId` could not be adopted anywhere until `'local'` and
+ * `'__local__'` were retired, since branding a sentinel *launders* it rather than
+ * flagging it. POD-318 retired them and adopted the brand, so this counts what it
+ * always counted — a machine-id field still declared as a bare `z.string()` — with
+ * the sanctioned carve-out marker no longer among the spellings, because it no
+ * longer exists.
  *
  * {@link unbrandedByDecisionFields} — the escape hatch, counted so it cannot be
  * used quietly. A field is excused when its doc comment carries the uppercase
@@ -191,9 +191,6 @@ export function assertBrandsLoaded(brandNames: readonly string[]): void {
  */
 export const MIN_ID_FIELD_SITES = 1800
 
-/** The carve-out marker `packages/model` uses at every machine-id field. */
-const CARVEOUT_MARKER = 'machineIdBlockedOnPOD318'
-
 /**
  * The excuse token. Uppercase and word-anchored: `packages/model` already wrote
  * it at eleven fields ("UNBRANDED: a HARNESS-minted `agent_id` …") before this
@@ -211,8 +208,6 @@ export type IdFieldForm =
   | 'zod-string'
   /** A zod schema carrying the brand (`SessionIdField`, `.brand<…>`, `.pipe(…)`). */
   | 'zod-branded'
-  /** `machineIdBlockedOnPOD318` — ADR 1 Amendment 2 D16.2's sanctioned carve-out. */
-  | 'carveout-marker'
   /** A drizzle column (`text("session_id")`). Limit 1. */
   | 'db-column'
   /** A hand-written TypeScript `string` member. Limit 1. */
@@ -419,7 +414,6 @@ const DECL_AT_COL_0 = /^export (?:const|type|interface|class) (\w+)/
  */
 export function classifyRhs(rhs: string): IdFieldForm {
   const norm = rhs.replace(/\s+/g, '')
-  if (norm.includes(CARVEOUT_MARKER)) return 'carveout-marker'
   if (/\.brand</.test(norm)) return 'zod-branded'
   if (/\b\w+IdField\b/.test(norm)) return 'zod-branded'
   if (/\.pipe\(/.test(norm) && /\bz\./.test(norm)) return 'zod-branded'
@@ -685,9 +679,9 @@ const sitesOnce = (ctx: AuditContext): EntityIdSite[] => {
  * POD-301's item: an entity id field declared as a bare zod string where the
  * brand exists.
  *
- * Machine-id fields are NOT here — ADR 1 Amendment 2 D16.2 forbids adopting that
- * brand before POD-318, so they are their own count
- * ({@link machineIdUnbrandedFields}) rather than a silent exclusion.
+ * Machine-id fields are NOT here — they are their own count
+ * ({@link machineIdUnbrandedFields}), which is where ADR 1 Amendment 2 D16.2 put
+ * them and where POD-318 drove them to zero.
  */
 export function rawStringEntityIds(ctx: AuditContext): AuditSite[] {
   return sitesOnce(ctx)
@@ -696,16 +690,16 @@ export function rawStringEntityIds(ctx: AuditContext): AuditSite[] {
 }
 
 /**
- * POD-318's item: every machine-id field still carrying an unbranded string,
- * in either spelling — bare `z.string()` or the sanctioned
- * `machineIdBlockedOnPOD318` marker. One debt, two spellings; D16.2 asks for it
- * to be VISIBLE, and an unratcheted carve-out is not.
+ * POD-318's item: a machine-id field still declared as a bare `z.string()`.
+ *
+ * It reached zero when POD-318 retired the sentinels and bound every field to
+ * `MachineIdField`. The detector stays because the ratchet is what stops the debt
+ * from being re-created: a new machine-id field written as a raw string raises
+ * this number and fails the audit.
  */
 export function machineIdUnbrandedFields(ctx: AuditContext): AuditSite[] {
   return sitesOnce(ctx)
-    .filter(
-      (s) => s.brand === 'Machine' && (s.form === 'zod-string' || s.form === 'carveout-marker'),
-    )
+    .filter((s) => s.brand === 'Machine' && s.form === 'zod-string')
     .map(site)
 }
 
@@ -745,7 +739,7 @@ if (import.meta.main) {
   console.log(`entity-id field positions: ${sites.length} (floor ${MIN_ID_FIELD_SITES})`)
   for (const [form, n] of [...byForm].sort((a, b) => b[1] - a[1])) console.log(`  ${form}: ${n}`)
   console.log(
-    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && (s.form === 'zod-string' || s.form === 'carveout-marker')).length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
+    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string').length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
   )
   if (argv.includes('--unreachable')) {
     const wider = idFieldsWithNoBrandVocabulary(loadContext(process.cwd()))

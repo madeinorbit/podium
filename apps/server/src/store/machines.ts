@@ -4,7 +4,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { Inventory } from '@podium/model'
+import { Inventory, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MachineRecord } from './types'
 
@@ -24,7 +24,8 @@ function parseInventory(json: unknown): Inventory | undefined {
 function toRecord(r: Record<string, unknown>): MachineRecord {
   const inventory = parseInventory(r.inventory_json)
   return {
-    id: r.id as string,
+    // SERIALIZATION EDGE: untyped from sqlite; the machine id re-enters its id space.
+    id: r.id as MachineId,
     name: r.name as string,
     hostname: r.hostname as string,
     createdAt: r.created_at as string,
@@ -50,7 +51,7 @@ export class MachinesRepository {
    * only by luck.
    *
    * ON CONFLICT KEEPS AN OWNER THAT ALREADY EXISTS (`COALESCE`). A returning
-   * daemon's `hello`, a boot-time `ensureLocalMachine` and a re-pair all run
+   * daemon's `hello`, a boot-time `ensureHostMachine` and a re-pair all run
    * through here, and none of them is an ownership TRANSFER: letting the latest
    * writer win would make re-pairing a silent take-over of somebody else's
    * machine. It fills a NULL, so a row written before this column existed

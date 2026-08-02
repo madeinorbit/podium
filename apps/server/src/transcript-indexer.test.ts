@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { type MirrorReadResult, MirrorService } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from './store'
-import { TranscriptIndexer } from './transcript-indexer'
+import { TranscriptIndexer } from './modules/memory/transcript-indexer'
 
 // TranscriptIndexer (docs/spec/search-v1.md §2.3) driven end-to-end through a real
 // MirrorService over a fake daemon: chunk hooks feed the indexer, so the tests pin
@@ -57,8 +57,11 @@ describe('TranscriptIndexer', () => {
     const store = new SessionStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-index-'))
     const fs = new FakeDaemonFs()
-    const indexer = new TranscriptIndexer(store)
-    const mirror = new MirrorService(store.conversations, lakeDir, fs.read, Date.now, {
+    const indexer = new TranscriptIndexer({
+      mirror: store.conversations.mirror,
+      index: store.conversations.transcriptIndex,
+    })
+    const mirror = new MirrorService(store.conversations.mirror, lakeDir, fs.read, Date.now, {
       chunkDelayMs: 0,
       passBudgetBytes: Number.MAX_SAFE_INTEGER,
       onBytes: (m, n, p) => indexer.onBytes(m, n, p),
@@ -73,7 +76,7 @@ describe('TranscriptIndexer', () => {
 
   function seed(store: SessionStore, nativeId: string): string {
     const path = `/home/u/.claude/projects/-proj/${nativeId}.jsonl`
-    store.conversations.ensureConversationIdentity({
+    store.conversations.registry.ensure({
       machineId: 'm1',
       nativeId,
       providerId: 'claude-code-jsonl',
@@ -110,11 +113,13 @@ describe('TranscriptIndexer', () => {
     mirror.enqueue('m1', 'conv', path)
     await settle(mirror, indexer)
 
-    expect(store.conversations.transcriptIndexRows('m1', 'conv').map((r) => r.content)).toEqual([
+    expect(store.conversations.transcriptIndex.rows('m1', 'conv').map((r) => r.content)).toEqual([
       'find the flux capacitor',
       'It lives in engine.ts',
     ])
-    expect(store.conversations.indexedCursor('m1', 'conv')).toBe(Buffer.byteLength(content))
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'conv')).toBe(
+      Buffer.byteLength(content),
+    )
   })
 
   it('indexes a record split across two mirror chunks exactly once', async () => {
@@ -129,21 +134,23 @@ describe('TranscriptIndexer', () => {
 
     mirror.enqueue('m1', 'split', path)
     await settle(mirror, indexer)
-    expect(store.conversations.transcriptIndexRows('m1', 'split').map((r) => r.content)).toEqual([
+    expect(store.conversations.transcriptIndex.rows('m1', 'split').map((r) => r.content)).toEqual([
       'part one message',
     ])
-    expect(store.conversations.indexedCursor('m1', 'split')).toBe(first.length) // partial line waits
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'split')).toBe(first.length) // partial line waits
 
     // The rest of the record arrives.
     fs.set(path, whole)
     mirror.enqueue('m1', 'split', path)
     await settle(mirror, indexer)
 
-    expect(store.conversations.transcriptIndexRows('m1', 'split').map((r) => r.content)).toEqual([
+    expect(store.conversations.transcriptIndex.rows('m1', 'split').map((r) => r.content)).toEqual([
       'part one message',
       'the split record answer',
     ])
-    expect(store.conversations.indexedCursor('m1', 'split')).toBe(Buffer.byteLength(whole))
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'split')).toBe(
+      Buffer.byteLength(whole),
+    )
   })
 
   it('truncate (source rewrite) drops the index and reindexes the new content', async () => {
@@ -154,10 +161,9 @@ describe('TranscriptIndexer', () => {
     fs.set(path, original)
     mirror.enqueue('m1', 'rewrite', path)
     await settle(mirror, indexer)
-    expect(store.conversations.transcriptIndexRows('m1', 'rewrite').map((r) => r.content)).toEqual([
-      'original long conversation',
-      'old answer',
-    ])
+    expect(store.conversations.transcriptIndex.rows('m1', 'rewrite').map((r) => r.content)).toEqual(
+      ['original long conversation', 'old answer'],
+    )
 
     // Native file rewritten SHORTER — mirror truncates and re-pulls; the index
     // must drop the stale rows and reindex only what the new file holds.
@@ -166,10 +172,12 @@ describe('TranscriptIndexer', () => {
     mirror.enqueue('m1', 'rewrite', path)
     await settle(mirror, indexer)
 
-    expect(store.conversations.transcriptIndexRows('m1', 'rewrite').map((r) => r.content)).toEqual([
-      'fresh rewritten history',
-    ])
-    expect(store.conversations.indexedCursor('m1', 'rewrite')).toBe(Buffer.byteLength(rewritten))
+    expect(store.conversations.transcriptIndex.rows('m1', 'rewrite').map((r) => r.content)).toEqual(
+      ['fresh rewritten history'],
+    )
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'rewrite')).toBe(
+      Buffer.byteLength(rewritten),
+    )
   })
 
   it('degrades to a no-op without throwing when FTS5 is unavailable', async () => {
@@ -177,13 +185,16 @@ describe('TranscriptIndexer', () => {
     cleanups.push(() => store.close())
     // Simulate the no-FTS runtime: the availability flag is what gates every path.
     Object.assign(store, { transcriptFtsAvailable: false })
-    const indexer = new TranscriptIndexer(store)
+    const indexer = new TranscriptIndexer({
+      mirror: store.conversations.mirror,
+      index: store.conversations.transcriptIndex,
+    })
     seed(store, 'nofts')
-    store.conversations.setMirrorCursor('m1', 'nofts', 100, '2026-07-01T10:00:00Z')
+    store.conversations.mirror.setMirrorCursor('m1', 'nofts', 100, '2026-07-01T10:00:00Z')
 
     expect(() => indexer.onBytes('m1', 'nofts', '/nonexistent/lake.jsonl')).not.toThrow()
     await indexer.settled()
-    expect(store.conversations.indexedCursor('m1', 'nofts')).toBe(0) // nothing consumed
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'nofts')).toBe(0) // nothing consumed
     expect(() => indexer.onTruncate('m1', 'nofts')).not.toThrow()
   })
 
@@ -207,9 +218,17 @@ describe('TranscriptIndexer', () => {
     for (const s of segments) {
       seed(store, s.nativeId)
       writeFileSync(join(lakeDir, 'm1', `${s.nativeId}.jsonl`), s.content)
-      store.conversations.setMirrorCursor('m1', s.nativeId, Buffer.byteLength(s.content), '2026-07-01T10:00:00Z')
+      store.conversations.mirror.setMirrorCursor(
+        'm1',
+        s.nativeId,
+        Buffer.byteLength(s.content),
+        '2026-07-01T10:00:00Z',
+      )
     }
-    const indexer = new TranscriptIndexer(store, { chunkDelayMs: 0, ...options })
+    const indexer = new TranscriptIndexer(
+      { mirror: store.conversations.mirror, index: store.conversations.transcriptIndex },
+      { chunkDelayMs: 0, ...options },
+    )
     const lakePathFor = (nativeId: string) => join(lakeDir, 'm1', `${nativeId}.jsonl`)
     return { store, indexer, lakePathFor }
   }
@@ -225,14 +244,14 @@ describe('TranscriptIndexer', () => {
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
 
-    expect(store.conversations.transcriptIndexRows('m1', 'old-a').map((r) => r.content)).toEqual([
+    expect(store.conversations.transcriptIndex.rows('m1', 'old-a').map((r) => r.content)).toEqual([
       'ancient history one',
     ])
-    expect(store.conversations.transcriptIndexRows('m1', 'old-b').map((r) => r.content)).toEqual([
+    expect(store.conversations.transcriptIndex.rows('m1', 'old-b').map((r) => r.content)).toEqual([
       'ancient history two',
       'and its answer',
     ])
-    expect(store.conversations.segmentsToIndex('m1')).toEqual([]) // fully caught up
+    expect(store.conversations.transcriptIndex.segmentsToIndex('m1')).toEqual([]) // fully caught up
   })
 
   it('stops a backfill pass at the byte budget and resumes on the next trigger', async () => {
@@ -251,17 +270,22 @@ describe('TranscriptIndexer', () => {
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
 
-    const cursors = () => store.conversations.segmentsToIndex('m1').map((s) => s.nativeId)
-    expect(store.conversations.indexedCursor('m1', 'pace-a')).toBe(Buffer.byteLength(segA))
-    expect(store.conversations.indexedCursor('m1', 'pace-b')).toBe(0)
+    const cursors = () =>
+      store.conversations.transcriptIndex.segmentsToIndex('m1').map((s) => s.nativeId)
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'pace-a')).toBe(
+      Buffer.byteLength(segA),
+    )
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'pace-b')).toBe(0)
     expect(cursors()).toEqual(['pace-b'])
 
     // Next scan/attach trigger: resumes from the persisted cursors, finishes B.
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
-    expect(store.conversations.indexedCursor('m1', 'pace-b')).toBe(Buffer.byteLength(segB))
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'pace-b')).toBe(
+      Buffer.byteLength(segB),
+    )
     expect(cursors()).toEqual([])
-    expect(store.conversations.transcriptIndexRows('m1', 'pace-b').map((r) => r.content)).toEqual([
+    expect(store.conversations.transcriptIndex.rows('m1', 'pace-b').map((r) => r.content)).toEqual([
       'second pre-existing conversation body',
     ])
   })
@@ -275,17 +299,19 @@ describe('TranscriptIndexer', () => {
       { windowBytes: 256, passBudgetBytes: 1024 },
     )
     let passes = 0
-    while (store.conversations.segmentsToIndex('m1').length > 0) {
+    while (store.conversations.transcriptIndex.segmentsToIndex('m1').length > 0) {
       passes++
       expect(passes).toBeLessThanOrEqual(20)
       indexer.backfillMachine('m1', lakePathFor)
       await indexer.settled()
     }
     expect(passes).toBeGreaterThan(1) // the budget actually split the work
-    expect(store.conversations.transcriptIndexRows('m1', 'big').map((r) => r.content)).toEqual(
+    expect(store.conversations.transcriptIndex.rows('m1', 'big').map((r) => r.content)).toEqual(
       lines.map((_, i) => `message number ${i}`),
     )
-    expect(store.conversations.indexedCursor('m1', 'big')).toBe(Buffer.byteLength(content))
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'big')).toBe(
+      Buffer.byteLength(content),
+    )
   })
 
   it('leaves already-indexed segments untouched (no duplicate rows)', async () => {
@@ -294,12 +320,12 @@ describe('TranscriptIndexer', () => {
     ])
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
-    expect(store.conversations.transcriptIndexRows('m1', 'done')).toHaveLength(1)
+    expect(store.conversations.transcriptIndex.rows('m1', 'done')).toHaveLength(1)
 
     // Second trigger with nothing behind: no new rows, cursor unchanged.
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
-    expect(store.conversations.transcriptIndexRows('m1', 'done')).toHaveLength(1)
+    expect(store.conversations.transcriptIndex.rows('m1', 'done')).toHaveLength(1)
   })
 
   it('stops re-reading an unchanged undrainable gap across sweeps (newline-less tail)', async () => {
@@ -314,13 +340,17 @@ describe('TranscriptIndexer', () => {
     ])
     // indexedCursor is the first call of every index attempt — its call count is
     // the proxy for "the indexer went back to the file".
-    const attempts = vi.spyOn(store.conversations, 'indexedCursor')
+    const attempts = vi.spyOn(store.conversations.transcriptIndex, 'indexedCursor')
 
     // Sweep 1: drains the complete line, leaves the partial tail unconsumed.
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
-    expect(store.conversations.indexedCursor('m1', 'tail')).toBe(Buffer.byteLength(complete))
-    expect(store.conversations.segmentsToIndex('m1').map((s) => s.nativeId)).toEqual(['tail'])
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'tail')).toBe(
+      Buffer.byteLength(complete),
+    )
+    expect(
+      store.conversations.transcriptIndex.segmentsToIndex('m1').map((s) => s.nativeId),
+    ).toEqual(['tail'])
 
     // Sweep 2: attempts once more, proves zero progress, records the gap.
     indexer.backfillMachine('m1', lakePathFor)
@@ -338,11 +368,18 @@ describe('TranscriptIndexer', () => {
     // The mirror completes the record: cursor moves → the segment re-qualifies.
     const completed = `${complete + partial},"content":"now whole"}}\n`
     writeFileSync(lakePathFor('tail'), completed)
-    store.conversations.setMirrorCursor('m1', 'tail', Buffer.byteLength(completed), '2026-07-01T11:00:00Z')
+    store.conversations.mirror.setMirrorCursor(
+      'm1',
+      'tail',
+      Buffer.byteLength(completed),
+      '2026-07-01T11:00:00Z',
+    )
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
-    expect(store.conversations.indexedCursor('m1', 'tail')).toBe(Buffer.byteLength(completed))
-    expect(store.conversations.transcriptIndexRows('m1', 'tail').map((r) => r.content)).toEqual([
+    expect(store.conversations.transcriptIndex.indexedCursor('m1', 'tail')).toBe(
+      Buffer.byteLength(completed),
+    )
+    expect(store.conversations.transcriptIndex.rows('m1', 'tail').map((r) => r.content)).toEqual([
       'a finished thought',
       'now whole',
     ])
@@ -353,10 +390,10 @@ describe('TranscriptIndexer', () => {
     try {
       const { store, indexer } = setup()
       seed(store, 'gone')
-      store.conversations.setMirrorCursor('m1', 'gone', 50, '2026-07-01T10:00:00Z')
+      store.conversations.mirror.setMirrorCursor('m1', 'gone', 50, '2026-07-01T10:00:00Z')
       indexer.onBytes('m1', 'gone', '/nonexistent/lake.jsonl')
       await indexer.settled()
-      expect(store.conversations.indexedCursor('m1', 'gone')).toBe(0)
+      expect(store.conversations.transcriptIndex.indexedCursor('m1', 'gone')).toBe(0)
       expect(warn).toHaveBeenCalled()
     } finally {
       warn.mockRestore()

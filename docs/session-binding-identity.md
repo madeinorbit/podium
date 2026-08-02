@@ -1,8 +1,9 @@
 # SessionBinding: identity taxonomy on two axes
 
-Status: **in review — revision 2** (addresses the 6 blockers of the 2026-07-30 review)
-Gate: **autonomous reviewer approval** recorded in §14. Human sign-off gates are
-suspended for this fan-out; this doc must not block on a signature nobody will give.
+Status: **approved and implemented — revision 3 current-tree addendum**
+Gate: revision 2 was approved on 2026-07-30 (§14), and revision 3 was approved on
+2026-08-02 before implementation began. This addendum records the post-POD-395 module
+split and the implemented retirement and conflict-visibility corrections.
 Issue: POD-414 (5.1a) · Epic: POD-323 (5.1 SessionBinding) · Programme: POD-279 Phase 5
 Date: 2026-07-30
 
@@ -19,6 +20,72 @@ win**. Already-approved contracts that are **ratified here, not reopened**:
 (2026-07-02). The current-state inventory in §3.4 and §10 is sourced from POD-364's
 `docs/rearch-field-schema-inventory.md` (commit `1475c062`, **merged into
 `issue/279-integration`** 2026-07-30).
+
+---
+
+## 0. Current-tree alignment after the POD-395 extraction (revision 3)
+
+POD-395 deleted the former sessions god object and split it into `lifecycle.ts` plus
+focused sibling capabilities. That extraction does **not** move the SessionBinding
+lifecycle to the server's newly named `session-binding.ts`; the similar names describe
+two deliberately different responsibilities:
+
+| Module | Owns | Must never own |
+|---|---|---|
+| `apps/daemon/src/session-binding.ts` + `binding-store.ts` | The host-local lifecycle transition surface and versioned durable binding record: attempts, observation history, delegation history, transfer state and pending native-id delivery | Human rights snapshots; server SessionId minting; harness native-id allocation |
+| `apps/server/src/modules/sessions/session-binding.ts` (`SessionBindingReceipts`) | Admission of daemon `sessionResumeRef` evidence, the durable Session projection and conversation-segment link, broadcast, and owner-scoped acknowledgement **after persistence** | Spawn, reattach, adopt or retire transitions; delegation minting or mutation; native identity allocation |
+| `daemon-projection.ts` | Routes the receipt frame to `SessionBindingReceipts` | Alias arbitration or lifecycle logic of its own |
+
+**D0 — Receipts are not lifecycle.** `SessionBindingReceipts` is intentionally a narrow
+receipt/projection seam. A frame reaching it does not make a session live, move a binding,
+mint an attempt, change a delegation or prove activity. Its acknowledgement means only:
+"this exact native reference is durably reflected in the server projection for this
+owner." The host keeps the pending receipt until that acknowledgement. Moving these
+methods into `lifecycle.ts` because lifecycle happens to route the frame would recreate
+the god-object ownership POD-395 removed.
+
+### 0.1 End-to-end lifecycle
+
+| Moment | Normative effect | Durable facts | Runtime-only facts |
+|---|---|---|---|
+| **Birth / spawn** | Server mints `SessionId` and the authenticated delegation instruction; daemon admits the `spawn` transition and mints the attempt id; state begins `unbound` | Server Session row/ownership; host binding, delegation-history head, attempt id, generation | PTY bridge, observer and harness process |
+| **Reattach / restart** | The binding and delegation survive; a process restart mints a new attempt, while a daemon restart over a surviving process keeps the attempt and receives a new server generation | Host transition history and observations; server accepted projection/checkpoint | Sockets, tails, controllers and clients are rebuilt |
+| **Native observation / receipt** | Harness allocates the native id; daemon appends evidence and pending-delivery state; server validates the claimant machine, persists its projection/lineage, then acks the exact owner-scoped value | Host append-only observation history and ack state; server Session projection and conversation registry | The in-flight frame and delivery attempt |
+| **Handoff adopt** | `SessionId`, `ConversationId` and the complete delegation operand cross machines **byte-for-byte unchanged**; target resets the attempt and re-observes native artifacts | Source/target transfer phases and target observation history | Import staging and the target process before launch |
+| **Death / retire** | Only terminal Session deletion retires the binding and delegation. Process exit, hibernation, daemon/server restart, a resumable kill, and source shutdown after export do **not** retire it | `state:'retired'`, `retiredAt`, retained observations, appended retired delegation head | Live attempt and observers are absent |
+
+### 0.2 Durability and authority split
+
+- The **server** is authoritative for Podium identity and policy: `SessionId`,
+  `ConversationId`, owner/grants, accepted generation, claimant instruction and the
+  current public Session projection. It never invents a native alias.
+- The **host** durably owns the machine-local binding record under the instance runtime
+  namespace: attempt and transfer state, append-only native observations, delegation
+  history, transition receipts and pending server acknowledgements. It may not invent
+  server identity or cached rights.
+- **Runtime state** is reconstructible: PTY bridges, observer sockets, transcript tails,
+  client controllers and import staging. A crash may lose these without losing identity.
+- Recovery reconciles all three sources: the server's control instruction, the host's
+  binding record and durable process hosts, plus retained observations. Neither a native
+  file nor a receipt alone is allowed to synthesize a binding.
+
+### 0.3 Status ledger: intended, provisional and violated
+
+| Status | Property | Current-tree reading |
+|---|---|---|
+| **must-not-change** | Work identity and actor delegation are separate axes in one lifecycle; no rights snapshot is persisted | Represented by `SessionBindingRecord` plus `delegationHistory`; live authorization remains server-side |
+| **must-not-change** | Handoff carries delegation unchanged | `SessionBinding.adoptTransfer` serializes the current delegation; target `adopt` rejects `adoption-identity-mismatch` and preserves existing history |
+| **must-not-change** | Receipt persistence/acknowledgement stays outside lifecycle transitions | `SessionBindingReceipts` and daemon pending-receipt APIs are separate from `SessionBinding.transition` |
+| **must-not-change** | Ack only after durable server projection, exact-value and owner scoped | Enforced by `observeResumeRef` and `acknowledgePendingReceipt`; crash replay remains at-least-once |
+| **provisional compatibility** | Server exposes a scalar `Session.resume` head while the host retains observation history | The scalar is a projection, never the binding record and never licence to discard host history |
+| **implemented — POD-1325** | Retirement is an explicit lifecycle transition with a production terminal caller | `retire` is a `SESSION_BINDING_EVENTS` transition. Standalone terminal deletion emits `sessionBindingRetire`; hibernate, handoff and restorable issue deletion retain generic process-only `kill` semantics |
+| **implemented — POD-1326** | Exact cross-session alias conflict is visible and retained, never silently won | `SessionBindingReceipts.observeResumeRef` preserves both live SessionIds, withholds acknowledgement and emits `sessionResumeRefConflict`; each claimant host durably appends the conflict while retaining its observations and pending receipt |
+
+This ledger is normative. A row may move from **violated** to **implemented** only after
+its production caller and property-level tests land; current behavior marked
+**provisional** may remain only behind the named projection boundary. Tests for the
+corrections assert the property (surviving sessions, retained history and unchanged
+delegation), not merely count a matching frame.
 
 ---
 
@@ -69,7 +136,7 @@ They share a record and a lifecycle. No field of one is ever derived from the ot
 
 **W1 — `SessionId` is the only pane identity.** Every generic surface (tabs, sidebar, home
 board, work items, issue counts, notifications, attribution) keys on `SessionId` and
-nothing else. Already shipped doctrine: `packages/domain/src/session-identity.ts`
+nothing else. Already shipped doctrine: `packages/model/src/identity/session-identity.ts`
 (`51b136fe`, [spec:SP-fccf]) keeps any resume-ref group touching a live row visible *in
 full*, precisely so native metadata cannot make a live row participate in native-id
 identity.
@@ -121,7 +188,7 @@ durability, including retain-until-server-ack delivery state on each observation
 | Minted | By | Rule |
 |---|---|---|
 | `SessionId` | **Server** | Sole Authority (ADR 1 D1). A daemon receiving an unknown `SessionId` does not create it; the server refuses a client-supplied id that already exists (`relay.ts`: "never clobbers a live session"). |
-| `ConversationId` | **Server** | At the registry seam where lineage is observed (`sessions/service.ts`, `sessionResumeRef`). |
+| `ConversationId` | **Server** | At the receipt/registry seam where lineage is observed (`modules/sessions/session-binding.ts`, `sessionResumeRef`). |
 | Observation generation | **Server** | Incremented and durably stored **before** `spawn`/`reattach` is sent; carried on the control message. |
 | Attempt id | **Daemon** | The daemon owns the process and must be able to mint one while disconnected. |
 | Native ids | **Harness** | Podium never allocates or derives one. |
@@ -213,14 +280,14 @@ Rows are POD-364 §2's numbering. "Identity carried" is what each holds of Axis 
 | 11 | `HostSessionView` | `modules/hosts/service.ts` | `sessionId` | **elsewhere** (R5 hibernate scan) |
 | 12 | `SessionNoticeInfo` | `modules/notify/service.ts` | `sessionId` | **elsewhere** (R5) |
 | 13 | `RpcSessionView` | `modules/machines/rpc.ts` | `sessionId` | **elsewhere** (structural port) |
-| 14 | `ResumableSession` + `HeadlessFields` | `packages/domain/src/session-identity.ts` | `sessionId`, `resume`, `headless` | **elsewhere** — the dedupe predicate; **W1's shipped guarantee lives here and does not move** |
-| 15 | `HandoffSession` | `packages/domain/src/machine-selection.ts` | `machineId` | **elsewhere** (target pick); gates on `use` (P10) |
+| 14 | `ResumableSession` + `HeadlessFields` | `packages/model/src/identity/session-identity.ts` | `sessionId`, `resume`, `headless` | **elsewhere** — the dedupe predicate; **W1's shipped guarantee lives here and does not move** |
+| 15 | `HandoffSession` | `packages/model/src/predicates/machine-selection.ts` | `machineId` | **elsewhere** (target pick); gates on `use` (P10) |
 | 16 | `ConciergeSessionInfo` | `modules/superagent/concierge.ts` | `sessionId` | **elsewhere** |
 | 17 | `BtwSessionInfo` | `modules/superagent/btw.ts` | strict subset of #16 | **drop** |
 | 18 | `FocusSessionInfo` | `modules/superagent/global.ts` | extends #16 | **elsewhere** (the one good composition example) |
 | 19 | `AnswerTargetSession` | `modules/superagent/answer-delivery.ts` | none | **not-identity** |
 | 20 | `CloudAgentSourceSession` | `apps/server/src/cloud-runtime.ts` | `resumeRef: string`, `agent` | **drop** — renames two identity facts; a third `resume` encoding |
-| 21 | `LakeReadSession` | `modules/conversations/service.ts` | `resume: {value}` | **elsewhere**, but the narrowed `resume` shape → **drop** (fourth encoding) |
+| 21 | `LakeReadSession` | `modules/memory/lake.ts` | `resume: {value}` | **elsewhere**, but the narrowed `resume` shape → **drop** (fourth encoding) |
 | 22 | `IssueTreeSession` | `modules/issues/service/types.ts` | `sessionId` | **elsewhere** (R4) |
 | 23 | `ShowSession` (CLI) | `packages/issue-client/src/commands.ts` | `sessionId` | **drop** (hand-copy of #22) |
 | 24 | `SessionStatusResult` | `modules/sessions/read-toolkit.ts` | `sessionId`, `machine` | **elsewhere** (R4 tier-1) |
@@ -818,9 +885,12 @@ runner to repair the loss.
 Required by POD-323 Step 1 ("daemon restart re-derives bindings from durable hosts plus
 observations") and omitted from revision 1.
 
-**R1 — The server is the durable authority; the host is a replay buffer.** After any crash
-the server's binding is the truth. The host holds only unacked evidence, which it replays
-(W9). No recovery path re-derives a binding from the filesystem alone.
+**R1 — Split durability, one reconciliation.** After a crash the server remains authority
+for Podium identity, policy and the accepted public projection; the host binding store is
+the durable machine-local lifecycle record and pending-evidence replay buffer (§0.2). The
+daemon reopens that record, enumerates durable process hosts, replays unacked observations
+and reconciles against the server's new control instruction. No recovery path derives a
+binding from a native filesystem artifact alone, and the server never invents an alias.
 
 **R2 — Daemon restart, process alive.** The daemon enumerates its **durable hosts** (abduco
 sessions), matches each to a session, and reports what it finds. Rules: the surviving
@@ -900,8 +970,11 @@ old columns stop being authoritative — **the point of no return, and it is one
 Restart at any stage is idempotent because the backfill is keyed by `sessionId` and seeded
 observations are idempotent under O4.
 
-**Ownership split.** The **server** owns the durable binding. The **host** owns only
-unacked evidence and its own attempt state. No third copy is authoritative.
+**Ownership split.** The server owns Podium identity, policy, accepted generation and the
+public Session projection. The host owns the versioned machine-local binding record,
+including attempt/transfer state, observation and delegation history, transition receipts
+and unacked evidence. Runtime bridges and observers are reconstructible; no third durable
+copy is authoritative (§0.2).
 
 ---
 
@@ -912,8 +985,8 @@ references.
 
 **C1 — Codex `exec`/headless stdin is closed immediately, and that is a correctness
 requirement.** `codex exec` appends stdin to the prompt, so the daemon closes stdin at
-spawn (`packages/agent-bridge/src/harness/adapters/codex.ts`; `child.stdin?.end()` in
-`headless-drivers.ts`). The binding consequence: **a headless attempt's exit status is
+spawn (`child.stdin?.end()` in `apps/daemon/src/headless-drivers.ts`). The binding
+consequence: **a headless attempt's exit status is
 trustworthy evidence** and §6.4 depends on it. POD-415 must not introduce a binding
 handshake that requires writing to a headless child's stdin — there is nothing to write
 to, and re-opening it would break EOF-based status detection.
@@ -931,7 +1004,7 @@ promoted to a key.
 **C3 — Native subagent identity exists only on the hook channel; child identity is
 parent-mediated and fails closed.** Claude's `SubagentStart`/`Stop` payloads carry
 `agent_id`, `agent_type`, the **parent's** `session_id`, `transcript_path`, `cwd` and
-`prompt_id` (`packages/agent-bridge/src/agent-state/claude-code.ts`), and some versions
+`prompt_id` (`packages/harness/src/agent-state/claude-code.ts`), and some versions
 supply no `agent_id` at all — the reducer then keeps an **anonymous count**. Rules:
 (a) a child `agent_id` is **not** a `SessionId` and never becomes one; (b) a child's
 delegation is **derived from its parent's binding** (P3), never minted from a hook payload
@@ -1057,8 +1130,11 @@ Each row names the failure mode, the clause answering it, and what to attack.
 - [ ] No `instance_id`; SP-15aa namespace not repartitioned (P13).
 - [ ] Nothing in §8/§12 forces a retrofit of the shipped spool (S4).
 
-**Approval record.** _Pending reviewer._ Record reviewer, session and date here on approval;
-that record unblocks POD-415, POD-416, POD-417, POD-644 and POD-737.
+**Approval record.** POD-414-B performed the autonomous review on 2026-07-30 and raised
+six blockers. Revision 2 (`c62cd97c`) plus the inventory correction (`79002737`) and
+survivor-assertion follow-up (`1ecc871c`) addressed them; the POD-279 steward accepted
+the corrected design and released POD-415 on 2026-07-30 before implementation began.
+That release unblocked POD-415, POD-416, POD-417, POD-644 and POD-737.
 
 ---
 
@@ -1084,15 +1160,16 @@ that record unblocks POD-415, POD-416, POD-417, POD-644 and POD-737.
   session representations and the field→meaning map behind §3.4 and §10
 - [spec:SP-fccf] Codex session identity · [spec:SP-15aa] instance runtime namespace
   (`c28463a6`) · [spec:SP-3f7a] portable session package · [spec:SP-eb60] naming doctrine
-- Code: `packages/domain/src/session-identity.ts` (`51b136fe`) ·
-  `apps/daemon/src/binding-store.ts` · `apps/daemon/src/identity.ts` ·
-  `apps/server/src/modules/sessions/service.ts` (`sessionResumeRef`) ·
+- Code: `packages/model/src/identity/session-identity.ts` (`51b136fe`) ·
+  `apps/daemon/src/binding-store.ts` · `apps/daemon/src/session-binding.ts` ·
+  `apps/daemon/src/identity.ts` · `apps/server/src/modules/sessions/session-binding.ts`
+  (`SessionBindingReceipts`) · `apps/server/src/modules/sessions/daemon-projection.ts` ·
   `apps/server/src/store/conversations.ts` (`repairSubagentSegmentPaths`) ·
-  `packages/agent-bridge/src/agent-state/codex.ts` (`resolvePinnedCodexRollout`, candidate
-  selection) · `packages/agent-bridge/src/agent-state/claude-code.ts` (subagent hook
-  payload) · `packages/agent-bridge/src/harness/adapters/codex.ts` (stdin close) ·
+  `packages/harness/src/agent-state/codex.ts` (`resolvePinnedCodexRollout`, candidate
+  selection) · `packages/harness/src/agent-state/claude-code.ts` (subagent hook payload) ·
+  `apps/daemon/src/headless-drivers.ts` (stdin close) ·
   `packages/protocol/src/messages/handoff.ts` · `packages/protocol/src/messages/terminal.ts`
   (`AgentKind`, `ResumeRef`) · `apps/daemon/src/handoff-package.ts` (`claudeProjectSlug`,
-  `sourceKnownShas`) · `packages/domain/src/issue-authz.ts` (`OPERATOR`, being replaced)
+  `sourceKnownShas`) · `packages/model/src/authz/issue-authz.ts`
 - Issues: POD-323 (epic), POD-415, POD-416, POD-417, POD-644, POD-737, POD-498 (`2b0bc5d4`,
   `d73e9121`), POD-364, POD-365, POD-1070, POD-1071, POD-1073, POD-1075, POD-1079, POD-359

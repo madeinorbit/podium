@@ -37,7 +37,7 @@ function makeRegistry(store: SessionStore): {
   const registry = new SessionRegistry(store)
   registries.push(registry)
   const daemon: ControlMessage[] = []
-  registry.gateway.attachDaemon('local', (message) => daemon.push(message))
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))
   return { registry, daemon }
 }
 
@@ -62,13 +62,13 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     agentKind === 'codex'
       ? ({ kind: 'codex-thread', value: 'thread-1' } as const)
       : ({ kind: 'claude-session', value: 'session-1' } as const)
-  const { sessionId } = await registry.modules.sessions.resumeSession({
+  const { sessionId } = await registry.modules.issueSessionLifecycle.resumeSession({
     agentKind,
     cwd: '/proj',
     resume,
     conversationId: 'conversation-1',
   })
-  registry.gateway.routeDaemonFrame('local', {
+  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId,
     cmd: agentKind === 'codex' ? 'codex' : 'claude',
@@ -77,7 +77,7 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     geometry: { cols: 80, rows: 24 },
   })
   expect(registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-  expect(await registry.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await registry.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
   return latestSpawn(daemon)
 }
 

@@ -45,16 +45,19 @@ what keeps POD-362/POD-363 from re-opening these schemas.
 *tags* that are not ids. `brands.ts`'s header carries the per-field reasons;
 `docs/rearch-branded-id-flip.md` §3 carries the same table.
 
-### `MachineId` is defined and adopted **nowhere**
+### `MachineId` refuses the retired sentinels, and is adopted **everywhere**
 
-ADR 1 Amendment 2 D16.2 is normative: `'local'` and `'__local__'` are invalid `MachineId`s, and
-because the brand validates *length, not shape*, `MachineId.parse('local')` succeeds — branding a
-sentinel launders it instead of flagging it. `'__local__'` is a column DEFAULT on three tables, so
-the database manufactures it. Every machine-id field in `entities/` therefore uses
-`machineIdBlockedOnPOD318`, a named marker that is the same `z.string()` at runtime.
-`brands.test.ts` scans the entity sources by field-name *shape* (plus `MachineWire`'s own `id`)
-and fails if any of them is bound to `MachineIdField` — so POD-318 flips the carve-out in one
-place, and no later sweep can brand them quietly.
+ADR 1 Amendment 2 D16.2 was normative that `'local'` and `'__local__'` are invalid `MachineId`s,
+and that the brand must not be adopted while they existed: it validates *length, not shape*, so
+`MachineId.parse('local')` used to succeed — branding a sentinel launders it instead of flagging
+it. `'__local__'` was also a column DEFAULT on three tables, so the database manufactured it.
+
+POD-318 retired both. Every machine now carries a UUID minted by the machine itself
+(`<stateDir>/machine.id` for the host, `~/.podium/daemon.json` for a remote), the three column
+defaults are gone, and the boundary schema `MachineId` **refuses** the two literals outright.
+Every machine-id field in `entities/` is bound to `MachineIdField`, and `brands.test.ts` scans the
+entity sources by field-name *shape* (plus `MachineWire`'s own `id`) and fails if any of them is
+left unbranded — the same ratchet, pointed the other way.
 
 ---
 

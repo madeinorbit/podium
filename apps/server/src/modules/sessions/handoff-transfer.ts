@@ -46,7 +46,7 @@ export function verifiedCommonBundleBases(
  * synthetic `ws-<uuid>` fetch id on the workspace-fetch path.
  *
  * TWO CALLERS, TWO ID SPACES, measured: `handoff/coordinator.ts` passes
- * `session.sessionId`; `sessions/service.ts`'s workspace fetch passes its local
+ * `session.sessionId`; `sessions/lifecycle.ts`'s workspace fetch passes its local
  * `fetchId = ws-${randomUUID().slice(0, 13)}`, which is not a session at all.
  * The value only ever names a stage file and a chunk-write correlation, so both
  * work — but branding this `SessionId` would have laundered the fetch id, so the

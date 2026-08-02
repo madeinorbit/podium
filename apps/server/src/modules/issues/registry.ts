@@ -1,42 +1,55 @@
-import type { SessionId, SessionMeta } from '@podium/model'
 import {
   type CommandAction,
+  type ConflictClass,
   type ContractInput,
   defineCommands,
   ISSUE_COMMAND_NAMES,
-  type ConflictClass,
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
+import type { SessionId, SessionMeta } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
-import { enforceExpectedRevision } from './conflict'
 import { z } from 'zod'
-import { authorize, type Capability, checkIssueAccess } from '../../issue-authz'
-import type { IssueProc, IssueTrpc } from '../../issue-client'
 import {
   attributionOf,
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipal,
 } from '../../command-principal'
+import {
+  authorize,
+  type Capability,
+  checkIssueAccess,
+  type IssueAccessIndex,
+} from '../../issue-authz'
+import type { IssueProc, IssueTrpc } from '../../issue-client'
 import { sessionSpawnerParentId } from '../../steward'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
-import type { IssueService } from './service'
+import { enforceExpectedRevision } from './conflict'
+import type {
+  IssueAttentionCapability,
+  IssueCommentsMailCapability,
+  IssueCrudCapability,
+  IssueGitWorkflowCapability,
+  IssueHierarchyCapability,
+  IssueReportsCapability,
+  IssueTrackerCapabilities,
+} from './service'
 
 /**
  * THE ISSUE COMMAND HANDLERS, JOINED TO THEIR L1 CONTRACTS (#248 [spec:SP-3fe2],
  * split by POD-311).
  *
  * THIS FILE USED TO BE BOTH HALVES. It declared each command's input schema,
- * required action and scope class ALONGSIDE the handler that calls IssueService —
+ * required action and scope class alongside a handler bound to one capability —
  * which made an L1 contract table live inside an L3 feature module, the arrangement
  * POD-311 finding 1 rules out. The contract half now lives in
  * `@podium/commands`'s `issues/contracts.ts`; what stays here is the half that
  * genuinely belongs to the feature:
  *
- *   - the HANDLER, which calls `IssueService` (an L3 service, which is precisely
- *     why the handler may not live beside the contract);
+ *   - the HANDLER, which calls a narrow L3 capability interface (and therefore
+ *     may not live beside the L1 contract);
  *   - `kind`, the tRPC procedure type it mounts as — a transport fact;
  *   - `target`, the raw-input extractor the capability guard and the viaHub
  *     forwarding detection both read.
@@ -82,7 +95,7 @@ export interface IssueCaller {
  *  `verb` completes "only an operator may <verb> a proposed issue". */
 function assertNotProposedForAgent(
   ctx: {
-    issues: { get(id: string): { stage: string } | null }
+    reports: { get(id: string): { stage: string } | null }
     caller: IssueCaller
   },
   id: string,
@@ -91,7 +104,7 @@ function assertNotProposedForAgent(
   if (ctx.caller.capability.scope.kind === 'all') return
   let stage: string | undefined
   try {
-    stage = ctx.issues.get(id)?.stage
+    stage = ctx.reports.get(id)?.stage
   } catch {
     stage = undefined
   }
@@ -107,8 +120,17 @@ function assertNotProposedForAgent(
 }
 
 export interface IssueCommandDeps {
-  /** Lazy — the IssueService is assigned late in the composition root. */
-  issues(): IssueService
+  /** Fully constructed tracker; command dispatch is activated after features. */
+  issues: IssueTrackerCapabilities
+  /**
+   * Atomic issue/session attach workflow. The L3 application orchestrator owns
+   * the shared transaction and carries this transport-derived caller unchanged
+   * through both feature ports.
+   */
+  attachSession(
+    caller: IssueCaller,
+    input: Parameters<IssueAttentionCapability['attachSession']>[0],
+  ): ReturnType<IssueAttentionCapability['attachSession']>
   /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
   deleteIssue(id: string): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
@@ -143,7 +165,7 @@ export interface IssueCommandDeps {
     caller: IssueCaller,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
   /** Stop every session on an issue and free its worktree (keep branch)
-   *  [spec:SP-9904]. Injected from SessionsService; optional in bare tests. */
+   *  [spec:SP-9904]. Injected from SessionLifecycle; optional in bare tests. */
   stopIssueSessions?(input: {
     issueId: string
     force?: boolean
@@ -154,6 +176,19 @@ export interface IssueCommandDeps {
     stopped: string[]
     worktreeFreed: boolean
   }>
+}
+
+type IssueCommandAccess = IssueAccessIndex & Pick<IssueReportsCapability, 'getMeta' | 'resolveRef'>
+
+/** Flatten the two public capability contracts for the shared authz predicate. */
+function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAccess {
+  return {
+    has: (id) => tracker.reports.has(id),
+    ownedTarget: (id, action) => tracker.reports.ownedTarget(id, action),
+    ancestorIds: (id) => tracker.hierarchy.ancestorIds(id),
+    getMeta: (id) => tracker.reports.getMeta(id),
+    resolveRef: (ref, scopeRepoPath) => tracker.reports.resolveRef(ref, scopeRepoPath),
+  }
 }
 
 export type IssueCommandKind = 'query' | 'mutation'
@@ -188,7 +223,7 @@ export interface IssueCommandDef<
   kind: K
   /** Target EXISTING-issue id extractor (see interface doc). */
   target?: (input: Record<string, unknown>) => string | undefined
-  /** The command body — calls IssueService directly (the logic lives THERE). */
+  /** The command body — calls one capability interface (the logic lives there). */
   handler: (ctx: IssueCommandCtx, input: z.infer<In>) => Out
   /** Merged from the contract by {@link def}: the ONE schema instance every
    *  transport parses with. Not re-declared here — see the module doc. */
@@ -285,7 +320,7 @@ const targetId = (i: Record<string, unknown>) => i.id as string
 
 /**
  * Per-call execution context handed to every command handler: the caller's
- * authz identity, the IssueService, and the cross-cutting helpers (viaHub write
+ * authz identity, narrowed tracker capabilities, and the cross-cutting helpers
  * forwarding, withMutation idempotency, mail identity, subscription scoping)
  * that used to be private methods of IssueCommandService.
  */
@@ -294,11 +329,29 @@ export class IssueCommandCtx {
     readonly deps: IssueCommandDeps,
     readonly caller: IssueCaller,
     private readonly name: string,
-    private readonly targetOf?: (input: Record<string, unknown>) => string | undefined,
+    _targetOf?: (input: Record<string, unknown>) => string | undefined,
   ) {}
 
-  get issues(): IssueService {
-    return this.deps.issues()
+  get crud(): IssueCrudCapability {
+    return this.deps.issues.crud
+  }
+  get hierarchy(): IssueHierarchyCapability {
+    return this.deps.issues.hierarchy
+  }
+  get commentsMail(): IssueCommentsMailCapability {
+    return this.deps.issues.commentsMail
+  }
+  get attention(): IssueAttentionCapability {
+    return this.deps.issues.attention
+  }
+  get gitWorkflow(): IssueGitWorkflowCapability {
+    return this.deps.issues.gitWorkflow
+  }
+  get reports(): IssueReportsCapability {
+    return this.deps.issues.reports
+  }
+  get access(): IssueCommandAccess {
+    return commandAccess(this.deps.issues)
   }
 
   private readerUser(): string {
@@ -311,14 +364,14 @@ export class IssueCommandCtx {
   }
 
   mayReadIssue(id: string): boolean {
-    const target = this.issues.ownedTarget(id, 'read')
+    const target = this.reports.ownedTarget(id, 'read')
     const user = this.readerUser()
     return target !== undefined && (target.owner === user || target.grants.includes(user))
   }
 
   requireReadableIssue(id: string): void {
     if (!this.mayReadIssue(id)) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + id })
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${id}` })
     }
   }
 
@@ -331,7 +384,9 @@ export class IssueCommandCtx {
     return read()
   }
 
-  visibleGraph(graph: ReturnType<IssueService['graph']>): ReturnType<IssueService['graph']> {
+  visibleGraph(
+    graph: ReturnType<IssueReportsCapability['graph']>,
+  ): ReturnType<IssueReportsCapability['graph']> {
     const nodes = this.visibleRows(graph.nodes)
     const ids = new Set(nodes.map((node) => node.id))
     return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
@@ -350,7 +405,7 @@ export class IssueCommandCtx {
 
   // RETIRED at POD-309: `issueWrite(input, local)` sat between every issue mutation
   // and its handler, routing a mutation whose target was a hub-mirrored issue to
-  // `UpstreamForwarder` instead of `IssueService`. With federation deferred there is no
+  // `UpstreamForwarder` instead of the local tracker. With federation deferred there is no
   // second authority to forward to, so the wrapper's only remaining behaviour was
   // `return local()`. It was UNWRAPPED at its 28 call sites rather than left as a
   // pass-through: a wrapper with no content still reads as a policy seam, and the next
@@ -360,7 +415,7 @@ export class IssueCommandCtx {
    *  for a subtree-scoped agent, else 'operator'. */
   mailIdentity(): string {
     if (this.caller.capability.scope.kind === 'subtree') {
-      const me = this.issues.getMeta(this.caller.capability.scope.rootId)
+      const me = this.reports.getMeta(this.caller.capability.scope.rootId)
       if (me) return `issue:#${me.seq}`
     }
     return 'operator'
@@ -397,8 +452,8 @@ export class IssueCommandCtx {
    *  the operator from legacy constrained callers. [spec:SP-ccb2] */
   ownerAttribution(id: string): { actor: string; onBehalfOf: import('@podium/model').UserId } {
     const principal = this.caller.principal
-    const row = this.issues.getMeta(id)
-    if (!principal || principal.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
+    const row = this.reports.getMeta(id)
+    if (principal?.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
     }
     return { actor: principal.user, onBehalfOf: principal.user }
@@ -448,11 +503,11 @@ export class IssueCommandCtx {
    *  at match time, so they never reach here. */
   assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): void {
     if (source.kind === 'issue') {
-      const id = this.issues.resolveRef(source.ref)
+      const id = this.reports.resolveRef(source.ref)
       const decision = authorize(
         this.caller.capability,
         'write',
-        { id, ancestorIds: this.issues.ancestorIds(id) },
+        { id, ancestorIds: this.hierarchy.ancestorIds(id) },
         { override: this.caller.overrideScope },
       )
       if (decision === 'confirm-required') {
@@ -473,7 +528,7 @@ export class IssueCommandCtx {
       bound != null &&
       authorize(this.caller.capability, 'write', {
         id: bound,
-        ancestorIds: this.issues.ancestorIds(bound),
+        ancestorIds: this.hierarchy.ancestorIds(bound),
       }) === 'allow'
     if (!ok) {
       throw new TRPCError({
@@ -491,7 +546,7 @@ export class IssueCommandCtx {
     let parentId: string | null | undefined = issue.parentId
     while (parentId && !seen.has(parentId)) {
       seen.add(parentId)
-      const parent = this.issues.getMeta(parentId)
+      const parent = this.reports.getMeta(parentId)
       if (!parent) return false
       if (parent.audience === 'human') return true
       parentId = parent.parentId
@@ -510,12 +565,12 @@ const defs = {
 
   list: def('list', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleRows(ctx.issues.list(input.repoPath)),
+    handler: (ctx, input) => ctx.visibleRows(ctx.reports.list(input.repoPath)),
   }),
   prime: def('prime', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.issues.prime(
+      ctx.reports.prime(
         {
           repoPath: input?.repoPath,
           boundIssueId:
@@ -528,94 +583,94 @@ const defs = {
   }),
   ready: def('ready', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleRows(ctx.issues.readyList(input.repoPath)),
+    handler: (ctx, input) => ctx.visibleRows(ctx.reports.readyList(input.repoPath)),
   }),
   blocked: def('blocked', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleRows(ctx.issues.blockedList(input.repoPath)),
+    handler: (ctx, input) => ctx.visibleRows(ctx.reports.blockedList(input.repoPath)),
   }),
   graph: def('graph', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleGraph(ctx.issues.graph(input.repoPath)),
+    handler: (ctx, input) => ctx.visibleGraph(ctx.reports.graph(input.repoPath)),
   }),
   epicStatus: def('epicStatus', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.readIssue(input.id, () => ctx.issues.epicStatus(input.id, (id) => ctx.mayReadIssue(id))),
+      ctx.readIssue(input.id, () => ctx.reports.epicStatus(input.id, (id) => ctx.mayReadIssue(id))),
   }),
   children: def('children', {
     kind: 'query',
     handler: (ctx, input) =>
       ctx.readIssue(input.id, () =>
-        ctx.issues.children(input.id, input.recursive ?? false, (id) => ctx.mayReadIssue(id)),
+        ctx.reports.children(input.id, input.recursive ?? false, (id) => ctx.mayReadIssue(id)),
       ),
   }),
   tree: def('tree', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.tree(input.id, {}, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.tree(input.id, {}, (id) => ctx.mayReadIssue(id)),
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.depReport(input, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.depReport(input, (id) => ctx.mayReadIssue(id)),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.issues.closeEligibleEpics(input.repoPath, (id) => ctx.mayReadIssue(id)),
+      ctx.reports.closeEligibleEpics(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   findDuplicates: def('findDuplicates', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.issues.findDuplicates(input.repoPath, input.threshold, (id) => ctx.mayReadIssue(id)),
+      ctx.reports.findDuplicates(input.repoPath, input.threshold, (id) => ctx.mayReadIssue(id)),
   }),
   stale: def('stale', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.issues.staleList(input.repoPath, input.days, Date.now(), (id) => ctx.mayReadIssue(id)),
+      ctx.reports.staleList(input.repoPath, input.days, Date.now(), (id) => ctx.mayReadIssue(id)),
   }),
   lint: def('lint', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.lint(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.lint(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.doctor(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.doctor(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.preflight(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.preflight(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   search: def('search', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.search(input, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.search(input, (id) => ctx.mayReadIssue(id)),
   }),
   count: def('count', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.count(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.count(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.stats(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.stats(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.orphans(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) => ctx.reports.orphans(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   get: def('get', {
     kind: 'query',
-    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.issues.get(input.id)),
+    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.reports.get(input.id)),
   }),
   /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
    *  comments live on the hub, so this returns []. */
   comments: def('comments', {
     kind: 'query',
-    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.issues.comments(input.id)),
+    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.commentsMail.comments(input.id)),
   }),
   events: def('events', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.issues.listEvents(input.since, {
+      ctx.reports.listEvents(input.since, {
         ...(input.kinds ? { kinds: input.kinds } : {}),
         ...(input.repoPath ? { repoPath: input.repoPath } : {}),
         ...(input.limit != null ? { limit: input.limit } : {}),
@@ -624,7 +679,7 @@ const defs = {
   // hits the external Linear API — 'write' keeps read-only callers from driving it
   linearSearch: def('linearSearch', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.linearSearch(input.query),
+    handler: (ctx, input) => ctx.gitWorkflow.linearSearch(input.query),
   }),
 
   // ---- writes (scope-gated on their existing target via `target`) ----
@@ -633,7 +688,7 @@ const defs = {
   setState: def('setState', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.setState(input.id, input.text),
+    handler: (ctx, input) => ctx.crud.setState(input.id, input.text),
   }),
   // agent-published human panel (todos/artifacts/deferred) — part of doing the work
   panelApply: def('panelApply', {
@@ -645,7 +700,7 @@ const defs = {
       // remove also deletes the snapshot dir.
       if (input.op === 'artifact-add') {
         if (!input.path) throw new Error('artifact-add requires a path')
-        return ctx.issues.panelArtifactAdd(
+        return ctx.crud.panelArtifactAdd(
           input.id,
           {
             path: input.path,
@@ -659,9 +714,9 @@ const defs = {
       }
       if (input.op === 'artifact-remove') {
         if (input.index == null) throw new Error('artifact-remove requires an index')
-        return ctx.issues.panelArtifactRemove(input.id, input.index)
+        return ctx.crud.panelArtifactRemove(input.id, input.index)
       }
-      return ctx.issues.panelApply(input.id, {
+      return ctx.crud.panelApply(input.id, {
         op: input.op,
         text: input.text,
         index: input.index,
@@ -692,10 +747,10 @@ const defs = {
       // dodge the top-level/proposed rule by naming ANY existing issue (even a
       // closed or archived one) as parent. Top-levelness is decided only
       // against a real, agent-reachable parent.
-      let parent: ReturnType<typeof ctx.issues.get> = null
+      let parent: ReturnType<typeof ctx.reports.get> = null
       if (input.parentId) {
         try {
-          parent = ctx.issues.get(input.parentId)
+          parent = ctx.reports.get(input.parentId)
         } catch {
           parent = null
         }
@@ -715,7 +770,8 @@ const defs = {
       }
       // M5 [spec:SP-6144]: sub-creates under a proposed parent (or deeper in a
       // proposal subtree) stay inert — never auto-started, never board-facing.
-      const underProposed = parent != null && !isOperator && ctx.issues.inProposedSubtree(parent.id)
+      const underProposed =
+        parent != null && !isOperator && ctx.hierarchy.inProposedSubtree(parent.id)
       const isAgentTopLevel = origin === 'agent' && !input.parentId
       const audience: 'human' | 'agent' = isOperator
         ? 'human'
@@ -750,7 +806,7 @@ const defs = {
             code: 'FORBIDDEN',
             message: 'issue creation requires an accountable human owner',
           })
-        const created = await ctx.issues.createAndMaybeStart(
+        const created = await ctx.gitWorkflow.createAndMaybeStart(
           {
             ...input,
             origin,
@@ -787,11 +843,11 @@ const defs = {
       // unapproved proposal, so the ancestor chain is checked, not just the row.
       assertNotProposedForAgent(ctx, input.id, 'start')
       if (ctx.caller.capability.scope.kind !== 'all') {
-        for (const anc of ctx.issues.ancestorIds(input.id)) {
+        for (const anc of ctx.hierarchy.ancestorIds(input.id)) {
           assertNotProposedForAgent(ctx, anc, 'start work under')
         }
       }
-      return ctx.issues.start(input.id, input.agentKind, {
+      return ctx.gitWorkflow.start(input.id, input.agentKind, {
         spawnedBy: ctx.spawnProvenance(),
         ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })
@@ -813,7 +869,7 @@ const defs = {
           p.closedReason !== undefined ||
           p.parentId !== undefined
         if (movesLifecycle) assertNotProposedForAgent(ctx, input.id, 'promote')
-        return ctx.issues.update(input.id, input.patch, {
+        return ctx.crud.update(input.id, input.patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
         })
       }),
@@ -828,12 +884,12 @@ const defs = {
           message: 'only an operator may promote a proposed issue',
         })
       }
-      const issue = ctx.issues.get(input.id)
-      if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + input.id })
+      const issue = ctx.reports.get(input.id)
+      if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
       if (issue.stage !== 'proposed') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'issue is not proposed' })
       }
-      return ctx.issues.update(input.id, { stage: 'backlog' })
+      return ctx.crud.update(input.id, { stage: 'backlog' })
     },
   }),
   // Agent self-organization (issue-as-workspace): re-home the calling session
@@ -854,7 +910,7 @@ const defs = {
         assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
       }
       const { newSubissue, newSpinoff, ...rest } = input
-      return ctx.issues.attachSession({
+      return ctx.deps.attachSession(ctx.caller, {
         ...rest,
         ...(newSubissue ? { newSubissue: { title: newSubissue.title, origin } } : {}),
         ...(newSpinoff ? { newSpinoff: { title: newSpinoff.title, origin } } : {}),
@@ -868,7 +924,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'archive')
-      return ctx.issues.archive(input.id)
+      return ctx.attention.archive(input.id)
     },
   }),
   delete: def('delete', {
@@ -884,7 +940,7 @@ const defs = {
   action: def('action', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.action(input.id, input.kind),
+    handler: (ctx, input) => ctx.gitWorkflow.action(input.id, input.kind),
   }),
   // Write, not manage: heavily guarded (closed + merged + clean only), so a
   // closing agent may clean up after itself. Acts on LOCAL git state — it removes a
@@ -892,7 +948,7 @@ const defs = {
   cleanup: def('cleanup', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.cleanup(input.id),
+    handler: (ctx, input) => ctx.gitWorkflow.cleanup(input.id),
   }),
   // Stop every session on the issue and free the worktree, keeping the branch
   // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
@@ -930,13 +986,13 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.integrate(input.id),
+    handler: (ctx, input) => ctx.gitWorkflow.integrate(input.id),
   }),
   addSession: def('addSession', {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issues.addSession(input.id, input.agentKind, {
+      ctx.gitWorkflow.addSession(input.id, input.agentKind, {
         spawnedBy: ctx.spawnProvenance(),
         ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
       }),
@@ -944,40 +1000,41 @@ const defs = {
   addShell: def('addShell', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
+    handler: (ctx, input) =>
+      ctx.gitWorkflow.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.applySuggestion(input.id),
+    handler: (ctx, input) => ctx.crud.applySuggestion(input.id),
   }),
   dismissSuggestion: def('dismissSuggestion', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.dismissSuggestion(input.id),
+    handler: (ctx, input) => ctx.crud.dismissSuggestion(input.id),
   }),
   refreshAssistant: def('refreshAssistant', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.refreshAssistant(input.id),
+    handler: (ctx, input) => ctx.gitWorkflow.refreshAssistant(input.id),
   }),
   setLabels: def('setLabels', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.setLabels(input.id, input.labels),
+    handler: (ctx, input) => ctx.crud.setLabels(input.id, input.labels),
   }),
   share: def('share', {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issues.share(input.id, input.grantee, input.verb, ctx.ownerAttribution(input.id)),
+      ctx.crud.share(input.id, input.grantee, input.verb, ctx.ownerAttribution(input.id)),
   }),
   unshare: def('unshare', {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) => {
       ctx.ownerAttribution(input.id)
-      return ctx.issues.unshare(input.id, input.grantee, input.verb)
+      return ctx.crud.unshare(input.id, input.grantee, input.verb)
     },
   }),
   addComment: def('addComment', {
@@ -985,25 +1042,25 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.withMutation(input.mutationId, () =>
-        ctx.issues.addComment(input.id, input.author, input.body),
+        ctx.commentsMail.addComment(input.id, input.author, input.body, ctx.caller.principal),
       ),
   }),
   depAdd: def('depAdd', {
     kind: 'mutation',
     target: (i) => i.fromId as string,
-    handler: (ctx, input) => ctx.issues.addDep(input.fromId, input.toId, input.type),
+    handler: (ctx, input) => ctx.hierarchy.addDep(input.fromId, input.toId, input.type),
   }),
   depRemove: def('depRemove', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
     target: (i) => i.fromId as string,
-    handler: (ctx, input) => ctx.issues.removeDep(input.fromId, input.toId, input.type),
+    handler: (ctx, input) => ctx.hierarchy.removeDep(input.fromId, input.toId, input.type),
   }),
   defer: def('defer', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.defer(input.id, input.until),
+    handler: (ctx, input) => ctx.attention.defer(input.id, input.until),
   }),
   // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
   // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
@@ -1011,7 +1068,7 @@ const defs = {
   undefer: def('undefer', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.undefer(input.id),
+    handler: (ctx, input) => ctx.attention.undefer(input.id),
   }),
   // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
   // Read-tracking carries 'read' authority only (reading marks read), despite being
@@ -1019,14 +1076,14 @@ const defs = {
   markRead: def('markRead', {
     kind: 'mutation',
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.issues.markIssueRead(input.id)),
+      ctx.withMutation(input.mutationId, () => ctx.attention.markIssueRead(input.id)),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
   // `unread` back to true. Like markRead, read-tracking needs only 'read'.
   markUnread: def('markUnread', {
     kind: 'mutation',
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.issues.markIssueUnread(input.id)),
+      ctx.withMutation(input.mutationId, () => ctx.attention.markIssueUnread(input.id)),
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
   // (POD-333). Sidebar curation the operator performs while reading the board —
@@ -1034,7 +1091,9 @@ const defs = {
   setTucked: def('setTucked', {
     kind: 'mutation',
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.issues.setIssueTucked(input.id, input.tucked)),
+      ctx.withMutation(input.mutationId, () =>
+        ctx.attention.setIssueTucked(input.id, input.tucked),
+      ),
   }),
   setNeedsHuman: def('setNeedsHuman', {
     kind: 'mutation',
@@ -1060,7 +1119,7 @@ const defs = {
             'askedBy is server-authoritative: agents may only attribute a question to their own session (omit askedBy)',
         })
       }
-      return ctx.issues.setNeedsHuman(input.id, input.question ?? null, {
+      return ctx.attention.setNeedsHuman(input.id, input.question ?? null, {
         ...(input.options ? { options: input.options } : {}),
         ...(askedBy ? { askedBy } : {}),
       })
@@ -1075,7 +1134,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      const issue = ctx.issues.getMeta(input.id)
+      const issue = ctx.reports.getMeta(input.id)
       if (!issue) {
         throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
       }
@@ -1109,13 +1168,13 @@ const defs = {
           message: `answer not delivered: ${r.message}`,
         })
       }
-      return { issue: ctx.issues.clearNeedsHuman(input.id), deliveredVia: r.via }
+      return { issue: ctx.attention.clearNeedsHuman(input.id), deliveredVia: r.via }
     },
   }),
   clearNeedsHuman: def('clearNeedsHuman', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issues.clearNeedsHuman(input.id),
+    handler: (ctx, input) => ctx.attention.clearNeedsHuman(input.id),
   }),
   reparent: def('reparent', {
     kind: 'mutation',
@@ -1130,7 +1189,7 @@ const defs = {
       if (input.parentId != null) {
         assertNotProposedForAgent(ctx, input.parentId, 'nest work under')
       }
-      return ctx.issues.reparent(input.id, input.parentId)
+      return ctx.hierarchy.reparent(input.id, input.parentId)
     },
   }),
   claim: def('claim', {
@@ -1138,7 +1197,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'claim')
-      return ctx.issues.claim(input.id, input.assignee)
+      return ctx.crud.claim(input.id, input.assignee)
     },
   }),
   /** Claim / set / clear the issue's designated coordinator session
@@ -1166,7 +1225,7 @@ const defs = {
           message: 'pass claim:true, sessionId:<id>, or sessionId:null to clear',
         })
       }
-      return ctx.issues.setCoordinator(input.id, sessionId)
+      return ctx.crud.setCoordinator(input.id, sessionId)
     },
   }),
   close: def('close', {
@@ -1175,7 +1234,7 @@ const defs = {
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'close')
       return ctx.withMutation(input.mutationId, () =>
-        ctx.issues.close(input.id, input.reason, {
+        ctx.crud.close(input.id, input.reason, {
           actorSessionId: ctx.caller.capability.actorSessionId,
         }),
       )
@@ -1188,7 +1247,7 @@ const defs = {
     target: (i) => i.oldId as string,
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.oldId, 'supersede')
-      return ctx.issues.supersede(input.oldId, input.newId)
+      return ctx.hierarchy.supersede(input.oldId, input.newId)
     },
   }),
   duplicate: def('duplicate', {
@@ -1198,7 +1257,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'mark duplicate')
-      return ctx.issues.duplicate(input.id, input.canonicalId)
+      return ctx.hierarchy.duplicate(input.id, input.canonicalId)
     },
   }),
 
@@ -1216,7 +1275,7 @@ const defs = {
     // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
     handler: (ctx, input) => {
       const send = ctx.deps.sendMessage
-      if (!send) return ctx.issues.sendMail(input.id, ctx.mailIdentity(), input.body)
+      if (!send) return ctx.commentsMail.sendMail(input.id, ctx.mailIdentity(), input.body)
       const r = send(ctx.messageSender(), { to: { kind: 'issue', id: input.id }, body: input.body })
       // Surface the honest disposition (#834): held / dead_letter must never be a
       // bare success. The old code discarded r.ok/queued/reason and returned only
@@ -1253,8 +1312,8 @@ const defs = {
       // mark mail read, or delivery to the real recipient is suppressed.
       const markRead =
         ctx.caller.capability.scope.kind === 'subtree' &&
-        ctx.issues.resolveRef(id) === ctx.caller.capability.scope.rootId
-      return ctx.issues.mailInbox(id, { markRead })
+        ctx.reports.resolveRef(id) === ctx.caller.capability.scope.rootId
+      return ctx.commentsMail.mailInbox(id, { markRead })
     },
   }),
   // Write, scoped to the caller's own subtree; the target issue lives behind the
@@ -1267,7 +1326,7 @@ const defs = {
     kind: 'mutation',
     target: () => undefined,
     handler: (ctx, input) => {
-      const msg = ctx.issues.mailMessage(input.messageId)
+      const msg = ctx.commentsMail.mailMessage(input.messageId)
       if (!msg) {
         throw new TRPCError({
           code: 'NOT_FOUND',
@@ -1275,13 +1334,13 @@ const defs = {
         })
       }
       ctx.requireReadableIssue(msg.issueId)
-      checkIssueAccess(ctx.caller, ctx.issues, 'mailClaim', 'write', msg.issueId)
-      return ctx.issues.mailClaim(input.messageId, ctx.mailIdentity())
+      checkIssueAccess(ctx.caller, ctx.access, 'mailClaim', 'write', msg.issueId)
+      return ctx.commentsMail.mailClaim(input.messageId, ctx.mailIdentity())
     },
   }),
   mailPending: def('mailPending', {
     kind: 'query',
-    handler: (ctx, input) => ctx.issues.mailPending(ctx.mailOwnIssue(input?.id)),
+    handler: (ctx, input) => ctx.commentsMail.mailPending(ctx.mailOwnIssue(input?.id)),
   }),
 
   // ---- event subscriptions (event-subscriptions design, Phase B). Local-only
@@ -1306,7 +1365,7 @@ const defs = {
       if (ctx.caller.capability.scope.kind !== 'all' && input.source.kind !== 'relationship') {
         ctx.assertSourceInSubtree(input.source)
       }
-      return ctx.issues.subscriptionAdd({
+      return ctx.attention.subscriptionAdd({
         subscriberKind: subscriber.kind,
         subscriberId: subscriber.id,
         event: input.event,
@@ -1323,7 +1382,7 @@ const defs = {
       // Constrained callers may only remove their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
         const subscriber = ctx.deriveSubscriber()
-        const owned = ctx.issues
+        const owned = ctx.attention
           .subscriptionList({ subscriberId: subscriber.id })
           .some((s) => s.id === input.id)
         if (!owned) {
@@ -1333,7 +1392,7 @@ const defs = {
           })
         }
       }
-      return ctx.issues.subscriptionRemove(input.id)
+      return ctx.attention.subscriptionRemove(input.id)
     },
   }),
   /** Toggle a subscription on/off (#129 Phase C, Automations UI). Custom
@@ -1345,7 +1404,7 @@ const defs = {
       // Constrained callers may only toggle their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
         const subscriber = ctx.deriveSubscriber()
-        const owned = ctx.issues
+        const owned = ctx.attention
           .subscriptionList({ subscriberId: subscriber.id })
           .some((s) => s.id === input.id)
         if (!owned) {
@@ -1355,7 +1414,7 @@ const defs = {
           })
         }
       }
-      return ctx.issues.subscriptionSetEnabled(input.id, input.enabled)
+      return ctx.attention.subscriptionSetEnabled(input.id, input.enabled)
     },
   }),
   subscriptionList: def('subscriptionList', {
@@ -1364,9 +1423,9 @@ const defs = {
     // on every client while the registry contract still carries ONE schema.
     handler: (ctx) => {
       // Operator sees every subscription; a constrained caller sees only its own.
-      if (ctx.caller.capability.scope.kind === 'all') return ctx.issues.subscriptionList()
+      if (ctx.caller.capability.scope.kind === 'all') return ctx.attention.subscriptionList()
       const subscriber = ctx.deriveSubscriber()
-      return ctx.issues.subscriptionList({ subscriberId: subscriber.id })
+      return ctx.attention.subscriptionList({ subscriberId: subscriber.id })
     },
   }),
 } satisfies Record<IssueContractName, AnyIssueCommandDef>
@@ -1395,7 +1454,7 @@ export function commandTarget(name: string, input: Record<string, unknown>): str
  */
 export function guardIssueCommand(
   caller: IssueCaller,
-  issues: IssueService,
+  reports: IssueCommandAccess,
   name: string,
   def: Pick<AnyIssueCommandDef, 'action' | 'target'>,
   rawInput: unknown,
@@ -1412,13 +1471,13 @@ export function guardIssueCommand(
     // own repo (#140).
     const scopeRepoPath =
       caller.capability.scope.kind === 'subtree'
-        ? (issues.getMeta(caller.capability.scope.rootId)?.repoPath ?? undefined)
+        ? (reports.getMeta(caller.capability.scope.rootId)?.repoPath ?? undefined)
         : undefined
     targetId =
-      typeof rawTarget === 'string' ? issues.resolveRef(rawTarget, scopeRepoPath) : rawTarget
+      typeof rawTarget === 'string' ? reports.resolveRef(rawTarget, scopeRepoPath) : rawTarget
   }
   // The shared decision + throw shape (#25) — also used by the in-handler mailClaim gate.
-  checkIssueAccess(caller, issues, name, def.action, targetId)
+  checkIssueAccess(caller, reports, name, def.action, targetId)
 }
 
 /**
@@ -1480,7 +1539,7 @@ export class IssueCommandDispatcher {
     if (envelope.expectedRevision == null) return
     const ref = def.target?.((input ?? {}) as Record<string, unknown>)
     if (ref == null) return
-    const issue = this.deps.issues().get(ref)
+    const issue = this.deps.issues.reports.get(ref)
     if (!issue) return
     enforceExpectedRevision({
       command: `issues.${name}`,
@@ -1525,7 +1584,7 @@ export class IssueCommandDispatcher {
       proc
     ] as AnyIssueCommandDef
     return Promise.resolve().then(() => {
-      guardIssueCommand(effectiveCaller, this.deps.issues(), proc, def, rawInput)
+      guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
       const input: unknown = def.input.parse(rawInput)
       return this.run(effectiveCaller, proc, def, input)
     })

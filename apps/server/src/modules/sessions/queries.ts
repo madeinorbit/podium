@@ -19,7 +19,7 @@
  * able to decide whether they may have them.
  */
 
-import { SessionIdField } from '@podium/model'
+import { SessionIdField, asUserId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { FamilyState } from '../derived-family'
@@ -57,7 +57,7 @@ export const SESSION_QUERIES = {
     }),
     (s, input) => {
       assertMayReadSession(s, input.sessionId)
-      return s.modules.rpc.readTranscript(input, { kind: 'user', id: s.caller.userId })
+      return s.modules.rpc.readTranscript(input, { kind: 'user', id: asUserId(s.caller.userId) })
     },
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,

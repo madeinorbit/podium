@@ -158,13 +158,13 @@ export type EntityRef =
   | { kind: 'account'; id: AccountId }
   | { kind: 'thread'; id: ThreadId }
   /**
-   * ORDERING CONSTRAINT — ADR 1 Amendment 2 D16.2. A machine resource is
-   * representable here because ADR 9 D6 gives machines an owner and a per-verb
-   * grant list, so `(subject, machine, verb)` is a real edge. But a
-   * `MachineId` can still be the sentinel `'local'` / `'__local__'`, so a
-   * grant edge naming a machine must not be MINTED until POD-318 retires them
-   * — otherwise the grant is keyed on a value that names different hardware in
-   * every instance. Representable, not yet mintable.
+   * ORDERING CONSTRAINT — ADR 1 Amendment 2 D16.2, DISCHARGED by POD-318. A machine
+   * resource is representable here because ADR 9 D6 gives machines an owner and a
+   * per-verb grant list, so `(subject, machine, verb)` is a real edge. It was not
+   * MINTABLE while a `MachineId` could still be the sentinel `'local'` /
+   * `'__local__'`, because a grant would then be keyed on a value naming different
+   * hardware in every instance. Both sentinels are retired and `MachineId` now
+   * refuses them, so a machine grant edge names one machine, everywhere.
    */
   | { kind: 'machine'; id: MachineId }
 
@@ -304,17 +304,23 @@ const MACHINE_SCOPED_SEP = '\n'
 /**
  * POD-362 WIDENED `machineId` FROM `MachineId` TO `string`, and it is a pushback,
  * not a shortcut. As shipped, this signature was UNSATISFIABLE by any live
- * producer: `MachineId` is carved out until POD-318, every machine-id field in
- * `entities/` uses `machineIdBlockedOnPOD318` (a plain `z.string()`), and the
- * three tables DEFAULT the column to `'__local__'`. So the only way to call this
- * was `asMachineId(machineId)` — which LAUNDERS the exact sentinel `brands.ts`
- * carves the brand out to keep flaggable. A helper nobody can call without
- * committing the error it exists to prevent is not adopted; it is bypassed, which
- * is why it had ZERO production callers before this issue.
+ * producer: `MachineId` was carved out at every field, and the three tables
+ * DEFAULTED the column to `'__local__'`. So the only way to call this was
+ * `asMachineId(machineId)` — which LAUNDERED the exact sentinel the carve-out
+ * existed to keep flaggable. A helper nobody can call without committing the error
+ * it exists to prevent is not adopted; it is bypassed, which is why it had ZERO
+ * production callers before that issue.
+ *
+ * POD-318 removed the LAUNDERING RISK — the sentinels are retired and `MachineId`
+ * refuses them — but deliberately did NOT tighten this parameter. Its four live
+ * callers (`transcript-indexer.ts`, `search.ts`, `sync/mirror.ts`) hold machine ids
+ * that come out of the store as `string`, so tightening here would push a cast to
+ * each of them, and a cast is what the widening was pushing back against. The
+ * parameter tightens when those readers carry the brand; the sentinel is no longer
+ * the reason it does not.
  *
  * The key's real value — escaping the separator, so the `\n`-collision assumption
- * at every ad-hoc site goes away — does not depend on the brand at all. POD-318
- * tightens this ONE parameter back to `MachineId` when the sentinel is retired.
+ * at every ad-hoc site goes away — never depended on the brand at all.
  */
 export const machineScopedKey = (machineId: string, nativeId: string): string =>
   joinKeyParts(MACHINE_SCOPED_SEP, [machineId, nativeId])

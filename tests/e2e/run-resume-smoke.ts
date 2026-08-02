@@ -10,8 +10,17 @@ import { scanAgentConversations } from '@podium/harness'
 import { encode } from '@podium/protocol'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
-import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
+
+/** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
+ *  file the server and the split-mode daemon read. There is no `'local'` constant
+ *  any more; a machine id is minted material.
+ *
+ *  A FUNCTION, not a module-level constant: these harnesses point PODIUM_STATE_DIR
+ *  at an isolated directory AFTER the imports run, and a constant would have read
+ *  (and minted into) the real state dir before that happened. */
+const hostMachineId = (): string => readOrCreateLocalMachineId()
 
 const SERVER_PORT = Number(process.env.PORT ?? 8788)
 const ANSI = /\[[0-9;?]*[ -/]*[@-~]|[()][0-9A-B]|[=>]|[ --]/g
@@ -37,7 +46,7 @@ const server = await startServer({ port: SERVER_PORT })
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
-  machineId: LOCAL_MACHINE_ID,
+  machineId: hostMachineId(),
   hooks: { port: 0 },
   agentRelay: { port: 0 },
 })

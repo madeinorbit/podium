@@ -1,7 +1,7 @@
 /**
  * Spawn-on-wake wiring (#237) [spec:SP-34d7 decision 4]: a wake-class message
  * addressed to an issue with nothing resumable spawns a FRESH agent on that
- * issue via the existing session-spawn machinery (SessionsService.createSession
+ * issue via the existing session-spawn machinery (SessionLifecycle.createSession
  * — the same path issue_start / start_agent ride; no second spawn path). The
  * delivery service then queues the message so it lands as the child's first
  * prompt after prime.
@@ -17,8 +17,8 @@ import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'
 
 export interface SpawnOnWakeDeps {
-  issues(): IssueService
-  /** SessionsService.createSession, narrowed to what a wake-spawn needs. */
+  issues: IssueService
+  /** SessionLifecycle.createSession, narrowed to what a wake-spawn needs. */
   createSession(input: {
     cwd: string
     agentKind?: AgentKind
@@ -50,7 +50,7 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
   return {
     spawn({ issueId, message }) {
       if (!issueId) return { ok: false, reason: 'no target issue to spawn on' }
-      const issue = deps.issues().getMeta(issueId)
+      const issue = deps.issues.getMeta(issueId)
       if (!issue) return { ok: false, reason: `unknown issue ${issueId}` }
       // Started issue: spawn alongside its work. Unstarted: the repo root —
       // starting the issue (worktree + branch) stays a deliberate action.

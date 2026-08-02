@@ -26,7 +26,7 @@ function caller(
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
   const registry = new SessionRegistry()
-  registry.gateway.attachDaemon('local', onDaemon)
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
@@ -115,10 +115,10 @@ describe('cloud router', () => {
     const { call, registry } = caller(cloud.provider)
     registry.sessionStore.repos.addRepo(
       '/workspace/podium',
-      'local',
+      registry.sessionStore.hostMachineId,
       'git@github.com:madeinorbit/podium.git',
     )
-    const { sessionId } = await registry.modules.sessions.resumeSession({
+    const { sessionId } = await registry.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
       cwd: '/workspace/podium',
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -146,7 +146,7 @@ describe('cloud router', () => {
           agent: 'codex',
           resumeRef: 'thread-1',
           cwd: '/workspace/podium',
-          machineId: 'local',
+          machineId: registry.sessionStore.hostMachineId,
         },
       },
     ])
@@ -158,7 +158,7 @@ describe('cloud router', () => {
     const { call, registry } = caller(cloud.provider, (message) => daemon.push(message))
     registry.sessionStore.repos.addRepo(
       '/workspace/podium',
-      'local',
+      registry.sessionStore.hostMachineId,
       'https://github.com/madeinorbit/podium.git',
     )
     const { sessionId } = registry.modules.sessions.createSession({
@@ -166,8 +166,8 @@ describe('cloud router', () => {
       cwd: '/workspace/podium',
       spawnedBy: 'user',
     })
-    registry.gateway.routeDaemonFrame('local', bind(sessionId, '/workspace/podium', 'claude-code'))
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId, '/workspace/podium', 'claude-code'))
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'claude-resume-1' },
@@ -190,7 +190,7 @@ describe('cloud router', () => {
         agent: 'claude-code',
         resumeRef: 'claude-resume-1',
         cwd: '/workspace/podium',
-        machineId: 'local',
+        machineId: registry.sessionStore.hostMachineId,
       },
     })
   })

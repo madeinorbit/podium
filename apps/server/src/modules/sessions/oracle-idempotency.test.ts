@@ -33,7 +33,7 @@ afterEach(() => disposeOracles())
 
 /** Bind a claude-code session live and idle so a send lands immediately. */
 function goIdle(o: ReturnType<typeof makeOracle>, sessionId: string): void {
-  o.reg.gateway.routeDaemonFrame('local', {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -41,7 +41,7 @@ function goIdle(o: ReturnType<typeof makeOracle>, sessionId: string): void {
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.gateway.routeDaemonFrame('local', {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -266,7 +266,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   it(`${MUST_NOT_CHANGE}: a replayed send does not double-type into the PTY`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -274,7 +274,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },

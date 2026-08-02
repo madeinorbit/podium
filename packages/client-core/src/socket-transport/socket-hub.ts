@@ -27,7 +27,6 @@ import {
   type PresencePayload,
   type PresenceRoomClientMessage,
   type PresenceRoomServerMessage as PresenceRoomServerFrame,
-  PresenceRoomServerMessage,
   parseServerMessageLenient,
   presencePayloadWithinBudget,
   type RoomRef,
@@ -166,15 +165,6 @@ const PRESENCE_OUTBOUND_BUDGET_BYTES = 64 * 1024
 function parseTerminalOutcomeFrame(raw: string): TerminalOutcomeFrame | null {
   try {
     const parsed = TerminalOutcomeMessage.safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data : null
-  } catch {
-    return null
-  }
-}
-
-function parsePresenceRoomFrame(raw: string): PresenceRoomServerFrame | null {
-  try {
-    const parsed = PresenceRoomServerMessage.safeParse(JSON.parse(raw))
     return parsed.success ? parsed.data : null
   } catch {
     return null
@@ -1122,11 +1112,6 @@ export class SocketHub {
       this.connections.get(terminalOutcome.sessionId)?._outcome(terminalOutcome.outcome)
       return
     }
-    const roomFrame = parsePresenceRoomFrame(raw)
-    if (roomFrame !== null) {
-      this.routePresenceRoomFrame(roomFrame)
-      return
-    }
     let msg: ServerMessageLenient | null
     try {
       // Lenient parse: for the collection-bearing messages, one poisoned element
@@ -1146,22 +1131,6 @@ export class SocketHub {
     } catch (err) {
       console.warn('[podium] dropped an unparseable server message', err)
       return
-    }
-  }
-
-  private routePresenceRoomFrame(frame: PresenceRoomServerFrame): void {
-    switch (frame.type) {
-      case 'presenceRoomState':
-        this.emit('presenceRoomState', frame)
-        return
-      case 'presenceRoomDelta':
-        this.emit('presenceRoomDelta', frame)
-        return
-      case 'presenceRoomClosed':
-        this.emit('presenceRoomClosed', frame)
-        return
-      default:
-        frame satisfies never
     }
   }
 
@@ -1224,6 +1193,15 @@ export class SocketHub {
     },
     feedResyncRequired: (msg) => {
       this.opts.feed?.frame(msg)
+    },
+    presenceRoomState: (msg) => {
+      this.emit('presenceRoomState', msg)
+    },
+    presenceRoomDelta: (msg) => {
+      this.emit('presenceRoomDelta', msg)
+    },
+    presenceRoomClosed: (msg) => {
+      this.emit('presenceRoomClosed', msg)
     },
     sessionsChanged: (msg) => {
       this.sessionList = msg.sessions

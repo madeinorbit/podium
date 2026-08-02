@@ -56,6 +56,7 @@ import * as transcript from '../messages/transcript'
 import * as workflows from '../messages/workflows'
 import * as workspace from '../messages/workspace'
 import * as perf from '../perf'
+import * as presenceRooms from '../planes/presence-rooms'
 
 /** One fixture family == one protocol module. The name is the golden filename. */
 const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, unknown>]> = [
@@ -82,6 +83,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['maintenance', maintenance],
   ['message-class', messageClass],
   ['perf', perf],
+  ['presence-rooms', presenceRooms],
   ['runtime-state', runtimeState],
   ['search', search],
   ['server', server],

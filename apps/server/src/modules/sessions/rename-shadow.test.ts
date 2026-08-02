@@ -24,7 +24,7 @@
  * ---------------------------------------------------------------------------
  *
  * Both fixtures use a real `SessionStore(':memory:')` and a real
- * `SessionRegistry`, so both paths drive the real `SessionsService` — the same
+ * `SessionRegistry`, so both paths drive the real `SessionLifecycle` — the same
  * `renameSession` / `setAgentName` the product runs. A fake service would let the
  * two paths agree about a service neither of them actually calls, which is the
  * characterization trap this run has hit before.
@@ -64,7 +64,7 @@ function stack() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return { store, sessions: reg.modules.sessions, mutations: reg.modules.mutations }
 }
 

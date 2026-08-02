@@ -69,7 +69,7 @@ describe('daemon socket auth', () => {
   it('the pre-registered local machine authenticates via the normal hello + routes control', () => {
     const store = new SessionStore(':memory:')
     // The local machine is a normal registered machine: the server provisioned it at
-    // startup (ensureLocalMachine) with a server-owned credential. Its same-host daemon
+    // startup (ensureHostMachine) with a server-owned credential. Its same-host daemon
     // then authenticates through the same hello path as any remote — no special case.
     store.machines.upsertMachine({
       id: 'local',

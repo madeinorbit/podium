@@ -3,7 +3,7 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { ControlMessage } from '@podium/protocol'
@@ -30,7 +30,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   const reg = new SessionRegistry()
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon('local', (m) => daemon.push(m))
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
@@ -57,7 +57,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
 }
 
 function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
-  reg.gateway.routeDaemonFrame('local', {
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -65,7 +65,7 @@ function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  reg.gateway.routeDaemonFrame('local', {
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
@@ -94,7 +94,7 @@ describe('stopSession [spec:SP-9904]', () => {
     reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
     expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
-    const r = await reg.modules.sessions.stopSession({ sessionId })
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)
     const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
@@ -109,6 +109,9 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(meta).toBeTruthy()
     // Process kill sent.
     expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((m) => m.type === 'sessionBindingRetire' && m.sessionId === sessionId)).toBe(
+      false,
+    )
     // Worktree removed, branch still on issue.
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(true)
     const after = reg.modules.issues.getMeta(issue.id)
@@ -139,7 +142,7 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     bindLive(reg, sessionId, '/r/.worktrees/issue-2-dirty')
 
-    const r = await reg.modules.sessions.stopSession({ sessionId })
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(r.ok).toBe(false)
     expect(r.reason).toMatch(/unsaved changes/)
     expect(r.reason).toMatch(/dirty\.ts/)
@@ -176,7 +179,7 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     bindLive(reg, sessionId, '/r/.worktrees/issue-3-force')
 
-    const r = await reg.modules.sessions.stopSession({ sessionId, force: true })
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId, force: true })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)
     expect(
@@ -194,7 +197,7 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     bindLive(reg, sessionId, '/w')
 
-    const r = await reg.modules.sessions.stopSession({ sessionId, selfStop: true })
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId, selfStop: true })
     expect(r.ok).toBe(true)
     expect(r.deferredKill).toBe(true)
     expect(
@@ -228,7 +231,7 @@ describe('stopSession [spec:SP-9904]', () => {
     bindLive(reg, a, wt)
     bindLive(reg, b, wt)
 
-    const r = await reg.modules.sessions.stopSession({ sessionId: a })
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId: a })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(false)
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(false)
@@ -263,7 +266,7 @@ describe('stopSession [spec:SP-9904]', () => {
     bindLive(reg, owner, wt)
     bindLive(reg, squatter, wt)
 
-    const r = await reg.modules.sessions.stopSession({ sessionId: owner })
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId: owner })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(false)
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(false)
@@ -286,7 +289,7 @@ describe('stopSession [spec:SP-9904]', () => {
     reg.modules.issues.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-remote',
       branch: 'issue/remote',
-      machineId: 'machine-remote',
+      machineId: asMachineId('machine-remote'),
     })
     const freed = await reg.modules.issues.freeWorktreeKeepBranch(issue.id)
     expect(freed.ok).toBe(true)
@@ -309,11 +312,11 @@ describe('stopSession [spec:SP-9904]', () => {
       issueId: issue.id,
     })
     bindLive(reg, sessionId, wt)
-    await reg.modules.sessions.stopSession({ sessionId })
+    await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(reg.modules.issues.getMeta(issue.id)?.worktreePath).toBeNull()
 
     daemon.length = 0
-    const woke = await reg.modules.sessions.resurrectSession({ sessionId })
+    const woke = await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(woke.ok).toBe(true)
     expect(reg.modules.issues.getMeta(issue.id)?.worktreePath).toBe(wt)
     expect(reg.modules.issues.getMeta(issue.id)?.branch).toBe('issue/5-resume')
@@ -346,7 +349,7 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
 
     daemon.length = 0
-    const woke = await reg.modules.sessions.resurrectSession({ sessionId })
+    const woke = await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(woke).toEqual({ ok: true })
     expect(repoOps.some((call) => call.op === 'worktreeAddExisting')).toBe(false)
     expect(daemon.find((message) => message.type === 'spawn')).toMatchObject({
@@ -381,7 +384,7 @@ describe('stopIssue [spec:SP-9904]', () => {
     bindLive(reg, a, wt)
     bindLive(reg, b, wt)
 
-    const r = await reg.modules.sessions.stopIssue({ issueId: issue.id })
+    const r = await reg.modules.issueSessionLifecycle.stopIssue({ issueId: issue.id })
     expect(r.ok).toBe(true)
     expect(r.stopped.sort()).toEqual([a, b].sort())
     expect(r.worktreeFreed).toBe(true)
@@ -418,7 +421,7 @@ describe('stopIssue [spec:SP-9904]', () => {
 
     // The CLI passes the ref verbatim (resolution is server-side); before the fix,
     // stopIssue compared the raw ref against stored internal ids and stopped 0.
-    const r = await reg.modules.sessions.stopIssue({ issueId: String(issue.seq) })
+    const r = await reg.modules.issueSessionLifecycle.stopIssue({ issueId: String(issue.seq) })
     expect(r.ok).toBe(true)
     expect(r.stopped.sort()).toEqual([a, b].sort())
     expect(r.worktreeFreed).toBe(true)

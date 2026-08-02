@@ -30,7 +30,7 @@ import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { OPERATOR } from '../../apps/server/src/issue-authz'
-import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { sha256 } from '../../apps/server/src/modules/machines/service'
 import { RepoRegistry } from '../../apps/server/src/repo-registry'
 import { startServer } from '../../apps/server/src/server'
@@ -114,7 +114,7 @@ const repoRegistry = new RepoRegistry(server.registry, store)
 const daemon = await startDaemon({
   serverUrl: `ws://127.0.0.1:${server.port}`,
   bootstrapToken: server.bootstrapToken,
-  machineId: LOCAL_MACHINE_ID,
+  machineId: readOrCreateLocalMachineId(),
   launch,
   hooks: { port: 0 },
   agentRelay: { port: 0 },
@@ -145,7 +145,7 @@ const control = createServer((req, res) => {
         const body = await readBody(req)
         result = mods.sessions.createSession({
           agentKind: 'claude-code',
-          machineId: LOCAL_MACHINE_ID,
+          machineId: readOrCreateLocalMachineId(),
           ...(body as { cwd: string; title?: string }),
         })
       } else if (req.method === 'POST' && url.pathname === '/send') {

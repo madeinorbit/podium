@@ -159,7 +159,7 @@ export interface SessionInboxDeps {
   needsSubmitVerification(agentKind: AgentKind): boolean
   prepareSend(sessionId: SessionId, attribution: Attribution, kind: 'text' | 'answer'): void
   ownerOf(sessionId: SessionId): UserId | null | undefined
-  resurrect(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
+  resurrect(sessionId: SessionId, principal: InboxPrincipalReference): Promise<{ ok: boolean; reason?: string }>
 }
 
 export interface InboxSendInput {
@@ -237,7 +237,7 @@ export class SessionInbox {
       this.deps.broadcast()
     }
     if (parked) {
-      void this.deps.resurrect(input.sessionId).then((result) => {
+      void this.deps.resurrect(input.sessionId, principal).then((result) => {
         if (!result.ok)
           console.warn(`[podium] wake-on-queue failed for ${input.sessionId}: ${result.reason}`)
       })
@@ -317,12 +317,12 @@ export class SessionInbox {
       if (current.status === 'live') {
         if (!liveAtMs) {
           liveAtMs = now
-          baseOutputMs = current.lastOutputAtMs
+          baseOutputMs = current.terminal.lastOutputAtMs
         }
         const settled =
-          current.lastOutputAtMs > baseOutputMs &&
+          current.terminal.lastOutputAtMs > baseOutputMs &&
           now - liveAtMs >= READY_FLOOR_MS &&
-          now - current.lastOutputAtMs >= READY_QUIET_MS
+          now - current.terminal.lastOutputAtMs >= READY_QUIET_MS
         if (settled || now - liveAtMs >= READY_MAX_MS || now >= deadline) {
           deliverNext()
           return
@@ -392,12 +392,12 @@ export class SessionInbox {
   ): void {
     this.deps
       .getSession(sessionId)
-      ?.handleInput(client.id, data, inboxPrincipalFromClient(principal).attribution)
+      ?.terminal.handleInput(client.id, data, inboxPrincipalFromClient(principal).attribution)
   }
 
   requestControl(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {
     void principal // carried for POD-1081; no take-control policy in this phase.
-    this.deps.getSession(sessionId)?.requestControl(client.id)
+    this.deps.getSession(sessionId)?.terminal.requestControl(client.id)
   }
 
   handleResize(
@@ -408,12 +408,12 @@ export class SessionInbox {
     rows: number,
   ): void {
     void principal
-    this.deps.getSession(sessionId)?.handleResize(client.id, cols, rows)
+    this.deps.getSession(sessionId)?.terminal.handleResize(client.id, cols, rows)
   }
 
   reconcileGeometry(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {
     void principal
-    this.deps.getSession(sessionId)?.reconcileGeometry(client.id)
+    this.deps.getSession(sessionId)?.terminal.reconcileGeometry(client.id)
   }
 
   private typeText(
@@ -428,7 +428,7 @@ export class SessionInbox {
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
     if (input.recordSend !== false)
       this.deps.prepareSend(input.sessionId, principal.attribution, 'text')
-    const baseline = session.transcriptItems().filter((item) => item.role === 'user').length
+    const baseline = session.terminal.transcriptItems().filter((item) => item.role === 'user').length
     this.sendInput(
       session,
       `\x1b[200~${input.text}\x1b[201~`,
@@ -457,7 +457,7 @@ export class SessionInbox {
       const phase = session.agentState?.phase
       if (phase !== undefined && phase !== 'idle') return
       if (
-        session.transcriptItems().filter((item) => item.role === 'user').length > baselineUserTurns
+        session.terminal.transcriptItems().filter((item) => item.role === 'user').length > baselineUserTurns
       )
         return
       this.sendInput(session, '\r', 'controller', attribution)
@@ -473,7 +473,7 @@ export class SessionInbox {
     inputOrigin: ObservationInputOrigin,
     attribution: Attribution,
   ): void {
-    session.recordInputActivity(this.deps.now())
+    session.terminal.recordInputActivity(this.deps.now())
     this.deps.daemon.sendInput(session.machineId, {
       type: 'input',
       sessionId: session.sessionId,

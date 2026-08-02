@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from './socket-hub'
@@ -968,7 +968,7 @@ describe('machines', () => {
     const seen: number[] = []
     hub.onMachines((m) => seen.push(m.length))
     const machine = {
-      id: 'm1',
+      id: asMachineId('m1'),
       name: 'box',
       hostname: 'box.local',
       online: true,

@@ -34,7 +34,7 @@ export async function awaitAgentHandler(
     caller.capability.actorSessionId !== undefined &&
     child?.spawnedBy === `session:${caller.capability.actorSessionId}`
   if (!isParent) access.assertSessionTargetAccess(caller, input.sessionId, 'agent.await')
-  const svc = deps.messages()
+  const svc = deps.messages
   const timeoutMs = (input.timeoutSeconds ?? 30) * 1000
   const pollMs = deps.awaitPollMs ?? 500
   const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))

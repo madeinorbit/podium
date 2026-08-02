@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AccountQuotaGroup } from './quota'
@@ -307,7 +308,12 @@ describe('groupQuotaByAccount', () => {
     machineId: string,
     machineName: string,
     agents: AgentQuotaWire[],
-  ): MachineQuotaWire => ({ machineId, machineName, hostname: machineName, agents })
+  ): MachineQuotaWire => ({
+    machineId: asMachineId(machineId),
+    machineName,
+    hostname: machineName,
+    agents,
+  })
 
   it('keeps distinct accounts as separate cards, each labeled with its machine', () => {
     const groups = groupQuotaByAccount([

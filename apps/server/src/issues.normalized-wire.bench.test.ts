@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
@@ -10,6 +10,7 @@ import {
 import { SessionRegistry } from './relay'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 /**
  * POD-797 residue bench at live scale. A capless attach still builds the
@@ -99,7 +100,7 @@ function seedSession(store: SessionStore, i: number): string {
     lastInputAt: null,
     lastResumedAt: null,
     spawnedBy: null,
-    machineId: 'm1',
+    machineId: asMachineId('m1'),
     headless: false,
     issueId: asIssueId(`iss_${i % ISSUE_COUNT}`),
   })
@@ -120,7 +121,7 @@ function world() {
   registries.push(registry)
 
   resetIssueWireBuildCount()
-  const id = registry.clientGateway.attachClient(() => {})
+  const id = attachTestClient(registry.clientGateway, () => {})
   const attachBuilds = issueWireBuildCount()
   const attachScans = issueMembershipScanCount()
   registry.clientGateway.routeClientFrame(id, {
@@ -134,8 +135,10 @@ function world() {
 }
 
 it('session-free residue at live scale never couples session changes back to issues', {
-  // The 622-file node lane contends for CPU; isolated live-scale runs take about 75s.
-  timeout: 180_000,
+  // Quiet isolated runs take about 75s; this 8-vCPU host measured 177.3s at load
+  // 24.6 even after isolation. Four times the quiet baseline is a wedge watchdog,
+  // not the detector: the exact zero-build and zero-scan assertions below are.
+  timeout: 300_000,
 }, () => {
   const { registry, sessionIds, attachBuilds, attachScans } = world()
   // BOUNDED, not pinned at ISSUE_COUNT. Main measures one build per issue at

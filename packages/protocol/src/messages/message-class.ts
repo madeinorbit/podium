@@ -112,6 +112,11 @@ export const SERVER_PLANE_CLASS = {
   // Browser-open family (ADR 7 D8, [spec:SP-a43e]).
   sessionOpenUrl: 'stream.live',
   sessionOpenUrlResult: 'stream.live',
+  // ADR 7 Amendment 1 D16.2. A room dies with the connection; snapshots,
+  // deltas and the deliberately non-distinguishing close frame are all live.
+  presenceRoomState: 'stream.live',
+  presenceRoomDelta: 'stream.live',
+  presenceRoomClosed: 'stream.live',
 } as const satisfies Record<ServerMessage['type'], 'control.entity' | 'stream.live'>
 
 /**
@@ -142,6 +147,11 @@ export const CLIENT_PLANE_CLASS = {
   draftEdit: 'control.entity',
   sessionOpenUrlCallback: 'control.command',
   sessionOpenUrlDismiss: 'control.command',
+  // ADR 7 Amendment 1 D16.1. Rooms are subscriptions inside stream, not a
+  // fourth plane and not command RPCs even when a subscribe carries a token.
+  presenceSubscribe: 'stream.live',
+  presenceUnsubscribe: 'stream.live',
+  presenceUpdate: 'stream.live',
 } as const satisfies Record<ClientMessage['type'], PlaneClass>
 
 /**
@@ -179,10 +189,12 @@ export const CONTROL_PLANE_CLASS = {
   agentObservationAck: 'control.command',
   agentObservationRebindAck: 'control.command',
   kill: 'control.command',
+  sessionBindingRetire: 'control.command',
   // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
   draftTarget: 'control.command',
   // Host channel, NOT the agent relay ([spec:SP-fccf], ADR 7 D2).
   sessionResumeRefAck: 'control.command',
+  sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
   sessionPriority: 'control.command',
   scanRequest: 'control.command',

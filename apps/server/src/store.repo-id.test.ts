@@ -74,9 +74,13 @@ describe('repo_id schema (v8, #74)', () => {
     )
     // Issue under a registered repo inherits its repo_id via prefix match…
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(repos.find((r) => r.path === '/r')?.repoId)
-    // …and an unregistered repo_path gets the deterministic '__local__' fallback.
+    // …and an unregistered repo_path gets the deterministic (host, path) fallback.
+    // POD-318: the machine half of that derivation is this host's minted id, not the
+    // `'__local__'` placeholder it used to be. A path NOBODY has registered is the
+    // only thing that ever reaches it — every registered repo returns its STORED id,
+    // untouched by the identity change (see `resolveRepoIdForPath`).
     expect(s.issues.getIssue('iss_2')?.repoId).toBe(
-      deriveRepoId({ machineId: '__local__', path: '/unregistered' }),
+      deriveRepoId({ machineId: s.hostMachineId, path: '/unregistered' }),
     )
     s.close()
   })
@@ -119,9 +123,9 @@ describe('repo_id schema (v8, #74)', () => {
     expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_2')?.repoId).toBe(originId)
-    // untouched: issue outside the repo
+    // untouched: issue outside the repo (path-fallback under THIS host — see above)
     expect(s.issues.getIssue('iss_3')?.repoId).toBe(
-      deriveRepoId({ machineId: '__local__', path: '/other' }),
+      deriveRepoId({ machineId: s.hostMachineId, path: '/other' }),
     )
 
     // A later, different origin must NOT rewrite the established identity.
@@ -138,6 +142,71 @@ describe('repo_id schema (v8, #74)', () => {
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(
       deriveRepoId({ originUrl: 'https://github.com/o/repo', machineId: 'm1', path: '/repo' }),
+    )
+    s.close()
+  })
+})
+
+/**
+ * REPO-ID STABILITY ACROSS THE MACHINE-IDENTITY CHANGE (POD-318).
+ *
+ * A `repo_id` is OPAQUE STORED IDENTITY. Issues, locks, prefixes and the session
+ * view all key off it, so rewriting one cascades into every referencing row for
+ * zero product value — which is why the boot upgrade moves `machine_id` and does
+ * not touch `repo_id`, even though a path-fallback id was derived FROM the machine
+ * id it is moving off.
+ *
+ * These pin the property that makes that safe: a repo that has a row answers with
+ * its STORED id, so no reader re-derives to find it.
+ */
+describe('stored repo ids survive the machine-identity upgrade untouched', () => {
+  it('the row keeps the id it was minted with after its machine_id is rewritten', () => {
+    const s = new SessionStore(':memory:')
+    // A pre-POD-318 row: minted under the placeholder, machine column since moved.
+    s.repos.addRepo('/legacy', '__local__')
+    const minted = s.repos.listRepos()[0]?.repoId
+    expect(minted).toBe(deriveRepoId({ machineId: '__local__', path: '/legacy' }))
+
+    s.migrateLegacyMachineIdentity(s.hostMachineId)
+
+    const row = s.repos.listRepos()[0]
+    expect(row?.machineId).toBe(s.hostMachineId)
+    // The id did NOT move with the machine. That is the whole decision.
+    expect(row?.repoId).toBe(minted)
+    s.close()
+  })
+
+  it('a registered path resolves to the STORED id, never to a fresh derivation', () => {
+    // The property the design asked to be PROVEN, at the one function every reader
+    // goes through: `resolveRepoIdForPath` returns `match?.repoId` for anything a
+    // repo row claims, so the derivation below is unreachable for it — and the
+    // counterfactual is right there, since deriving the same path under this host
+    // gives a DIFFERENT id.
+    const s = new SessionStore(':memory:')
+    s.repos.addRepo('/legacy', '__local__')
+    s.migrateLegacyMachineIdentity(s.hostMachineId)
+
+    const stored = s.repos.listRepos()[0]?.repoId
+    expect(s.repos.resolveRepoIdForPath('/legacy')).toBe(stored)
+    expect(s.repos.resolveRepoIdForPath('/legacy/deep/inside')).toBe(stored)
+    expect(deriveRepoId({ machineId: s.hostMachineId, path: '/legacy' })).not.toBe(stored)
+    // And its issues keep pointing at it.
+    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }))
+    expect(s.issues.getIssue('iss_1')?.repoId).toBe(stored)
+    s.close()
+  })
+
+  it('an UNREGISTERED path is the one re-derive lookup, and it derives under this host', () => {
+    // KNOWN LIMIT, pinned rather than hidden. `resolveRepoIdForPath` is used as a
+    // lookup key (`store/issues.ts` issue-by-repo queries, `prefixForPath`), and for
+    // a path no repo row claims it DERIVES rather than reads. That derivation used
+    // to be namespaced by `'__local__'` and is now namespaced by this host, so an
+    // issue whose repo was never registered was stored under the old namespace and
+    // is looked up under the new one. Registering the repo — the ordinary state —
+    // returns the stored id and makes the question moot; see the test above.
+    const s = new SessionStore(':memory:')
+    expect(s.repos.resolveRepoIdForPath('/nowhere')).toBe(
+      deriveRepoId({ machineId: s.hostMachineId, path: '/nowhere' }),
     )
     s.close()
   })

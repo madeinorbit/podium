@@ -9,7 +9,7 @@ import { SessionStore } from './store'
 
 function harness() {
   const store = new SessionStore(':memory:')
-  store.repos.addRepo('/r/podium') // prefix POD
+  store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
   const reg = new SessionRegistry(store)
   const issue = reg.modules.issues.create({ repoPath: '/r/podium', title: 'T', startNow: false })
   const meta = (id: string) =>
@@ -123,7 +123,7 @@ describe('session birth naming (#474)', () => {
 
   it('boot backfill names historical unnamed sessions once, deterministically', () => {
     const store = new SessionStore(':memory:')
-    store.repos.addRepo('/r/podium')
+    store.repos.addRepo('/r/podium', store.hostMachineId)
     const reg1 = new SessionRegistry(store)
     const a = reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }).sessionId
     // Simulate a pre-#474 row: rewrite it with its ref wiped (COALESCE in the

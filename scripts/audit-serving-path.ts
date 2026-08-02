@@ -73,7 +73,7 @@ const FULL_LIST_MESSAGES = [
 const FULL_LIST_ALLOWED = [
   ADAPTER_FILE,
   'apps/server/src/modules/sessions/publish-worker-actor.ts',
-  'apps/server/src/modules/sessions/service.ts',
+  'apps/server/src/modules/sessions/publication/coordinator.ts',
 ]
 
 /**
@@ -350,7 +350,9 @@ if (import.meta.main) {
     for (const probe of PROBES) {
       const found = outcomesOf(probe.input)
       const ok = found.includes(probe.expect)
-      console.log(`${ok ? 'PASS' : 'FAIL'}  ${probe.name} → expected ${probe.expect}, got [${found}]`)
+      console.log(
+        `${ok ? 'PASS' : 'FAIL'}  ${probe.name} → expected ${probe.expect}, got [${found}]`,
+      )
       if (!ok) bad++
     }
     // And the clean tree must be SPARED, or "every probe fires" is satisfied by
@@ -364,7 +366,9 @@ if (import.meta.main) {
       console.log('PASS  the real tree is spared')
     }
     if (bad > 0) {
-      console.error(`\nserving-path audit: ${bad} probe(s) could not say YES — the gate is not evidence`)
+      console.error(
+        `\nserving-path audit: ${bad} probe(s) could not say YES — the gate is not evidence`,
+      )
       process.exit(1)
     }
     console.log('\nserving-path audit: every check can say YES, and the real tree is clean')

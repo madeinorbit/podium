@@ -22,7 +22,7 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipFromMachines } from '../../machine-access'
-import { machinesForPrincipal } from './command-ctx'
+import { machinesForPrincipal, sessionCommandServices } from './command-ctx'
 import {
   bindingPrincipalFor,
   createdOwnership,
@@ -90,7 +90,7 @@ function ctxFor(
 ): SessionCommandCtx {
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
-    sessions: () => modules.sessions,
+    sessions: () => sessionCommandServices(modules),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
     // principal's own capability, through the real gate. Substituting the
@@ -223,16 +223,16 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     ).toBe("unknown machine 'box'")
   })
 
-  it("M4: a non-owner authenticated to a server running on the owner's machine cannot execute on `local`", async () => {
-    // The default ownership index — the one the router actually builds — over
-    // the real machines table.
-    // The row must exist BEFORE the registry is built: the machines service
-    // caches its records, so a row inserted afterwards reads as an unknown
-    // machine — and an unknown machine has no owner to be denied on behalf of,
-    // which would have made this test pass for the wrong reason. It did, on the
-    // first run, and that is what the fixture ordering here is guarding.
-    const o = makeOracle({ offlineMachines: [{ id: 'local', name: 'This Mac' }] })
+  it("M4: a non-owner authenticated to a server running on the owner's machine cannot execute on it", async () => {
+    // The default ownership index — the one the router actually builds — over the
+    // real machines table. The HOST is the sharpest case for M4 and since POD-318
+    // it is an ordinary machine with an ordinary row: `ensureHostMachine` wrote it
+    // at construction, owned by whoever set the instance up. There is no sentinel
+    // arm underneath any more, so this exercises the same rule as any other machine.
+    const o = makeOracle()
+    const host = o.store.hostMachineId
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    expect(o.meta(sessionId).machineId).toBe(host)
 
     // The instance owner — whoever set it up — may kill it.
     const asOwner = ctxFor(o, human(FIRST_ADMIN_USER_ID))
@@ -240,7 +240,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     const asColleague = ctxFor(o, human(COLLEAGUE))
 
     expect(await messageOf(() => dispatchSessionCommand(asColleague, 'kill', { sessionId }))).toBe(
-      "unknown machine 'local'",
+      `unknown machine '${host}'`,
     )
     expect(dispatchSessionCommand(asOwner, 'kill', { sessionId })).toBeUndefined()
   })
@@ -491,6 +491,28 @@ describe('attribution and ownership come from the principal', () => {
     // The actor half is what the shipped `spawnedBy` column already speaks.
     expect(spawnedByFor(agentFor('agent-1', COLLEAGUE))).toBe('session:agent-1')
     expect(spawnedByFor(human(COLLEAGUE))).toBe('user')
+  })
+
+  it('persists an agent-created session under its delegating human with the agent recorded as actor', async () => {
+    const { o, rows } = oracleWithPairedMachine()
+    rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
+    const principal = agentFor('agent-1', COLLEAGUE)
+    const created = (await dispatchSessionCommand(
+      ctxFor(o, principal, { ownership: ownershipTable(rows) }),
+      'create',
+      { agentKind: 'shell', cwd: '/p', machineId: 'box' },
+    )) as { sessionId: SessionId }
+
+    expect(
+      o.store.sessions.loadSessions().find((row) => row.id === created.sessionId),
+    ).toMatchObject({
+      ownerUserId: COLLEAGUE,
+      spawnedBy: 'session:agent-1',
+    })
+    expect(o.reg.modules.sessions.sessionOwner(created.sessionId)).toEqual({
+      owner: COLLEAGUE,
+      grants: [],
+    })
   })
 
   it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {

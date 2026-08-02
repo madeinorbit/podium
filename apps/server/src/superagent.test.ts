@@ -138,10 +138,10 @@ describe('harnessAllowedTools', () => {
 describe('start_agent tool wiring (issue #60)', () => {
   function harness() {
     const registry = new SessionRegistry()
-    registry.gateway.attachDaemon('local', (m) => {
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame('local', {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
             type: 'repoOpResult',
             requestId: m.requestId,
             ok: true,
@@ -345,11 +345,11 @@ describe('session-steering tool belt (issue #62)', () => {
   function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
     const registry = new SessionRegistry()
     const inputs: string[] = []
-    registry.gateway.attachDaemon('local', (m) => {
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame('local', {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
             type: 'repoOpResult',
             requestId: m.requestId,
             ok: true,
@@ -359,7 +359,7 @@ describe('session-steering tool belt (issue #62)', () => {
       }
       if (m.type === 'transcriptRead') {
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame('local', {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
             type: 'transcriptReadResult',
             requestId: m.requestId,
             sessionId: m.sessionId,
@@ -380,7 +380,7 @@ describe('session-steering tool belt (issue #62)', () => {
         cwd: '/w',
       })
       if (live)
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'bind',
           sessionId,
           cmd: 'claude',
@@ -428,7 +428,7 @@ describe('session-steering tool belt (issue #62)', () => {
     })
 
   const markPending = (h: ReturnType<typeof harness>, sessionId: string) =>
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: pendingQuestion,
@@ -458,7 +458,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // Enter) must never reach the PTY, and the result must not claim success.
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('working'),
@@ -558,7 +558,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it("continue_session types 'continue' into an errored live session only", async () => {
     const h = harness()
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('errored'),
@@ -566,7 +566,7 @@ describe('session-steering tool belt (issue #62)', () => {
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
     expect(h.inputs).toContain('continue\r')
     // Not errored anymore → refused, with the gate surfaced.
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('idle'),
@@ -584,7 +584,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('hibernate_session parks a live session with a resume ref', async () => {
     const h = harness()
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: asSessionId(sessionId),
       resume: { kind: 'claude-session', value: 'r1' },
@@ -706,14 +706,14 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
     // Seed a phase so the NEXT one is a real transition (prev==null logs nothing).
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('working'),
     })
     const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'done' } }),
@@ -724,7 +724,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session returns instantly when the session is already settled', async () => {
     const h = harness({ waitPollMs: 60_000 }) // a poll sleep would blow the test timeout
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'question' } }),
@@ -738,7 +738,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session times out quietly with the last-known phase (never throws)', async () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('working'),

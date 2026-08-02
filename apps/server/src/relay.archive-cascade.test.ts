@@ -9,7 +9,7 @@ import { SessionRegistry } from './relay'
 
 function regWithDaemon() {
   const reg = new SessionRegistry()
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
 }
 

@@ -1100,6 +1100,35 @@
       "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\"}}"
     },
     {
+      "schema": "SessionBindingRetireMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionBindingRetire",
+        "sessionId": "sessionId",
+        "transitionId": "transitionId",
+        "retiredAt": "retiredAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionBindingRetire\",\"sessionId\":\"sessionId\",\"transitionId\":\"transitionId\",\"retiredAt\":\"retiredAt\"}"
+    },
+    {
+      "schema": "SessionBindingRetireMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionBindingRetire",
+        "sessionId": "sessionId",
+        "transitionId": "transitionId",
+        "retiredAt": "retiredAt",
+        "durableLabel": "durableLabel"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionBindingRetire\",\"sessionId\":\"sessionId\",\"transitionId\":\"transitionId\",\"retiredAt\":\"retiredAt\",\"durableLabel\":\"durableLabel\"}"
+    },
+    {
       "schema": "SessionBindingSpawnInstruction",
       "variant": "minimal",
       "wire": {
@@ -1325,6 +1354,44 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"ownerId\":\"ownerId\"}"
+    },
+    {
+      "schema": "SessionResumeRefConflictMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionResumeRefConflict",
+        "sessionId": "sessionId",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "conflictId": "conflictId",
+        "conflictingSessionIds": ["conflictingSessionIds[0]"],
+        "observedAt": "observedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionResumeRefConflict\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"conflictId\":\"conflictId\",\"conflictingSessionIds\":[\"conflictingSessionIds[0]\"],\"observedAt\":\"observedAt\"}"
+    },
+    {
+      "schema": "SessionResumeRefConflictMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionResumeRefConflict",
+        "sessionId": "sessionId",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "conflictId": "conflictId",
+        "conflictingSessionIds": ["conflictingSessionIds[0]"],
+        "observedAt": "observedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionResumeRefConflict\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"conflictId\":\"conflictId\",\"conflictingSessionIds\":[\"conflictingSessionIds[0]\"],\"observedAt\":\"observedAt\"}"
     },
     {
       "schema": "SetSessionDraftMessage",

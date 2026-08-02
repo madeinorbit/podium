@@ -15,7 +15,11 @@ import {
 } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
-import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret, stateDir } from '@podium/runtime/local-machine'
+import {
+  readOrCreateDaemonSecret,
+  readOrCreateLocalMachineId,
+  stateDir,
+} from '@podium/runtime/local-machine'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
@@ -175,7 +179,13 @@ export async function startServer(
   // activates. Explicit opts win; else the H1 shape, core + hub.
   const config = loadConfig()
   const role = resolveServerRole(opts.role)
-  const store = new SessionStore()
+  // WHO THIS HOST IS, read (or minted) once, before anything can write a row. Every
+  // other consumer in the process takes it from here — the store carries it to the
+  // repos aggregate, `MachinesService` takes it as a dep, and the maintenance realm
+  // and in-process daemon link below name this same value. The split-mode daemon
+  // reads the same file in its own process; all-in-one is handed it in memory.
+  const hostMachineId = readOrCreateLocalMachineId()
+  const store = new SessionStore(undefined, hostMachineId)
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
   // folds/reconciles the retained rows. The server does not listen meanwhile.
@@ -201,13 +211,8 @@ export async function startServer(
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
-  // Attention notices route through MessagingService.sendNotice (adapter when the
-  // bridge is live, direct sendMessage fallback when stopped). Lazy getter is
-  // safe: notifications only fire after startup, once messaging is assigned.
-  let messaging!: MessagingService
   const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
-    telegramNotice: () => messaging,
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].
     publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
@@ -239,13 +244,14 @@ export async function startServer(
   // and presents it as its `hello` token — so the local daemon authenticates with no
   // pairing step and no per-boot token race.
   const bootstrapToken = readOrCreateDaemonSecret()
-  // Provision the local machine NOW, at startup: register it with the server-owned
-  // credential (sha256 of the shared secret) and adopt any pre-existing `'__local__'`
-  // rows onto it — so a single-machine install's sessions/repos are attributed and
-  // visible regardless of whether/when the daemon connects. This is the structural guard
-  // against the regression where data vanished because no daemon ever registered. The
-  // same-host daemon then authenticates through the normal hello path (wsServer).
-  registry.modules.machines.ensureLocalMachine(hostname(), bootstrapToken)
+  // Provision THIS HOST as a machine NOW, at startup: register it under the id read
+  // above with the server-owned credential (sha256 of the shared secret), and fold any
+  // pre-POD-318 rows onto that id in one transaction. Rows are therefore attributed
+  // from the first write, regardless of whether/when the daemon connects — the
+  // structural guard against the regression where data vanished because no daemon ever
+  // registered. The same-host daemon then authenticates through the normal hello path
+  // (wsServer) presenting this same id.
+  registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -273,7 +279,7 @@ export async function startServer(
     addRepo: (path, machineId, originUrl) => store.repos.addRepo(path, machineId, originUrl),
     scanRepos: (roots, opts, machineId) => registry.modules.rpc.scanRepos(roots, opts, machineId),
     machineName: (id) => registry.modules.machines.machineName(id),
-    localMachineId: LOCAL_MACHINE_ID,
+    localMachineId: hostMachineId,
     log: (message) => console.log(`[podium:repo-discovery] ${message}`),
   })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
@@ -282,15 +288,17 @@ export async function startServer(
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
   // until a bot token + chat id are set; settings.changed re-arms it live.
-  messaging = new MessagingService({
+  const messaging = new MessagingService({
     bus: registry.modules.bus,
-    // Resolved for the sole account (POD-1213): the messaging bridge routes on
-    // `notifications.telegramChatId`, which is now a PER-USER outbound address.
-    // Spelled out rather than defaulted — this build's transport cannot name a
-    // person, so the sole account is the only true answer, and POD-315 replaces
-    // the argument.
-    getSettings: () => store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
-    // POD-419: the bot token is server-only material; the chat id stays routing.
+    // Outbound routing is derived from the authenticated binding table, never
+    // from one ambient operator/global chat id. Zero or ambiguous routes fail closed.
+    routing: {
+      chatIdForUser: (userId) => {
+        const routes = store.telegramBindings.listForUser(userId)
+        return routes.length === 1 ? routes[0]?.chatId : undefined
+      },
+      // POD-419: the bot token is server-only material; the chat id stays routing.
+    },
     telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
     issues: registry.modules.issues,
@@ -319,7 +327,9 @@ export async function startServer(
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
   })
   registerMaintenanceRoute(app, {
-    authenticateToken: (token) => store.machines.getMachineByToken(LOCAL_MACHINE_ID, token),
+    // The maintenance realm is THIS HOST's credential, named by its real id rather
+    // than by a constant that stood for it.
+    authenticateToken: (token) => store.machines.getMachineByToken(hostMachineId, token),
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
@@ -335,7 +345,7 @@ export async function startServer(
       connectScan: (machineId) => {
         void repoDiscovery.scan(machineId, { deep: false })
       },
-      localMachineId: LOCAL_MACHINE_ID,
+      localMachineId: hostMachineId,
     }),
   })
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
@@ -575,8 +585,9 @@ export async function startServer(
         // other's call stack (the ordering the WS transport implied).
         const localDaemonLink: LocalDaemonLink = {
           attach: ({ deliver }) => {
-            // ensureLocalMachine already registered the local machine at startup.
-            const machineId = LOCAL_MACHINE_ID
+            // ensureHostMachine already registered this host at startup, under the id
+            // the split-mode daemon would have read from `<stateDir>/machine.id`.
+            const machineId = hostMachineId
             const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
             registry.gateway.attachDaemon(machineId, send)
             return {

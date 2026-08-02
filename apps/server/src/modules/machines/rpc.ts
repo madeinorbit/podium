@@ -41,8 +41,15 @@ import type {
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
-import type { SessionStore } from '../../store'
-import type { LakeReadSession } from '../conversations/service'
+import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
+import {
+  DaemonRequestBroker,
+  type DaemonRequestKind,
+  type DaemonRequestPort,
+  daemonRequestKind,
+} from '../daemon-request'
+import type { LakeReadSession, MemoryService } from '../memory/service'
+import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 
 const SCAN_TIMEOUT_MS = 10_000
@@ -65,10 +72,7 @@ export interface ScanReposResult {
 /** Identity of the server-side reader requesting personal transcript content.
  * Authorization belongs at this boundary; the daemon and @podium/transcript run
  * as system-side readers and never receive or interpret this value. */
-export type TranscriptReader =
-  | { kind: 'user'; id: string }
-  | { kind: 'agent'; id: string }
-  | { kind: 'system'; id: string }
+export type TranscriptReader = MemoryReader
 
 /** One machine's directory listing, or why it couldn't be read (POD-814). */
 export interface BrowseDirsResult {
@@ -92,6 +96,7 @@ export interface TranscriptSlice {
 
 /** The session fields the file/transcript RPCs resolve against. */
 export interface RpcSessionView {
+  id: SessionId
   cwd: string
   machineId: string
   agentKind: AgentKind
@@ -100,160 +105,199 @@ export interface RpcSessionView {
 }
 
 interface DaemonRpcDeps {
-  store: Pick<SessionStore['conversations'], 'conversationSegmentPath'>
+  broker?: DaemonRequestPort
+  memory: Pick<MemoryService, 'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake'>
   toMachine(machineId: string, msg: ControlMessage): void
-  defaultMachine(): string
+  defaultMachine(): MachineId
   resolveMachine(requested: string | undefined, cwd: string): string
   hasDaemon(machineId: string): boolean
   machineName(id: string): string
-  onlineMachineIds(): string[]
+  onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
-  /** Lake-fallback transcript read (modules/conversations) — lazy: the
-   *  conversations service is constructed after this one.
-   *
-   *  Takes `LakeReadSession` by NAME rather than restating its three fields
-   *  inline. The inline copy was a second definition of the port (inventory
-   *  §6.5 rule 1) and it had already drifted from the one it mirrored, pinning
-   *  `resume` to `{ value: string }`. A `type`-only import adds no runtime
-   *  coupling, so the laziness this comment describes is unaffected (POD-366). */
-  readTranscriptFromLake(
-    session: LakeReadSession,
-    input: { anchor?: string; direction: 'before' | 'after'; limit: number },
-  ): Promise<TranscriptSlice | undefined>
+}
+
+/** A daemon reply's payload: the message minus its wire plumbing. */
+type Payload<M extends { type: string; requestId: string }> = Omit<M, 'type' | 'requestId'>
+
+/**
+ * THE REQUEST FAMILIES, as one table.
+ *
+ * Each was a hand-declared `private readonly pendingX = new Map<...>()` field —
+ * twenty-three of them, plus twenty-three `on*Result` methods to drain them.
+ * What that hand-pairing actually expressed is exactly this: a prefix and a
+ * result type. Stated once, it can be handed to a correlator that owns the
+ * registration, the settlement and the timeout for all of them (POD-318).
+ *
+ * The prefixes are UNCHANGED — they appear in daemon logs and in test fixtures
+ * that read a requestId back off the wire, and nothing about this refactor is a
+ * reason to renumber the world.
+ */
+const SCAN = daemonRequestKind<ScanResult>('r')
+const SCAN_REPOS = daemonRequestKind<ScanReposResult>('rr')
+const BROWSE_DIRS = daemonRequestKind<BrowseDirsResult>('bd')
+const REPO_OP = daemonRequestKind<OpResult>('ro')
+const HARNESS_EXEC = daemonRequestKind<OpResult>('hx')
+const USAGE = daemonRequestKind<{ hostname: string; buckets: UsageBucketWire[] }>('us')
+const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
+const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
+const IMAGE_UPLOAD = daemonRequestKind<{ path: string; error?: string }>('iu')
+const FILE_READ = daemonRequestKind<Payload<FileReadResultMessage>>('fr')
+const FILE_ASSET = daemonRequestKind<Payload<FileAssetResultMessage>>('fa')
+const FILE_WRITE = daemonRequestKind<Payload<FileWriteResultMessage>>('fw')
+const DIR_LIST = daemonRequestKind<Payload<DirListResultMessage>>('dl')
+const HANDOFF_EXPORT = daemonRequestKind<Payload<HandoffExportResultMessage>>('he')
+const HANDOFF_READ = daemonRequestKind<Payload<HandoffChunkReadResultMessage>>('hr')
+const HANDOFF_WRITE = daemonRequestKind<Payload<HandoffImportChunkResultMessage>>('hw')
+const HANDOFF_IMPORT = daemonRequestKind<Payload<HandoffImportResultMessage>>('hi')
+const HANDOFF_BINDING_FINALIZE =
+  daemonRequestKind<Payload<HandoffBindingFinalizeResultMessage>>('hf')
+const WORKSPACE_EXPORT = daemonRequestKind<Payload<WorkspaceExportResultMessage>>('we')
+const WORKSPACE_IMPORT = daemonRequestKind<Payload<WorkspaceImportResultMessage>>('wi')
+const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>('wc')
+const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
+const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
+
+/** How ONE reply frame settles: pick the family, project the payload, hand both
+ *  to the correlator along with the machine that answered. */
+type ReplySettler<K extends RpcDaemonFrameType> = (
+  broker: DaemonRequestPort,
+  machineId: string,
+  msg: Extract<DaemonMessage, { type: K }>,
+) => void
+
+/** Drop the wire plumbing; what is left is what the caller awaited. */
+const payloadOf = <M extends { type: string; requestId: string }>(msg: M): Payload<M> => {
+  const { type: _type, requestId: _requestId, ...payload } = msg
+  return payload
 }
 
 /**
- * Request/response plumbing for daemon round-trips (modules/machines): mint a
- * prefixed requestId, register a resolver keyed by it, send the control
- * message, and resolve a fallback on timeout. Every `*Result` daemon message
- * looks its resolver up in the matching pending map. One place to get
- * unref/cleanup right instead of a dozen near-identical copies.
+ * THE FAN-IN, TOTAL over the frames the gateway routes to `rpc`.
  *
- * The requestId counter is shared across every request family (and exposed via
- * nextRequestId for the headless module) so ids never collide across the
- * separate pending maps.
+ * The key set is derived from `DAEMON_FRAME_PORTS`, so routing a new reply frame
+ * to this port without saying which request family it answers is a compile
+ * error here — the same protection the old one-method-per-frame surface gave,
+ * minus the twenty-three methods. Every row is a projection and nothing else:
+ * no map, no timer, no delete. Settling belongs to the broker.
+ */
+const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
+  scanResult: (broker, machineId, msg) =>
+    void broker.settle(SCAN, msg.requestId, machineId, {
+      conversations: msg.conversations,
+      diagnostics: msg.diagnostics,
+    }),
+  scanReposResult: (broker, machineId, msg) =>
+    void broker.settle(SCAN_REPOS, msg.requestId, machineId, {
+      repositories: msg.repositories,
+      diagnostics: msg.diagnostics,
+    }),
+  browseDirsResult: (broker, machineId, msg) =>
+    void broker.settle(BROWSE_DIRS, msg.requestId, machineId, {
+      ...(msg.listing === undefined ? {} : { listing: msg.listing }),
+      ...(msg.error === undefined ? {} : { error: msg.error }),
+    }),
+  repoOpResult: (broker, machineId, msg) =>
+    void broker.settle(REPO_OP, msg.requestId, machineId, { ok: msg.ok, output: msg.output }),
+  harnessExecResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_EXEC, msg.requestId, machineId, { ok: msg.ok, output: msg.output }),
+  usageResult: (broker, machineId, msg) =>
+    void broker.settle(USAGE, msg.requestId, machineId, {
+      hostname: msg.hostname,
+      buckets: msg.buckets,
+    }),
+  agentQuotaResult: (broker, machineId, msg) =>
+    void broker.settle(AGENT_QUOTA, msg.requestId, machineId, {
+      hostname: msg.hostname,
+      agents: msg.agents,
+    }),
+  imageUploadResult: (broker, machineId, msg) =>
+    void broker.settle(IMAGE_UPLOAD, msg.requestId, machineId, {
+      path: msg.path,
+      ...(msg.error === undefined ? {} : { error: msg.error }),
+    }),
+  transcriptReadResult: (broker, machineId, msg) =>
+    void broker.settle(TRANSCRIPT_READ, msg.requestId, machineId, {
+      items: msg.items,
+      ...(msg.head === undefined ? {} : { head: msg.head }),
+      ...(msg.tail === undefined ? {} : { tail: msg.tail }),
+      hasMore: msg.hasMore,
+    }),
+  fileReadResult: (broker, machineId, msg) =>
+    void broker.settle(FILE_READ, msg.requestId, machineId, payloadOf(msg)),
+  fileAssetResult: (broker, machineId, msg) =>
+    void broker.settle(FILE_ASSET, msg.requestId, machineId, payloadOf(msg)),
+  fileWriteResult: (broker, machineId, msg) =>
+    void broker.settle(FILE_WRITE, msg.requestId, machineId, payloadOf(msg)),
+  dirListResult: (broker, machineId, msg) =>
+    void broker.settle(DIR_LIST, msg.requestId, machineId, payloadOf(msg)),
+  handoffExportResult: (broker, machineId, msg) =>
+    void broker.settle(HANDOFF_EXPORT, msg.requestId, machineId, payloadOf(msg)),
+  handoffChunkReadResult: (broker, machineId, msg) =>
+    void broker.settle(HANDOFF_READ, msg.requestId, machineId, payloadOf(msg)),
+  handoffImportChunkResult: (broker, machineId, msg) =>
+    void broker.settle(HANDOFF_WRITE, msg.requestId, machineId, payloadOf(msg)),
+  handoffImportResult: (broker, machineId, msg) =>
+    void broker.settle(HANDOFF_IMPORT, msg.requestId, machineId, payloadOf(msg)),
+  handoffBindingFinalizeResult: (broker, machineId, msg) =>
+    void broker.settle(HANDOFF_BINDING_FINALIZE, msg.requestId, machineId, payloadOf(msg)),
+  workspaceExportResult: (broker, machineId, msg) =>
+    void broker.settle(WORKSPACE_EXPORT, msg.requestId, machineId, payloadOf(msg)),
+  workspaceImportResult: (broker, machineId, msg) =>
+    void broker.settle(WORKSPACE_IMPORT, msg.requestId, machineId, payloadOf(msg)),
+  workspaceCleanResult: (broker, machineId, msg) =>
+    void broker.settle(WORKSPACE_CLEAN, msg.requestId, machineId, payloadOf(msg)),
+  credentialExportResult: (broker, machineId, msg) =>
+    void broker.settle(CREDENTIAL_EXPORT, msg.requestId, machineId, payloadOf(msg)),
+  credentialInstallResult: (broker, machineId, msg) =>
+    void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+}
+
+/**
+ * THE DAEMON RPC SURFACE (modules/machines): every server→daemon round-trip the
+ * feature modules can make, as ordinary awaited methods.
+ *
+ * IT OWNS NO CORRELATION STATE. It used to own twenty-three pending maps and a
+ * static `settle` helper; those are now one registry inside
+ * `modules/daemon-request.ts`, shared with the conversations and hosts modules.
+ * What is left here is what actually belongs to this module: which control
+ * message each call builds, which machine it targets, how long it waits, and
+ * what a timeout means for that particular caller.
+ *
+ * The requestId counter lives in the broker and is shared across every family
+ * (and exposed via nextRequestId for the headless module), so ids never collide.
  */
 export class DaemonRpcService {
-  private nextRequestNum = 0
-  private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
-  private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
-  private readonly pendingBrowseDirs = new Map<string, (r: BrowseDirsResult) => void>()
-  private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
-  private readonly pendingHandoffExports = new Map<
-    string,
-    (r: Omit<HandoffExportResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingHandoffReads = new Map<
-    string,
-    (r: Omit<HandoffChunkReadResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingHandoffWrites = new Map<
-    string,
-    (r: Omit<HandoffImportChunkResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingHandoffImports = new Map<
-    string,
-    (r: Omit<HandoffImportResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingHandoffBindingFinalizes = new Map<
-    string,
-    (r: Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingWorkspaceExports = new Map<
-    string,
-    (r: Omit<WorkspaceExportResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingWorkspaceImports = new Map<
-    string,
-    (r: Omit<WorkspaceImportResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingWorkspaceCleans = new Map<
-    string,
-    (r: Omit<WorkspaceCleanResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
-  private readonly pendingUsage = new Map<
-    string,
-    (r: { hostname: string; buckets: UsageBucketWire[] }) => void
-  >()
-  private readonly pendingAgentQuota = new Map<
-    string,
-    (r: { hostname: string; agents: AgentQuotaWire[] }) => void
-  >()
-  private readonly pendingTranscriptReads = new Map<string, (r: TranscriptSlice) => void>()
-  private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
-  private readonly pendingFileReads = new Map<
-    string,
-    (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingFileAssets = new Map<
-    string,
-    (r: Omit<FileAssetResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingFileWrites = new Map<
-    string,
-    (r: Omit<FileWriteResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingDirLists = new Map<
-    string,
-    (r: Omit<DirListResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingCredentialExports = new Map<
-    string,
-    (r: Omit<CredentialExportResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingCredentialInstalls = new Map<
-    string,
-    (r: Omit<CredentialInstallResultMessage, 'type' | 'requestId'>) => void
-  >()
+  private readonly broker: DaemonRequestPort
 
-  constructor(private readonly deps: DaemonRpcDeps) {}
+  constructor(private readonly deps: DaemonRpcDeps) {
+    this.broker =
+      deps.broker ??
+      new DaemonRequestBroker({ toMachine: deps.toMachine, defaultMachine: deps.defaultMachine })
+  }
 
   /** Globally-unique requestId mint — shared with the headless module so its
    *  turn/bind ids can never collide with an RPC id. */
   nextRequestId(prefix: string): string {
-    return `${prefix}${this.nextRequestNum++}`
+    return this.broker.nextRequestId(prefix)
   }
 
-  /** The generic round-trip primitive. Public: the hosts/conversations modules
-   *  run their own pending maps through it (their result handlers live there). */
-  request<T>(
-    pending: Map<string, (r: T) => void>,
-    prefix: string,
+  /** One round-trip against a named family. A thin alias for the broker's own
+   *  `request` — kept so every call below reads as one call, not two. */
+  private request<T>(
+    kind: DaemonRequestKind<T>,
     timeoutMs: number,
     onTimeout: () => T,
-    buildMsg: (requestId: string) => ControlMessage,
-    machineId: string = this.deps.defaultMachine(),
+    build: (requestId: string) => ControlMessage,
+    machineId?: string,
   ): Promise<T> {
-    const requestId = this.nextRequestId(prefix)
-    return new Promise<T>((resolve) => {
-      const timer = setTimeout(() => {
-        pending.delete(requestId)
-        resolve(onTimeout())
-      }, timeoutMs)
-      timer.unref?.()
-      pending.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.deps.toMachine(machineId, buildMsg(requestId))
-    })
-  }
-
-  /** Resolve one pending request out of `map` (shared `*Result` handler shape). */
-  private static settle<T>(map: Map<string, (r: T) => void>, requestId: string, value: T): void {
-    const resolve = map.get(requestId)
-    if (!resolve) return
-    map.delete(requestId)
-    resolve(value)
+    return this.broker.request({ kind, timeoutMs, onTimeout, build, machineId })
   }
 
   // ---- requests ----
 
   scan(): Promise<ScanResult> {
     return this.request(
-      this.pendingScans,
-      'r',
+      SCAN,
       SCAN_TIMEOUT_MS,
       () => ({
         conversations: [],
@@ -269,8 +313,7 @@ export class DaemonRpcService {
     machineId?: string,
   ): Promise<ScanReposResult> {
     return this.request(
-      this.pendingRepoScans,
-      'rr',
+      SCAN_REPOS,
       SCAN_TIMEOUT_MS,
       () => ({
         repositories: [],
@@ -283,7 +326,7 @@ export class DaemonRpcService {
         ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
         ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
       }),
-      machineId ?? this.deps.defaultMachine(),
+      machineId,
     )
   }
 
@@ -296,8 +339,7 @@ export class DaemonRpcService {
     machineId?: string,
   ): Promise<BrowseDirsResult> {
     return this.request(
-      this.pendingBrowseDirs,
-      'bd',
+      BROWSE_DIRS,
       BROWSE_TIMEOUT_MS,
       () => ({ error: 'directory browse timed out' }),
       (requestId) => ({
@@ -306,15 +348,14 @@ export class DaemonRpcService {
         ...(path === undefined ? {} : { path }),
         ...(opts.includeHidden === undefined ? {} : { includeHidden: opts.includeHidden }),
       }),
-      machineId ?? this.deps.defaultMachine(),
+      machineId,
     )
   }
 
   /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
   usage(sinceMs?: number): Promise<{ hostname: string; buckets: UsageBucketWire[] }> {
     return this.request(
-      this.pendingUsage,
-      'us',
+      USAGE,
       20_000,
       () => ({ hostname: '', buckets: [] }),
       (requestId) => ({
@@ -333,8 +374,7 @@ export class DaemonRpcService {
     machineId?: string,
   ): Promise<{ hostname: string; agents: AgentQuotaWire[] }> {
     return this.request(
-      this.pendingAgentQuota,
-      'aq',
+      AGENT_QUOTA,
       20_000,
       () => ({ hostname: '', agents: [] }),
       (requestId) => ({
@@ -342,7 +382,7 @@ export class DaemonRpcService {
         requestId,
         ...(refresh !== undefined ? { refresh } : {}),
       }),
-      machineId ?? this.deps.defaultMachine(),
+      machineId,
     )
   }
 
@@ -373,8 +413,7 @@ export class DaemonRpcService {
     machineId?: string,
   ): Promise<OpResult> {
     return this.request(
-      this.pendingRepoOps,
-      'ro',
+      REPO_OP,
       35_000,
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
@@ -388,8 +427,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<CredentialExportResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingCredentialExports,
-      'ce',
+      CREDENTIAL_EXPORT,
       15_000,
       () => ({ bundles: [], unavailable: kinds }),
       (requestId) => ({ type: 'credentialExportRequest', requestId, kinds }),
@@ -403,8 +441,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<CredentialInstallResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingCredentialInstalls,
-      'ci',
+      CREDENTIAL_INSTALL,
       15_000,
       () => ({ installed: [], failed: bundles.map((bundle) => bundle.kind) }),
       (requestId) => ({ type: 'credentialInstallRequest', requestId, bundles }),
@@ -430,8 +467,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<HandoffExportResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingHandoffExports,
-      'he',
+      HANDOFF_EXPORT,
       120_000,
       () => ({ ok: false, error: 'handoff export timed out' }),
       (requestId) => ({ type: 'handoffExportRequest', requestId, ...input }),
@@ -446,8 +482,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<HandoffChunkReadResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingHandoffReads,
-      'hr',
+      HANDOFF_READ,
       30_000,
       () => ({ ok: false, error: 'handoff read timed out' }),
       (requestId) => ({ type: 'handoffChunkReadRequest', requestId, stagePath, offset, length }),
@@ -462,8 +497,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<HandoffImportChunkResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingHandoffWrites,
-      'hw',
+      HANDOFF_WRITE,
       30_000,
       () => ({ ok: false, error: 'handoff write timed out' }),
       (requestId) => ({
@@ -486,8 +520,7 @@ export class DaemonRpcService {
     binding?: HandoffBindingImportInstruction,
   ): Promise<Omit<HandoffImportResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingHandoffImports,
-      'hi',
+      HANDOFF_IMPORT,
       120_000,
       () => ({ ok: false, error: 'handoff import timed out' }),
       (requestId) => ({
@@ -517,8 +550,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingHandoffBindingFinalizes,
-      'hf',
+      HANDOFF_BINDING_FINALIZE,
       30_000,
       () => ({ ok: false, error: 'handoff binding finalize timed out' }),
       (requestId) => ({
@@ -542,8 +574,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<WorkspaceExportResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingWorkspaceExports,
-      'we',
+      WORKSPACE_EXPORT,
       120_000,
       () => ({ ok: false, error: 'workspace export timed out' }),
       (requestId) => ({ type: 'workspaceExportRequest', requestId, ...input }),
@@ -558,8 +589,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<WorkspaceImportResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingWorkspaceImports,
-      'wi',
+      WORKSPACE_IMPORT,
       120_000,
       () => ({ ok: false, error: 'workspace import timed out' }),
       (requestId) => ({ type: 'workspaceImportRequest', requestId, fetchId, repoPath }),
@@ -573,8 +603,7 @@ export class DaemonRpcService {
     machineId: string,
   ): Promise<Omit<WorkspaceCleanResultMessage, 'type' | 'requestId'>> {
     return this.request(
-      this.pendingWorkspaceCleans,
-      'wc',
+      WORKSPACE_CLEAN,
       60_000,
       () => ({ ok: false, error: 'workspace clean timed out' }),
       (requestId) => ({ type: 'workspaceCleanRequest', requestId, repoPath }),
@@ -596,8 +625,7 @@ export class DaemonRpcService {
     timeoutMs?: number
   }): Promise<OpResult> {
     return this.request(
-      this.pendingHarnessExecs,
-      'hx',
+      HARNESS_EXEC,
       (input.timeoutMs ?? 240_000) + 10_000,
       () => ({ ok: false, output: 'harness run timed out' }),
       (requestId) => ({
@@ -631,8 +659,7 @@ export class DaemonRpcService {
     // so the returned path is valid in that session's prompt.
     const session = this.deps.getSession(input.sessionId)
     return this.request(
-      this.pendingUploads,
-      'iu',
+      IMAGE_UPLOAD,
       30_000,
       () => ({ path: '' }),
       (requestId) => ({
@@ -649,13 +676,17 @@ export class DaemonRpcService {
 
   /** The recorded segment path for a session's conversation, shaped for message
    *  spreads (`{pathHint}` or undefined). Lookup only — never derives. */
-  transcriptPathHint(session: {
-    machineId: string
-    resume?: { value: string }
-  }): { pathHint: string } | undefined {
+  transcriptPathHint(
+    reader: TranscriptReader,
+    session: {
+      id: SessionId
+      machineId: string
+      resume?: { value: string }
+    },
+  ): { pathHint: string } | undefined {
     const nativeId = session.resume?.value
     if (!nativeId) return undefined
-    const path = this.deps.store.conversationSegmentPath(session.machineId, nativeId)
+    const path = this.deps.memory.transcriptPathHint(reader, session)?.pathHint
     return path ? { pathHint: path } : undefined
   }
 
@@ -679,9 +710,9 @@ export class DaemonRpcService {
     },
     reader: TranscriptReader,
   ): Promise<TranscriptSlice> {
-    // Required even before scoped session reads land: callers cannot accidentally
-    // bake in an ambient operator. POD-1077 installs the visibility decision here.
-    void reader
+    if (!this.deps.memory.canReadSession(reader, input.sessionId)) {
+      return { items: [], hasMore: false }
+    }
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { items: [], hasMore: false }
     // Leg timing [POD-701]: transcriptRead.daemon / transcriptRead.lake record
@@ -695,8 +726,7 @@ export class DaemonRpcService {
     // request timeout to learn that.
     const fromDaemon = this.deps.hasDaemon(session.machineId)
       ? await this.request<TranscriptSlice>(
-          this.pendingTranscriptReads,
-          'tr',
+          TRANSCRIPT_READ,
           SCAN_TIMEOUT_MS,
           () => ({ items: [], hasMore: false }),
           (requestId) => ({
@@ -709,7 +739,7 @@ export class DaemonRpcService {
             // Segment evidence beats cwd derivation: the recorded absolute path (from
             // discovery scans) survives worktree moves; the daemon still falls back to
             // derivation + sweep when absent/stale (conversation registry §3.3).
-            ...(this.transcriptPathHint(session) ?? {}),
+            ...(this.transcriptPathHint(reader, session) ?? {}),
             ...(input.anchor ? { anchor: input.anchor } : {}),
             direction: input.direction,
             limit: input.limit,
@@ -724,7 +754,7 @@ export class DaemonRpcService {
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
     const tLake0 = performance.now()
-    const fromLake = await this.deps.readTranscriptFromLake(session, input)
+    const fromLake = await this.deps.memory.readTranscriptFromLake(session, input)
     if (fromLake) {
       perf.record('phase', 'transcriptRead.lake', performance.now() - tLake0, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
@@ -739,12 +769,11 @@ export class DaemonRpcService {
   }): Promise<Omit<DirListResultMessage, 'type' | 'requestId'>> {
     const path = input.path ?? input.root
     return this.request(
-      this.pendingDirLists,
-      'dl',
+      DIR_LIST,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path, entries: [], error: 'timeout' }),
       (requestId) => ({ type: 'dirListRequest', requestId, root: input.root, path }),
-      input.machineId ?? this.deps.defaultMachine(),
+      input.machineId,
     )
   }
 
@@ -758,8 +787,7 @@ export class DaemonRpcService {
       if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return this.request(
-        this.pendingFileReads,
-        'fr',
+        FILE_READ,
         FILE_RPC_TIMEOUT_MS,
         () => ({ ok: false, path: input.path, error: 'timeout' }),
         (requestId) => ({
@@ -773,8 +801,7 @@ export class DaemonRpcService {
       )
     }
     return this.request(
-      this.pendingFileReads,
-      'fr',
+      FILE_READ,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path: input.path, error: 'timeout' }),
       (requestId) => ({
@@ -784,7 +811,7 @@ export class DaemonRpcService {
         path: input.path,
         knownPath: false,
       }),
-      input.machineId ?? this.deps.defaultMachine(),
+      input.machineId,
     )
   }
 
@@ -805,8 +832,7 @@ export class DaemonRpcService {
       if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return this.request(
-        this.pendingFileAssets,
-        'fa',
+        FILE_ASSET,
         FILE_RPC_TIMEOUT_MS,
         () => ({ ok: false, path: input.path, error: 'timeout' }),
         (requestId) => ({
@@ -824,8 +850,7 @@ export class DaemonRpcService {
     // may be worktree-relative; the daemon realpaths them, so absolutize here.
     const absPath = isAbsolute(input.path) ? input.path : join(input.root, input.path)
     return this.request(
-      this.pendingFileAssets,
-      'fa',
+      FILE_ASSET,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path: input.path, error: 'timeout' }),
       (requestId) => ({
@@ -837,7 +862,7 @@ export class DaemonRpcService {
         ...(input.offset !== undefined ? { offset: input.offset } : {}),
         ...(input.length !== undefined ? { length: input.length } : {}),
       }),
-      input.machineId ?? this.deps.defaultMachine(),
+      input.machineId,
     )
   }
 
@@ -858,8 +883,7 @@ export class DaemonRpcService {
       const session = this.deps.getSession(input.sessionId)
       if (!session) return Promise.resolve({ ok: false, error: 'no session' })
       return this.request(
-        this.pendingFileWrites,
-        'fw',
+        FILE_WRITE,
         FILE_RPC_TIMEOUT_MS,
         () => ({ ok: false, error: 'timeout' }),
         (requestId) => build(requestId, session.cwd),
@@ -867,143 +891,25 @@ export class DaemonRpcService {
       )
     }
     return this.request(
-      this.pendingFileWrites,
-      'fw',
+      FILE_WRITE,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, error: 'timeout' }),
       (requestId) => build(requestId, input.root),
-      input.machineId ?? this.deps.defaultMachine(),
+      input.machineId,
     )
   }
 
-  // ---- daemon `*Result` fan-in ----
-
-  onScanResult(msg: Extract<DaemonMessage, { type: 'scanResult' }>): void {
-    DaemonRpcService.settle(this.pendingScans, msg.requestId, {
-      conversations: msg.conversations,
-      diagnostics: msg.diagnostics,
-    })
-  }
-
-  onScanReposResult(msg: Extract<DaemonMessage, { type: 'scanReposResult' }>): void {
-    DaemonRpcService.settle(this.pendingRepoScans, msg.requestId, {
-      repositories: msg.repositories,
-      diagnostics: msg.diagnostics,
-    })
-  }
-
-  onBrowseDirsResult(msg: BrowseDirsResultMessage): void {
-    DaemonRpcService.settle(this.pendingBrowseDirs, msg.requestId, {
-      ...(msg.listing === undefined ? {} : { listing: msg.listing }),
-      ...(msg.error === undefined ? {} : { error: msg.error }),
-    })
-  }
-
-  onRepoOpResult(msg: Extract<DaemonMessage, { type: 'repoOpResult' }>): void {
-    DaemonRpcService.settle(this.pendingRepoOps, msg.requestId, {
-      ok: msg.ok,
-      output: msg.output,
-    })
-  }
-
-  onCredentialExportResult(msg: CredentialExportResultMessage): void {
-    const { type: _type, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingCredentialExports, requestId, payload)
-  }
-
-  onCredentialInstallResult(msg: CredentialInstallResultMessage): void {
-    const { type: _type, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingCredentialInstalls, requestId, payload)
-  }
-
-  onHandoffExportResult(msg: HandoffExportResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingHandoffExports, requestId, payload)
-  }
-  onHandoffChunkReadResult(msg: HandoffChunkReadResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingHandoffReads, requestId, payload)
-  }
-  onHandoffImportChunkResult(msg: HandoffImportChunkResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingHandoffWrites, requestId, payload)
-  }
-  onHandoffImportResult(msg: HandoffImportResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingHandoffImports, requestId, payload)
-  }
-  onHandoffBindingFinalizeResult(msg: HandoffBindingFinalizeResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingHandoffBindingFinalizes, requestId, payload)
-  }
-
-  onWorkspaceExportResult(msg: WorkspaceExportResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingWorkspaceExports, requestId, payload)
-  }
-  onWorkspaceImportResult(msg: WorkspaceImportResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingWorkspaceImports, requestId, payload)
-  }
-  onWorkspaceCleanResult(msg: WorkspaceCleanResultMessage): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingWorkspaceCleans, requestId, payload)
-  }
-
-  onHarnessExecResult(msg: Extract<DaemonMessage, { type: 'harnessExecResult' }>): void {
-    DaemonRpcService.settle(this.pendingHarnessExecs, msg.requestId, {
-      ok: msg.ok,
-      output: msg.output,
-    })
-  }
-
-  onUsageResult(msg: Extract<DaemonMessage, { type: 'usageResult' }>): void {
-    DaemonRpcService.settle(this.pendingUsage, msg.requestId, {
-      hostname: msg.hostname,
-      buckets: msg.buckets,
-    })
-  }
-
-  onAgentQuotaResult(msg: Extract<DaemonMessage, { type: 'agentQuotaResult' }>): void {
-    DaemonRpcService.settle(this.pendingAgentQuota, msg.requestId, {
-      hostname: msg.hostname,
-      agents: msg.agents,
-    })
-  }
-
-  onTranscriptReadResult(msg: Extract<DaemonMessage, { type: 'transcriptReadResult' }>): void {
-    DaemonRpcService.settle(this.pendingTranscriptReads, msg.requestId, {
-      items: msg.items,
-      ...(msg.head !== undefined ? { head: msg.head } : {}),
-      ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
-      hasMore: msg.hasMore,
-    })
-  }
-
-  onImageUploadResult(msg: Extract<DaemonMessage, { type: 'imageUploadResult' }>): void {
-    DaemonRpcService.settle(this.pendingUploads, msg.requestId, {
-      path: msg.path,
-      ...(msg.error !== undefined ? { error: msg.error } : {}),
-    })
-  }
-
-  onFileReadResult(msg: Extract<DaemonMessage, { type: 'fileReadResult' }>): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingFileReads, requestId, payload)
-  }
-
-  onFileWriteResult(msg: Extract<DaemonMessage, { type: 'fileWriteResult' }>): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingFileWrites, requestId, payload)
-  }
-
-  onFileAssetResult(msg: Extract<DaemonMessage, { type: 'fileAssetResult' }>): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingFileAssets, requestId, payload)
-  }
-
-  onDirListResult(msg: Extract<DaemonMessage, { type: 'dirListResult' }>): void {
-    const { type: _t, requestId, ...payload } = msg
-    DaemonRpcService.settle(this.pendingDirLists, requestId, payload)
+  /**
+   * THE ONE FAN-IN — every request-correlated daemon reply this module owns.
+   *
+   * `machineId` is the machine that ANSWERED, from the authenticated transport.
+   * It is not used here: it is handed straight to the broker, which refuses a
+   * reply from any machine other than the one the request was sent to and leaves
+   * that request pending (POD-1175). Putting the check anywhere else would mean
+   * writing it twenty-three times, which is how it came to be missing.
+   */
+  settleDaemonReply(machineId: string, msg: RpcDaemonFrame): void {
+    const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<RpcDaemonFrameType>
+    settle(this.broker, machineId, msg)
   }
 }

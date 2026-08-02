@@ -173,6 +173,7 @@ export class ChangeBaseline {
    *  {@link detectionKey}: the stable-field projection for projected entities,
    *  else the serialized wire JSON). */
   private readonly last = new Map<MetadataEntityKind, Map<string, string>>()
+  private readonly current = new Map<MetadataEntityKind, Map<string, unknown>>()
 
   private byEntity(entity: MetadataEntityKind): Map<string, string> {
     let m = this.last.get(entity)
@@ -181,6 +182,15 @@ export class ChangeBaseline {
       this.last.set(entity, m)
     }
     return m
+  }
+
+  private currentEntity(entity: MetadataEntityKind): Map<string, unknown> {
+    let rows = this.current.get(entity)
+    if (!rows) {
+      rows = new Map()
+      this.current.set(entity, rows)
+    }
+    return rows
   }
 
   /** Boot fold: seed from the latest retained upsert per (entity, id), so the
@@ -192,10 +202,9 @@ export class ChangeBaseline {
       if (row.op !== 'upsert' || row.payload == null) continue
       try {
         const entity = row.entity as MetadataEntityKind
-        this.byEntity(entity).set(
-          row.entityId,
-          detectionKey(entity, JSON.parse(row.payload), row.payload),
-        )
+        const value: unknown = JSON.parse(row.payload)
+        this.byEntity(entity).set(row.entityId, detectionKey(entity, value, row.payload))
+        this.currentEntity(entity).set(row.entityId, value)
       } catch {} // corrupt payload -> no baseline; first record re-upserts it
     }
   }
@@ -217,10 +226,17 @@ export class ChangeBaseline {
 
   applyUpsert(entity: MetadataEntityKind, id: string, value: unknown, json: string): void {
     this.byEntity(entity).set(id, detectionKey(entity, value, json))
+    this.currentEntity(entity).set(id, structuredClone(value))
   }
 
   applyRemove(entity: MetadataEntityKind, id: string): void {
     this.byEntity(entity).delete(id)
+    this.currentEntity(entity).delete(id)
+  }
+
+  /** Current durable projection for global snapshot assembly. */
+  values(entity: MetadataEntityKind): readonly unknown[] {
+    return [...this.currentEntity(entity).values()].map((value) => structuredClone(value))
   }
 }
 

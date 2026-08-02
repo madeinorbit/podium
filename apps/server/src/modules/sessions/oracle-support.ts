@@ -1,4 +1,5 @@
 import { resolvePrincipal } from '../../command-principal'
+import { attachTestClient } from '../../test-support/client-transport'
 /**
  * SessionService ORACLE support (POD-392, the decomposition oracle for
  * POD-393/POD-394/POD-395; originally established by POD-379).
@@ -38,7 +39,7 @@ import { resolvePrincipal } from '../../command-principal'
  */
 
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import { WIRE_VERSION, type ControlMessage, type ServerMessage } from '@podium/protocol'
+import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
@@ -166,7 +167,6 @@ export interface OfflineMachine {
 export function makeOracle(
   opts: { machineId?: string; offlineMachines?: OfflineMachine[] } = {},
 ): Oracle {
-  const machineId = opts.machineId ?? 'local'
   const store = new SessionStore(':memory:')
   for (const machine of opts.offlineMachines ?? []) {
     store.machines.upsertMachine({
@@ -192,6 +192,12 @@ export function makeOracle(
   }
   const reg = new SessionRegistry(store)
   registries.push(reg)
+  // The daemon the oracle attaches is THIS HOST's (POD-318): the registry
+  // provisioned its row on construction, so it has a credential to have
+  // authenticated with and an owner to be granted `use` by — the same posture a
+  // real boot leaves behind. A caller naming its own machineId is asking for a
+  // machine the fixture has NOT registered, which is a refusal, on purpose.
+  const machineId = opts.machineId ?? store.hostMachineId
   const daemon: ControlMessage[] = []
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
@@ -212,7 +218,7 @@ export function makeOracle(
       })
     }
   })
-  const clientId = reg.clientGateway.attachClient((msg) => client.push(msg))
+  const clientId = attachTestClient(reg.clientGateway, (msg) => client.push(msg))
   reg.clientGateway.routeClientFrame(clientId, {
     type: 'hello',
     wireVersion: WIRE_VERSION,
@@ -225,7 +231,8 @@ export function makeOracle(
     registry: reg,
     repos,
     superagent,
-    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
+    capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
   })
   return {
     reg,

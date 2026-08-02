@@ -1,5 +1,7 @@
 import type { LlmBackend, PodiumSettings } from '@podium/runtime'
 import { type CodexAuth, codexLoginPresent, resolveCodexAuth } from './codex-auth'
+import { LlmConfigError } from './llm-error'
+export { LlmConfigError } from './llm-error'
 
 /**
  * Minimal multi-provider chat-completion client with tool calling. One internal
@@ -37,7 +39,6 @@ export interface LlmResponse {
   toolCalls: ToolCall[]
 }
 
-export class LlmConfigError extends Error {}
 
 export interface LlmClient {
   complete(messages: LlmMessage[], tools: LlmTool[]): Promise<LlmResponse>

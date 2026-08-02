@@ -11,6 +11,7 @@ import {
   isIssueColorSlot,
   type IssueId,
   IssueStage,
+  type MachineId,
   type RepoId,
   type SessionId,
   type UserId,
@@ -32,7 +33,12 @@ export class IssuesRepository {
   ) {}
 
   upsertIssue(row: IssueRow): void {
-    if (!row.ownerUserId || !row.visibility || !row.createdByActor || row.createdByOnBehalfOf === undefined) {
+    if (
+      !row.ownerUserId ||
+      !row.visibility ||
+      !row.createdByActor ||
+      row.createdByOnBehalfOf === undefined
+    ) {
       throw new Error(`upsertIssue: complete ownership attribution is required for ${row.id}`)
     }
     // Strict on write: stage is a load-bearing enum (the board column + zod-validated
@@ -220,7 +226,10 @@ export class IssuesRepository {
       defaultAgent: r.default_agent as string,
       defaultModel: (r.default_model as string | null) ?? 'auto',
       defaultEffort: (r.default_effort as string | null) ?? 'auto',
-      machineId: (r.machine_id as string | null) ?? null,
+      // SERIALIZATION EDGE: the column is untyped coming back from sqlite, so the
+      // machine id re-enters its id space here — one decode site, as with every other
+      // branded id on this row (POD-362).
+      machineId: (r.machine_id as MachineId | null) ?? null,
       linearId: (r.linear_id as string | null) ?? null,
       linearIdentifier: (r.linear_identifier as string | null) ?? null,
       linearUrl: (r.linear_url as string | null) ?? null,
@@ -643,19 +652,18 @@ export class IssuesRepository {
    *  volume), so LIKE is enough for the omni-search's comment source. */
   searchIssueComments(
     query: string,
-    limit = 30,
+    limit: number | null = 30,
   ): { issueId: string; body: string; createdAt: string }[] {
     const q = query.trim()
     if (!q) return []
-    const rows = this.db
-      .prepare(
-        `SELECT issue_id, body, created_at FROM issue_comments
-         WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?`,
-      )
-      .all(
-        `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`,
-        Math.min(200, Math.max(1, limit)),
-      ) as Record<string, unknown>[]
+    const escaped = '%' + q.replace(/[\%_]/g, (c) => '\\' + c) + '%'
+    const base = `SELECT issue_id, body, created_at FROM issue_comments
+      WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC`
+    const rows = (
+      limit === null
+        ? this.db.prepare(base).all(escaped)
+        : this.db.prepare(`${base} LIMIT ?`).all(escaped, Math.min(200, Math.max(1, limit)))
+    ) as Record<string, unknown>[]
     return rows.map((r) => ({
       issueId: r.issue_id as string,
       body: r.body as string,

@@ -14,8 +14,8 @@ function memStore(): SessionStore {
 describe('repo prefixes', () => {
   it('derives POD for podium and a distinct prefix on a name collision', () => {
     const s = memStore()
-    s.repos.addRepo('/a/podium')
-    s.repos.addRepo('/b/podium') // same basename, different logical repo
+    s.repos.addRepo('/a/podium', s.hostMachineId)
+    s.repos.addRepo('/b/podium', s.hostMachineId) // same basename, different logical repo
     const prefixes = s.repos.listRepos().map((r) => r.prefix)
     expect(prefixes[0]).toBe('POD')
     expect(prefixes[1]).not.toBe('POD')
@@ -34,7 +34,7 @@ describe('repo prefixes', () => {
 
   it('resolves a prefix back to its repo', () => {
     const s = memStore()
-    s.repos.addRepo('/a/podium')
+    s.repos.addRepo('/a/podium', s.hostMachineId)
     const repo = s.repos.repoForPrefix('POD')
     expect(repo?.path).toBe('/a/podium')
     expect(s.repos.repoForPrefix('ZZZ')).toBeNull()
@@ -43,8 +43,8 @@ describe('repo prefixes', () => {
 
   it('setRepoPrefix renames server-wide and enforces uniqueness', () => {
     const s = memStore()
-    s.repos.addRepo('/a/podium')
-    s.repos.addRepo('/b/other')
+    s.repos.addRepo('/a/podium', s.hostMachineId)
+    s.repos.addRepo('/b/other', s.hostMachineId)
     s.repos.setRepoPrefix('__local__', '/a/podium', 'PODX')
     expect(s.repos.prefixForPath('/a/podium')).toBe('PODX')
     const otherPrefix = s.repos.prefixForPath('/b/other')!

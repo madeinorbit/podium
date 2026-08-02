@@ -230,8 +230,8 @@ export class MailAccess {
   resolveRecipient(to: string): AddressResolution {
     return resolveAddress(to, {
       isKnownSession: (ref) => this.deps.listSessions().some((s) => s.sessionId === ref),
-      resolveIssueRef: (ref) => this.deps.issues().resolveRef(ref),
-      issueExists: (id) => this.deps.issues().has(id),
+      resolveIssueRef: (ref) => this.deps.issues.resolveRef(ref),
+      issueExists: (id) => this.deps.issues.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -245,8 +245,8 @@ export class MailAccess {
   resolveIssueAddress(ref: string): AddressResolution {
     return resolveAddress(ref, {
       isKnownSession: () => false,
-      resolveIssueRef: (r) => this.deps.issues().resolveRef(r),
-      issueExists: (id) => this.deps.issues().has(id),
+      resolveIssueRef: (r) => this.deps.issues.resolveRef(r),
+      issueExists: (id) => this.deps.issues.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -263,7 +263,7 @@ export class MailAccess {
   assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): void {
     const target = this.deps.listSessions().find((s) => s.sessionId === sessionId)
     if (!target) throw new Error('session not found')
-    const issues = this.deps.issues()
+    const issues = this.deps.issues
     const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
     if (targetIssueId) {
       checkIssueAccess(caller, issues, proc, 'write', targetIssueId)
@@ -312,7 +312,7 @@ export class MailAccess {
   }
 
   wire(m: MessageRow): MessageWire {
-    const issues = this.deps.issues()
+    const issues = this.deps.issues
     const label = (kind: string, issueId: IssueId | null, sessionId: SessionId | null): string => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {

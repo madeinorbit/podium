@@ -1,6 +1,7 @@
 import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
+import { FIRST_ADMIN_USER_ID } from './command-principal'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
@@ -37,7 +38,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     store,
     listSessions: () => sessions,
     getSettings: () => settings,
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now,
@@ -304,11 +305,13 @@ describe('StewardService cursor', () => {
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
     let cursorDuringHandler: string | undefined
-    const orig = issues.addComment.bind(issues)
-    vi.spyOn(issues, 'addComment').mockImplementation((id, author, body) => {
-      cursorDuringHandler = store.events.getStewardState('cursor')
-      return orig(id, author, body)
-    })
+    const orig = issues.commentsMail.addComment.bind(issues.commentsMail)
+    vi.spyOn(issues.commentsMail, 'addComment').mockImplementation(
+      (id, author, body, principal) => {
+        cursorDuringHandler = store.events.getStewardState('cursor')
+        return orig(id, author, body, principal)
+      },
+    )
     await steward.tick()
     expect(cursorDuringHandler).toBe('0') // still pre-batch while handling
     expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
@@ -798,7 +801,7 @@ describe('StewardService gating and resilience', () => {
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
-    const addComment = vi.spyOn(issues, 'addComment').mockImplementation(() => {
+    const addComment = vi.spyOn(issues.commentsMail, 'addComment').mockImplementation(() => {
       throw new Error('boom')
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -1034,7 +1037,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     })
     // …and the switch now does what its label says.
     expect(notify).toHaveBeenCalledTimes(1)
-    expect(notify.mock.calls[0]![0]).toMatchObject({
+    expect(notify.mock.calls[0]![0]).toBe(FIRST_ADMIN_USER_ID)
+    expect(notify.mock.calls[0]![1]).toMatchObject({
       title: 'Podium: issue.closed',
       body: expect.stringContaining(x.id),
     })

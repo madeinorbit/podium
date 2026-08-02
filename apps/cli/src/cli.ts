@@ -34,7 +34,7 @@ import {
   selectInstance,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -753,6 +753,10 @@ export function daemonOptionsForPlan(
   plan: ModePlan,
   serverPort: number,
   localBootstrapToken?: string,
+  /** This host's minted id (`<stateDir>/machine.id`). Defaulted rather than required so
+   *  the argv-shaped tests keep calling this with three arguments; the same file the
+   *  server read is the same file read here, because it is the same host. */
+  hostMachineId: string = readOrCreateLocalMachineId(),
 ): DaemonStartOptions {
   const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : `ws://localhost:${serverPort}`
   if (!serverUrl)
@@ -762,7 +766,7 @@ export function daemonOptionsForPlan(
     if (plan.mode !== 'all-in-one') return {}
     if (!localBootstrapToken)
       throw new Error('podium all-in-one daemon needs local bootstrap token')
-    return { bootstrapToken: localBootstrapToken, machineId: LOCAL_MACHINE_ID }
+    return { bootstrapToken: localBootstrapToken, machineId: hostMachineId }
   })()
 
   return {
@@ -907,11 +911,14 @@ async function runInProcess(
     if (plan.daemonAuth === 'local-split') {
       // `podium daemon --local` — see DaemonAuthKind: authenticate as the LOCAL machine
       // via the shared secret file, connect to the local server.
+      // The split-mode local daemon reads BOTH state-dir files the server read: the
+      // shared secret it presents, and the host id it presents it AS. Same host, same
+      // state dir, same identity — an ordinary `hello`, not a bootstrap special case.
       const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
       daemonOptions = {
         serverUrl: modePlan.serverUrl ?? `ws://localhost:${port}`,
         bootstrapToken: readOrCreateDaemonSecret(),
-        machineId: LOCAL_MACHINE_ID,
+        machineId: readOrCreateLocalMachineId(),
         installCodexHooks: true,
         installGrokHooks: true,
       }

@@ -59,8 +59,11 @@ export const roomRoutingKey = (ref: EntityRef): RoutingKey =>
  * watermark-bearing delta frames with no visible changes, and `rescope`
  * (ADR 2 Amendment 1 D13/D14.4).
  */
+export const principalRoutingKeyFromId = (principalId: string): RoutingKey =>
+  `principal:${principalId}` as RoutingKey
+
 export const principalRoutingKey = (p: Principal): RoutingKey =>
-  `principal:${principalRoutingId(p)}` as RoutingKey
+  principalRoutingKeyFromId(principalRoutingId(p))
 
 export interface Subscription {
   readonly subscriberId: SubscriberId
@@ -308,6 +311,11 @@ export class PlaneRouter<M> {
 
   queued(subscriberId: SubscriberId): number {
     return this.queues.get(subscriberId)?.length ?? 0
+  }
+
+  /** Subscribers with frames waiting at the transport edge. */
+  pendingSubscribers(): readonly SubscriberId[] {
+    return [...this.queues.entries()].flatMap(([id, queue]) => (queue.length > 0 ? [id] : []))
   }
 
   /** True while a durable subscriber owes a re-bootstrap (ADR 2 D9 / D7 rung 2). */

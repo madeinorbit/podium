@@ -23,7 +23,7 @@ const bind = (sessionId: SessionId) =>
 
 function regWithDaemon(store?: SessionStore) {
   const reg = new SessionRegistry(store)
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
 }
 
@@ -59,8 +59,8 @@ describe('empty-draft reap on session death', () => {
   it('agent exit of the last attached session deletes the draft and detaches the dead session', () => {
     const reg = regWithDaemon()
     const { draft, sessionId } = draftWithSession(reg)
-    reg.gateway.routeDaemonFrame('local', bind(sessionId))
-    reg.gateway.routeDaemonFrame('local', { type: 'agentExit', sessionId, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
     expect(reg.issues.get(draft.id)).toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
     // Exited row itself survives (resurrectable) — only the empty draft goes.
@@ -70,8 +70,8 @@ describe('empty-draft reap on session death', () => {
   it('hibernation does NOT delete the draft (intentional park)', () => {
     const reg = regWithDaemon()
     const { draft, sessionId } = draftWithSession(reg)
-    reg.gateway.routeDaemonFrame('local', bind(sessionId))
-    reg.gateway.routeDaemonFrame('local', {
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude', value: 'conv-1' },
@@ -79,7 +79,7 @@ describe('empty-draft reap on session death', () => {
     const r = reg.modules.sessions.hibernateSession({ sessionId })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no reap.
-    reg.gateway.routeDaemonFrame('local', { type: 'agentExit', sessionId, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
     expect(reg.issues.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
@@ -92,7 +92,7 @@ describe('empty-draft reap on session death', () => {
       cwd: '/repo',
       issueId: draft.id,
     }).sessionId
-    reg.gateway.routeDaemonFrame('local', bind(second))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(second))
     reg.modules.sessions.killSession({ sessionId })
     expect(reg.issues.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(second)).toBe(draft.id)
@@ -126,7 +126,7 @@ describe('boot-time leaked-draft sweep', () => {
   it('reaps a draft whose attached session no longer exists', () => {
     const file = freshFile()
     const reg1 = new SessionRegistry(new SessionStore(file))
-    reg1.gateway.attachDaemon('local', () => {})
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
     new SessionStore(file).sessions.purgeSession(sessionId)
@@ -138,7 +138,7 @@ describe('boot-time leaked-draft sweep', () => {
     const file = freshFile()
     const store = new SessionStore(file)
     const reg1 = new SessionRegistry(store)
-    reg1.gateway.attachDaemon('local', () => {})
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Force-persist the row as exited behind the reaper's back (leaked state).
     const row = store.sessions.loadSessions().find((r) => r.id === sessionId)
@@ -152,14 +152,14 @@ describe('boot-time leaked-draft sweep', () => {
   it('keeps drafts with live (reconnecting) or hibernated sessions across boot', () => {
     const file = freshFile()
     const reg1 = new SessionRegistry(new SessionStore(file))
-    reg1.gateway.attachDaemon('local', () => {})
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     // Live session draft: comes back 'reconnecting' at boot — must survive.
     const live = draftWithSession(reg1, '/repo-a')
-    reg1.gateway.routeDaemonFrame('local', bind(live.sessionId))
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(live.sessionId))
     // Hibernated session draft: parked on purpose — must survive.
     const hib = draftWithSession(reg1, '/repo-b')
-    reg1.gateway.routeDaemonFrame('local', bind(hib.sessionId))
-    reg1.gateway.routeDaemonFrame('local', {
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(hib.sessionId))
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: hib.sessionId,
       resume: { kind: 'claude', value: 'conv-h' },

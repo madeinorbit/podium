@@ -1,10 +1,10 @@
-import { FIRST_ADMIN_USER_ID, SOLE_USER_ID, asSessionId, type SessionMeta } from '@podium/model'
-import { WIRE_VERSION, type MetadataChange, type ServerMessage } from '@podium/protocol'
+import { asSessionId, FIRST_ADMIN_USER_ID, type SessionMeta, SOLE_USER_ID, asMachineId} from '@podium/model'
+import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 type ProjectionEvent = {
   generation: number
@@ -33,7 +33,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   function deltaClient(registry: SessionRegistry): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
-    const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
+    const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
@@ -48,12 +48,14 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     inbox.flatMap((m) => {
       if (m.type === 'metadataDelta') return [m]
       if (m.type !== 'feedDelta') return []
-      return [{
-        seq: m.seq,
-        changes: m.changes
-          .filter((change) => change.op !== 'evict')
-          .map((change) => ({ ...change, id: change.entityId }) as MetadataChange),
-      }]
+      return [
+        {
+          seq: m.seq,
+          changes: m.changes
+            .filter((change) => change.op !== 'evict')
+            .map((change) => ({ ...change, id: change.entityId }) as MetadataChange),
+        },
+      ]
     })
 
   const sessionChanges = (inbox: ServerMessage[]): MetadataChange[] =>
@@ -99,7 +101,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
             lastInputAt: null,
             lastResumedAt: null,
             spawnedBy: null,
-            machineId: 'm1',
+            machineId: asMachineId('m1'),
             headless: false,
             issueId: null,
           }),
@@ -272,9 +274,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
-    // ensureLocalMachine → adoptPlaceholderRows rewrites machineId in memory and
-    // in the store WITHOUT a persist(); the machine seam captures the derived flip.
-    registry.modules.machines.ensureLocalMachine('adopting-host')
+    // The session was created ON this host already (POD-318: no placeholder, no
+    // adoption). What `ensureHostMachine` changes is the machine ROW's name, and the
+    // machine seam captures the derived machineName flip WITHOUT a session persist.
+    const host = registry.modules.machines.hostMachineId
+    registry.modules.machines.ensureHostMachine('adopting-host')
     registry.modules.sessions.flushBroadcasts()
     const afterAdopt = registry.modules.sessions.syncChangesSince(cursor)
     expect(afterAdopt.kind).toBe('delta')
@@ -282,10 +286,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const adopted = afterAdopt.changes.find(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
-    expect(adopted?.value?.machineId).toBe(LOCAL_MACHINE_ID)
+    expect(adopted?.value?.machineId).toBe(host)
     expect(adopted?.value?.machineName).toBe('adopting-host')
     // Rename: machineName is stamped at wire time, no session row changes.
-    registry.modules.machines.renameMachine(LOCAL_MACHINE_ID, 'renamed-host')
+    registry.modules.machines.renameMachine(host, 'renamed-host')
     registry.modules.sessions.flushBroadcasts()
     const afterRename = registry.modules.sessions.syncChangesSince(afterAdopt.cursor)
     expect(afterRename.kind).toBe('delta')
@@ -295,7 +299,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ) as { value?: SessionMeta } | undefined
     expect(renamed?.value?.machineName).toBe('renamed-host')
     // Revoke: deleting the machine row changes the derived name to its id fallback.
-    registry.modules.machines.revokeMachine(LOCAL_MACHINE_ID)
+    registry.modules.machines.revokeMachine(host)
     registry.modules.sessions.flushBroadcasts()
     const afterRevoke = registry.modules.sessions.syncChangesSince(afterRename.cursor)
     expect(afterRevoke.kind).toBe('delta')
@@ -303,19 +307,20 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const revoked = afterRevoke.changes.find(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
-    expect(revoked?.value?.machineName).toBe(LOCAL_MACHINE_ID)
+    expect(revoked?.value?.machineName).toBe(host)
   })
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    // Attaching the local daemon adopts the placeholder session onto LOCAL_MACHINE_ID.
-    registry.gateway.attachDaemon(LOCAL_MACHINE_ID, () => {})
+    // The host daemon attaches under the id the session is already attributed to.
+    const host = registry.modules.machines.hostMachineId
+    registry.gateway.attachDaemon(host, () => {})
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
     // The disconnect sweep flips live/starting → 'reconnecting' with NO persist;
     // the disconnect seam captures the touched sessions as one explicit batch.
-    registry.gateway.detachDaemon(LOCAL_MACHINE_ID)
+    registry.gateway.detachDaemon(host)
     registry.modules.sessions.flushBroadcasts()
     const healed = registry.modules.sessions.syncChangesSince(cursor)
     expect(healed.kind).toBe('delta')
@@ -332,7 +337,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     reconcile.mockClear()
 
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const clientId = registry.clientGateway.attachClient(() => {})
+    const clientId = attachTestClient(registry.clientGateway, () => {})
     registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
@@ -376,7 +381,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     const afterPersist = registry.modules.sessions.sessionsGeneration()
 
-    const clientId = registry.clientGateway.attachClient(() => {})
+    const clientId = attachTestClient(registry.clientGateway, () => {})
     registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     registry.modules.sessions.flushBroadcasts()
     const afterAttach = registry.modules.sessions.sessionsGeneration()
@@ -393,7 +398,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     registry.modules.sessions.flushBroadcasts()
     const afterResize = registry.modules.sessions.sessionsGeneration()
-    const secondClientId = registry.clientGateway.attachClient(() => {})
+    const secondClientId = attachTestClient(registry.clientGateway, () => {})
     registry.clientGateway.routeClientFrame(secondClientId, { type: 'attach', sessionId })
     registry.modules.sessions.flushBroadcasts()
     const afterSecondAttach = registry.modules.sessions.sessionsGeneration()
@@ -434,7 +439,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const store = new SessionStore(':memory:')
     const first = new SessionRegistry(store)
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const clientId = first.clientGateway.attachClient(() => {})
+    const clientId = attachTestClient(first.clientGateway, () => {})
     first.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     first.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
@@ -506,11 +511,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
   })
 
-
   it('coalesces a resize burst into one async capture and one projection event', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const clientId = registry.clientGateway.attachClient(() => {})
+    const clientId = attachTestClient(registry.clientGateway, () => {})
     registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
@@ -548,7 +552,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('retains dirty live-view and machine patches across one append failure', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    registry.modules.machines.ensureLocalMachine('first-host')
+    registry.modules.machines.ensureHostMachine('first-host')
     registry.modules.sessions.flushBroadcasts()
     const events: ProjectionEvent[] = []
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
@@ -573,7 +577,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       assertValue((change as { value: SessionMeta }).value)
     }
 
-    const firstClient = registry.clientGateway.attachClient(() => {})
+    const firstClient = attachTestClient(registry.clientGateway, () => {})
     failAndHeal(
       () => registry.clientGateway.routeClientFrame(firstClient, { type: 'attach', sessionId }),
       (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
@@ -595,7 +599,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (value) => expect(value.geometry).toEqual({ cols: 123, rows: 47 }),
     )
 
-    const secondClient = registry.clientGateway.attachClient(() => {})
+    const secondClient = attachTestClient(registry.clientGateway, () => {})
     failAndHeal(
       () => registry.clientGateway.routeClientFrame(secondClient, { type: 'attach', sessionId }),
       (value) => expect(value.clientCount).toBe(2),
@@ -613,7 +617,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
     )
     failAndHeal(
-      () => registry.modules.machines.renameMachine(LOCAL_MACHINE_ID, 'healed-host'),
+      () =>
+        registry.modules.machines.renameMachine(
+          registry.modules.machines.hostMachineId,
+          'healed-host',
+        ),
       (value) => expect(value.machineName).toBe('healed-host'),
     )
     off()
@@ -626,7 +634,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (_, i) =>
         registry.modules.sessions.createSession({ agentKind: 'shell', cwd: `/w/` }).sessionId,
     )
-    const clientId = registry.clientGateway.attachClient(() => {})
+    const clientId = attachTestClient(registry.clientGateway, () => {})
     for (const sessionId of sessionIds) {
       registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     }
@@ -888,10 +896,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(listed).toEqual(broadcast)
 
     // And pin the stamp the mapper owns, so mutating it inside sessionWire() is a
-    // kill rather than a survivor. Resolved against the session's OWN machineId:
-    // a freshly created session sits on the '__local__' placeholder until a real
-    // machine adopts it, not on LOCAL_MACHINE_ID — asserting the latter is what
-    // this test got wrong on its first run.
+    // kill rather than a survivor. Resolved against the session's OWN machineId,
+    // which since POD-318 is this host's minted id from the moment the session is
+    // created — there is no placeholder phase to get wrong.
     expect(listed?.machineName).toBe(registry.modules.machines.machineName(listed?.machineId ?? ''))
     expect(listed?.machineName).not.toBe(undefined)
   })
@@ -917,7 +924,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   /** A client whose hello advertises exactly `caps`. */
   function client(registry: SessionRegistry, caps: string[]): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
-    const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
+    const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
@@ -1003,7 +1010,6 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
   })
-
 
   it('both clients receive the SAME changes in the SAME order — the cap changes the envelope, never the feed', () => {
     const registry = makeRegistry()

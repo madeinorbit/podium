@@ -524,7 +524,8 @@ export class SuperagentService {
         ? backend
         : resolveRole(settings, 'coding')
     // The manifest declares whether the harness accepts a pre-minted first-turn id.
-    const sessionUuid = firstTurn && harnessPremintsHeadlessResumeId(agent) ? randomUUID() : undefined
+    const sessionUuid =
+      firstTurn && harnessPremintsHeadlessResumeId(agent) ? randomUUID() : undefined
     const pending = this.store.superagent.promoteQueuedInput(inputId, {
       turnId: randomUUID(),
       ownerUserId,
@@ -682,6 +683,7 @@ export class SuperagentService {
       // After turnInFlight is released so a subscriber can immediately dispatch
       // the thread's next turn [spec:SP-5d81].
       this.modules.bus.emit('superagent.turnEnded', {
+        ownerUserId: pending.ownerUserId,
         threadId: pending.threadId,
         podiumSessionId: pending.podiumSessionId,
         ok: result.ok,
@@ -756,7 +758,7 @@ export class SuperagentService {
     }
     // Re-opening while an earlier terminal attachment is still live just
     // focuses it (resumeSession reuses the row for the same resume ref).
-    const { sessionId } = await this.modules.sessions.resumeSession({
+    const { sessionId } = await this.modules.issueSessionLifecycle.resumeSession({
       agentKind: agent.data,
       cwd: this.threadCwd(thread),
       resume: { kind: harnessResumeKind(agent.data), value: thread.harnessSessionId },
@@ -896,7 +898,7 @@ export class SuperagentService {
           direction: 'before',
           limit: 2000,
         },
-        { kind: 'system', id: 'superagent-handoff' },
+        { kind: 'agent', id: 'superagent:' + thread.id, onBehalfOf: thread.ownerUserId },
       )
       if (items.length === 0) return undefined
       return buildHandoffSeed({ from, to, items })
@@ -950,7 +952,7 @@ export class SuperagentService {
           direction: 'before',
           limit: 2000,
         },
-        { kind: 'system', id: 'superagent-context' },
+        { kind: 'agent', id: 'superagent:' + thread.id, onBehalfOf: thread.ownerUserId },
       )
       const last = items[items.length - 1]
       if (firstTurn) {

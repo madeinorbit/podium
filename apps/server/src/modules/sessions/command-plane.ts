@@ -9,7 +9,7 @@
  * The CONTRACT owns authz (its `policy`, enforced by the two gates below),
  * idempotency (whether a `mutationId` is honoured) and the envelope (the dotted
  * name every receipt is recorded under). The HANDLER owns only the daemon
- * control leg: it calls `SessionsService` and returns what the service returns.
+ * control leg: it calls `SessionLifecycle` and returns what the service returns.
  *
  * That split is why the two transports stop diverging. Today `sessions.sendText`
  * is authorized one way on tRPC (operator, no gate at all) and another way in
@@ -53,7 +53,9 @@ import {
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
-import type { SessionsService } from './service'
+import { inboxPrincipalFromCommand } from './inbox'
+import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
+import type { SessionLifecycle } from './lifecycle'
 import {
   assertMayCommandSession,
   resolveSessionTarget,
@@ -61,8 +63,6 @@ import {
   type SessionAccessDeps,
   type SessionTargetRow,
 } from './session-access'
-
-import { inboxPrincipalFromCommand } from './inbox'
 // ---------------------------------------------------------------------------
 // Execution context
 // ---------------------------------------------------------------------------
@@ -75,18 +75,16 @@ import { inboxPrincipalFromCommand } from './inbox'
  * service is where these methods are already documented.
  */
 export type SessionCommandServices = Pick<
-  SessionsService,
+  SessionLifecycle,
   | 'createSession'
-  | 'resumeSession'
-  | 'prepareSessionTarget'
+  | 'workspace'
   | 'killSession'
   | 'hibernateSession'
-  | 'resurrectSession'
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
-  | 'stopSession'
->
+> &
+  Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'>
 
 /**
  * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) [spec:SP-34d7] — as a dispatch of
@@ -264,12 +262,9 @@ export function bindingPrincipalFor(principal: CommandPrincipal): SessionBinding
  * owner instead — otherwise sharing an issue does not share its work, and
  * retiring an agent orphans everything it made.
  *
- * NOT PERSISTED, and that is a boundary rather than an omission: the `sessions`
- * table has no owner column, and POD-379's attribution oracle pins that row's
- * full attribution key set against POD-1075 as the issue that changes it. A
- * column added here would edit another issue's characterization in order to
- * record a value nothing reads yet. What this issue owes is ONE producer of the
- * rule, so POD-1075 wires a column to it rather than re-deciding it.
+ * Persisted by the lifecycle module as `sessions.owner_user_id`. This function
+ * remains the ONE producer of the inheritance rule, so storage consumes the
+ * decision without re-deciding it.
  */
 export interface CreatedOwnership {
   readonly owner: string | null
@@ -443,7 +438,7 @@ export const SESSION_COMMAND_HANDLERS = {
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
     if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-    const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
+    const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
     const ownership = createdOwnership(
       ctx.principal,
       rest.issueId ? { id: rest.issueId, owner: ctx.deps.issueOwner(rest.issueId) } : undefined,

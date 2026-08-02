@@ -362,7 +362,7 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     owner: {
       kind: 'user',
       resolves: 'pairer',
-      note: 'ADR 9 D6 M3: pairing runs from that person’s laptop with their join code, so they own it. For `local` the owner is the instance installer (Amendment 1 D13.4) — `LOCAL_MACHINE_ID = "local"` makes the server’s host a fleet member, so without an owner anyone who can authenticate inherits EXECUTE on it. Existing machines need a one-time ownership migration at the cutover.',
+      note: 'ADR 9 D6 M3: pairing runs from that person’s laptop with their join code, so they own it. For the HOST machine the owner is the instance installer (Amendment 1 D13.4): the server’s own host is a fleet member like any other (POD-318 gave it a minted id and a real row), so without an owner anyone who can authenticate would inherit EXECUTE on it. Existing machines need a one-time ownership migration at the cutover.',
     },
     visibility: 'owned-compute',
     grants: MACHINE_GRANTS,
@@ -449,7 +449,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     id: ROW.sessionIdentity,
     section: 'sessions',
     title: 'Session identity (`sessionId`, birth display ref / letters)',
-    sites: ['apps/server/src/modules/sessions/service.ts (`randomUUID()`)', '`issue_ref_letters`'],
+    sites: ['apps/server/src/modules/sessions/lifecycle.ts (`randomUUID()`)', '`issue_ref_letters`'],
     home: 'server',
     idMinting: 'Server UUID; ref letter server-allocated per issue. Daemons do NOT coin the registry id — a documented inversion, kept so a daemon cannot bypass the Authority.',
     writers: ['operator', 'agent-session', 'system'],

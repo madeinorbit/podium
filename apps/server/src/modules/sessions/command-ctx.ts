@@ -19,8 +19,29 @@ import {
 } from '../../machine-access'
 import { sessionSpawnerParentId } from '../../steward'
 import type { RegistryModules } from '../../relay'
-import { SessionCommandCtx, type SessionCommandDeps } from './command-plane'
+import {
+  SessionCommandCtx,
+  type SessionCommandDeps,
+  type SessionCommandServices,
+} from './command-plane'
 
+/** Explicit L3 command service: core session capabilities plus atomic issue workflows. */
+export function sessionCommandServices(modules: RegistryModules): SessionCommandServices {
+  const sessions = modules.sessions
+  const issueSessions = modules.issueSessionLifecycle
+  return {
+    createSession: sessions.createSession.bind(sessions),
+    workspace: sessions.workspace,
+    killSession: sessions.killSession.bind(sessions),
+    hibernateSession: sessions.hibernateSession.bind(sessions),
+    answerAskUserQuestion: sessions.answerAskUserQuestion,
+    continueSession: sessions.continueSession.bind(sessions),
+    listSessions: sessions.listSessions.bind(sessions),
+    resumeSession: issueSessions.resumeSession.bind(issueSessions),
+    resurrectSession: issueSessions.resurrectSession.bind(issueSessions),
+    stopSession: issueSessions.stopSession.bind(issueSessions),
+  }
+}
 /**
  * Build the per-call context.
  *
@@ -44,6 +65,7 @@ export function sessionCommandCtx(
 ): SessionCommandCtx {
   const sessions = modules.sessions
   const issues = modules.issues
+  const commandSessions = sessionCommandServices(modules)
   const principal = resolvePrincipal(capability, {
     // One parser for the `session:<id>` tag, and it brands what it extracts
     // (POD-362) — see sessionSpawnerParentId for why the TAG stays raw.
@@ -54,7 +76,7 @@ export function sessionCommandCtx(
     onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,
   })
   const deps: SessionCommandDeps = {
-    sessions: () => sessions,
+    sessions: () => commandSessions,
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
     // The capability is closed over HERE, at the composition root, so no handler

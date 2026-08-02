@@ -36,10 +36,10 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
-  registry.gateway.attachDaemon('local', (m) => {
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -50,7 +50,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
     if (m.type === 'headlessTurnRequest') {
       turnReqs.push(m)
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame('local', {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'headlessTurnResult',
           requestId: m.requestId,
           ok: true,
@@ -439,17 +439,25 @@ describe('search_all tool', () => {
       cwd: '/w',
     })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
-    registry.sessionStore.conversations.upsertConversations([
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'native-conv' },
+    })
+    registry.sessionStore.conversations.index.upsert([
       {
         id: 'native-conv',
         agentKind: 'claude-code',
         providerId: 'claude-code-jsonl',
         title: 'capacitor deep dive',
         updatedAt: '2026-07-01T09:00:00.000Z',
-        machineId: 'm1',
+        // Memory visibility is default-closed (POD-322): the conversation is only
+        // readable through a session that resumes it ON THE SAME MACHINE — which
+        // since POD-318 is this host's minted id, not a sentinel.
+        machineId: registry.sessionStore.hostMachineId,
       },
     ])
-    const out = await sa.callMcpTool('search_all', { query: 'capacitor' })
+    const out = await sa.callMcpTool('search_all', { query: 'capacitor' }, asThreadId('global'))
     // One rendered line per hit: [kind] title (ref) — issues cite the display seq.
     expect(out).toContain(`[issue] replace the flux capacitor`)
     expect(out).toContain(`(#${issue.seq})`)
@@ -469,11 +477,17 @@ describe('search_all tool', () => {
       cwd: '/w',
     })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor session' })
-    const out = await sa.callMcpTool('search_all', { query: 'capacitor', kinds: ['issue'] })
+    const out = await sa.callMcpTool(
+      'search_all',
+      { query: 'capacitor', kinds: ['issue'] },
+      asThreadId('global'),
+    )
     expect(out).toContain('[issue]')
     expect(out).not.toContain('[session]')
-    expect(await sa.callMcpTool('search_all', { query: 'zzz-no-such-thing' })).toBe('(no results)')
-    expect(await sa.callMcpTool('search_all', {})).toBe('missing query')
+    expect(
+      await sa.callMcpTool('search_all', { query: 'zzz-no-such-thing' }, asThreadId('global')),
+    ).toBe('(no results)')
+    expect(await sa.callMcpTool('search_all', {}, asThreadId('global'))).toBe('missing query')
   })
 })
 

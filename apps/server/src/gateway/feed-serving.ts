@@ -9,7 +9,7 @@
  * family and the version-adapter registry at the wire, the Authority's scoped
  * feed and `FeedPublisher` at the kernel. This module is the composition that
  * joins them, and joining them is what lets the SECOND serving path —
- * `funnel.publishComputed` and `SessionsService.fanOutSnapshot`, thirteen call
+ * `funnel.publishComputed` and `SessionLifecycle.fanOutSnapshot`, thirteen call
  * sites across five features, each rebuilding its own full list — be deleted
  * outright rather than kept "for legacy clients". Legacy clients still receive
  * `sessionsChanged` / `issuesChanged` / …; they are now a TRANSLATION of this
@@ -64,21 +64,26 @@
  */
 
 import type { ConversationDiagnosticWire } from '@podium/model'
-import type {
-  FeedBootstrapMessage,
-  FeedChange,
-  FeedDeltaMessage,
-  FeedRescopeMessage,
-  FeedResyncRequiredMessage,
-  UpgradeRequired,
+import {
+  asSubscriberId,
+  type FeedBootstrapMessage,
+  type FeedChange,
+  type FeedDeltaMessage,
+  type FeedRescopeMessage,
+  type FeedResyncRequiredMessage,
+  type Principal,
+  principalRoutingKeyFromId,
+  type RoutingKey,
+  type SubscriptionRegistry,
+  type UpgradeRequired,
 } from '@podium/protocol'
 import type {
   AuthorityPort,
-  ScopedChange,
-  FeedIdentityRegistry,
   FeedConnection,
+  FeedIdentityRegistry,
   FeedPrincipal,
   FeedRetentionPort,
+  ScopedChange,
   ScopedDelivery,
   ServerFrame,
 } from '@podium/sync'
@@ -113,6 +118,8 @@ export interface FeedServingDeps {
   readonly identity: FeedIdentityRegistry
   /** ADR 2 D5's floor, read live per frame. */
   readonly retention: FeedRetentionPort
+  /** The gateway's ONE routing table, shared with room presence. */
+  readonly subscriptions: SubscriptionRegistry
   /**
    * Conversation scan diagnostics — advisory, connection-scoped, never an entity
    * and never a change row. The v1 `conversationsChanged` message carries it as a
@@ -129,11 +136,8 @@ export class FeedServing {
   private readonly connections = new Map<string, FeedConnection>()
   /** The wire version each connection's WORLD was expressed in. */
   private readonly servedVersion = new Map<string, number>()
-  private readonly principalByPeer = new Map<string, string>()
-  private readonly principalSubscriptions = new Map<
-    string,
-    { refs: number; unsubscribe: () => void }
-  >()
+  private readonly feedKeyByPeer = new Map<string, RoutingKey>()
+  private readonly authoritySubscriptionByKey = new Map<RoutingKey, () => void>()
   private readonly pendingByPrincipal = new Map<
     string,
     { principal: FeedPrincipal; deliveries: ScopedDelivery[] }
@@ -166,18 +170,22 @@ export class FeedServing {
    * position (see {@link renegotiate}); nothing here re-reads the world for a
    * connection that already has one.
    */
-  attach(peer: FeedPeer, principal: FeedPrincipal): UpgradeRequired | null {
+  attach(
+    peer: FeedPeer,
+    principal: FeedPrincipal,
+    routingPrincipal: Principal,
+  ): UpgradeRequired | null {
     const refusal = this.edge.attach(peer)
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (this.connections.has(peer.id)) return null
-    this.serveWorld(peer, principal)
+    this.serveWorld(peer, principal, routingPrincipal)
     return null
   }
 
   /** Read the world, send it, and start framing from the position it was read
    *  at. The one place a connection acquires a position. */
-  private serveWorld(peer: FeedPeer, principal: FeedPrincipal): void {
+  private serveWorld(peer: FeedPeer, principal: FeedPrincipal, routingPrincipal: Principal): void {
     // ONE synchronous pass: the world, and the position it was read at.
     const t0 = performance.now()
     const world = this.deps.authority.bootstrap(principal)
@@ -217,39 +225,40 @@ export class FeedServing {
       // takes back. Reusing it keeps ONE way for a position to be set.
       existing.rearm(world.throughSeq)
     }
-    this.retainPrincipal(peer.id, principal)
+    this.retainPrincipal(peer.id, principal, routingPrincipal)
     perf.record('phase', 'feedBootstrap.total', performance.now() - t0, perfKey)
   }
 
-  private retainPrincipal(peerId: string, principal: FeedPrincipal): void {
-    const key = principalIdOf(principal)
-    if (this.principalByPeer.get(peerId) === key) return
+  private retainPrincipal(
+    peerId: string,
+    principal: FeedPrincipal,
+    routingPrincipal: Principal,
+  ): void {
+    const key = principalRoutingKeyFromId(principalIdOf(principal))
+    if (this.feedKeyByPeer.get(peerId) === key) return
     this.releasePrincipal(peerId)
-    const current = this.principalSubscriptions.get(key)
-    if (current) {
-      current.refs += 1
-    } else {
-      this.principalSubscriptions.set(key, {
-        refs: 1,
-        unsubscribe: this.deps.authority.subscribe(principal, (delivery) =>
-          this.queue(principal, delivery),
-        ),
-      })
+    const wasEmpty = this.deps.subscriptions.subscribers(key).length === 0
+    this.deps.subscriptions.subscribe(key, {
+      subscriberId: asSubscriberId(peerId),
+      principal: routingPrincipal,
+    })
+    if (wasEmpty) {
+      this.authoritySubscriptionByKey.set(
+        key,
+        this.deps.authority.subscribe(principal, (delivery) => this.queue(principal, delivery)),
+      )
     }
-    this.principalByPeer.set(peerId, key)
+    this.feedKeyByPeer.set(peerId, key)
   }
 
   private releasePrincipal(peerId: string): void {
-    const key = this.principalByPeer.get(peerId)
+    const key = this.feedKeyByPeer.get(peerId)
     if (!key) return
-    this.principalByPeer.delete(peerId)
-    const current = this.principalSubscriptions.get(key)
-    if (!current) return
-    current.refs -= 1
-    if (current.refs === 0) {
-      current.unsubscribe()
-      this.principalSubscriptions.delete(key)
-    }
+    this.feedKeyByPeer.delete(peerId)
+    this.deps.subscriptions.unsubscribe(key, asSubscriberId(peerId))
+    if (this.deps.subscriptions.subscribers(key).length !== 0) return
+    this.authoritySubscriptionByKey.get(key)?.()
+    this.authoritySubscriptionByKey.delete(key)
   }
 
   /**
@@ -262,12 +271,16 @@ export class FeedServing {
    * committed in between. What changes is only which adapter frames the NEXT
    * frame, which is a translation decision and nothing else.
    */
-  renegotiate(peer: FeedPeer, principal: FeedPrincipal): UpgradeRequired | null {
+  renegotiate(
+    peer: FeedPeer,
+    principal: FeedPrincipal,
+    routingPrincipal: Principal,
+  ): UpgradeRequired | null {
     const refusal = this.edge.attach(peer)
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (!this.connections.has(peer.id)) {
-      this.serveWorld(peer, principal)
+      this.serveWorld(peer, principal, routingPrincipal)
       return null
     }
     // THE VERSION IT ACTUALLY SPEAKS, OR NOTHING. A connection is admitted at
@@ -283,7 +296,7 @@ export class FeedServing {
     // bootstrapping only at `hello` — withholds the world from every peer that
     // never sends one, which is what the pre-cutover code deliberately served.
     if (this.servedVersion.get(peer.id) === peer.wireVersion) return null
-    this.serveWorld(peer, principal)
+    this.serveWorld(peer, principal, routingPrincipal)
     return null
   }
 
@@ -339,10 +352,12 @@ export class FeedServing {
     // changed because the pipeline they named is gone; `PHASE_MIGRATION` in
     // `@podium/protocol` is the map a recorded baseline resolves through.
     const t0 = performance.now()
-    this.publisher.publish(principal, delivery)
+    const key = principalRoutingKeyFromId(principalIdOf(principal))
+    const targets = this.deps.subscriptions.subscribers(key).map((sub) => String(sub.subscriberId))
+    this.publisher.publishTo(targets, principal, delivery)
     const tFramed = performance.now()
     perf.record('phase', 'feedPublish.frame', tFramed - t0, perfKey)
-    this.flush(delivery.throughSeq)
+    this.flush(delivery.throughSeq, targets)
     perf.record('phase', 'feedPublish.fanout', performance.now() - tFramed, perfKey)
     perf.record('phase', 'feedPublish.total', performance.now() - totalStartedAt, perfKey)
   }
@@ -410,8 +425,10 @@ export class FeedServing {
     return this.connections.size
   }
 
-  private flush(atSeq: number): void {
-    for (const [id, connection] of this.connections) {
+  private flush(atSeq: number, targetIds: Iterable<string> = this.connections.keys()): void {
+    for (const id of targetIds) {
+      const connection = this.connections.get(id)
+      if (!connection) continue
       const peer = this.peers.get(id)
       if (peer === undefined) continue
       for (const frame of connection.drain() as readonly ServerFrame[]) {
@@ -421,9 +438,7 @@ export class FeedServing {
   }
 }
 
-function coalesceScopedDeliveries(
-  deliveries: readonly ScopedDelivery[],
-): ScopedDelivery[] {
+function coalesceScopedDeliveries(deliveries: readonly ScopedDelivery[]): ScopedDelivery[] {
   const coalesced: ScopedDelivery[] = []
   for (const delivery of deliveries) {
     const previous = coalesced.at(-1)

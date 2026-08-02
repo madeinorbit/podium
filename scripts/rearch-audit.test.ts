@@ -467,7 +467,7 @@ describe('inventory checks', () => {
 
   it('composition-root forward refs match `let x!: T`, not a plain lazy local', () => {
     const ctx = ctxOf({
-      'apps/server/src/server.ts': [
+      'apps/server/src/relay.ts': [
         '  let messaging!: MessagingService',
         '  let webDir = process.env.PODIUM_WEB_DIR',
       ].join('\n'),
@@ -615,17 +615,25 @@ describe('CLI exit codes', () => {
   // Each case launches two full-tree audit processes; the full node lane can
   // saturate the 20s default.
   const fullLaneAuditTimeout = 40_000
-  it('gates a phase whose items are still alive, and clears one that reached zero', () => {
-    expect(run(['--phase', 'POD-1251'])).toBe(1)
-    expect(run(['--phase', 'POD-308'])).toBe(0)
-  }, fullLaneAuditTimeout)
+  it(
+    'gates a phase whose items are still alive, and clears one that reached zero',
+    () => {
+      expect(run(['--phase', 'POD-1251'])).toBe(1)
+      expect(run(['--phase', 'POD-308'])).toBe(0)
+    },
+    fullLaneAuditTimeout,
+  )
 
-  it('an output flag cannot disable the gate', () => {
-    // `--phase X --json` exited 0 with 119 live sites before this was fixed:
-    // the format must never decide whether the gate holds.
-    expect(run(['--phase', 'POD-1251', '--json'])).toBe(1)
-    expect(run(['--phase', 'POD-1251', '--sites'])).toBe(1)
-  }, fullLaneAuditTimeout)
+  it(
+    'an output flag cannot disable the gate',
+    () => {
+      // `--phase X --json` exited 0 with 119 live sites before this was fixed:
+      // the format must never decide whether the gate holds.
+      expect(run(['--phase', 'POD-1251', '--json'])).toBe(1)
+      expect(run(['--phase', 'POD-1251', '--sites'])).toBe(1)
+    },
+    fullLaneAuditTimeout,
+  )
 
   it('an output flag cannot swallow the baseline write', () => {
     // `--json --update-baseline` used to exit 0 having written NOTHING: --json
@@ -787,12 +795,12 @@ describe('publish-computed-fanout: the anchor behind its ZERO_BY_DESIGN exemptio
     const sites = check?.collect(
       ctxOf({
         'apps/server/src/modules/funnel.ts': 'publishComputed(snapshot) {}',
-        'apps/server/src/modules/sessions/service.ts': 'fanOutSnapshot(snapshot) {}',
+        'apps/server/src/modules/sessions/lifecycle.ts': 'fanOutSnapshot(snapshot) {}',
       }),
     )
     expect(sites?.map((s) => s.file).sort()).toEqual([
       'apps/server/src/modules/funnel.ts',
-      'apps/server/src/modules/sessions/service.ts',
+      'apps/server/src/modules/sessions/lifecycle.ts',
     ])
   })
 })
@@ -880,6 +888,10 @@ describe('against the live repo', () => {
       // detector now proves its zero against both surviving source roots and a
       // synthetic sync+async control pair, throwing if either anchor disappears.
       'durable-host-sync-async-twins',
+      // POD-321 removed the final constructor future reference. The detector is
+      // anchored by the planted definite-assignment control test above and scans
+      // both production composition roots, so zero here is the delivered state.
+      'composition-root-forward-refs',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

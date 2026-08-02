@@ -3,6 +3,7 @@ import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 // Boot-storm regression (the redeploy watchdog-kill incident): a daemon reattach
 // replays one `bind` per surviving session. Pre-fix, EVERY bind ran the full
@@ -54,7 +55,7 @@ describe('bind-storm regression', () => {
     // Settle setup: run any coalesced broadcast so the storm below starts clean.
     registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    const clientId = registry.clientGateway.attachClient((m) => inbox.push(m))
+    const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: 2,

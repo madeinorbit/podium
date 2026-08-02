@@ -1,5 +1,5 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
-import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
+import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -10,6 +10,7 @@ import {
 import { SessionRegistry } from './relay'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 /**
  * The normalized issue wire, end to end through the PRODUCTION wiring
@@ -25,6 +26,11 @@ import { SessionStore } from './store'
 
 const ISSUE_COUNT = 300
 const SESSION_COUNT = 200
+/** The two live-shape guards measure counters, not speed. On the contended
+ * 8-vCPU exit host they measured 19.8s and 20.7s in isolation, so the shared
+ * 20s default was a scheduler race. Three times that measured cost is a
+ * watchdog for a wedge while the zero-scan assertions remain the detector. */
+const SCALE_GUARD_TIMEOUT_MS = 60_000
 
 function issueRow(i: number): IssueRow {
   // The fixture builds ids from template strings; branding at the boundary keeps
@@ -111,7 +117,7 @@ function seedSession(
     lastInputAt: null,
     lastResumedAt: null,
     spawnedBy: null,
-    machineId: 'm1',
+    machineId: asMachineId('m1'),
     headless: false,
     issueId: issueId === null ? null : asIssueId(issueId),
   })
@@ -134,7 +140,7 @@ afterEach(() => {
 })
 
 function client(registry: SessionRegistry, caps: string[] | undefined): string {
-  const id = registry.clientGateway.attachClient(() => {})
+  const id = attachTestClient(registry.clientGateway, () => {})
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
     wireVersion: WIRE_VERSION,
@@ -199,7 +205,10 @@ function issueWorkForOneFieldSessionChange(
 ): { builds: number; scans: number } {
   registry.modules.sessions.flushBroadcasts()
   resetIssueWireBuildCount()
-  registry.modules.sessions.setWorkState({ sessionId: asSessionId(sessionId), workState: 'testing' })
+  registry.modules.sessions.setWorkState({
+    sessionId: asSessionId(sessionId),
+    workState: 'testing',
+  })
   registry.modules.sessions.flushBroadcasts()
   return { builds: issueWireBuildCount(), scans: issueMembershipScanCount() }
 }
@@ -240,7 +249,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
 
   it('cold snapshot includes all normalized issue collections for reload bootstrap', () => {
     const { registry, store } = world({ issues: 2, sessions: 0 })
-    store.repos.addRepo('/repo')
+    store.repos.addRepo('/repo', store.hostMachineId)
     registry.modules.issues.addDep('iss_0', 'iss_1')
 
     const snapshot = registry.modules.sessions.syncChangesSince(null)
@@ -312,7 +321,9 @@ describe('issueProjection emission is unconditional with transitional legacy res
 })
 
 describe('D7.2: every session change performs zero issue membership scans [POD-797]', () => {
-  it('workState change touches zero issue wire memberships', () => {
+  it('workState change touches zero issue wire memberships', {
+    timeout: SCALE_GUARD_TIMEOUT_MS,
+  }, () => {
     const { registry, sessionIds } = world()
     client(registry, undefined)
     const { scans } = issueWorkForOneFieldSessionChange(registry, sessionIds[0] as string)
@@ -324,10 +335,10 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
   it('paints current issue data without embedding sessions', () => {
     const { registry } = world({ issues: 3, sessions: 2 })
     const inbox: ServerMessage[] = []
-    const id = registry.clientGateway.attachClient((message) => inbox.push(message))
+    const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
     registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
-    wireVersion: WIRE_VERSION,
+      wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
@@ -346,7 +357,9 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
 })
 
 describe('normalized dep emission [POD-797]', () => {
-  it('one dep write emits one edge and performs zero membership scans', () => {
+  it('one dep write emits one edge and performs zero membership scans', {
+    timeout: SCALE_GUARD_TIMEOUT_MS,
+  }, () => {
     const { registry } = world()
     registry.modules.sessions.flushBroadcasts()
     const before = registry.modules.sessions.syncChangesSince(0)

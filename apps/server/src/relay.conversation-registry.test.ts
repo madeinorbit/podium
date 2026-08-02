@@ -1,7 +1,12 @@
-import type { ConversationSummaryWire, ConversationSummaryWireInput } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID,
+  type ConversationSummaryWire,
+  type ConversationSummaryWireInput,
+} from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { attachTestClient } from './test-support/client-transport'
 
 // Registry wiring at the observation seams (docs/spec/conversation-registry.md):
 // scans mint identities + enrich the wire, sessionResumeRef stamps sessions and
@@ -40,7 +45,7 @@ describe('SessionRegistry conversation registry', () => {
     }
     registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    const clientId = registry.clientGateway.attachClient((m) => inbox.push(m))
+    const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: 2,
@@ -78,7 +83,7 @@ describe('SessionRegistry conversation registry', () => {
       conversations: [conv('parent-1')],
       diagnostics: [],
     })
-    const again = registry.modules.conversations
+    const again = registry.modules.memory
       .allConversations()
       .find((conversation) => conversation.id === 'parent-1')
     expect(again?.podiumId).toBe(parent?.podiumId)
@@ -87,18 +92,18 @@ describe('SessionRegistry conversation registry', () => {
   it('transcriptRead carries the recorded segment path as pathHint', () => {
     const registry = makeRegistry()
     const daemon: unknown[] = []
-    registry.gateway.attachDaemon('local', (m) => daemon.push(m))
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/moved/to',
     })
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-x' },
     })
     // A discovery scan recorded where the file actually lives (original bucket).
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'conversationsChanged',
       conversations: [
         conv('native-x', { path: '/home/u/.claude/projects/-original-spot/native-x.jsonl' }),
@@ -107,7 +112,7 @@ describe('SessionRegistry conversation registry', () => {
     })
     void registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
-      { kind: 'user', id: 'conversation-reader' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     const read = daemon.find((m) => (m as { type: string }).type === 'transcriptRead') as {
       pathHint?: string
@@ -119,13 +124,13 @@ describe('SessionRegistry conversation registry', () => {
 
   it('sessionResumeRef stamps the session and a roll keeps the same identity', () => {
     const registry = makeRegistry()
-    registry.gateway.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
 
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
@@ -135,7 +140,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(podiumId).toMatch(/^conv_/)
 
     // The harness rolls into a fresh file (resume): new native id, SAME identity.
-    registry.gateway.routeDaemonFrame('local', {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },

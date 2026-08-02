@@ -1,7 +1,7 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
-import type { Ledger } from '@podium/sync'
+import { asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import type { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { type IssueDeps, IssueService } from './service'
@@ -31,7 +31,7 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: repoOp as IssueDeps['repoOp'],
     ...plumbing,
     setSessionArchived: vi.fn(),
@@ -61,6 +61,26 @@ const member = (sessionId: SessionId, issueId: string): SessionMeta =>
   }) as unknown as SessionMeta
 
 describe('POD-98 git-state service wiring', () => {
+  it('keeps stateful workflow methods bound when passed across a port', async () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions, {
+      statusProbe: '## main',
+      logHead: 'sha-bound\t2026-07-20T11:30:00Z',
+    })
+    const id = svc.create({ repoPath: '/repo', title: 'bound receiver', startNow: false }).id
+    sessions.push(member(asSessionId('sess-bound'), id))
+
+    const { recordSessionGitActivity, refreshGitState, onSessionRemovedOrArchived } =
+      svc.gitWorkflow
+    recordSessionGitActivity(asSessionId('sess-bound'), { commits: ['sha-bound'] })
+    await refreshGitState(id, '/repo')
+    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-bound'])
+
+    onSessionRemovedOrArchived(asSessionId('sess-bound'))
+    await refreshGitState(id, '/repo')
+    expect(svc.get(id)?.gitState?.commits).toBeUndefined()
+  })
+
   it('turn end probes a shared checkout and lands attributed gitState on the wire', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = harness(sessions, {

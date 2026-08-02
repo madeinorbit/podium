@@ -30,7 +30,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   const store = new SessionStore(':memory:')
   const registry = new SessionRegistry(store)
   registries.push(registry)
-  registry.gateway.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
 
   const spawned = registry.modules.sessions.createSession({
     agentKind: 'codex',
@@ -68,14 +68,13 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
 
   const toolkit = new SessionReadToolkit({
     listSessions: () => [meta as SessionMeta],
-    issues: () =>
-      ({
+    issues: ({
         resolveRef: () => ISSUE.id,
         getMeta: () => ISSUE,
         get: () => ISSUE,
         issueForCwd: () => ISSUE.id,
       }) as unknown as IssueService,
-    messages: () => ({ deliveredUnacked: () => [] }) as unknown as MessageDeliveryService,
+    messages: ({ deliveredUnacked: () => [] }) as unknown as MessageDeliveryService,
     events: { appendEvent: () => 1 },
     watermarks: {
       getRecapWatermark: () => null,

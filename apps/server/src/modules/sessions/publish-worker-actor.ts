@@ -1,6 +1,5 @@
 import type { SessionMeta } from '@podium/model'
 import type { MetadataChange, MetadataDeltaMessage, ServerMessage } from '@podium/protocol'
-import type { SessionProjectionEvent } from './service.js'
 
 /** Stable identity for publications whose authorization and wire shape are equal. */
 export type ViewKey = string & { readonly __viewKey: unique symbol }
@@ -42,6 +41,13 @@ export interface SessionProjectionState {
   generation: number
   ledgerCursor: number
   sessions: readonly SessionMeta[]
+}
+
+/** One ordered model-view patch consumed by every session publication. */
+export interface SessionProjectionEvent {
+  generation: number
+  changes: MetadataChange[]
+  ledgerCursor: number
 }
 
 interface JournalPatch {

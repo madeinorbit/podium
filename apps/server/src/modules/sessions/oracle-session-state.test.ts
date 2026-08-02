@@ -1,3 +1,4 @@
+import { attachTestClient } from '../../test-support/client-transport'
 /**
  * ORACLE — session-state session writes (POD-379 for POD-312 / POD-380).
  *
@@ -10,7 +11,7 @@
  */
 
 import { SOLE_USER_ID } from '@podium/model'
-import { WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
 
@@ -91,7 +92,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -119,7 +120,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -139,7 +140,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving an already-parked session does not re-kill it`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -169,7 +170,7 @@ describe('oracle: read state', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
-    const secondId = o.reg.clientGateway.attachClient((m) => second.push(m))
+    const secondId = attachTestClient(o.reg.clientGateway, (m) => second.push(m))
     o.reg.clientGateway.routeClientFrame(secondId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,
@@ -376,7 +377,7 @@ describe('oracle: composer drafts', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const author: ServerMessage[] = []
-    const authorId = o.reg.clientGateway.attachClient((m) => author.push(m))
+    const authorId = attachTestClient(o.reg.clientGateway, (m) => author.push(m))
     const watcher: ServerMessage[] = []
     o.reg.clientGateway.routeClientFrame(authorId, {
       type: 'hello',
@@ -384,7 +385,7 @@ describe('oracle: composer drafts', () => {
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
-    const watcherId = o.reg.clientGateway.attachClient((m) => watcher.push(m))
+    const watcherId = attachTestClient(o.reg.clientGateway, (m) => watcher.push(m))
     o.reg.clientGateway.routeClientFrame(watcherId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,

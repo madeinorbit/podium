@@ -168,9 +168,8 @@ const DELETE_MARKERS = [
   {
     pattern: '__local__',
     reason:
-      "'__local__' placeholder — POD-318 deletes it; branding would freeze it into the type system",
+      "'__local__' placeholder — RETIRED by POD-318 (MachineId now refuses it). Kept as a sweep pattern so a reintroduction is reported rather than absorbed.",
   },
-  { pattern: 'LOCAL_PLACEHOLDER', reason: "'__local__' placeholder constant — POD-318" },
   {
     pattern: 'OPERATOR',
     reason: 'single-operator capability — POD-1075 replaces it with a real principal',

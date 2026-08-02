@@ -13,9 +13,18 @@ import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
-import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+
+/** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
+ *  file the server and the split-mode daemon read. There is no `'local'` constant
+ *  any more; a machine id is minted material.
+ *
+ *  A FUNCTION, not a module-level constant: these harnesses point PODIUM_STATE_DIR
+ *  at an isolated directory AFTER the imports run, and a constant would have read
+ *  (and minted into) the real state dir before that happened. */
+const hostMachineId = (): string => readOrCreateLocalMachineId()
 
 const PORT = Number(process.env.PORT ?? 18898)
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '')
@@ -74,7 +83,7 @@ async function main() {
   const daemon = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
     bootstrapToken: server.bootstrapToken,
-    machineId: LOCAL_MACHINE_ID,
+    machineId: hostMachineId(),
     hooks: { port: 0 },
     agentRelay: { port: 0 },
     launch,

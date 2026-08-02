@@ -1,0 +1,30 @@
+# Composition root cycle resolutions
+
+POD-321 replaces constructor-order cycles with two explicit mechanisms. A notification that is semantically asynchronous is an EventBus reaction and must appear in the [reactions ledger](./reactions-ledger.md). A caller-visible cross-feature workflow is an L3 application orchestrator with an explicit principal and transaction boundary.
+
+## Former cycles
+
+| Former dependency cycle | Resolution | Boundary and invariants |
+| --- | --- | --- |
+| machine metadata → session projections → machine registry | `sessions.machine-derived-fields` and `sessions.machine-row-adoption` reactions | Machine rows commit first. System-attributed in-memory reactions recapture or retarget live session projections without changing ownership. Startup reloads the durable machine/session truth. |
+| session feed publication → session cursor | `sessions.feed-cursor` reaction | The global ledger sequence is observed after publication. Cursor updates are monotonic and reconstructed from the durable authority cursor after restart. |
+| session membership → issue projection → session publication | `issues.session-derived-projection` reaction | Session changes emit `session.listChanged`; the system publisher reconciles issue-derived rows through the ordered ledger. Startup reconciliation reads durable issue and session rows, preserving issue scope. |
+| session facts → issue derived-field maintenance → issue publication | `issues.session-derived-maintenance` reaction | Committed/live session facts emit after their source mutation. System maintenance writes through the issue funnel, inherits issue scope, and retries from boot projection reconciliation or the next session fact. |
+| session events → conversation search index → transcript reads | `conversations.discovery-index` reaction | Derived indexing is durable and system-attributed. Each indexed row inherits the conversation owner/scope; restart resumes from the durable segment cursor. |
+| issue attach → session attachment → issue cleanup/publication | `IssueAttachOrchestrator` at L3 | One SQLite transaction encloses issue/dependency creation, session attachment, abandoned-draft cleanup, and change rows. The authenticated transport principal is carried unchanged; system/operator substitution is rejected. |
+| session lifecycle → issue worktree/membership operations → session lifecycle | `IssueSessionLifecycle` at L3 | Resume, resurrection, stop, stop-issue, and handoff carry the same transport-derived principal through explicit session and issue ports. Issue-row mutations stay in the issue funnel; database phases use the ledger transaction, while filesystem/process steps remain caller-visible ordered operations with explicit failure results because they cannot share a SQLite transaction. |
+| durable session inbox → parked-session wake → issue worktree restore | `sessions.delegated-wake-on-queue` and `sessions.system-wake-on-queue` reactions | Enqueue commits first. Wake is genuinely asynchronous, in-memory, non-replayed, and best-effort; the durable inbox row remains the retry source. Delegated wake re-authorizes its reference live at apply, while system wake acts only on the existing binding and never stamps a human. |
+| durable changes → publisher fan-out → feature projections | `publisher.ordered-fanout` reaction | The authority sequence is the global order and durable change rows are the idempotency key. Connection failure belongs to the feed-serving boundary and reconnect catches up from the durable cursor. |
+| visibility anchors → issue/session/conversation services → visibility anchors | Direct durable authority reads | Anchors read durable change state and entity rows that are already constructed; they do not capture later services. Scope filtering remains at the authenticated serving edge. |
+| publisher issue-dependency projection → issue service → publisher | Direct durable `IssueStore` projection port | Publisher reads normalized dependency rows from the already-constructed store. It cannot mutate issues, and fan-out still follows the durable global ledger sequence. |
+| message apply/gate/read toolkit and daemon mux → issue, session, message, conversation, approval, and client services | Direct narrow service ports | Each consumer receives an already-constructed service or registry. Apply-time authorization remains an explicit function port, while live client/session collection callbacks return changing data rather than hiding service construction; the root contains no service getter thunk. |
+| session/issue state → notification delivery | Registered notification, mail-nudge, Telegram, typing, and recap reactions | Routing is per owner. Telegram outbound resolves per-user routing; unknown inbound chats fail closed behind POD-1080. Typing and recap state are per-conversation-per-user and never replay another user's transcript. |
+| automation schedule → delegated session run | `automations.scheduled-runs` durable reaction | Occurrence IDs deduplicate. Startup reconciliation resolves the stored delegation reference live and re-authorizes before apply, so revocation stops a queued run. |
+
+## Principal rule
+
+System reactions use actor `system` and write only in the scope of the entity they maintain. Delegated reactions persist a delegation reference, never a capability snapshot, and resolve current rights at every apply including replay. `InstanceId` remains an independent deployment partition and is not used as a user or ownership identity.
+
+## Generated evidence
+
+The [server composition import graph](./server-composition-graph.md) is generated from runtime imports and fails generation on a cycle. The [server construction order](./server-construction-order.md) is generated from the composition initializer and rejects later-local captures, service getter thunks, definite-assignment late binding, and reads of `this` fields before assignment. The reactions ledger is generated directly from the typed registry; adding a reaction without replay, idempotency, failure ownership, observability, scope, or principal declarations fails its totality test.

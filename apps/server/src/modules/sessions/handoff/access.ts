@@ -26,10 +26,11 @@
  *     (§3.1.4 M5). The two rules pull in opposite directions and the shared
  *     resolver is where that tension is settled once.
  *
- * THE LOCAL SENTINEL IS NOT EXEMPTED, and this is the second time that mattered.
- * `machine-access.ts` resolves `local` / `__local__` to a SYNTHESIZED row owned by
- * the instance owner, so the sentinels run through the ordinary rules; POD-381
- * found that after an exemption-shaped fix broke 24 oracle tests. My own first cut
+ * THE HOST MACHINE IS NOT EXEMPTED, and this is the second time that mattered.
+ * `machine-access.ts` used to synthesize a row for the `local` / `__local__`
+ * sentinels so they ran through the ordinary rules; POD-318 removed the premise —
+ * the host has a real owned row from boot — and the rules are unchanged. POD-381
+ * found this after an exemption-shaped fix broke 24 oracle tests. My own first cut
  * hit the same class from the other side — it asked whether the machineId was in
  * the machine list, which refused a handoff FROM the local machine on installs
  * whose `local` row is written lazily. The generalisation, and the reason there is

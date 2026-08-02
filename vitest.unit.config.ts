@@ -22,46 +22,72 @@ import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
  *
  * Drift guard: scripts/test-configuration.test.ts asserts the lane invariants.
  */
+export const normalizedWireTests = [
+  'apps/server/src/issues.normalized-wire.test.ts',
+  'apps/server/src/issues.normalized-wire.bench.test.ts',
+]
 export default defineConfig({
   resolve: sharedVitestConfig.resolve,
   test: {
-    name: 'node',
-    ...sharedVitestConfig.test,
-    passWithNoTests: true,
-    // Hermetic lane: a flaky unit test is a bug, not weather. No retries.
-    retry: 0,
-    exclude: [
-      ...nodeTestExclude,
-      'tests/e2e/**',
-      '**/*e2e*.test.{ts,tsx}',
-      '**/*.integration.*',
-      ...realAgentSmokeTests,
-      ...ptySmokeTests,
-      '**/*.pty.test.{ts,tsx}',
-      'packages/pty/test/pty-behavior/**',
-      'packages/pty/test/session.test.ts',
-      'packages/pty/src/backends/node-pty-backend.test.ts',
-      'packages/pty/src/abduco.test.ts',
-      'packages/pty/src/abduco-bin.test.ts',
-      'packages/pty/src/tmux.test.ts',
-      // Drives the real `claude` binary (self-skips without PODIUM_REAL_CLI=1);
-      // the agent-smoke lane owns it.
-      'packages/pty/test/harness-smoke/**',
-      // Boots a real daemon and spawns PTY-backed fixture agents per test.
-      'apps/daemon/src/daemon.test.ts',
-      // Spawn real child processes (bun install/typecheck; memory sampling).
-      'scripts/redeploy-wait.test.ts',
-      'apps/daemon/src/memory-breakdown.test.ts',
-      // Heavy process/PTY/server-boot suites — run in the integration lane instead
-      // (mirrored in vitest.integration.config.ts's include list).
-      'apps/cli/src/podium-update.test.ts',
-      'apps/daemon/src/durable-headless.test.ts',
-      'apps/server/src/sync-e2e.test.ts',
-      'apps/server/src/server.plugins.test.ts',
-      'apps/server/src/server.port-in-use.test.ts',
-      'apps/server/src/upstream-auth-e2e.test.ts',
-      'apps/server/src/upstream-e2e.test.ts',
-      'apps/server/src/wsServer.version-gate.test.ts',
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          ...sharedVitestConfig.test,
+          passWithNoTests: true,
+          // Hermetic lane: a flaky unit test is a bug, not weather. No retries.
+          retry: 0,
+          sequence: { groupOrder: 0 },
+          exclude: [
+            ...nodeTestExclude,
+            'tests/e2e/**',
+            '**/*e2e*.test.{ts,tsx}',
+            '**/*.integration.*',
+            ...realAgentSmokeTests,
+            ...ptySmokeTests,
+            '**/*.pty.test.{ts,tsx}',
+            'packages/pty/test/pty-behavior/**',
+            'packages/pty/test/session.test.ts',
+            'packages/pty/src/backends/node-pty-backend.test.ts',
+            'packages/pty/src/abduco.test.ts',
+            'packages/pty/src/abduco-bin.test.ts',
+            'packages/pty/src/tmux.test.ts',
+            // Drives the real `claude` binary (self-skips without PODIUM_REAL_CLI=1);
+            // the agent-smoke lane owns it.
+            'packages/pty/test/harness-smoke/**',
+            // Boots a real daemon and spawns PTY-backed fixture agents per test.
+            'apps/daemon/src/daemon.test.ts',
+            // Spawn real child processes (bun install/typecheck; memory sampling).
+            'scripts/redeploy-wait.test.ts',
+            'apps/daemon/src/memory-breakdown.test.ts',
+            // Heavy process/PTY/server-boot suites — run in the integration lane instead
+            // (mirrored in vitest.integration.config.ts's include list).
+            'apps/cli/src/podium-update.test.ts',
+            'apps/daemon/src/durable-headless.test.ts',
+            'apps/server/src/sync-e2e.test.ts',
+            'apps/server/src/server.plugins.test.ts',
+            'apps/server/src/server.port-in-use.test.ts',
+            'apps/server/src/upstream-auth-e2e.test.ts',
+            'apps/server/src/upstream-e2e.test.ts',
+            'apps/server/src/wsServer.version-gate.test.ts',
+            ...normalizedWireTests,
+          ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'normalized-wire',
+          ...sharedVitestConfig.test,
+          passWithNoTests: true,
+          retry: 0,
+          include: normalizedWireTests,
+          fileParallelism: false,
+          maxWorkers: 1,
+          sequence: { groupOrder: 1 },
+        },
+      },
     ],
   },
 })

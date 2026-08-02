@@ -38,7 +38,6 @@ import {
   type WorkState,
 } from '@podium/model'
 import type { ControlMessage, DraftEditMessage, LiveServerMessage } from '@podium/protocol'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import type { ClientConn } from '../../../gateway/client-registry'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from '../draft-doc'
@@ -391,7 +390,11 @@ export class SessionStateService {
     for (const [sessionId, priority] of priorities) {
       if (this.lastPriority.get(sessionId) === priority) continue
       this.lastPriority.set(sessionId, priority)
-      const machineId = this.ports.getSession(sessionId)?.machineId ?? LOCAL_PLACEHOLDER
+      // No live session means no machine to prioritise on. This used to fall back to
+      // the placeholder, which sent the frame to a queue keyed by a name no daemon
+      // answers to — a message that could only ever be dropped, pretending to be sent.
+      const machineId = this.ports.getSession(sessionId)?.machineId
+      if (machineId === undefined) continue
       this.ports.toMachine(machineId, { type: 'sessionPriority', sessionId, priority })
     }
   }

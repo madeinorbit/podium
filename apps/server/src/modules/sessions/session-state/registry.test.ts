@@ -22,7 +22,11 @@ import { OPERATOR, SOLE_USER_ID, asSessionId, asUserId, type SessionId } from '@
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../../relay'
 import { SessionStore } from '../../../store'
-import { type SessionStatePrincipal, SessionStateRegistry, soleHumanSessionStatePrincipal } from './registry'
+import {
+  type SessionStatePrincipal,
+  SessionStateRegistry,
+  soleHumanSessionStatePrincipal,
+} from './registry'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -36,7 +40,7 @@ function fixture() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.gateway.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessionState = new SessionStateRegistry({
     sessions: reg.modules.sessions,
     state: reg.modules.sessions.state,
@@ -183,9 +187,9 @@ describe('per-user writes are SELF-SCOPED', () => {
       humanDirect: true,
     }
 
-    expect(sessionState.execute('snoozes.set', { sessionId, until: null }, mismatched).outcome).toBe(
-      'denied',
-    )
+    expect(
+      sessionState.execute('snoozes.set', { sessionId, until: null }, mismatched).outcome,
+    ).toBe('denied')
     expect(store.sessions.listSnoozes(ALICE)).toEqual({})
     expect(store.sessions.listSnoozes(BOB)).toEqual({})
 
@@ -206,22 +210,22 @@ describe('per-user writes are SELF-SCOPED', () => {
     const { sessionId } = session()
 
     expect(
-      sessionState.execute('snoozes.set', { sessionId, until: null }, asUser(ALICE, 'owned')).outcome,
+      sessionState.execute('snoozes.set', { sessionId, until: null }, asUser(ALICE, 'owned'))
+        .outcome,
     ).toBe('denied')
     expect(store.sessions.listSnoozes(ALICE)).toEqual({})
   })
-  it("an invisible session read is identical to a nonexistent-session read", () => {
+  it('an invisible session read is identical to a nonexistent-session read', () => {
     const { reg, asUser, session } = fixture()
     const { sessionId } = session()
-    const stranger = asUser(BOB, "self")
-    const missing = asSessionId("00000000-0000-4000-8000-000000000000")
+    const stranger = asUser(BOB, 'self')
+    const missing = asSessionId('00000000-0000-4000-8000-000000000000')
 
     expect(reg.modules.sessions.state.readOverlay(stranger, sessionId)).toEqual(
       reg.modules.sessions.state.readOverlay(stranger, missing),
     )
-    expect(reg.modules.sessions.state.readOverlay(stranger, sessionId)).toEqual({ kind: "absent" })
+    expect(reg.modules.sessions.state.readOverlay(stranger, sessionId)).toEqual({ kind: 'absent' })
   })
-
 })
 
 // ---------------------------------------------------------------------------
@@ -252,7 +256,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
   it.each(SHARED)('%s: the OWNER is allowed', (name) => {
     const { sessionState, session } = fixture()
     const { sessionId } = session()
-    // Sessions are owned by SOLE_USER_ID until POD-1075 (SessionsService.sessionOwner).
+    // Sessions are owned by SOLE_USER_ID until POD-1075 (SessionLifecycle.sessionOwner).
     const owner: SessionStatePrincipal = {
       userId: asUserId(SOLE_USER_ID),
       capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(SOLE_USER_ID) } },
@@ -267,9 +271,9 @@ describe('owner-or-grant policy on the shared session writes', () => {
     const { sessionState, asUser, session } = fixture()
     const { sessionId } = session()
 
-    expect(sessionState.execute(name, inputFor(name, sessionId), asUser(BOB, 'owned')).outcome).toBe(
-      'denied',
-    )
+    expect(
+      sessionState.execute(name, inputFor(name, sessionId), asUser(BOB, 'owned')).outcome,
+    ).toBe('denied')
   })
 
   it('the denial is INDISTINGUISHABLE from not-found (§3.1.5)', () => {
@@ -394,7 +398,9 @@ describe('the envelope refuses before it reads anything', () => {
     // POD-379 pinned that session-state writes have NO agent path. The contracts declare
     // only 'trpc', so the relay is refused by the exposure gate rather than by an
     // allowlist that could drift from the contract.
-    expect(sessionState.execute('sessions.rename', input, owner, 'relay').outcome).toBe('not-exposed')
+    expect(sessionState.execute('sessions.rename', input, owner, 'relay').outcome).toBe(
+      'not-exposed',
+    )
     expect(sessionState.execute('sessions.rename', input, owner, 'cli').outcome).toBe('not-exposed')
     expect(sessionState.execute('sessions.rename', input, owner, 'trpc').outcome).toBe('applied')
   })
@@ -405,7 +411,9 @@ describe('the envelope refuses before it reads anything', () => {
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
     const input = { sessionId, edit: { kind: 'replace', text: 'typing' } }
 
-    expect(sessionState.execute('sessions.setDraft', input, owner, 'trpc').outcome).toBe('not-exposed')
+    expect(sessionState.execute('sessions.setDraft', input, owner, 'trpc').outcome).toBe(
+      'not-exposed',
+    )
     expect(sessionState.execute('sessions.setDraft', input, owner, 'ws').outcome).toBe('applied')
   })
 
@@ -422,7 +430,9 @@ describe('the envelope refuses before it reads anything', () => {
     const { sessionId } = session()
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
 
-    expect(sessionState.execute('sessions.rename', { sessionId }, owner).outcome).toBe('invalid-input')
+    expect(sessionState.execute('sessions.rename', { sessionId }, owner).outcome).toBe(
+      'invalid-input',
+    )
     expect(
       sessionState.execute('sessions.rename', { sessionId, name: 'x'.repeat(121) }, owner).outcome,
     ).toBe('invalid-input')
@@ -445,10 +455,10 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     })
     const reg = new SessionRegistry(store)
     registries.push(reg)
-    reg.gateway.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionState = new SessionStateRegistry({
       sessions: reg.modules.sessions,
-    state: reg.modules.sessions.state,
+      state: reg.modules.sessions.state,
 
       mutations: reg.modules.mutations,
     })
@@ -465,8 +475,12 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     const { sessionState, sessionId, owner, svc } = flaggedFixture()
 
     expect(
-      sessionState.execute('sessions.setDraft', { sessionId, edit: edit('half typed') }, owner, 'ws')
-        .outcome,
+      sessionState.execute(
+        'sessions.setDraft',
+        { sessionId, edit: edit('half typed') },
+        owner,
+        'ws',
+      ).outcome,
     ).toBe('applied')
     // The instrument check: a revision now EXISTS, so the stale test below has
     // something real to be stale against.
@@ -475,7 +489,12 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
 
   it('an edit at the CURRENT revision applies, and one at a STALE revision is rejected', () => {
     const { sessionState, sessionId, owner, svc } = flaggedFixture()
-    sessionState.execute('sessions.setDraft', { sessionId, edit: edit('first writer') }, owner, 'ws')
+    sessionState.execute(
+      'sessions.setDraft',
+      { sessionId, edit: edit('first writer') },
+      owner,
+      'ws',
+    )
     const revision = svc.draftRevision(sessionId)
     expect(revision).toBeGreaterThan(0)
 

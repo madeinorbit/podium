@@ -51,11 +51,11 @@
 import { asMachineId } from '@podium/model'
 import type { DaemonMessage, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import {
   type DaemonPortId,
   daemonPlaneClassFor,
   daemonPortsFor,
+  type RpcDaemonFrame,
   type SessionsDaemonFrame,
 } from './daemon-frame-routing'
 import type { ControlSend, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
@@ -102,6 +102,10 @@ const toSessions = (
   msg: SessionsDaemonFrame,
 ): void => ports.sessions.onSessionDaemonFrame(principal, msg)
 
+/** Every request-correlated reply, to the one correlator, with its answerer. */
+const toRpc = (ports: DaemonFeaturePorts, principal: MachinePrincipal, msg: RpcDaemonFrame): void =>
+  ports.rpc.settleDaemonReply(principal.machine, msg)
+
 const DISPATCH: Dispatcher = {
   // ---- sessions ----
   bind: toSessions,
@@ -134,48 +138,63 @@ const DISPATCH: Dispatcher = {
     const { type: _type, ...sample } = msg
     ports.hosts.onHostMetrics(principal.machine, sample)
   },
-  memoryBreakdownResult: (ports, _principal, msg) => ports.hosts.onMemoryBreakdownResult(msg),
+  memoryBreakdownResult: (ports, principal, msg) =>
+    ports.hosts.onMemoryBreakdownResult(principal.machine, msg),
 
   // ---- conversations: discovery is per-machine ----
   conversationsChanged: (ports, principal, msg) =>
-    ports
-      .conversations()
-      .onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed),
-  transcriptMirrorResult: (ports, _principal, msg) =>
-    ports.conversations().onTranscriptMirrorResult(msg),
+    ports.conversations.onDiscovery(
+      principal.machine,
+      msg.conversations,
+      msg.diagnostics,
+      msg.removed,
+    ),
+  transcriptMirrorResult: (ports, principal, msg) =>
+    ports.conversations.onTranscriptMirrorResult(principal.machine, msg),
   // Dual ownership, preserved from the pre-extraction switch: a scan is BOTH a
   // conversation discovery and the reply to an RPC. Order matters and is the
   // table's, not a send site's.
   scanResult: (ports, principal, msg) => {
-    ports
-      .conversations()
-      .onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed)
-    ports.rpc.onScanResult(msg)
+    ports.conversations.onDiscovery(
+      principal.machine,
+      msg.conversations,
+      msg.diagnostics,
+      msg.removed,
+    )
+    ports.rpc.settleDaemonReply(principal.machine, msg)
   },
 
-  // ---- RPC replies (requestId-correlated; POD-318 owns the correlator) ----
-  scanReposResult: (ports, _p, msg) => ports.rpc.onScanReposResult(msg),
-  browseDirsResult: (ports, _p, msg) => ports.rpc.onBrowseDirsResult(msg),
-  repoOpResult: (ports, _p, msg) => ports.rpc.onRepoOpResult(msg),
-  harnessExecResult: (ports, _p, msg) => ports.rpc.onHarnessExecResult(msg),
-  usageResult: (ports, _p, msg) => ports.rpc.onUsageResult(msg),
-  agentQuotaResult: (ports, _p, msg) => ports.rpc.onAgentQuotaResult(msg),
-  imageUploadResult: (ports, _p, msg) => ports.rpc.onImageUploadResult(msg),
-  transcriptReadResult: (ports, _p, msg) => ports.rpc.onTranscriptReadResult(msg),
-  fileReadResult: (ports, _p, msg) => ports.rpc.onFileReadResult(msg),
-  fileWriteResult: (ports, _p, msg) => ports.rpc.onFileWriteResult(msg),
-  fileAssetResult: (ports, _p, msg) => ports.rpc.onFileAssetResult(msg),
-  dirListResult: (ports, _p, msg) => ports.rpc.onDirListResult(msg),
-  handoffExportResult: (ports, _p, msg) => ports.rpc.onHandoffExportResult(msg),
-  handoffChunkReadResult: (ports, _p, msg) => ports.rpc.onHandoffChunkReadResult(msg),
-  handoffImportChunkResult: (ports, _p, msg) => ports.rpc.onHandoffImportChunkResult(msg),
-  handoffImportResult: (ports, _p, msg) => ports.rpc.onHandoffImportResult(msg),
-  handoffBindingFinalizeResult: (ports, _p, msg) => ports.rpc.onHandoffBindingFinalizeResult(msg),
-  workspaceExportResult: (ports, _p, msg) => ports.rpc.onWorkspaceExportResult(msg),
-  workspaceImportResult: (ports, _p, msg) => ports.rpc.onWorkspaceImportResult(msg),
-  workspaceCleanResult: (ports, _p, msg) => ports.rpc.onWorkspaceCleanResult(msg),
-  credentialExportResult: (ports, _p, msg) => ports.rpc.onCredentialExportResult(msg),
-  credentialInstallResult: (ports, _p, msg) => ports.rpc.onCredentialInstallResult(msg),
+  // ---- RPC replies: ONE correlator, and it is told WHO answered ----
+  //
+  // Twenty-three near-identical `(ports, _p, msg) => ports.rpc.onXResult(msg)`
+  // lines used to sit here, one per consumer-owned pending map. They were the
+  // gateway-side half of a correlator spread across a dozen files. There is one
+  // correlator now (`modules/daemon-request.ts`), so there is one line per frame
+  // and every one of them carries `principal.machine` — the answering machine,
+  // resolved from the AUTHENTICATED TRANSPORT, which the correlator checks
+  // against the machine the request was sent to (POD-1175).
+  scanReposResult: toRpc,
+  browseDirsResult: toRpc,
+  repoOpResult: toRpc,
+  harnessExecResult: toRpc,
+  usageResult: toRpc,
+  agentQuotaResult: toRpc,
+  imageUploadResult: toRpc,
+  transcriptReadResult: toRpc,
+  fileReadResult: toRpc,
+  fileWriteResult: toRpc,
+  fileAssetResult: toRpc,
+  dirListResult: toRpc,
+  handoffExportResult: toRpc,
+  handoffChunkReadResult: toRpc,
+  handoffImportChunkResult: toRpc,
+  handoffImportResult: toRpc,
+  handoffBindingFinalizeResult: toRpc,
+  workspaceExportResult: toRpc,
+  workspaceImportResult: toRpc,
+  workspaceCleanResult: toRpc,
+  credentialExportResult: toRpc,
+  credentialInstallResult: toRpc,
 
   // ---- headless ----
   headlessTurnEvent: (ports, _p, msg) => ports.headless.onTurnEvent(msg),
@@ -206,22 +225,22 @@ export class DaemonMux {
   /**
    * A daemon proved its identity and is now reachable.
    *
-   * The ORDER below is load-bearing and is the pre-extraction order exactly:
-   * socket registration, then placeholder adoption, then the queued flush, then
-   * the sessions port's own attach work (drain / lake sweep / priorities / park
-   * / reattach probes / headless binds), then the machine broadcast, then the
+   * The ORDER below is load-bearing: socket registration, then the queued flush,
+   * then the sessions port's own attach work (drain / lake sweep / priorities /
+   * park / reattach probes / headless binds), then the machine broadcast, then the
    * bus. `attachDaemon` synchronously flushes buffered control frames, so the
    * caller must already have sent its handshake reply — see `daemon-socket.ts`.
+   *
+   * A placeholder-adoption step used to sit between registration and the flush,
+   * fired only when the attaching machine was the hard-coded local one. It is gone
+   * with the placeholder: rows are written under a real machine id from boot, so an
+   * attaching daemon has nothing to claim — it just becomes reachable.
    */
   attachDaemon(peer: DaemonPeer, send: ControlSend): void {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
     machines.attach(machineId, send)
-    // The local machine adopts every lingering `'__local__'` placeholder row as
-    // it attaches: a session created between `ensureLocalMachine` and the daemon
-    // connecting is still attributed to the placeholder. Idempotent.
-    if (machineId === LOCAL_MACHINE_ID) machines.adoptPlaceholderRows(machineId)
     machines.flushQueued(machineId)
     sessions.onMachineAttached(principal)
     machines.broadcastMachines()

@@ -36,8 +36,8 @@ export type { SessionReadResult, SessionRecapResult, SessionStatusResult }
 
 export interface SessionReadToolkitDeps {
   listSessions(): SessionMeta[]
-  issues(): IssueService
-  messages(): MessageDeliveryService
+  issues: IssueService
+  messages: MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>
   /** Persisted per-(reader, target) recap watermarks (tier 3). */
   watermarks: Pick<ReadWatermarksRepository, 'getRecapWatermark' | 'setRecapWatermark'>
@@ -85,11 +85,11 @@ export class SessionReadToolkit {
     if (direct) return direct
     let issueId: string
     try {
-      issueId = this.deps.issues().resolveRef(ref)
+      issueId = this.deps.issues.resolveRef(ref)
     } catch {
       return undefined
     }
-    const issue = this.deps.issues().getMeta(issueId)
+    const issue = this.deps.issues.getMeta(issueId)
     if (!issue) return undefined
     const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
     const live = selectMailNudgeSession(members)
@@ -104,7 +104,7 @@ export class SessionReadToolkit {
     const target = this.resolveTarget(ref)
     if (!target) throw new Error(`no session found for ${ref}`)
     this.logRead('session.status_read', target.sessionId, reader)
-    const issues = this.deps.issues()
+    const issues = this.deps.issues
     const issueId = target.issueId ?? issues.issueForCwd(target.cwd)
     // Full wire is intentional: status surfaces the derived panel todo projection.
     const issue = issueId ? issues.get(issueId) : null
@@ -144,7 +144,7 @@ export class SessionReadToolkit {
       // First porcelain -b line is the branch header — keep it (names the branch),
       // then the touched files, capped so status stays ~200 tokens.
       files: lines(status).slice(0, 21),
-      unackedMessages: this.deps.messages().deliveredUnacked(target.sessionId).length,
+      unackedMessages: this.deps.messages.deliveredUnacked(target.sessionId).length,
     }
   }
 

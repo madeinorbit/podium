@@ -1,4 +1,4 @@
-import type { GitRepositoryWire } from '@podium/model'
+import { asMachineId, type GitRepositoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { reposToViews } from './derive'
 
@@ -36,12 +36,12 @@ describe('reposToViews naming', () => {
       repo({
         path: '/Users/mgw/bak_podium',
         originUrl: 'https://github.com/lumenfall/podium.git',
-        machineId: 'mac',
+        machineId: asMachineId('mac'),
       }),
       repo({
         path: '/home/mgw/src/podium',
         originUrl: 'https://github.com/lumenfall/podium.git',
-        machineId: 'linux',
+        machineId: asMachineId('linux'),
       }),
     ])
     expect(views).toHaveLength(1)

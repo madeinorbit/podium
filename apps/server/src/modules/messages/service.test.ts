@@ -203,15 +203,14 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
-    issues: () =>
-      fakeIssues(
-        issueGetLists,
-        opts?.archivedIds,
-        opts?.coordinatorByIssue,
-        opts?.issueForCwd,
-        opts?.prefix,
-      ),
-    sessions: () => ({
+    issues: fakeIssues(
+      issueGetLists,
+      opts?.archivedIds,
+      opts?.coordinatorByIssue,
+      opts?.issueForCwd,
+      opts?.prefix,
+    ),
+    sessions: {
       listSessions: () => {
         listCalls.n += 1
         return sessions
@@ -228,7 +227,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         interrupted.push(i)
         return { ok: true, queued: true }
       },
-    }),
+    },
     mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
     mirrorMarkIssueMailRead: (issueId, ids) =>
       store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
@@ -2330,8 +2329,8 @@ describe('containment brakes survive a restart (durable derivation)', () => {
 describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () => {
   function gateFor(svc: MessageDeliveryService, sessions: SessionMeta[] = []) {
     return new MessageGate({
-      messages: () => svc,
-      issues: () => fakeIssues(),
+      messages: svc,
+      issues: fakeIssues(),
       listSessions: () => sessions,
     })
   }

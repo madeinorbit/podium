@@ -185,7 +185,7 @@ import { Attribution } from '../fields/attribution'
 import { IssueIdentity, IssueWorkspace } from '../fields/issue'
 import { Ownership } from '../fields/ownership'
 import { SessionIdentity, SessionNaming, SessionPlacement, SessionResume } from '../fields/session'
-import { machineIdBlockedOnPOD318 } from '../ids'
+import { MachineIdField } from '../ids'
 
 // ---------------------------------------------------------------------------
 // THE THREE TIGHTENINGS, and why a `Pick` alone would have been wrong
@@ -269,11 +269,11 @@ const HANDOFF_BUNDLE_CORE = {
   bundleBase: z.array(z.string()),
   title: SessionNaming.shape.title.optional(),
   issueId: SessionPlacement.shape.issueId,
-  /** CARVED OUT of the brand flip (ADR 1 Amendment 2 D16.2): an exporter running
-   *  on the bundled local daemon stamps LOCAL_MACHINE_ID = 'local' here, and a
-   *  length-only brand would launder that sentinel into a well-typed identity.
-   *  POD-318 retires it; this becomes MachineIdField then. */
-  sourceMachineId: machineIdBlockedOnPOD318,
+  /** The machine the export ran on. It was carved out of the brand flip while the
+   *  bundled local daemon stamped the constant `'local'` here (ADR 1 Amendment 2
+   *  D16.2 — a length-only brand launders a sentinel). POD-318 retired the constant
+   *  and `MachineId` refuses it, so the brand lands. */
+  sourceMachineId: MachineIdField,
 } as const
 
 /**

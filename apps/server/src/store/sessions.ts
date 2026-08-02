@@ -9,6 +9,7 @@ import {
   AgentKind,
   asSessionId,
   type IssueId,
+  type MachineId,
   type SessionId,
   type UserId,
 } from '@podium/model'
@@ -120,7 +121,8 @@ export class SessionsRepository {
       ...(Number(r.activity_count) > 0 ? { activityCount: Number(r.activity_count) } : {}),
       archived: r.archived === 1,
       workState: (r.work_state as string | null) ?? null,
-      machineId: (r.machine_id as string | null) ?? '__local__',
+      // SERIALIZATION EDGE: untyped from sqlite; the machine id re-enters its id space.
+      machineId: r.machine_id as MachineId,
       lastOutputAt: (r.last_output_at as string | null) ?? null,
       lastInputAt: (r.last_input_at as string | null) ?? null,
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,
@@ -246,7 +248,7 @@ export class SessionsRepository {
         row.activityCount ?? 0,
         row.archived ? 1 : 0,
         row.workState,
-        row.machineId ?? '__local__',
+        row.machineId,
         row.lastOutputAt ?? null,
         row.lastInputAt ?? null,
         row.lastResumedAt ?? null,
@@ -308,13 +310,6 @@ export class SessionsRepository {
     this.db.prepare('DELETE FROM session_user_state WHERE session_id = ?').run(id)
     this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(id) // [spec:SP-c7f1]
     this.scrubTabOrders(id)
-  }
-
-  /** Multi-machine adoption: rewrite placeholder '__local__' rows to the real id. */
-  adoptLocalRows(machineId: string): void {
-    this.db
-      .prepare("UPDATE sessions SET machine_id = ? WHERE machine_id = '__local__'")
-      .run(machineId)
   }
 
   // ---- pins (PER-USER STATE, POD-380) ----

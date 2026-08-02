@@ -30,7 +30,7 @@
  * A matrix over invented capabilities proves nothing about the product. Each
  * entry below cites the exact production site that mints that shape, and the
  * `capability shapes match their minting sites` test pins them against the real
- * code (`OPERATOR`, `SessionsService#capabilityForSession`) so drift at the
+ * code (`OPERATOR`, `SessionLifecycle#capabilityForSession`) so drift at the
  * source reddens the matrix rather than quietly making it fictional.
  *
  * ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ interface Transport {
   readonly capabilityFor: (actorSessionId?: SessionId) => Capability
 }
 
-/** The relay/CLI-agent shape, copied from `SessionsService#capabilityForSession`
+/** The relay/CLI-agent shape, copied from `SessionLifecycle#capabilityForSession`
  *  and pinned against it below. A session inside an issue worktree is
  *  worker/subtree; one outside is worker/none. */
 const agentCapability = (actorSessionId: SessionId): Capability => ({
@@ -671,19 +671,28 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
   })
 
   it('THE ALL-IN-ONE HOST fails closed for a freshly authenticated non-owner (M4)', () => {
-    // No row for `local` at all — the sentinel arm synthesizes one owned by
-    // whoever set the instance up. A second human authenticating to the server
-    // must not inherit execute on the Mac it runs on.
-    const noRows: MachineOwnershipIndex = { rowFor: () => undefined }
-    expect(checkMachineUse(human(OTHER), 'local', noRows)).toBe('absent')
-    // And the counterfactual that keeps it from being "the sentinel denies
-    // everyone": the instance's own account does hold it.
+    // The host is an ordinary machine with an ordinary row since POD-318 — its id
+    // is minted and `ensureHostMachine` writes it at boot, owned by whoever set the
+    // instance up. A second human authenticating to the server must not inherit
+    // execute on the Mac it runs on.
+    const host = 'b1c2d3e4-5f60-4712-8899-aabbccddeeff'
+    const hostRow = machineWorld({ owner: FIRST_ADMIN_USER_ID })
+    const world: MachineOwnershipIndex = {
+      rowFor: (id) => (id === host ? hostRow.rowFor('m1') : undefined),
+    }
+    expect(checkMachineUse(human(OTHER), host, world)).toBe('absent')
+    // And the counterfactual that keeps it from being "everything is denied": the
+    // instance's own account does hold it.
     const instanceOwner: CommandPrincipal = {
       kind: 'user',
       user: FIRST_ADMIN_USER_ID,
       capability: OPERATOR,
     }
-    expect(checkMachineUse(instanceOwner, 'local', noRows)).toBeUndefined()
+    expect(checkMachineUse(instanceOwner, host, world)).toBeUndefined()
+    // …and a machine with NO row is absent for everyone, the installer included —
+    // there is no arm underneath that turns an unknown id into a usable one.
+    const noRows: MachineOwnershipIndex = { rowFor: () => undefined }
+    expect(checkMachineUse(instanceOwner, host, noRows)).toBe('absent')
   })
 
   it('an OWNERLESS machine grants `use` to nobody (default-closed)', () => {

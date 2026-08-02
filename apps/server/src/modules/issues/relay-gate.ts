@@ -105,6 +105,10 @@ export interface AgentRelayGateDeps {
  * against the TARGET session's issue by the dispatch arm in the composition root.
  */
 export class AgentRelayGate {
+  // NO correlation state, and deliberately not the daemon-RPC correlator
+  // (POD-318): the direction is INVERTED. The daemon asks and the server
+  // answers, so the requestId is the daemon's, this gate never waits, and there
+  // is nothing to time out or to settle. `reply` below just echoes the id back.
   constructor(private readonly deps: AgentRelayGateDeps) {}
 
   async run(

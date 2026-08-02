@@ -3,6 +3,7 @@ import {
   SOLE_USER_ID,
   asAccountId,
   asIssueId,
+  asMachineId,
   asSessionId,
 } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -93,11 +94,11 @@ describe('SessionStore repos', () => {
   it('starts empty, adds, dedupes, lists in insertion order, removes', () => {
     const store = new SessionStore(':memory:')
     expect(store.repos.listRepoPaths()).toEqual([])
-    store.repos.addRepo('/home/u/b')
-    store.repos.addRepo('/home/u/a')
-    store.repos.addRepo('/home/u/b') // dedupe
+    store.repos.addRepo('/home/u/b', store.hostMachineId)
+    store.repos.addRepo('/home/u/a', store.hostMachineId)
+    store.repos.addRepo('/home/u/b', store.hostMachineId) // dedupe
     expect(store.repos.listRepoPaths()).toEqual(['/home/u/b', '/home/u/a'])
-    store.repos.removeRepo('/home/u/b')
+    store.repos.removeRepo('/home/u/b', store.hostMachineId)
     expect(store.repos.listRepoPaths()).toEqual(['/home/u/a'])
     store.close()
   })
@@ -105,7 +106,7 @@ describe('SessionStore repos', () => {
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)
-    a.repos.addRepo('/abs/one')
+    a.repos.addRepo('/abs/one', a.hostMachineId)
     a.close()
     const b = new SessionStore(file)
     expect(b.repos.listRepoPaths()).toEqual(['/abs/one'])
@@ -135,7 +136,7 @@ describe('SessionStore repos', () => {
 
   it('resolves subpaths under a registered filesystem root repo', () => {
     const store = new SessionStore(':memory:')
-    store.repos.addRepo('/')
+    store.repos.addRepo('/', store.hostMachineId)
     const repoId = store.repos.listRepos()[0]?.repoId
 
     expect(store.repos.resolveRepoIdForPath('/home/till/src/podium')).toBe(repoId)
@@ -148,6 +149,10 @@ describe('SessionStore repos', () => {
     store.close()
   })
 })
+
+/** One fixture machine. Every durable row names a machine now (POD-318), and these
+ *  round-trip fixtures compare row-for-row, so they all have to name the same one. */
+const TEST_MACHINE = asMachineId('machine-under-test')
 
 function row(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -175,9 +180,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     lastOutputAt: null,
     lastInputAt: null,
     lastResumedAt: null,
-    // loadSessions() always returns the attribution column ('__local__' pre-multi-machine),
-    // so the round-trip fixture carries it too.
-    machineId: '__local__',
+    // The machine column is NOT NULL with no default (POD-318), so every row —
+    // including this fixture — names the machine it belongs to.
+    machineId: TEST_MACHINE,
     // Same for provenance (issue #60): loadSessions always returns it (null = legacy).
     spawnedBy: null,
     // And the headless flag (concierge unification): always present, default false.
@@ -247,13 +252,13 @@ describe('SessionStore sessions', () => {
   it('persists a cwd change when an existing session moves machines', async () => {
     const file = await tmpDbPath()
     const source = new SessionStore(file)
-    source.sessions.upsertSession(row({ cwd: '/source/repo/.worktrees/x', machineId: 'm1' }))
-    source.sessions.upsertSession(row({ cwd: '/target/repo/.worktrees/x', machineId: 'm2' }))
+    source.sessions.upsertSession(row({ cwd: '/source/repo/.worktrees/x', machineId: asMachineId('m1') }))
+    source.sessions.upsertSession(row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }))
     source.close()
 
     const restarted = new SessionStore(file)
     expect(restarted.sessions.loadSessions()).toEqual([
-      row({ cwd: '/target/repo/.worktrees/x', machineId: 'm2' }),
+      row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }),
     ])
     restarted.close()
   })
@@ -784,6 +789,8 @@ describe('conversation index', () => {
     id,
     agentKind: 'claude-code',
     providerId: 'claude-jsonl',
+    // The conversations row carries its machine now (no column default to lean on).
+    machineId: TEST_MACHINE,
     title: `conv ${id}`,
     projectPath: '/src/app',
     updatedAt: '2026-06-12T08:00:00.000Z',
@@ -792,73 +799,70 @@ describe('conversation index', () => {
 
   it('indexes discovered conversations and finds them by keyword', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([
+    store.conversations.index.upsert([
       conv('a', { title: 'fix the soft keyboard profiles' }),
       conv('b', { title: 'memory chip breakdown' }),
     ])
-    const hits = store.conversations.searchConversations({ query: 'keyboard' })
+    const hits = store.conversations.index.search({ query: 'keyboard' })
     expect(hits.map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('prefix-matches partial words', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([conv('a', { title: 'podium relay endpoint' })])
-    expect(store.conversations.searchConversations({ query: 'rela' }).map((h) => h.id)).toEqual([
-      'a',
-    ])
+    store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
+    expect(store.conversations.index.search({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('filters by projectPath subtree and browses by recency on empty query', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([
+    store.conversations.index.upsert([
       conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
       conv('other', { projectPath: '/src/zzz' }),
     ])
-    const hits = store.conversations.searchConversations({ projectPath: '/src/app' })
+    const hits = store.conversations.index.search({ projectPath: '/src/app' })
     expect(hits.map((h) => h.id)).toEqual(['new', 'old'])
     store.close()
   })
 
   it('excludes subagent (sidechain) conversations from the resume picker', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([
+    store.conversations.index.upsert([
       conv('top', { title: 'fix the parser' }),
       conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
     ])
     // Empty-query browse: only the top-level session.
-    expect(store.conversations.searchConversations({}).map((h) => h.id)).toEqual(['top'])
+    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect(store.conversations.searchConversations({ query: 'parser' }).map((h) => h.id)).toEqual([
-      'top',
-    ])
+    expect(store.conversations.index.search({ query: 'parser' }).map((h) => h.id)).toEqual(['top'])
     store.close()
   })
 
   it('orders search results by recency, not relevance (matches claude --resume)', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([
+    store.conversations.index.upsert([
       conv('older', { title: 'relay endpoint fix', updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect(
-      store.conversations.searchConversations({ query: 'relay endpoint' }).map((h) => h.id),
-    ).toEqual(['newer', 'older'])
+    expect(store.conversations.index.search({ query: 'relay endpoint' }).map((h) => h.id)).toEqual([
+      'newer',
+      'older',
+    ])
     store.close()
   })
 
   it('curation (name/summary) survives re-discovery and is searchable', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([conv('a')])
-    store.conversations.setConversationMeta('a', {
+    store.conversations.index.upsert([conv('a')])
+    store.conversations.index.setMeta('a', {
       name: 'Soft keyboard epic',
       summary: 'shipped; awaiting review',
     })
-    store.conversations.upsertConversations([conv('a', { title: 'renamed by discovery' })])
-    const [hit] = store.conversations.searchConversations({ query: 'epic' })
+    store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
+    const [hit] = store.conversations.index.search({ query: 'epic' })
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
     expect(hit?.summary).toBe('shipped; awaiting review')
@@ -867,35 +871,33 @@ describe('conversation index', () => {
 
   it('deleteConversations removes the rows and keeps the FTS index consistent', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([
+    store.conversations.index.upsert([
       conv('a', { title: 'keep this keyboard one' }),
       conv('b', { title: 'remove this keyboard one' }),
     ])
     // Both match before the delete.
     expect(
-      store.conversations
-        .searchConversations({ query: 'keyboard' })
+      store.conversations.index
+        .search({ query: 'keyboard' })
         .map((h) => h.id)
         .sort(),
     ).toEqual(['a', 'b'])
 
-    store.conversations.deleteConversations(['b'])
+    store.conversations.index.delete(['b'])
 
     // Browse (empty query, table read) no longer lists the deleted row...
-    expect(store.conversations.searchConversations({}).map((h) => h.id)).toEqual(['a'])
+    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect(store.conversations.searchConversations({ query: 'keyboard' }).map((h) => h.id)).toEqual(
-      ['a'],
-    )
+    expect(store.conversations.index.search({ query: 'keyboard' }).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('deleteConversations is a no-op on an empty id list', () => {
     const store = new SessionStore(':memory:')
-    store.conversations.upsertConversations([conv('a')])
-    store.conversations.deleteConversations([])
-    expect(store.conversations.searchConversations({}).map((h) => h.id)).toEqual(['a'])
+    store.conversations.index.upsert([conv('a')])
+    store.conversations.index.delete([])
+    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 })

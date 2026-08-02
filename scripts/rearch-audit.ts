@@ -539,6 +539,19 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
       },
     ],
   },
+  {
+    id: 'legacy-machine-identity-upgrade',
+    owner: 'POD-318',
+    expiry:
+      'deleted when no supported install can still be carrying pre-POD-318 rows — i.e. when an upgrade path that skips this boot is no longer offered',
+    note: "The ONE-TIME rewrite of `'local'` / `'__local__'` onto this host's minted machine id. It is the only place either literal is still spelled, and it is spelled there so that a database written before POD-318 can be read at all. It is an UPGRADE WITH A DELETION HORIZON, not a standing heal: after the first boot on any given install it matches nothing, and no writer left in the tree can give it new work — which is what the `local-placeholders` counter (3, all of them here and in the brand refusal) and `MachineId`'s outright refusal of both literals together guarantee.",
+    sites: [
+      {
+        file: 'apps/server/src/store.ts',
+        needle: 'migrateLegacyMachineIdentity(hostMachineId: string): void {',
+      },
+    ],
+  },
 ]
 
 export const CHECKS: AuditCheck[] = [
@@ -1008,8 +1021,7 @@ export const CHECKS: AuditCheck[] = [
         // into "0 sites = twins deleted, POD-324 clear to close" — the phantom
         // zero this audit exists to prevent. POD-397 adds packages/harness here
         // if any durable-host twin ever lands there.
-        const inDurableHostHome =
-          f.file.startsWith('packages/pty/src/')
+        const inDurableHostHome = f.file.startsWith('packages/pty/src/')
         if (!inDurableHostHome || f.isTest) continue
         durableHostFiles++
         for (const twin of twinLines(f.stripped.split('\n'))) {
@@ -1177,7 +1189,7 @@ export const CHECKS: AuditCheck[] = [
     unit: 'piece of dirty-set state kept solely to skip the session-driven issue rebuild',
     collect: (ctx) => [
       ...grep(ctx, {
-        roots: ['apps/server/src/modules/sessions/service.ts'],
+        roots: ['apps/server/src/modules/sessions/lifecycle.ts'],
         pattern: /private (?:last)?[iI]ssueProjectionGeneration\b/,
       }),
       ...grep(ctx, {
@@ -1233,7 +1245,11 @@ export const CHECKS: AuditCheck[] = [
     title: 'let-thunk forward refs in the composition root',
     phase: 'POD-321',
     unit: 'definite-assignment forward ref (`let x!: T`) broken by a thunk',
-    collect: (ctx) => grep(ctx, { roots: ['apps/server/src/server.ts'], pattern: /^\s*let \w+!:/ }),
+    collect: (ctx) =>
+      grep(ctx, {
+        roots: ['apps/server/src/relay.ts', 'apps/server/src/server.ts'],
+        pattern: /^\s*let \w+!:/,
+      }),
   },
   // ADDED at POD-301. POD-363's AC and POD-301's fourth AC both name a
   // "raw-string entity ids" item that reached zero; there was NO SUCH KEY and no
@@ -1260,14 +1276,17 @@ export const CHECKS: AuditCheck[] = [
     // Amendment 2 D16.2 is normative that `MachineId` must NOT be adopted at any
     // field until `local` / `__local__` are retired, because branding a sentinel
     // LAUNDERS it instead of flagging it. D16.2 asks for "a narrower, VISIBLE
-    // debt" — a carve-out nobody counts is not visible — so these are counted
-    // here instead of being silently excluded from the item above. POD-301 must
-    // not be able to close by laundering them, and POD-318 must not be able to
-    // close while any remain.
+    // debt" — a carve-out nobody counts is not visible — so these were counted
+    // here instead of being silently excluded from the item above.
+    //
+    // POD-318 discharged it: the sentinels are retired, `MachineId` refuses both
+    // literals, and every field carries the brand, so the carve-out spelling this
+    // item also counted no longer exists. The detector stays as a RATCHET — a new
+    // machine-id field written as a raw string raises this number again.
     id: 'machine-id-unbranded-fields',
-    title: 'Machine-id field still an unbranded string (the D16.2 carve-out)',
+    title: 'Machine-id field still an unbranded string',
     phase: 'POD-318',
-    unit: 'one machine-id zod field, in either spelling — bare z.string() or the machineIdBlockedOnPOD318 marker',
+    unit: 'one machine-id zod field declared as a bare z.string()',
     collect: (ctx) => machineIdUnbrandedFields(ctx),
   },
   {

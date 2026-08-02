@@ -271,17 +271,28 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     // Exactly the five columns are gone and NOTHING else is: a column-drop
     // migration that rebuilt a table and lost an unrelated column would still
     // satisfy every marker assertion above.
-    expect(columns(db, 'sessions')).toEqual([...before.session, 'owner_user_id'])
-    expect(columns(db, 'issues')).toEqual([
-      ...before.issue,
-      'owner_user_id',
-      'visibility',
-      'created_by_actor',
-      'created_by_on_behalf_of',
-      'actor',
-      'on_behalf_of',
-    ])
-    expect(columns(db, 'issue_messages')).toEqual([...before.message, 'actor', 'on_behalf_of'])
+    //
+    // Compared as SETS, not sequences. A later migration in the chain rebuilds
+    // `sessions` again (POD-318 drops the `machine_id` default), and a rebuild
+    // re-emits the schema's declaration order rather than appending — so column
+    // ORDER is not a property this suite can pin, while column MEMBERSHIP, which is
+    // what "lost an unrelated column" means, still is.
+    const sorted = (xs: string[]) => [...xs].sort()
+    expect(sorted(columns(db, 'sessions'))).toEqual(sorted([...before.session, 'owner_user_id']))
+    expect(sorted(columns(db, 'issues'))).toEqual(
+      sorted([
+        ...before.issue,
+        'owner_user_id',
+        'visibility',
+        'created_by_actor',
+        'created_by_on_behalf_of',
+        'actor',
+        'on_behalf_of',
+      ]),
+    )
+    expect(sorted(columns(db, 'issue_messages'))).toEqual(
+      sorted([...before.message, 'actor', 'on_behalf_of']),
+    )
 
     // And the shared rows themselves survive with their own values.
     const s = db.prepare('SELECT title, last_active_at FROM sessions WHERE id = ?').get('s-1')

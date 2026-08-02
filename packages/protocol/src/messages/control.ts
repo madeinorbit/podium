@@ -44,8 +44,10 @@ import {
   ReattachMessage,
   RedrawMessage,
   ResizeMessage,
+  SessionBindingRetireMessage,
   SessionPriorityMessage,
   SessionResumeRefAckMessage,
+  SessionResumeRefConflictMessage,
   SpawnMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
@@ -82,10 +84,12 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   ReattachMessage,
   KillMessage,
+  SessionBindingRetireMessage,
   AgentObservationAckMessage,
   AgentObservationRebindAckMessage,
   DraftTargetMessage,
   SessionResumeRefAckMessage,
+  SessionResumeRefConflictMessage,
   TranscriptMirrorReadMessage,
   SessionPriorityMessage,
   ScanRequestMessage,

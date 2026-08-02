@@ -2,7 +2,7 @@
  * THE CLIENT CONNECTION REGISTRY — the subscription set, and the one place a
  * byte reaches a browser socket (POD-390, under POD-317's gateway).
  *
- * `ClientConn` and the map holding them used to be `SessionsService.clients`:
+ * `ClientConn` and the map holding them used to be `SessionLifecycle.clients`:
  * one feature owned the socket set that machines, hosts, issues, conversations
  * and drafts all fan out through (`relay.ts` even hands `sessionsSvc.clients`
  * to the machines service). The record holds the SOCKET — `send` closes over a
@@ -11,13 +11,9 @@
  * ---------------------------------------------------------------------------
  * WHAT MOVED, AND WHAT DELIBERATELY DID NOT — read this before extending it
  * ---------------------------------------------------------------------------
- * The daemon plane is 1:1: a frame arrives, one port handles it. This plane is
- * 1:MANY, and the interesting question is not "how do we send" but "WHO
- * RECEIVES WHAT". That question is answered today by per-connection state —
- * `caps`, `publication`, `attached`, `viewVisible`, `focused`,
- * `transcriptSubs` — read by selectors that live in the SESSIONS feature
- * (`deliverEntityMessage`, the prepared-publication scheduler, `onOpenUrl`'s
- * focus preference).
+ * The daemon plane is 1:1. This plane is 1:many, so it stores the transport
+ * endpoints chosen by the shared subscription registry and by feature-owned
+ * selectors for their existing vertical behavior.
  *
  * MECHANISM moved here. SELECTION did not, and moving it would have been a
  * rewrite of the publication pipeline rather than an extraction — the exact
@@ -30,13 +26,9 @@
  *   - the feature decides WHICH connections a given message is for, and says so
  *     by calling those methods.
  *
- * PER-PRINCIPAL SCOPED DELIVERY IS NOT BUILT HERE. That is POD-1077. What this
- * shape gives POD-1077 is the seam it needs: every connection now carries a
- * {@link ClientPrincipal} resolved from the transport, and every delivery is a
- * method on this object — so a scoped feed replaces the SELECTOR and keeps the
- * mechanism, instead of tearing out a broadcast primitive baked into the
- * feature. Nothing here filters by principal today, and a green test run must
- * not be read as evidence that it does.
+ * Per-principal feed and per-room stream selection now share one external
+ * registry. This object remains the final transport lookup and never evaluates
+ * authorization itself.
  */
 
 import type { Geometry, SessionId } from '@podium/model'
@@ -63,6 +55,8 @@ export interface ClientConn {
    */
   principal: ClientPrincipal
   send: Send<ServerMessage>
+  /** Lossy stream sink. False means the frame was dropped under pressure. */
+  sendStream?: (message: ServerMessage) => boolean
   publication?: ClientPublicationAuthority
   /** A current worker publication has reached this socket. */
   publicationBootstrapped?: boolean
@@ -176,6 +170,14 @@ export class ClientRegistry {
     conn.send(msg)
   }
 
+  deliverStream(subscriberId: string, msg: ServerMessage): boolean {
+    const conn = this.conns.get(subscriberId)
+    if (!conn) return false
+    if (conn.sendStream) return conn.sendStream(msg)
+    conn.send(msg)
+    return true
+  }
+
   /** Pre-encoded bytes to one connection (the publication worker's output).
    *  Returns false when the connection has no prepared sink — the caller's
    *  existing `if (client.publication)` guards are unchanged by this. */
@@ -187,7 +189,7 @@ export class ClientRegistry {
 
   /**
    * Raw fan-out to EVERY connected client, in insertion order — the mechanism
-   * behind `SessionsService.broadcastToClients`, moved unchanged. No filtering
+   * behind `SessionLifecycle.broadcastToClients`, moved unchanged. No filtering
    * beyond `exceptClientId`, which is the pre-existing draft-echo suppression.
    */
   broadcast(msg: ServerMessage, opts: ClientBroadcastOptions = {}): void {

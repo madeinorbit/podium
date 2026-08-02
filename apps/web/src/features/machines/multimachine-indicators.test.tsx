@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * #136: the host status strip is machine-aware.
@@ -50,7 +51,7 @@ vi.mock('@/app/store', () => {
     // POD-838: vmi trails the server build; podium-host matches it.
     machines: [
       {
-        id: 'podium-host',
+        id: asMachineId('podium-host'),
         name: 'podium-host',
         hostname: 'podium-host',
         online: true,
@@ -58,7 +59,7 @@ vi.mock('@/app/store', () => {
         inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.5.0', agents: [], tools: [] },
       },
       {
-        id: 'vmi34',
+        id: asMachineId('vmi34'),
         name: 'vmi',
         hostname: 'vmi',
         online: true,
@@ -99,7 +100,7 @@ const machineQuota = (
   email: string,
   fivePct: number,
 ): MachineQuotaWire => ({
-  machineId,
+  machineId: asMachineId(machineId),
   machineName,
   hostname,
   agents: [
@@ -136,15 +137,15 @@ describe('memory chip is machine-aware', () => {
     // The vmi chip (second host) — its accessible name carries the hostname.
     const chip = screen.getByRole('button', { name: /vmi — memory/i })
     fireEvent.click(chip)
-    await waitFor(() => expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: 'vmi34' }))
-    expect(memoryBreakdown).not.toHaveBeenCalledWith({ machineId: 'podium-host' })
+    await waitFor(() => expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('vmi34') }))
+    expect(memoryBreakdown).not.toHaveBeenCalledWith({ machineId: asMachineId('podium-host') })
   })
 
   it('requests the first machine when its own chip is clicked', async () => {
     render(<HostIndicators />)
     const chip = screen.getByRole('button', { name: /podium-host — memory/i })
     fireEvent.click(chip)
-    await waitFor(() => expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: 'podium-host' }))
+    await waitFor(() => expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }))
   })
 })
 
@@ -268,7 +269,7 @@ describe('quota overlay groups by account', () => {
   it('prints each pool percentage and tones it at the warn/crit thresholds', async () => {
     quotaSummary.mockResolvedValue([
       {
-        machineId: 'solo',
+        machineId: asMachineId('solo'),
         machineName: 'solo',
         hostname: 'solo',
         agents: [

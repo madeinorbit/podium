@@ -141,8 +141,8 @@ describe('checkFile rules', () => {
   it('rejects harness importers in apps/server (Phase 3 removed the grandfathers)', () => {
     for (const file of [
       'apps/server/src/relay.ts',
-      'apps/server/src/transcript-indexer.ts',
-      'apps/server/src/modules/conversations/service.ts',
+      'apps/server/src/modules/memory/transcript-indexer.ts',
+      'apps/server/src/modules/memory/service.ts',
     ]) {
       const v = checkFile(file, `import { fileChainSource } from '@podium/harness'`)
       expect(v).toHaveLength(1)
@@ -174,7 +174,7 @@ describe('checkFile rules', () => {
   it('allows @podium/transcript from apps and packages, and keeps it near-leaf', () => {
     expect(
       checkFile(
-        'apps/server/src/transcript-indexer.ts',
+        'apps/server/src/modules/memory/transcript-indexer.ts',
         `import { claudeRecordToItems } from '@podium/transcript'`,
       ),
     ).toEqual([])
@@ -516,8 +516,8 @@ describe('rule 8 — @podium/runtime browser-safety', () => {
 })
 
 // ---------------------------------------------------------------------------
-// harness-principal-free (POD-397) — packages/harness must stay a library about
-// SOFTWARE, never about who is allowed to use it.
+// harness-principal-free (POD-397/POD-325) — packages/harness and packages/pty
+// must stay libraries about SOFTWARE, never about who is allowed to use it.
 // ---------------------------------------------------------------------------
 
 describe('checkPrincipalFree', () => {
@@ -560,16 +560,16 @@ describe('checkPrincipalFree', () => {
     expect(
       checkPrincipalFree('apps/server/src/x.ts', `import type { UserId } from '@podium/protocol'`),
     ).toEqual([])
-    // The pty half is guarded too, until POD-399 deletes it.
+    // The pty kernel is guarded too; it is a permanent principal-free seam.
     expect(
       checkPrincipalFree(
-        'packages/harness/src/session.ts',
+        'packages/pty/src/session.ts',
         `import type { UserId } from '@podium/protocol'`,
       ),
     ).toHaveLength(1)
   })
 
-  it('passes clean against the REAL harness and transcript trees', () => {
+  it('passes clean against the REAL harness, pty and transcript trees', () => {
     // The claim the acceptance criterion actually makes. Walks the shipped source
     // rather than a fixture, so reintroducing a principal import fails here.
     const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -581,7 +581,11 @@ describe('checkPrincipalFree', () => {
             ? [`${dir}/${e.name}`]
             : [],
       )
-    const files = [...walk('packages/harness/src'), ...walk('packages/transcript/src')]
+    const files = [
+      ...walk('packages/harness/src'),
+      ...walk('packages/pty/src'),
+      ...walk('packages/transcript/src'),
+    ]
     expect(files.length).toBeGreaterThan(50)
     const violations = files.flatMap((f) =>
       checkPrincipalFree(f, readFileSync(join(repoRoot, f), 'utf8')),

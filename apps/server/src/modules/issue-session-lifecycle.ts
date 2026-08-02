@@ -1,7 +1,8 @@
 import type { IssueWire } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import type { IssueService } from './issues/service'
-import type { SessionsService } from './sessions/service'
+import type { HandoffCaller } from './sessions/handoff/ports'
+import type { SessionLifecycle } from './sessions/lifecycle'
 
 export interface DeleteIssueResult {
   issue: IssueWire
@@ -17,11 +18,36 @@ export class IssueSessionLifecycle {
   constructor(
     private readonly deps: {
       issues: IssueService
-      sessions: SessionsService
+      sessions: SessionLifecycle
       ledger: Pick<Ledger, 'commit'>
     },
   ) {}
 
+  /** Resume a durable conversation under one visible issue/session workflow. */
+  resumeSession(input: Parameters<SessionLifecycle['resumeSession']>[0]) {
+    return this.deps.sessions.resumeSession(input, this.deps.issues)
+  }
+
+  /** Recreate a freed issue worktree before respawning its parked session. */
+  resurrectSession(input: Parameters<SessionLifecycle['resurrectSession']>[0]) {
+    return this.deps.sessions.resurrectSession(input, this.deps.issues)
+  }
+
+  /** Park one session and free its worktree without an asynchronous ordering hop. */
+  stopSession(input: Parameters<SessionLifecycle['stopSession']>[0]) {
+    return this.deps.sessions.stopSession(input, this.deps.issues)
+  }
+
+  /** Stop every issue member before the single final worktree-free pass. */
+  stopIssue(input: Parameters<SessionLifecycle['stopIssue']>[0]) {
+    const issueId = this.deps.issues.resolveRef(input.issueId)
+    return this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues)
+  }
+
+  /** Carry the transport-derived caller through every handoff apply point. */
+  handoffSession(input: Parameters<SessionLifecycle['handoffSession']>[0], caller: HandoffCaller) {
+    return this.deps.sessions.handoffSession(input, caller, this.deps.issues)
+  }
   /** Soft-delete an issue and tombstone all of its local member sessions.
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */

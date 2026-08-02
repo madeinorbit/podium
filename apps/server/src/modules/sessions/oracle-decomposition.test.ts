@@ -1,3 +1,4 @@
+import { attachTestClient } from '../../test-support/client-transport'
 /**
  * SessionService decomposition oracle (POD-392).
  *
@@ -122,14 +123,14 @@ describe('oracle: two-user SessionService fixture', () => {
     ])
   })
 
-  it(`${provisional('readiness-3.1.1', 'session ownership has not reached the session row')}: legacy-owned sessions fail closed for an unrelated narrow viewer`, () => {
+  it(`${MUST_NOT_CHANGE}: binding-owned sessions persist each human owner and remain private to the other viewer`, () => {
     const f = twoUserOracle()
     expect(f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
-      owner: FIRST_ADMIN_USER_ID,
+      owner: ALICE,
       grants: [],
     })
     expect(f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({
-      owner: FIRST_ADMIN_USER_ID,
+      owner: BOB,
       grants: [],
     })
     const narrowBob: SessionStatePrincipal = {
@@ -141,7 +142,7 @@ describe('oracle: two-user SessionService fixture', () => {
         .listSessions(narrowBob)
         .map((session) => session.sessionId)
         .sort(),
-    ).toEqual([])
+    ).toEqual([f.bob.sessionId])
   })
 })
 
@@ -224,7 +225,7 @@ describe('oracle: activity flush and cumulative compute', () => {
       agentKind: 'claude-code',
       cwd: '/work',
     })
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -234,7 +235,7 @@ describe('oracle: activity flush and cumulative compute', () => {
     })
     const writes = vi.spyOn(o.store.sessions, 'upsertSession')
     for (let seq = 0; seq < 3; seq++) {
-      o.reg.gateway.routeDaemonFrame('local', {
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'agentFrame',
         sessionId,
         seq,
@@ -264,7 +265,7 @@ describe('oracle: activity flush and cumulative compute', () => {
       state('working', 0, '2026-08-01T00:01:00.000Z'),
       state('idle', 2_000, '2026-08-01T00:01:02.000Z'),
     ]) {
-      o.reg.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: next })
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: next })
     }
     expect(
       o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.workingMsTotal,
@@ -290,7 +291,7 @@ describe('oracle: priority pushes', () => {
       agentKind: 'claude-code',
       cwd: '/two',
     }).sessionId
-    const clientId = o.reg.clientGateway.attachClient(() => {})
+    const clientId = attachTestClient(o.reg.clientGateway, () => {})
     o.daemon.length = 0
 
     const viewState = { type: 'viewState' as const, visible: [first, second], focused: second }
@@ -305,9 +306,9 @@ describe('oracle: priority pushes', () => {
     o.reg.clientGateway.routeClientFrame(clientId, viewState)
     expect(priorities(o.daemon)).toEqual([])
 
-    o.reg.gateway.detachDaemon('local')
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const reconnected: ControlMessage[] = []
-    o.reg.gateway.attachDaemon('local', (message) => reconnected.push(message))
+    o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (message) => reconnected.push(message))
     expect(priorities(reconnected)).toEqual(
       expect.arrayContaining([
         { type: 'sessionPriority', sessionId: first, priority: 1 },
@@ -352,11 +353,11 @@ describe('oracle: queued sends re-authorize at drain', () => {
 })
 
 describe('oracle: native identity receipts', () => {
-  it(`${provisional('readiness-3.1.3-A4', 'receipt owner still comes from the user:sole session ownership answer')}: an exact Codex identity is persisted before the owner-scoped ack, and a Bob binding still receives user:sole`, () => {
+  it(`${MUST_NOT_CHANGE}: an exact Codex identity is persisted before the owner-scoped ack, and a Bob binding receives Bob`, () => {
     const f = twoUserOracle()
     f.o.daemon.length = 0
 
-    f.o.reg.gateway.routeDaemonFrame('local', {
+    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: f.bob.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-bob' },
@@ -372,8 +373,58 @@ describe('oracle: native identity receipts', () => {
       type: 'sessionResumeRefAck',
       sessionId: f.bob.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-bob' },
-      ownerId: FIRST_ADMIN_USER_ID,
+      ownerId: BOB,
     })
+  })
+
+  it(`${MUST_NOT_CHANGE}: two live exact claims remain visible, neither is redirected, and neither conflict is acked`, () => {
+    const f = twoUserOracle()
+    const shared = { kind: 'codex-thread', value: 'thread-shared' } as const
+
+    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId: f.alice.sessionId,
+      resume: shared,
+      confidence: 'exact',
+      ackRequested: true,
+    })
+    f.o.daemon.length = 0
+
+    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId: f.bob.sessionId,
+      resume: shared,
+      confidence: 'exact',
+      ackRequested: true,
+    })
+
+    expect(f.o.meta(f.alice.sessionId).resume).toEqual(shared)
+    expect(f.o.meta(f.bob.sessionId).resume).toBeUndefined()
+    expect(
+      f.o.reg.modules.sessions
+        .listSessions()
+        .map((session) => session.sessionId)
+        .sort(),
+    ).toEqual([f.alice.sessionId, f.bob.sessionId].sort())
+    expect(f.o.daemon).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionResumeRefAck', sessionId: f.bob.sessionId }),
+    )
+    expect(f.o.daemon).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'sessionResumeRefConflict',
+          sessionId: f.alice.sessionId,
+          resume: shared,
+          conflictingSessionIds: [f.bob.sessionId],
+        }),
+        expect.objectContaining({
+          type: 'sessionResumeRefConflict',
+          sessionId: f.bob.sessionId,
+          resume: shared,
+          conflictingSessionIds: [f.alice.sessionId],
+        }),
+      ]),
+    )
   })
 })
 
@@ -385,7 +436,7 @@ describe('oracle: browser-open forwarding', () => {
       cwd: '/work',
     })
     const browser: ServerMessage[] = []
-    const clientId = o.reg.clientGateway.attachClient((message) => browser.push(message))
+    const clientId = attachTestClient(o.reg.clientGateway, (message) => browser.push(message))
     o.reg.gateway.attachDaemon('foreign', () => {})
     o.daemon.length = 0
     browser.length = 0
@@ -402,7 +453,7 @@ describe('oracle: browser-open forwarding', () => {
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'forged-open' }),
     )
 
-    o.reg.gateway.routeDaemonFrame('local', {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'sessionOpenUrl',
       sessionId,
       requestId: 'open-1',

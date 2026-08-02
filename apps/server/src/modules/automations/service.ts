@@ -38,7 +38,7 @@ export interface AutomationsDeps {
   store: AutomationsRepository
   /** Durable metadata transaction + ordered delta path [spec:SP-3fe2]. */
   ledger: Pick<Ledger, 'commit' | 'reconcile'>
-  /** SessionsService.createSession, narrowed to what a scheduled spawn needs.
+  /** SessionLifecycle.createSession, narrowed to what a scheduled spawn needs.
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
   createSession(input: {
     cwd: string
@@ -50,7 +50,7 @@ export interface AutomationsDeps {
     issueId?: IssueId
     ownerUserId: UserId
   }): { sessionId: SessionId }
-  /** SessionsService.queueText — the durable outbox (see `spawn` below for why
+  /** SessionLifecycle.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
   queueText(input: {
     sessionId: SessionId
@@ -415,7 +415,7 @@ export class AutomationsService {
               sessionId: null,
               outcome,
               detail: decision.detail ?? null,
-              actor: 'system:automation',
+              actor: `automation:${automation.id}`,
               onBehalfOf: automation.ownerUserId,
             })
           } else {
@@ -457,7 +457,7 @@ export class AutomationsService {
             sessionId: null,
             outcome: 'error',
             detail: 'reserved',
-            actor: 'system:automation',
+            actor: `automation:${automation.id}`,
             onBehalfOf: automation.ownerUserId,
           })
           return this.deps.store.getRun(runId)!
@@ -618,7 +618,7 @@ export class AutomationsService {
       defaultEffort: automation.effort,
       type: 'automation',
       ownerUserId: automation.ownerUserId,
-      createdByActor: 'system:automation',
+      createdByActor: `automation:${automation.id}`,
       createdByOnBehalfOf: automation.ownerUserId,
     })
     const { sessionId } = this.deps.createSession({

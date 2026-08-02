@@ -9,10 +9,11 @@ import {
   FIRST_ADMIN_USER_ID,
 } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { attachTestClient } from './test-support/client-transport'
 
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability
@@ -76,7 +77,7 @@ describe('multi-daemon routing', () => {
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
     m1.length = 0
 
@@ -106,7 +107,7 @@ describe('multi-daemon routing', () => {
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
     m1.length = 0
     m2.length = 0
@@ -127,12 +128,64 @@ describe('multi-daemon routing', () => {
     expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
   })
 
+  it('refuses an RPC reply from a machine the request was never sent to (POD-1175)', async () => {
+    // THE TEST THAT COULD NOT BE WRITTEN BEFORE POD-318. The pending maps were
+    // keyed by requestId ALONE, so this listing — m2's disk, answered under m1's
+    // correlation id — settled the browse the operator asked m1 for. The whole
+    // path is exercised: real gateway, real mux principal, real correlator.
+    const { reg, m1, m2 } = regWithTwoDaemons()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const browse = reg.modules.rpc.browseDirs('/home/one', {}, 'm1')
+    const request = m1.find((msg) => msg.type === 'browseDirsRequest')
+    expect(request, 'the browse must have been sent to m1').toBeDefined()
+    expect(m2.filter((msg) => msg.type === 'browseDirsRequest')).toHaveLength(0)
+    const requestId = (request as { requestId: string }).requestId
+
+    // m2 answers a request it was never sent, quoting m1's id.
+    reg.gateway.routeDaemonFrame('m2', {
+      type: 'browseDirsResult',
+      requestId,
+      listing: {
+        path: '/home/two',
+        homePath: '/home/two',
+        parentPath: null,
+        entries: [{ name: 'secrets', path: '/home/two/secrets' }],
+      },
+    })
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("answered by machine 'm2' but sent to 'm1'"),
+    )
+
+    // …and the caller is still waiting: m1's own answer is what settles it, so
+    // the drop neither leaked m2's listing nor consumed the request.
+    reg.gateway.routeDaemonFrame('m1', {
+      type: 'browseDirsResult',
+      requestId,
+      listing: {
+        path: '/home/one',
+        homePath: '/home/one',
+        parentPath: null,
+        entries: [{ name: 'src', path: '/home/one/src' }],
+      },
+    })
+    await expect(browse).resolves.toEqual({
+      listing: {
+        path: '/home/one',
+        homePath: '/home/one',
+        parentPath: null,
+        entries: [{ name: 'src', path: '/home/one/src' }],
+      },
+    })
+    error.mockRestore()
+  })
+
   it('detaching m1 only marks m1 sessions reconnecting', () => {
     const { reg } = regWithTwoDaemons()
     const a = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/a',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     }).sessionId
     const b = reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -189,7 +242,7 @@ describe('multi-daemon routing', () => {
   it('host metrics are scoped per machine', () => {
     const { reg } = regWithTwoDaemons()
     const sent: import('@podium/protocol').ServerMessage[] = []
-    reg.clientGateway.attachClient((m) => sent.push(m))
+    attachTestClient(reg.clientGateway, (m) => sent.push(m))
     reg.gateway.routeDaemonFrame('m1', {
       type: 'hostMetrics',
       hostname: 'one',
@@ -292,7 +345,7 @@ async function handoffRegistry(
         worktreeName: 'x',
         worktreeRelativePath: '.worktrees/x',
         bundleBase: [sha],
-        sourceMachineId: 'm1',
+        sourceMachineId: asMachineId('m1'),
         exportedAt: new Date().toISOString(),
       }
       reg.gateway.routeDaemonFrame(
@@ -412,10 +465,10 @@ async function handoffRegistry(
     reg.modules.issues.update(issue.id, {
       worktreePath: '/source/repo/.worktrees/x',
       branch: 'x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
   }
-  const { sessionId } = await reg.modules.sessions.resumeSession({
+  const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
     agentKind: 'claude-code',
     cwd: '/source/repo/.worktrees/x',
     resume: { kind: 'claude-session', value: 'native-id' },
@@ -432,7 +485,7 @@ describe('session handoff orchestration', () => {
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
       const { reg, source, target, sessionId } = await handoffRegistry()
-      await reg.modules.sessions.handoffSession(
+      await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: 'm2' },
         TEST_CALLER,
       )
@@ -451,7 +504,7 @@ describe('session handoff orchestration', () => {
 
   it('ignores a stale source cwd frame after handoff', async () => {
     const { reg, sessionId } = await handoffRegistry()
-    await reg.modules.sessions.handoffSession(
+    await reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId, machineId: 'm2' },
       TEST_CALLER,
     )
@@ -481,7 +534,7 @@ describe('session handoff orchestration', () => {
 
   it('clones and registers the repository before handing off to a fresh target', async () => {
     const { reg, target, sessionId, store } = await handoffRegistry({ targetHasRepo: false })
-    await reg.modules.sessions.handoffSession(
+    await reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId, machineId: 'm2' },
       TEST_CALLER,
     )
@@ -514,7 +567,7 @@ describe('session handoff orchestration', () => {
 
   it('clones and remaps the cwd before creating a new session on a fresh target', async () => {
     const { reg, target, store } = await handoffRegistry({ targetHasRepo: false })
-    const prepared = await reg.modules.sessions.prepareSessionTarget({
+    const prepared = await reg.modules.sessions.workspace.prepareTarget({
       agentKind: 'claude-code',
       cwd: '/source/repo',
       machineId: 'm2',
@@ -546,9 +599,9 @@ describe('session handoff orchestration', () => {
     })
     expect(reg.modules.issues.getMeta(issueId!)).toMatchObject({
       worktreePath: '/source/repo/.worktrees/x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
-    await reg.modules.sessions.handoffSession(
+    await reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId, machineId: 'm2' },
       TEST_CALLER,
     )
@@ -563,14 +616,14 @@ describe('session handoff orchestration', () => {
 
   it('protects worktrees owned by another target session during import', async () => {
     const { reg, target, sessionId } = await handoffRegistry()
-    await reg.modules.sessions.resumeSession({
+    await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'claude-code',
       cwd: '/target/repo/.claude/worktrees/shared',
       resume: { kind: 'claude-session', value: 'other-native-id' },
       conversationId: 'other-native-id',
       machineId: 'm2',
     })
-    await reg.modules.sessions.handoffSession(
+    await reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId, machineId: 'm2' },
       TEST_CALLER,
     )
@@ -593,8 +646,8 @@ describe('session handoff orchestration', () => {
     try {
       const { reg, sessionId } = await handoffRegistry()
       const client: ServerMessage[] = []
-      reg.clientGateway.attachClient((message) => client.push(message))
-      await reg.modules.sessions.handoffSession(
+      attachTestClient(reg.clientGateway, (message) => client.push(message))
+      await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: 'm2' },
         TEST_CALLER,
       )
@@ -622,7 +675,7 @@ describe('session handoff orchestration', () => {
       })
       const before = reg.modules.issues.get(issueId!)
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
-      await reg.modules.sessions.handoffSession(
+      await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: 'm2' },
         TEST_CALLER,
       )
@@ -651,14 +704,14 @@ describe('session handoff orchestration', () => {
         withIssue: true,
         oldDaemon: true,
       })
-      await reg.modules.sessions.handoffSession(
+      await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: 'm2' },
         TEST_CALLER,
       )
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
         repoPath: '/source/repo',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       })
     } finally {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR
@@ -669,10 +722,7 @@ describe('session handoff orchestration', () => {
   it('resumes the unchanged source row when export fails', async () => {
     const { reg, source, sessionId } = await handoffRegistry({ failExport: true })
     await expect(
-      reg.modules.sessions.handoffSession(
-        { sessionId, machineId: 'm2' },
-        TEST_CALLER,
-      ),
+      reg.modules.issueSessionLifecycle.handoffSession({ sessionId, machineId: 'm2' }, TEST_CALLER),
     ).rejects.toThrow('export exploded')
     expect(reg.modules.sessions.listSessions()).toMatchObject([
       { sessionId, machineId: 'm1', cwd: '/source/repo/.worktrees/x', status: 'starting' },

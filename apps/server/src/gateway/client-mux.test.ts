@@ -1,3 +1,4 @@
+import { attachTestClient } from '../test-support/client-transport'
 /**
  * THE CLIENT MUX (POD-390): the routing table is TOTAL, the gate FAILS CLOSED,
  * the principal comes from the transport, and the fan-out mechanism delivers the
@@ -9,15 +10,16 @@
  * routes nothing at all.
  */
 
-import { asSessionId } from '@podium/model'
+import { asSessionId, asUserId } from '@podium/model'
 import { CLIENT_PLANE_CLASS, type ClientMessage, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
 import { ClientMux } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
 import { CLIENT_PRINCIPAL_GRADE } from './client-principal'
-import { feedTestPlumbing } from './feed-test-plumbing'
 import { ClientRegistry } from './client-registry'
+import { feedTestPlumbing } from './feed-test-plumbing'
+import type { PresenceRouting } from './presence-routing'
 
 /**
  * The two lookups the gate ANDs together are independently forceable to `null`
@@ -35,11 +37,15 @@ vi.mock('./client-frame-routing', async (importOriginal) => {
   }
 })
 
+const presenceStub = (): PresenceRouting =>
+  ({ route: vi.fn(), setVisible: vi.fn(), disconnect: vi.fn() }) as unknown as PresenceRouting
+
 function harness() {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
     sessions: {
       onClientAttached: vi.fn(),
+      onClientReclaim: vi.fn(),
       onClientDetached: vi.fn(),
       onSessionClientFrame: vi.fn(),
       // The no-publication branch of the real sink, which is what these
@@ -48,10 +54,17 @@ function harness() {
       onFeedPublished: vi.fn(),
     },
   }
-  const mux = new ClientMux({ registry, ports, feed: feedTestPlumbing().serving })
+  const bootstrap = vi.fn()
+  const mux = new ClientMux({
+    registry,
+    ports,
+    feed: feedTestPlumbing().serving,
+    presence: presenceStub(),
+    bootstrap,
+  })
   const sent: ServerMessage[] = []
-  const id = mux.attachClient((msg) => sent.push(msg))
-  return { registry, ports, mux, sent, id }
+  const id = attachTestClient(mux, (msg) => sent.push(msg))
+  return { registry, ports, mux, bootstrap, sent, id }
 }
 
 const A_ROUTABLE_FRAME = { type: 'attach', sessionId: asSessionId('s1') } satisfies ClientMessage
@@ -172,9 +185,16 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
     expect(principal?.user).toBe('user:sole')
   })
 
+  it('fails closed when an in-process peer has no authenticated identity', () => {
+    const h = harness()
+    const before = h.registry.size
+    expect(() => h.mux.attachClient(() => {})).toThrow(/identity is unavailable/)
+    expect(h.registry.size).toBe(before)
+  })
+
   it('gives two connections distinct DEVICES under the same user', () => {
     const h = harness()
-    const second = h.mux.attachClient(() => {})
+    const second = attachTestClient(h.mux, () => {})
     expect(second).not.toBe(h.id)
     expect(h.mux.principalOf(second)?.device).not.toBe(h.mux.principalOf(h.id)?.device)
     expect(h.mux.principalOf(second)?.user).toBe(h.mux.principalOf(h.id)?.user)
@@ -186,6 +206,10 @@ describe('the connection lifecycle', () => {
     const h = harness()
     expect(h.sent[0]).toEqual({ type: 'welcome', clientId: h.id })
     expect(h.ports.sessions.onClientAttached).toHaveBeenCalledTimes(1)
+    expect(h.bootstrap).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(h.ports.sessions.onClientAttached).mock.invocationCallOrder[0]).toBeLessThan(
+      h.bootstrap.mock.invocationCallOrder[0] ?? 0,
+    )
     // The connection must be visible to the feature DURING its bootstrap: the
     // prepared-publication scheduler walks the connection set and would skip it.
     const conn = vi.mocked(h.ports.sessions.onClientAttached).mock.calls[0]?.[1]
@@ -202,6 +226,44 @@ describe('the connection lifecycle', () => {
     h.mux.detachClient(h.id)
     expect(h.ports.sessions.onClientDetached).toHaveBeenCalledTimes(1)
     expect(vi.mocked(h.ports.sessions.onClientDetached).mock.calls[0]?.[1].id).toBe(h.id)
+  })
+
+  it('reclaims a stale connection only for the same authenticated user', () => {
+    const h = harness()
+    const next = attachTestClient(h.mux, () => {})
+    h.mux.routeClientFrame(next, {
+      type: 'hello',
+      clientId: h.id,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
+    expect(h.ports.sessions.onClientReclaim).toHaveBeenCalledWith(
+      expect.objectContaining({ id: h.id }),
+      expect.objectContaining({ id: next }),
+    )
+    expect(h.registry.get(h.id)).toBeUndefined()
+    expect(h.registry.get(next)).toBeDefined()
+  })
+
+  it('refuses reconnect reclaim across authenticated users', () => {
+    const h = harness()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const next = h.mux.attachClient({
+      userId: asUserId('user:other'),
+      userRole: 'admin',
+      send: () => {},
+    })
+    h.mux.routeClientFrame(next, {
+      type: 'hello',
+      clientId: h.id,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
+    expect(h.ports.sessions.onClientReclaim).not.toHaveBeenCalled()
+    expect(h.registry.get(h.id)).toBeDefined()
+    expect(warn).toHaveBeenCalledWith(
+      '[podium] refused cross-user client reconnect reclaim',
+      expect.any(Object),
+    )
+    warn.mockRestore()
   })
 
   it('is idempotent on a second close', () => {
@@ -228,6 +290,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
       ports: {
         sessions: {
           onClientAttached: vi.fn(),
+          onClientReclaim: vi.fn(),
           onClientDetached: vi.fn(),
           onSessionClientFrame: vi.fn(),
           deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
@@ -235,11 +298,13 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
         },
       },
       feed: feedTestPlumbing().serving,
+      presence: presenceStub(),
+      bootstrap: vi.fn(),
     })
     const inboxes = new Map<string, ServerMessage[]>()
     const ids = ['a', 'b', 'c'].map(() => {
       const inbox: ServerMessage[] = []
-      const id = mux.attachClient((msg) => inbox.push(msg))
+      const id = attachTestClient(mux, (msg) => inbox.push(msg))
       inboxes.set(id, inbox)
       return id
     })
@@ -302,6 +367,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
       ports: {
         sessions: {
           onClientAttached: vi.fn(),
+          onClientReclaim: vi.fn(),
           onClientDetached: vi.fn(),
           onSessionClientFrame: vi.fn(),
           deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
@@ -309,9 +375,11 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
         },
       },
       feed: feedTestPlumbing().serving,
+      presence: presenceStub(),
+      bootstrap: vi.fn(),
     })
     const prepared: string[] = []
-    const id = mux.attachClient({
+    const id = attachTestClient(mux, {
       send: () => {},
       publication: {
         principal: 'operator',

@@ -17,7 +17,7 @@
  *     thing under test cannot notice its own coverage shrinking.
  */
 
-import { IssueAgentDefaults, IssueCoordination, IssueGraphRefs, IssueIdentity, IssueIntent, IssueLifecycle, IssueLinear, IssuePanelGroup, IssueText, IssueTriage, IssueWorkspace, NeedsHuman, asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
+import { IssueAgentDefaults, IssueCoordination, IssueGraphRefs, IssueIdentity, IssueIntent, IssueLifecycle, IssueLinear, IssuePanelGroup, IssueText, IssueTriage, IssueWorkspace, NeedsHuman, asIssueId, asRepoId, asSessionId, asUserId, asMachineId} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   fromStorage,
@@ -50,7 +50,7 @@ const fullRow = (): IssueRow => ({
   defaultAgent: 'claude-code',
   defaultModel: 'opus',
   defaultEffort: 'high',
-  machineId: 'machine-1',
+  machineId: asMachineId('machine-1'),
   linearId: 'lin-id',
   linearIdentifier: 'LIN-1',
   linearUrl: 'https://linear.app/LIN-1',
