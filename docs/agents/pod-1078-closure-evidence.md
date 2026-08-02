@@ -1,6 +1,6 @@
 # POD-1078 closure evidence
 
-Verified at commit `76c895d2` on 2026-08-02.
+Reconciled with integration `0e62caa9` and verified at implementation tip `0c27d300` on 2026-08-02.
 
 ## Acceptance evidence
 
@@ -17,7 +17,7 @@ Verified at commit `76c895d2` on 2026-08-02.
 
 ## Deliberate-violation results
 
-All commands exited `0` at the verified tree state.
+The acceptance commands below exited `0` at the verified tree state.
 
 ```text
 bun --bun node_modules/vitest/vitest.mjs run --config vitest.unit.config.ts \
@@ -26,8 +26,10 @@ bun --bun node_modules/vitest/vitest.mjs run --config vitest.unit.config.ts \
   packages/protocol/src/planes/inventory.test.ts \
   apps/server/src/gateway/presence-routing.test.ts
 
-4 files passed; 66 tests passed.
+4 files passed; 67 tests passed.
 ```
+
+For the required cross-user counterfactual, the production join condition was temporarily changed to bypass visibility. The new test failed with exit 1 and showed Bob receiving a room snapshot containing Alice's live cursor. The original file hash `15524e1680fae5546b96a4abf44ced754765a1c82c50f1efe4e791a0c5407bea` was restored, and the same test passed 1/1.
 
 The suite explicitly rejects a second/foreign registry, contradictory durability, durable coalescing, denied-room subscription, existence-distinguishing refusal, identity supplied by a payload, presence writes to the durable pipe, and stream buffering beyond the coalesce/drop/evict policy. It also proves disconnect and restart blanking.
 
@@ -40,13 +42,14 @@ bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.
 
 ## Wider verification
 
-- Focused gateway/protocol/wire suite: 6 files, 161 tests passed.
-- Browser-open oracle plus architecture audit rerun: 2 files, 83 tests passed.
+- Merged focused gateway/protocol/wire suite: 9 files, 209 tests passed.
+- Cross-user visibility mutation: 1 file, 1 test failed as required; restored gate rerun passed.
 - Typecheck: 22 tasks passed.
-- Web: 182 files, 1,456 tests passed.
+- Web: 183 files, 1,460 tests passed.
 - Mobile: 4 files, 34 tests passed.
 - Bun SQLite: 14 tests passed.
 - Independent-instance lane: runtime isolation 1 test, managed-account spawn 3 tests, installer suite `ALL OK`.
-- Full unit lane: 636 files and 9,341 tests passed; its four reported failures were one now-fixed roomless browser oracle plus three contention timeouts. The repaired oracle and all timeout cases passed together in the isolated 83-test rerun.
+- Full unit sweep under three concurrent foreign runners: 638 files passed, 3 skipped; 9,346 tests passed, 33 skipped. Eight failures across four files were fixed-budget timeouts; isolated reruns were all green: architecture 1 file/72 tests, normalized wire 1/7, live-scale benchmark 1/1, and terminal keyboard 1/13. Three POD-1315 principal-refusal tests remain red in isolation and were reported to their owner; this issue changes none of that path.
+- Structural gates: composition graph 176 modules/0 cycles; construction order 51 declarations/0 forward, deferred, or late bindings; reactions ledger 25 entries.
 
 `bun run lint:boundaries` reaches an unrelated pre-existing violation in `apps/server/src/modules/sessions/daemon-lifecycle.ts` and a dead allowlist entry, now tracked as POD-1362. The room/host-edge totality assertions themselves pass in `inventory.test.ts`; no changed file introduces the reported dependency.

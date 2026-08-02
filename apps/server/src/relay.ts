@@ -76,7 +76,7 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
@@ -331,6 +331,11 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clientRegistry.values(),
+      machinesForPrincipal: (principal, machineService) =>
+        machinesForPrincipal(
+          { machines: machineService },
+          userCommandPrincipal(asUserId(principal.user), principal.role),
+        ),
     })
     // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
     // this registry mints names a machine (POD-318), and a machine id with no row is
@@ -435,8 +440,6 @@ export class SessionRegistry {
       keyedUserOf: (ref) => {
         if (ref.entity !== 'userLayout') return null
         try {
-          // layoutRowId is (userId, key); the human half is the only principal
-          // that may see the row (ADR 9 D3 rule 4).
           return parseLayoutRowId(ref.entityId).userId
         } catch {
           return null
@@ -514,7 +517,22 @@ export class SessionRegistry {
       current: readonly import('@podium/model').ConversationDiagnosticWire[]
     } = { current: [] }
     const subscriptions = new SubscriptionRegistry()
-    let presenceRouting: PresenceRouting | undefined
+    const roomVisibility: VisibilityResolver = {
+      canSee: (principal, ref) => {
+        if (principal.kind !== 'user') return false
+        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
+        return visibility.mayDeliver(
+          { kind: 'user', userId: principal.user },
+          { entity: ref.kind, entityId: ref.id },
+        )
+      },
+    }
+    const presence = new PresenceRouting({
+      subscriptions,
+      clients: clientRegistry,
+      visibility: roomVisibility,
+      now: this.now,
+    })
     const feedServing = new FeedServing({
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
@@ -530,7 +548,7 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: () => this.store.sync.minChangeSeq() },
       subscriptions,
-      onVisibilityChanged: (subscriberIds) => presenceRouting?.revalidateSubscribers(subscriberIds),
+      onVisibilityChanged: (subscriberIds) => presence.revalidateSubscribers(subscriberIds),
       diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({
@@ -1913,24 +1931,6 @@ export class SessionRegistry {
     // that both surfaces arrive on the same socket.
     // The CLIENT plane's mux. Every client frame is session-owned today except
     // `ping`, which the mux answers itself — see gateway/client-frame-routing.ts.
-    const roomVisibility: VisibilityResolver = {
-      canSee: (principal, ref) => {
-        if (principal.kind !== 'user') return false
-        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
-        return visibility.mayDeliver(
-          { kind: 'user', userId: principal.user },
-          { entity: ref.kind, entityId: ref.id },
-        )
-      },
-    }
-    const presence = new PresenceRouting({
-      subscriptions,
-      clients: clientRegistry,
-      visibility: roomVisibility,
-      now: this.now,
-      onJoined: (client, room) => sessionsSvc.onRoomJoined(client, room),
-    })
-    presenceRouting = presence
     this.clientGateway = new ClientMux({
       registry: clientRegistry,
       ports: { sessions: sessionsSvc },

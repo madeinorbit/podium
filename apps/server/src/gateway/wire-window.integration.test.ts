@@ -34,27 +34,40 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CAP_METADATA_DELTA, MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import type { ServerMessage } from '@podium/protocol'
+import { CAP_METADATA_DELTA, MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../server'
+import { loginTestClient } from '../test-support/client-auth'
 
-const MACHINE = 'local'
+const CLIENT_PASSWORD = 'wire-window-client-password'
 
 describe('the wire window, over real sockets', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
+  let cookieHeader: string
+  let machineId: string
+  let originalPassword: string | undefined
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-wire-window-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    originalPassword = process.env.PODIUM_PASSWORD
+    process.env.PODIUM_PASSWORD = CLIENT_PASSWORD
     handle = await startServer({ port: 0 })
-    handle.registry.gateway.attachDaemon(MACHINE, () => {})
+    cookieHeader = (
+      await loginTestClient({
+        origin: `http://127.0.0.1:${handle.port}`,
+        password: CLIENT_PASSWORD,
+      })
+    ).cookieHeader
+    machineId = handle.registry.sessionStore.hostMachineId
+    handle.registry.gateway.attachDaemon(machineId, () => {})
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
-      machineId: MACHINE,
+      machineId,
     })
     handle.registry.modules.sessions.flushBroadcasts()
   })
@@ -62,13 +75,17 @@ describe('the wire window, over real sockets', () => {
   afterAll(async () => {
     await handle?.close()
     delete process.env.PODIUM_STATE_DIR
+    if (originalPassword === undefined) delete process.env.PODIUM_PASSWORD
+    else process.env.PODIUM_PASSWORD = originalPassword
     rmSync(stateDir, { recursive: true, force: true })
   })
 
   /** A real `/client` socket that announces itself the way a build does. */
   async function connect(hello: Record<string, unknown>) {
     const frames: ServerMessage[] = []
-    const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client`)
+    const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client`, {
+      headers: { Cookie: cookieHeader },
+    })
     ws.on('message', (raw) => frames.push(JSON.parse(raw.toString()) as ServerMessage))
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => resolve())
@@ -151,7 +168,7 @@ describe('the wire window, over real sockets', () => {
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
-      machineId: MACHINE,
+      machineId,
     })
     handle.registry.modules.sessions.flushBroadcasts()
 
@@ -165,9 +182,11 @@ describe('the wire window, over real sockets', () => {
     )) as { type: string }
     expect(['sessionsChanged', 'metadataDelta']).toContain(staleUpdate.type)
     // The current build gets the canonical frame for the same write.
-    const currentDelta = (await current.nextMatching(
-      (m) => m.type === 'feedDelta',
-    )) as { fromSeq: number; seq: number; minAvailableSeq: number }
+    const currentDelta = (await current.nextMatching((m) => m.type === 'feedDelta')) as {
+      fromSeq: number
+      seq: number
+      minAvailableSeq: number
+    }
     expect(currentDelta.fromSeq).toBe(currentWorld.seq)
     expect(currentDelta.minAvailableSeq).toBeGreaterThanOrEqual(0)
 
@@ -188,7 +207,12 @@ describe('the wire window, over real sockets', () => {
       'feedDelta',
     ])
     expect(beyond.types()).toContain('welcome')
-    expect(beyond.types().slice(beyondAfterHello).filter((t) => ENTITY_FRAMES.has(t))).toEqual([])
+    expect(
+      beyond
+        .types()
+        .slice(beyondAfterHello)
+        .filter((t) => ENTITY_FRAMES.has(t)),
+    ).toEqual([])
     // …and the paired half, or "it received nothing" is equally true of a socket
     // that was never connected: the two supported peers DID receive frames over
     // the same window.
