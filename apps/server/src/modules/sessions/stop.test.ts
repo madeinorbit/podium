@@ -3,7 +3,7 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { ControlMessage } from '@podium/protocol'
@@ -289,7 +289,7 @@ describe('stopSession [spec:SP-9904]', () => {
     reg.modules.issues.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-remote',
       branch: 'issue/remote',
-      machineId: 'machine-remote',
+      machineId: asMachineId('machine-remote'),
     })
     const freed = await reg.modules.issues.freeWorktreeKeepBranch(issue.id)
     expect(freed.ok).toBe(true)

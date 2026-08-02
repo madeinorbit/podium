@@ -25,7 +25,10 @@
 import { bootProcess } from '@podium/runtime/boot'
 import { resolvePort } from '@podium/runtime/config'
 import { startDaemon } from '../apps/daemon/src/daemon'
-import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret } from '../apps/server/src/local-machine'
+import {
+  readOrCreateDaemonSecret,
+  readOrCreateLocalMachineId,
+} from '@podium/runtime/local-machine'
 
 const port = resolvePort()
 
@@ -39,7 +42,9 @@ await bootProcess({
     startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: readOrCreateDaemonSecret(),
-      machineId: LOCAL_MACHINE_ID, // attach to the machine the server adopted '__local__' rows onto
+      // Same host, same state dir, same identity file the server read: this daemon
+      // attaches AS this host rather than as a constant that stood for it.
+      machineId: readOrCreateLocalMachineId(),
       installCodexHooks: true,
       installGrokHooks: true,
     }),

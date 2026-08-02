@@ -32,6 +32,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
@@ -138,13 +139,16 @@ export class SessionStore {
    * rule true everywhere. The old `'__local__'` default said the opposite: that
    * unattributed rows are a legitimate durable state.
    */
-  readonly hostMachineId: string
+  readonly hostMachineId: MachineId
 
   constructor(
     private readonly path: string = defaultDbPath(),
     hostMachineId: string = randomUUID(),
   ) {
-    this.hostMachineId = hostMachineId
+    // The value crosses into its id space HERE, once: it arrives as the bytes of a
+    // state-dir file (or a fresh mint) and leaves as the machine identity every row,
+    // route and grant in this process is keyed by.
+    this.hostMachineId = asMachineId(hostMachineId)
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = openDatabase(path)
     this.db.exec('PRAGMA journal_mode = WAL')

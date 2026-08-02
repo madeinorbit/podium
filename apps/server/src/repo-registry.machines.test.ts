@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 /**
  * Task 9: per-machine repo registration + machine-tagged repo scans.
  *
@@ -122,12 +123,12 @@ describe('RepoRegistry.scanReposAll()', () => {
 
     const result = await scanPromise
     const byMachine = new Map(result.repositories.map((r) => [r.machineId, r]))
-    const stored = store.repos.listRepos('m2')[0]
+    const stored = store.repos.listRepos(asMachineId('m2'))[0]
 
-    expect(byMachine.get('m2')).toMatchObject({
+    expect(byMachine.get(asMachineId('m2'))).toMatchObject({
       path: '/b',
       kind: 'repository',
-      machineId: 'm2',
+      machineId: asMachineId('m2'),
       originUrl: 'https://github.com/acme/b.git',
       repoId: stored?.repoId,
       worktrees: [],

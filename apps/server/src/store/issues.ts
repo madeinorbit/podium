@@ -11,6 +11,7 @@ import {
   isIssueColorSlot,
   type IssueId,
   IssueStage,
+  type MachineId,
   type RepoId,
   type SessionId,
   type UserId,
@@ -220,7 +221,10 @@ export class IssuesRepository {
       defaultAgent: r.default_agent as string,
       defaultModel: (r.default_model as string | null) ?? 'auto',
       defaultEffort: (r.default_effort as string | null) ?? 'auto',
-      machineId: (r.machine_id as string | null) ?? null,
+      // SERIALIZATION EDGE: the column is untyped coming back from sqlite, so the
+      // machine id re-enters its id space here — one decode site, as with every other
+      // branded id on this row (POD-362).
+      machineId: (r.machine_id as MachineId | null) ?? null,
       linearId: (r.linear_id as string | null) ?? null,
       linearIdentifier: (r.linear_identifier as string | null) ?? null,
       linearUrl: (r.linear_url as string | null) ?? null,

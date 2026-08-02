@@ -244,7 +244,7 @@ describe('the derived fleet router actually calls the gate', () => {
       ownerUserId,
     })
     const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
-    registry.modules.machines.ensureLocalMachine()
+    registry.modules.machines.ensureHostMachine('machine-under-test')
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {

@@ -158,7 +158,7 @@ export function attachWebSockets(
     // Pre-auth handshake gate: drop non-handshake first frames; the first hello/pair →
     // the machine strategies → attach as the authenticated machine PRINCIPAL. UNIFIED
     // auth — the same-host daemon authenticates as the local machine through the SAME
-    // hello path as any remote (the server pre-registered 'local' via ensureLocalMachine
+    // hello path as any remote (the server pre-registered 'local' via ensureHostMachine
     // + adopted its '__local__' rows at startup, so its data is attributed regardless).
     // No bootstrap special-case, and no extra trust for being local. The heartbeat
     // liveness mark is layered on so a wedged daemon is terminate()d within two sweeps →

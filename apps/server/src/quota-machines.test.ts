@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 /**
  * #136: per-machine agent quota + machine-scoped memory breakdown.
  *
@@ -70,10 +71,10 @@ describe('SessionRegistry.agentQuotaAll()', () => {
     const result = await p
     const byMachine = new Map(result.map((r) => [r.machineId, r]))
     expect(result).toHaveLength(2)
-    expect(byMachine.get('m1')).toMatchObject({ machineName: 'podium-host', hostname: 'podium-host' })
-    expect(byMachine.get('m1')?.agents[0]?.account?.email).toBe('lud@example.com')
-    expect(byMachine.get('m2')).toMatchObject({ machineName: 'VMI', hostname: 'vmi' })
-    expect(byMachine.get('m2')?.agents[0]?.account?.email).toBe('vmi@example.com')
+    expect(byMachine.get(asMachineId('m1'))).toMatchObject({ machineName: 'podium-host', hostname: 'podium-host' })
+    expect(byMachine.get(asMachineId('m1'))?.agents[0]?.account?.email).toBe('lud@example.com')
+    expect(byMachine.get(asMachineId('m2'))).toMatchObject({ machineName: 'VMI', hostname: 'vmi' })
+    expect(byMachine.get(asMachineId('m2'))?.agents[0]?.account?.email).toBe('vmi@example.com')
   })
 
   it('agentQuota(refresh, machineId) sends the request to only that machine', async () => {

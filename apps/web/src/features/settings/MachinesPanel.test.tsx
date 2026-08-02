@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { MachineWire } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -48,7 +49,7 @@ function stubBridge(overrides: Partial<NativeDesktopBridge> = {}): NativeDesktop
 
 function machine(overrides: Partial<MachineWire>): MachineWire {
   return {
-    id: 'm-1',
+    id: asMachineId('m-1'),
     name: 'mac',
     hostname: 'mac.local',
     online: false,
@@ -77,7 +78,7 @@ describe('MachinesPanel hosting affordances', () => {
 
   it('shows the standalone card when this device never paired', () => {
     stubBridge({ machineId: undefined })
-    storeState.machines = [machine({ id: 'other' })]
+    storeState.machines = [machine({ id: asMachineId('other') })]
     setTrpc(vi.fn())
     render(<MachinesPanel />)
     expect(enableCard()).toBeTruthy()
@@ -85,8 +86,8 @@ describe('MachinesPanel hosting affordances', () => {
   })
 
   it('marks the paired row and offers inline Enable when offline, instead of the card', () => {
-    stubBridge({ machineId: 'm-1' })
-    storeState.machines = [machine({ id: 'm-1', online: false }), machine({ id: 'other' })]
+    stubBridge({ machineId: asMachineId('m-1') })
+    storeState.machines = [machine({ id: asMachineId('m-1'), online: false }), machine({ id: asMachineId('other') })]
     setTrpc(vi.fn())
     render(<MachinesPanel />)
     expect(enableCard()).toBeNull()
@@ -95,8 +96,8 @@ describe('MachinesPanel hosting affordances', () => {
   })
 
   it('shows the badge but no Enable button when this device is online', () => {
-    stubBridge({ machineId: 'm-1' })
-    storeState.machines = [machine({ id: 'm-1', online: true })]
+    stubBridge({ machineId: asMachineId('m-1') })
+    storeState.machines = [machine({ id: asMachineId('m-1'), online: true })]
     setTrpc(vi.fn())
     render(<MachinesPanel />)
     expect(enableCard()).toBeNull()
@@ -105,11 +106,11 @@ describe('MachinesPanel hosting affordances', () => {
   })
 
   it('inline Enable mints a code, hands it to the shell, and restarts', async () => {
-    const bridge = stubBridge({ machineId: 'm-1' })
+    const bridge = stubBridge({ machineId: asMachineId('m-1') })
     const restart = vi.fn()
     ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = restart
     const mutate = vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null })
-    storeState.machines = [machine({ id: 'm-1', online: false })]
+    storeState.machines = [machine({ id: asMachineId('m-1'), online: false })]
     setTrpc(mutate)
     render(<MachinesPanel />)
 
@@ -125,11 +126,11 @@ describe('MachinesPanel hosting affordances', () => {
   it('falls back to manual-relaunch guidance when restart is refused', async () => {
     // Remote-loaded windows on older shells lack the process.restart grant; the config is
     // already flipped by then, so the UI must instruct rather than hang on "Enabling…".
-    stubBridge({ machineId: 'm-1' })
+    stubBridge({ machineId: asMachineId('m-1') })
     ;(window as unknown as { __PODIUM_RESTART__?: () => unknown }).__PODIUM_RESTART__ = vi
       .fn()
       .mockRejectedValue(new Error('process.restart not allowed'))
-    storeState.machines = [machine({ id: 'm-1', online: false })]
+    storeState.machines = [machine({ id: asMachineId('m-1'), online: false })]
     setTrpc(vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null }))
     render(<MachinesPanel />)
 
@@ -190,11 +191,11 @@ describe('MachinesPanel version skew', () => {
   it('never badges dev builds or machines with no reported version', async () => {
     storeState.machines = [
       machine({
-        id: 'm-dev',
+        id: asMachineId('m-dev'),
         name: 'devbox',
         inventory: { os: 'linux', arch: 'x64', podiumVersion: 'dev', agents: [], tools: [] },
       }),
-      machine({ id: 'm-old', name: 'pre-inventory' }),
+      machine({ id: asMachineId('m-old'), name: 'pre-inventory' }),
     ]
     setTrpcWithVersion('0.5.0')
     render(<MachinesPanel />)

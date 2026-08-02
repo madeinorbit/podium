@@ -11,7 +11,7 @@
  * harness's poll seam advances an INJECTED clock rather than the wall clock.
  */
 
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type SessionId, asMachineId} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { mailHarness, OPERATOR, phaseState } from './characterization-support'
 import { MessageGate } from './gate'
@@ -227,13 +227,13 @@ describe('characterization: machine placement and the unreachable arm (S2)', () 
       }),
     })
     const iss = h.createIssue({ title: 'pinned' })
-    h.issues.update(iss.id, { machineId: 'machine-b' })
+    h.issues.update(iss.id, { machineId: asMachineId('machine-b') })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
       issue: iss.id,
       prompt: 'p',
     })) as { machine: string | null }
     expect(r.machine).toBe('Builder')
-    expect(h.events(['agent.spawned'])[0]!.payload).toMatchObject({ machineId: 'machine-b' })
+    expect(h.events(['agent.spawned'])[0]!.payload).toMatchObject({ machineId: asMachineId('machine-b') })
   })
 
   it('propagates an UNREACHABLE machine as the spawn seam’s own error, spawning nothing', async () => {
@@ -246,7 +246,7 @@ describe('characterization: machine placement and the unreachable arm (S2)', () 
       },
     })
     const iss = h.createIssue({ title: 'pinned' })
-    h.issues.update(iss.id, { machineId: 'machine-b' })
+    h.issues.update(iss.id, { machineId: asMachineId('machine-b') })
     await expect(
       h.gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: iss.id, prompt: 'p' }),
     ).rejects.toThrow("machine 'Builder' is offline")

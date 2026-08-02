@@ -8,7 +8,7 @@ import type {
   SessionId,
   ThreadId,
 } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asSessionId, type MachineId } from '@podium/model'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -23,8 +23,8 @@ export interface HeadlessDeps {
   getSession(sessionId: SessionId): Session | undefined
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
-  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): string
-  defaultMachine(): string
+  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): MachineId
+  defaultMachine(): MachineId
   toMachine(machineId: string, msg: ControlMessage): void
   /** Mint a globally unique requestId with the given prefix (shared counter —
    *  ids must never collide across the registry's pending maps). */

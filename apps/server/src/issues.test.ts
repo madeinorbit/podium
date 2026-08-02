@@ -6,8 +6,7 @@ import {
   FIRST_ADMIN_USER_ID,
   type IssueId,
   type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+  type SessionMetaInput, asMachineId} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -36,7 +35,7 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -398,7 +397,7 @@ describe('IssueService unread (#124)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -500,7 +499,7 @@ describe('IssueService tuck-away (POD-333)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -1121,7 +1120,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
     })
     expect(created.machineId).toBe('mach-b')
     await svc.start(created.id)
@@ -1149,7 +1148,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
     })
     await expect(svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
     expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/r')
@@ -1189,7 +1188,12 @@ describe('IssueService.start', () => {
 
   it('machineId persists through the store and clears via update(null)', () => {
     const { svc, store } = harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false, machineId: 'mach-b' })
+    const w = svc.create({
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
     expect(store.issues.getIssue(w.id)?.machineId).toBe('mach-b')
     expect(svc.update(w.id, { machineId: null }).machineId).toBeUndefined()
     expect(store.issues.getIssue(w.id)?.machineId).toBeNull()

@@ -2,7 +2,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import {
   type AgentKind,
   agentCapabilityRejection,
+  asMachineId,
   type Inventory,
+  type MachineId,
   type MachineUseDecision,
   type MachineWire,
 } from '@podium/model'
@@ -92,7 +94,7 @@ export interface MachinesDeps {
    * boot-before-daemon spawns) names THIS one, and it is a real id with a real row,
    * so nothing downstream has to know it is "the local one".
    */
-  hostMachineId: string
+  hostMachineId: MachineId
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   pairing?: PairingCodes
   /** Production reaction transport for derived session fields. */
@@ -139,7 +141,7 @@ export class MachinesService {
   /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
    *  the handshake's machine directory has to name the machine the loopback bootstrap
    *  secret belongs to, and taking it from here keeps ONE answer in the process. */
-  get hostMachineId(): string {
+  get hostMachineId(): MachineId {
     return this.deps.hostMachineId
   }
 
@@ -277,8 +279,10 @@ export class MachinesService {
   }
 
   /** machineIds with a live daemon socket right now. Public for RepoRegistry fan-out. */
-  onlineMachineIds(): string[] {
-    return [...this.daemons.keys()]
+  onlineMachineIds(): MachineId[] {
+    // The keys came from authenticated machine principals; the Map is keyed by the
+    // plain string only because that is what a Map key is.
+    return [...this.daemons.keys()] as MachineId[]
   }
 
   /**
@@ -294,7 +298,7 @@ export class MachinesService {
    * before routing (`requireAgent`, `requireMachineForRepo`, the fleet authz layer)
    * gets to make that decision against a machine that actually exists.
    */
-  defaultMachine(): string {
+  defaultMachine(): MachineId {
     const online = this.onlineMachineIds()
     return online[0] ?? this.deps.hostMachineId
   }
@@ -305,8 +309,8 @@ export class MachinesService {
    * online machine, else this host. For a single connected daemon this always
    * returns that one machine — single-machine behavior is unchanged.
    */
-  resolveMachine(requested: string | undefined, cwd: string): string {
-    if (requested && this.daemons.has(requested)) return requested
+  resolveMachine(requested: string | undefined, cwd: string): MachineId {
+    if (requested && this.daemons.has(requested)) return asMachineId(requested)
     return this.pickMachineForRepo(undefined, cwd)
   }
 
@@ -326,10 +330,10 @@ export class MachinesService {
     cwd: string,
     agentKind: AgentKind,
     use?: MachineUseResolver,
-  ): string {
+  ): MachineId {
     if (requested) {
       this.requireAgent(requested, agentKind, use)
-      return requested
+      return asMachineId(requested)
     }
 
     const legacy = this.resolveMachine(undefined, cwd)
@@ -424,7 +428,7 @@ export class MachinesService {
    * boot-before-daemon arm names the host whose daemon is precisely the one about
    * to attach and drain the queue.
    */
-  pickMachineForRepo(_originUrl: string | undefined, cwd: string): string {
+  pickMachineForRepo(_originUrl: string | undefined, cwd: string): MachineId {
     const byRepo = this.onlineMachineIds().find((id) =>
       this.deps.store.repos
         .listRepos(id)
@@ -601,6 +605,12 @@ export class MachinesService {
       ownerUserId: deviceGradeSoleOwner(),
     })
     this.invalidateMachineCache()
+    // The row's NAME is derived onto every session's `machineName`, and this write is
+    // where it first becomes known (before it, the projection falls back to the raw
+    // id). Same seam a rename uses — the derived field has one way to be refreshed,
+    // not one for boot and one for later.
+    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
+    else this.deps.sessionsChangedForMachine?.(id)
     return id
   }
 

@@ -12,7 +12,7 @@
  * succeeding under a ceiling that allows it.
  */
 
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, asMachineId} from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -264,7 +264,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
 
   const withMachine = (h: ReturnType<typeof mailHarness>): { id: string; seq: number } => {
     const issue = h.createIssue({ title: 'work' })
-    h.issues.update(issue.id, { machineId: 'mac_alices_laptop' })
+    h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     return issue
   }
 

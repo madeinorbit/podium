@@ -20,7 +20,7 @@
  */
 import { bootProcess } from '@podium/runtime/boot'
 import { startDaemon } from '../apps/daemon/src/daemon'
-import { LOCAL_MACHINE_ID } from '../apps/server/src/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../apps/server/src/server'
 
 await bootProcess({
@@ -37,7 +37,8 @@ await bootProcess({
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${server.port}`,
       bootstrapToken: server.bootstrapToken,
-      machineId: LOCAL_MACHINE_ID, // attach to the machine the server adopted '__local__' rows onto
+      // Same host, same state dir, same identity file the server read.
+      machineId: readOrCreateLocalMachineId(),
       installCodexHooks: true,
       installGrokHooks: true,
     })

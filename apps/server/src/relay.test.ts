@@ -7,6 +7,7 @@ import {
   type AgentRuntimeState,
   actorAgent,
   asAgentIdentityId,
+  asMachineId,
   asSessionId,
   FIRST_ADMIN_USER_ID,
   resolveTelegramPrincipal,
@@ -15,6 +16,9 @@ import {
 } from '@podium/model'
 import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+
+/** Every durable session row names a machine (POD-318) — there is no column default. */
+const TEST_MACHINE = asMachineId('machine-under-test')
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -1024,6 +1028,7 @@ describe('SessionRegistry', () => {
     lastResumedAt: null,
     archived: false,
     workState: null,
+    machineId: TEST_MACHINE,
     ...over,
   })
 
@@ -1555,6 +1560,7 @@ describe('SessionRegistry', () => {
       name: null,
       archived: false,
       workState: null,
+      machineId: TEST_MACHINE,
       originKind: 'spawn',
       conversationId: null,
       resumeKind: null,
@@ -1580,6 +1586,7 @@ describe('SessionRegistry', () => {
       name: null,
       archived: false,
       workState: null,
+      machineId: TEST_MACHINE,
       originKind: 'spawn',
       conversationId: null,
       resumeKind: null,
@@ -3725,6 +3732,7 @@ describe('SessionRegistry snooze', () => {
       cwd: '/p',
       title: 't',
       name: null,
+      machineId: TEST_MACHINE,
       originKind: 'spawn',
       conversationId: null,
       resumeKind: null,

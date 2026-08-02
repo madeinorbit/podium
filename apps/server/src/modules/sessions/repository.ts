@@ -478,10 +478,10 @@ export class SessionRepository {
     // No fan-out: there are no clients at boot. Conversations are deliberately
     // NOT reconciled at boot: they are daemon-fed, and an empty list at boot
     // means "not scanned yet", not "all gone".
-    // Boot ordering (#247): this runs BEFORE server.ts calls ensureLocalMachine,
+    // Boot ordering (#247): this runs BEFORE server.ts calls ensureHostMachine,
     // so placeholder rows reconcile here with machineId '__local__'. That stale
     // baseline is unobservable and self-healing: adoption
-    // (ensureLocalMachine → adoptPlaceholderRows) explicitly captures affected
+    // (ensureHostMachine → adoptPlaceholderRows) explicitly captures affected
     // sessions before its broadcast — all before the server accepts connections.
     const recovered = this.ports.ledger.reconcile(
       'session',

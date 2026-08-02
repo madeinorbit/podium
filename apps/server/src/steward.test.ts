@@ -38,7 +38,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     store,
     listSessions: () => sessions,
     getSettings: () => settings,
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now,

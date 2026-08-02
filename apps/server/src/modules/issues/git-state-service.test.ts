@@ -31,7 +31,7 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: repoOp as IssueDeps['repoOp'],
     ...plumbing,
     setSessionArchived: vi.fn(),

@@ -3,6 +3,7 @@ import {
   SOLE_USER_ID,
   asAccountId,
   asIssueId,
+  asMachineId,
   asSessionId,
 } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -93,11 +94,11 @@ describe('SessionStore repos', () => {
   it('starts empty, adds, dedupes, lists in insertion order, removes', () => {
     const store = new SessionStore(':memory:')
     expect(store.repos.listRepoPaths()).toEqual([])
-    store.repos.addRepo('/home/u/b')
-    store.repos.addRepo('/home/u/a')
-    store.repos.addRepo('/home/u/b') // dedupe
+    store.repos.addRepo('/home/u/b', store.hostMachineId)
+    store.repos.addRepo('/home/u/a', store.hostMachineId)
+    store.repos.addRepo('/home/u/b', store.hostMachineId) // dedupe
     expect(store.repos.listRepoPaths()).toEqual(['/home/u/b', '/home/u/a'])
-    store.repos.removeRepo('/home/u/b')
+    store.repos.removeRepo('/home/u/b', store.hostMachineId)
     expect(store.repos.listRepoPaths()).toEqual(['/home/u/a'])
     store.close()
   })
@@ -105,7 +106,7 @@ describe('SessionStore repos', () => {
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)
-    a.repos.addRepo('/abs/one')
+    a.repos.addRepo('/abs/one', a.hostMachineId)
     a.close()
     const b = new SessionStore(file)
     expect(b.repos.listRepoPaths()).toEqual(['/abs/one'])
@@ -135,7 +136,7 @@ describe('SessionStore repos', () => {
 
   it('resolves subpaths under a registered filesystem root repo', () => {
     const store = new SessionStore(':memory:')
-    store.repos.addRepo('/')
+    store.repos.addRepo('/', store.hostMachineId)
     const repoId = store.repos.listRepos()[0]?.repoId
 
     expect(store.repos.resolveRepoIdForPath('/home/till/src/podium')).toBe(repoId)
@@ -148,6 +149,10 @@ describe('SessionStore repos', () => {
     store.close()
   })
 })
+
+/** One fixture machine. Every durable row names a machine now (POD-318), and these
+ *  round-trip fixtures compare row-for-row, so they all have to name the same one. */
+const TEST_MACHINE = asMachineId('machine-under-test')
 
 function row(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -175,9 +180,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     lastOutputAt: null,
     lastInputAt: null,
     lastResumedAt: null,
-    // loadSessions() always returns the attribution column ('__local__' pre-multi-machine),
-    // so the round-trip fixture carries it too.
-    machineId: '__local__',
+    // The machine column is NOT NULL with no default (POD-318), so every row —
+    // including this fixture — names the machine it belongs to.
+    machineId: TEST_MACHINE,
     // Same for provenance (issue #60): loadSessions always returns it (null = legacy).
     spawnedBy: null,
     // And the headless flag (concierge unification): always present, default false.
@@ -247,13 +252,13 @@ describe('SessionStore sessions', () => {
   it('persists a cwd change when an existing session moves machines', async () => {
     const file = await tmpDbPath()
     const source = new SessionStore(file)
-    source.sessions.upsertSession(row({ cwd: '/source/repo/.worktrees/x', machineId: 'm1' }))
-    source.sessions.upsertSession(row({ cwd: '/target/repo/.worktrees/x', machineId: 'm2' }))
+    source.sessions.upsertSession(row({ cwd: '/source/repo/.worktrees/x', machineId: asMachineId('m1') }))
+    source.sessions.upsertSession(row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }))
     source.close()
 
     const restarted = new SessionStore(file)
     expect(restarted.sessions.loadSessions()).toEqual([
-      row({ cwd: '/target/repo/.worktrees/x', machineId: 'm2' }),
+      row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }),
     ])
     restarted.close()
   })
@@ -784,6 +789,8 @@ describe('conversation index', () => {
     id,
     agentKind: 'claude-code',
     providerId: 'claude-jsonl',
+    // The conversations row carries its machine now (no column default to lean on).
+    machineId: TEST_MACHINE,
     title: `conv ${id}`,
     projectPath: '/src/app',
     updatedAt: '2026-06-12T08:00:00.000Z',

@@ -175,7 +175,7 @@ describe('the local sentinels are a synthesized host row, not an exemption', () 
   })
 
   it('a REAL row for the sentinel wins over the synthesized one', () => {
-    // `ensureLocalMachine` seeds `local` on a normal boot, and once POD-1079
+    // `ensureHostMachine` seeds `local` on a normal boot, and once POD-1079
     // gives that row an owner, the row is the authority — the synthesized answer
     // is a fallback for its absence, not an override of its content.
     const owned = ownershipTable(new Map([['local', { owner: COLLEAGUE, grants: [] }]]))

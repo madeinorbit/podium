@@ -183,7 +183,7 @@ export type HostMetricsWire = z.infer<typeof HostMetricsWire>
  *  learn, and it is a single field so the projection split is a field drop. */
 export const MachineWire = z.object({
   /** THE machine id itself, and the sharpest carve-out of the seven: the server
-   *  UPSERTS this row with `id: LOCAL_MACHINE_ID = 'local'` (`ensureLocalMachine`),
+   *  UPSERTS this row with `id: LOCAL_MACHINE_ID = 'local'` (`ensureHostMachine`),
    *  so branding this field would mint a well-typed `MachineId` for the sentinel
    *  at its source. ADR 1 Amendment 2 D16.2. */
   id: MachineIdField,

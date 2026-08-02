@@ -20,7 +20,7 @@
  * from a machine other than the one the request was sent to (POD-1175).
  */
 
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
+import type { ConversationDiagnosticWire, ConversationSummaryWire, MachineId } from '@podium/model'
 import type { ControlMessage, DaemonMessage, MachinePrincipal } from '@podium/protocol'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
 
@@ -69,7 +69,7 @@ export interface MachinesDaemonPort {
 /** HOSTS. Health samples are per-machine facts and are scoped by the principal;
  *  so is the memory-breakdown reply, which the correlator checks the sender of. */
 export interface HostsDaemonPort {
-  onHostMetrics(machineId: string, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
+  onHostMetrics(machineId: MachineId, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
   onMemoryBreakdownResult(machineId: string, msg: DaemonFrame<'memoryBreakdownResult'>): void
 }
 

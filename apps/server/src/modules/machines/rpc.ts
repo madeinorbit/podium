@@ -110,11 +110,11 @@ interface DaemonRpcDeps {
   broker?: DaemonRequestPort
   store: Pick<SessionStore['conversations'], 'conversationSegmentPath'>
   toMachine(machineId: string, msg: ControlMessage): void
-  defaultMachine(): string
+  defaultMachine(): MachineId
   resolveMachine(requested: string | undefined, cwd: string): string
   hasDaemon(machineId: string): boolean
   machineName(id: string): string
-  onlineMachineIds(): string[]
+  onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
   /** Lake-fallback transcript read supplied by the already-constructed conversation lake.
    *

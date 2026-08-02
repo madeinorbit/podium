@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, asSessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
@@ -32,7 +32,7 @@ describe('machines store', () => {
     s.close()
   })
 
-  it('adoptLocalRows rewrites __local__ session machine ids', () => {
+  it('the boot upgrade folds legacy sentinel rows onto this host, and re-running is a no-op', () => {
     const s = new SessionStore(':memory:')
     s.sessions.upsertSession({
       id: asSessionId('sess'),
@@ -55,28 +55,35 @@ describe('machines store', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
-      machineId: '__local__',
+      // A row from before POD-318. Nothing in the codebase can write this value any
+      // more — the column default that manufactured it is gone — so it is spelled out
+      // here, which is exactly the shape a legacy database hands the upgrade.
+      machineId: asMachineId('__local__'),
     })
-    s.adoptLocalRows('m1')
-    expect(s.sessions.loadSessions()[0]?.machineId).toBe('m1')
+    s.migrateLegacyMachineIdentity(s.hostMachineId)
+    expect(s.sessions.loadSessions()[0]?.machineId).toBe(s.hostMachineId)
+    // Idempotent BY CONSTRUCTION: the second run matches nothing, and its residue
+    // check still passes — which is what makes it safe on every subsequent boot.
+    s.migrateLegacyMachineIdentity(s.hostMachineId)
+    expect(s.sessions.loadSessions()[0]?.machineId).toBe(s.hostMachineId)
     s.close()
   })
 
   it('repos table is re-keyed to (machine_id, path) with origin_url', () => {
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/home/u/a')
+    s.repos.addRepo('/home/u/a', s.hostMachineId)
     s.repos.addRepo('/home/u/b', 'm2', 'https://github.com/u/b')
     const rows = s.repos.listRepos()
-    expect(rows.find((r) => r.path === '/home/u/a')?.machineId).toBe('__local__')
+    expect(rows.find((r) => r.path === '/home/u/a')?.machineId).toBe(s.hostMachineId)
     expect(rows.find((r) => r.path === '/home/u/b')?.originUrl).toBe('https://github.com/u/b')
-    s.repos.removeRepo('/home/u/a')
+    s.repos.removeRepo('/home/u/a', s.hostMachineId)
     expect(s.repos.listRepos().map((r) => r.path)).toEqual(['/home/u/b'])
     s.close()
   })
 
   it('listRepoPaths returns a flat string[] for back-compat', () => {
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/abs/one')
+    s.repos.addRepo('/abs/one', s.hostMachineId)
     s.repos.addRepo('/abs/two', 'm2')
     const paths = s.repos.listRepoPaths()
     expect(paths).toEqual(['/abs/one', '/abs/two'])
@@ -85,7 +92,7 @@ describe('machines store', () => {
 
   it('listRepos(machineId) filters to one machine', () => {
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/abs/local')
+    s.repos.addRepo('/abs/local', s.hostMachineId)
     s.repos.addRepo('/abs/remote', 'm2')
     expect(s.repos.listRepos('__local__').map((r) => r.path)).toEqual(['/abs/local'])
     expect(s.repos.listRepos('m2').map((r) => r.path)).toEqual(['/abs/remote'])
@@ -120,7 +127,7 @@ describe('machines store', () => {
     const file = await tmpDbPath()
     const s1 = new SessionStore(file)
     s1.machines.upsertMachine({ id: 'm1', name: 'a', hostname: 'h', tokenHash: 'x', ownerUserId: 'user:sole' })
-    s1.repos.addRepo('/a')
+    s1.repos.addRepo('/a', s1.hostMachineId)
     s1.sessions.upsertSession({
       id: asSessionId('s1'),
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -142,6 +149,7 @@ describe('machines store', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
+      machineId: s1.hostMachineId,
     })
     s1.close()
 

@@ -77,7 +77,7 @@ describe('multi-daemon routing', () => {
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
     m1.length = 0
 
@@ -107,7 +107,7 @@ describe('multi-daemon routing', () => {
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
     m1.length = 0
     m2.length = 0
@@ -185,7 +185,7 @@ describe('multi-daemon routing', () => {
     const a = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/a',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     }).sessionId
     const b = reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -345,7 +345,7 @@ async function handoffRegistry(
         worktreeName: 'x',
         worktreeRelativePath: '.worktrees/x',
         bundleBase: [sha],
-        sourceMachineId: 'm1',
+        sourceMachineId: asMachineId('m1'),
         exportedAt: new Date().toISOString(),
       }
       reg.gateway.routeDaemonFrame(
@@ -465,7 +465,7 @@ async function handoffRegistry(
     reg.modules.issues.update(issue.id, {
       worktreePath: '/source/repo/.worktrees/x',
       branch: 'x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
   }
   const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
@@ -599,7 +599,7 @@ describe('session handoff orchestration', () => {
     })
     expect(reg.modules.issues.getMeta(issueId!)).toMatchObject({
       worktreePath: '/source/repo/.worktrees/x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
     await reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId, machineId: 'm2' },
@@ -711,7 +711,7 @@ describe('session handoff orchestration', () => {
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
         repoPath: '/source/repo',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       })
     } finally {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR

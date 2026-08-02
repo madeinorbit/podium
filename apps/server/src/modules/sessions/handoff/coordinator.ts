@@ -473,7 +473,7 @@ export class HandoffCoordinator {
       }
 
       session.handoffTarget = undefined
-      session.machineId = input.machineId
+      session.machineId = asMachineId(input.machineId)
       session.cwd = imported.newCwd
       session.status = 'hibernated'
       this.ports.persist(session)
@@ -557,7 +557,8 @@ export class HandoffCoordinator {
         )
       }
       session.handoffTarget = undefined
-      session.machineId = sourceCommitted || targetWins ? input.machineId : source.machineId
+      session.machineId =
+        sourceCommitted || targetWins ? asMachineId(input.machineId) : source.machineId
       session.cwd =
         sourceCommitted || targetWins ? (importedLocation?.newCwd ?? session.cwd) : source.cwd
       session.status = 'hibernated'

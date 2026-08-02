@@ -9,7 +9,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
-import { AgentKind, asSessionId, asUserId, type UserId } from '@podium/model'
+import { AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { sessionSpawnerParentId } from '../../steward'
 
 /**
@@ -2586,7 +2586,9 @@ export class SessionLifecycle {
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const machineId = input.machineId ?? this.machines.defaultMachine()
+    const machineId = input.machineId
+      ? asMachineId(input.machineId)
+      : this.machines.defaultMachine()
     const launch = this.modelDefaults(
       input.agentKind,
       input.model !== undefined || input.effort !== undefined

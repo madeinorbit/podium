@@ -1,4 +1,5 @@
 import {
+  asMachineId,
   asUserId,
   DEFER_NEXT_MESSAGE,
   type IssueId,
@@ -85,7 +86,10 @@ export class IssueGitWorkflowModule {
     const target = repos.resolveRepoIdForPath(to.repoPath)
     if (!target || (from && from !== target)) return null
     row.repoPath = to.repoPath
-    return this.crud().update(id, { machineId: to.machineId, worktreePath: to.worktreePath })
+    return this.crud().update(id, {
+      machineId: asMachineId(to.machineId),
+      worktreePath: to.worktreePath,
+    })
   }
 
   private worktreePathFor(repoPath: string, branch: string): string {

@@ -1,5 +1,5 @@
 import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
-import { asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
+import { asMachineId, asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -8,6 +8,8 @@ import { Session } from './session'
 
 const geo: Geometry = { cols: 80, rows: 24 }
 const CREATED = '2026-06-03T00:00:00.000Z'
+/** Every Session names the machine it runs on (POD-318) — there is no default. */
+const TEST_MACHINE = asMachineId('machine-under-test')
 
 function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeState {
   return { phase, since, nativeSubagentCount: 0 }
@@ -22,6 +24,7 @@ function makeSession(toDaemon = vi.fn()) {
     origin: { kind: 'spawn' },
     createdAt: '2026-06-03T00:00:00.000Z',
     geometry: geo,
+    machineId: TEST_MACHINE,
     toDaemon,
   })
 }
@@ -93,6 +96,7 @@ describe('Session', () => {
       sessionId: asSessionId('s1'),
       controllerId: 'a',
       geometry: geo,
+      machineId: TEST_MACHINE,
       epoch: 0,
       resumed: false,
     })
@@ -135,6 +139,7 @@ describe('Session', () => {
       origin: { kind: 'spawn' },
       createdAt: '2026-06-03T00:00:00.000Z',
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
     })
     const a = makeClient('a')
@@ -518,6 +523,7 @@ describe('Session', () => {
       origin: { kind: 'spawn' },
       createdAt: '2026-06-03T00:00:00.000Z',
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
       status: 'reconnecting',
     })
@@ -543,6 +549,7 @@ describe('Session', () => {
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       geometry: geo,
+      machineId: TEST_MACHINE,
     })
     s.onExit(3)
     expect(s.toRow()).toMatchObject({ status: 'exited', exitCode: 3 })
@@ -579,6 +586,7 @@ describe('Session', () => {
       lastActiveAt: '2026-06-10T00:00:00.000Z',
       workingMsTotal: 42_000,
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
       status: 'reconnecting',
     })
@@ -611,6 +619,7 @@ describe('Session', () => {
       createdAt: CREATED,
       lastActiveAt: '2026-06-10T00:00:00.000Z',
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
       status: 'reconnecting',
     })
@@ -634,6 +643,7 @@ describe('Session', () => {
       origin: { kind: 'spawn' },
       createdAt: CREATED,
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
     })
     s.terminal.attachClient(makeClient('a'))
@@ -775,6 +785,7 @@ describe('Session transcript cache (recent-delta window)', () => {
       origin: { kind: 'spawn' },
       createdAt: CREATED,
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
       lastActiveAt: '2026-06-01T00:00:00.000Z',
     })
@@ -802,6 +813,7 @@ describe('Session transcript cache (recent-delta window)', () => {
       origin: { kind: 'spawn' },
       createdAt: CREATED,
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
       lastInputAt: '2026-06-29T02:00:00.000Z',
     })
@@ -820,6 +832,7 @@ describe('Session transcript cache (recent-delta window)', () => {
       origin: { kind: 'spawn' },
       createdAt: CREATED,
       geometry: geo,
+      machineId: TEST_MACHINE,
       toDaemon: vi.fn(),
       lastOutputAt: 'not-a-date',
       lastInputAt: 'garbage',

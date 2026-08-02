@@ -102,7 +102,7 @@ export const SOLE_OWNER_ALLOWLIST: ReadonlySet<string> = new Set([
   'apps/server/src/device-grade-owner.ts',
   // The local sentinel's synthesized row: `__local__` was paired by nobody.
   'apps/server/src/machine-access.ts',
-  // `ensureLocalMachine` — provisioned at boot with no principal in scope.
+  // `ensureHostMachine` — provisioned at boot with no principal in scope.
   'apps/server/src/modules/machines/service.ts',
   // POD-1080: the user a Telegram claim code is minted FOR. Not a machine
   // owner, and deliberately the same placeholder rather than a fourth spelling

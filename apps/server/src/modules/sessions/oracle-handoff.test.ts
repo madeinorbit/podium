@@ -180,7 +180,7 @@ async function handoffFixture(
                 worktreeName: 'x',
                 worktreeRelativePath: '.worktrees/x',
                 bundleBase: [SHA],
-                sourceMachineId: 'm1',
+                sourceMachineId: asMachineId('m1'),
                 exported: {
                   at: new Date().toISOString(),
                   // Payload identity is deliberately forged. The binding capsule

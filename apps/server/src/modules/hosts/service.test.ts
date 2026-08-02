@@ -1,5 +1,5 @@
 import type { HostMetricsWire, SessionId } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
@@ -109,7 +109,7 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 2 })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['old-effective-idle'])
   })
@@ -122,7 +122,7 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['one', 'two', 'three'])
     expect(sessions.every((item) => item.status === 'hibernated')).toBe(true)
@@ -132,14 +132,14 @@ describe('idle-session cap', () => {
     const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(4)
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(4)
 
     vi.advanceTimersByTime(15_000)
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(5)
   })
 
@@ -147,11 +147,11 @@ describe('idle-session cap', () => {
     const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(4)
 
     // Count pressure has exhausted its burst, but memory has its own budget.
-    service.onHostMetrics('local', sample(90))
+    service.onHostMetrics(asMachineId('local'), sample(90))
     expect(parked).toHaveLength(5)
   })
 
@@ -159,7 +159,7 @@ describe('idle-session cap', () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 10 })
 
-    service.onHostMetrics('local', sample(90))
+    service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(parked).toEqual(['one'])
   })
@@ -172,7 +172,7 @@ describe('idle-session cap', () => {
       proven: new Set(['proven']),
     })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['proven'])
     expect(sessions[0]?.status).toBe('live')
@@ -187,8 +187,8 @@ describe('idle-session cap', () => {
       proven: new Set(),
     })
 
-    service.onHostMetrics('local', sample(90))
-    service.onHostMetrics('local', sample(90))
+    service.onHostMetrics(asMachineId('local'), sample(90))
+    service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
@@ -203,7 +203,7 @@ describe('idle-session cap', () => {
     invalidMemory.memory.totalBytes = 0
     invalidMemory.memory.availableBytes = 0
 
-    service.onHostMetrics('local', invalidMemory)
+    service.onHostMetrics(asMachineId('local'), invalidMemory)
 
     expect(parked).toEqual(['one'])
   })
@@ -220,11 +220,11 @@ describe('idle-session cap', () => {
       fail: failures,
     })
 
-    service.onHostMetrics('local', sample(90))
+    service.onHostMetrics(asMachineId('local'), sample(90))
     expect(parked).toEqual(['next'])
 
     failures.clear()
-    service.onHostMetrics('local', sample(90))
+    service.onHostMetrics(asMachineId('local'), sample(90))
     expect(parked).toEqual(['next'])
   })
 
@@ -239,8 +239,8 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics('a', sample(10))
-    service.onHostMetrics('b', sample(10))
+    service.onHostMetrics(asMachineId('a'), sample(10))
+    service.onHostMetrics(asMachineId('b'), sample(10))
 
     expect(parked.filter((id) => id.startsWith('a'))).toHaveLength(4)
     expect(parked.filter((id) => id.startsWith('b'))).toHaveLength(4)
@@ -254,7 +254,7 @@ describe('idle-session cap', () => {
       fail: new Set(['raced']),
     })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['next'])
   })
@@ -275,7 +275,7 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['parkable'])
     expect(info).toHaveBeenCalledWith(expect.stringContaining('cap unmet: 3 protected/ineligible'))
@@ -286,7 +286,7 @@ describe('idle-session cap', () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0, enabled: false })
 
-    service.onHostMetrics('local', sample(90))
+    service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(parked).toEqual([])
   })
@@ -295,7 +295,7 @@ describe('idle-session cap', () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: null })
 
-    service.onHostMetrics('local', sample(10))
+    service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual([])
   })

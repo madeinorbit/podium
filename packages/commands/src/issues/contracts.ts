@@ -62,6 +62,7 @@ import {
   IssueStage,
   IssueType,
   isSortKey,
+  MachineIdField,
   MutationIdField,
   Revision,
   SessionIdField,
@@ -220,7 +221,7 @@ export const createInput = z.object({
   defaultAgent: z.string().optional(),
   defaultModel: z.string().optional(),
   defaultEffort: z.string().optional(),
-  machineId: z.string().optional(),
+  machineId: MachineIdField.optional(),
   startNow: z.boolean(),
   linear: z
     .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
@@ -256,7 +257,7 @@ export const updateInput = z.object({
     defaultAgent: z.string().optional(),
     defaultModel: z.string().optional(),
     defaultEffort: z.string().optional(),
-    machineId: z.string().nullable().optional(),
+    machineId: MachineIdField.nullable().optional(),
     archived: z.boolean().optional(),
     priority: z.number().int().min(0).max(4).optional(),
     type: IssueType.optional(),

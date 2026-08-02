@@ -30,7 +30,7 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -288,7 +288,7 @@ describe('soleOwnerForCwd', () => {
 
   it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', () => {
     const { svc, store } = harness()
-    store.repos.addRepo('/r')
+    store.repos.addRepo('/r', store.hostMachineId)
     const squatter = svc.create({ repoPath: '/other', title: 'Squatter', startNow: false })
     svc.update(squatter.id, { worktreePath: '/r' })
     expect(svc.soleOwnerForCwd('/r')).toBeNull()
@@ -358,6 +358,7 @@ describe('store: sessions.issue_id round-trip', () => {
       cwd: '/r',
       title: 't',
       name: null,
+      machineId: store.hostMachineId,
       originKind: 'spawn',
       conversationId: null,
       resumeKind: null,

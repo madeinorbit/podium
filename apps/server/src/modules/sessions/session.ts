@@ -5,6 +5,7 @@ import {
   type ConversationId,
   type Geometry,
   type IssueId,
+  type MachineId,
   type SessionId,
   type UserId,
   type ResumeRef,
@@ -77,7 +78,7 @@ export interface SessionInit {
   /** The machine (daemon) this session runs on. REQUIRED: the caller has resolved a
    *  real machine before a Session object exists (POD-318), so there is no default to
    *  supply and no placeholder to adopt away from later. */
-  machineId: string
+  machineId: MachineId
   resume?: ResumeRef
   durableLabel?: string
   lastActiveAt?: string
@@ -140,7 +141,7 @@ export interface SessionDurableState {
   refIssueId: IssueId | null
   refLetter: string | null
   refDraft: number | null
-  machineId: string
+  machineId: MachineId
   resume: ResumeRef | undefined
   lastActiveAt: string
   title: string
@@ -207,7 +208,7 @@ export class Session {
   /** The machine (daemon) this session runs on. The registry routes this session's
    *  control messages to it. Reassignable rather than readonly because a handoff moves
    *  a session between machines — never because it starts out unattributed. */
-  machineId: string
+  machineId: MachineId
   /** How to bring this session back after its process is gone (hibernate→resume).
    *  Set at spawn for resumes; learned later from the daemon for fresh spawns. */
   resume?: ResumeRef

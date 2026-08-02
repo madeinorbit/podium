@@ -9,6 +9,7 @@ import {
   AgentKind,
   asSessionId,
   type IssueId,
+  type MachineId,
   type SessionId,
   type UserId,
 } from '@podium/model'
@@ -120,7 +121,8 @@ export class SessionsRepository {
       ...(Number(r.activity_count) > 0 ? { activityCount: Number(r.activity_count) } : {}),
       archived: r.archived === 1,
       workState: (r.work_state as string | null) ?? null,
-      machineId: r.machine_id as string,
+      // SERIALIZATION EDGE: untyped from sqlite; the machine id re-enters its id space.
+      machineId: r.machine_id as MachineId,
       lastOutputAt: (r.last_output_at as string | null) ?? null,
       lastInputAt: (r.last_input_at as string | null) ?? null,
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,

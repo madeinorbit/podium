@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, HostMetricsWire, SessionId } from '@podium/model'
+import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@podium/model'
 import type { DaemonMessage, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EventBus } from '../bus'
@@ -103,7 +103,7 @@ export class HostsService {
 
   /** Inbound daemon hostMetrics sample: tag it with the reporting machine so clients
    *  can attribute it and the per-machine cooldown/candidate scoping works. */
-  onHostMetrics(machineId: string, sample: Omit<HostMetricsWire, 'machineId' | 'name'>): void {
+  onHostMetrics(machineId: MachineId, sample: Omit<HostMetricsWire, 'machineId' | 'name'>): void {
     const tagged: HostMetricsWire = {
       ...sample,
       machineId,

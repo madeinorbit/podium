@@ -9,6 +9,7 @@ import type {
   Geometry,
   IssueColorSlot,
   IssueId,
+  MachineId,
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
@@ -173,7 +174,7 @@ export interface SessionRow {
    *  machine's minted id before it writes the first row, so there is no honest moment
    *  at which a durable session exists without one. It was optional while the column
    *  had a `'__local__'` default to manufacture — that default is gone. */
-  machineId: string
+  machineId: MachineId
   /** True for a headless harness session (no PTY; superagent-driven turns).
    *  Optional so pre-existing row literals stay valid; absent = false. */
   headless?: boolean
@@ -209,7 +210,7 @@ export interface SessionRow {
 
 /** One row of the machines table (token_hash is internal — not included here). */
 export interface MachineRecord {
-  id: string
+  id: MachineId
   name: string
   hostname: string
   createdAt: string
@@ -315,7 +316,7 @@ export interface IssueRow {
   defaultModel: string
   defaultEffort: string
   /** Machine (daemon) this issue's agents run on; null = pick by repo affinity. */
-  machineId?: string | null
+  machineId?: MachineId | null
   linearId: string | null
   linearIdentifier: string | null
   linearUrl: string | null

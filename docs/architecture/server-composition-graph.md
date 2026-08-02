@@ -5,7 +5,7 @@
 
 Root: `apps/server/src/relay.ts`
 
-Runtime modules: 169. Runtime edges: 276. Cycles: 0.
+Runtime modules: 169. Runtime edges: 275. Cycles: 0.
 
 ## Verified topological order
 
@@ -212,7 +212,7 @@ Runtime modules: 169. Runtime edges: 276. Cycles: 0.
 | `apps/server/src/llm-error.ts` | — |
 | `apps/server/src/llm-roles.ts` | `apps/server/src/llm.ts` |
 | `apps/server/src/llm.ts` | `apps/server/src/codex-auth.ts`<br>`apps/server/src/llm-error.ts` |
-| `apps/server/src/machine-access.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/device-grade-owner.ts` |
+| `apps/server/src/machine-access.ts` | `apps/server/src/command-principal.ts` |
 | `apps/server/src/migrations/backup.ts` | — |
 | `apps/server/src/migrations/drizzle-manifest.generated.ts` | — |
 | `apps/server/src/migrations/index.ts` | `apps/server/src/migrations/backup.ts`<br>`apps/server/src/migrations/drizzle-manifest.generated.ts` |

@@ -5,7 +5,7 @@
  * (`@podium/runtime/local-machine`), presented as a hello credential on the
  * `/daemon` endpoint. THE SAME HELLO PATH AS REMOTE — not a pairing ceremony, and
  * not a bootstrap special case: the server pre-registers the local machine
- * (`ensureLocalMachine`) with a server-owned credential and its same-host daemon
+ * (`ensureHostMachine`) with a server-owned credential and its same-host daemon
  * comes through here like any other.
  *
  * What it may then address: what its MACHINE principal is authorized for. A
