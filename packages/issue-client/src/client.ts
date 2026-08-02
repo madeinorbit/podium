@@ -61,6 +61,10 @@ export interface IssueTrpc {
   lock: Record<LockProcName, IssueProc>
   features?: { state: IssueProc }
   workflows: Record<WorkflowProcName, IssueProc>
+  /** Read-only, and here only so `--machine <name>` can be resolved to the id the issue
+   *  contracts take. Optional because the operator HTTP client and the agent relay both
+   *  reach it, but the drift/unit fakes have no reason to stub it. */
+  machines?: { list: IssueProc }
 }
 
 /**

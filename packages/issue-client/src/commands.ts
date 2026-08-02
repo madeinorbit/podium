@@ -7,6 +7,7 @@ import {
 } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
+import { machineByRef, type NameableMachine } from './machine-ref.js'
 
 /** What a command returns: `text` is the human rendering; `data` is the structured
  *  payload (the tRPC result) that `--json` and MCP structured output serialize. */
@@ -39,6 +40,34 @@ const idArg = z.union([z.string(), z.number()]).transform((v) => String(v))
 /** Boolean flag that also accepts an explicit value: `--pinned`, `--pinned true`,
  *  `--pinned=false` (a bare flag parses to `true`; values arrive as strings). */
 const cliBool = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
+
+/**
+ * `--machine <name|id>` -> the machine id the issue contracts take (POD-1424).
+ *
+ * A human names a machine; `issues.machine_id` stores an id. Resolution goes through
+ * `machineByRef` — the SAME exact-match rule `podium machine show` and
+ * `podium session handoff --to` use — so no two surfaces can come to disagree about
+ * which host a name means. It is exact by design: resolving wrongly starts real work
+ * on the wrong box, where it looks like it worked.
+ *
+ * The list it resolves against is already scoped to what this caller may see, so an id
+ * typed for a machine the caller cannot see is refused as unknown — which is also the
+ * answer that discloses nothing about whether it exists.
+ */
+async function machineIdForRef(c: IssueTrpc, ref: string): Promise<string> {
+  if (!c.machines) {
+    throw new Error('this client cannot resolve machine names (no machines.list)')
+  }
+  const machines = (await c.machines.list.query({})) as NameableMachine[]
+  const match = machineByRef(machines, ref)
+  if (match) return match.id
+  const known = machines.map((machine) => machine.name).join(', ')
+  throw new Error(
+    known
+      ? `no visible machine named '${ref}' (visible: ${known}) — see \`podium machine list\``
+      : `no visible machine named '${ref}' — see \`podium machine list\``,
+  )
+}
 
 // One-line summary of an issue for list/ready/blocked output.
 function line(i: { seq: number; title: string; priority?: number; stage?: string }): string {
@@ -410,6 +439,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       start: z.boolean().optional(),
     }),
     async run(c, a) {
+      // `--machine` takes a NAME as well as an id (POD-1424). It used to pass the raw
+      // string straight through as machineId, so a caller had to know a uuid that
+      // nothing ever printed; `podium machine list` prints the names.
+      const machineId = a.machine ? await machineIdForRef(c, a.machine as string) : undefined
       const i = (await c.issues.create.mutate({
         repoPath: a.repoPath as string,
         title: a.title as string,
@@ -423,7 +456,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.agent ? { defaultAgent: a.agent as string } : {}),
         ...(a.model ? { defaultModel: a.model as string } : {}),
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
-        ...(a.machine ? { machineId: a.machine as string } : {}),
+        ...(machineId ? { machineId } : {}),
         ...(a.assignee ? { assignee: a.assignee as string } : {}),
         ...(a.color ? { color: a.color as never } : {}),
         // --labels is comma-separated on the CLI; the proc takes an array.
@@ -445,14 +478,25 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'start',
     summary:
-      'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--force-unknown-model]. Model/effort come from the issue (set via create/update --model/--effort).',
+      'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--machine <name|id>] [--force-unknown-model]. Model/effort come from the issue (set via create/update --model/--effort). --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.',
     args: z.strictObject({
       id: idArg,
       agent: z.string().min(1).optional(),
+      machine: z.string().min(1).optional(),
       'force-unknown-model': z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
+      // `--machine` HOMES the issue rather than passing a one-shot placement, and that
+      // is the honest model: `issues.machine_id` is where an issue LIVES, and every
+      // later spawn on it must land in the SAME worktree. A per-start override would
+      // let the pin and the worktree disagree — one issue with two homes — which is the
+      // divergence this work exists to prevent. So resolve the name, write the pin,
+      // then start.
+      if (a.machine) {
+        const machineId = await machineIdForRef(c, a.machine as string)
+        await c.issues.update.mutate({ id: a.id as string, patch: { machineId } })
+      }
       const i = (await c.issues.start.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),

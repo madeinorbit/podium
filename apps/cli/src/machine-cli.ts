@@ -13,9 +13,8 @@
  * renders that projection and nothing else.
  */
 
-import { makeRelayIssueClient } from '@podium/issue-client'
+import { machineByRef, makeRelayIssueClient, type NameableMachine } from '@podium/issue-client'
 import { resolveAgentRelay } from '@podium/runtime/config'
-import { machineByRef, type NameableMachine } from './machine-ref'
 
 type Proc = { query(input?: unknown): Promise<unknown> }
 

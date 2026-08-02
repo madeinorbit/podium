@@ -2,6 +2,7 @@
  * `podium machine list/show` (POD-1424) — the read a coordinating agent needs before
  * placing work on a second host.
  */
+import { machineByRef } from '@podium/issue-client'
 import { describe, expect, it, vi } from 'vitest'
 import {
   lastSeenDescription,
@@ -11,7 +12,6 @@ import {
   runMachineCli,
   selectMachine,
 } from './machine-cli'
-import { machineByRef } from './machine-ref'
 
 const INVENTORY = {
   os: 'linux',
