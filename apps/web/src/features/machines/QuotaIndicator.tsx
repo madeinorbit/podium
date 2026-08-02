@@ -273,8 +273,8 @@ export function QuotaIndicator({
             <p className="mt-0.5 mb-0 max-w-[60ch] text-xs text-muted-foreground">
               Read live from each agent's own usage endpoint on each dev machine. Limits are
               per-account, so machines signed into the same account share one entry. Percentages are
-              the share of each rolling plan window consumed. Grok is omitted — it exposes no local
-              quota.
+              the share of each rolling plan window consumed. Grok reports both its weekly pool and
+              monthly billing window.
             </p>
           </div>
         </DialogContent>
