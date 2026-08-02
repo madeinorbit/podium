@@ -113,6 +113,7 @@ import {
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import { SessionMachineReconciler } from './machine-reconciler'
+import { normalizeAgentName, SessionNaming } from './naming'
 import { SessionObservationLeases } from './observation-leases'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import {
@@ -147,24 +148,6 @@ export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
  * the live constant. Lowering this value below the outbox horizon fails that test.
  */
 export const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
-
-/** Normalize an agent-set session name the same way setAgentName does — trim,
- *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
- *  path and createSession's spawner-prescribed name [spec:SP-4ef9][spec:SP-eb60].
- *  Length cap: MAX_AGENT_TITLE_LENGTH from @podium/protocol/titles. */
-function normalizeAgentName(
-  name: string,
-): { ok: true; name: string } | { ok: false; reason: string } {
-  const clean = name.trim().replace(/\s+/g, ' ')
-  if (!clean) return { ok: false, reason: 'title is empty' }
-  if (clean.length > MAX_AGENT_TITLE_LENGTH) {
-    return {
-      ok: false,
-      reason: `title exceeds ${MAX_AGENT_TITLE_LENGTH} characters — a session title is 3–5 words`,
-    }
-  }
-  return { ok: true, name: clean }
-}
 
 /** The write-seam change log face sessions run through ([spec:SP-3fe2] #256):
  *  `commit` binds a session row write and its declared change into one
@@ -315,6 +298,8 @@ export class SessionLifecycle {
   private readonly terminalProof: SessionTerminalProof
   /** Daemon presence reconciliation for one machine (POD-1396). */
   private readonly machineReconciler: SessionMachineReconciler
+  /** The curated name slot and its provenance rule (POD-1396). */
+  private readonly naming: SessionNaming
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -385,6 +370,10 @@ export class SessionLifecycle {
         this.store.messages.pendingForSessionProof(sessionId, atIso),
       isDraining: (sessionId) => this.inbox.isDraining(sessionId),
       autoContinueActive: (sessionId) => this.autoContinue.isActive(sessionId),
+    })
+    this.naming = new SessionNaming({
+      session: (sessionId) => this.sessions.get(sessionId),
+      mutate: (sessionId, write) => this.mutateSessionMeta(sessionId, write),
     })
     this.machineReconciler = new SessionMachineReconciler({
       sessions: () => this.sessions.values(),
@@ -1497,57 +1486,19 @@ export class SessionLifecycle {
     this.broadcastSessions()
   }
 
-  /**
-   * A HUMAN names the session (web rename, superagent `rename_session`) — the
-   * curated slot, stamped `nameSource = 'user'` (#490). That stamp is sovereign:
-   * setAgentName refuses against it forever after, so an agent can never overwrite
-   * a name the user picked.
-   *
-   * Clearing (name = '') also clears the source — the session is unnamed again, so
-   * an agent may name it (and the prime will ask it to).
-   */
-  renameSession({ sessionId, name }: { sessionId: SessionId; name: string }): void {
-    this.mutateSessionMeta(sessionId, (session) => {
-      const clean = name.trim()
-      session.name = clean
-      session.nameSource = clean ? 'user' : undefined
-    })
+  /** A HUMAN names the session. Delegated to {@link SessionNaming}, which owns
+   *  the user-sovereign provenance rule. */
+  renameSession(input: { sessionId: SessionId; name: string }): void {
+    this.naming.rename(input)
   }
 
-  /**
-   * The AGENT names its own session (#490) — `podium session title "…"`, relayed as
-   * sessions.title and bound to the calling session by the capability.
-   *
-   * Writes the same curated `name` slot the user writes, so it wins in the UI over
-   * the derived `title` — but stamped 'agent', and REFUSED when the user already
-   * named it. An agent may overwrite its OWN earlier agent-set name (retitling as
-   * the work becomes clear) and may name a session whose name nobody set.
-   *
-   * Refusal is a returned reason, not a throw: the CLI prints it and the agent
-   * carries on. Same persist + broadcast path as renameSession.
-   */
-  setAgentName({ sessionId, name }: { sessionId: SessionId; name: string }): {
+  /** The AGENT names its own session; refused against a user-set name. */
+  setAgentName(input: { sessionId: SessionId; name: string }): {
     ok: boolean
     name?: string
     reason?: string
   } {
-    const session = this.sessions.get(sessionId)
-    if (!session) return { ok: false, reason: 'session not found' }
-    const norm = normalizeAgentName(name)
-    if (!norm.ok) return { ok: false, reason: norm.reason }
-    // User-set names are sovereign [spec:SP-eb60]: refuse, never throw, never overwrite.
-    if (session.nameSource === 'user') {
-      return {
-        ok: false,
-        name: session.name,
-        reason: `this session was named by the user ("${session.name}") — an agent cannot rename it`,
-      }
-    }
-    this.mutateSessionMeta(sessionId, (s) => {
-      s.name = norm.name
-      s.nameSource = 'agent'
-    })
-    return { ok: true, name: norm.name }
+    return this.naming.setAgentName(input)
   }
 
   setArchived({ sessionId, archived }: { sessionId: SessionId; archived: boolean }): void {
