@@ -4,7 +4,8 @@ import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
 import { SessionStore } from '../../store'
 import type { Send } from '../sessions/session'
-import { type MachinesDeps, MachinesService } from './service'
+import { sha256 } from './enrollment'
+import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
 
 /** Only the socket bookkeeping is exercised here — none of these paths touch the store. */
 function makeService(): MachinesService {
@@ -114,6 +115,95 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
         'shell',
       ),
     ).toThrow(/do not have access/)
+  })
+})
+
+describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
+  // The row caches (machineRecordsCache / machineNameCache) are derived state:
+  // every write to the machines table must invalidate them or a client keeps
+  // reading the pre-write fleet. The credential lifecycle writes that table on
+  // BOTH handshake arms, and reaches the caches only through EnrollmentHost —
+  // so these tests drive `authenticateDaemon` and read the public projections
+  // with NO manual invalidate in between. They also never `attach()`, because
+  // attach invalidates defensively and would mask the loss.
+  //
+  // The cache is WARMED first in each case: an unwarmed read is a cache MISS
+  // that rebuilds anyway, and would pass with invalidation removed entirely.
+
+  function pairingService(): { svc: MachinesService; store: SessionStore } {
+    const store = new SessionStore(':memory:')
+    const codes = new Map<string, PairingGrant>()
+    const svc = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: store.hostMachineId,
+      pairing: {
+        mint: (grant = {}) => {
+          codes.set('code-1', grant)
+          return 'code-1'
+        },
+        redeem: (code) => {
+          const grant = codes.get(code)
+          codes.delete(code)
+          return grant
+        },
+      },
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: () => [],
+    } satisfies MachinesDeps)
+    return { svc, store }
+  }
+
+  test('a paired machine is named and listed without a manual invalidate', () => {
+    const { svc } = pairingService()
+    // Warm both caches on the pre-pair fleet: machineName populates the name map,
+    // listMachines the record list. Everything after this is served from them
+    // until something drops them.
+    svc.machineName(MACHINE)
+    const before = svc.listMachines().map((m) => m.id)
+    expect(before).not.toContain(MACHINE)
+
+    const code = svc.mintPairingCode({ ownerUserId: 'user:sole' })
+    const result = svc.authenticateDaemon({
+      type: 'pair',
+      code,
+      machineId: MACHINE,
+      hostname: 'vmi.local',
+      name: 'Builder',
+    })
+    expect(result.ok).toBe(true)
+
+    expect(svc.machineName(MACHINE)).toBe('Builder')
+    expect(svc.listMachines().find((m) => m.id === MACHINE)?.name).toBe('Builder')
+    // Ownership reads the same cache, and it is the authorization input.
+    expect(svc.ownershipRows().find((m) => m.id === MACHINE)?.ownerUserId).toBe('user:sole')
+  })
+
+  test('a hello’s restamped hostname is visible without a manual invalidate', () => {
+    const { svc, store } = pairingService()
+    const token = 'tok-vmi'
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Builder',
+      hostname: 'old.local',
+      tokenHash: sha256(token),
+      ownerUserId: 'user:sole',
+    })
+
+    // Warm on the pre-hello row — the upsert went straight to the store, so this
+    // read is what puts the stale hostname in the cache.
+    expect(svc.listMachines().find((m) => m.id === MACHINE)?.hostname).toBe('old.local')
+
+    const result = svc.authenticateDaemon({
+      type: 'hello',
+      machineId: MACHINE,
+      token,
+      hostname: 'new.local',
+    })
+    expect(result.ok).toBe(true)
+
+    expect(svc.listMachines().find((m) => m.id === MACHINE)?.hostname).toBe('new.local')
   })
 })
 
