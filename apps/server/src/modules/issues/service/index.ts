@@ -1,10 +1,7 @@
 import {
   attributionOf,
-  type CommandPrincipal,
-  FIRST_ADMIN_USER_ID,
   type SystemCommandPrincipal,
   systemPrincipal,
-  userCommandPrincipal,
 } from '../../../command-principal'
 import { IssueAttentionModule } from './attention'
 import { IssueStore } from './core'
@@ -259,19 +256,15 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
     })
   }
 
-  /**
-   * The flat legacy service is an authenticated in-process operator seam. Keep
-   * its comment attribution aligned with CLI/tRPC while the capability module
-   * itself continues to require transport callers to pass their principal.
-   */
-  addComment(
-    id: string,
-    author: string,
-    body: string,
-    principal: CommandPrincipal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
-  ): ReturnType<IssueCommentsMailModule['addComment']> {
-    return this.commentsMail.addComment(id, author, body, principal)
-  }
+  // NOTE (POD-1315): there is deliberately no `addComment` override here. One
+  // existed, forwarding to `commentsMail` with `principal` DEFAULTED to the
+  // first admin, on the reasoning that the flat legacy service is an
+  // "authenticated in-process operator seam". The reasoning did not hold: the
+  // seam has no authentication of its own, so the default meant any caller that
+  // omitted the argument silently acted AS the administrator. The forwarding it
+  // added is already provided by the legacy Proxy above, so the override is gone
+  // rather than merely de-defaulted, and `IssueCommentsMailModule.addComment`'s
+  // required principal is now the only signature `IssueService` exposes.
 
   /** Boot hydration, membership totalization, draft reap and ledger reconcile. */
   boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): this {

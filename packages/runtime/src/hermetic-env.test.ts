@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { delimiter, join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveAgentRelay } from './config'
 
@@ -22,5 +24,13 @@ describe('hermetic test env', () => {
   it('points state at a throwaway dir, never the live ~/.podium', () => {
     expect(process.env.PODIUM_STATE_DIR).toBeTruthy()
     expect(process.env.PODIUM_STATE_DIR).not.toMatch(/\.podium(\/|$)/)
+  })
+
+  it('removes the live ~/.podium tree from command lookup', () => {
+    const liveStateDir = resolve(join(homedir(), '.podium'))
+    const pathEntries = (process.env.PATH ?? '').split(delimiter).map((entry) => resolve(entry))
+    expect(
+      pathEntries.some((entry) => entry === liveStateDir || entry.startsWith(`${liveStateDir}${sep}`)),
+    ).toBe(false)
   })
 })

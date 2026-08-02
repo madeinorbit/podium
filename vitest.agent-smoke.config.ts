@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import AgentSmokeReporter from './scripts/agent-smoke-reporter'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
 import { realAgentSmokeTests } from './vitest.smoke-requirements'
 
@@ -25,5 +26,6 @@ export default defineConfig({
     // `vitest run --config vitest.agent-smoke.config.ts`. The opt-in comes from the shell:
     // `bun run test:smoke:agents` sets PODIUM_REAL_CLI=1 explicitly.
     retry: 0,
+    reporters: ['default', new AgentSmokeReporter()],
   },
 })

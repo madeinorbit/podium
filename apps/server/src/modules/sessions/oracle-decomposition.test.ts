@@ -265,7 +265,11 @@ describe('oracle: activity flush and cumulative compute', () => {
       state('working', 0, '2026-08-01T00:01:00.000Z'),
       state('idle', 2_000, '2026-08-01T00:01:02.000Z'),
     ]) {
-      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: next })
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+        type: 'agentState',
+        sessionId,
+        state: next,
+      })
     }
     expect(
       o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.workingMsTotal,
@@ -308,7 +312,9 @@ describe('oracle: priority pushes', () => {
 
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const reconnected: ControlMessage[] = []
-    o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (message) => reconnected.push(message))
+    o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (message) =>
+      reconnected.push(message),
+    )
     expect(priorities(reconnected)).toEqual(
       expect.arrayContaining([
         { type: 'sessionPriority', sessionId: first, priority: 1 },
@@ -437,6 +443,10 @@ describe('oracle: browser-open forwarding', () => {
     })
     const browser: ServerMessage[] = []
     const clientId = attachTestClient(o.reg.clientGateway, (message) => browser.push(message))
+    o.reg.clientGateway.routeClientFrame(clientId, {
+      type: 'presenceSubscribe',
+      room: { kind: 'session', id: sessionId },
+    })
     o.reg.gateway.attachDaemon('foreign', () => {})
     o.daemon.length = 0
     browser.length = 0

@@ -12,8 +12,21 @@ real PTYs, real agent CLIs billing LLM quota) runs implicitly.
 | **Integration** | `bun run test:integration` | `vitest.integration.config.ts`: process/PTY/abduco/daemon suites, `*.integration.*`, `*.pty.test.ts`, real-port server boots, `tests/e2e/**`. Spawns real processes; resource flakes may retry here. | Minutes |
 | **E2E** | `bun run test:e2e` | The 7 vitest files under `tests/e2e/**` (real server + daemon + abduco), via the integration config with the `@podium/source` condition. **No browser**: the Playwright suite has its own lane, below (POD-1227). | Minutes, heavy |
 | **Browser** | `bun run test:browser` | The 70 Playwright suites `tests/e2e/browser/**.browser.e2e.ts` under their own `playwright.config.ts` (real Chromium + WebKit against the harness relay). Runs `scripts/browser-lane.ts`; quarantine is `scripts/browser-quarantine.ts`. In CI **non-blocking** while the red baseline is burned down — read the step output, never the checkmark. Census: [browser-lane-census.md](browser-lane-census.md). | Tens of minutes, heavy |
-| **Agent smoke** | `bun run test:smoke:agents` | `vitest.agent-smoke.config.ts`: launches REAL agent CLIs (claude/codex/opencode/cursor). Gated on `PODIUM_REAL_CLI=1`, which only the npm script sets — never set it yourself implicitly. **Bills real LLM quota.** | Real money |
+| **Agent smoke** | `bun run test:smoke:agents` | `vitest.agent-smoke.config.ts`: launches all five REAL agent CLIs (claude/codex/opencode/cursor/grok) when installed. Gated on `PODIUM_REAL_CLI=1`, which only the npm script sets — never set it yourself implicitly. **Bills real LLM quota.** | Real money |
 | **Multi-instance** | `bun run test:multi-instance` | Acceptance lane for instance identity/state/endpoints/CLI routing/lifecycle ([docs/multi-instance.md](../multi-instance.md)): starts fully separate concurrent runtimes plus the installer suite. Do not substitute multiple clients routed to one server. | Minutes |
+
+The agent-smoke reporter prints ran-versus-skipped totals for each CLI. A CLI's
+viability case starts a real turn and resumes it with retained context; an
+installed but unauthenticated or broken binary runs and fails rather than being
+reported as absent. The lane also fails when all five viability cases skip, or
+when any CLI loses its registered case. Runner operators must explicitly choose
+which authenticated binaries to install; absence remains a visible per-CLI skip.
+
+Keep model-output quality evaluations out of this release viability lane. The
+former Claude brevity evaluation intermittently produced four sentences against
+a three-sentence prose contract despite successful start, turn, and resume; that
+is stochastic instruction compliance, not evidence that the CLI transport works.
+The lexical response-contract behavior remains protected by deterministic tests.
 
 Bun-test files (`*.bun.test.ts`) run via `bun test`, never vitest; `bun run test:bun`
 covers the full bun-test set (compiled daemon + lifecycle integration stay out of CI).

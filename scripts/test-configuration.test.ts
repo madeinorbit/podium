@@ -7,6 +7,7 @@ import rootConfig from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements'
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
+import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 
@@ -106,6 +107,20 @@ describe('test lane configuration', () => {
     expect(config(agentSmokeConfig).test?.env?.PODIUM_REAL_CLI).toBeUndefined()
     expect(config(agentSmokeConfig).test?.projects).toBeUndefined()
     expect(config(agentSmokeConfig).test?.exclude).toContain('apps/web/**')
+  })
+  it('keeps an all-five turn-and-resume case in the real-agent lane', () => {
+    const source = readFileSync(
+      new URL('../apps/daemon/src/headless-drivers.smoke.test.ts', import.meta.url),
+      'utf8',
+    )
+    const kind = {
+      claude: 'claude-code',
+      codex: 'codex',
+      opencode: 'opencode',
+      cursor: 'cursor',
+      grok: 'grok',
+    } as const
+    for (const cli of REAL_AGENT_CLIS) expect(source).toContain(`agent: '${kind[cli]}'`)
   })
 
   it('keeps the frontend performance lane deterministic and explicit', () => {
