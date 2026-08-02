@@ -128,8 +128,8 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.rightPanel': 'rightPanel',
   // panelMode / panelModeDefault are deliberately NOT listed as string literals
   // here: `panel-mode-duality` (POD-329) forbids restating those storage-key
-  // spellings outside packages/client-core/src/engine/persistence.ts. They are
-  // mapped in {@link layoutKeyFromLegacy} by composition instead.
+  // spellings outside packages/client-core/src/ui-state.ts. They are mapped in
+  // {@link layoutKeyFromLegacy} by composition instead.
   'podium.sidebarLayout': 'sidebarLayout',
   'podium:sidebar:collapsed': 'sidebar.collapsed',
   'podium.sidebarTab': 'sidebarTab',
@@ -146,7 +146,7 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
 export function layoutKeyFromLegacy(legacyKey: string): string | null {
   const exact = LAYOUT_KEY_FROM_LEGACY[legacyKey]
   if (exact) return exact
-  // panelMode storage keys: sole spelling lives in client-core persistence
+  // panelMode storage keys: sole spelling lives in client-core ui-state
   // (panel-mode-duality audit). Compose the match so this file never restates
   // the storage-key string literal.
   if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelMode') {

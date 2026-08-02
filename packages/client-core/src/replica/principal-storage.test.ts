@@ -45,6 +45,36 @@ describe('principal replica storage', () => {
     expect(memory.keys().some((key) => key.startsWith(bob.keyPrefix))).toBe(true)
   })
 
+  it('a planted foreign ui-state blob is never adopted by another principal', async () => {
+    const memory = keyedStorage()
+    const alice = preparePrincipalNamespace({
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      principal: 'alice',
+      now: () => 1,
+    })
+    const aliceUi = createReplica({ storage: memory.api, keyPrefix: alice.keyPrefix }).uiState()
+    aliceUi.set('podium.panelMode', '{"s1":"chat"}')
+    aliceUi.set('podium.view', 'issues')
+    await new Promise((r) => setTimeout(r, 0))
+
+    const bob = preparePrincipalNamespace({
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      principal: 'bob',
+      now: () => 2,
+    })
+    const bobUi = createReplica({ storage: memory.api, keyPrefix: bob.keyPrefix }).uiState()
+    expect(bobUi.get('podium.panelMode')).toBeNull()
+    expect(bobUi.get('podium.view')).toBeNull()
+    // Alice's namespaced blob remains; Bob has a separate empty collection.
+    expect(memory.keys().some((key) => key.startsWith(alice.keyPrefix) && key.includes('uistate'))).toBe(
+      true,
+    )
+  })
+
   it('degrades safely when the active marker cannot be persisted', () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const namespace = preparePrincipalNamespace({

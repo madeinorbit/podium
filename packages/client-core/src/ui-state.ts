@@ -20,6 +20,8 @@ import type { UiState } from './replica/contract'
 import type { DockTab, RecentFileEntry } from './viewmodels'
 import { readStoredDockTab } from './viewmodels'
 
+export type { UiState }
+
 export type UiStateHome =
   | 'device-local'
   | 'per-user-replicated'
@@ -39,6 +41,14 @@ export const UI_STATE_KEYS = {
   panelModeDefault: 'podium.panelModeDefault',
   dockShells: 'podium.dockShells',
   recentFiles: 'podium.recentFiles',
+  /** Right-dock tab when the dock is a separate surface (`issue` | `git` | …). */
+  rightPanel: 'podium.rightPanel',
+  /** HTML file tab presentation map (tabId → mode). */
+  htmlmode: 'podium.htmlmode',
+  /** Markdown file tab presentation map (tabId → mode). */
+  mdmode: 'podium.mdmode',
+  /** Issues list layout/ordering preferences. */
+  issuesDisplay: 'podium.issues.display',
 } as const
 
 export const VIEW_KEY = UI_STATE_KEYS.view
@@ -53,6 +63,13 @@ export const PANEL_MODE_KEY = UI_STATE_KEYS.panelMode
 export const PANEL_MODE_DEFAULT_KEY = UI_STATE_KEYS.panelModeDefault
 export const DOCK_SHELLS_KEY = UI_STATE_KEYS.dockShells
 export const RECENT_FILES_KEY = UI_STATE_KEYS.recentFiles
+export const RIGHT_PANEL_KEY = UI_STATE_KEYS.rightPanel
+export const HTML_MODE_MAP_KEY = UI_STATE_KEYS.htmlmode
+export const MD_MODE_MAP_KEY = UI_STATE_KEYS.mdmode
+export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
+
+/** Prefix for per-dock-section open state (`podium.dock.section.<name>`). */
+export const DOCK_SECTION_KEY_PREFIX = 'podium.dock.section.'
 
 export type WorkspaceUiStateKey = (typeof UI_STATE_KEYS)[keyof typeof UI_STATE_KEYS]
 
@@ -104,11 +121,15 @@ export const UI_STATE_ROUTES = {
   },
   [UI_STATE_KEYS.panelMode]: {
     home: 'per-user-replicated',
-    reason: 'Per-session tab presentation is personal tab layout.',
+    // Decision coordinated with POD-1076 / layout-state: sidebar and tab LAYOUT
+    // are per-user (doc §3.1.1). Per-session chat-vs-native presentation is that
+    // family, not screen geometry — it should follow the person across devices.
+    reason:
+      'Per-session chat/native presentation is personal tab layout (POD-1076 layout family).',
   },
   [UI_STATE_KEYS.panelModeDefault]: {
     home: 'per-user-replicated',
-    reason: 'The default tab presentation is a personal preference.',
+    reason: 'The default tab presentation is a personal preference (POD-1076).',
   },
   [UI_STATE_KEYS.dockShells]: {
     home: 'device-local',
@@ -118,6 +139,22 @@ export const UI_STATE_ROUTES = {
     home: 'device-local',
     reason: 'Recent paths are device/machine reachability hints.',
   },
+  [UI_STATE_KEYS.rightPanel]: {
+    home: 'per-user-replicated',
+    reason: 'Right-panel tab selection is personal dock layout.',
+  },
+  [UI_STATE_KEYS.htmlmode]: {
+    home: 'per-user-replicated',
+    reason: 'HTML file presentation modes are personal file-tab layout.',
+  },
+  [UI_STATE_KEYS.mdmode]: {
+    home: 'per-user-replicated',
+    reason: 'Markdown file presentation modes are personal file-tab layout.',
+  },
+  [UI_STATE_KEYS.issuesDisplay]: {
+    home: 'per-user-replicated',
+    reason: 'Issues list display options are a personal preference.',
+  },
 } as const satisfies Record<WorkspaceUiStateKey, UiStateRoute>
 
 /** Client-only exact keys outside the model's shared local/replicated vocabulary.
@@ -126,13 +163,56 @@ export const UI_STATE_ROUTES = {
 export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.chat.stickyPrompts',
   'podium.sounds.enabled',
+  'podium.sounds.ownerWindow',
   'podium.terminal.appearance',
   'podium:tray:open',
   'podium:superagent:chat',
   'podium:tray:height',
   'podium:superagent:width',
   'podium:rightdock:width',
+  /** Dev diagnostics: remote-typing echo HUD. */
+  'podium.echoHud',
+  /** Dev diagnostics: switch-latency console trace. */
+  'podium.switchTrace',
 ] as const
+
+export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
+export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'
+export const SOUND_OWNER_KEY = 'podium.sounds.ownerWindow'
+export const TERMINAL_APPEARANCE_KEY = 'podium.terminal.appearance'
+export const ECHO_HUD_KEY = 'podium.echoHud'
+export const SWITCH_TRACE_KEY = 'podium.switchTrace'
+/** Superagent column mode (open | folded) — replicated via layout-state. */
+export const SUPERAGENT_MODE_KEY = 'podium:superagent:mode'
+export const SIDEBAR_COLLAPSED_KEY = 'podium:sidebar:collapsed'
+
+/**
+ * Keys that are not UI view-state but must still appear in the routing table so
+ * an unclassified persistence home cannot default silently to local.
+ * Homes are explicit; none are written by feature code outside the named owner.
+ */
+/** sessionStorage-only PWA wire-version reload guard (not ui-state collection). */
+export const WIRE_RELOAD_COUNTER_KEY = 'podium.vreload'
+/** Legacy pre-replica outbox blob key — replica migrates it once. */
+export const LEGACY_OUTBOX_LS_KEY = 'podium.outbox.v1'
+
+export const KNOWN_NON_UI_ROUTES = {
+  'podium:superfeed:cursor': {
+    home: 'known-unrouted' as const,
+    reason: 'POD-1380 owns the event-stream cursor home; preserve local parity meanwhile.',
+  },
+  /** sessionStorage-only PWA wire-version reload guard; deliberately pre-store. */
+  [WIRE_RELOAD_COUNTER_KEY]: {
+    home: 'known-unrouted' as const,
+    reason:
+      'sessionStorage loop guard for wire-version hard-reload; must work before the store exists.',
+  },
+  /** Legacy pre-replica outbox blob key — replica migrates it once. */
+  [LEGACY_OUTBOX_LS_KEY]: {
+    home: 'known-unrouted' as const,
+    reason: 'Replica outbox adapter owns this legacy key and the versioned collection.',
+  },
+} as const
 
 const DEVICE_LOCAL_SET: ReadonlySet<string> = new Set([
   ...DEVICE_LOCAL_UI_KEYS,
@@ -168,13 +248,16 @@ export function uiStateRoute(key: string): UiStateRoute {
       reason: 'Theme alone is read before a principal exists to prevent first-paint flash.',
     }
   }
-  const layoutKey = layoutKeyFromLegacy(key)
-  if (key === 'podium:superfeed:cursor') {
+  const knownNonUi = KNOWN_NON_UI_ROUTES[key as keyof typeof KNOWN_NON_UI_ROUTES]
+  if (knownNonUi) return knownNonUi
+  // Dynamic dock-section keys (podium.dock.section.<name>).
+  if (key.startsWith(DOCK_SECTION_KEY_PREFIX) && key.length > DOCK_SECTION_KEY_PREFIX.length) {
     return {
-      home: 'known-unrouted',
-      reason: 'POD-1380 owns the event-stream cursor home; preserve local parity meanwhile.',
+      home: 'per-user-replicated',
+      reason: 'Dock section open state is personal layout under the shared prefix vocabulary.',
     }
   }
+  const layoutKey = layoutKeyFromLegacy(key)
   if (layoutKey !== null && isLayoutKey(layoutKey)) {
     return {
       home: 'per-user-replicated',
@@ -188,6 +271,101 @@ export function uiStateRoute(key: string): UiStateRoute {
     }
   }
   throw new Error(`Unclassified UI-state key: ${key}`)
+}
+
+// ---------------------------------------------------------------------------
+// Panel mode — ONE modeled derivation (saved map + defaults → effective mode)
+// ---------------------------------------------------------------------------
+
+export type PanelMode = 'native' | 'chat'
+
+/**
+ * Derive the effective chat-vs-native mode for a session.
+ *
+ * This is the sole derivation for panel presentation. The store holds the
+ * persisted per-session map; callers materialize the derived value into that
+ * map on first open so subsequent reads are pure map lookups.
+ *
+ * Priority:
+ * 1. Non-chat-capable sessions always show native.
+ * 2. Persisted per-session override (when present).
+ * 3. Personal default pick (panelModeDefault).
+ * 4. The `startScreen` setting (`native` | `chat` | `auto`→mobile heuristic).
+ */
+export function effectivePanelMode(input: {
+  startScreen: 'native' | 'chat' | 'auto'
+  chatCapable: boolean
+  isMobile: boolean
+  /** Persisted per-session mode when known. */
+  saved?: PanelMode | null
+  /** Personal default (PANEL_MODE_DEFAULT_KEY). */
+  deviceDefault?: string | null
+}): PanelMode {
+  if (!input.chatCapable) return 'native'
+  if (input.saved === 'native' || input.saved === 'chat') return input.saved
+  if (input.deviceDefault === 'native' || input.deviceDefault === 'chat') return input.deviceDefault
+  if (input.startScreen === 'auto') return input.isMobile ? 'chat' : 'native'
+  if (input.startScreen === 'chat') return 'chat'
+  return 'native'
+}
+
+/** @deprecated Prefer {@link effectivePanelMode} — same function, old name. */
+export const initialPanelMode = effectivePanelMode
+
+// ---------------------------------------------------------------------------
+// File panel modes (HTML / Markdown Preview|Source|Split) — one map per family
+// ---------------------------------------------------------------------------
+
+export type FilePanelMode = 'preview' | 'source' | 'split'
+
+/** Keep the map from growing without bound: oldest-written entries drop first. */
+export const FILE_MODE_MAP_CAP = 200
+
+function readFileModeMap(ui: Pick<UiState, 'get'>, mapKey: string): Record<string, string> {
+  const raw = ui.get(mapKey)
+  if (!raw) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** The saved mode for one file tab, or null when never picked / corrupt. */
+export function readFilePanelMode(
+  ui: Pick<UiState, 'get'>,
+  mapKey: string,
+  id: string,
+): FilePanelMode | null {
+  const v = readFileModeMap(ui, mapKey)[id]
+  return v === 'preview' || v === 'source' || v === 'split' ? v : null
+}
+
+/** Persist one file tab's mode into the family map (bounded, insertion-ordered). */
+export function writeFilePanelMode(
+  ui: Pick<UiState, 'get' | 'set'>,
+  mapKey: string,
+  id: string,
+  mode: FilePanelMode,
+): void {
+  // Route-check: refuse undeclared map keys (totality).
+  uiStateRoute(mapKey)
+  const map = readFileModeMap(ui, mapKey)
+  if (map[id] === mode) return
+  delete map[id]
+  map[id] = mode
+  const keys = Object.keys(map)
+  for (const stale of keys.slice(0, Math.max(0, keys.length - FILE_MODE_MAP_CAP))) {
+    delete map[stale]
+  }
+  ui.set(mapKey, JSON.stringify(map))
+}
+
+/** Debug / diagnostics flag stored in the principal-scoped ui-state collection. */
+export function debugFlagEnabled(ui: Pick<UiState, 'get'>, key: string): boolean {
+  uiStateRoute(key)
+  return ui.get(key) === '1'
 }
 
 export interface ReplicatedUiStatePort {

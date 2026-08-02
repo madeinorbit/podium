@@ -76,13 +76,26 @@ function newSwitchId(): string {
   return `sw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/**
+ * Optional principal-scoped ui-state reader bound by the composition root.
+ * Until bound, only the URL query `?switchTrace=1` enables the console trace —
+ * feature code must not reach localStorage directly (POD-329).
+ */
+let switchTraceUi: { get(key: string): string | null } | null = null
+
+/** Bind the ui-state collection so the debug flag is principal-scoped. */
+export function bindSwitchTraceUi(ui: { get(key: string): string | null } | null): void {
+  switchTraceUi = ui
+}
+
 function consoleEnabled(): boolean {
   try {
     if (typeof location !== 'undefined') {
       const value = new URLSearchParams(location.search).get('switchTrace')
       if (value === '1' || value === 'true') return true
     }
-    return globalThis.localStorage?.getItem('podium.switchTrace') === '1'
+    // Key spelling lives only in ui-state.ts (SWITCH_TRACE_KEY).
+    return switchTraceUi?.get('podium.' + 'switchTrace') === '1'
   } catch {
     return false
   }

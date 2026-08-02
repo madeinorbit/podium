@@ -55,6 +55,7 @@ import type { OutboxEntry } from '../outbox'
 import type { ClientPrincipal } from '../principal'
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
+import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { NotificationSounder } from '../sound/notification-sounds'
 import type { SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
@@ -280,6 +281,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       router: this.router,
     })
     this.ui = this.routerUi.ui
+    // Switch-latency debug flag is principal-scoped — no raw localStorage (POD-329).
+    bindSwitchTraceUi(this.ui)
     const persisted = this.routerUi.hydrate()
     const route = this.router.current()
     this.prevRoute = route
@@ -520,6 +523,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  — see {@link destroy}. */
   dispose(): void {
     this.started = false
+    bindSwitchTraceUi(null)
     if (this.connectTimer !== null) {
       clearTimeout(this.connectTimer)
       this.connectTimer = null

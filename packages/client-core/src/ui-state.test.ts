@@ -64,6 +64,26 @@ describe('workspace ui-state routing', () => {
     expect(uiStateRoute('podium:superfeed:cursor').home).toBe('known-unrouted')
   })
 
+  it('panelMode is one modeled map plus one tested derivation', async () => {
+    const { effectivePanelMode } = await import('./ui-state')
+    // Saved map entry wins; missing entry falls through the shared derivation.
+    expect(
+      effectivePanelMode({
+        startScreen: 'auto',
+        chatCapable: true,
+        isMobile: true,
+        saved: 'native',
+      }),
+    ).toBe('native')
+    expect(
+      effectivePanelMode({
+        startScreen: 'auto',
+        chatCapable: true,
+        isMobile: true,
+      }),
+    ).toBe('chat')
+  })
+
   it('throws when a replicated route has no canonical family key', () => {
     expect(() => requireReplicatedLayoutKey(UI_STATE_KEYS.split)).toThrow(
       'Replicated UI-state key has no layout key: podium.split',

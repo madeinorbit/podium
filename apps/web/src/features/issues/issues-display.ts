@@ -15,7 +15,7 @@ export interface IssuesDisplay {
   badges: { labels: boolean; type: boolean; estimate: boolean; due: boolean; sessions: boolean }
 }
 
-export const DISPLAY_KEY = 'podium.issues.display'
+export { ISSUES_DISPLAY_KEY as DISPLAY_KEY } from '@podium/client-core/ui-state'
 
 export const DEFAULT_DISPLAY: IssuesDisplay = {
   layout: 'board',

@@ -19,12 +19,12 @@
     "machine-id-unbranded-fields": 26,
     "mobile-client-value": 1,
     "oversized-daemon-composition-root": 0,
-    "panel-mode-duality": 2,
+    "panel-mode-duality": 0,
     "per-user-singletons": 1,
     "publish-computed-fanout": 0,
     "raw-string-entity-ids": 0,
-    "reexport-shims": 20,
-    "representation-registry-rot": 0,
+    "reexport-shims": 21,
+    "representation-registry-rot": 1,
     "router-triple-access": 0,
     "send-turn-duplicate": 0,
     "session-shapes": 1,
@@ -33,6 +33,6 @@
     "superagent-shadow-types": 2,
     "unbranded-by-decision-ids": 17,
     "upstream-sync-forwarder": 0,
-    "web-storage-keys": 11
+    "web-storage-keys": 0
   }
 }

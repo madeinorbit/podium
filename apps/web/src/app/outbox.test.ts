@@ -1,14 +1,14 @@
 import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createOutbox, OUTBOX_LS_KEY, type Outbox, type OutboxEntry } from './outbox'
+import { createOutbox, type Outbox, type OutboxEntry, type OutboxStorage } from './outbox'
 import { createReplica } from './replica'
 
 // ---------------------------------------------------------------------------
 // Outbox (docs/spec/outbox-write-path.md §2.3): durable FIFO of covered
-// mutations. Entries persist to localStorage under podium.outbox.v1, drain
-// sequentially with a stable mutationId, drop only on validation (poison)
-// errors, and survive network failures for the next trigger.
+// mutations. Storage is the replica outbox adapter only (POD-329) — no direct
+// localStorage path. Drain is sequential with a stable mutationId; poison
+// (validation) drops; network failures survive for the next trigger.
 // ---------------------------------------------------------------------------
 
 type Kinds = {
@@ -30,16 +30,43 @@ function makeExecutors(
   return { calls, executors: { rename: wrap('rename'), snoozeClear: wrap('snoozeClear') } }
 }
 
+let prefixSeq = 0
+let sharedStorage: {
+  getItem: (k: string) => string | null
+  setItem: (k: string, v: string) => void
+  removeItem: (k: string) => void
+}
+let sharedPrefix: string
+
+function replicaBacking(): OutboxStorage {
+  return createReplica({
+    storage: sharedStorage,
+    keyPrefix: sharedPrefix,
+    enumerateKeys: () => [],
+  }).outboxStorage()
+}
+
 const outboxes: Outbox<Kinds>[] = []
-function make(init: { isOnline?: () => boolean; retryMs?: number } = {}): Outbox<Kinds> {
+function make(init: { isOnline?: () => boolean; retryMs?: number; storage?: OutboxStorage } = {}): Outbox<Kinds> {
   const { executors } = makeExecutors()
-  const ob = createOutbox<Kinds>({ executors, isOnline: init.isOnline, retryMs: init.retryMs })
+  const ob = createOutbox<Kinds>({
+    executors,
+    storage: init.storage ?? replicaBacking(),
+    isOnline: init.isOnline,
+    retryMs: init.retryMs,
+  })
   outboxes.push(ob)
   return ob
 }
 
 beforeEach(() => {
-  localStorage.clear()
+  const data = new Map<string, string>()
+  sharedStorage = {
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => void data.set(k, v),
+    removeItem: (k) => void data.delete(k),
+  }
+  sharedPrefix = `test.outbox.${++prefixSeq}`
 })
 
 afterEach(() => {
@@ -50,7 +77,7 @@ afterEach(() => {
 describe('outbox', () => {
   it('drains enqueued entries in FIFO order with their mutationIds', async () => {
     const { calls, executors } = makeExecutors()
-    const ob = createOutbox<Kinds>({ executors })
+    const ob = createOutbox<Kinds>({ executors, storage: replicaBacking() })
     outboxes.push(ob)
     const a = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     const b = ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
@@ -61,20 +88,21 @@ describe('outbox', () => {
     expect(ob.size()).toBe(0)
   })
 
-  it('keeps mutationIds stable across a simulated reload (re-init from localStorage)', async () => {
+  it('keeps mutationIds stable across a simulated reload (re-init from replica storage)', async () => {
     // "Offline" first life: entries persist but never drain.
     const first = make({ isOnline: () => false })
     const a = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     const b = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'two' })
     first.dispose()
-    // Second life re-reads the same localStorage key — same ids, same order.
+    await new Promise((r) => setTimeout(r, 0))
+    // Second life re-reads the same replica collection — same ids, same order.
     const { calls, executors } = makeExecutors()
-    const second = createOutbox<Kinds>({ executors })
+    const second = createOutbox<Kinds>({ executors, storage: replicaBacking() })
     outboxes.push(second)
     expect(second.size()).toBe(2)
     await second.drain()
     expect(calls.map((c) => c.input.mutationId)).toEqual([a.mutationId, b.mutationId])
-    expect(localStorage.getItem(OUTBOX_LS_KEY)).toBe('[]')
+    expect(second.size()).toBe(0)
   })
 
   it('drops a poison (BAD_REQUEST) entry, surfaces it, and keeps draining', async () => {
@@ -86,7 +114,11 @@ describe('outbox', () => {
       if ((input as { name?: string }).name === 'bad') throw poison
       return {}
     })
-    const ob = createOutbox<Kinds>({ executors, onPoison: (entry) => dropped.push(entry) })
+    const ob = createOutbox<Kinds>({
+      executors,
+      storage: replicaBacking(),
+      onPoison: (entry) => dropped.push(entry),
+    })
     outboxes.push(ob)
     ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'bad' })
     const ok = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'good' })
@@ -103,7 +135,7 @@ describe('outbox', () => {
       if (fail) throw new Error('fetch failed')
       return {}
     })
-    const ob = createOutbox<Kinds>({ executors, retryMs: 5 })
+    const ob = createOutbox<Kinds>({ executors, storage: replicaBacking(), retryMs: 5 })
     outboxes.push(ob)
     ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     await ob.drain()
@@ -122,7 +154,7 @@ describe('outbox', () => {
       release = r
     })
     const { calls, executors } = makeExecutors(() => gate)
-    const ob = createOutbox<Kinds>({ executors })
+    const ob = createOutbox<Kinds>({ executors, storage: replicaBacking() })
     outboxes.push(ob)
     ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     const d1 = ob.drain()
@@ -148,10 +180,10 @@ describe('outbox', () => {
     off()
   })
 
-  it('reads a corrupt localStorage blob as an empty queue', () => {
-    localStorage.setItem(OUTBOX_LS_KEY, '{not json')
+  it('reads a corrupt replica outbox blob as an empty queue', () => {
+    sharedStorage.setItem(`${sharedPrefix}.outbox.v1`, '{not json')
     expect(make({ isOnline: () => false }).size()).toBe(0)
-    localStorage.setItem(OUTBOX_LS_KEY, JSON.stringify([{ mutationId: 1 }, null]))
+    sharedStorage.setItem(`${sharedPrefix}.outbox.v1`, JSON.stringify([{ mutationId: 1 }, null]))
     expect(make({ isOnline: () => false }).size()).toBe(0)
   })
 
