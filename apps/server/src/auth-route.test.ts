@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { clientAuthGuard, hashToken, registerAuthRoute } from './auth-route'
+import { clientAuthGuard, hashToken, isRequestAuthed, registerAuthRoute } from './auth-route'
 import { setPassword } from './auth-store'
 import { SessionStore } from './store'
 
@@ -332,6 +332,60 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
         })
       ).status,
     ).toBe(200)
+  })
+})
+
+// POD-1424. The expiry check had no test CALLER. Both gates — `isRequestAuthed` (the
+// /client WS upgrade gate, server.ts) and `clientAuthGuard` (the /trpc gate) — consult
+// store.isClientSessionValid, but every pre-existing case that exercises a REFUSAL does it
+// with a row that is ABSENT: never issued ('a forged/random cookie'), or revoked (logout,
+// the break-glass label sweep). An absent row is refused by any presence test, so all of
+// those stay green if a gate's consult is weakened from validity to mere presence
+// (`getClientSession(...) !== undefined`). Expiry is the only property that separates the
+// two, which makes the expired-BUT-PRESENT row the single case a store-level test cannot
+// reach — and it is precisely the case `podium auth mint-session` depends on, since an
+// operator TTL is a promise enforced by nothing else. Each refusal below is paired with the
+// same row before its expiry, so a gate that refuses everything cannot pass either.
+describe('session expiry at the gate', () => {
+  const AT = Date.UTC(2026, 5, 1, 12, 0, 0)
+  const TOKEN = 'ttl-bound-token'
+
+  /** A row that is present in the store and expired one second before `AT`. */
+  function expiredRow(): string {
+    store.auth.createClientSession(hashToken(TOKEN), new Date(AT - 1_000).toISOString())
+    return `podium_session=${TOKEN}`
+  }
+
+  test('isRequestAuthed refuses a session row that is present but expired', () => {
+    expect(isRequestAuthed(store.auth, expiredRow(), AT)).toBe(false)
+  })
+
+  test('isRequestAuthed accepts that same row one second before it expires', () => {
+    // Counterfactual for the case above: same store, same cookie, only the clock moves.
+    // Without this, a gate hard-wired to `false` would satisfy the refusal test.
+    expect(isRequestAuthed(store.auth, expiredRow(), AT - 2_000)).toBe(true)
+  })
+
+  test('isRequestAuthed refuses a token that was never issued', () => {
+    expect(isRequestAuthed(store.auth, 'podium_session=never-minted', AT)).toBe(false)
+  })
+
+  test('clientAuthGuard 401s a session row that is present but expired', async () => {
+    await setPassword('hunter2', dir)
+    const cookie = expiredRow()
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, authDir: dir, now: () => AT }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    expect((await app.request('/trpc/ping', { headers: { cookie } })).status).toBe(401)
+  })
+
+  test('clientAuthGuard serves that same row one second before it expires', async () => {
+    await setPassword('hunter2', dir)
+    const cookie = expiredRow()
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, authDir: dir, now: () => AT - 2_000 }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    expect((await app.request('/trpc/ping', { headers: { cookie } })).status).toBe(200)
   })
 })
 
