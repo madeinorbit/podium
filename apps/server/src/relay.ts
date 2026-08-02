@@ -886,6 +886,14 @@ export class SessionRegistry {
       // start finds the repository on the target instead of demanding the source's path.
       ensureRepoOnMachine: (machineId, repoPath) =>
         sessionsSvc.workspace.resolveRepoOnMachine(repoPath, machineId),
+      // POD-1405: move the base commits when the target cannot reach them — our
+      // integration branches are on no shared remote, so a fetch cannot help it.
+      ensureRefOnMachine: (machineId, repoPath, ref) =>
+        sessionsSvc.workspace.ensureRefOnMachine({
+          targetMachineId: machineId,
+          targetRepoPath: repoPath,
+          ref,
+        }),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),

@@ -203,6 +203,19 @@ export class IssueGitWorkflowModule {
     }
     if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     const branch = this.store.slug(row.seq, row.title)
+    /**
+     * THE TARGET NEEDS THE COMMITS, NOT JUST THE REPOSITORY (POD-1405).
+     *
+     * `worktreeAdd` below passes `startPoint: row.parentBranch`, and a start point
+     * the target cannot resolve fails. Our integration branches never reach origin,
+     * so a freshly cloned repository over there CANNOT fetch them from anywhere —
+     * the objects have to move machine-to-machine. This is a no-op when the target
+     * already resolves the ref, which is every same-machine start and every start
+     * from a branch that IS on origin.
+     */
+    if (row.machineId && row.parentBranch && this.store.d.ensureRefOnMachine) {
+      await this.store.d.ensureRefOnMachine(row.machineId, row.repoPath, row.parentBranch)
+    }
     const path = this.worktreePathFor(row.repoPath, branch)
     const res = await this.store.d.repoOp(
       'worktreeAdd',

@@ -505,8 +505,23 @@ export async function exportHandoffPackage(input: {
   }
 }
 
+/**
+ * THE ONE FUNCTION THAT DECIDES WHERE A TRANSFER LANDS (POD-1405).
+ *
+ * Both ends of a bundle transfer must agree on a path: the chunk-write side
+ * creates it on the target, and `bundleFetch` reads it there. Deriving it twice —
+ * once per side — would make them agree by CONVENTION, which holds until someone
+ * edits one. They now agree by construction.
+ *
+ * `basename` is the containment: a token is a name, never a path, so `../` in one
+ * cannot walk out of the stage directory.
+ */
+export function bundleStagePath(home: string, token: string): string {
+  return join(stageDirFor(home), `${basename(token)}.tgz`)
+}
+
 function stagePathFor(home: string, sessionId: SessionId): string {
-  return join(stageDirFor(home), `${basename(sessionId)}.tgz`)
+  return bundleStagePath(home, sessionId)
 }
 
 export async function appendImportChunk(input: {

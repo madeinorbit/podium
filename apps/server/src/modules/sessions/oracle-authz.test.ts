@@ -17,6 +17,26 @@
  * POD-1073 the human-vs-human policy; when they land, these tests describe
  * what the OLD world did, not what the new one must do.
  *
+ * ## THIS FILE'S VERDICT IS ONLY MEANINGFUL RUN STANDALONE (POD-1394)
+ *
+ * MEASURED, not suspected: on d8fba769 this file run ALONE exited 1 with
+ * `expected 'no such procedure: sessions.handoff' to be 'sessions.handoff is not
+ * permitted via relay'` (1 failed / 26 passed) — while the SAME file in the same
+ * tree's full-lane run did not fail. Lane order can make an absent procedure
+ * resolvable, so a full-lane green says nothing about whether the relay surface
+ * is what this file claims.
+ *
+ * That matters most for the three `classifyRelay` cases below, whose whole job is
+ * to tell a policy refusal from a mis-wired allowlist. Validate them with
+ *
+ *     bun --bun vitest run --config vitest.unit.config.ts \
+ *       apps/server/src/modules/sessions/oracle-authz.test.ts
+ *
+ * and do not accept `bun run test` as evidence for them. A lane green here can be
+ * green for the wrong reason, which is the exact failure this file exists to
+ * make unexpressible. The order-dependence itself is filed separately; it is a
+ * property of the lane, not of these assertions.
+ *
  * The one non-obvious structural fact worth pinning: the session-state writes
  * (rename / archive / read / snooze / pins / tab order / work state / issue
  * attachment) have NO agent path at all. They are operator-only by ABSENCE from
