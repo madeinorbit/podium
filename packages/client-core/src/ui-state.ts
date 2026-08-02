@@ -247,6 +247,7 @@ export function createRoutedUiState(init: {
       if (route.home !== 'per-user-replicated') local.set(key, value)
       else {
         const layoutKey = layoutKeyFromLegacy(key)
+        if (layoutKey === null) throw new Error(`Replicated UI-state key has no layout key: ${key}`)
         if (value === null) replicated.clear(layoutKey)
         else replicated.set(layoutKey, value)
         if (local.get(key) !== null) local.set(key, null)
