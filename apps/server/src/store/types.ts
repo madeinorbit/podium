@@ -169,8 +169,11 @@ export interface SessionRow {
   archived: boolean
   /** Kanban column on the home board; null = unsorted. */
   workState: string | null
-  /** The machine this session runs on. Optional during build-out (Task 5 always emits it). */
-  machineId?: string
+  /** The machine this session runs on. REQUIRED (POD-318): the server knows the host
+   *  machine's minted id before it writes the first row, so there is no honest moment
+   *  at which a durable session exists without one. It was optional while the column
+   *  had a `'__local__'` default to manufacture — that default is gone. */
+  machineId: string
   /** True for a headless harness session (no PTY; superagent-driven turns).
    *  Optional so pre-existing row literals stay valid; absent = false. */
   headless?: boolean
@@ -568,7 +571,9 @@ export interface ConversationIndexRow {
   createdAt?: string
   updatedAt?: string
   messageCount?: number
-  /** Which machine owns this conversation; '__local__' for pre-multi-machine rows. */
+  /** Which machine owns this conversation. Optional in the WIRE shape a daemon reports
+   *  (it names itself in the frame, not per row); the store stamps the reporting machine
+   *  on every row it writes. */
   machineId?: string
   /** Set when this conversation is a subagent (sidechain) of another — the resume
    *  picker filters these out so only top-level sessions are offered. */

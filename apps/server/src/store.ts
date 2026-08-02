@@ -29,6 +29,7 @@
  *  - automations (automations/automation_runs)           → store/automations.ts
  */
 
+import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
@@ -123,7 +124,27 @@ export class SessionStore {
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
 
-  constructor(private readonly path: string = defaultDbPath()) {
+  /**
+   * The id of the machine this store's rows are written on — `<stateDir>/machine.id`,
+   * read by the composition root and handed down (`readOrCreateLocalMachineId`).
+   *
+   * It is a CONSTRUCTOR ARGUMENT rather than a file read here because the store must
+   * not decide who it is: the server, the split daemon and the CLI all read the same
+   * file, and a second reader is a second opinion waiting to happen.
+   *
+   * The default MINTS one instead of falling back to a constant. An unconfigured
+   * store — a test fixture, a script — is genuinely a fresh host with no prior rows,
+   * and saying so with a real UUID keeps the "an id is minted material or nothing"
+   * rule true everywhere. The old `'__local__'` default said the opposite: that
+   * unattributed rows are a legitimate durable state.
+   */
+  readonly hostMachineId: string
+
+  constructor(
+    private readonly path: string = defaultDbPath(),
+    hostMachineId: string = randomUUID(),
+  ) {
+    this.hostMachineId = hostMachineId
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = openDatabase(path)
     this.db.exec('PRAGMA journal_mode = WAL')
@@ -158,8 +179,10 @@ export class SessionStore {
     this.issues = new IssuesRepository(this.db, (repoPath) =>
       this.repos.resolveRepoIdForPath(repoPath),
     )
-    this.repos = new ReposRepository(this.db, (repoId, repoPath) =>
-      this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
+    this.repos = new ReposRepository(
+      this.db,
+      (repoId, repoPath) => this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
+      this.hostMachineId,
     )
     this.approvals = new ApprovalsRepository(this.db)
     this.conversations = new ConversationsRepository(this.db)
@@ -189,7 +212,7 @@ export class SessionStore {
     this.conversations.ensureFts()
     this.conversations.repairSubagentSegmentPaths()
     this.superagent.seedGlobalThread()
-    this.repos.importReposJson(this.path)
+    this.repos.importReposJson(this.path, this.hostMachineId)
     this.backfillRepoIds()
     // #474: assign human-facing prefixes to any repos still missing one (heals
     // rows inserted by importReposJson or before the prefix migration).
@@ -221,14 +244,78 @@ export class SessionStore {
   }
 
   /**
-   * Rewrite all rows carrying the placeholder `'__local__'` machine_id to the
-   * real machineId — the one genuinely CROSS-aggregate write (sessions, repos
-   * and conversations all carry machine ids). Idempotent: re-running after
-   * adoption is a no-op (no rows will match `__local__` any more).
+   * ONE-TIME BOOT UPGRADE — the only place the retired sentinels are still spelled.
+   *
+   * Installs that predate POD-318 carry a `machines` row literally called `'local'`
+   * and sessions/repos/conversations rows on either `'local'` or the `'__local__'`
+   * column default. A static SQL migration cannot fix them, because the value they
+   * must become — this host's minted UUID — does not exist until the state dir has
+   * a `machine.id` file. So the rewrite is code, run once at boot, in one
+   * transaction, and it is an UPGRADE WITH A DELETION HORIZON rather than a
+   * standing heal: the name says migrate, not heal or adopt, because nothing here
+   * is supposed to still be finding work a year from now.
+   *
+   * IDEMPOTENCE IS BY CONSTRUCTION, not by a flag: every statement is
+   * `WHERE machine_id IN ('local','__local__')`, and after the first run nothing
+   * matches — there is no writer left in the codebase that can produce either
+   * value, which is what the `local-placeholders` audit counter and the brand
+   * refusal on `MachineId` together guarantee. A second boot therefore updates
+   * zero rows, and so does the millionth.
+   *
+   * THE RESIDUE CHECK IS THE POINT. After the rewrite, still inside the same
+   * transaction, it counts what is left. Non-zero means the rewrite did not run or
+   * did not cover a table that grew a machine column — i.e. this boot is about to
+   * serve MIXED IDENTITIES, where the fleet says one thing and the rows say
+   * another. That fails loudly here instead of quietly stranding rows nobody can
+   * see, which is exactly how the placeholder era went wrong.
+   *
+   * The `machines` row is renamed rather than re-inserted so its credential,
+   * owner and grant edges survive the change of id. `INSERT OR IGNORE`-style
+   * duplication would have left a second row and split the fleet in half.
    */
-  adoptLocalRows(machineId: string): void {
-    this.sessions.adoptLocalRows(machineId)
-    this.repos.adoptLocalRows(machineId)
-    this.conversations.adoptLocalRows(machineId)
+  migrateLegacyMachineIdentity(hostMachineId: string): void {
+    this.transact(() => {
+      // Order matters only for readability — the whole thing is one transaction.
+      this.db
+        .prepare("UPDATE OR REPLACE machines SET id = ? WHERE id IN ('local', '__local__')")
+        .run(hostMachineId)
+      for (const table of ['sessions', 'repos', 'conversations']) {
+        this.db
+          .prepare(
+            `UPDATE OR REPLACE ${table} SET machine_id = ? WHERE machine_id IN ('local', '__local__')`,
+          )
+          .run(hostMachineId)
+      }
+      const residue = [
+        ...['sessions', 'repos', 'conversations'].map(
+          (table) =>
+            [
+              table,
+              (
+                this.db
+                  .prepare(
+                    `SELECT COUNT(*) AS c FROM ${table} WHERE machine_id IN ('local', '__local__')`,
+                  )
+                  .get() as { c: number }
+              ).c,
+            ] as const,
+        ),
+        [
+          'machines',
+          (
+            this.db
+              .prepare("SELECT COUNT(*) AS c FROM machines WHERE id IN ('local', '__local__')")
+              .get() as { c: number }
+          ).c,
+        ] as const,
+      ].filter(([, count]) => count > 0)
+      if (residue.length > 0) {
+        throw new Error(
+          `legacy machine identity survived the boot upgrade (${residue
+            .map(([table, count]) => `${table}: ${count}`)
+            .join(', ')}) — refusing to serve mixed machine identities`,
+        )
+      }
+    })
   }
 }

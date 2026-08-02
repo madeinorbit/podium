@@ -51,7 +51,6 @@
 import { asMachineId } from '@podium/model'
 import type { DaemonMessage, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import {
   type DaemonPortId,
   daemonPlaneClassFor,
@@ -226,22 +225,22 @@ export class DaemonMux {
   /**
    * A daemon proved its identity and is now reachable.
    *
-   * The ORDER below is load-bearing and is the pre-extraction order exactly:
-   * socket registration, then placeholder adoption, then the queued flush, then
-   * the sessions port's own attach work (drain / lake sweep / priorities / park
-   * / reattach probes / headless binds), then the machine broadcast, then the
+   * The ORDER below is load-bearing: socket registration, then the queued flush,
+   * then the sessions port's own attach work (drain / lake sweep / priorities /
+   * park / reattach probes / headless binds), then the machine broadcast, then the
    * bus. `attachDaemon` synchronously flushes buffered control frames, so the
    * caller must already have sent its handshake reply — see `daemon-socket.ts`.
+   *
+   * A placeholder-adoption step used to sit between registration and the flush,
+   * fired only when the attaching machine was the hard-coded local one. It is gone
+   * with the placeholder: rows are written under a real machine id from boot, so an
+   * attaching daemon has nothing to claim — it just becomes reachable.
    */
   attachDaemon(peer: DaemonPeer, send: ControlSend): void {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
     machines.attach(machineId, send)
-    // The local machine adopts every lingering `'__local__'` placeholder row as
-    // it attaches: a session created between `ensureLocalMachine` and the daemon
-    // connecting is still attributed to the placeholder. Idempotent.
-    if (machineId === LOCAL_MACHINE_ID) machines.adoptPlaceholderRows(machineId)
     machines.flushQueued(machineId)
     sessions.onMachineAttached(principal)
     machines.broadcastMachines()

@@ -13,7 +13,6 @@ import type {
   MachineVerb,
   ServerMessage,
 } from '@podium/protocol'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { EventBus } from '../bus'
@@ -83,13 +82,21 @@ export interface PairingGrant {
 
 export interface MachinesDeps {
   store: SessionStore
+  /**
+   * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
+   * composition root (`readOrCreateLocalMachineId`) and handed down.
+   *
+   * It is a dependency, not a constant, because the server is one machine among
+   * equals: the id it answers to is minted material owned by the host, exactly like
+   * a remote daemon's. Routing that has no other machine to name (`defaultMachine`,
+   * boot-before-daemon spawns) names THIS one, and it is a real id with a real row,
+   * so nothing downstream has to know it is "the local one".
+   */
+  hostMachineId: string
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   pairing?: PairingCodes
   /** Production reaction transport for derived session fields. */
   bus?: EventBus
-  /** Retarget in-memory sessions still on the `'__local__'` placeholder onto the
-   *  adopting machine. Compatibility-only for isolated fixtures without a bus. */
-  retargetPlaceholderSessions?(machineId: string): void
   /** Compatibility-only for isolated fixtures without a bus. */
   sessionsChangedForMachine?(machineId: string): void
   /** Connected client fan-out (machinesChanged). */
@@ -139,8 +146,8 @@ export class MachinesService {
   }
 
   /** Flush control messages buffered while this machine was offline (e.g. a boot
-   *  session's spawn produced before the local daemon ws connected). Runs AFTER
-   *  placeholder adoption so carried-over messages are included. */
+   *  session's spawn produced before the host daemon's ws connected). Every queue is
+   *  keyed by a real machine id, so there is nothing to carry over on attach. */
   flushQueued(machineId: string): void {
     const send = this.daemons.get(machineId)
     if (!send) return
@@ -269,20 +276,27 @@ export class MachinesService {
 
   /**
    * The machine a host-scoped request (scan/usage/repoOp/…) targets when the caller
-   * has no machine context: the sole online machine, else the local placeholder.
-   * For a single connected daemon this is that one machine — behavior is unchanged.
-   * Multi-machine fan-out of these is a later task; for now they hit one machine.
+   * has no machine context: the sole online machine, else THIS HOST.
+   *
+   * The offline arm used to be the placeholder, and that was the load-bearing lie —
+   * a request with no machine context was routed to a name no daemon ever answers
+   * to, so it sat in a queue keyed by nothing until the 35s timeout, and any row it
+   * created was created machine-less. Answering with the host id makes the offline
+   * case a NORMAL offline machine: the message queues under a real id, the host
+   * daemon flushes it on attach, and every caller that checks liveness or `use`
+   * before routing (`requireAgent`, `requireMachineForRepo`, the fleet authz layer)
+   * gets to make that decision against a machine that actually exists.
    */
   defaultMachine(): string {
     const online = this.onlineMachineIds()
-    return online.length >= 1 ? (online[0] as string) : LOCAL_PLACEHOLDER
+    return online[0] ?? this.deps.hostMachineId
   }
 
   /**
    * Resolve the machine a new session should spawn on. An explicitly requested
    * machine wins when it's online; otherwise pick by repo affinity, else the sole
-   * online machine, else the local placeholder. For a single connected daemon this
-   * always returns that one machine — single-machine behavior is unchanged.
+   * online machine, else this host. For a single connected daemon this always
+   * returns that one machine — single-machine behavior is unchanged.
    */
   resolveMachine(requested: string | undefined, cwd: string): string {
     if (requested && this.daemons.has(requested)) return requested
@@ -292,7 +306,13 @@ export class MachinesService {
   /**
    * Resolve a session target and enforce the daemon-reported harness/login
    * capability before any durable session or spawn side effect is created.
-   * Legacy boot-before-daemon routing through `__local__` remains queueable.
+   *
+   * Boot-before-daemon still QUEUES rather than refusing: the host machine's row
+   * exists from `ensureHostMachine`, so the pick resolves to it, the capability
+   * check sees an offline machine with no inventory yet, and the last branch below
+   * lets it through to `toMachine`'s offline queue — which flushes when the host
+   * daemon attaches under that same id. What is gone is the branch that let the
+   * PLACEHOLDER through unchecked.
    */
   resolveMachineForAgent(
     requested: string | undefined,
@@ -306,7 +326,6 @@ export class MachinesService {
     }
 
     const legacy = this.resolveMachine(undefined, cwd)
-    if (legacy === LOCAL_PLACEHOLDER) return legacy
     // IMPLICIT placement is a surface too: readiness §3.1.4 M5 says the spawn
     // path must not OFFER a machine the principal cannot use, and an implicit
     // pick offers one without asking. Decorated rows make the existing
@@ -388,32 +407,23 @@ export class MachinesService {
 
   /**
    * Pick the best online machine for a repo: one that has the cwd registered as a
-   * repo path, else the sole online machine, else (for 2+ online machines) any
-   * online machine via defaultMachine(). Only falls through to LOCAL_PLACEHOLDER
-   * when NO daemon is online — that is the deliberate boot-time queue: a session
-   * created before the local daemon connects is queued under __local__ and flushed
-   * once ensureLocalMachine/attach runs. With at least one daemon online, queuing
-   * under __local__ would dead-queue forever because no daemon ever attaches as
-   * '__local__' after adoption.
+   * repo path, else `defaultMachine()` — the sole/first online machine, or this
+   * host when nothing is online.
    *
-   * Single-machine behavior is unchanged: online.length === 1 returns that machine
-   * before the multi-machine branch is reached.
+   * This used to be three branches ending in the placeholder, and the third one
+   * carried a warning that queueing under `'__local__'` "would dead-queue forever
+   * because no daemon ever attaches as `'__local__'` after adoption". There is
+   * nothing left to warn about: every arm now names a machine with a row, and the
+   * boot-before-daemon arm names the host whose daemon is precisely the one about
+   * to attach and drain the queue.
    */
   pickMachineForRepo(_originUrl: string | undefined, cwd: string): string {
-    const online = this.onlineMachineIds()
-    const byRepo = online.find((id) =>
+    const byRepo = this.onlineMachineIds().find((id) =>
       this.deps.store.repos
         .listRepos(id)
         .some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
     )
-    if (byRepo) return byRepo
-    if (online.length === 1) return online[0] as string
-    // 2+ daemons online but no repo match: route to the default online machine
-    // rather than dead-queueing under __local__ (no daemon attaches as '__local__'
-    // after adoption). Boot-before-connect (online.length === 0) still falls through
-    // to LOCAL_PLACEHOLDER so the spawn is queued and flushed on first attach.
-    if (online.length > 1) return this.defaultMachine()
-    return LOCAL_PLACEHOLDER
+    return byRepo ?? this.defaultMachine()
   }
 
   /**
@@ -543,44 +553,36 @@ export class MachinesService {
   }
 
   /**
-   * Rewrite the store's `'__local__'` placeholder rows (sessions/repos/conversations)
-   * onto `machineId`, retarget in-memory sessions still on the placeholder, carry over
-   * any queued control messages, and broadcast the updated session list. Idempotent.
+   * Provision THIS HOST as a machine at SERVER STARTUP, under the id minted in
+   * `<stateDir>/machine.id`.
+   *
+   * The host is just a normally registered machine: the server owns its credential
+   * (`tokenHash = sha256(secret)`, where `secret` is the value it wrote to the
+   * state-dir file for the same-host daemon to read), so the local daemon
+   * authenticates through the regular hello path — exactly like a paired remote,
+   * with no bootstrap special case. Its id is minted material for the same reason.
+   *
+   * IT RUNS BEFORE ANY ROW IS WRITTEN, and that ordering is the whole design: with
+   * the host's row in place at boot, a session created a millisecond later has a
+   * real machine to belong to whether or not the daemon has connected. Nothing
+   * adopts anything afterwards.
+   *
+   * The legacy upgrade rides here because this is the first moment both facts exist
+   * — the new id, and an open database that may still hold rows from the era of
+   * `'local'` / `'__local__'`. See `SessionStore.migrateLegacyMachineIdentity` for
+   * why it is one transaction with a residue check rather than a standing heal.
+   * Idempotent. Tests omit `secret` (a random throwaway — they attach via the
+   * registry without authenticating).
    */
-  adoptPlaceholderRows(machineId: string): void {
-    this.deps.store.adoptLocalRows(machineId)
-    if (!this.deps.bus) this.deps.retargetPlaceholderSessions?.(machineId)
-    // Carry over any control messages queued under the placeholder (e.g. a boot
-    // session's spawn produced before adoption) so they reach the adopting machine.
-    const queued = this.pendingByMachine.get(LOCAL_PLACEHOLDER)
-    if (queued && queued.length > 0) {
-      this.pendingByMachine.delete(LOCAL_PLACEHOLDER)
-      const dest = this.pendingByMachine.get(machineId)
-      if (dest) dest.unshift(...queued)
-      else this.pendingByMachine.set(machineId, queued)
-    }
-    // Parked (hibernated/exited) sessions aren't touched by the reattach loop, so
-    // push the updated list now — this is what makes pre-existing sessions
-    // reappear on upgrade.
-    if (this.deps.bus) this.deps.bus.emit('machine.rowsAdopted', { machineId })
-    else this.deps.sessionsChangedForMachine?.(machineId)
-  }
-
-  /**
-   * Provision the local machine at SERVER STARTUP. The local machine is just a normally
-   * registered machine: the server owns its credential (`tokenHash = sha256(secret)`,
-   * where `secret` is the value it wrote to the state-dir file for the same-host daemon
-   * to read), so the local daemon authenticates through the regular hello path — exactly
-   * like a paired remote, with no special bootstrap case. Adoption of pre-existing
-   * `'__local__'` rows happens HERE, independent of the daemon, so a single-machine
-   * install's sessions/repos are attributed and visible even if the daemon never connects
-   * (the regression that lost everyone's data). The daemon presents this id + the secret,
-   * attaches, and re-binds its sessions. Idempotent. Tests omit `secret` (a random
-   * throwaway — they attach via the registry without authenticating).
-   */
-  ensureLocalMachine(hostname: string = LOCAL_MACHINE_ID, secret: string = randomUUID()): string {
+  ensureHostMachine(hostname: string, secret: string = randomUUID()): string {
+    const id = this.deps.hostMachineId
+    // FIRST: fold any pre-POD-318 rows onto this id, while the machines table may
+    // still contain the legacy `'local'` row. Doing it before the upsert lets the
+    // rename carry that row's credential/owner/grants forward instead of racing a
+    // freshly inserted row for the same id.
+    this.deps.store.migrateLegacyMachineIdentity(id)
     this.deps.store.machines.upsertMachine({
-      id: LOCAL_MACHINE_ID,
+      id,
       name: hostname,
       hostname,
       tokenHash: sha256(secret),
@@ -592,8 +594,7 @@ export class MachinesService {
       ownerUserId: deviceGradeSoleOwner(),
     })
     this.invalidateMachineCache()
-    this.adoptPlaceholderRows(LOCAL_MACHINE_ID)
-    return LOCAL_MACHINE_ID
+    return id
   }
 
   broadcastMachines(): void {

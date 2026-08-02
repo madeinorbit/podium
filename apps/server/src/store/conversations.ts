@@ -102,7 +102,7 @@ export class ConversationsRepository {
    * Upsert discovered conversations (daemon pushes summaries). User-set name and
    * work-LLM summary survive re-discovery — discovery never overwrites curation.
    */
-  upsertConversations(rows: (ConversationIndexRow & { machineId?: string })[]): void {
+  upsertConversations(rows: (ConversationIndexRow & { machineId: string })[]): void {
     if (rows.length === 0) return
     const stmt = this.db.prepare(
       `INSERT INTO conversations
@@ -144,7 +144,7 @@ export class ConversationsRepository {
           r.createdAt ?? null,
           r.updatedAt ?? null,
           r.messageCount ?? null,
-          r.machineId ?? '__local__',
+          r.machineId,
           r.parentConversationId ?? null,
         )
       }
@@ -275,13 +275,6 @@ export class ConversationsRepository {
       messageCount: (r.message_count as number | null) ?? undefined,
       machineId: (r.machine_id as string | null) ?? undefined,
     }))
-  }
-
-  /** Multi-machine adoption: rewrite placeholder '__local__' rows to the real id. */
-  adoptLocalRows(machineId: string): void {
-    this.db
-      .prepare("UPDATE conversations SET machine_id = ? WHERE machine_id = '__local__'")
-      .run(machineId)
   }
 
   // ---- conversation registry (docs/spec/conversation-registry.md) ----

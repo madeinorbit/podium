@@ -6,7 +6,7 @@ import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
-import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
+import { stateDir } from '@podium/runtime/local-machine'
 import {
   DEVICE_GRADE_PRINCIPAL,
   FeedIdentityRegistry,
@@ -306,6 +306,10 @@ export class SessionRegistry {
     )
     const machines = new MachinesService({
       store: this.store,
+      // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
+      // the store, and every consumer takes the store's copy. A second `readOrCreate*`
+      // call anywhere in the process would be a second opinion about who this host is.
+      hostMachineId: this.store.hostMachineId,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clientRegistry.values(),
@@ -732,12 +736,6 @@ export class SessionRegistry {
     })
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     this.bus.on('machine.metadataChanged', ({ machineId }) => {
-      sessionsSvc.sessionsChangedForMachine(machineId)
-    })
-    this.bus.on('machine.rowsAdopted', ({ machineId }) => {
-      for (const session of sessionsSvc.sessions.values()) {
-        if (session.machineId === LOCAL_PLACEHOLDER) session.machineId = machineId
-      }
       sessionsSvc.sessionsChangedForMachine(machineId)
     })
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session

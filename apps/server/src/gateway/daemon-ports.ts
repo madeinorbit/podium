@@ -62,7 +62,6 @@ export interface MachinesDaemonPort {
   attach(machineId: string, send: ControlSend): void
   detach(machineId: string, send?: ControlSend): boolean
   flushQueued(machineId: string): void
-  adoptPlaceholderRows(machineId: string): void
   broadcastMachines(): void
   recordInventory(machineId: string, inventory: DaemonFrame<'inventoryReport'>['inventory']): void
 }
