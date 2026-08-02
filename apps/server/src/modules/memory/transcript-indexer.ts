@@ -1,7 +1,8 @@
 import { machineScopedKey } from '@podium/model'
 import { open } from 'node:fs/promises'
 import { claudeRecordToItems } from '@podium/transcript'
-import type { SessionStore } from './store'
+import type { TranscriptMirrorRepository } from '../../store/conversations/mirror'
+import type { TranscriptIndexRepository } from '../../store/conversations/transcript-index'
 
 /** Pacing knobs, mirroring MirrorServiceOptions (transcript-mirror spec §2.3
  *  "Pacing"). Defaults are the production posture; tests inject 0-delay /
@@ -67,7 +68,7 @@ export class TranscriptIndexer {
   private readonly windowBytes: number
 
   constructor(
-    private readonly store: SessionStore,
+    private readonly deps: { mirror: TranscriptMirrorRepository; index: TranscriptIndexRepository },
     options: TranscriptIndexerOptions = {},
   ) {
     this.chunkDelayMs = options.chunkDelayMs ?? TranscriptIndexer.CHUNK_DELAY_MS
@@ -93,7 +94,7 @@ export class TranscriptIndexer {
    *  observes the reset before it can append stale rows. */
   onTruncate(machineId: string, nativeId: string): void {
     this.lastBackfillGap.delete(machineScopedKey(machineId, nativeId))
-    this.store.conversations.dropTranscriptIndex(machineId, nativeId)
+    this.deps.index.drop(machineId, nativeId)
   }
 
   /**
@@ -105,13 +106,12 @@ export class TranscriptIndexer {
    */
   backfillMachine(machineId: string, lakePathFor: (nativeId: string) => string): void {
     if (this.backfilling.has(machineId)) return
-    if (!this.store.conversations.transcriptIndexAvailable) return
+    if (!this.deps.index.isAvailable) return
     // Unchanged-gap skip: drop segments whose (mirrored, indexed) pair is exactly
     // where the last attempt left it — that gap is a partial trailing line the
     // indexer already proved it cannot consume (newline-less lake tail); reading
     // it again every sweep is pure waste. Either cursor moving re-qualifies it.
-    const behind = this.store
-      .conversations.segmentsToIndex(machineId)
+    const behind = this.deps.index.segmentsToIndex(machineId)
       .filter(
         (s) =>
           this.lastBackfillGap.get(machineScopedKey(machineId, s.nativeId)) !==
@@ -141,7 +141,7 @@ export class TranscriptIndexer {
         const key = machineScopedKey(machineId, nativeId)
         // A live onBytes run is already catching this segment up — skip it here.
         if (this.running.has(key)) continue
-        const indexedBefore = this.store.conversations.indexedCursor(machineId, nativeId)
+        const indexedBefore = this.deps.index.indexedCursor(machineId, nativeId)
         this.running.set(key, { rerun: false, lakePath: lakePathFor(nativeId) })
         await this.run(key, machineId, nativeId, pass)
         // Unchanged-gap bookkeeping: a ZERO-progress attempt proves the remaining
@@ -149,10 +149,10 @@ export class TranscriptIndexer {
         // the pair so the next sweep skips it until a cursor moves. An attempt
         // that DID progress must not record (a budget stop mid-file leaves a
         // perfectly drainable gap; the next sweep resumes it).
-        if (this.store.conversations.indexedCursor(machineId, nativeId) === indexedBefore) {
+        if (this.deps.index.indexedCursor(machineId, nativeId) === indexedBefore) {
           this.lastBackfillGap.set(
             key,
-            `${this.store.conversations.mirrorCursor(machineId, nativeId)}:${indexedBefore}`,
+            `${this.deps.mirror.mirrorCursor(machineId, nativeId)}:${indexedBefore}`,
           )
         } else {
           this.lastBackfillGap.delete(key)
@@ -197,8 +197,8 @@ export class TranscriptIndexer {
         }
         if (pass) pass.remainingBytes -= consumed
         const behind =
-          this.store.conversations.indexedCursor(machineId, nativeId) <
-          this.store.conversations.mirrorCursor(machineId, nativeId)
+          this.deps.index.indexedCursor(machineId, nativeId) <
+          this.deps.mirror.mirrorCursor(machineId, nativeId)
         // consumed 0 with bytes still behind = only a partial trailing line so
         // far — nothing more to do until the mirror completes the record.
         if ((consumed === 0 || !behind) && !state.rerun) return
@@ -217,9 +217,9 @@ export class TranscriptIndexer {
     nativeId: string,
     lakePath: string,
   ): Promise<number> {
-    if (!this.store.conversations.transcriptIndexAvailable) return 0
-    const from = this.store.conversations.indexedCursor(machineId, nativeId)
-    const to = this.store.conversations.mirrorCursor(machineId, nativeId)
+    if (!this.deps.index.isAvailable) return 0
+    const from = this.deps.index.indexedCursor(machineId, nativeId)
+    const to = this.deps.mirror.mirrorCursor(machineId, nativeId)
     if (to <= from) return 0
     let win = this.windowBytes
     let buf: Buffer
@@ -237,8 +237,8 @@ export class TranscriptIndexer {
     // Optimistic-concurrency check: an onTruncate during the (async) read above
     // reset the cursor — these rows were computed from dead content, drop them.
     // No await between this check and the append, so the check can't go stale.
-    if (this.store.conversations.indexedCursor(machineId, nativeId) !== from) return 0
-    this.store.conversations.appendTranscriptIndex(machineId, nativeId, rows, from + lastNl + 1)
+    if (this.deps.index.indexedCursor(machineId, nativeId) !== from) return 0
+    this.deps.index.append(machineId, nativeId, rows, from + lastNl + 1)
     return lastNl + 1
   }
 
