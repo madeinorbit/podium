@@ -19,10 +19,10 @@ as recorded below; later repair does not alter what the immutable candidate cont
 The recursive Phase 4 subtree was re-derived rather than inferred from this issue's waits-on list.
 The named implementation children and corrective work, including POD-1078, POD-1079, POD-1315,
 POD-1316, POD-1343, POD-1351, and POD-1356, are present by ancestry or direct tree inspection.
-At the frozen verdict, POD-1356 and five gate-created blocking children were open. POD-1384 has
-since closed with its fix landed. Current tracker state still has POD-1356 plus the four substantive
-gate grounds POD-1385, POD-1389, POD-1390, and POD-1394 open. Therefore the “all Phase 4 children
-closed with evidence” criterion remains **refused**.
+At the frozen verdict, POD-1356 and five gate-created blocking children were open. POD-1384,
+POD-1389, and POD-1356 have since closed with their fixes landed. The current substantive gate
+grounds are POD-1385, POD-1390, and POD-1394. Therefore the “all Phase 4 children closed with
+evidence” criterion remains **refused**.
 
 ### Criterion verdicts
 
@@ -131,8 +131,21 @@ The worker's `--write` re-run was bit-identical and added only the 72-line evide
 typecheck 22/22 and no ambient-principal change. Thus current composition documents are proven
 current; only the historical candidate result remains red.
 
-There is **no complete same-SHA landing record** for either `7509f2b4` or `4b947e7d`. The POD-279
-coordinator has same-tree typecheck 22/22, client-auth 1 file/7 tests, wire goldens 1 file/90 tests,
+POD-1389 is likewise **cleared against current integration**. Fix `98e3dd5e` builds
+`@podium/model` before `@podium/protocol` in both Playwright configs, and current integration
+`c9ff372f` contains that commit with both configs byte-identical. Its source-level configuration
+guard inspects both commands rather than existing `dist` state and passes in the reported
+1-file/13-test lane. A detached cold checkout began with model/protocol/web/mobile outputs absent;
+the exact authenticated restart command rebuilt all four and passed 1 Chromium test with 0 skipped,
+unchanged 180-second timeout, complete port/state/PID cleanup, and live-config mtime `1785661627`.
+The first cold attempt built all outputs but timed out waiting for health at host load 81; the
+unchanged retry passed at load about 49, so the first timeout is correctly attributed to host load,
+not code. This repairs harness self-containment; the final gate still requires the authenticated
+redeploy lane once on its eventual same-SHA candidate.
+
+
+There is **no complete same-SHA landing record** for `7509f2b4`, `4b947e7d`, or current
+integration `c9ff372f`. The POD-279 coordinator has same-tree typecheck 22/22, client-auth 1 file/7 tests, wire goldens 1 file/90 tests,
 the three generators, both rearchitecture audits, and POD-1316 ancestry. The following were
 explicitly **not run** on those SHAs and are not cited as covered: session/issue/memory E2E,
 authenticated live-redeploy survival, multi-instance isolation, and the full unit lane. Earlier
