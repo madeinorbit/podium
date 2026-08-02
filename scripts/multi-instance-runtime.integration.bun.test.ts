@@ -331,6 +331,21 @@ describe('multi-instance runtime isolation', () => {
     ).rejects.toThrow(/unknown machine/)
     expect(await trpc(named).sessions.list.query()).toEqual([])
 
+    const namedOwnerApi = trpc(named)
+    const namedOwnerSession = await namedOwnerApi.sessions.create.mutate({
+      agentKind: 'shell',
+      cwd: ROOT,
+      machineId: namedMachineId,
+    })
+    const namedOwnerDb = openDatabase(join(named.stateDir, 'podium.db'))
+    const namedOwnerRow = namedOwnerDb
+      .prepare('SELECT durable_label AS durableLabel FROM sessions WHERE id = ?')
+      .get(namedOwnerSession.sessionId) as { durableLabel: string }
+    namedOwnerDb.close()
+    expect(namedOwnerRow.durableLabel).toBe(`podium-blue-${namedOwnerSession.sessionId}`)
+    expect(namedOwnerRow.durableLabel).not.toContain('user:')
+    await namedOwnerApi.sessions.kill.mutate({ sessionId: namedOwnerSession.sessionId })
+
     const title = 'Default runtime acceptance'
     const created = await runCli(compat, [
       'issue',

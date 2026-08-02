@@ -243,7 +243,7 @@ describe('the derived fleet router actually calls the gate', () => {
       tokenHash: 'h1',
       ownerUserId,
     })
-    const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default', pairing: new PairingManager() })
     registry.modules.machines.ensureHostMachine('machine-under-test')
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
@@ -375,7 +375,7 @@ describe('the derived fleet router actually calls the gate', () => {
 describe('a paired machine belongs to whoever minted its code', () => {
   function service() {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default', pairing: new PairingManager() })
     return { store, machines: registry.modules.machines }
   }
 

@@ -168,7 +168,7 @@ describe('conversation registry store', () => {
     })
     first.close()
     const second = new SessionStore(file)
-    const registry = new SessionRegistry(second)
+    const registry = new SessionRegistry(second, undefined, { instanceId: 'default' })
     expect(second.conversations.registry.segmentPath('m1', 'parent-1')).toBeUndefined()
     expect(second.conversations.registry.segmentPath('m1', 'agent-x')).toBe(
       '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',

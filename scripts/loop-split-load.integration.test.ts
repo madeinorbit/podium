@@ -79,6 +79,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
     })
     const registry = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
       publicationShadowCompare: true,
     })
     const sessionIds: string[] = []

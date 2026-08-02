@@ -35,7 +35,7 @@ describe('bind-storm regression', () => {
       tokenHash: 'y',
       ownerUserId: 'user:sole',
     })
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon('m1', () => {})
     registry.gateway.attachDaemon('m2', () => {})
     for (let i = 0; i < opts.issues; i++) {

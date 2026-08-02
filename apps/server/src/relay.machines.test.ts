@@ -43,7 +43,7 @@ function regWithTwoDaemons() {
   })
   store.machines.setMachineInventory('m1', inventory)
   store.machines.setMachineInventory('m2', inventory)
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
   reg.gateway.attachDaemon('m1', (msg) => m1.push(msg))
@@ -315,7 +315,7 @@ async function handoffRegistry(
   let targetRepoPath = '/target/repo'
   if (opts.targetHasRepo !== false)
     store.repos.addRepo(targetRepoPath, 'm2', 'git@github.com:example/repo.git')
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
   const sha = 'a'.repeat(40)

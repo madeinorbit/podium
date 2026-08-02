@@ -77,7 +77,7 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
     seedLegacyDb(path)
 
     const store = new SessionStore(path, HOST)
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('new-host', 'boot-secret')
 
     // Sessions, repos and conversations all moved — the cross-aggregate write is
@@ -100,13 +100,13 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
     seedLegacyDb(path)
 
     const first = new SessionStore(path, HOST)
-    new SessionRegistry(first).modules.machines.ensureHostMachine('new-host', 'boot-secret')
+    new SessionRegistry(first, undefined, { instanceId: 'default' }).modules.machines.ensureHostMachine('new-host', 'boot-secret')
     first.close()
 
     // Second boot over the same file: matches nothing, throws nothing.
     const second = new SessionStore(path, HOST)
     expect(() =>
-      new SessionRegistry(second).modules.machines.ensureHostMachine('new-host', 'boot-secret'),
+      new SessionRegistry(second, undefined, { instanceId: 'default' }).modules.machines.ensureHostMachine('new-host', 'boot-secret'),
     ).not.toThrow()
     expect(second.sessions.loadSessions().map((s) => s.machineId)).toEqual([HOST, HOST])
     second.close()
@@ -125,7 +125,7 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
     seedLegacyDb(path)
 
     const store = new SessionStore(path, HOST)
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('new-host', 'boot-secret')
 
     const live = registry.modules.sessions
@@ -208,7 +208,7 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
 describe('the split-mode local daemon authenticates as this host', () => {
   const bootedRegistry = (secret: string) => {
     const store = new SessionStore(':memory:', HOST)
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', secret)
     return registry
   }
@@ -234,7 +234,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
     // its own. A hard-coded `'local'` could not tell them apart.
     const other = asMachineId('11112222-3333-4444-5555-666677778888')
     const store = new SessionStore(':memory:', other)
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
 
     expect(
@@ -271,7 +271,7 @@ describe('composition threads deployment identity explicitly', () => {
 describe('rows are attributed from birth — there is no placeholder phase', () => {
   it('a session created before any daemon connects already names the host', () => {
     const store = new SessionStore(':memory:', HOST)
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
     const { sessionId } = registry.modules.sessions.createSession({
@@ -288,7 +288,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
 
   it('defaultMachine answers with the host even when its daemon is offline', () => {
     const store = new SessionStore(':memory:', HOST)
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
     expect(registry.modules.machines.defaultMachine()).toBe(HOST)

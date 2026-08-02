@@ -26,7 +26,7 @@ describe('MemoryService omni-search', () => {
   /** A store + registry seeded with one hit per source for the word "capacitor". */
   function seed() {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
 
@@ -185,7 +185,7 @@ describe('search.query tRPC', () => {
 
   it('excludes every private memory source owned by another user', () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
     const bob = asUserId('usr_bob')
@@ -259,7 +259,7 @@ describe('search.query tRPC', () => {
 
   it('filters hidden transcript ranks before normalizing visible results', () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
     const bob = asUserId('usr_bob')
@@ -317,7 +317,7 @@ describe('search.query tRPC', () => {
   })
 
   function caller() {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)

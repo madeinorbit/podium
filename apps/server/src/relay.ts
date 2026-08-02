@@ -7,7 +7,7 @@ import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
-import { DEFAULT_INSTANCE_ID, durableSessionLabel } from '@podium/runtime/instance'
+import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -99,8 +99,8 @@ export type {
 export type { MemoryBreakdown }
 
 interface SessionRegistryOptions {
-  /** Boot-resolved deployment identity; direct test fixtures use the compatibility default. */
-  instanceId?: string
+  /** Boot-resolved deployment identity; every composition root names it explicitly. */
+  instanceId: string
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -240,14 +240,17 @@ export class SessionRegistry {
   private readonly issueAutoArchive: IssueAutoArchive
   /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
   private readonly automationScheduler: AutomationScheduler
+  private readonly store: SessionStore
   private readonly now: () => number
 
   constructor(
-    private readonly store: SessionStore = new SessionStore(':memory:'),
-    notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
-    options: SessionRegistryOptions = {},
+    store: SessionStore | undefined,
+    notificationPushers: NotificationPushers | undefined,
+    options: SessionRegistryOptions,
   ) {
-    const instanceId = options.instanceId ?? DEFAULT_INSTANCE_ID
+    this.store = store ?? new SessionStore(':memory:')
+    notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
+    const { instanceId } = options
     this.now = options.now ?? Date.now
     // Resolve feature state once, then keep it atomic with settings changes. This also
     // avoids reading persistence during instruction preparation after async recovery.

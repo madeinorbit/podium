@@ -33,7 +33,7 @@ async function stoppedAndRead(): Promise<{
   sessionId: SessionId
   stoppedMs: number
 }> {
-  const reg = new SessionRegistry()
+  const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
   await reg.modules.issueSessionLifecycle.stopSession({ sessionId })

@@ -36,7 +36,7 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
   let overrideClient: IssueTrpc
 
   beforeAll(async () => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
 
     // A is a subtree root with a worktree; a session running INSIDE it → a worker capability
     // rooted at A's subtree. B is unrelated (outside A's subtree). Mirrors the P1b-server tests.

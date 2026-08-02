@@ -50,7 +50,7 @@ const LIVE = perfPrincipal(
 )
 
 function drive(): { registry: SessionRegistry; inbox: unknown[] } {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   const inbox: unknown[] = []
   const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
   registry.clientGateway.routeClientFrame(id, {

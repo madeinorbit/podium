@@ -95,7 +95,7 @@ async function runIssueClient(client: IssueTrpc, f: LifecycleFixture): Promise<v
 
 describe('lifecycle primitives across all four command transports (#413)', () => {
   it('tRPC operator executes all five registry-derived commands', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const f = fixture(registry)
       const caller = appRouter.createCaller({
@@ -117,7 +117,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
   })
 
   it('scoped in-process dispatcher executes all five inside the agent subtree', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const f = fixture(registry)
       const client = registry.issueCommands.asIssueTrpc({
@@ -134,7 +134,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
   })
 
   it('scoped MCP tools execute all five inside the agent subtree', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const f = fixture(registry)
       const provider = new IssueToolProvider()
@@ -157,7 +157,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
   })
 
   it('scoped CLI relay executes all five inside the agent subtree', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     let relayServer: Awaited<ReturnType<typeof startAgentRelayServer>> | undefined
     try {
       const f = fixture(registry)

@@ -71,7 +71,7 @@ function connection(publication?: { global: boolean }) {
 }
 
 function sessions() {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   return {
     registry,
     deliver: (conn: ClientConn, msg: ServerMessage) =>

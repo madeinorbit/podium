@@ -52,7 +52,7 @@ describe('issues.* subtree scope (P1a)', () => {
   let B: { id: string; title: string }
 
   beforeEach(async () => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const setup = appRouter.createCaller({
       registry,
@@ -218,7 +218,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
   })
 
   it('capabilityForSession returns subtree cap for a session in an issue worktree, else none', () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
     const i = registry.issues.create({ repoPath: '/r', title: 'W', startNow: false })
@@ -344,7 +344,7 @@ describe('issues.mail* (agent mail #103)', () => {
   let B: { id: string; seq: number }
 
   beforeEach(async () => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const setup = appRouter.createCaller({
       registry,
@@ -471,7 +471,7 @@ describe('issues router create/list/update', () => {
     for (const r of registries.splice(0)) r.dispose()
   })
   const caller = () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // OPERATOR clears every issues.* gate so these create/update flows aren't blocked.
     return appRouter.createCaller({
@@ -508,7 +508,7 @@ describe('issues.subscription* authz (Phase B)', () => {
   let B: { id: string; seq: number }
 
   beforeEach(async () => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const setup = appRouter.createCaller({
       registry,

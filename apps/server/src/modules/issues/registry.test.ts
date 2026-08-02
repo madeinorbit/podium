@@ -237,7 +237,7 @@ describe('handler↔contract schema identity', () => {
 describe('guardIssueCommand authorization matrix', () => {
   const registries: SessionRegistry[] = []
   const fresh = () => {
-    const r = new SessionRegistry()
+    const r = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(r)
     return r
   }
@@ -390,7 +390,7 @@ describe('guardIssueCommand authorization matrix', () => {
 
 describe('issue spawn provenance', () => {
   it('stamps agent comment actor and human owner from the transport principal', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
       await registry.issueCommands.dispatch(
@@ -425,7 +425,7 @@ describe('issue spawn provenance', () => {
   })
 
   it('passes the exact initiating session through start and add-session commands', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
       registry.issues.update(issue.id, {
@@ -459,7 +459,7 @@ describe('issue spawn provenance', () => {
   })
 
   it('agent create stamps startedBySession; setCoordinator claim/set/clear round-trips', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       // Operator create → no startedBySession.
       const op = (await registry.issueCommands.dispatch(

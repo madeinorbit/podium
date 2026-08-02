@@ -13,7 +13,7 @@ import { lockRegistry } from './registry'
  * status but never write).
  */
 
-const registry = new SessionRegistry()
+const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
 afterAll(() => registry.dispose())
 
 const dispatch = (
