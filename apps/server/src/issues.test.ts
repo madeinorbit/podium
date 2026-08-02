@@ -3188,6 +3188,68 @@ describe('IssueService agent mail (#103)', () => {
     expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(0)
   })
 
+  // A PULL is a delivery to a KNOWN reader [POD-1420]. The ledger used to record
+  // `delivered_to = NULL` for every inbox read, so a message the right agent read
+  // was indistinguishable from one that reached nobody. That is not cosmetic: it
+  // is the metric the delivery health of the whole mail system is judged on, and
+  // it read as "three quarters of issue mail reached nobody" when the true
+  // never-routed share was a small tail.
+  it('an inbox pull records WHO read it in the delivery ledger, not NULL', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_pulled', { fromSession: 'sSender' })
+    svc.mailInbox(a.id, { sessionId: 'sReader' })
+    expect(store.messages.getMessage('msg_pulled')).toMatchObject({
+      status: 'delivered',
+      deliveredTo: 'sReader',
+    })
+  })
+
+  it('a claim records the claimer in the delivery ledger', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_claimed', { fromSession: 'sSender' })
+    svc.mailClaim('msg_claimed', 'agent', { sessionId: 'sClaimer' })
+    expect(store.messages.getMessage('msg_claimed')).toMatchObject({
+      deliveredTo: 'sClaimer',
+    })
+  })
+
+  // The observed POD-1365 probe row: PUSHED to a session at 14:44:17 (injected,
+  // still `queued`), then the agent opened its inbox 23s later and the pull wiped
+  // `delivered_to` while flipping the row to `delivered`. Routed correctly,
+  // landed in a transcript, and the ledger recorded it as reaching nobody.
+  it('a pull does not erase the session a push already reached', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_pushed', { fromSession: 'sSender' })
+    store.messages.markInjected('msg_pushed', 'sPushed', '2026-08-02T14:44:17.283Z')
+    expect(store.messages.getMessage('msg_pushed')).toMatchObject({
+      status: 'queued',
+      deliveredTo: 'sPushed',
+    })
+    // A peer opens the shared mailbox 23 seconds later.
+    svc.mailInbox(a.id, { sessionId: 'sPeer' })
+    expect(store.messages.getMessage('msg_pushed')).toMatchObject({
+      status: 'delivered',
+      deliveredTo: 'sPushed',
+    })
+    // …and the peer's OWN receipt is still recorded, so preserving the push
+    // target does not re-nag the session that just read it [POD-1379 interaction].
+    expect(store.messages.readReceipts('sPeer', ['msg_pushed']).has('msg_pushed')).toBe(true)
+    expect(svc.mailPending(a.id, { sessionId: 'sPeer' }).unread).toBe(0)
+  })
+
+  // An operator/UI peek carries no session. It must still advance the shared
+  // ledger (it consumes the legacy unread status), but it has no reader to name.
+  it('a readerless pull still leaves delivered_to NULL — nobody to name', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_peek', { fromSession: 'sSender' })
+    svc.mailInbox(a.id)
+    expect(store.messages.getMessage('msg_peek')).toMatchObject({ deliveredTo: null })
+  })
+
   it('nags each session exactly once: a second read of my own inbox is quiet', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })

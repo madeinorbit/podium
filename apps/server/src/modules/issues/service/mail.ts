@@ -76,7 +76,15 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
             // Unified substrate mirror (#237) [spec:SP-34d7]: the rows share ids —
             // the pull advances the shared delivery ledger on BOTH tables so the
             // sweep stops pushing what the issue has now read.
-            for (const mid of unreadIds) this.deps.store.messages.markDelivered(mid, null, at)
+            // NAME the reader on the ledger [POD-1420]. A pull is a delivery to a
+            // known session, so `delivered_to` is that session. Passing null here
+            // made every inbox read indistinguishable from mail that reached
+            // nobody — the two are the same row shape, and the resulting
+            // `delivered_to IS NULL` count was read as a mass delivery failure
+            // when it was overwhelmingly the pull path working. A readerless peek
+            // (operator/UI) still has nobody to name and stays null.
+            for (const mid of unreadIds)
+              this.deps.store.messages.markDeliveredByPull(mid, reader ?? null, at)
           }
           if (reader)
             for (const mid of newReceipts) this.deps.store.messages.recordRead(mid, reader, at)
@@ -104,7 +112,14 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
       write: () => {
         const won = this.deps.store.issues.claimIssueMessage(messageId, claimedBy, this.now())
         // Keep the unified-substrate mirror row in step (#237) [spec:SP-34d7].
-        if (won) this.deps.store.messages.markDelivered(messageId, null, this.now())
+        // The claimer demonstrably has the message, so it is the reader the
+        // ledger names [POD-1420]; absent a session id there is nobody to name.
+        if (won)
+          this.deps.store.messages.markDeliveredByPull(
+            messageId,
+            opts?.sessionId ?? null,
+            this.now(),
+          )
         if (opts?.sessionId) {
           this.deps.store.messages.recordRead(messageId, opts.sessionId, this.now())
         }
