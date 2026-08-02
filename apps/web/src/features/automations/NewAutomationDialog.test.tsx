@@ -1,8 +1,4 @@
-import {
-  asAutomationId,
-  asSessionId,
-  type AutomationWire,
-} from '@podium/model'
+import { type AutomationWire, asAutomationId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 

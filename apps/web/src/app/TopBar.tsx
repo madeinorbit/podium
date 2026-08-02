@@ -177,6 +177,9 @@ function NavItem({
     <button
       data-pressable
       type="button"
+      // Keyed on the DESTINATION, not the label: "Issues" became "Tasks" in the
+      // POD-650 naming trial and took the browser lane's nav selectors with it.
+      data-testid={`topbar-nav-${target}`}
       onClick={() => onSelect(target)}
       aria-current={active ? 'page' : undefined}
       className={cn(

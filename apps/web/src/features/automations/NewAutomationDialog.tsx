@@ -1,7 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { AutomationSessionMode } from '@podium/model'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
@@ -25,32 +25,32 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { AUTO } from '@/lib/agent-models'
-import { repoUsageAt } from '@/lib/derive'
-import {
-  ISSUE_AGENT_KINDS,
-  type IssueAgentKind,
-  issueAgentLabel,
-  issueDefaultAgentKind,
-} from '@/lib/issue-agents'
+import { ISSUE_AGENT_KINDS, issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import type { Automation } from './AutomationsView'
-import { cronFromFields, type Frequency, isValidCronExpression, WEEKDAYS } from './cron-format'
-
-type TriggerKind = 'schedule' | 'reactive'
-type ReactiveTrigger = 'merge-main' | 'new-issue' | 'worktree-idle' | 'file-changed'
-
-const REACTIVE_LABELS: Record<ReactiveTrigger, string> = {
-  'merge-main': 'Branch merged to main',
-  'new-issue': 'New task created',
-  'worktree-idle': 'Worktree goes idle',
-  'file-changed': 'File changed',
-}
-
-/** Sentinel for the repo picker's "no repo" option: the automation runs in the home
- *  directory (repo_path NULL server-side) [spec:SP-17db]. */
-const GLOBAL_TARGET = '__global__'
-
-const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
+import {
+  AUTOMATION_HEAD_FIELDS,
+  AUTOMATION_SUBFORMS,
+  AUTOMATION_TAIL_FIELDS,
+  type AutomationFieldConfig,
+  type AutomationFormContext,
+  type AutomationFormState,
+  automationClassOf,
+  automationCron,
+  automationInput,
+  automationMachineViews,
+  automationRight,
+  automationSubform,
+  automationTargetChoices,
+  canSaveAutomation,
+  GLOBAL_TARGET,
+  NEW_AUTOMATION_RIGHTS,
+  type ReactiveTrigger,
+  runAtInstant,
+  type TriggerKind,
+  visibleFields,
+} from './automation-form'
+import type { Frequency } from './cron-format'
 
 const localDateTimeValue = (iso?: string | null): string => {
   const fallback = new Date(Date.now() + 60 * 60_000)
@@ -61,12 +61,40 @@ const localDateTimeValue = (iso?: string | null): string => {
   return local.toISOString().slice(0, 16)
 }
 
+function initialState(automation: Automation | null, defaultTarget: string): AutomationFormState {
+  return {
+    name: automation?.name ?? '',
+    kind: 'schedule',
+    // Existing recurring schedules open as custom cron so their exact expression
+    // is preserved.
+    freq: automation ? (automation.scheduleKind === 'once' ? 'once' : 'cron') : 'daily',
+    time: '09:00',
+    weekday: 1, // Monday
+    rawCron: automation?.cron ?? '',
+    runAt: localDateTimeValue(automation?.runAt),
+    reactive: 'merge-main',
+    glob: '',
+    target: automation ? (automation.repoPath ?? GLOBAL_TARGET) : defaultTarget,
+    prompt: automation?.prompt ?? '',
+    agent: issueDefaultAgentKind(automation?.agentKind ?? 'claude-code'),
+    model: automation?.model ?? AUTO,
+    effort: automation?.effort ?? AUTO,
+    enabled: automation?.enabled ?? true,
+    sessionMode: automation?.sessionMode ?? 'fresh',
+  }
+}
+
 /**
- * The "New automation" composer (#470) [spec:SP-17db]. Schedule creates a REAL,
- * persisted automation via `automations.create`. Reactive keeps its fields visible
- * — the design intent is real — but Create is disabled and says so: there is no
- * runner behind it yet, and a composer that silently discards its input is exactly
- * what this change removes.
+ * The "New automation" composer (POD-470) [spec:SP-17db], rendered from the
+ * subform CONFIGS in `automation-form.ts` (POD-409) rather than from a per-type
+ * branch. The dialog's job is now state, submission and the delegation notice;
+ * which controls exist for a given trigger kind and frequency is data.
+ *
+ * Schedule creates a REAL, persisted automation via `automations.create`.
+ * Reactive keeps its fields visible — the design intent is real — but its config
+ * says `creatable: false`, so Create is disabled and says why: there is no runner
+ * behind it yet, and a composer that silently discards its input is exactly what
+ * POD-470 removed.
  */
 export function NewAutomationDialog({
   trpc,
@@ -79,90 +107,104 @@ export function NewAutomationDialog({
   onClose: () => void
   onSaved: () => void
 }): JSX.Element {
-  const { repos, sessions } = useStoreSelector(
-    (s) => ({ repos: s.repos, sessions: s.sessions ?? [] }),
+  const { repos, sessions, machines } = useStoreSelector(
+    (s) => ({
+      repos: s.repos,
+      sessions: s.sessions ?? [],
+      machines: s.machines ?? [],
+    }),
     shallowEqual,
   )
   const editing = automation !== null
-  const [name, setName] = useState(automation?.name ?? '')
-  const [kind, setKind] = useState<TriggerKind>('schedule')
-  // Existing recurring schedules open as custom cron so their exact expression is preserved.
-  const [freq, setFreq] = useState<Frequency>(
-    automation ? (automation.scheduleKind === 'once' ? 'once' : 'cron') : 'daily',
+
+  // Targets are OWNED COMPUTE: bounded by the machines this principal may USE,
+  // with unauthorized and unreachable counted separately (§3.1.4 M5).
+  const { choices, excluded } = useMemo(
+    () =>
+      automationTargetChoices(
+        repos,
+        sessions,
+        automationMachineViews(machines),
+        automation?.repoPath ?? null,
+      ),
+    [repos, sessions, machines, automation?.repoPath],
   )
-  const [time, setTime] = useState('09:00')
-  const [weekday, setWeekday] = useState(1) // Monday
-  const [rawCron, setRawCron] = useState(automation?.cron ?? '')
-  const [runAt, setRunAt] = useState(() => localDateTimeValue(automation?.runAt))
-  // Reactive fields (composed but not creatable — no runner yet).
-  const [reactive, setReactive] = useState<ReactiveTrigger>('merge-main')
-  const [glob, setGlob] = useState('')
-  // Target: the most-recently-used repo, or Global.
-  const [target, setTarget] = useState(() => {
-    if (automation) return automation.repoPath ?? GLOBAL_TARGET
-    const choices = repos.filter((r) => r.kind !== 'worktree')
-    const mru = [...choices].sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))[0]
-    return mru?.path ?? GLOBAL_TARGET
-  })
-  const [prompt, setPrompt] = useState(automation?.prompt ?? '')
-  const [agent, setAgent] = useState<IssueAgentKind>(() =>
-    issueDefaultAgentKind(automation?.agentKind ?? 'claude-code'),
-  )
-  const [model, setModel] = useState(automation?.model ?? AUTO)
-  const [effort, setEffort] = useState(automation?.effort ?? AUTO)
-  const [enabled, setEnabled] = useState(automation?.enabled ?? true)
-  const [sessionMode, setSessionMode] = useState<AutomationSessionMode>(
-    automation?.sessionMode ?? 'fresh',
+  const ctx: AutomationFormContext = { targets: choices, excluded }
+
+  const [state, setState] = useState<AutomationFormState>(() =>
+    initialState(automation, choices.find((c) => !c.opaque)?.value ?? GLOBAL_TARGET),
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const repoChoices = repos
-    .filter((r) => r.kind !== 'worktree')
-    .sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))
-  const cron = cronFromFields(freq, time, weekday, rawCron)
-  const runAtTimestamp = new Date(runAt).getTime()
-  const oneOffRunAt = Number.isFinite(runAtTimestamp)
-    ? new Date(runAtTimestamp).toISOString()
-    : null
-  // The composer's own frequencies always build a valid expression; only the custom
-  // cron box can be empty or malformed. Gating Create on validity is what stops an
-  // untouched box from arming a schedule (#470) — it no longer falls back to
-  // `* * * * *`, which would have spawned an agent session every minute.
-  const cronValid = isValidCronExpression(cron)
-  const cronInvalid = freq === 'cron' && cron.length > 0 && !cronValid
-  const scheduleValid = freq === 'once' ? runAtTimestamp > Date.now() : cronValid
-  const canSave =
-    kind === 'schedule' &&
-    name.trim().length > 0 &&
-    prompt.trim().length > 0 &&
-    scheduleValid &&
-    !saving
+  const patch = (next: Partial<AutomationFormState>): void =>
+    setState((prev) => ({ ...prev, ...next }))
+
+  // One rights evaluation, the same predicate the automation cards use.
+  const right = automationRight(
+    editing ? 'edit' : 'create',
+    NEW_AUTOMATION_RIGHTS(choices.some((c) => !c.opaque)),
+  )
+  const subform = automationSubform(state.kind)
+  const canSave = canSaveAutomation(state, right) && !saving
+  const blockedReason = !right.allowed
+    ? right.message
+    : subform.creatable
+      ? ''
+      : (subform.uncreatableReason ?? '')
+
+  // §3.1.6 S5: a system automation has no human behind it and must not be given
+  // one, so it is never opened as an editable delegation.
+  if (automation && automationClassOf(automation) === 'system') {
+    return (
+      <Dialog
+        open
+        onOpenChange={(o) => {
+          if (!o) onClose()
+        }}
+      >
+        <DialogContent className="flex w-full max-w-md flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>System automation</DialogTitle>
+          </DialogHeader>
+          <p className="text-[13px] text-muted-foreground">
+            {automation.name} runs as the system, not as a person. It has no owner and cannot be
+            edited or taken over here.
+          </p>
+          <DialogFooter>
+            <Button type="button" onClick={onClose}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  const renderFields = (fields: readonly AutomationFieldConfig[]): JSX.Element[] =>
+    visibleFields(fields, state).map((field) => (
+      <AutomationField
+        key={field.id}
+        field={field}
+        state={state}
+        ctx={ctx}
+        onChange={patch}
+        onAgentChange={(agent) => patch({ agent, model: AUTO, effort: AUTO })}
+      />
+    ))
 
   const save = (): void => {
     if (!canSave) return
     setSaving(true)
     setError('')
-    const input = {
-      name: name.trim(),
-      repoPath: target === GLOBAL_TARGET ? null : target,
-      scheduleKind: freq === 'once' ? ('once' as const) : ('cron' as const),
-      cron: freq === 'once' ? null : cron,
-      runAt: freq === 'once' ? oneOffRunAt : null,
-      // Agent-created targeted one-offs keep their explicit session when edited.
-      targetSessionId: automation?.targetSessionId ?? null,
-      agentKind: agent,
-      model,
-      effort,
-      prompt: prompt.trim(),
-      enabled,
-      sessionMode,
-    }
+    const input = automationInput(state, automation)
     const request = automation
       ? trpc.automations.update.mutate({ id: automation.id, patch: input })
       : trpc.automations.create.mutate(input)
     request
       .then(() => onSaved())
+      // A denial is surfaced and the dialog stays exactly as the user left it —
+      // nothing optimistic was applied, and nothing retries (ADR 3 D8).
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e))
         setSaving(false)
@@ -182,258 +224,38 @@ export function NewAutomationDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="automation-name">Name</Label>
-            <Input
-              id="automation-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Nightly test sweep"
-            />
-          </div>
+          {renderFields(AUTOMATION_HEAD_FIELDS)}
 
-          <Tabs value={kind} onValueChange={(v) => setKind(v as TriggerKind)}>
+          <Tabs value={state.kind} onValueChange={(v) => patch({ kind: v as TriggerKind })}>
             <TabsList className="w-full">
-              <TabsTrigger value="schedule" className="flex-1">
-                Schedule
-              </TabsTrigger>
-              <TabsTrigger value="reactive" className="flex-1">
-                Reactive loop
-              </TabsTrigger>
+              {AUTOMATION_SUBFORMS.map((s) => (
+                <TabsTrigger key={s.id} value={s.id} className="flex-1">
+                  {s.label}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </Tabs>
 
-          {kind === 'schedule' ? (
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label>Frequency</Label>
-                <Select value={freq} onValueChange={(v) => setFreq(v as Frequency)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="once">One time</SelectItem>
-                    <SelectItem value="hourly">Hourly</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="cron">Custom cron</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {freq === 'once' && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="automation-run-at">Run at</Label>
-                  <Input
-                    id="automation-run-at"
-                    type="datetime-local"
-                    value={runAt}
-                    onChange={(event) => setRunAt(event.target.value)}
-                  />
-                  <span className="text-[11px] text-muted-foreground">
-                    {scheduleValid
-                      ? 'This automation will run once, at this local date and time.'
-                      : 'Choose a date and time in the future.'}
-                  </span>
-                </div>
-              )}
+          {renderFields([...subform.fields, ...AUTOMATION_TAIL_FIELDS])}
 
-              {freq === 'weekly' && (
-                <div className="flex flex-col gap-1.5">
-                  <Label>Day of week</Label>
-                  <Select value={String(weekday)} onValueChange={(v) => setWeekday(Number(v))}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {WEEKDAYS.map((d, i) => (
-                        <SelectItem key={d} value={String(i)}>
-                          {d}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              {(freq === 'daily' || freq === 'weekly') && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="automation-time">Time</Label>
-                  <Input
-                    id="automation-time"
-                    type="time"
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                    className="w-32"
-                  />
-                </div>
-              )}
-              {freq === 'cron' && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="automation-cron">Cron expression</Label>
-                  <Input
-                    id="automation-cron"
-                    value={rawCron}
-                    onChange={(e) => setRawCron(e.target.value)}
-                    placeholder="*/30 * * * *"
-                    className="font-mono"
-                    aria-invalid={cronInvalid}
-                  />
-                  <span className="text-[11px] text-muted-foreground">
-                    {cronInvalid
-                      ? 'Not a valid cron expression — 5 fields: minute hour day month weekday.'
-                      : 'Five fields: minute hour day month weekday. Minimum interval: one minute.'}
-                  </span>
-                </div>
-              )}
-              {freq === 'once' ? (
-                <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
-                  <span className="text-[11px] text-muted-foreground">one time</span>
-                  <span className="text-[12px] text-foreground">
-                    {oneOffRunAt ? new Date(oneOffRunAt).toLocaleString() : '—'}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
-                  <span className="text-[11px] text-muted-foreground">cron</span>
-                  <code className="font-mono text-[12px] text-foreground">{cron || '—'}</code>
-                  <span className="text-[11px] text-muted-foreground/70">server-local time</span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-600 dark:text-amber-400">
-                Reactive automations are not yet wired to a runner — this shape is design only, and
-                Create stays disabled. Scheduled automations are real.
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Trigger</Label>
-                <Select value={reactive} onValueChange={(v) => setReactive(v as ReactiveTrigger)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(REACTIVE_LABELS) as ReactiveTrigger[]).map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {REACTIVE_LABELS[t]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {reactive === 'file-changed' && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="automation-glob">Path glob</Label>
-                  <Input
-                    id="automation-glob"
-                    value={glob}
-                    onChange={(e) => setGlob(e.target.value)}
-                    placeholder="src/**/*.ts"
-                    className="font-mono"
-                  />
-                </div>
-              )}
-            </div>
+          {automation?.targetSessionId && (
+            <span className="-mt-2 text-[11px] text-muted-foreground">
+              Explicit session target: {automation.targetSessionId}
+            </span>
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="automation-target">Target</Label>
-            <Select value={target} onValueChange={(v) => setTarget(v ?? GLOBAL_TARGET)}>
-              <SelectTrigger id="automation-target" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {repoChoices.map((r) => (
-                  <SelectItem key={r.path} value={r.path}>
-                    {repoLabel(r.path)}
-                  </SelectItem>
-                ))}
-                <SelectItem value={GLOBAL_TARGET}>Global (home directory)</SelectItem>
-              </SelectContent>
-            </Select>
-            {automation?.targetSessionId && (
-              <span className="text-[11px] text-muted-foreground">
-                Explicit session target: {automation.targetSessionId}
-              </span>
-            )}
-          </div>
+          {/* §3.1.6 S6: this form authors a DELEGATION. Say whose. */}
+          <p className="rounded-md bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
+            This automation is yours and runs as you, with whatever access you have at the time it
+            fires — not the access you have now. If your access to the target changes, it stops
+            working.
+          </p>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="automation-session-mode">Session mode</Label>
-            <Select
-              value={sessionMode}
-              onValueChange={(value) => setSessionMode(value as AutomationSessionMode)}
-            >
-              <SelectTrigger id="automation-session-mode" className="w-full">
-                <SelectValue>
-                  {sessionMode === 'resume'
-                    ? 'Resume the previous session'
-                    : 'Fresh task and session each run'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="fresh">Fresh task and session each run</SelectItem>
-                <SelectItem value="resume">Resume the previous session</SelectItem>
-              </SelectContent>
-            </Select>
-            <span className="text-[11px] text-muted-foreground">
-              Resume falls back to a fresh automation issue if the previous session was deleted or
-              never became resumable.
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="automation-prompt">Task prompt</Label>
-            <Textarea
-              id="automation-prompt"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="What should the agent do each run?"
-              className="min-h-24"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <Label htmlFor="automation-agent">Agent</Label>
-              <Select
-                value={agent}
-                onValueChange={(v) => {
-                  // Model + effort are scoped to the agent — changing it resets both.
-                  setAgent(issueDefaultAgentKind(v))
-                  setModel(AUTO)
-                  setEffort(AUTO)
-                }}
-              >
-                <SelectTrigger id="automation-agent" className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ISSUE_AGENT_KINDS.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {issueAgentLabel(k)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {blockedReason && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-600 dark:text-amber-400">
+              {blockedReason}
             </div>
-            <div className="flex items-end gap-1.5 pb-0.5">
-              <ModelPicker
-                agentKind={agent}
-                value={model}
-                onChange={(m) => {
-                  // Effort is per-model — reset it whenever the model changes.
-                  setModel(m)
-                  setEffort(AUTO)
-                }}
-              />
-              <EffortPicker agentKind={agent} model={model} value={effort} onChange={setEffort} />
-            </div>
-          </div>
-
-          <Label className="cursor-pointer gap-2 font-normal text-[13px] text-muted-foreground">
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enabled" />
-            Enabled — start firing on this schedule
-          </Label>
+          )}
 
           {error && (
             <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
@@ -453,4 +275,186 @@ export function NewAutomationDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+/** One config entry, rendered. The only place in this feature that knows which
+ *  control kind maps to which component. */
+function AutomationField({
+  field,
+  state,
+  ctx,
+  onChange,
+  onAgentChange,
+}: {
+  field: AutomationFieldConfig
+  state: AutomationFormState
+  ctx: AutomationFormContext
+  onChange: (next: Partial<AutomationFormState>) => void
+  onAgentChange: (agent: ReturnType<typeof issueDefaultAgentKind>) => void
+}): JSX.Element | null {
+  const hint = field.hint?.(state, ctx) ?? ''
+
+  if (field.control === 'notice') {
+    return (
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-600 dark:text-amber-400">
+        {hint}
+      </div>
+    )
+  }
+
+  if (field.control === 'schedule-summary') {
+    const parsed = runAtInstant(state)
+    return state.freq === 'once' ? (
+      <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+        <span className="text-[11px] text-muted-foreground">one time</span>
+        <span className="text-[12px] text-foreground">
+          {parsed ? new Date(parsed).toLocaleString() : '—'}
+        </span>
+      </div>
+    ) : (
+      <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+        <span className="text-[11px] text-muted-foreground">cron</span>
+        <code className="font-mono text-[12px] text-foreground">
+          {automationCron(state) || '—'}
+        </code>
+        <span className="text-[11px] text-muted-foreground/70">server-local time</span>
+      </div>
+    )
+  }
+
+  if (field.control === 'agent-runtime') {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <Label htmlFor={field.id}>{field.label}</Label>
+          <Select
+            value={state.agent}
+            // Model + effort are scoped to the agent — changing it resets both.
+            onValueChange={(v) => onAgentChange(issueDefaultAgentKind(v))}
+          >
+            <SelectTrigger id={field.id} className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ISSUE_AGENT_KINDS.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {issueAgentLabel(k)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-end gap-1.5 pb-0.5">
+          <ModelPicker
+            agentKind={state.agent}
+            value={state.model}
+            // Effort is per-model — reset it whenever the model changes.
+            onChange={(m) => onChange({ model: m, effort: AUTO })}
+          />
+          <EffortPicker
+            agentKind={state.agent}
+            model={state.model}
+            value={state.effort}
+            onChange={(effort) => onChange({ effort })}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (field.control === 'switch') {
+    return (
+      <Label className="cursor-pointer gap-2 font-normal text-[13px] text-muted-foreground">
+        <Switch
+          checked={state.enabled}
+          onCheckedChange={(enabled) => onChange({ enabled })}
+          aria-label="Enabled"
+        />
+        {field.label}
+      </Label>
+    )
+  }
+
+  const key = field.field
+  if (key === undefined) return null
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {field.label && <Label htmlFor={field.id}>{field.label}</Label>}
+      {field.control === 'select' ? (
+        <SelectField field={field} state={state} ctx={ctx} onChange={onChange} />
+      ) : field.control === 'textarea' ? (
+        <Textarea
+          id={field.id}
+          value={String(state[key])}
+          onChange={(e) => onChange({ [key]: e.target.value } as Partial<AutomationFormState>)}
+          placeholder={field.placeholder}
+          className="min-h-24"
+        />
+      ) : (
+        <Input
+          id={field.id}
+          type={
+            field.control === 'time'
+              ? 'time'
+              : field.control === 'datetime'
+                ? 'datetime-local'
+                : 'text'
+          }
+          value={String(state[key])}
+          onChange={(e) => onChange({ [key]: e.target.value } as Partial<AutomationFormState>)}
+          placeholder={field.control === 'text' ? field.placeholder : undefined}
+          className={
+            field.control === 'time'
+              ? 'w-32'
+              : field.control === 'text' && field.mono
+                ? 'font-mono'
+                : undefined
+          }
+          aria-invalid={field.invalidWhen?.(state) ?? undefined}
+        />
+      )}
+      {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
+    </div>
+  )
+}
+
+function SelectField({
+  field,
+  state,
+  ctx,
+  onChange,
+}: {
+  field: AutomationFieldConfig & { control: 'select' }
+  state: AutomationFormState
+  ctx: AutomationFormContext
+  onChange: (next: Partial<AutomationFormState>) => void
+}): JSX.Element {
+  const key = field.field as keyof AutomationFormState
+  const options = typeof field.options === 'function' ? field.options(ctx) : field.options
+  const value = String(state[key])
+  const selected = options.find((o) => o.value === value)
+  return (
+    <Select value={value} onValueChange={(v) => onChange(coerce(key, v ?? value))}>
+      <SelectTrigger id={field.id} className="w-full">
+        <SelectValue>{selected?.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/** Select values arrive as strings; `weekday` is the one numeric binding. */
+function coerce(key: keyof AutomationFormState, value: string): Partial<AutomationFormState> {
+  if (key === 'weekday') return { weekday: Number(value) }
+  if (key === 'freq') return { freq: value as Frequency }
+  if (key === 'reactive') return { reactive: value as ReactiveTrigger }
+  if (key === 'sessionMode') return { sessionMode: value as AutomationSessionMode }
+  return { [key]: value } as Partial<AutomationFormState>
 }
