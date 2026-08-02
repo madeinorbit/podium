@@ -1208,12 +1208,12 @@ export const CHECKS: AuditCheck[] = [
     id: 'panel-mode-duality',
     title: 'panelMode storage duality',
     phase: 'POD-329',
-    unit: 'panelMode storage-key literal outside the engine persistence module',
+    unit: 'panelMode storage-key literal outside the ui-state module',
     collect: (ctx) =>
       grep(ctx, {
         roots: ['apps', 'packages'],
         pattern: /'podium\.panelMode(?:Default)?'/,
-        skip: (file) => file === 'packages/client-core/src/engine/persistence.ts',
+        skip: (file) => file === 'packages/client-core/src/ui-state.ts',
       }),
   },
   {

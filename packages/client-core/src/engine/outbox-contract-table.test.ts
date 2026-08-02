@@ -37,8 +37,8 @@ import { OUTBOX_COMMANDS } from './wiring'
 const byName = new Map<string, CommandContract>()
 for (const contract of [
   ...Object.values(ISSUE_CONTRACTS),
-  ...Object.values(LAYOUT_CONTRACTS),
   ...Object.values(SETTINGS_CONTRACTS),
+  ...Object.values(LAYOUT_CONTRACTS),
 ]) {
   byName.set((contract as CommandContract).name, contract as CommandContract)
 }

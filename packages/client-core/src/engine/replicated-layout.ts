@@ -7,7 +7,7 @@
  * reconciliation seam for authoritative snapshots.
  */
 
-import { isLayoutKey, layoutKeyFromLegacy, type LayoutSnapshot } from '@podium/model'
+import { isLayoutKey, type LayoutSnapshot, layoutKeyFromLegacy } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { StoreNotices } from './types'

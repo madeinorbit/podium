@@ -120,6 +120,11 @@ export interface PodiumClientApi {
       Record<string, string[]>
     >
   }
+  layout: {
+    get: ApiQuery<void, LayoutSnapshot>
+    set: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, LayoutSnapshot>
+    clear: ApiMutation<WithMutationId<{ keys: string[] }>, LayoutSnapshot>
+  }
   files: {
     read: ApiQuery<
       {
@@ -155,11 +160,6 @@ export interface PodiumClientApi {
   settings: {
     get: ApiQuery<void, PodiumSettings>
     updatePersonal: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, PodiumSettings>
-  }
-  layout: {
-    get: ApiQuery<void, LayoutSnapshot>
-    set: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, LayoutSnapshot>
-    clear: ApiMutation<WithMutationId<{ keys: string[] }>, LayoutSnapshot>
   }
   superagent: {
     startBtw: ApiMutation<{ sessionId: SessionId }>

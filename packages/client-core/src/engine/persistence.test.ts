@@ -5,7 +5,7 @@ import {
   RECENT_FILES_KEY,
   readStoredDockShells,
   readStoredRecentFiles,
-} from './persistence'
+} from '../ui-state'
 
 function fakeUi(entries: Record<string, string>): UiState {
   const map = new Map(Object.entries(entries))

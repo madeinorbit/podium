@@ -8,7 +8,7 @@
  *  - the outbox (durable offline writes) + drain-on-reconnect — whose pending
  *    entries double as THE optimistic overlay (#263, see overlay.ts: replica =
  *    server truth only, snapshots fold rows + pending mutations' patches),
- *  - the router, as the SINGLE URL writer (see mirrorUrl),
+ *  - router + view-state ownership through the single ui-state module,
  *  - view-state reporting + the worktree-follow policy,
  *  - every imperative store action (the old trpc.* closures, verbatim).
  *
@@ -30,6 +30,7 @@ import type {
   HostMetricsWire,
   IssueId,
   IssueWire,
+  LayoutWire,
   MachineWire,
   SessionId,
   SessionMeta,
@@ -42,19 +43,23 @@ import { randomUUID } from '../id'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
 import type { IssueProjectionRow } from '../replica/contract'
-import type { Replica, UiState } from '../replica/replica'
-import {
-  createRouter,
-  type MainView,
-  type Router,
-  type RouterWindow,
-  type RouteState,
-  routeDefaults,
-} from '../router'
+import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
 import { assertSpawnPlacement, createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
+import {
+  createRouterUiState,
+  createUiStateRouter,
+  type MainView,
+  type RoutedUiState,
+  type Router,
+  type RouterUiState,
+  type RouterWindow,
+  type RouteState,
+  routeDefaults,
+  type WorkspaceUiSnapshot,
+} from '../ui-state'
 import {
   type DockTab,
   dedupeSessionsByResume,
@@ -66,11 +71,9 @@ import {
   type PinState,
   planWorktreeMoves,
   type RecentFileEntry,
-  readStoredDockTab,
   reposToViews,
 } from '../viewmodels'
-import { createEngineActions } from './actions'
-import type { ReplicatedLayoutController } from './replicated-layout'
+import { createEngineActions, type EngineActions } from './actions'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
@@ -85,27 +88,11 @@ import {
   rowFingerprint,
 } from './overlay'
 import {
-  DOCK_SHELLS_KEY,
-  DOCK_TAB_KEY,
-  ISSUE_SEL_KEY,
-  PANE_A_KEY,
-  PANE_B_KEY,
-  PANEL_MODE_KEY,
-  RECENT_FILES_KEY,
-  readStoredDockShells,
-  readStoredPanelModes,
-  readStoredRecentFiles,
-  readStoredView,
-  SPLIT_KEY,
-  SUPER_OPEN_KEY,
-  VIEW_KEY,
-  WT_KEY,
-} from './persistence'
-import {
   createReplicaBinding,
   type ReplicaBinding,
   type ReplicaPublication,
 } from './replica-binding'
+import type { ReplicatedLayoutController } from './replicated-layout'
 import {
   defaultFormatError,
   NOOP_NOTICES,
@@ -246,12 +233,8 @@ interface EngineState {
   recoverOutbox: Store['recoverOutbox']
 }
 
-/** Narrow a raw route/persisted value into the session id space (POD-362). */
-const asSessionIdOrNull = (v: string | null | undefined): SessionId | null =>
-  v ? asSessionId(v) : null
-
-/** The issue-id twin of {@link asSessionIdOrNull} (POD-363). Same DECODE EDGE:
- *  the URL route and `localStorage` hand back raw strings, and this is the one
+/** Narrow a raw route/persisted value into the issue id space (POD-363). The URL
+ *  route and local state hand back raw strings, and this is the one
  *  place they re-enter the id space — so the store's issue-selection surface can
  *  be branded end to end without a cast at every consumer. */
 const asIssueIdOrNull = (v: string | null | undefined): IssueId | null => (v ? asIssueId(v) : null)
@@ -261,10 +244,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly hub: SocketHub
   readonly outbox: EngineOutbox
   readonly router: Router
-  readonly ui: UiState
+  readonly ui: RoutedUiState
   readonly replicatedLayout: ReplicatedLayoutController
 
   private readonly replicaBinding: ReplicaBinding
+  private readonly routerUi: RouterUiState
 
   private readonly api: TApi
   private readonly notices: StoreNotices
@@ -301,10 +285,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  dispose(): a replaced engine's late timer must not roll back overlays or
    *  toast after its successor took over the same storage/session state. */
   private readonly spawnConfirmTimers = new Set<ReturnType<typeof setTimeout>>()
-  /** Effective rendered mode per session (what AgentPanel actually shows),
-   *  reported up the viewState channel. Not in the snapshot — only the setter
-   *  is public — and not persisted (re-reported on mount from live state). */
-  private panelRenderModes: Record<string, 'chat' | 'native'> = {}
   private prevRoute: RouteState
   private prevCwds: Record<string, string> = {}
   private markReadKey: string | null = null
@@ -318,6 +298,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
   private started = false
+  private applyingHydratedUi = false
   /** One-time boot fetches (repos/pins/tab-orders/settings) — once per engine,
    *  even across a StrictMode dispose/re-start cycle (matches the old provider's
    *  `started` ref). */
@@ -345,7 +326,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       )
     }
     this.replica = init.createReplicaFn()
-    this.ui = this.replica.uiState()
     this.replicaBinding = createReplicaBinding({ replica: this.replica })
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,
@@ -393,9 +373,17 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       }
     }
     this.awaitingTruth = restoredAwaiting
-    // URL router (issue #15 Phase 4): the main surface is the URL. A plain '/'
-    // start restores the persisted view; unknown URLs fall back to Tasks.
-    this.router = createRouter({ fallbackView: readStoredView(this.ui), win: init.routerWindow })
+    const localUi = this.replica.uiState()
+    this.router = createUiStateRouter(localUi, init.routerWindow)
+    const actions = this.createActions()
+    this.replicatedLayout = actions.replicatedLayout
+    this.routerUi = createRouterUiState({
+      local: localUi,
+      replicated: this.replicatedLayout,
+      router: this.router,
+    })
+    this.ui = this.routerUi.ui
+    const persisted = this.routerUi.hydrate()
     const route = this.router.current()
     this.prevRoute = route
     // Hydrate-first FIRST snapshot (#262 review): the replica's collections
@@ -444,36 +432,36 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       approvals: [],
       pins: EMPTY_PINS,
       tabOrders: {},
-      view: route.view,
+      view: persisted.view,
       settingsTab: route.settingsTab,
       openIssueId: asIssueIdOrNull(route.issueId),
       peekIssueId: null,
       superThreadId: 'global',
       // Default OPEN: the superagent is the desktop shell's center column now, not
       // an optional dock — only an explicit close ('0') keeps it collapsed.
-      superOpen: this.ui.get(SUPER_OPEN_KEY) !== '0',
-      dockTab: readStoredDockTab(this.ui.get(DOCK_TAB_KEY)),
+      superOpen: persisted.superOpen,
+      dockTab: persisted.dockTab,
       superRefreshKey: 0,
       paletteOpen: false,
       // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
-      selectedWorktree: route.worktree ?? this.ui.get(WT_KEY),
-      selectedIssueId: asIssueIdOrNull(this.ui.get(ISSUE_SEL_KEY)),
+      selectedWorktree: persisted.selectedWorktree,
+      selectedIssueId: persisted.selectedIssueId,
       // DECODE EDGE: the pane selection comes from the URL route or persisted UI
       // state — both raw strings — so this is where it re-enters the id space.
-      paneA: asSessionIdOrNull(route.pane ?? this.ui.get(PANE_A_KEY)),
-      paneB: asSessionIdOrNull(this.ui.get(PANE_B_KEY)),
-      split: this.ui.get(SPLIT_KEY) === '1',
+      paneA: persisted.paneA,
+      paneB: persisted.paneB,
+      split: persisted.split,
       // Which pane has input focus. Not persisted — it resets to A on reload,
       // which is the right default (A is always the shown pane when split is off).
       focusedPane: 'A',
-      panelMode: readStoredPanelModes(this.ui),
-      dockShells: readStoredDockShells(this.ui),
+      panelMode: persisted.panelMode,
+      dockShells: persisted.dockShells,
       dockVisibleSession: null,
       autoContinuePromptSessionId: null,
       drafts: {},
       sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
       fileTabs: [],
-      recentFiles: readStoredRecentFiles(this.ui),
+      recentFiles: persisted.recentFiles,
       outboxSize: 0,
       // Hydrate-first, like the entity slices above: the outbox constructor has
       // already restored its durable recovery home, so the first Store snapshot
@@ -497,8 +485,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         },
       },
     }
-    this.statics = this.buildStatics()
-    this.replicatedLayout = this.statics.replicatedLayout as ReplicatedLayoutController
+    this.statics = this.buildStatics(actions)
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot())
   }
 
@@ -517,14 +504,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.started = true
     const offs = this.offs
 
-    // Router: route changes (navigation actions, back/forward) fan in through
-    // this ONE subscription; the URL is only ever WRITTEN by engine methods
-    // (navigation actions + mirrorUrl) — see the invariant on mirrorUrl().
+    // Router changes fan in through one subscription; RouterUiState owns every
+    // URL write and the state mirror.
     offs.push(this.router.subscribe((r) => this.onRouteChanged(r)))
     this.router.attach()
     // A route may have changed between dispose() and a re-start (StrictMode).
     const cur = this.router.current()
     if (cur !== this.prevRoute) this.onRouteChanged(cur)
+    offs.push(this.replicatedLayout.subscribe(() => this.syncReplicatedUi()))
 
     // Outbox → snapshot; attach re-arms drain triggers after a dispose. Queue
     // membership IS overlay membership (#263), so any enqueue/drop repaints
@@ -588,6 +575,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(
       this.hub.on('sessionDraft', (sessionId, text) => this.adoptSessionDraft(sessionId, text)),
     )
+    offs.push(
+      this.hub.on('userLayouts', (rows: LayoutWire[]) => {
+        this.replicatedLayout.replace(Object.fromEntries(rows.map((row) => [row.key, row.value])))
+      }),
+    )
+
     // A daemon-created worktree is otherwise invisible in every repo menu until
     // reload (POD-665) — re-fetch through the same path used at boot.
     offs.push(this.hub.on('worktreesChanged', () => void this.refreshRepos()))
@@ -643,6 +636,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }, 0)
 
     if (!this.booted) {
+      void this.replicatedLayout.hydrate().catch(() => {})
       this.booted = true
       // Sidebar prefs load out of band so boot fans out only repos + pins + tab
       // orders (never gated on settings or a conversation scan).
@@ -655,10 +649,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       )
     }
 
-    // Initial persist + URL normalization (the old per-field effects and the
-    // state→URL mirror each ran once on mount).
-    this.persistAll()
-    this.mirrorUrl()
+    // Normalize the URL through the same owner that hydrates and flushes state.
+    this.routerUi.mirrorWorkspaceRoute(this.workspaceUiSnapshot())
   }
 
   /** Tear down everything start() armed. Idempotent; the engine can re-start. */
@@ -721,27 +713,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  here keyed by the slices it depended on, or in start() (mount-once). */
   private react(changed: ReadonlySet<keyof EngineState>): void {
     const any = (...keys: Array<keyof EngineState>): boolean => keys.some((k) => changed.has(k))
-    // Persist the "where am I" state for next load (old lines 1179-1186).
-    if (changed.has('view')) this.ui.set(VIEW_KEY, this.state.view)
-    if (changed.has('selectedWorktree')) this.ui.set(WT_KEY, this.state.selectedWorktree)
-    if (changed.has('selectedIssueId')) this.ui.set(ISSUE_SEL_KEY, this.state.selectedIssueId)
-    if (changed.has('paneA')) this.ui.set(PANE_A_KEY, this.state.paneA)
-    if (changed.has('paneB')) this.ui.set(PANE_B_KEY, this.state.paneB)
-    if (changed.has('split')) this.ui.set(SPLIT_KEY, this.state.split ? '1' : '0')
-    if (changed.has('superOpen')) this.ui.set(SUPER_OPEN_KEY, this.state.superOpen ? '1' : '0')
-    if (changed.has('panelMode')) this.ui.set(PANEL_MODE_KEY, JSON.stringify(this.state.panelMode))
-    if (changed.has('dockShells'))
-      this.ui.set(DOCK_SHELLS_KEY, JSON.stringify(this.state.dockShells))
-    if (changed.has('dockTab')) this.ui.set(DOCK_TAB_KEY, this.state.dockTab)
-    if (changed.has('recentFiles'))
-      this.ui.set(RECENT_FILES_KEY, JSON.stringify(this.state.recentFiles))
+    // ONE persistence reaction; routing and serialization live in ui-state.ts.
+    if (!this.applyingHydratedUi) this.routerUi.flush(this.workspaceUiSnapshot(), changed)
     // Session-follows-view policy (old lines 1113-1136): diffs consecutive
     // session snapshots, so it reacts to sessions only.
     if (changed.has('sessions')) this.reactWorktreeFollow()
     // Worktree fallback selection (old lines 1083-1105).
     if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree')) this.reactWorktreeFallback()
     // State→URL mirror — the single URL writer (old lines 1172-1176).
-    if (any('selectedWorktree', 'paneA')) this.mirrorUrl()
+    if (any('selectedWorktree', 'paneA'))
+      this.routerUi.mirrorWorkspaceRoute(this.workspaceUiSnapshot())
     // View-state report to the server (old lines 1038-1060).
     if (any('paneA', 'paneB', 'split', 'focusedPane', 'dockVisibleSession')) this.reportViewState()
     // Mark-the-viewed-session-read reaction (old useMarkReadOnView call).
@@ -753,6 +734,23 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private buildSnapshot(): Store<TApi> {
     return { ...this.state, ...this.statics }
+  }
+
+  private syncReplicatedUi(): void {
+    const persisted = this.routerUi.hydrate()
+    const patch: Partial<EngineState> = {}
+    if (persisted.dockTab !== this.state.dockTab) patch.dockTab = persisted.dockTab
+    if (persisted.superOpen !== this.state.superOpen) patch.superOpen = persisted.superOpen
+    if (JSON.stringify(persisted.panelMode) !== JSON.stringify(this.state.panelMode)) {
+      patch.panelMode = persisted.panelMode
+    }
+    if (Object.keys(patch).length === 0) return
+    this.applyingHydratedUi = true
+    try {
+      this.apply(patch)
+    } finally {
+      this.applyingHydratedUi = false
+    }
   }
 
   // ------------------------------------------------------------------- routing
@@ -794,25 +792,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       patch.paneA = asSessionId(route.pane)
     }
     this.apply(patch)
-    this.mirrorUrl()
-  }
-
-  /**
-   * INVARIANT (#262, replaces the provider's React-#185 hazard): the engine's
-   * router is the ONLY writer of the URL. Every surface navigates through
-   * engine actions (setView / setOpenIssueId / setSettingsTab)
-   * or this mirror; nothing else touches history. The old unbounded update
-   * loop ("Podium crashed") needed two independent effect writers re-triggering
-   * each other across React commits — with one imperative writer the cycle
-   * route→adopt→mirror terminates: the second pass compares equal (URL and
-   * state agree) and writes nothing.
-   */
-  private mirrorUrl(): void {
-    const route = this.router.current()
-    if (route.view !== 'workspace') return
-    const { selectedWorktree, paneA } = this.state
-    if (route.worktree === selectedWorktree && route.pane === paneA) return
-    this.router.replace({ ...route, worktree: selectedWorktree, pane: paneA })
+    this.routerUi.mirrorWorkspaceRoute(this.workspaceUiSnapshot())
   }
 
   // ----------------------------------------------------------------- reactions
@@ -892,7 +872,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // Rendered mode (native/chat) for each visible session — default 'native'
     // until its AgentPanel reports its effective mode.
     const modes: Record<string, 'native' | 'chat'> = {}
-    for (const sid of visible) modes[sid] = this.panelRenderModes[sid] ?? 'native'
+    for (const sid of visible) modes[sid] = st.panelMode[sid] ?? 'native'
     this.hub.setViewState(visible, focused, modes)
     // Switch-latency trace [POD-701]: stamp when the view-state report carrying
     // the traced session went out (markSwitch no-ops for untraced sessions).
@@ -1221,10 +1201,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  outbox subscription (armed in start()) already repaints on any queue
    *  change; recomputing here as well keeps actions optimistic before start()
    *  and after dispose() (the duplicate recompute is a no-op publish). */
-  private reconcileActionState(
-    entry: OutboxEntry,
-    outcome: 'applied' | 'dropped',
-  ): boolean | null {
+  private reconcileActionState(entry: OutboxEntry, outcome: 'applied' | 'dropped'): boolean | null {
     if (entry.kind === 'layoutSet' || entry.kind === 'layoutClear') {
       if (outcome === 'dropped') {
         this.replicatedLayout.commandDropped(entry)
@@ -1290,17 +1267,21 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.apply({ drafts: { ...d, [sessionId]: text } })
   }
 
-  private persistAll(): void {
+  private workspaceUiSnapshot(): WorkspaceUiSnapshot {
     const st = this.state
-    this.ui.set(VIEW_KEY, st.view)
-    this.ui.set(WT_KEY, st.selectedWorktree)
-    this.ui.set(ISSUE_SEL_KEY, st.selectedIssueId)
-    this.ui.set(PANE_A_KEY, st.paneA)
-    this.ui.set(PANE_B_KEY, st.paneB)
-    this.ui.set(SPLIT_KEY, st.split ? '1' : '0')
-    this.ui.set(SUPER_OPEN_KEY, st.superOpen ? '1' : '0')
-    this.ui.set(PANEL_MODE_KEY, JSON.stringify(st.panelMode))
-    this.ui.set(DOCK_SHELLS_KEY, JSON.stringify(st.dockShells))
+    return {
+      view: st.view,
+      selectedWorktree: st.selectedWorktree,
+      selectedIssueId: st.selectedIssueId,
+      dockTab: st.dockTab,
+      paneA: st.paneA,
+      paneB: st.paneB,
+      split: st.split,
+      superOpen: st.superOpen,
+      panelMode: st.panelMode,
+      dockShells: st.dockShells,
+      recentFiles: st.recentFiles,
+    }
   }
 
   /** Enrich the registered repos with branch/worktree metadata (fast — no
@@ -1351,9 +1332,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
   // navigateToSession: opening a tab from a non-workspace view (issues page,
-  // peek overlay) must switch to the workspace via the router (mirrorUrl bails
-  // unless the view is already 'workspace', and setView would re-apply the
-  // current route's stale pane). Selecting the tab's issue/worktree keeps
+  // peek overlay) must switch to the workspace through the router. Selecting
+  // the tab's issue/worktree keeps
   // fileTabsForWorkspace from dropping the tab and bouncing the pane; an open
   // peek overlay is closed so the tab is actually visible.
   private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void {
@@ -1468,7 +1448,29 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     return { sessionId, issueId }
   }
 
-  private buildStatics(): Omit<Store<TApi>, keyof EngineState> {
+  private createActions(): EngineActions<TApi> {
+    return createEngineActions({
+      api: this.api,
+      hub: this.hub,
+      outbox: this.outbox,
+      router: this.router,
+      notices: this.notices,
+      state: () => this.state,
+      apply: (patch) => this.apply(patch),
+      enqueueOverlayed: (kind, input) => {
+        void this.enqueueOverlayed(kind, input)
+      },
+      revealFileTab: (args) => this.revealFileTab(args),
+      recordRecentFile: (entry) => this.recordRecentFile(entry),
+      spawnDraftAgent: (args) => this.spawnDraftAgent(args),
+      setSessionDraft: (sessionId, text) => {
+        this.adoptSessionDraft(sessionId, text)
+        this.hub.sendSessionDraft(sessionId, text)
+      },
+    })
+  }
+
+  private buildStatics(actions: EngineActions<TApi>): Omit<Store<TApi>, keyof EngineState> {
     return {
       hub: this.hub,
       trpc: this.api,
@@ -1477,30 +1479,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       httpOrigin: this.httpOrigin,
       getUserFocus: () => this.getUserFocus(),
       refreshRepos: () => this.refreshRepos(),
-      ...createEngineActions({
-        api: this.api,
-        hub: this.hub,
-        outbox: this.outbox,
-        router: this.router,
-        notices: this.notices,
-        state: () => this.state,
-        apply: (patch) => this.apply(patch),
-        enqueueOverlayed: (kind, input) => {
-          void this.enqueueOverlayed(kind, input)
-        },
-        revealFileTab: (args) => this.revealFileTab(args),
-        recordRecentFile: (entry) => this.recordRecentFile(entry),
-        setPanelRenderMode: (sessionId, mode) => {
-          if (this.panelRenderModes[sessionId] === mode) return
-          this.panelRenderModes = { ...this.panelRenderModes, [sessionId]: mode }
-          this.reportViewState()
-        },
-        spawnDraftAgent: (args) => this.spawnDraftAgent(args),
-        setSessionDraft: (sessionId, text) => {
-          this.adoptSessionDraft(sessionId, text)
-          this.hub.sendSessionDraft(sessionId, text)
-        },
-      }),
+      ...actions,
     }
   }
 }

@@ -9,7 +9,6 @@
  * no DOM, no network.
  */
 
-import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import type {
   GitRepositoryWire,
   HostMetricsWire,
@@ -19,11 +18,12 @@ import type {
   SessionMeta,
   SessionMetaInput,
 } from '@podium/model'
-import type { SocketHub } from '../socket-transport'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
-import type { RouterWindow } from '../router'
+import type { SocketHub } from '../socket-transport'
+import type { RouterWindow } from '../ui-state'
 import { createEngine } from './engine'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -272,6 +272,39 @@ describe('engine replica construction (POD-1239)', () => {
         createHub: () => new FakeHub() as unknown as SocketHub,
       }),
     ).not.toThrow()
+  })
+})
+
+describe('replicated layout routing', () => {
+  it('each real legacy setter enqueues exactly one canonical layout command', async () => {
+    const dock = makeEngine()
+    dock.engine.getSnapshot().setDockTab('git')
+    await settle()
+    expect(dock.engine.outbox.pending()).toMatchObject([
+      { kind: 'layoutSet', input: { values: { dockTab: 'git' } } },
+    ])
+    dock.engine.dispose()
+
+    const superPanel = makeEngine()
+    superPanel.engine.getSnapshot().setSuperOpen(false)
+    await settle()
+    expect(superPanel.engine.outbox.pending()).toMatchObject([
+      { kind: 'layoutSet', input: { values: { superOpen: '0' } } },
+    ])
+    superPanel.engine.dispose()
+
+    const panelMode = makeEngine()
+    panelMode.engine.getSnapshot().setPanelMode(asSessionId('session-1'), 'native')
+    await settle()
+    expect(panelMode.engine.outbox.pending()).toMatchObject([
+      {
+        kind: 'layoutSet',
+        input: {
+          values: { panelMode: JSON.stringify({ 'session-1': 'native' }) },
+        },
+      },
+    ])
+    panelMode.engine.dispose()
   })
 })
 
@@ -1161,13 +1194,11 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     ])
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
     // Re-opening the same artifact reuses the tab.
-    engine
-      .getSnapshot()
-      .openArtifact({
-        issueId: asIssueId('iss_1'),
-        artifactId: asArtifactId('abc123'),
-        path: 'index.html',
-      })
+    engine.getSnapshot().openArtifact({
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc123'),
+      path: 'index.html',
+    })
     expect(engine.getSnapshot().fileTabs).toHaveLength(1)
     engine.dispose()
   })
@@ -1201,13 +1232,11 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine
-      .getSnapshot()
-      .openArtifact({
-        issueId: asIssueId('iss_1'),
-        artifactId: asArtifactId('abc123'),
-        path: 'doc.md',
-      })
+    engine.getSnapshot().openArtifact({
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc123'),
+      path: 'doc.md',
+    })
     await settle()
     const st = engine.getSnapshot()
     expect(st.view).toBe('workspace')

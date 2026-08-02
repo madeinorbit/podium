@@ -2,8 +2,8 @@ import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
-import type { Router } from '../router'
 import type { SocketHub } from '../socket-transport'
+import type { Router } from '../ui-state'
 import {
   COMMAND_ACTIONS,
   createEngineActions,
@@ -92,7 +92,6 @@ function harness() {
     enqueueOverlayed: (kind: keyof OutboxKinds, input: unknown) => queued.push({ kind, input }),
     revealFileTab: vi.fn(),
     recordRecentFile: vi.fn(),
-    setPanelRenderMode: vi.fn(),
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
     setSessionDraft: vi.fn(),
   } as unknown as EngineActionRuntime<PodiumClientApi>

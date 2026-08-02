@@ -31,7 +31,7 @@ export async function openApp(page: Page): Promise<void> {
   // (the test API lives on the mounted xterm session), so pin the panel mode
   // through the same persistence channel a user would, rather than a production
   // E2E branch in the app. Must run before app code, so before goto.
-  await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
+  await page.addInitScript(() => localStorage.setItem('podium.panelModeDefault', 'native'))
   // A password inherited by the isolated server enables the production cookie
   // gate. Authenticate through the real route and install its real session
   // cookie before app code opens `/auth/status` and `/client`.
