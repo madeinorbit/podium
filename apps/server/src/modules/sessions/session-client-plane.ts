@@ -4,18 +4,21 @@
  * Dispose: none.
  */
 
-// @ts-nocheck — ports typed loosely after mechanical extract; body is a verbatim move.
 
 import type { SessionId } from '@podium/model'
 import type {
   ControlMessage,
   LiveServerMessage,
+  MachinePrincipal,
   RoomRef,
   ServerMessage,
   SessionOpenUrlMessage,
 } from '@podium/protocol'
+import { systemPrincipal } from '../../command-principal'
+import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
+import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
 import type { Session } from './session'
 
 export interface SessionClientPlanePorts {
@@ -48,15 +51,6 @@ export class SessionClientPlane {
   onMachineDetached(principal: MachinePrincipal): void {
     this.ports.machineReconciler.onDetached(principal)
   }
-
-  /**
-   * The reattach control message for one survivor session.
-   *
-   * `recoveryMachineAccess` was computed ONCE per attach before this moved, and
-   * is computed per session here. Identical result: the decision depends only on
-   * `machineId` and the machines ownership snapshot, and the caller's loop is
-   * synchronous, so nothing can change between iterations.
-   */
 
   /**
    * The reattach control message for one survivor session.
@@ -125,14 +119,6 @@ export class SessionClientPlane {
    * every daemon connect, so a missed bind self-heals on the next attach; making
    * it awaited here would serialise the rebind loop behind daemon round-trips.
    */
-
-  /**
-   * Re-establish a headless session's daemon-side transcript tail.
-   *
-   * DELIBERATELY NOT AWAITED, exactly as before the move. It is re-issued on
-   * every daemon connect, so a missed bind self-heals on the next attach; making
-   * it awaited here would serialise the rebind loop behind daemon round-trips.
-   */
   rebindHeadless(session: Session): void {
     if (!session.resume?.value) return
     void this.ports.headless
@@ -142,7 +128,7 @@ export class SessionClientPlane {
         cwd: session.cwd,
         resumeValue: session.resume.value,
       })
-      .then((r) => {
+      .then((r: { ok: boolean; error?: string }) => {
         if (!r.ok) {
           console.warn(
             `[podium] headless bind failed for ${session.sessionId}: ${r.error ?? 'unknown'}`,
@@ -194,8 +180,6 @@ export class SessionClientPlane {
   }
 
   /** Feature-owned consequence of a successful stream-room join. */
-
-  /** Feature-owned consequence of a successful stream-room join. */
   onRoomJoined(client: ClientConn, room: RoomRef): void {
     if (room.kind === 'session') this.ports.browserOpen.replayPending(client)
   }
@@ -214,20 +198,9 @@ export class SessionClientPlane {
    * read below is off the connection object or the per-session client maps, and
    * the two recomputes at the end always ran after the removal anyway).
    */
-
-  /**
-   * A client connection is gone: sweep the session state it held.
-   *
-   * The gateway has ALREADY removed it from the connection set when this runs
-   * (`client-mux.ts` explains why that ordering is behaviour-identical: every
-   * read below is off the connection object or the per-session client maps, and
-   * the two recomputes at the end always ran after the removal anyway).
-   */
   onClientDetached(principal: ClientPrincipal, client: ClientConn): void {
     this.ports.clientControl.onDetached(principal, client)
   }
-  /** Gateway/control-plane entrypoint for the typed session.openUrl event. */
-
   /** Gateway/control-plane entrypoint for the typed session.openUrl event. */
   onOpenUrl(request: SessionOpenUrlMessage): void {
     this.ports.browserOpen.onOpenUrl(request)
