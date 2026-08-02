@@ -1,6 +1,6 @@
 {
   "$schema": "Deletion audit baseline — see scripts/rearch-audit.ts and docs/rearch-deletion-audit.md.",
-  "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every item must reach 0 before its phase issue closes.",
+  "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every undeclared site must reach 0 before its phase issue closes.",
   "counts": {
     "adoption-backfill-heals": 5,
     "agent-kind-enums": 0,

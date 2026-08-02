@@ -9,6 +9,7 @@ export interface SpawnTarget {
    * group as their reconciled server row. */
   repoId?: RepoId
   machineId?: string
+  placement?: 'allowed' | 'unauthorized' | 'unreachable'
 }
 
 /**
@@ -24,6 +25,17 @@ export interface SpawnTarget {
  * resumeAndSend, which queues until the agent is ready and falls back to a plain
  * send when it's already live.
  */
+export class SpawnPlacementError extends Error {
+  constructor(readonly reason: 'unauthorized' | 'unreachable') {
+    super(
+      reason === 'unauthorized'
+        ? 'not authorized to use that machine'
+        : 'target machine is unreachable',
+    )
+    this.name = 'SpawnPlacementError'
+  }
+}
+
 export async function createDraftAgent(args: {
   trpc: PodiumClientApi
   sessionId: SessionId
@@ -32,6 +44,8 @@ export async function createDraftAgent(args: {
   agentKind: AgentKind
   firstPrompt?: string
 }): Promise<void> {
+  if (args.target.placement === 'unauthorized') throw new SpawnPlacementError('unauthorized')
+  if (args.target.placement === 'unreachable') throw new SpawnPlacementError('unreachable')
   await args.trpc.sessions.create.mutate({
     sessionId: args.sessionId,
     agentKind: args.agentKind,

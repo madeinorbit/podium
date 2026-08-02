@@ -235,11 +235,11 @@ const pinSet: CommandDef = {
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
   visibility: PER_USER,
   exposure: ['trpc'],
-  offline: 'direct-only',
+  offline: 'eligible',
   redaction: { fields: [] },
   conflict: 'single-writer',
   decision:
-    'direct-only: POD-379’s outbox oracle tags pins as a DELIBERATE offline exclusion (low offline value), must-not-change.',
+    'offline-eligible: pins are replicated per-user rows; the owning user is the sole writer and replay is re-authorized at apply time.',
 }
 
 const tabsSetOrderInput = z.object({
@@ -254,11 +254,11 @@ const tabsSetOrder: CommandDef = {
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
   visibility: PER_USER,
   exposure: ['trpc'],
-  offline: 'direct-only',
+  offline: 'eligible',
   redaction: { fields: [] },
   conflict: 'single-writer',
   decision:
-    'direct-only: same POD-379 oracle row as pins (low offline value), must-not-change. Note the shipped behaviour an empty sessionIds array DELETES the saved order — preserved by the handler, not by this schema.',
+    'offline-eligible: tab order is a replicated per-user row. An empty sessionIds array still deletes the saved order in the handler.',
 }
 
 // ---------------------------------------------------------------------------
@@ -364,10 +364,10 @@ export const snoozeCommands = defineCommands('snoozes', {
   clear: snoozeClear,
 })
 
-/** `pins.*` — per-user state; NOT offline-eligible. */
+/** `pins.*` — replicated per-user state; offline-eligible. */
 export const pinCommands = defineCommands('pins', { set: pinSet })
 
-/** `tabs.*` — per-user state; NOT offline-eligible. */
+/** `tabs.*` — replicated per-user state; offline-eligible. */
 export const tabCommands = defineCommands('tabs', { setOrder: tabsSetOrder })
 
 /**

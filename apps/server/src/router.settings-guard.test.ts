@@ -146,10 +146,12 @@ describe('the settings surface is EXACTLY its contracts plus its named exception
     }
   })
 
-  it('no settings command is exposed on the outbox — the class refusal, at the table', () => {
-    for (const name of SETTINGS_COMMAND_NAMES) {
-      expect(SETTINGS_CONTRACTS[name].exposure).not.toContain('outbox')
-    }
+  it('only personal preferences are exposed on the outbox', () => {
+    const exposed = SETTINGS_COMMAND_NAMES.filter((name) =>
+      SETTINGS_CONTRACTS[name].exposure.includes('outbox'),
+    )
+    expect(exposed).toEqual(['settings.updatePersonal'])
+    expect(SETTINGS_CONTRACTS['settings.updatePersonal'].delivery.class).toBe('offline-eligible')
   })
 })
 

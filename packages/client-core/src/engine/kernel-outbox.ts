@@ -55,6 +55,12 @@ function kindFor(record: Pick<OutboxRecord, 'command'>): keyof OutboxKinds {
 function submit(api: PodiumClientApi, envelope: OutboxEnvelope): Promise<unknown> {
   const input = { ...(envelope.input as object), mutationId: envelope.mutationId }
   switch (envelope.command) {
+    case 'pins.set':
+      return api.pins.set.mutate(input as never)
+    case 'tabs.setOrder':
+      return api.tabs.setOrder.mutate(input as never)
+    case 'settings.updatePersonal':
+      return api.settings.updatePersonal.mutate(input as never)
     case 'sessions.resumeAndSend':
       return api.sessions.resumeAndSend.mutate(input as never)
     case 'sessions.rename':

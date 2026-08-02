@@ -5,7 +5,7 @@
 
 Root: `apps/server/src/relay.ts`
 
-Runtime modules: 177. Runtime edges: 284. Cycles: 0.
+Runtime modules: 178. Runtime edges: 286. Cycles: 0.
 
 ## Verified topological order
 
@@ -181,11 +181,12 @@ Runtime modules: 177. Runtime edges: 284. Cycles: 0.
 170. `apps/server/src/store/settings.ts`
 171. `apps/server/src/store/superagent.ts`
 172. `apps/server/src/store/telegram-bindings.ts`
-173. `apps/server/src/store/users.ts`
-174. `apps/server/src/store/workflows.ts`
-175. `apps/server/src/store.ts`
-176. `apps/server/src/repo-registry.ts`
-177. `apps/server/src/relay.ts`
+173. `apps/server/src/store/user-layout.ts`
+174. `apps/server/src/store/users.ts`
+175. `apps/server/src/store/workflows.ts`
+176. `apps/server/src/store.ts`
+177. `apps/server/src/repo-registry.ts`
+178. `apps/server/src/relay.ts`
 
 ## Import edges
 
@@ -297,7 +298,7 @@ Runtime modules: 177. Runtime edges: 284. Cycles: 0.
 | `apps/server/src/modules/sessions/handoff/refusal.ts` | — |
 | `apps/server/src/modules/sessions/inbox.ts` | — |
 | `apps/server/src/modules/sessions/instructions.ts` | — |
-| `apps/server/src/modules/sessions/lifecycle.ts` | `apps/server/src/auto-continue.ts`<br>`apps/server/src/command-principal.ts`<br>`apps/server/src/features.ts`<br>`apps/server/src/gateway/browser-open.ts`<br>`apps/server/src/gateway/client-registry.ts`<br>`apps/server/src/harness-manifest.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/sessions/account-env.ts`<br>`apps/server/src/modules/sessions/client-control.ts`<br>`apps/server/src/modules/sessions/daemon-lifecycle.ts`<br>`apps/server/src/modules/sessions/daemon-projection.ts`<br>`apps/server/src/modules/sessions/handoff/access.ts`<br>`apps/server/src/modules/sessions/handoff/coordinator.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/publication/broadcast.ts`<br>`apps/server/src/modules/sessions/publication/coordinator.ts`<br>`apps/server/src/modules/sessions/publish-worker-client.ts`<br>`apps/server/src/modules/sessions/repository.ts`<br>`apps/server/src/modules/sessions/session-access.ts`<br>`apps/server/src/modules/sessions/session-binding.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts`<br>`apps/server/src/modules/sessions/session-state/service.ts`<br>`apps/server/src/modules/sessions/session.ts`<br>`apps/server/src/modules/sessions/view.ts`<br>`apps/server/src/modules/sessions/workspace.ts`<br>`apps/server/src/modules/superagent/headless.ts`<br>`apps/server/src/steward.ts` |
+| `apps/server/src/modules/sessions/lifecycle.ts` | `apps/server/src/auto-continue.ts`<br>`apps/server/src/command-principal.ts`<br>`apps/server/src/features.ts`<br>`apps/server/src/gateway/browser-open.ts`<br>`apps/server/src/gateway/client-registry.ts`<br>`apps/server/src/harness-manifest.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/sessions/account-env.ts`<br>`apps/server/src/modules/sessions/client-control.ts`<br>`apps/server/src/modules/sessions/command-ctx.ts`<br>`apps/server/src/modules/sessions/daemon-lifecycle.ts`<br>`apps/server/src/modules/sessions/daemon-projection.ts`<br>`apps/server/src/modules/sessions/handoff/access.ts`<br>`apps/server/src/modules/sessions/handoff/coordinator.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/publication/broadcast.ts`<br>`apps/server/src/modules/sessions/publication/coordinator.ts`<br>`apps/server/src/modules/sessions/publish-worker-client.ts`<br>`apps/server/src/modules/sessions/repository.ts`<br>`apps/server/src/modules/sessions/session-access.ts`<br>`apps/server/src/modules/sessions/session-binding.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts`<br>`apps/server/src/modules/sessions/session-state/service.ts`<br>`apps/server/src/modules/sessions/session.ts`<br>`apps/server/src/modules/sessions/view.ts`<br>`apps/server/src/modules/sessions/workspace.ts`<br>`apps/server/src/modules/superagent/headless.ts`<br>`apps/server/src/steward.ts` |
 | `apps/server/src/modules/sessions/publication/broadcast.ts` | `apps/server/src/modules/perf/registry.ts` |
 | `apps/server/src/modules/sessions/publication/coordinator.ts` | `apps/server/src/modules/perf/registry.ts`<br>`apps/server/src/modules/sessions/publish-worker-actor.ts`<br>`apps/server/src/modules/sessions/publish-worker-client.ts` |
 | `apps/server/src/modules/sessions/publish-worker-actor.ts` | — |
@@ -334,7 +335,7 @@ Runtime modules: 177. Runtime edges: 284. Cycles: 0.
 | `apps/server/src/root-allowlist.ts` | — |
 | `apps/server/src/similarity.ts` | — |
 | `apps/server/src/steward.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/store/notification-facts.ts` |
-| `apps/server/src/store.ts` | `apps/server/src/migrations/drizzle-manifest.generated.ts`<br>`apps/server/src/migrations/index.ts`<br>`apps/server/src/store/accounts.ts`<br>`apps/server/src/store/approvals.ts`<br>`apps/server/src/store/auth.ts`<br>`apps/server/src/store/automations.ts`<br>`apps/server/src/store/conversations.ts`<br>`apps/server/src/store/events.ts`<br>`apps/server/src/store/grants.ts`<br>`apps/server/src/store/issues.ts`<br>`apps/server/src/store/locks.ts`<br>`apps/server/src/store/machines.ts`<br>`apps/server/src/store/maintenance.ts`<br>`apps/server/src/store/messages.ts`<br>`apps/server/src/store/messaging-topics.ts`<br>`apps/server/src/store/notification-facts.ts`<br>`apps/server/src/store/observation-checkpoints.ts`<br>`apps/server/src/store/read-watermarks.ts`<br>`apps/server/src/store/repos.ts`<br>`apps/server/src/store/server-secrets.ts`<br>`apps/server/src/store/sessions.ts`<br>`apps/server/src/store/settings-audit.ts`<br>`apps/server/src/store/settings.ts`<br>`apps/server/src/store/superagent.ts`<br>`apps/server/src/store/telegram-bindings.ts`<br>`apps/server/src/store/users.ts`<br>`apps/server/src/store/workflows.ts` |
+| `apps/server/src/store.ts` | `apps/server/src/migrations/drizzle-manifest.generated.ts`<br>`apps/server/src/migrations/index.ts`<br>`apps/server/src/store/accounts.ts`<br>`apps/server/src/store/approvals.ts`<br>`apps/server/src/store/auth.ts`<br>`apps/server/src/store/automations.ts`<br>`apps/server/src/store/conversations.ts`<br>`apps/server/src/store/events.ts`<br>`apps/server/src/store/grants.ts`<br>`apps/server/src/store/issues.ts`<br>`apps/server/src/store/locks.ts`<br>`apps/server/src/store/machines.ts`<br>`apps/server/src/store/maintenance.ts`<br>`apps/server/src/store/messages.ts`<br>`apps/server/src/store/messaging-topics.ts`<br>`apps/server/src/store/notification-facts.ts`<br>`apps/server/src/store/observation-checkpoints.ts`<br>`apps/server/src/store/read-watermarks.ts`<br>`apps/server/src/store/repos.ts`<br>`apps/server/src/store/server-secrets.ts`<br>`apps/server/src/store/sessions.ts`<br>`apps/server/src/store/settings-audit.ts`<br>`apps/server/src/store/settings.ts`<br>`apps/server/src/store/superagent.ts`<br>`apps/server/src/store/telegram-bindings.ts`<br>`apps/server/src/store/user-layout.ts`<br>`apps/server/src/store/users.ts`<br>`apps/server/src/store/workflows.ts` |
 | `apps/server/src/store/accounts.ts` | — |
 | `apps/server/src/store/approvals.ts` | — |
 | `apps/server/src/store/auth.ts` | — |
@@ -364,6 +365,7 @@ Runtime modules: 177. Runtime edges: 284. Cycles: 0.
 | `apps/server/src/store/settings.ts` | `apps/server/src/store/user-preferences.ts` |
 | `apps/server/src/store/superagent.ts` | `apps/server/src/store/helpers.ts` |
 | `apps/server/src/store/telegram-bindings.ts` | — |
+| `apps/server/src/store/user-layout.ts` | — |
 | `apps/server/src/store/user-preferences.ts` | — |
 | `apps/server/src/store/users.ts` | — |
 | `apps/server/src/store/workflows.ts` | — |
