@@ -34,7 +34,7 @@ import {
   MemoryBreakdownRequestMessage,
   UsageRequestMessage,
 } from './host'
-import { InventoryRequestMessage } from './inventory'
+import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
@@ -80,6 +80,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   UsageRequestMessage,
   AgentQuotaRequestMessage,
   InventoryRequestMessage,
+  ModelProbeRequestMessage,
   ImageUploadRequestMessage,
   SpawnMessage,
   ReattachMessage,

@@ -963,6 +963,24 @@ export const WIRE_FIXTURES: WireFixture[] = [
     },
   },
   {
+    // The models a machine's own daemon enumerated (POD-1466). `efforts` is
+    // present on one entry and absent on the other deliberately: absent means
+    // "this source doesn't report effort", which is NOT the same wire value as
+    // an empty list, and the golden is where that distinction is pinned.
+    name: 'frame.modelProbeResult',
+    schema: DaemonMessage,
+    value: {
+      type: 'modelProbeResult',
+      requestId: 'req-9',
+      byAgent: {
+        grok: [{ value: 'grok-4.5', label: 'grok-4.5' }],
+        'claude-code': [
+          { value: 'claude-opus-5', label: 'Claude Opus 5', efforts: ['low', 'high'] },
+        ],
+      },
+    },
+  },
+  {
     name: 'frame.inventoryReport',
     schema: DaemonMessage,
     value: { type: 'inventoryReport', machineId: 'machine-1', inventory: INVENTORY_FULL },

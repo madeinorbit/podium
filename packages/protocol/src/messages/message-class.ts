@@ -186,6 +186,7 @@ export const CONTROL_PLANE_CLASS = {
   headlessBind: 'control.command',
   usageRequest: 'control.command',
   agentQuotaRequest: 'control.command',
+  modelProbeRequest: 'control.command',
   imageUploadRequest: 'control.command',
   spawn: 'control.command',
   reattach: 'control.command',
@@ -245,6 +246,7 @@ export const DAEMON_PLANE_CLASS = {
   headlessBindResult: 'control.command',
   usageResult: 'control.command',
   agentQuotaResult: 'control.command',
+  modelProbeResult: 'control.command',
   imageUploadResult: 'control.command',
   // Pairs with sessionResumeRefAck — host channel (ADR 7 D2).
   sessionResumeRef: 'control.command',
