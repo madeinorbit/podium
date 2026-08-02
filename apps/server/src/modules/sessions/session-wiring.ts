@@ -1,27 +1,12 @@
 /**
- * SESSION LIFECYCLE WIRING (POD-1396, from POD-1385's god-object audit).
+ * SESSION LIFECYCLE WIRING (POD-1396).
  *
- * The per-module composition root that used to live as SessionLifecycle's
- * constructor body. One job: construct every collaborator and wire their ports,
- * in a fixed order.
+ * Constructor body, moved verbatim — ORDER UNCHANGED. server-construction-order.ts
+ * walks only the RELAY root (POD-1411); a green construction-order doc does NOT
+ * prove this interior was preserved. Trust the diff.
  *
- * ---------------------------------------------------------------------------
- * ORDER IS A CONTRACT — AND THIS COMMIT DOES NOT CHANGE IT
- * ---------------------------------------------------------------------------
- *
- * scripts/server-construction-order.ts walks only the RELAY root (POD-1411).
- * It will NOT catch a reordering inside this function. The body below is a
- * verbatim move of the former constructor interior: same statements, same
- * order, same closures. A green construction-order document after this cut
- * does NOT prove the interior was preserved — only that the relay root still
- * constructs SessionLifecycle once. Trust the diff, not the generator.
- *
- * Dispose: the activityFlushTimer stays a field initializer on SessionLifecycle
- * (it must bind `this.repository` lazily). This module owns no timer of its own.
- *
- * Private fields: written through a single any-cast so this function can reach
- * fields that remain private at every other call site. That is the trade for
- * extracting a constructor that closes over private methods.
+ * Private fields written through a single any-cast. Dispose: none here
+ * (activityFlushTimer stays a field initializer on SessionLifecycle).
  */
 
 // @ts-nocheck — bag cast erases contextual types on moved lambdas; body is a verbatim constructor move.
@@ -62,6 +47,10 @@ import { SessionStart } from './session-start'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import { SessionStateService } from './session-state/service'
 import { SessionTeardown } from './session-teardown'
+import { SessionKill } from './session-kill'
+import { SessionMetaOps } from './session-meta-ops'
+import { SessionAuthz } from './session-authz'
+import { SessionClientPlane } from './session-client-plane'
 import { SessionTerminalProof } from './terminal-proof'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
@@ -483,7 +472,58 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       broadcastSessions: () => bag.broadcastSessions(),
       issueAccess: bag.deps.issueAccess,
       snapshotTail: () => bag.deps.snapshotTail(),
+    })
+    bag.sessionKill = new SessionKill({
+      store: bag.store,
+      repository: bag.repository,
+      state: bag.state,
+      autoContinue: bag.autoContinue,
+      sessions: bag.sessions,
+      clients: bag.clients,
+      bus: bag.bus,
+      machines: bag.machines,
+      daemonProjection: bag.daemonProjection,
+      now: () => bag.now(),
+      toMachine: (machineId, message) => bag.toMachine(machineId, message),
+      broadcastSessions: () => bag.broadcastSessions(),
       ledger: bag.deps.ledger,
+    })
+
+    bag.sessionClientPlane = new SessionClientPlane({
+      browserOpen: bag.browserOpen,
+      clientControl: bag.clientControl,
+      clients: bag.clients,
+      headless: bag.headless,
+      machineReconciler: bag.machineReconciler,
+      machines: bag.machines,
+      publication: bag.publication,
+      repository: bag.repository,
+      rpc: bag.rpc,
+      state: bag.state,
+      terminalProof: bag.terminalProof,
+    })
+    bag.sessionAuthz = new SessionAuthz({
+      clientControl: bag.clientControl,
+      deps: bag.deps,
+      listSessions: () => bag.listSessions(),
+      machines: bag.machines,
+      sessions: bag.sessions,
+      store: bag.store,
+    })
+    bag.sessionMetaOps = new SessionMetaOps({
+      broadcastSessions: () => bag.broadcastSessions(),
+      funnel: bag.funnel,
+      mutations: bag.mutations,
+      now: () => bag.now(),
+      removeSessionRuntime: (id, ret) => bag.sessionKill.removeSessionRuntime(id, ret),
+      repository: bag.repository,
+      sessionRemovalSpecs: (id) => bag.sessionKill.sessionRemovalSpecs(id),
+      sessionTeardown: bag.sessionTeardown,
+      sessions: bag.sessions,
+      state: bag.state,
+      store: bag.store,
+      toMachine: (mid, msg) => bag.toMachine(mid, msg),
+      view: bag.view,
     })
     // Revival needs sessionStart.spawn, workspace, repository, launchConfig,
     // terminalProof, state, autoContinue — all exist by this point.
