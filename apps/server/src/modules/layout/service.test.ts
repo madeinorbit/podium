@@ -2,34 +2,26 @@
  * LayoutService — principal-scoped snapshot writes (POD-1350).
  */
 
-import { Database } from 'bun:sqlite'
-import { type UserId } from '@podium/model'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { runDrizzleMigrations } from '../../migrations'
+import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import { UserLayoutRepository } from '../../store/user-layout'
 import { LayoutService } from './service'
 
-const ALICE = 'user:alice' as UserId
-const BOB = 'user:bob' as UserId
+const ALICE: UserId = FIRST_ADMIN_USER_ID
+const BOB: UserId = asUserId('user:bob')
+
+let service: LayoutService
+
+beforeEach(() => {
+  const db = openDatabase(':memory:')
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  service = new LayoutService(new UserLayoutRepository(db))
+})
 
 describe('LayoutService', () => {
-  let db: Database
-  let service: LayoutService
-
-  beforeEach(() => {
-    db = new Database(':memory:')
-    db.exec(`
-      CREATE TABLE user_layout (
-        user_id text NOT NULL,
-        key text NOT NULL,
-        value text NOT NULL,
-        updated_at text NOT NULL,
-        PRIMARY KEY (user_id, key)
-      );
-    `)
-    service = new LayoutService(new UserLayoutRepository(db as never))
-  })
-  afterEach(() => db.close())
-
   it('set returns the full snapshot and does not leak across users', () => {
     const alice = service.set(ALICE, { dockTab: 'files', superOpen: true }, 't1')
     expect(alice).toEqual({ dockTab: 'files', superOpen: true })

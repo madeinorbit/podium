@@ -254,6 +254,10 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     expect(
       LayoutState.safeParse({ userId: 'user:sole', entityId: 'dockTab', value: 'files' }).success,
     ).toBe(true)
-    expect(LayoutState.safeParse({ userId: 'user:sole', entityId: 'dockTab' }).success).toBe(false)
+    // value is z.unknown() — any JSON is fine, including null; the key is the claim.
+    expect(
+      LayoutState.safeParse({ userId: 'user:sole', entityId: 'dockTab', value: null }).success,
+    ).toBe(true)
+    expect(LayoutState.safeParse({ userId: 'user:sole' }).success).toBe(false)
   })
 })

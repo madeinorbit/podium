@@ -23,7 +23,7 @@
  */
 
 import { isLayoutKey, type LayoutSnapshot, type UserId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 interface LayoutRow {
   key: string
@@ -95,12 +95,11 @@ export class UserLayoutRepository {
     const stmt = this.db.prepare(
       'INSERT OR REPLACE INTO user_layout (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
     )
-    const run = this.db.transaction(() => {
+    transaction(this.db, () => {
       for (const [key, value] of Object.entries(values)) {
         stmt.run(userId, key, JSON.stringify(value ?? null), updatedAt)
       }
     })
-    run()
   }
 
   /** Forget one key — the client falls back to its default. */
@@ -110,10 +109,9 @@ export class UserLayoutRepository {
 
   clearMany(userId: UserId, keys: readonly string[]): void {
     const stmt = this.db.prepare('DELETE FROM user_layout WHERE user_id = ? AND key = ?')
-    const run = this.db.transaction(() => {
+    transaction(this.db, () => {
       for (const key of keys) stmt.run(userId, key)
     })
-    run()
   }
 
   keysFor(userId: UserId): string[] {
