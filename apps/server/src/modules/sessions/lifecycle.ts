@@ -127,6 +127,7 @@ import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
+import { SessionTerminalProof } from './terminal-proof'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
 
@@ -309,6 +310,8 @@ export class SessionLifecycle {
 
   /** Durable observer leases, hydrated before session state restoration. */
   private readonly observationLeases = new SessionObservationLeases()
+  /** Terminal-proof reasoning over the lease book (POD-1396). */
+  private readonly terminalProof: SessionTerminalProof
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -369,6 +372,17 @@ export class SessionLifecycle {
     this.rpc = deps.rpc
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
+    this.terminalProof = new SessionTerminalProof({
+      now: () => this.now(),
+      leases: this.observationLeases,
+      checkpoints: this.store.observationCheckpoints,
+      sessions: () => this.sessions.values(),
+      session: (sessionId) => this.sessions.get(sessionId),
+      pendingForProof: (sessionId, atIso) =>
+        this.store.messages.pendingForSessionProof(sessionId, atIso),
+      isDraining: (sessionId) => this.inbox.isDraining(sessionId),
+      autoContinueActive: (sessionId) => this.autoContinue.isActive(sessionId),
+    })
     const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.publication = new SessionPublicationCoordinator({
       clients: this.clients,
@@ -659,7 +673,7 @@ export class SessionLifecycle {
       toMachine: (machineId, message) => this.toMachine(machineId, message),
       now: () => this.now(),
       terminalCandidateFacts: (session, lease, checkpoint) =>
-        this.terminalCandidateFacts(session, lease, checkpoint),
+        this.terminalProof.facts(session, lease, checkpoint),
       broadcastToClients: (message) => this.broadcastToClients(message),
       clearOffer: (sessionId) => this.clearOffer(sessionId),
     })
@@ -802,22 +816,6 @@ export class SessionLifecycle {
     return { ok: true }
   }
 
-  /**
-   * Allocate and durably store the observer lease before its control message is
-   * sent. Shells and non-causal adapters intentionally have no lease.
-   */
-  private fenceObservation(session: Session): ObservationLeaseRecord | undefined {
-    const provider = harnessObservationProvider(session.agentKind)
-    if (!provider) return undefined
-    const lease = this.store.observationCheckpoints.advanceGeneration(
-      session.sessionId,
-      provider,
-      session.resume?.value ?? null,
-    )
-    this.observationLeases.record(session.sessionId, lease)
-    return lease
-  }
-
   dispose(): void {
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
@@ -935,7 +933,7 @@ export class SessionLifecycle {
         ? 'allowed'
         : 'denied'
     for (const s of probes) {
-      const observationLease = this.fenceObservation(s)
+      const observationLease = this.terminalProof.fence(s)
       const requestedGeneration = observationLease?.observationGeneration ?? 1
       this.toMachine(machineId, {
         type: 'reattach',
@@ -1979,126 +1977,24 @@ export class SessionLifecycle {
   }
 
   /**
+   * Whether this session has a valid, unconsumed terminal proof. Delegates to
+   * {@link SessionTerminalProof}; kept here because `relay.ts` and the hosts
+   * module reach it through this service's public surface.
+   */
+  hasValidTerminalProof(sessionId: SessionId): boolean {
+    return this.terminalProof.hasValidProof(sessionId)
+  }
+
+  terminalProofMissing(sessionId: SessionId): boolean {
+    return this.terminalProof.proofMissing(sessionId)
+  }
+
+  /**
    * Park a live session: kill its process (and durable host) but keep the row,
    * its transcript, and the resume ref. One click brings it back. Returns false
    * when the session can't come back later (no resume ref) — we refuse rather
    * than silently turn "hibernate" into "kill".
    */
-  private terminalCandidateFacts(
-    session: Session,
-    lease: ObservationLeaseRecord,
-    checkpoint = lease.checkpoint,
-  ): TerminalCandidateFacts | null {
-    const fence = checkpoint?.terminalFence
-    if (!checkpoint || !fence || fence.closing) return null
-    if (!['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)) return null
-    const addressedMessages = this.store.messages
-      .pendingForSessionProof(session.sessionId, new Date(this.now()).toISOString())
-      .map((message) => ({
-        id: message.id,
-        status: message.status,
-        deliveredAt: message.deliveredAt,
-        injectedAt: message.injectedAt ?? null,
-        ackedBy: message.ackedBy,
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id))
-    const activeChildren = [...this.sessions.values()]
-      .filter(
-        (child) =>
-          child.spawnedBy === `session:${session.sessionId}` &&
-          (child.status === 'starting' ||
-            child.status === 'live' ||
-            child.status === 'reconnecting'),
-      )
-      .map((child) => ({
-        sessionId: child.sessionId,
-        status: child.status,
-        activityCount: child.terminal.activityCount,
-      }))
-      .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
-    const activeWork = {
-      nativeSubagentCount: checkpoint.turnState.nativeSubagentCount,
-      nativeSubagentIds: (checkpoint.turnState.nativeSubagents ?? [])
-        .map((child) => child.id)
-        .sort(),
-      awaitingSubagents: checkpoint.turnState.awaitingSubagents === true,
-      childSessions: activeChildren,
-      queueDrainActive: this.inbox.isDraining(session.sessionId),
-      draftPending: session.draftUpdatedAt !== undefined,
-      draftVersion: session.draftUpdatedAt ?? null,
-      offerPending: session.offer !== undefined,
-    }
-    return {
-      schemaVersion: 1,
-      sessionId: session.sessionId,
-      terminalTransitionId: fence.transitionId,
-      terminalTurnEpoch: fence.turnEpoch,
-      provider: lease.provider,
-      providerSessionId: lease.providerSessionId,
-      bindingVersion: lease.bindingVersion,
-      observerGeneration: lease.observationGeneration,
-      providerCursor: checkpoint.providerCursor ?? fence.providerCursor,
-      lastLiveReceiptAt: checkpoint.lastLiveReceiptAt,
-      lastTransitionId: checkpoint.lastTransitionId,
-      lastActiveAt: session.lastActiveAt,
-      lastInputAtMs: session.terminal.lastInputAtMs,
-      lastOutputAtMs: session.terminal.lastOutputAtMs,
-      lastResumedAtMs: session.terminal.lastResumedAtMs,
-      inputCount: session.terminal.inputCount,
-      outputCount: session.terminal.outputCount,
-      activityCount: session.terminal.activityCount,
-      queuedInputCount: session.queuedMessageCount,
-      pendingMessages: addressedMessages,
-      autoContinueActive: this.autoContinue.isActive(session.sessionId),
-      activeWork,
-      resumable: session.resume !== undefined,
-      machineId: session.machineId,
-    }
-  }
-
-  private terminalFactsConsumable(facts: TerminalCandidateFacts): boolean {
-    if (
-      !facts.resumable ||
-      facts.queuedInputCount !== 0 ||
-      facts.pendingMessages.length !== 0 ||
-      facts.autoContinueActive
-    )
-      return false
-    const active = facts.activeWork
-    return (
-      active.nativeSubagentCount === 0 &&
-      !active.awaitingSubagents &&
-      active.childSessions.length === 0 &&
-      !active.queueDrainActive &&
-      !active.draftPending &&
-      !active.offerPending
-    )
-  }
-
-  hasValidTerminalProof(sessionId: SessionId): boolean {
-    const session = this.sessions.get(sessionId)
-    const lease = this.store.observationCheckpoints.get(sessionId)
-    if (!session || !lease || (session.status !== 'live' && session.status !== 'reconnecting'))
-      return false
-    const facts = this.terminalCandidateFacts(session, lease)
-    const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
-    return Boolean(
-      facts &&
-        proof?.confirmedAt &&
-        !proof.consumedAt &&
-        JSON.stringify(proof.facts) === JSON.stringify(facts) &&
-        this.terminalFactsConsumable(facts),
-    )
-  }
-
-  terminalProofMissing(sessionId: SessionId): boolean {
-    const lease = this.store.observationCheckpoints.get(sessionId)
-    return (
-      lease?.checkpoint?.terminalFence == null ||
-      this.store.observationCheckpoints.getTerminalCandidate(sessionId) == null
-    )
-  }
-
   hibernateSession({
     sessionId,
     requireTerminalProof = false,
@@ -2122,9 +2018,9 @@ export class SessionLifecycle {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
     const lease = requireTerminalProof ? this.store.observationCheckpoints.get(sessionId) : null
-    const facts = lease ? this.terminalCandidateFacts(session, lease) : null
+    const facts = lease ? this.terminalProof.facts(session, lease) : null
     if (requireTerminalProof) {
-      if (!facts || !this.terminalFactsConsumable(facts)) {
+      if (!facts || !this.terminalProof.consumable(facts)) {
         return { ok: false, reason: 'terminal state is not safely reapable' }
       }
       const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
@@ -2146,7 +2042,7 @@ export class SessionLifecycle {
           ? () => {
               const currentLease = this.store.observationCheckpoints.get(sessionId)
               const currentFacts = currentLease
-                ? this.terminalCandidateFacts(session, currentLease)
+                ? this.terminalProof.facts(session, currentLease)
                 : null
               if (
                 !currentFacts ||
@@ -2344,7 +2240,7 @@ export class SessionLifecycle {
     // lastActiveAt makes it immediately eligible to be parked again.
     session.markResumed()
     this.repository.persist(session)
-    const observationLease = this.fenceObservation(session)
+    const observationLease = this.terminalProof.fence(session)
     this.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
@@ -2663,7 +2559,7 @@ export class SessionLifecycle {
     // for a genuinely issueless spawn) — allocate the permanent ref now.
     const additionalWrite = this.view.prepareRefAllocation(session)
     this.repository.persist(session, additionalWrite)
-    const observationLease = this.fenceObservation(session)
+    const observationLease = this.terminalProof.fence(session)
     this.toMachine(machineId, {
       type: 'spawn',
       sessionId,
