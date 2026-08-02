@@ -53,26 +53,24 @@
  * or token.
  */
 
-import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { SessionId } from '@podium/model'
-import { asMachineId, HandoffManifestV1 } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import {
   transferHandoffPackage,
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from '../handoff-transfer'
 import { HandoffAdmission } from './admission'
-import { exportedIdentity, recordHandoff } from './attribution'
-import {
-  type AssertMachineUse,
-  HANDOFF_UNKNOWN_SESSION,
-  type HandoffCaller,
-  type HandoffInput,
-  type HandoffPorts,
-  type HandoffResult,
+import { recordHandoff } from './attribution'
+import { resolveHandoffPlacement } from './placement'
+import type {
+  AssertMachineUse,
+  HandoffCaller,
+  HandoffInput,
+  HandoffPorts,
+  HandoffResult,
 } from './ports'
-import { HandoffRefusalError } from './refusal'
 
 export { HANDOFF_UNKNOWN_SESSION, type HandoffInput, type HandoffResult } from './ports'
 
@@ -117,78 +115,18 @@ export class HandoffCoordinator {
     caller: HandoffCaller,
     assertMachineUse: AssertMachineUse,
   ): Promise<HandoffResult> {
-    // Eligibility and both `use` checks already passed in `handoff` — obligation
-    // 1 is satisfied there so that a JOINING caller is authorized too.
-    const session = this.ports.getSession(input.sessionId)
-    if (!session?.resume) throw new Error(HANDOFF_UNKNOWN_SESSION)
-    // TYPE NARROWING, NOT A SECOND ELIGIBILITY RULE. The export frame and the
-    // bundle it produces accept only the exportable kinds, and this is the
-    // MANIFEST'S OWN list (the shared schema instance from `packages/model`, whose
-    // header explains that widening it would accept a bundle no importer can
-    // resume). So the manifest and schema cannot drift silently: if the capability
-    // above ever calls a kind handoff-capable that the bundle format cannot carry,
-    // this parse says so loudly instead of shipping an unresumable package.
-    const agentKind = HandoffManifestV1.shape.agentKind.parse(session.agentKind)
-    const exportIdentity = exportedIdentity(caller)
-    const transferId = randomUUID()
-    const sourceMachineId = asMachineId(session.machineId)
-    const targetMachineId = asMachineId(input.machineId)
-
-    if (session.machineId === input.machineId) throw new Error('session is already on that machine')
-
-    const repos = this.ports.listRepos()
-    const issue = session.issueId ? this.ports.issueMeta(session.issueId) : undefined
-    // A resumed old daemon can report a transcript's pre-handoff cwd after rollback.
-    // The issue's machine-local worktree is the durable workspace anchor; consult it
-    // before the session's momentary cwd when resolving the source repository.
-    const sourceAnchors = [
-      ...(issue?.machineId === session.machineId && issue.worktreePath ? [issue.worktreePath] : []),
-      session.cwd,
-    ]
-    const sourceRepo = repos
-      .filter(
-        (repo) =>
-          repo.machineId === session.machineId &&
-          sourceAnchors.some(
-            (anchor) => anchor === repo.path || anchor.startsWith(`${repo.path}/`),
-          ),
-      )
-      .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo?.repoId)
-      throw new Error(
-        `source repository is not registered (machine=${session.machineId}, anchors=${sourceAnchors.join(',')})`,
-      )
-    // [spec:SP-3f7a] `session.cwd` drifts — the daemon follows the shell, so an
-    // agent that ran a command against the main checkout is stamped at the repo
-    // root. Its issue's worktree is still its home, so offer that as a fallback
-    // source instead of refusing. Restricted to this repo, so the package's repo
-    // identity always matches the tree it carries. Which candidate wins is the
-    // exporter's call (it asks git); refuse up front only when neither exists.
-    const issueWorktree =
-      issue?.machineId === session.machineId &&
-      issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
-        ? issue.worktreePath
-        : undefined
-    if (session.cwd === sourceRepo.path && !issueWorktree)
-      throw new Error('only worktree sessions can be handed off')
-    const targetMachine = this.ports
-      .listMachines()
-      .find((machine) => machine.id === input.machineId)
-    // REACHABILITY IS A DIFFERENT ANSWER FROM AUTHORIZATION (§3.1.4 M5). By the
-    // time execution reaches here the principal may `use` this machine, so
-    // saying it is offline reveals nothing it could not already see.
-    // UNREACHABLE, and it is a different answer from unauthorized (M5): the two
-    // `use` checks above already passed, so the principal may use this machine
-    // and retrying later is the correct advice. Reachable only inside the `see`
-    // set, which is what keeps this compatible with the consistent-error rule.
-    if (!targetMachine?.online)
-      throw new HandoffRefusalError('target machine is offline', 'unreachable')
-    const harness = targetMachine.inventory?.agents.find(
-      (agent) => agent.kind === session.agentKind,
-    )
-    if (!harness?.installed || harness.login.state === 'out') {
-      throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
-    }
+    const {
+      session,
+      agentKind,
+      exportIdentity,
+      transferId,
+      sourceMachineId,
+      targetMachineId,
+      sourceRepo,
+      issue,
+      issueWorktree,
+      targetMachine,
+    } = resolveHandoffPlacement(this.ports, input, caller)
     // Announce the move BEFORE the pre-flight (POD-337): everything from here on
     // can take real time — `ensureTargetRepo` may clone the repo on the target —
     // and `handoffTarget` is what every client renders the move with (the pane's

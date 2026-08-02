@@ -49,7 +49,7 @@ import type { Session } from '../session'
  * protection has to be the derivation itself: widen the manifest's list and this
  * follows, fork it and the two drift with nobody watching.
  */
-type ExportableAgentKind = HandoffManifestV1['agentKind']
+export type ExportableAgentKind = HandoffManifestV1['agentKind']
 
 /**
  * THE COMMAND'S OWN VOCABULARY — input, result, and the one pinned refusal
