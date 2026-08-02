@@ -1,11 +1,12 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { Router } from '../ui-state'
 import type { SocketHub } from '../socket-transport'
+import type { Router } from '../ui-state'
 import {
   COMMAND_ACTIONS,
   createEngineActions,
+  createReplicatedLayoutPort,
   type EngineActionRuntime,
   UI_LOCAL_ACTIONS,
 } from './actions'
@@ -97,14 +98,34 @@ describe('engine action ownership boundary', () => {
     h.actions.setSelectedIssueId(asIssueId('issue-1'))
     h.actions.setPane('A', sessionId)
     h.actions.setFocusedPane('B')
-    h.actions.setDockTab('files')
-    h.actions.setPanelMode(sessionId, 'native')
     h.actions.setDockShell('/worktree', sessionId)
     h.actions.toggleSplit()
     h.actions.setPaletteOpen(true)
 
     expect(h.queued).toEqual([])
     expect(h.navigated).toHaveLength(1)
+  })
+
+  it('routes layout through commands so it follows the user across devices', async () => {
+    const server: Record<string, unknown> = {}
+    const enqueue = vi.fn(async (kind: keyof OutboxKinds, input: unknown) => {
+      if (kind === 'layoutSet') {
+        Object.assign(server, (input as { values: Record<string, unknown> }).values)
+      }
+      return { mutationId: 'm-layout', kind, input, queuedAt: 1 }
+    })
+    const outbox = { pending: () => [], enqueue } as unknown as EngineOutbox
+    const api = {
+      layout: { get: { query: async () => ({ ...server }) } },
+    } as unknown as PodiumClientApi
+    const first = createReplicatedLayoutPort({ api, outbox })
+    first.set('dockTab', 'files')
+    await Promise.resolve()
+    const second = createReplicatedLayoutPort({ api, outbox })
+    await second.hydrate()
+
+    expect(second.get('dockTab')).toBe('files')
+    expect(enqueue).toHaveBeenCalledWith('layoutSet', { values: { dockTab: 'files' } })
   })
 
   it('optimistically applies a representative replicated write while airplane-mode queues it', async () => {

@@ -65,6 +65,11 @@
       "types": "./src/ui-state.ts",
       "import": "./src/ui-state.ts"
     },
+    "./ui-state": {
+      "@podium/source": "./src/ui-state.ts",
+      "types": "./src/ui-state.ts",
+      "import": "./src/ui-state.ts"
+    },
     "./api": {
       "@podium/source": "./src/api.ts",
       "types": "./src/api.ts",

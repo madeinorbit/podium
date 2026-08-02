@@ -12,7 +12,7 @@ import type {
   AgentKind,
   IssueId,
   IssueWire,
-  type LayoutSnapshot,
+  LayoutSnapshot,
   SessionId,
   SessionMeta,
   WorkState,
@@ -20,9 +20,9 @@ import type {
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
-import { type ReplicatedUiStatePort, routeDefaults, type Router } from '../ui-state'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
+import { type ReplicatedUiStatePort, type Router, routeDefaults } from '../ui-state'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 import { reposToViews, tabIdFor } from '../viewmodels'
 import type { Store, StoreNotices } from './types'
@@ -39,15 +39,12 @@ export const UI_LOCAL_ACTIONS = [
   'setOpenIssueId',
   'setPeekIssueId',
   'setSuperThreadId',
-  'setSuperOpen',
   'setPaletteOpen',
   'setSelectedWorktree',
   'setSelectedIssueId',
   'setPane',
   'setFocusedPane',
   'navigateToSession',
-  'setDockTab',
-  'setPanelMode',
   'setDockShell',
   'setDockVisibleSession',
   'toggleSplit',
@@ -62,6 +59,9 @@ export const UI_LOCAL_ACTIONS = [
 export const COMMAND_ACTIONS = [
   'setPinned',
   'setTabOrder',
+  'setSuperOpen',
+  'setDockTab',
+  'setPanelMode',
   'startBtw',
   'tldrSession',
   'writeFileScoped',

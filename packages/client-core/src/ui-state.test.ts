@@ -1,3 +1,4 @@
+import { DEVICE_LOCAL_UI_KEYS, LAYOUT_KEY_FROM_LEGACY, THEME_UI_KEYS } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { UiState } from './replica/contract'
 import {
@@ -7,6 +8,7 @@ import {
   type ReplicatedUiStatePort,
   UI_STATE_KEYS,
   UI_STATE_ROUTES,
+  uiStateRoute,
 } from './ui-state'
 
 function memoryUi(seed: Record<string, string> = {}): UiState & { data: Map<string, string> } {
@@ -29,7 +31,14 @@ function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort
   const data = new Map(Object.entries(seed))
   const set = vi.fn((key: string, value: unknown) => void data.set(key, value))
   const clear = vi.fn((key: string) => void data.delete(key))
-  return { data, get: (key) => data.get(key), set, clear, subscribe: () => () => {} }
+  return {
+    data,
+    hydrate: async () => {},
+    get: (key) => data.get(key),
+    set,
+    clear,
+    subscribe: () => () => {},
+  }
 }
 
 describe('workspace ui-state routing', () => {
@@ -38,6 +47,20 @@ describe('workspace ui-state routing', () => {
     expect(new Set(Object.values(UI_STATE_ROUTES).map((route) => route.home))).toEqual(
       new Set(['device-local', 'per-user-replicated']),
     )
+  })
+
+  it('fails closed outside the shared total vocabulary', () => {
+    for (const key of DEVICE_LOCAL_UI_KEYS) {
+      expect(uiStateRoute(key).home, key).toBe('device-local')
+    }
+    for (const key of Object.keys(LAYOUT_KEY_FROM_LEGACY)) {
+      expect(uiStateRoute(key).home, key).toBe('per-user-replicated')
+    }
+    for (const key of THEME_UI_KEYS) {
+      expect(uiStateRoute(key).home, key).toBe('pre-auth-theme')
+    }
+    expect(() => uiStateRoute('podium.unclassified')).toThrow(/Unclassified UI-state key/)
+    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('known-unrouted')
   })
 
   it('routes local and replicated writes to exactly one home', () => {

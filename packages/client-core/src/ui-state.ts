@@ -10,9 +10,9 @@ import {
   asIssueId,
   asSessionId,
   DEVICE_LOCAL_UI_KEYS,
+  type IssueId,
   isLayoutKey,
   layoutKeyFromLegacy,
-  type IssueId,
   type SessionId,
   THEME_UI_KEYS,
 } from '@podium/model'
@@ -20,7 +20,11 @@ import type { UiState } from './replica/contract'
 import type { DockTab, RecentFileEntry } from './viewmodels'
 import { readStoredDockTab } from './viewmodels'
 
-export type UiStateHome = 'device-local' | 'per-user-replicated' | 'pre-auth-theme'
+export type UiStateHome =
+  | 'device-local'
+  | 'per-user-replicated'
+  | 'pre-auth-theme'
+  | 'known-unrouted'
 
 export const UI_STATE_KEYS = {
   view: 'podium.view',
@@ -120,7 +124,6 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium:tray:open',
   'podium:superagent:chat',
   'podium:tray:height',
-  'podium:superfeed:cursor',
   'podium:superagent:width',
   'podium:rightdock:width',
 ] as const
@@ -131,6 +134,26 @@ const DEVICE_LOCAL_SET: ReadonlySet<string> = new Set([
 ])
 const THEME_SET: ReadonlySet<string> = new Set(THEME_UI_KEYS)
 
+export type PreAuthThemeKey = (typeof THEME_UI_KEYS)[number]
+
+/** Raw, unnamespaced storage is permitted only for these two named theme keys.
+ * ThemeProvider runs before a principal-bound replica exists. */
+export function readPreAuthTheme(key: PreAuthThemeKey): string | null {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? null
+  } catch {
+    return null
+  }
+}
+
+export function writePreAuthTheme(key: PreAuthThemeKey, value: string): void {
+  try {
+    globalThis.localStorage?.setItem(key, value)
+  } catch {
+    // Best effort: private browsing may reject storage.
+  }
+}
+
 /** Default-closed classifier shared by all component and engine reads/writes. */
 export function uiStateRoute(key: string): UiStateRoute {
   if (THEME_SET.has(key)) {
@@ -140,6 +163,12 @@ export function uiStateRoute(key: string): UiStateRoute {
     }
   }
   const layoutKey = layoutKeyFromLegacy(key)
+  if (key === 'podium:superfeed:cursor') {
+    return {
+      home: 'known-unrouted',
+      reason: 'POD-1380 owns the event-stream cursor home; preserve local parity meanwhile.',
+    }
+  }
   if (layoutKey !== null && isLayoutKey(layoutKey)) {
     return {
       home: 'per-user-replicated',
@@ -161,13 +190,13 @@ export interface ReplicatedUiStatePort {
    * synchronously before returning, then enqueue through the Outbox. */
   set(key: string, value: unknown): void
   clear(key: string): void
+  hydrate(): Promise<void>
   subscribe(cb: () => void): () => void
 }
 
 export interface RoutedUiState {
   get(key: string): string | null
   set(key: string, value: string | null): void
-  hydrate(): Promise<void>
   subscribe(cb: () => void): () => void
 }
 

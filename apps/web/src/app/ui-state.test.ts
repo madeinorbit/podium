@@ -1,4 +1,4 @@
-import { readStoredView } from '@podium/client-core/engine'
+import { readStoredView } from '@podium/client-core/ui-state'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReplica, type ReplicaInit } from './replica'
 

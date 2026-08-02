@@ -8,7 +8,7 @@
  *  - the outbox (durable offline writes) + drain-on-reconnect — whose pending
  *    entries double as THE optimistic overlay (#263, see overlay.ts: replica =
  *    server truth only, snapshots fold rows + pending mutations' patches),
- *  - the router, as the SINGLE URL writer (see mirrorUrl),
+ *  - router + view-state ownership through the single ui-state module,
  *  - view-state reporting + the worktree-follow policy,
  *  - every imperative store action (the old trpc.* closures, verbatim).
  *
@@ -43,6 +43,10 @@ import type { OutboxDeadLetterEntry, OutboxEntry } from '../outbox'
 import { markSwitch } from '../perf/switch-trace'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica } from '../replica/replica'
+import type { FeedSinkPort, SocketHub } from '../socket-transport'
+import { NotificationSounder } from '../sound/notification-sounds'
+import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
+import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
   createRouterUiState,
   type MainView,
@@ -55,10 +59,6 @@ import {
   routeDefaults,
   type WorkspaceUiSnapshot,
 } from '../ui-state'
-import type { FeedSinkPort, SocketHub } from '../socket-transport'
-import { NotificationSounder } from '../sound/notification-sounds'
-import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
-import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
   type DockTab,
   dedupeSessionsByResume,
@@ -231,12 +231,8 @@ interface EngineState {
   recoverOutbox: Store['recoverOutbox']
 }
 
-/** Narrow a raw route/persisted value into the session id space (POD-362). */
-const asSessionIdOrNull = (v: string | null | undefined): SessionId | null =>
-  v ? asSessionId(v) : null
-
-/** The issue-id twin of {@link asSessionIdOrNull} (POD-363). Same DECODE EDGE:
- *  the URL route and `localStorage` hand back raw strings, and this is the one
+/** Narrow a raw route/persisted value into the issue id space (POD-363). The URL
+ *  route and local state hand back raw strings, and this is the one
  *  place they re-enter the id space — so the store's issue-selection surface can
  *  be branded end to end without a cast at every consumer. */
 const asIssueIdOrNull = (v: string | null | undefined): IssueId | null => (v ? asIssueId(v) : null)
@@ -300,8 +296,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
   private started = false
-  /** One-time boot fetches (repos/pins/tab-orders/settings) — once per engine,
   private applyingHydratedUi = false
+  /** One-time boot fetches (repos/pins/tab-orders/settings) — once per engine,
    *  even across a StrictMode dispose/re-start cycle (matches the old provider's
    *  `started` ref). */
   private booted = false
@@ -1310,9 +1306,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
   // navigateToSession: opening a tab from a non-workspace view (issues page,
-  // peek overlay) must switch to the workspace via the router (mirrorUrl bails
-  // unless the view is already 'workspace', and setView would re-apply the
-  // current route's stale pane). Selecting the tab's issue/worktree keeps
+  // peek overlay) must switch to the workspace through the router. Selecting
+  // the tab's issue/worktree keeps
   // fileTabsForWorkspace from dropping the tab and bouncing the pane; an open
   // peek overlay is closed so the tab is actually visible.
   private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void {
