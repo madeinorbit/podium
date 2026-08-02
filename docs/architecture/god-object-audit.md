@@ -103,8 +103,8 @@ one.
 
 ## Verdict at this candidate
 
-28 production modules over 600 lines. **26 carry a reviewed exception whose
-structural claim holds; 2 are open items.**
+27 production modules over 600 lines. **26 carry a reviewed exception whose
+structural claim holds; 1 is an open item.**
 
 | module | physical | code | status |
 | --- | ---: | ---: | --- |
@@ -135,12 +135,17 @@ structural claim holds; 2 are open items.**
 | `modules/machines/service.ts` | 625 | 329 | cohesive-owner |
 | `store/workflows.ts` | 622 | 564 | operation-surface |
 | `modules/sessions/session-state/service.ts` | 621 | 495 | cohesive-owner (POD-393, named in the Phase 4 ledger) |
-| `modules/sessions/handoff/coordinator.ts` | 616 | 421 | **ITEM** — one private method spans 401 of its 421 code lines |
 
-The items are tracked as sub-issues of POD-1385. The audit exits 1 while they
-are open. That is the correct state of the world rather than a number to tune
-the predicates against: each of the four was examined and none of them had an
-argument that was true.
+(`modules/sessions/handoff/coordinator.ts`, 616/421, was the fourth item. It
+left the population entirely — POD-1399 decomposed it and the largest surviving
+piece is 368 lines.)
+
+The remaining item is tracked as a sub-issue of POD-1385, and the audit exits 1
+while it is open. That is the correct state of the world rather than a number to
+tune the predicates against: each of the four was examined and none of them had
+an argument that was true. Three closed by decomposition rather than by
+argument, which is the honest way to clear an item and, on this evidence, the
+usual one.
 
 `issues/registry.ts` is the one that has since closed, and it closed by
 decomposition rather than by argument (POD-1398). It held three concerns — the
@@ -189,6 +194,28 @@ a weaker instrument. At 421 code lines it satisfies the `documented` predicate
 outright — and that would have been a technically-true entry papering over a
 single 401-line method that is effectively the whole module. It was refused on
 the argument, not the predicate.
+
+It closed by decomposition (POD-1399), and the seam it closed along is worth
+recording because it is not the one a line count suggests. The phases are not
+equal slices of a sequence; they are graded by WHAT AN EXIT COSTS, which is the
+property the choreography actually turns on:
+
+| phase | file | refusing costs |
+| --- | --- | --- |
+| admission | `admission.ts` (115) | nothing — owns the single-flight registry |
+| placement | `placement.ts` (181) | nothing — reads only; its port type has no write on it |
+| pre-flight | `preflight.ts` (134) | one overlay — clone and base handshake, all reversible |
+| transfer | `transfer.ts` (368) | an unwind, and past the authorized target claim, nothing: the target keeps the session |
+
+`coordinator.ts` is what is left: 154 lines that sequence the four and hold no
+state. The transfer is deliberately still one function — `targetClaimed`,
+`sourceCommitted` and `winnerAuthorized` are the rollback's inputs, and
+splitting the legs would distribute them across the split, recreating inside
+the decomposition the coupling a decomposition exists to remove. Its 259
+irreversible lines were MOVED byte-for-byte rather than reshaped, because the
+region between the export and the import is pinned by ordering alone (POD-1409's
+clause covers the source release specifically), and a net that cannot see a
+reshape is a reason not to reshape.
 
 ## Watching it refuse
 
