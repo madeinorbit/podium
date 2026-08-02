@@ -80,6 +80,11 @@ describe('startServer with the hub role disabled (node shape)', () => {
           name: 'nope',
         }),
       () => trpc.machines.revoke.mutate({ id: handle.registry.modules.machines.hostMachineId }),
+      () =>
+        trpc.machines.transferOwnership.mutate({
+          id: handle.registry.modules.machines.hostMachineId,
+          newOwnerUserId: 'user:nobody',
+        }),
     ]) {
       const err = await call().then(
         () => undefined,
@@ -127,6 +132,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
       'machines.rename',
       'machines.revoke',
       'machines.share',
+      'machines.transferOwnership',
       'machines.unshare',
     ])
     // Non-vacuity: the filter must actually be filtering. If every contract were

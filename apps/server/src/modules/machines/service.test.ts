@@ -1,8 +1,13 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asMachineId, asSessionId } from '@podium/model'
 import type { Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
+import { openEnrollmentLedger } from '../../enrollment-ledger'
 import { SessionStore } from '../../store'
+import { testClientPrincipal } from '../../test-support/client-principal'
 import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
@@ -309,5 +314,177 @@ describe('MachinesService inventory persistence (#222)', () => {
     })
 
     expect(svc.resolveMachineForAgent(undefined, '/repo/subdir', 'codex')).toBe(other)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// OWNERSHIP TRANSFER — THE PROJECTION TAIL (POD-1480)
+// ---------------------------------------------------------------------------
+//
+// `transferOwnership` appends to the enrollment ledger (the commit point,
+// D19.4d) and then projects: row write → invalidateMachineCache →
+// broadcastMachines. Until this suite the ONLY caller anywhere passed
+// `skipRowUpdate: true` and returned before that tail, so none of those three
+// steps had ever executed — POD-1467 confirmed it by replacing
+// `broadcastMachines` with a THROW and watching the whole lane stay green.
+//
+// So these tests do not assert that the tail is CALLED — a call spy is satisfied
+// by a no-op that still calls. They read the PROJECTION BACK through the public
+// surface, with the caches deliberately warmed on the pre-transfer fleet first,
+// and they snapshot what the fleet looked like AT BROADCAST TIME so the
+// invalidate-before-broadcast ordering is asserted rather than assumed.
+describe('ownership transfer projects onto the fleet (POD-1480)', () => {
+  const OWNER_A = 'user:alice'
+  const OWNER_B = 'user:bob'
+
+  function transferWorld(): {
+    svc: MachinesService
+    store: SessionStore
+    dir: string
+    /** One entry per broadcast, holding the OWNER the fleet read back at the
+     *  moment the broadcast went out. */
+    broadcasts: (string | null | undefined)[]
+  } {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-transfer-'))
+    const store = new SessionStore(':memory:')
+    const broadcasts: (string | null | undefined)[] = []
+    const known = new Set([OWNER_A, OWNER_B])
+    let svc!: MachinesService
+    svc = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: store.hostMachineId,
+      enrollment: openEnrollmentLedger(dir),
+      userExists: (id) => known.has(id),
+      sessionsChangedForMachine: () => {},
+      clients: () => [{ principal: testClientPrincipal('c1'), send: () => {} }],
+      // Called once per client on every broadcast. Reading `ownershipRows()`
+      // here is the load-bearing part: it goes through the SAME record cache the
+      // transfer must have dropped, so a stale entry lands in this array.
+      machinesForPrincipal: () => {
+        broadcasts.push(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId)
+        return []
+      },
+    } satisfies MachinesDeps)
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Builder',
+      hostname: 'vmi.local',
+      tokenHash: sha256('tok'),
+      ownerUserId: OWNER_A,
+    })
+    return { svc, store, dir, broadcasts }
+  }
+
+  // A NOTE ON THE CACHE, measured rather than assumed. `transferOwnership` calls
+  // `invalidateMachineCache` between the row write and the broadcast, and
+  // REMOVING that call does not redden anything here — deliberately reported
+  // rather than papered over. It is not "never entered" (replacing the very next
+  // statement, `broadcastMachines`, with a throw DOES redden three of these) and
+  // it is not an assertion gap that a better probe would close: it is
+  // EQUIVALENT for this write, because the record cache has exactly two readers
+  // and neither exposes a stale owner. `listMachines` carries no owner field at
+  // all, and `ownershipRows` overlays `effectiveOwner`, which reads the ledger
+  // live (D19.4d rule 4, ledger-wins). The invalidate is defensive — correct to
+  // keep, since a future reader of the raw cached row would need it — but no
+  // public read can currently distinguish its presence.
+  test('the row is written, the fleet serves the NEW owner, and one broadcast goes out', () => {
+    const { svc, store, dir, broadcasts } = transferWorld()
+    try {
+      // Warm on the pre-transfer fleet. Without this the read-back below is a
+      // cache MISS that rebuilds anyway and would pass with the invalidate gone.
+      expect(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_A)
+      expect(broadcasts).toHaveLength(0)
+
+      svc.transferMachineOwnership(MACHINE, OWNER_B, OWNER_A)
+
+      // 1 — THE ROW. Read straight from the store, past every cache.
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_B)
+      // 2 — THE FLEET. The same public read that was warmed above, with no
+      // manual invalidate in between.
+      expect(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_B)
+      // 3 — THE BROADCAST, and its ORDERING: exactly one went out, and the fleet
+      // it was built from already showed the new owner — so it was emitted
+      // AFTER the transition committed, not before.
+      expect(broadcasts).toEqual([OWNER_B])
+      // 4 — THE LEDGER, which is the commit point the row merely projects.
+      expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_B)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('the outgoing owner’s audience does not travel with the machine', () => {
+    const { svc, store, dir } = transferWorld()
+    try {
+      store.grants.upsert({
+        resourceKind: 'machine',
+        resourceId: MACHINE,
+        grantee: 'user:carol',
+        verb: 'use',
+        owner: OWNER_A,
+        visibility: 'owned-compute',
+        createdAt: new Date().toISOString(),
+        actorKind: 'user',
+        actorId: 'alice',
+        onBehalfOf: OWNER_A,
+      })
+      expect(svc.grantsForMachine(MACHINE)).toHaveLength(1)
+
+      svc.transferMachineOwnership(MACHINE, OWNER_B, OWNER_A)
+
+      // Carol's `use` was Alice's deliberate act on Alice's hardware. It is not
+      // Bob's, and `use` is a code-execution boundary (readiness M2).
+      expect(svc.grantsForMachine(MACHINE)).toHaveLength(0)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a non-owner is refused at the service too, and the fleet is untouched', () => {
+    const { svc, store, dir, broadcasts } = transferWorld()
+    try {
+      // SECOND PRINCIPAL. The gate refuses this in `fleetAuthzFailure`; the
+      // service refuses it again, because a service reachable from more than one
+      // transport must not depend on every one of them remembering.
+      expect(() => svc.transferMachineOwnership(MACHINE, OWNER_A, OWNER_B)).toThrow(
+        'only the machine owner may transfer ownership',
+      )
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_A)
+      // A refused transfer is SILENT — no ledger append, no broadcast.
+      expect(broadcasts).toEqual([])
+      expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('an unknown recipient is refused rather than quarantining the machine', () => {
+    const { svc, store, dir, broadcasts } = transferWorld()
+    try {
+      expect(() => svc.transferMachineOwnership(MACHINE, 'user:typo', OWNER_A)).toThrow(
+        'unknown user: user:typo',
+      )
+      // The hazard this closes: an owner the ledger records but `userExists`
+      // cannot resolve is quarantined by the next reconcile — owner null, usable
+      // by nobody. Nothing was appended, so nothing to reconcile.
+      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_A)
+      expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
+      expect(broadcasts).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('transferring to the current owner is refused, not a silent no-op broadcast', () => {
+    const { svc, dir, broadcasts } = transferWorld()
+    try {
+      expect(() => svc.transferMachineOwnership(MACHINE, OWNER_A, OWNER_A)).toThrow(
+        'machine is already owned by that user',
+      )
+      expect(broadcasts).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

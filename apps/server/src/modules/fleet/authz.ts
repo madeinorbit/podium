@@ -97,6 +97,9 @@ export const FLEET_TARGETS = {
   'machines.rename': (input: unknown) => named((input as { id: string }).id),
   'machines.share': (input: unknown) => named((input as { id: string }).id),
   'machines.unshare': (input: unknown) => named((input as { id: string }).id),
+  // The TARGET is the machine being given away, not the recipient. Reading
+  // `newOwnerUserId` here would gate the caller against the wrong subject.
+  'machines.transferOwnership': (input: unknown) => named((input as { id: string }).id),
   'machines.revoke': (input: unknown) => named((input as { id: string }).id),
   // No machine exists yet, so there is no owner column that could admit anyone —
   // the `admin` floor is the only gate, exactly as POD-384's rationale says.

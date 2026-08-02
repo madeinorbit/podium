@@ -22,11 +22,15 @@ import { resolvePrincipal } from '../../command-principal'
  * gate that refuses everything.
  */
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
+import { openEnrollmentLedger } from '../../enrollment-ledger'
 import { PairingManager } from '../../hub/pairing'
 import { OPERATOR } from '../../issue-authz'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
@@ -90,8 +94,8 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(12)
-    expect(MACHINE_COMMANDS).toHaveLength(11)
+    expect(NAMES).toHaveLength(13)
+    expect(MACHINE_COMMANDS).toHaveLength(12)
   })
 })
 
@@ -188,6 +192,91 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(fleetAuthzFailure('machines.share', input, deps(user(OWNER)))).toBeUndefined()
   })
 
+  // -------------------------------------------------------------------------
+  // TRANSFER OF OWNERSHIP (POD-1480)
+  // -------------------------------------------------------------------------
+  //
+  // TWO PRINCIPALS IN EVERY CASE. A one-actor test cannot tell "the gate
+  // enforces owner-only" from "there was only ever one person", and the positive
+  // arm is asserted alongside each refusal so none of these can pass against a
+  // gate that refuses everybody.
+
+  it('only the machine OWNER may transfer ownership — not a manage grantee, not an admin', () => {
+    const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
+
+    // The owner: admitted. Assert this FIRST — without it the three refusals
+    // below are satisfied by a gate that refuses everyone.
+    expect(fleetAuthzFailure('machines.transferOwnership', input, deps(user(OWNER)))).toBeUndefined()
+
+    // A manage grantee holds every other manage-family command on this machine…
+    const manage = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'manage' }] })
+    expect(fleetAuthzFailure('machines.rename', anyInput, manage)).toBeUndefined()
+    // …and still may not give the machine away. Delegated manage is not
+    // authority over the root of the delegation.
+    expect(fleetAuthzFailure('machines.transferOwnership', input, manage)?.code).toBe('FORBIDDEN')
+    expect(fleetAuthzFailure('machines.transferOwnership', input, manage)?.message).toBe(
+      'only the machine owner may change sharing',
+    )
+
+    // An INSTANCE ADMIN who does not own the machine cannot take it either
+    // (D19.4b: not the first admin's Mac to hand out). `role: 'admin'` clears
+    // the floor, so this refusal is the owner rule and not the floor.
+    const admin = deps(user(COLLEAGUE), { role: 'admin' })
+    expect(fleetAuthzFailure('machines.transferOwnership', input, admin)?.code).toBe('NOT_FOUND')
+  })
+
+  it('naming yourself as the recipient does not make you the owner', () => {
+    // The gate reads the TARGET machine, never `newOwnerUserId`. If the
+    // extractor read the recipient instead, a colleague could nominate
+    // themselves and be gated against a machine they own.
+    const colleagueOwns = deps(user(COLLEAGUE), {
+      machines: ['laptop', COLLEAGUE],
+      owner: COLLEAGUE,
+    })
+    expect(
+      fleetAuthzFailure(
+        'machines.transferOwnership',
+        { id: 'laptop', newOwnerUserId: COLLEAGUE },
+        deps(user(COLLEAGUE)),
+      )?.code,
+    ).toBe('NOT_FOUND')
+    // Non-vacuity: the same principal IS admitted on a machine it owns.
+    expect(
+      fleetAuthzFailure(
+        'machines.transferOwnership',
+        { id: 'laptop', newOwnerUserId: OWNER },
+        colleagueOwns,
+      ),
+    ).toBeUndefined()
+  })
+
+  it('an UNOWNED machine is transferable by nobody, including an admin', () => {
+    // A quarantined machine (D19.4b) has no owner to derive authority from, and
+    // it is refused BEFORE the owner rule is reached: `machineVerbsFor` gives a
+    // quarantine admin `see` and nothing else, so the `manage` check answers
+    // FORBIDDEN. A member sees nothing at all and gets the absent-shaped answer.
+    // Both arms refuse; adoption is a separate act with separate authority.
+    const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
+    const unownedAdmin = deps(user(OWNER), { owner: null, role: 'admin' })
+    expect(fleetAuthzFailure('machines.transferOwnership', input, unownedAdmin)?.code).toBe(
+      'FORBIDDEN',
+    )
+    // A genuine non-admin: the CAPABILITY role is what `machineVerbsFor` reads
+    // for the quarantine arm, and `user()` hardcodes `admin` there — passing
+    // `role: 'member'` alone only lowers the ACCOUNT role the floor consults.
+    const memberPrincipal: CommandPrincipal = {
+      kind: 'user',
+      user: COLLEAGUE,
+      capability: { role: 'member', scope: { kind: 'all' } },
+    }
+    const unownedMember = deps(memberPrincipal, { owner: null, role: 'member' })
+    expect(fleetAuthzFailure('machines.transferOwnership', input, unownedMember)?.code).toBe(
+      'NOT_FOUND',
+    )
+    // Non-vacuity: the SAME command on an owned machine admits its owner.
+    expect(fleetAuthzFailure('machines.transferOwnership', input, deps(user(OWNER)))).toBeUndefined()
+  })
+
   it('a `use` grant admits the discovery family and NOT the manage family', () => {
     const use = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'use' }] })
 
@@ -234,7 +323,7 @@ describe('the machine verb is read from the contract, per command', () => {
  * refusing case were missing. The refusal is produced by an unowned row.
  */
 describe('the derived fleet router actually calls the gate', () => {
-  function caller(ownerUserId: string | null) {
+  function caller(ownerUserId: string | null, opts: { stateDir?: string } = {}) {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
@@ -243,7 +332,13 @@ describe('the derived fleet router actually calls the gate', () => {
       tokenHash: 'h1',
       ownerUserId,
     })
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default', pairing: new PairingManager() })
+    const registry = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
+      pairing: new PairingManager(),
+      // Ownership transfer commits to the ledger, so the wiring arm needs a real
+      // one. Every other command here is indifferent to it.
+      ...(opts.stateDir ? { enrollment: openEnrollmentLedger(opts.stateDir) } : {}),
+    })
     registry.modules.machines.ensureHostMachine('machine-under-test')
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
@@ -295,6 +390,64 @@ describe('the derived fleet router actually calls the gate', () => {
 
     await call.machines.unshare({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
     expect(store.grants.listForResource('machine', 'm1')).toEqual([])
+  })
+
+  it('transfers ownership through the SERVED procedure, executing the projection tail', async () => {
+    // THE ACCEPTANCE TEST FOR POD-1480. Until this command existed, the tail of
+    // `transferOwnership` — row write, cache invalidate, broadcast — had no
+    // caller that reached it: the one caller anywhere passed `skipRowUpdate`.
+    // This drives the real derived tRPC procedure, so it also proves the
+    // contract/registry/target wiring produced a procedure at all.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
+    try {
+      const { call, store } = caller(FIRST_ADMIN_USER_ID, { stateDir: dir })
+      store.users.create(
+        {
+          id: COLLEAGUE,
+          displayName: 'Colleague',
+          role: 'member',
+          createdAt: '2026-07-30T00:00:00.000Z',
+          disabledAt: null,
+        },
+        'hash',
+      )
+
+      const after = await call.machines.transferOwnership({
+        id: 'm1',
+        newOwnerUserId: COLLEAGUE,
+      })
+
+      // The row moved — the projection half of D19.4d, which no caller had ever
+      // reached before this command existed.
+      expect(store.machines.getMachine('m1')?.ownerUserId).toBe(COLLEAGUE)
+      // And the caller, who was the owner a moment ago, can no longer manage it.
+      // Read through the SAME listing the procedure returned, so a stale record
+      // cache would show up as the machine still being there to rename.
+      expect(after.map((m) => m.id)).toContain('m1')
+      await expect(call.machines.rename({ id: 'm1', name: 'not-mine-anymore' })).rejects.toThrow(
+        /do not have access|unknown machine/,
+      )
+      expect(store.machines.getMachine('m1')?.name).toBe('machine-one')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to transfer a machine the caller does not own', async () => {
+    // SECOND PRINCIPAL, produced the only way this environment can: an unowned
+    // row, which belongs to nobody and therefore not to the caller either. The
+    // positive arm above is what stops this passing against a dead procedure.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
+    try {
+      const { call, store } = caller(null, { stateDir: dir })
+      await expect(
+        call.machines.transferOwnership({ id: 'm1', newOwnerUserId: COLLEAGUE }),
+      ).rejects.toThrow(/do not have access/)
+      // Refused BEFORE the handler: no row write, so nothing to unwind.
+      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('refuses to rename an UNOWNED machine (admin may see it, nobody may manage it)', async () => {

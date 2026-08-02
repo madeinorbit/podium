@@ -149,6 +149,8 @@ export {
   machineRevokeInput,
   machineShareContract,
   machineShareInput,
+  machineTransferOwnershipContract,
+  machineTransferOwnershipInput,
   machineUnshareContract,
   machineUnshareInput,
   repoAddContract,

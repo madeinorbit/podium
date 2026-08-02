@@ -169,6 +169,14 @@ export const machineUnshareInput = machineShareInput
 
 export const machineRevokeInput = z.object({ id: z.string() })
 
+/** WHO the machine goes to is a payload field; WHO IS ASKING is not, and never
+ *  appears here — that identity comes from the authenticated transport (ADR 3
+ *  D7), so a frame claiming to act for the owner is inert. */
+export const machineTransferOwnershipInput = z.object({
+  id: z.string(),
+  newOwnerUserId: z.string().min(1),
+})
+
 export const machinePairingCodeInput = z
   .object({ copyAgentCredentials: z.boolean().optional() })
   .optional()
@@ -449,6 +457,66 @@ export const machineUnshareContract = {
   serverRole: 'hub',
   cli: { summary: 'Remove a user’s machine access' },
 } as const satisfies FleetCommandContract<typeof machineUnshareInput>
+
+/**
+ * Hand a machine to another person — the product surface for D19.4d's ownership
+ * transition (POD-1480).
+ *
+ * OWNER-ONLY, and deliberately NOT owner-or-admin. Ownership is the root of the
+ * machine's whole access graph: every `see`/`use`/`manage` verb in
+ * `machineVerbsFor` resolves from it, so the authority to give the machine away
+ * is strictly larger than any verb the machine can grant. `machineSharingAuthority`
+ * already encodes exactly that rule for `share`/`unshare` — "a delegated manage
+ * grant is not authority to rewrite delegation" — and transfer is the same
+ * argument one step up. Admins are excluded for D19.4b's stated reason: an
+ * instance admin must not be able to take somebody's personal Mac, which is why
+ * a quarantined machine is not auto-assigned to the first admin either.
+ *
+ * CONSEQUENCE, stated rather than discovered: this makes an UNOWNED machine
+ * untransferable by anyone (`machineOwnerRefusal` answers absent-shaped when the
+ * owner column is null). Adopting a quarantined machine is a different act with
+ * a different authority and is filed separately, not smuggled in here.
+ *
+ * The ledger append is the commit point and `machines.owner_user_id` is the
+ * projection; this command does not change that ordering, and the enrollment
+ * ledger keeps its 'secret' / owner 'none' / 'append' / 'never-delete'
+ * classification — a transfer APPENDS an owner event, it never rewrites one.
+ */
+export const machineTransferOwnershipContract = {
+  name: 'machines.transferOwnership',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineTransferOwnershipInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    machineSharingAuthority: 'owner-only',
+    confirmation: 'none',
+    rationale:
+      'Transfer moves the root of a machine’s access graph to another person: the new owner gains see, use and manage by default and the old owner keeps none of them. The member floor keeps ordinary owners able to hand over their own hardware, the manage check keeps an invisible machine invisible, and owner-only authority excludes both a manage grantee and an instance admin from giving away compute that is not theirs.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: ['enrollment ledger owner event'],
+    owner: 'on-behalf-of-human',
+    visibility: 'owned-compute',
+    inheritanceOnCreate: 'parent',
+    note: 'Appends an owner event to the enrollment ledger — the commit point (D19.4d) — and projects it onto machines.owner_user_id. Existing grant edges are not carried over.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'An invisible machine and an unknown id share one refusal; a visible non-owner is told transfer is owner-only. The recipient id is caller-supplied too, and an unknown recipient is refused rather than silently quarantining the machine.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Transfer machine ownership to another user' },
+} as const satisfies FleetCommandContract<typeof machineTransferOwnershipInput>
 
 /**
  * Remove a machine from the fleet. M1's `manage` again ("unpair", "remove from
@@ -845,6 +913,7 @@ export const FLEET_CONTRACTS = {
   'machines.rename': machineRenameContract,
   'machines.share': machineShareContract,
   'machines.unshare': machineUnshareContract,
+  'machines.transferOwnership': machineTransferOwnershipContract,
   'machines.revoke': machineRevokeContract,
   'machines.pairingCode': machinePairingCodeContract,
   'repos.add': repoAddContract,

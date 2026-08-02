@@ -99,6 +99,35 @@ export const machineUnshareHandler = ({
   return mods(ctx).machines.listMachines()
 }
 
+/**
+ * Hand a machine to another person (POD-1480) — the surface D19.4d's ownership
+ * transition never had.
+ *
+ * The OUTGOING owner is read off the transport principal and the INCOMING one
+ * off the input, and that asymmetry is the whole security shape: a frame may
+ * nominate a recipient, it may not nominate who is asking (ADR 3 D7). A
+ * principal with no human behind it — the in-process system principal — cannot
+ * own a machine and therefore cannot give one away.
+ */
+export const machineTransferOwnershipHandler = ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; newOwnerUserId: string }>) => {
+  const owner = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
+  if (owner === null) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'machine ownership transfer requires a human owner',
+    })
+  }
+  try {
+    mods(ctx).machines.transferMachineOwnership(input.id, input.newOwnerUserId, owner)
+  } catch (e) {
+    return badRequest(e)
+  }
+  return mods(ctx).machines.listMachines()
+}
+
 export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) => {
   mods(ctx).machines.revokeMachine(input.id)
   return mods(ctx).machines.listMachines()

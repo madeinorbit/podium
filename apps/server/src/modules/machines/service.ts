@@ -289,6 +289,49 @@ export class MachinesService {
     credentials.transferOwnership(this.enrollmentHost, machineId, newOwnerUserId, opts)
   }
 
+  /**
+   * The product-surface transfer (POD-1480) — what `machines.transferOwnership`
+   * calls, and the first caller that ever reaches the projection tail of
+   * {@link credentials.transferOwnership} (row write, cache invalidation,
+   * broadcast). The raw method above stays as-is: it IS D19.4d's append-then-
+   * project sequence and owns the crash-injection seam.
+   *
+   * The two checks here are DEFENCE IN DEPTH, not the gate. The gate is
+   * `machineSharingAuthority: 'owner-only'` in `fleetAuthzFailure`, resolved
+   * from the transport principal; this repeats the owner check for the same
+   * reason {@link shareMachine} does — a service reachable from more than one
+   * transport must not depend on every one of them remembering.
+   *
+   * `currentOwner` is the AUTHENTICATED human, never a payload field (ADR 3 D7).
+   */
+  transferMachineOwnership(id: string, newOwnerUserId: string, currentOwner: string): void {
+    const machine = this.deps.store.machines.getMachine(id)
+    if (!machine?.ownerUserId || machine.ownerUserId !== currentOwner) {
+      throw new Error('only the machine owner may transfer ownership')
+    }
+    // An unknown or unreadable recipient is REFUSED rather than written. The
+    // projection would otherwise record an owner `userExists` cannot resolve,
+    // and the next `reconcileOwnersFromLedger` would quarantine the machine
+    // (owner null, usable by nobody) — a typo silently bricking someone's Mac.
+    //
+    // `?.` — a deps bundle with no `userExists` resolves to `undefined`, which
+    // is falsy and therefore REFUSES. Absent is the closed direction.
+    if (!this.deps.userExists?.(newOwnerUserId)) {
+      throw new Error(`unknown user: ${newOwnerUserId}`)
+    }
+    if (newOwnerUserId === currentOwner) {
+      throw new Error('machine is already owned by that user')
+    }
+    // The audience does NOT travel with the machine. Every existing grant edge
+    // was a deliberate act by the OUTGOING owner (readiness M3: sharing is a
+    // deliberate act, and M2: `use` is a code-execution boundary). Carrying them
+    // over would hand the incoming owner an audience they never approved, on
+    // their hardware. Dropped BEFORE the ledger append, so a crash between the
+    // two leaves the closed state and not the open one.
+    this.deps.store.grants.removeAllForResource('machine', id)
+    this.transferOwnership(id, newOwnerUserId)
+  }
+
   /** Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
    *  See {@link credentials.effectiveOwner}. */
   effectiveOwner(machineId: string): string | null | undefined {
