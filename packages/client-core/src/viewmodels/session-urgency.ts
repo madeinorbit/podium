@@ -1,0 +1,86 @@
+/**
+ * F3 — *how sessions rank against each other for human attention.*
+ *
+ * The third named shared derivation (POD-330). Not a helpers bag: it answers
+ * exactly one question and never departs from its shape — **a collection of
+ * sessions in, an order or a rank out.** No issues, no rows, no repos, no
+ * presentation strings. It depends on `@podium/model` and `../focus` and on
+ * nothing else in `viewmodels/`, so it cannot participate in a cycle.
+ *
+ * It exists because the census that produced the ownership map counted only
+ * EXTERNAL consumers, and `sortSessionsForSidebar` has none outside tests — its
+ * real callers are `issueNavList` (issues) and `sidebarSections` (worklist),
+ * both INSIDE the file being cut. Left where it looked like it lived, it would
+ * have made `issues -> worklist` an edge on top of the known `worklist ->
+ * issues` one: a cycle, arrived at by not looking inside the file.
+ *
+ * F1 (`session-status.ts`) cannot hold it — F1's invariant is one session in,
+ * one presentation value out, with no collections and no ordering. Ranking IS
+ * the collection question, and it is a different question from membership (F2).
+ */
+import { isSnoozed, type SessionMeta } from '@podium/model'
+import { attentionGroup, compareRecency } from '../focus'
+
+/** How long a session may sit quiet before the unified list calls it stale. */
+export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000
+
+/**
+ * Sidebar session order: non-snoozed attention first, then snoozed attention
+ * (de-emphasised), then working sessions at the bottom. Within each rank,
+ * most-recently-active first.
+ */
+export function sortSessionsForSidebar(
+  sessions: SessionMeta[],
+  now: number = Date.now(),
+): SessionMeta[] {
+  // Rank 0 = needs-you/idle and not snoozed (top); 1 = attention but snoozed
+  // (de-emphasised, just above working); 2 = working (bottom).
+  const rank = (s: SessionMeta): number => {
+    if (attentionGroup(s) === 'working') return 2
+    return isSnoozed(s, now) ? 1 : 0
+  }
+  return [...sessions].sort((a, b) => {
+    const dr = rank(a) - rank(b)
+    if (dr !== 0) return dr
+    return compareRecency(a, b, now)
+  })
+}
+
+/**
+ * Urgency rank of one session for the unified WORK list ordering:
+ *   0 — needs the human NOW (attention state, not snoozed, process still around)
+ *   1 — working (running fine without us)
+ *   2 — ready/idle and recently active
+ *   3 — stale (long-quiet), exited, or otherwise dormant
+ * Built on the same primitives every other surface uses (attentionGroup,
+ * isSnoozed, STALE_INACTIVE_MS) so "urgent" means the same thing everywhere.
+ */
+export function sessionUrgencyRank(s: SessionMeta, now: number): number {
+  const group = attentionGroup(s)
+  if (group === 'working') return 1
+  const recent = now - Date.parse(s.lastActiveAt) <= STALE_INACTIVE_MS
+  // Anything non-working that classic counted as attention — a blocked agent OR
+  // a just-FINISHED one (idle/done) — floats above working, exactly like the old
+  // NEEDS YOUR ATTENTION section did. Snoozed sessions are muted to rank 2; only
+  // long-quiet or exited sessions sink to stale.
+  if (!isSnoozed(s, now) && s.status !== 'exited' && recent) return 0
+  return recent && s.status !== 'exited' ? 2 : 3
+}
+
+/** The row's most urgent child session (lowest urgency rank, recency tiebreak) —
+ *  drives the row's right-side status dot. Undefined for session-less rows. */
+export function mostUrgentSession(
+  sessions: SessionMeta[],
+  now: number = Date.now(),
+): SessionMeta | undefined {
+  let best: SessionMeta | undefined
+  for (const s of sessions) {
+    if (!best) {
+      best = s
+      continue
+    }
+    const dr = sessionUrgencyRank(s, now) - sessionUrgencyRank(best, now)
+    if (dr < 0 || (dr === 0 && compareRecency(s, best, now) < 0)) best = s
+  }
+  return best
+}

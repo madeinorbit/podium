@@ -60,6 +60,54 @@ import {
   type MemorySeverity,
 } from './slices/machines'
 
+import {
+  mostUrgentSession,
+  sessionUrgencyRank,
+  sortSessionsForSidebar,
+  STALE_INACTIVE_MS,
+} from './session-urgency'
+import {
+  branchRollup,
+  draftIssueLabel,
+  filterIssueNav,
+  isClosedTopLevelIssue,
+  isDraftAgentVessel,
+  issueAwaitingMerge,
+  issueFinishedAt,
+  issueNavList,
+  issuePendingDecision,
+  issuePendingMergeCommits,
+  pendingDecisionLabel,
+  pendingDecisionTitle,
+  subIssuesOf,
+  type IssueNavigationModel,
+  type IssueNavView,
+  type IssuePendingDecision,
+} from './slices/issues'
+
+// POD-330: the issue entity's own derivations (nav model, sub-issue tree,
+// pending-decision family) live in the issues slice; the collection-level
+// "which session matters more" question is F3 (session-urgency). Both are
+// re-exported here so existing call sites keep working.
+export {
+  branchRollup,
+  draftIssueLabel,
+  filterIssueNav,
+  isDraftAgentVessel,
+  issueAwaitingMerge,
+  issueNavList,
+  issuePendingDecision,
+  issuePendingMergeCommits,
+  mostUrgentSession,
+  pendingDecisionLabel,
+  pendingDecisionTitle,
+  sessionUrgencyRank,
+  sortSessionsForSidebar,
+  STALE_INACTIVE_MS,
+  subIssuesOf,
+}
+export type { IssueNavigationModel, IssueNavView, IssuePendingDecision }
+
 // POD-330: repo/worktree structure, spawn placement and host metrics are
 // MACHINE facts (multi-user doc 3.1.1, owned compute) and now live in the
 // machines slice. Re-exported here so existing call sites keep working.
@@ -220,12 +268,6 @@ export function orphanSessionFor(opts: {
 }
 
 
-export type IssueNavigationModel = Omit<IssueWire, 'commentCount'> & {
-  memberSessionIds?: string[]
-  unread?: boolean
-  sessionSummary?: { total: number; byPhase: Record<string, number> }
-}
-
 export interface WorktreeNavView extends WorktreeView {
   repoName: string
   sessions: SessionMeta[]
@@ -260,40 +302,6 @@ export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
 // collapsed the ISO-string/epoch-ms twin predicates into one clock
 // representation, so `isIssueSnoozed` is gone and `isIssueDeferred` is the
 // single spelling for both the server and these viewmodels.
-
-/** A parent/epic's direct children, seq-ordered, INCLUDING archived ones (issue
- *  #133). The subissue list keeps archived children visible (the UI marks them
- *  archived) rather than dropping them, so archiving a child doesn't silently
- *  vanish it from its parent. Scoped to the subissue list — the main board's
- *  default hide-archived behavior is unchanged. */
-export function subIssuesOf<T extends Pick<IssueWire, 'parentId' | 'deletedAt' | 'seq'>>(
-  issues: readonly T[],
-  parentId: string,
-): T[] {
-  return issues.filter((i) => i.parentId === parentId && !i.deletedAt).sort((a, b) => a.seq - b.seq)
-}
-
-/**
- * Sidebar session order: non-snoozed attention first, then snoozed attention
- * (de-emphasised), then working sessions at the bottom. Within each rank,
- * most-recently-active first.
- */
-export function sortSessionsForSidebar(
-  sessions: SessionMeta[],
-  now: number = Date.now(),
-): SessionMeta[] {
-  // Rank 0 = needs-you/idle and not snoozed (top); 1 = attention but snoozed
-  // (de-emphasised, just above working); 2 = working (bottom).
-  const rank = (s: SessionMeta): number => {
-    if (attentionGroup(s) === 'working') return 2
-    return isSnoozed(s, now) ? 1 : 0
-  }
-  return [...sessions].sort((a, b) => {
-    const dr = rank(a) - rank(b)
-    if (dr !== 0) return dr
-    return compareRecency(a, b, now)
-  })
-}
 
 /**
  * Tab-strip order for one worktree/issue. The user's manual (drag) order wins;
@@ -472,8 +480,6 @@ export function partitionWorkItems(
 // re-exported, not redefined here (#194).
 
 /** A session is "stale" when it's been inactive longer than this. */
-export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000
-
 export interface StalePartition {
   /** Sessions to render normally. */
   visible: SessionMeta[]
@@ -604,56 +610,6 @@ export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
   return groups
 }
 
-export interface IssueNavView {
-  issue: IssueNavigationModel
-  repoName: string
-  sessions: SessionMeta[]
-  activityAt: number
-}
-
-
-/** Flat, activity-sorted issue list for the sidebar Issues tab. Each issue carries
- *  its live sessions (from the session stream, not the wire snapshot) so badges and
- *  ordering stay fresh. Archived issues are dropped. Most-recently-active first;
- *  issues with no sessions fall back to their updatedAt. */
-export function issueNavList(
-  issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
-  now: number = Date.now(),
-): IssueNavView[] {
-  const views = issues
-    .filter((i) => !i.archived && !i.deletedAt)
-    .map((issue): IssueNavView => {
-      const memberIds = issue.memberSessionIds
-      const mine = sortSessionsForSidebar(
-        memberIds === undefined
-          ? sessionsForIssueWorktree(sessions, issue.worktreePath)
-          : sessions.filter(
-              (session) => memberIds.includes(session.sessionId) && !isHeadlessSession(session),
-            ),
-        now,
-      )
-      const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
-      const activityAt = lastSession || Date.parse(issue.updatedAt) || 0
-      const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
-      return { issue, repoName, sessions: mine, activityAt }
-    })
-  return views.sort((a, b) => b.activityAt - a.activityAt)
-}
-
-/** Narrow the issue list by the sidebar filter text — issue title, repo name, or stage. */
-export function filterIssueNav(list: IssueNavView[], query: string): IssueNavView[] {
-  const q = query.trim().toLowerCase()
-  if (!q) return list
-  return list.filter(
-    (v) =>
-      v.issue.title.toLowerCase().includes(q) ||
-      v.repoName.toLowerCase().includes(q) ||
-      v.issue.stage.toLowerCase().includes(q),
-  )
-}
-
-
 /** Pane target when a sidebar issue/worktree row is clicked: keep the current
  *  pane if it's already one of the row's members (a session in `members` or an
  *  id in `extraValidIds` — e.g. the row's open file tabs); otherwise open the
@@ -677,34 +633,6 @@ export function pickPaneSession(
 }
 
 
-
-/** Row label for a DRAFT issue (placeholder-titled vessel): a name someone chose
- *  for the attached session — a user rename or the agent's own `podium session
- *  title` — otherwise "New <kind> session" until one arrives.
- *
- *  Deliberately NOT the session's live title: that is the harness's OSC terminal
- *  string, not a name. Claude Code seeds it from its GLOBAL history, so a session
- *  that has not summarized itself yet surfaces an unrelated older conversation —
- *  and the vessel row, which is the only place a draft issue is named, would
- *  advertise work the user never started here. Wait for the real name instead. */
-export function draftIssueLabel(
-  issue: IssueNavigationModel,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
-): string {
-  const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
-  if (!first) return 'New agent'
-  return first.name?.trim() || `New ${panelLabel(first.agentKind)} session`
-}
-
-/** A DRAFT vessel whose only content is its agents: no worktree of its own, no
- *  title the human chose. It is a session container, not work — its sidebar row
- *  IS the agent (clicking opens the session, nothing folds out beneath it), so
- *  it can never parent real work either. Both the nesting decision and the row
- *  rendering read this one predicate so they cannot drift apart (POD-282). */
-export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionMeta[]): boolean {
-  return Boolean(issue.draft) && !issue.worktreePath && sessions.length > 0
-}
 
 /** Resolve the user's default agent kind for the unified split button. 'auto' (or
  *  unset) resolves to the most recently ACTIVE non-shell session's kind, falling
@@ -747,45 +675,6 @@ export function lastUsedMaps(
     if (ts > (byWorktree.get(s.cwd) ?? 0)) byWorktree.set(s.cwd, ts)
   }
   return { byRepo, byWorktree }
-}
-
-/**
- * Urgency rank of one session for the unified WORK list ordering:
- *   0 — needs the human NOW (attention state, not snoozed, process still around)
- *   1 — working (running fine without us)
- *   2 — ready/idle and recently active
- *   3 — stale (long-quiet), exited, or otherwise dormant
- * Built on the same primitives every other surface uses (attentionGroup,
- * isSnoozed, STALE_INACTIVE_MS) so "urgent" means the same thing everywhere.
- */
-export function sessionUrgencyRank(s: SessionMeta, now: number): number {
-  const group = attentionGroup(s)
-  if (group === 'working') return 1
-  const recent = now - Date.parse(s.lastActiveAt) <= STALE_INACTIVE_MS
-  // Anything non-working that classic counted as attention — a blocked agent OR
-  // a just-FINISHED one (idle/done) — floats above working, exactly like the old
-  // NEEDS YOUR ATTENTION section did. Snoozed sessions are muted to rank 2; only
-  // long-quiet or exited sessions sink to stale.
-  if (!isSnoozed(s, now) && s.status !== 'exited' && recent) return 0
-  return recent && s.status !== 'exited' ? 2 : 3
-}
-
-/** The row's most urgent child session (lowest urgency rank, recency tiebreak) —
- *  drives the row's right-side status dot. Undefined for session-less rows. */
-export function mostUrgentSession(
-  sessions: SessionMeta[],
-  now: number = Date.now(),
-): SessionMeta | undefined {
-  let best: SessionMeta | undefined
-  for (const s of sessions) {
-    if (!best) {
-      best = s
-      continue
-    }
-    const dr = sessionUrgencyRank(s, now) - sessionUrgencyRank(best, now)
-    if (dr < 0 || (dr === 0 && compareRecency(s, best, now) < 0)) best = s
-  }
-  return best
 }
 
 /** Rank of rows with NO sessions — sinks below every session-bearing row. */
@@ -855,100 +744,6 @@ const SIDEBAR_FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
  *  Bounded so the historical population of never-read done issues (readAt did
  *  not always exist) cannot resurface forever with an unread badge. */
 const SIDEBAR_FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-
-/** When the issue finished: closedAt when stamped (stable — moves only on
- *  closed-predicate flips), else updatedAt for legacy rows. [spec:SP-6144] */
-function issueFinishedAt(issue: IssueNavigationModel): number {
-  return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
-}
-
-/** Closed human work at the top of an issue tree remains addressable in the
- * sidebar's project-local disclosure until it is explicitly archived. This is
- * deliberately narrower than `stage === 'done'`: done children keep the
- * acknowledgment decay introduced by POD-100. */
-function isClosedTopLevelIssue(issue: IssueWire): boolean {
-  return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
-}
-
-/** A private issue branch holding work that never landed on its parent branch.
- *  The explicit ahead check keeps a never-moved/empty branch out, while
- *  `merged !== true` reuses the cleanup guard's ancestry verdict.
- *  Unknown/computing git state stays conservative (not actionable). */
-function issueHasUnmergedDelivery(issue: IssueWire): boolean {
-  const git = issue.gitState
-  return (
-    Boolean(issue.branch) &&
-    git?.shared === false &&
-    git.merged !== true &&
-    (git.ahead ?? 0) > 0
-  )
-}
-
-/** A FINISHED issue whose branch still has unlanded work. */
-export function issueAwaitingMerge(issue: IssueWire): boolean {
-  const finished = issue.stage === 'done' || issue.closedReason != null
-  return finished && issueHasUnmergedDelivery(issue)
-}
-
-/** What the human is actually being asked to decide (POD-279). A queue of
- *  review-stage issues is not one undifferentiated "needs you": most of them
- *  are a branch waiting to land, and saying so is the difference between
- *  reading nine rows and reading one word.
- *
- *   - `merge`  — the deliverable is commits on a private branch that never
- *                reached `parentBranch`. The decision IS the merge.
- *   - `review` — the issue sits in review with nothing to land (a design, doc
- *                or artifact deliverable, or work already merged): the decision
- *                is approve / send back.
- *
- *  Deliberately derived from stage + git, never from the session offer: an
- *  offer is consumed by any user turn into that session, so a merge queue that
- *  depended on it would silently empty itself (same reasoning as the tray's
- *  review backstop, POD-118). */
-export type IssuePendingDecision = 'merge' | 'review'
-
-export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | null {
-  const finished = issue.stage === 'done' || issue.closedReason != null
-  if (!finished && issue.stage !== 'review') return null
-  if (issueHasUnmergedDelivery(issue)) return 'merge'
-  // A finished issue with nothing to land is simply done — only an explicit
-  // review stage still holds an open question.
-  return issue.stage === 'review' ? 'review' : null
-}
-
-/** How many commits the merge would land — the one number that makes "ready to
- *  merge" a fact instead of a label. Absent unless the decision is a merge. */
-export function issuePendingMergeCommits(issue: IssueWire): number {
-  return issuePendingDecision(issue) === 'merge' ? (issue.gitState?.ahead ?? 0) : 0
-}
-
-/** The row's copy for a pending decision, in the handoff's terse grammar
- *  ("needs answer", "plan ready"). A merge carries the size of the decision as
- *  a bare count: a sidebar row is ~250px and "· 2 commits" truncates, while
- *  "· 2" under a branch glyph reads as commits. {@link pendingDecisionTitle}
- *  spells it out on hover. */
-export function pendingDecisionLabel(
-  issue: IssueWire,
-  decision: IssuePendingDecision = 'review',
-): string {
-  if (decision !== 'merge') return 'needs review'
-  const commits = issuePendingMergeCommits(issue)
-  return commits > 0 ? `ready to merge · ${commits}` : 'ready to merge'
-}
-
-/** The unabbreviated sentence behind {@link pendingDecisionLabel} — hover copy,
- *  and the accessible name where the row has no room to say it. */
-export function pendingDecisionTitle(
-  issue: IssueWire,
-  decision: IssuePendingDecision = 'review',
-): string {
-  if (decision !== 'merge') return 'Waiting on your review'
-  const commits = issuePendingMergeCommits(issue)
-  const target = issue.parentBranch || 'its parent branch'
-  return commits > 0
-    ? `${commits} commit${commits === 1 ? '' : 's'} ready to land on ${target}`
-    : `Ready to land on ${target}`
-}
 
 /** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
 export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number): boolean {
@@ -1638,38 +1433,6 @@ function pendingDecisionStats(row: UnifiedIssueRow): { count: number; sinceMs?: 
     for (const child of current.startedByChildren ?? []) stack.push(child)
   }
   return { count, ...(sinceMs !== undefined ? { sinceMs } : {}) }
-}
-
-/** Roll-up stats for a subtree hidden behind the sidebar's depth cap (POD-100
- *  L4): every non-archived descendant of `rootId` via formal parentId edges —
- *  including done children that already decayed out of their own rows, since
- *  history is the k/m, not rows (L5). Cycle-safe. */
-export function branchRollup(
-  issues: readonly IssueWire[],
-  rootId: string,
-): { total: number; done: number } {
-  const childrenOf = new Map<string, IssueWire[]>()
-  for (const issue of issues) {
-    if (issue.archived || issue.deletedAt || !issue.parentId) continue
-    const list = childrenOf.get(issue.parentId) ?? []
-    list.push(issue)
-    childrenOf.set(issue.parentId, list)
-  }
-  let total = 0
-  let done = 0
-  const seen = new Set<string>([rootId])
-  const stack = [rootId]
-  while (stack.length > 0) {
-    const id = stack.pop() as string
-    for (const child of childrenOf.get(id) ?? []) {
-      if (seen.has(child.id)) continue
-      seen.add(child.id)
-      total += 1
-      if (child.stage === 'done' || child.closedReason != null) done += 1
-      stack.push(child.id)
-    }
-  }
-  return { total, done }
 }
 
 /** The deepest descendant row whose OWN sessions include one waiting on the

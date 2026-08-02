@@ -95,22 +95,40 @@ Consumers: worklist, terminal, issues.
 ## 3. The five slices, and the single slice→slice edge
 
 ```
-                    F1  session-status        (no viewmodel deps)
-                    F2  session-ownership     (no viewmodel deps)
+             F1  session-status     F2  session-ownership   F3  session-urgency
+             (no viewmodel deps)    (no viewmodel deps)      (no viewmodel deps)
                          │
         ┌────────────┬───┴────────┬────────────┬────────────┐
         │            │            │            │            │
-    machines ──▶ worklist       issues      terminal       chat
-   (F1)          (F1,F2,machines) (F1,F2)    (F1,F2)       (F1)
+    machines ──▶ worklist ──▶  issues      terminal       chat
+   (F1)          (F1,F2,F3,     (F1,F2,F3)  (F1,F2)       (F1)
+                  machines,
+                  issues)
 ```
 
-**No slice imports another slice except `worklist → machines`, one way.**
+**No slice imports another slice except `worklist → machines` and `worklist → issues`, both one
+way.** Still a DAG; no cycle.
+
+### 3.0 F3 — `viewmodels/session-urgency.ts` — *how sessions rank against each other*
+
+`STALE_INACTIVE_MS` · `sortSessionsForSidebar` · `sessionUrgencyRank` · `mostUrgentSession`
+
+A third named shared derivation, found by applying §1's own lesson to the issues cut: the census
+counted EXTERNAL consumers, and `sortSessionsForSidebar` has none outside tests. Its real callers
+are `issueNavList` (issues) and `sidebarSections` (worklist), both **inside** the file being cut.
+Left in the worklist it would have made `issues → worklist` an edge on top of `worklist → issues`
+— a cycle, arrived at by not looking inside the file. F1 cannot hold it: F1's invariant is one
+session in, one presentation value out, with no collections and no ordering. Ranking IS the
+collection question.
+
+Invariant: **a collection of sessions in, an order or a rank out.** No issues, no rows, no repos,
+no presentation strings. Consumers: worklist, issues.
 
 | Slice | Owns |
 |---|---|
 | **machines** | `reposToViews`, `RepoView`/`WorktreeView`, `repoBranchForCwd`, `isKnownWorktreePath`, `repoUsageAt`, `spawnTargetForRepo`, `resolveDefaultAgent`, `hostMemoryView`/`formatMemBytes`, and the see/use/manage verb publication over `packages/model/src/predicates/machine-selection.ts` |
 | **worklist** | `sidebarSections`/`RepoNavView`, unified row construction, banding/ordering/grouping, snoozed + closed folds, `rowStatusLine`/`rowMotionTiming`/`rowWaitingCount`, per-user unread/snooze/pin inputs, `tray.ts` |
-| **issues** | `subIssuesOf`, `issueNavList`/`filterIssueNav`, `branchRollup`, the `issuePendingDecision` family, `board-scope.ts` |
+| **issues** | `IssueNavigationModel`, `subIssuesOf`, `issueNavList`/`filterIssueNav`, `branchRollup`, `draftIssueLabel`/`isDraftAgentVessel`, `issueFinishedAt`/`isClosedTopLevelIssue`, the `issuePendingDecision` family, `resolveIssueEdge` (cross-boundary policy), `board-scope.ts` |
 | **terminal** | `session-card.ts`, `orderTabs`, `elevateCoordinatorSession`, `pickPaneSession`, `orphanSessionFor`, `planWorktreeMoves`, `dock-panel.ts` |
 | **chat** | `chat.ts`, `transcript.ts`, `cursor-order.ts`, `ask-question.ts`, transcript windows, pending reconciliation |
 
@@ -212,6 +230,33 @@ from the wrong tree is indistinguishable from green.
 
 Check `ls node_modules/@podium` in a fresh worktree before quoting any result from it. The linker
 is `hoisted` (see `bunfig.toml`), so the links land at the repo root, not under `apps/*`.
+
+## 4c. LEDGER — what the phase shipped for cross-boundary edges (§3.1.2)
+
+The acceptance criterion asks for the shipped choice to be *recorded here, not baked into a slice
+default*. What shipped:
+
+**The mechanism, with no default.** `resolveIssueEdge(targetId, lookup, policy, exitOf)` in the
+issues slice takes `policy: 'hidden' | 'opaque'` as a **required argument**. There is no default
+value, so a caller cannot acquire a policy by omission — picking one is a visible act at the call
+site, and changing product policy later is a call-site edit, not a slice rewrite.
+
+**Which shape the surfaces use: not yet decided, and deliberately not decided here.** No consumer
+passes a policy today, because no consumer has been ported to the slices yet (POD-331 owns that).
+On the current single-user tree the question is unobservable: with one admin owning everything,
+`not-visible` never occurs, so `hidden` and `opaque` produce byte-identical output. The choice is a
+product decision that belongs to whoever ports the surfaces, with §3.1.2's own framing — an opaque
+reference is honest about the existence of work you cannot see, and hiding leaks nothing at all.
+
+**What the slice guarantees either way**, and what the tests pin:
+- `not-visible` never renders as `removed`. Eviction is not deletion.
+- An opaque edge is ANONYMOUS: `resolution.value` is undefined, so no title, ref or stage leaks
+  through it. Publishing the id of an issue the principal may not resolve is the leak the policy
+  question is about.
+- `pending` is neither shape — it is the one state a spinner is correct for.
+- `branchRollup` counts only what the replica HOLDS. It does not surface "and N more you cannot
+  see": a count IS an existence fact, and §3.1.2 lists counts as an open policy question, so
+  publishing one by default would settle it silently.
 
 ## 5. What this map commits to
 
