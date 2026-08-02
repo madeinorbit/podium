@@ -465,7 +465,7 @@ function runResumeExecTurn(
 
   let interrupt: () => void = () => {}
   const done = (async (): Promise<HeadlessTurnOutcome> => {
-    // grok: create-or-resume via -s, id minted here on the first turn.
+    // grok: create via --session-id, then resume via --resume; id minted here.
     // cursor: chat id pre-allocated via `create-chat`, then always --resume.
     let sessionId = spec.resumeValue
     if (!sessionId) {
