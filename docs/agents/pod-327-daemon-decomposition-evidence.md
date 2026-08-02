@@ -1,9 +1,11 @@
 # POD-327 daemon decomposition evidence
 
 Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for a
-contention-red full oracle unit lane and the required paired-VPS soak. The unchanged interaction
-budget now passes on the current tip; repeated measurements showed that the earlier red was not a
-reproducible code regression.
+fully green oracle and the required paired-VPS soak. The unchanged interaction budget now passes
+on the current tip; repeated measurements showed that the earlier red was not a reproducible code
+regression. A quiet-VPS oracle completed but exposed deterministic registry drift, an environment
+prerequisite, and a 300-second benchmark timeout, so it is evidence of a real red rather than a
+green exit lane.
 
 The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. Catch-up merge
 `197271ca` incorporates integration through `3336ae8b` and the POD-1350 oracle repairs at
@@ -149,6 +151,29 @@ smoke passed with `codex-cli 0.146.0`.
   `vi.waitFor` misses in `session-observers.test.ts`. The exact two files then passed in isolation:
   2/2 files and 41/41 tests in 12.20 seconds. No deterministic unit contract red remains, but the
   full command must still complete green before the oracle may be called green.
+- A second full oracle ran on the paired VPS in an isolated worktree at exact integration commit
+  `fc6f5bbb88cd2d827a5b153c42baf56049b5447a`. The exact command was
+  `/home/till/.bun/bin/bun run test`; the transient user unit had `NRestarts=0`, started at load
+  1.33 / 1.27 / 1.21, and exited 1 after 973.20 seconds at load 1.96 / 3.32 / 3.88. The unit census
+  was 661 files total (654 passed, 4 failed, 3 skipped) and 9,497 tests total (9,470 passed,
+  7 failed, 20 skipped). Because `test:unit` failed, the chained web, mobile, and Bun-only stages
+  did not run.
+- The quiet-VPS reds were classified individually. `resolve-node-executable.test.ts` failed both
+  tests because the VPS has no real Node 22 binary on `PATH`; this is the resolver's explicit
+  environment prerequisite and can be supplied non-system-wide through `PODIUM_NODE_BIN`.
+  `issues.normalized-wire.bench.test.ts` hit its unchanged 300,000 ms timeout and finished the file
+  at 343.880 seconds on the quiet host, so it remains a timing-shaped but unresolved red. Three
+  deterministic `rearch-audit.test.ts` assertions found that POD-1251 now exits 0 where the
+  instrument expects 1 (plain and JSON output) and that `change-row-typings` matches zero sites.
+  `oracle-authz.test.ts` observed `sessions.handoff` absent from relay dispatch instead of
+  gate-refused; integration advanced during the run to `dfa58a4f`, whose POD-1386 delta directly
+  repairs and classifies that case. The other reds are untouched by that delta and remain open.
+- Protocol-compatible soak evidence requires the control plane and daemon to be built from the
+  same deployed lineage at or after integration merge `6e87329f`, which is the narrowest proven
+  same-tree contract containing the POD-327 gateway/daemon handshake. There is no documented
+  cross-version compatibility matrix, `WIRE_VERSION` remained 1 across the semantic contract
+  change, and a protocol-only cherry-pick would create a new unproved lineage. The failed preflight
+  against live main `f97ed4fc` therefore counts zero soak time; no replacement soak has started.
 - `bun run lint:boundaries` still reports the unrelated POD-1321 daemon-lifecycle import and dead
   allowlist entry, with no POD-327 path in the output. POD-1321 received issue mail with the
   current output.
