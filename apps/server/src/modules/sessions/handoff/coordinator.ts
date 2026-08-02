@@ -55,22 +55,15 @@
 
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import type { MachineId, SessionId } from '@podium/model'
-import {
-  actorAgent,
-  actorDisplayId,
-  actorUser,
-  asAgentIdentityId,
-  asMachineId,
-  HandoffManifestV1,
-} from '@podium/model'
+import type { SessionId } from '@podium/model'
+import { asMachineId, HandoffManifestV1 } from '@podium/model'
 import {
   transferHandoffPackage,
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from '../handoff-transfer'
-import type { Session } from '../session'
 import { HandoffAdmission } from './admission'
+import { exportedIdentity, recordHandoff } from './attribution'
 import {
   type AssertMachineUse,
   HANDOFF_UNKNOWN_SESSION,
@@ -82,31 +75,6 @@ import {
 import { HandoffRefusalError } from './refusal'
 
 export { HANDOFF_UNKNOWN_SESSION, type HandoffInput, type HandoffResult } from './ports'
-
-function exportedIdentity(caller: HandoffCaller) {
-  switch (caller.principal.kind) {
-    case 'user':
-      return {
-        exportedBy: {
-          actor: actorUser(caller.principal.user),
-          onBehalfOf: caller.principal.user,
-        },
-        owner: caller.principal.user,
-      }
-    case 'agent':
-      return {
-        exportedBy: {
-          actor: actorAgent(asAgentIdentityId(caller.principal.agentSessionId)),
-          onBehalfOf: caller.principal.onBehalfOf,
-        },
-        owner: caller.principal.onBehalfOf,
-      }
-    case 'system':
-      // A handoff bundle is personal and must have a real owning human. A
-      // system job has none; inventing one would violate ADR 3 D7/D21.
-      throw new Error('system principal cannot export a personal handoff bundle')
-  }
-}
 
 /** How long the source daemon is given to release the terminal after the kill.
  *  Unchanged value, named and injected so a test does not have to wait it out. */
@@ -470,7 +438,7 @@ export class HandoffCoordinator {
       })
       if (!resumed.ok || (session.status as string) !== 'starting')
         throw new Error('target session failed to resume')
-      this.recordHandoff(session, sourceMachineId, targetMachineId, caller)
+      recordHandoff(this.ports, session, sourceMachineId, targetMachineId, caller)
       return { ok: true, newCwd: imported.newCwd }
     } catch (error) {
       // Once import returned and the live apply-time checks passed, the target
@@ -536,35 +504,5 @@ export class HandoffCoordinator {
       }
       throw error
     }
-  }
-
-  /**
-   * THE DURABLE ATTRIBUTION RECORD (ADR 3 D17 / ADR 9 D5 A3).
-   *
-   * The same authenticated CommandPrincipal that stamps the v2 bundle stamps
-   * this event. Keeping one source prevents capability compatibility fields and
-   * the resolved transport principal from disagreeing about the human.
-   */
-  private recordHandoff(
-    session: Session,
-    fromMachineId: MachineId,
-    toMachineId: MachineId,
-    caller: HandoffCaller,
-  ): void {
-    const attribution = exportedIdentity(caller).exportedBy
-    this.ports.recordEvent({
-      ts: new Date().toISOString(),
-      kind: 'session.handoff',
-      subject: session.sessionId,
-      payload: {
-        sessionId: session.sessionId,
-        fromMachineId,
-        toMachineId,
-        actor: actorDisplayId(attribution.actor),
-        actorKind: attribution.actor.kind,
-        onBehalfOf: attribution.onBehalfOf,
-        ...(session.issueId ? { issueId: session.issueId } : {}),
-      },
-    })
   }
 }
