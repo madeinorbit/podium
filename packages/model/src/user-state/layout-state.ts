@@ -191,26 +191,115 @@ export const THEME_UI_KEYS = ['podium.theme.preset', 'podium.theme.mode'] as con
 // ---------------------------------------------------------------------------
 
 /**
+ * A layout entityId that IS a member of the closed vocabulary. Declared at the
+ * model boundary so a free-form or device-local key cannot parse as durable
+ * state even when the command schema is bypassed (POD-402 review gap 3).
+ */
+export const LayoutKeyField = z.string().superRefine((key, ctx) => {
+  if (!isLayoutKey(key)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        `'${key}' is not a replicated layout key (isLayoutKey) — device-local ` +
+        'route/selection/geometry keys have no durable row',
+    })
+  }
+})
+
+/**
  * ONE PERSON'S VALUE FOR ONE LAYOUT KEY — `(userId, entityId)` where
  * `entityId` is a key from {@link isLayoutKey}.
  *
  * An ABSENT ROW means "this person has never set it"; the client falls back to
  * its own default. There is no second spelling: a reset DELETEs the row.
+ *
+ * `entityId` is REFINED at this schema (not only at the command input) so a
+ * free-form or device-local key cannot parse as durable state even if a caller
+ * bypasses `layout.set` (POD-402 review gap 3).
  */
 export const LayoutState = perUserKeyOfString().extend({
+  /** Closed vocabulary — overrides the unbranded string from perUserKeyOfString. */
+  entityId: LayoutKeyField,
   /** JSON value at this key. `unknown` on purpose — see the file header. */
   value: z.unknown(),
 })
 export type LayoutState = z.infer<typeof LayoutState>
 
 /**
+ * Wire value of one layout change-row on the metadata feed (entity kind
+ * `userLayout`). Carries the owning user so a lagging client that only sees the
+ * payload (without parsing the composite id) still knows whose row it is.
+ */
+export const LayoutWire = z.object({
+  userId: z.string().min(1),
+  key: LayoutKeyField,
+  value: z.unknown(),
+})
+export type LayoutWire = z.infer<typeof LayoutWire>
+
+/**
  * Bootstrap / command-response SNAPSHOT for one principal: every layout key
  * they have set, as a plain map. POD-403 hydrates ui-state from this object
  * (one seam, not one row walk). Not a durable shape — the durable unit is
- * {@link LayoutState}.
+ * {@link LayoutState}. Every key must pass {@link isLayoutKey}.
  */
-export const LayoutSnapshot = z.record(z.string(), z.unknown())
+export const LayoutSnapshot = z.record(z.string(), z.unknown()).superRefine((snap, ctx) => {
+  for (const key of Object.keys(snap)) {
+    if (!isLayoutKey(key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `'${key}' is not a replicated layout key`,
+      })
+    }
+  }
+})
 export type LayoutSnapshot = z.infer<typeof LayoutSnapshot>
+
+// ---------------------------------------------------------------------------
+// Feed row identity — the (userId, key) pair as one change-log entityId
+// ---------------------------------------------------------------------------
+
+const LAYOUT_ROW_SEP = '\n'
+
+/**
+ * Change-log / feed id for one layout row. Escaped join so a hostile key or
+ * userId that contains the separator cannot collide with another pair.
+ */
+export function layoutRowId(userId: string, key: string): string {
+  // Local import-free join: escape \ and sep, then join. Same rules as
+  // joinKeyParts — duplicated as two lines so this file stays free of a
+  // circular import with ids/keys (layout is a consumer of perUserKey only).
+  const esc = (p: string) => p.replaceAll('\\', '\\\\').replaceAll(LAYOUT_ROW_SEP, `\\${LAYOUT_ROW_SEP}`)
+  return `${esc(userId)}${LAYOUT_ROW_SEP}${esc(key)}`
+}
+
+/** Inverse of {@link layoutRowId}. Throws on a malformed id. */
+export function parseLayoutRowId(id: string): { userId: string; key: string } {
+  const parts: string[] = []
+  let current = ''
+  for (let i = 0; i < id.length; i++) {
+    const ch = id[i]
+    if (ch === '\\') {
+      const next = i + 1 < id.length ? id[i + 1] : undefined
+      if (next !== '\\' && next !== LAYOUT_ROW_SEP) {
+        throw new Error(`malformed layout row id: ${JSON.stringify(id)}`)
+      }
+      current += next
+      i += 1
+    } else if (ch === LAYOUT_ROW_SEP) {
+      parts.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  parts.push(current)
+  if (parts.length !== 2 || parts[0] === '' || parts[1] === '') {
+    throw new Error(`malformed layout row id: ${JSON.stringify(id)}`)
+  }
+  return { userId: parts[0]!, key: parts[1]! }
+}
 
 /**
  * The layout-half members, as a list so `family.ts` composes rather than
