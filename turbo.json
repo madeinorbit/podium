@@ -2,6 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "daemon": false,
   "globalDependencies": ["tooling/tsconfig/**", "package.json", "bun.lock"],
+  "globalEnv": ["PODIUM_CHECK_ENV_HASH"],
   "tasks": {
     "typecheck": {
       "dependsOn": ["^typecheck"],

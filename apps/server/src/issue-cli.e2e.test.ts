@@ -6,6 +6,8 @@ import { runIssueCli } from '../../cli/src/issue-cli'
 import { makeIssueClient } from './issue-client'
 import { startServer } from './server'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('podium issue CLI ↔ live server (e2e)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
@@ -20,7 +22,7 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
   afterAll(async () => {
     await server.close()
     rmSync(stateDir, { recursive: true, force: true })
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
   })
 
   it('create → ready → claim → close round-trips using ONLY display seqs (what an agent sees)', async () => {

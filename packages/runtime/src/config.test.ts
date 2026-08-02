@@ -23,12 +23,15 @@ import {
 
 describe('podium config', () => {
   let dir: string
+  let priorStateDir: string | undefined
   beforeEach(() => {
+    priorStateDir = process.env.PODIUM_STATE_DIR
     dir = mkdtempSync(join(tmpdir(), 'podium-cfg-'))
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -122,12 +125,15 @@ describe('podium config', () => {
 
 describe('layered resolvers (#251): env → config.json → default', () => {
   let dir: string
+  let priorStateDir: string | undefined
   beforeEach(() => {
+    priorStateDir = process.env.PODIUM_STATE_DIR
     dir = mkdtempSync(join(tmpdir(), 'podium-resolvers-'))
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 

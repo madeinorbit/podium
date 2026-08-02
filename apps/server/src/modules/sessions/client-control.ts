@@ -8,7 +8,7 @@ import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
-import type { MachinesService } from '../machines/service'
+import type { MachineListing } from '../machines/service'
 import type { SessionInbox } from './inbox'
 import type { SessionPublicationCoordinator } from './publication/coordinator'
 import type { Session } from './session'
@@ -20,7 +20,7 @@ export interface SessionClientControlPorts {
   publication: SessionPublicationCoordinator
   state: SessionStateService
   inbox: SessionInbox
-  machines: MachinesService
+  machinesForPrincipal(principal: ClientPrincipal): MachineListing[]
   browserOpen: BrowserOpenGateway
   mutate(sessionId: SessionId, change: (session: Session) => void, issueRelevant?: boolean): void
   broadcastSessions(): void
@@ -33,7 +33,7 @@ export interface SessionClientControlPorts {
 export class SessionClientControl {
   constructor(private readonly ports: SessionClientControlPorts) {}
 
-  onAttached(_principal: ClientPrincipal, client: ClientConn): void {
+  onAttached(principal: ClientPrincipal, client: ClientConn): void {
     const publication = client.publication
     if (publication) this.ports.publication.schedule()
     if (!publication || publication.global) {
@@ -44,7 +44,10 @@ export class SessionClientControl {
         ),
         client.send,
       )
-      client.send({ type: 'machinesChanged', machines: this.ports.machines.listMachines() })
+      client.send({
+        type: 'machinesChanged',
+        machines: this.ports.machinesForPrincipal(principal),
+      })
     }
   }
 

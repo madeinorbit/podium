@@ -76,7 +76,7 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
@@ -331,6 +331,11 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clientRegistry.values(),
+      machinesForPrincipal: (principal, machineService) =>
+        machinesForPrincipal(
+          { machines: machineService },
+          userCommandPrincipal(asUserId(principal.user), principal.role),
+        ),
     })
     // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
     // this registry mints names a machine (POD-318), and a machine id with no row is
@@ -435,8 +440,6 @@ export class SessionRegistry {
       keyedUserOf: (ref) => {
         if (ref.entity !== 'userLayout') return null
         try {
-          // layoutRowId is (userId, key); the human half is the only principal
-          // that may see the row (ADR 9 D3 rule 4).
           return parseLayoutRowId(ref.entityId).userId
         } catch {
           return null

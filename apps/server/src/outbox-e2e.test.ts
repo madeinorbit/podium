@@ -11,6 +11,8 @@ import { startServer } from './server'
 // registry-level tests can't cover. No daemon attaches in this harness, so a
 // created session stays 'starting' forever and a queued message remains durably
 // parked — exactly the unreachable-agent shape the spec closes.
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('outbox write path e2e (live server)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
@@ -29,7 +31,7 @@ describe('outbox write path e2e (live server)', () => {
   afterAll(async () => {
     await server.close()
     for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
   })
 
   it('replayed resumeAndSend returns the recorded result and leaves exactly ONE queued message', async () => {

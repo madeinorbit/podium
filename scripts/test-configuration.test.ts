@@ -22,6 +22,7 @@ type Project =
         maxWorkers?: number
         fileParallelism?: boolean
         sequence?: { groupOrder?: number }
+        setupFiles?: string[]
       }
     }
 type Config = {
@@ -59,6 +60,17 @@ const nodeProject = (value: unknown) => namedProject(value, 'node')
 describe('test lane configuration', () => {
   it('never collects ignored nested worktrees', () => {
     expect(nodeProject(rootConfig).test?.exclude).toContain('**/.worktrees/**')
+  })
+
+  it('fails Vitest and Bun cases that lose their isolated state root', () => {
+    expect(nodeProject(rootConfig).test?.setupFiles).toEqual([
+      './test-hermetic-env.ts',
+      './test-hermetic-vitest-hooks.ts',
+    ])
+    const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
+    expect(bunfig).toContain(
+      'preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]',
+    )
   })
 
   it('keeps retries out of the default project and scopes them to integration', () => {

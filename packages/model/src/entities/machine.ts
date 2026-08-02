@@ -38,9 +38,10 @@
  * reattach, attach a PTY, harness exec, read/write files, take a worktree) and
  * **manage** (rename, unpair, rotate token). A principal with `see` but not
  * `use` may know a machine exists without learning what is checked out on it,
- * so the wire projection will eventually need those two slices separable.
+ * so the wire projection keeps those two slices separable.
  *
- * **That split is NOT built here.** What is recorded here is the partition, so
+ * `MachineWire.use` carries the principal's decision. Redacting the USE-only
+ * detail slice remains a projection concern. The partition below ensures
  * the projection split is later a partition of an already-annotated set rather
  * than a fresh field-by-field audit. Every schema below carries a
  * `SEE` / `USE` marker in its doc comment.
@@ -64,10 +65,10 @@
  *
  * No `owner`, `visibility`, `grant` or `instance_id` field. Ownership and
  * grants are POD-1075's model types and POD-1071's normative matrix columns,
- * and adding one here would break the byte-identical contract that makes this
- * move safe. Every schema below is a flat aggregate with no positional
+ * and `use` is an evaluated decision rather than any of those policy inputs.
+ * Every schema below is a flat aggregate with no positional
  * encoding, so an `owner` field is purely additive later — the golden fixtures
- * still pass unchanged, which is how §3.2's minimum shape gets proven additive.
+ * pin this issue's deliberate additive `use` change.
  * And multi-user is NOT multi-tenancy (ADR 1 D5): nothing here carries an
  * instance partition.
  *
@@ -181,6 +182,10 @@ export type HostMetricsWire = z.infer<typeof HostMetricsWire>
  *  existence, name and liveness are the whole content of §3.1.4 M1's `see`
  *  verb; `inventory` is what a principal with `see` but not `use` must not
  *  learn, and it is a single field so the projection split is a field drop. */
+/** One principal's live USE verdict for a visible machine. */
+export const MachineUseDecision = z.enum(['granted', 'denied'])
+export type MachineUseDecision = z.infer<typeof MachineUseDecision>
+
 export const MachineWire = z.object({
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this
@@ -193,6 +198,8 @@ export const MachineWire = z.object({
   hostname: z.string(),
   online: z.boolean(),
   lastSeenAt: z.string(), // ISO 8601
+  /** The authenticated viewer's live `USE` decision. Absent only on unscoped internal lists. */
+  use: MachineUseDecision.optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
 })

@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { delimiter, join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'bun:test'
+import { assertHermeticStateDir } from '../../../test-hermetic-state-guard'
 
 /**
  * Bun-runtime twin of packages/runtime/src/hermetic-env.test.ts: proves the hermetic harness
@@ -24,5 +25,6 @@ describe('hermetic bun test env', () => {
     expect(
       pathEntries.some((entry) => entry === liveStateDir || entry.startsWith(`${liveStateDir}${sep}`)),
     ).toBe(false)
+    expect(() => assertHermeticStateDir({}, liveStateDir)).toThrow(/PODIUM_STATE_DIR is required/)
   })
 })

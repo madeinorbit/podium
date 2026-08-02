@@ -133,7 +133,7 @@ export function sessionCommandCtx(
  * behaviour-preserving; it is the seam POD-1079 fills, not a new policy.
  */
 export function visibleMachinesFor(
-  modules: RegistryModules,
+  modules: Pick<RegistryModules, 'machines'>,
   capability: Capability,
 ): ReturnType<RegistryModules['machines']['listMachines']> {
   return machinesForPrincipal(
@@ -151,7 +151,7 @@ export function visibleMachinesFor(
  * it. The router uses the wrapper; the wrapper is one line over this.
  */
 export function machinesForPrincipal(
-  modules: RegistryModules,
+  modules: Pick<RegistryModules, 'machines'>,
   principal: CommandPrincipal,
   ownership: MachineOwnershipIndex = ownershipFromMachines(modules.machines),
 ): ReturnType<RegistryModules['machines']['listMachines']> {
