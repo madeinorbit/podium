@@ -36,7 +36,7 @@ async function stoppedAndRead(): Promise<{
   const reg = new SessionRegistry()
   registries.push(reg)
   const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
-  await reg.modules.sessions.stopSession({ sessionId })
+  await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a
   // fixture read before stopping would fail for a reason these tests do not name.
   reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)

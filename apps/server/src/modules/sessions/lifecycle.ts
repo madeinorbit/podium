@@ -1,11 +1,8 @@
 import type {
   AccountId,
   Attribution,
-  AutomationRunWire,
-  AutomationWire,
   Geometry,
   IssueId,
-  IssueWire,
   ResumeRef,
   SessionId,
   SessionMeta,
@@ -37,17 +34,13 @@ import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import {
   type AgentInstruction,
-  type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
   asDelegationRef,
   type ControlMessage,
   type DaemonMessage,
-  type IssueDepProjection,
-  type IssueProjection,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type RepoProjection,
   type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
@@ -94,13 +87,13 @@ import type {
 import type { EventBus } from '../bus'
 import type { ConversationsService } from '../conversations/service'
 import type { WriteFunnel } from '../funnel'
-import type { HostsService } from '../hosts/service'
-import type { IssueService } from '../issues/service'
+import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
 import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
+import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import { machineUseGateForCapability } from './handoff/access'
@@ -121,6 +114,7 @@ import { SessionBroadcastCoordinator } from './publication/broadcast'
 import {
   SessionPublicationCoordinator,
   type SessionPublicationMetrics,
+  type SnapshotTail,
 } from './publication/coordinator'
 import type { SessionProjectionEvent } from './publish-worker-actor'
 import { PublishWorkerClient } from './publish-worker-client'
@@ -238,39 +232,20 @@ interface SessionLifecycleDeps {
   /** Shared live-session registry, constructed before every reader. Lifecycle
    * remains its sole mutation owner. */
   sessions?: Map<SessionId, Session>
-  /**
-   * Evict a client connection through the GATEWAY (registry removal + the sweep),
-   * for the one place a feature initiates a disconnect: the reconnect reclaim,
-   * where a client's `hello` supersedes its own previous socket. Absent = the
-   * in-process fallback below.
-   */
-  disconnectClient?(id: string): void
   /** Test/fault-injection seam; production owns the default daemon client. */
   publicationWorker?: PublishWorkerClient
   /** Rollout-only old/new semantic comparison; never changes delivered bytes. */
   publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
-  hosts: HostsService
   conversations: ConversationsService
-  /** Lazy: the issue tracker is constructed after this one. */
-  issues(): IssueService
-  /** The issue wire list (attachClient bootstrap + snapshot sync). */
-  issuesWire(): IssueWire[]
-  /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
-  issueProjectionsWire(): IssueProjection[]
-  issueDepsWire(): IssueDepProjection[]
-  issueReposWire(): RepoProjection[]
-  /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
-  automationsWire(): AutomationWire[]
-  automationRunsWire(): AutomationRunWire[]
+  /** Live repository-backed issue access; re-read on every apply and replay. */
+  issueAccess: DurableIssueAccessIndex
+  /** Cross-feature snapshot material read from the already-constructed durable authority. */
+  snapshotTail(): SnapshotTail
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: string): void
-  /** Approval broker [spec:SP-edbb]: the attach snapshot. The daemon execution
-   *  OUTCOME no longer arrives here — `approvalExecResult` routes straight from
-   *  the gateway to the approvals port (POD-389). */
-  approvalsPending(): ApprovalWire[]
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
   instructionsForStart(input: {
@@ -333,7 +308,6 @@ export class SessionLifecycle {
   private readonly bus: EventBus
   private readonly machines: MachinesService
   private readonly rpc: DaemonRpcService
-  private readonly hosts: HostsService
   readonly headless: HeadlessService
   /** Durable viewer/shared-surface state, isolated behind explicit ports. */
   readonly state: SessionStateService
@@ -386,7 +360,6 @@ export class SessionLifecycle {
     this.bus = deps.bus
     this.machines = deps.machines
     this.rpc = deps.rpc
-    this.hosts = deps.hosts
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
     const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
@@ -398,16 +371,7 @@ export class SessionLifecycle {
       generation: () => this.repository.sessionsGeneration(),
       sessions: () => this.sessions,
       listSessions: () => this.listSessions(),
-      snapshotTail: () => ({
-        issues: this.deps.issuesWire(),
-        issueProjections: this.deps.issueProjectionsWire(),
-        issueDeps: this.deps.issueDepsWire(),
-        repos: this.deps.issueReposWire(),
-        conversations: this.conversations().allConversations(),
-        automations: this.deps.automationsWire(),
-        automationRuns: this.deps.automationRunsWire(),
-        diagnostics: this.conversations().diagnostics(),
-      }),
+      snapshotTail: deps.snapshotTail,
     })
     this.broadcasts = new SessionBroadcastCoordinator({
       hasPendingVolatile: () => this.repository.hasPendingVolatile(),
@@ -441,19 +405,21 @@ export class SessionLifecycle {
     })
     this.daemonProjection = new SessionDaemonProjection({
       sessions: this.sessions,
-      issues: () => this.issues(),
+      recordSessionGitActivity: (sessionId, input) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input }),
       binding: this.bindingReceipts,
       persist: (session) => this.repository.persist(session),
       broadcastSessions: () => this.broadcastSessions(),
       broadcastToClients: (message) => this.broadcastToClients(message),
-      adoptWorktree: (issueId, message) => this.adoptWorktree(issueId, message),
+      adoptWorktree: (issueId, message) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'adoptWorktree', issueId, message }),
     })
 
     this.workspace = new SessionWorkspace({
       store: this.store,
       rpc: this.rpc,
       machines: this.machines,
-      issues: () => this.issues(),
+      issueAccess: this.deps.issueAccess,
       getSession: (sessionId) => this.sessions.get(sessionId),
       settingsViewer: () => this.settingsViewer(),
       onWorktreesChanged: (repoPath, machineId) =>
@@ -482,7 +448,7 @@ export class SessionLifecycle {
       },
       toMachine: (machineId, message) => this.toMachine(machineId, message),
       onArchived: (sessionId) => {
-        this.issues().onSessionRemovedOrArchived(sessionId)
+        this.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
         this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
         this.parkArchivedSession(sessionId)
       },
@@ -567,7 +533,7 @@ export class SessionLifecycle {
         sendInput: (machineId, message) => this.toMachine(machineId, message),
       },
       authorization: {
-        authorizeAtDrain: (input) => this.authorizeInboxAtDrain(input),
+        authorizeAtDrain: (input) => this.authorizeQueuedInputAtApply(input),
         rejected: ({ sourceMessageId, reason }) => {
           if (sourceMessageId) this.deps.rejectQueuedMessage?.(sourceMessageId, reason)
         },
@@ -596,7 +562,10 @@ export class SessionLifecycle {
       prepareSend: (sessionId, attribution, kind) =>
         this.prepareInboxSend(sessionId, attribution, kind),
       ownerOf: (sessionId) => this.sessionOwner(sessionId)?.owner,
-      resurrect: (sessionId) => this.resurrectSession({ sessionId }),
+      resurrect: async (sessionId, principal) => {
+        this.bus.emit('session.wakeRequested', { sessionId, principal })
+        return { ok: true }
+      },
     })
     this.sendText = (input) => this.inbox.sendText(input)
     this.interruptText = (input) => this.inbox.interruptText(input)
@@ -610,22 +579,16 @@ export class SessionLifecycle {
     this.setSessionDraft = (input, fromClientId) => this.state.setDraft(input, fromClientId)
     this.draftRevision = (sessionId) => this.state.draftRevision(sessionId)
     this.clientControl = new SessionClientControl({
-      clients: this.clients,
       sessions: this.sessions,
       publication: this.publication,
       state: this.state,
       inbox: this.inbox,
       machines: this.machines,
-      hosts: this.hosts,
       browserOpen: this.browserOpen,
-      approvalsPending: () => this.deps.approvalsPending(),
       mutate: (sessionId, change, issueRelevant) =>
         this.repository.mutateSessionView(sessionId, change, issueRelevant),
       broadcastSessions: () => this.broadcastSessions(),
       pushPriorities: () => this.pushPriorities(),
-      ...(this.deps.disconnectClient
-        ? { disconnectClient: (id) => this.deps.disconnectClient?.(id) }
-        : {}),
       setDraft: (principal, clientId, sessionId, text) => {
         this.sessionStateEnvelope().execute(
           'sessions.setDraft',
@@ -669,7 +632,12 @@ export class SessionLifecycle {
       observationLeases: this.observationLeases,
       persist: (session, additionalWrite) => this.repository.persist(session, additionalWrite),
       broadcastSessions: () => this.broadcastSessions(),
-      issues: () => this.issues(),
+      onSessionActivity: (sessionId) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId }),
+      onSessionAttention: (sessionId) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'attention', sessionId }),
+      onSessionTurnEnd: (sessionId) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'turnEnd', sessionId }),
       maybeReapDraftIssue: (issueId) => this.maybeReapDraftIssue(issueId),
       emitSessionExited: (sessionId, code, spawnedBy) =>
         this.emitSessionExited(sessionId, code, spawnedBy),
@@ -735,7 +703,7 @@ export class SessionLifecycle {
     })
   }
 
-  private authorizeInboxAtDrain(input: {
+  authorizeQueuedInputAtApply(input: {
     sessionId: SessionId
     principal: InboxPrincipalReference
     sourceMessageId: string | null
@@ -806,7 +774,7 @@ export class SessionLifecycle {
     // scope gate. The source message proves intent and ordering, never rights.
     const access = {
       listSessions: () => this.listSessions(),
-      issues: this.issues(),
+      issues: this.deps.issueAccess,
       visibility: () => true,
     }
     const resolved = resolveSessionTarget(principal, input.sessionId, access)
@@ -817,10 +785,6 @@ export class SessionLifecycle {
       return refused
     }
     return { ok: true }
-  }
-
-  private issues(): IssueService {
-    return this.deps.issues()
   }
 
   private conversations(): ConversationsService {
@@ -1270,7 +1234,7 @@ export class SessionLifecycle {
     }
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = input.issueId ?? this.deps.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
@@ -1369,7 +1333,7 @@ export class SessionLifecycle {
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd
     // sits in another issue's worktree (or none).
-    const issueId = s.issueId ?? this.issues().issueForCwd(s.cwd)
+    const issueId = s.issueId ?? this.deps.issueAccess.issueForCwd(s.cwd)
     return issueId
       ? {
           role: 'worker',
@@ -1416,7 +1380,7 @@ export class SessionLifecycle {
     spawnedBy?: string
     /** The calling principal's `use` decision per machine — see createSession. */
     use?: MachineUseResolver
-  }): Promise<{ sessionId: SessionId }> {
+  }, issues: SessionIssueWorkflowPort): Promise<{ sessionId: SessionId }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
     // that row, never mint a parallel one. Each parallel row spawned its own
@@ -1428,7 +1392,7 @@ export class SessionLifecycle {
     const existing = this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
-        const woke = await this.resurrectSession({ sessionId: existing.sessionId })
+        const woke = await this.resurrectSession({ sessionId: existing.sessionId }, issues)
         if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
       } else {
         // Reopening a still-live but long-idle session also resets its hibernation
@@ -1438,7 +1402,7 @@ export class SessionLifecycle {
       }
       return { sessionId: existing.sessionId }
     }
-    const issueId = this.issues().soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = this.deps.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = asSessionId(randomUUID())
@@ -1698,7 +1662,9 @@ export class SessionLifecycle {
     }
     if (Math.max(stoppedMs, readMs) > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
     if (session.issueId) {
-      const issue = this.deps.issuesWire().find((candidate) => candidate.id === session.issueId)
+      const issue = this.deps
+        .snapshotTail()
+        .issues.find((candidate) => candidate.id === session.issueId)
       if (!issue || issue.parentId) return 'precondition'
     }
     this.setArchived({ sessionId: session.sessionId, archived: true })
@@ -1777,7 +1743,7 @@ export class SessionLifecycle {
     selfStop?: boolean
     /** Parent-close/issue-stop provenance; direct forced stops derive below. */
     stopReason?: 'self' | 'parent' | 'forced'
-  }): Promise<{
+  }, issues: SessionIssueWorkflowPort): Promise<{
     ok: boolean
     reason?: string
     worktreeFreed?: boolean
@@ -1786,8 +1752,8 @@ export class SessionLifecycle {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
 
-    const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
-    const issue = issueId ? this.issues().getMeta(issueId) : undefined
+    const issueId = session.issueId ?? this.deps.issueAccess.issueForCwd(session.cwd)
+    const issue = issueId ? this.deps.issueAccess.getMeta(issueId) : undefined
     const worktreePath = issue?.worktreePath ?? null
 
     // Unsaved-work guard: inspect the working copy when present. Branch commits
@@ -1862,7 +1828,7 @@ export class SessionLifecycle {
         input.sessionId,
       )
       if (stillUsing.length === 0) {
-        const freed = await this.issues().freeWorktreeKeepBranch(issueId, {
+        const freed = await issues.freeWorktreeKeepBranch(issueId, {
           force: input.force === true,
         })
         if (!freed.ok) {
@@ -1920,14 +1886,14 @@ export class SessionLifecycle {
     force?: boolean
     /** Session performing the stop (for self-stop deferral when it is a member). */
     callerSessionId?: string
-  }): Promise<{
+  }, issues: SessionIssueWorkflowPort): Promise<{
     ok: boolean
     reason?: string
     stopped: string[]
     worktreeFreed: boolean
     deferredKill?: boolean
   }> {
-    const issue = this.issues().getMeta(input.issueId)
+    const issue = this.deps.issueAccess.getMeta(input.issueId)
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
     // sessionsForIssue matches on the canonical issue id; input.issueId may be a
     // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
@@ -1946,7 +1912,7 @@ export class SessionLifecycle {
         force: input.force,
         selfStop: input.callerSessionId === m.sessionId,
         stopReason: input.force ? 'forced' : 'parent',
-      })
+      }, issues)
       if (!r.ok) {
         return {
           ok: false,
@@ -1960,12 +1926,12 @@ export class SessionLifecycle {
     }
     // Final free pass: only when no live cwd still uses the worktree (any issue).
     let worktreeFreed = false
-    const current = this.issues().getMeta(input.issueId)
+    const current = this.deps.issueAccess.getMeta(input.issueId)
     const wt = current?.worktreePath ?? null
     if (wt) {
       const stillUsing = liveSessionsUsingWorktree(wt, this.listSessions())
       if (stillUsing.length === 0) {
-        const freed = await this.issues().freeWorktreeKeepBranch(input.issueId, {
+        const freed = await issues.freeWorktreeKeepBranch(input.issueId, {
           force: input.force === true,
         })
         if (!freed.ok) {
@@ -2213,8 +2179,9 @@ export class SessionLifecycle {
   handoffSession(
     input: { sessionId: SessionId; machineId: string },
     caller: HandoffCaller,
+    issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return this.handoffs().handoff(input, caller, this.machineUseGate(caller))
+    return this.handoffs(issues).handoff(input, caller, this.machineUseGate(caller))
   }
 
   /**
@@ -2253,7 +2220,7 @@ export class SessionLifecycle {
    * the session, and a per-call coordinator would start every dispatch with an
    * empty map — a guard that still looked implemented.
    */
-  private handoffs(): HandoffCoordinator {
+  private handoffs(issues: SessionIssueWorkflowPort): HandoffCoordinator {
     if (this.handoffCoordinator) return this.handoffCoordinator
     const ports: HandoffPorts = {
       rpc: this.rpc,
@@ -2267,8 +2234,8 @@ export class SessionLifecycle {
         })),
       listRepos: () => this.store.repos.listRepos(),
       listMachines: () => this.machines.listMachines(),
-      issueMeta: (issueId) => this.issues().getMeta(issueId) ?? undefined,
-      rehomeIssue: (issueId, where) => this.issues().rehome(issueId, where),
+      issueMeta: (issueId) => this.deps.issueAccess.getMeta(issueId) ?? undefined,
+      rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
       ensureTargetRepo: (sourceRepo, targetMachineId) =>
         this.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
       persist: (session) => this.repository.persist(session),
@@ -2280,8 +2247,8 @@ export class SessionLifecycle {
       toMachine: (machineId, message) => this.toMachine(machineId, message),
       onWorktreesChanged: (repoPath, machineId) =>
         this.deps.onWorktreesChanged(repoPath, machineId),
-      resumeSession: (resumeInput) => this.resumeSession(resumeInput),
-      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput),
+      resumeSession: (resumeInput) => this.resumeSession(resumeInput, issues),
+      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput, issues),
       recordEvent: (event) => {
         this.store.events.appendEvent(event)
       },
@@ -2300,7 +2267,7 @@ export class SessionLifecycle {
   }: {
     sessionId: SessionId
     adoptedBinding?: SessionBindingAdoptLaunchInstruction
-  }): Promise<{ ok: boolean; reason?: string }> {
+  }, issues: SessionIssueWorkflowPort): Promise<{ ok: boolean; reason?: string }> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     // Hibernated (parked on purpose) and exited (process died or was killed
@@ -2321,7 +2288,7 @@ export class SessionLifecycle {
     // The common hibernate→wake path resolves synchronously, and the spawn
     // must too: queueText fire-and-forgets this call and its callers rely on
     // the spawn being on the wire before queueText returns [POD-197].
-    const ensured = this.workspace.ensureSessionWorktree(session)
+    const ensured = this.workspace.ensureSessionWorktree(session, issues)
     if (ensured instanceof Promise) {
       return ensured.then((e) => this.finishResurrect(session, e, adoptedBinding))
     }
@@ -2392,7 +2359,7 @@ export class SessionLifecycle {
   private maybeReapDraftIssue(issueId: string | null | undefined): void {
     if (!issueId) return
     try {
-      this.issues().reapIfEmptyDraft(issueId)
+      this.bus.emit('issue.sessionDerived', { kind: 'reapDraft', issueId })
     } catch (err) {
       console.warn(`[podium:issues] draft-issue reap failed for ${issueId}:`, err)
     }
@@ -2471,7 +2438,7 @@ export class SessionLifecycle {
     const session = this.sessions.get(sessionId)
     // The issues service owns the per-session Git attribution ledger. Notify it
     // while membership/cwd are still resolvable, before this removal.
-    this.issues().onSessionRemovedOrArchived(sessionId)
+    this.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
 
     this.toMachine(
       session?.machineId ?? LOCAL_PLACEHOLDER,
@@ -2818,6 +2785,10 @@ export class SessionLifecycle {
     return this.publication.metrics()
   }
 
+  onClientReclaim(prior: ClientConn, next: ClientConn): void {
+    this.clientControl.reclaim(prior, next)
+  }
+
   /**
    * A client connection is gone: sweep the session state it held.
    *
@@ -2884,38 +2855,6 @@ export class SessionLifecycle {
    *  the guards below decide, and `explicit` only buys a send the daemon would otherwise
    *  dedup away. Both answer the same question — is the session working in a worktree
    *  its issue doesn't know about? */
-  private adoptWorktree(
-    issueId: string,
-    msg: Extract<DaemonMessage, { type: 'sessionCwd' }>,
-  ): void {
-    const issue = this.issues().getMeta(issueId)
-    if (!issue || issue.archived || issue.worktreePath !== null) return
-    // Only a POD-665+ daemon may adopt: `kind` is the ONLY trustworthy way to know a
-    // path is a real worktree and not main, because it comes from git. An older daemon
-    // sends no `kind` and simply does not adopt — its sessions self-heal the instant
-    // its binary updates, since any hook cwd from a real worktree then adopts.
-    //
-    // Its old guard (`explicit && issue.repoPath !== msg.cwd`) is deliberately NOT kept.
-    // It identifies "main" by string-comparing against a REGISTERED path, which holds
-    // only while that string is byte-identical to git's toplevel: a symlinked repo path
-    // resolves to its real path, so the compare says "not main" and the issue gets
-    // stamped with live main itself — the swallow-everything failure [spec:SP-595b].
-    // Path tests cannot be rescued here either, since worktrees live INSIDE the repo
-    // dir (`<repo>/.worktrees/x`) — no prefix separates them from a main subdirectory.
-    // That is the whole reason classification moved into git. A nicety that heals on
-    // its own is not worth a live-main stamp during a mixed-version rollout.
-    if (msg.kind !== 'worktree') return
-    // Absent repoRoot means an exotic layout (a bare repo serving worktrees) where no
-    // primary checkout exists to compare; the remaining guards still apply.
-    if (msg.repoRoot !== undefined && msg.repoRoot !== issue.repoPath) return
-    if (this.issues().worktreePaths().includes(msg.cwd)) return
-    this.issues().update(issue.id, {
-      worktreePath: msg.cwd,
-      // Absent on a detached HEAD: take the worktree, leave the branch claim alone.
-      ...(msg.branch ? { branch: msg.branch } : {}),
-    })
-  }
-
   // ---- the sessions FEATURE PORT for daemon frames (gateway/daemon-mux.ts) ----
   /**
    * One SESSION-OWNED daemon frame, attributed to the machine that sent it.

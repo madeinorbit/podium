@@ -1232,7 +1232,11 @@ export const CHECKS: AuditCheck[] = [
     title: 'let-thunk forward refs in the composition root',
     phase: 'POD-321',
     unit: 'definite-assignment forward ref (`let x!: T`) broken by a thunk',
-    collect: (ctx) => grep(ctx, { roots: ['apps/server/src/server.ts'], pattern: /^\s*let \w+!:/ }),
+    collect: (ctx) =>
+      grep(ctx, {
+        roots: ['apps/server/src/relay.ts', 'apps/server/src/server.ts'],
+        pattern: /^\s*let \w+!:/,
+      }),
   },
   // ADDED at POD-301. POD-363's AC and POD-301's fourth AC both name a
   // "raw-string entity ids" item that reached zero; there was NO SUCH KEY and no

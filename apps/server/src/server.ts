@@ -201,13 +201,8 @@ export async function startServer(
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
-  // Attention notices route through MessagingService.sendNotice (adapter when the
-  // bridge is live, direct sendMessage fallback when stopped). Lazy getter is
-  // safe: notifications only fire after startup, once messaging is assigned.
-  let messaging!: MessagingService
   const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
-    telegramNotice: () => messaging,
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].
     publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
@@ -282,7 +277,7 @@ export async function startServer(
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
   // until a bot token + chat id are set; settings.changed re-arms it live.
-  messaging = new MessagingService({
+  const messaging = new MessagingService({
     bus: registry.modules.bus,
     // Outbound routing is derived from the authenticated binding table, never
     // from one ambient operator/global chat id. Zero or ambiguous routes fail closed.

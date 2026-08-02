@@ -2454,6 +2454,11 @@ export class MessageDeliveryService {
     return this.applyAuth(message)
   }
 
+  notifyQueuedInputRejected(messageId: string, reason: string): void {
+    const message = this.deps.messages.getMessage(messageId)
+    if (message?.status === 'dead_letter') this.notifyDeadLetter(message, reason)
+  }
+
   rejectQueuedInput(messageId: string, reason: string): void {
     const message = this.deps.messages.getMessage(messageId)
     if (message && message.status === 'queued') {

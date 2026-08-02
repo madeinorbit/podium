@@ -216,6 +216,7 @@ function makeHarness(
     restartThreadImpl?: () => void
     topicRecap?: boolean
     transcriptItems?: TranscriptItem[]
+    routing?: MessagingDeps['routing']
     /** Override the binding table — `[]` is an instance where chat `42` speaks
      *  for nobody (POD-1080). */
     bindings?: TelegramChatBinding[]
@@ -278,7 +279,7 @@ function makeHarness(
   }))
   const service = new MessagingService({
     bus,
-    routing: { chatIdForUser: () => '42' },
+    routing: opts.routing ?? { chatIdForUser: () => '42' },
     // POD-419: the token comes from the server-only keyed store, not the blob.
     telegramBotToken: () => 'tok',
     superagent: {
@@ -1072,6 +1073,24 @@ describe('MessagingService', () => {
     })
     await flush()
     expect(h.sent).toEqual([{ chatId: '42', text: 'keyboard needs you\n\nSQLite or Postgres?' }])
+  })
+
+  it('routes notification reactions by owner and drops an unbound owner', async () => {
+    const h = makeHarness({
+      routing: {
+        chatIdForUser: (ownerUserId) => (ownerUserId === BOUND_USER ? '42' : undefined),
+      },
+    })
+    h.bus.emit('notification.telegramRequested', {
+      ownerUserId: BOUND_USER,
+      text: 'Alice needs you',
+    })
+    h.bus.emit('notification.telegramRequested', {
+      ownerUserId: asUserId('usr_unbound'),
+      text: 'must fail closed',
+    })
+    await flush()
+    expect(h.sent).toEqual([{ chatId: '42', text: 'Alice needs you' }])
   })
 
   it('sendNotice with sessionId routes to the bound issue forum topic', async () => {

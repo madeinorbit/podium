@@ -33,6 +33,9 @@ export interface SessionsClientPort {
    * requests). Runs AFTER `welcome`, which the gateway owns.
    */
   onClientAttached(principal: ClientPrincipal, conn: ClientConn): void
+  /** Move controller roles from a reconnecting user's stale connection before
+   * the gateway evicts it. Both principals were authenticated by the gateway. */
+  onClientReclaim(prior: ClientConn, next: ClientConn): void
   /**
    * That connection is gone. Sweep the session views and transcript subscriptions
    * it held, then recompute priorities. The registry entry is ALREADY removed
@@ -58,11 +61,7 @@ export interface SessionsClientPort {
    */
   onFeedPublished(seq: number): void
   /** One session-owned frame, attributed to the connection it arrived on. */
-  onSessionClientFrame(
-    principal: ClientPrincipal,
-    conn: ClientConn,
-    msg: SessionsClientFrame,
-  ): void
+  onSessionClientFrame(principal: ClientPrincipal, conn: ClientConn, msg: SessionsClientFrame): void
 }
 
 /** Everything the client mux is given. */

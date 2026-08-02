@@ -52,7 +52,7 @@ import {
 import { OPERATOR } from './issue-authz'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
 import { ownershipFromMachines } from './machine-access'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { sessionCommandCtx, sessionCommandServices } from './modules/sessions/command-ctx'
 import {
   dispatchSessionCommand,
   SessionCommandCtx,
@@ -152,7 +152,7 @@ function ctxFor(
 ): SessionCommandCtx {
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
-    sessions: () => modules.sessions,
+    sessions: () => sessionCommandServices(modules),
     // POD-729: the chat paths send through the `mail.send` CONTRACT, not through
     // the delivery service — the capability is closed over here, at the composition
     // root, exactly as `sessionCommandCtx` does it.

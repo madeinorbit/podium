@@ -44,20 +44,22 @@ import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
+import { issueDepProjectionRows, repoProjectionRows } from './modules/issues/projection'
 import { IssueCommandDispatcher } from './modules/issues/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
-import { DaemonRpcService } from './modules/machines/rpc'
+import { DaemonRequestBroker, DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
+import { QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS, MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
-import type { TelegramNoticePort } from './modules/messaging/types'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -69,6 +71,7 @@ import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
+import type { SnapshotTail } from './modules/sessions/publication/coordinator'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
@@ -106,8 +109,6 @@ interface SessionRegistryOptions {
    *  assembly (core never imports hub/pairing; see roles.ts). Absent = pairing
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   pairing?: PairingCodes
-  /** Lazy — production wires MessagingService after registry construction. */
-  telegramNotice?: () => TelegramNoticePort | undefined
   /** Deterministic publication-worker fault injection for service-level tests. */
   publicationWorker?: PublishWorkerClient
   /** Rollout-only semantic comparison of legacy and worker publications. */
@@ -298,35 +299,20 @@ export class SessionRegistry {
     const clientRegistry = new ClientRegistry()
     const clients = () => clientRegistry
 
+    const issueAccess = new DurableIssueAccessIndex(
+      this.store.issues,
+      this.store.grants,
+      this.store.repos,
+    )
     const machines = new MachinesService({
       store: this.store,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       clients: () => clients().values(),
     })
-    const rpc = new DaemonRpcService({
-      store: this.store.conversations,
+    const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: () => machines.defaultMachine(),
-      resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
-      hasDaemon: (machineId) => machines.hasDaemon(machineId),
-      machineName: (id) => machines.machineName(id),
-      onlineMachineIds: () => machines.onlineMachineIds(),
-      getSession: (sessionId) => {
-        const session = liveSessions.get(sessionId)
-        return session
-          ? {
-              cwd: session.cwd,
-              machineId: session.machineId,
-              agentKind: session.agentKind,
-              resume: session.resume,
-              transcriptItems: () => session.terminal.transcriptItems(),
-            }
-          : undefined
-      },
-      // Lazy: the conversations service is constructed after loadFromStore below.
-      readTranscriptFromLake: (session, input) =>
-        conversations.readTranscriptFromLake(session, input),
     })
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
@@ -340,31 +326,6 @@ export class SessionRegistry {
       ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
       now: this.now,
     })
-    const hosts = new HostsService(
-      {
-        getSettings: () => this.store.settings.getSettings(),
-        clients: () => clients().values(),
-        machineName: (id) => machines.machineName(id),
-        sessions: () =>
-          [...liveSessions.values()].map((session) => ({
-            sessionId: session.sessionId,
-            machineId: session.machineId,
-            status: session.status,
-            resume: session.resume,
-            agentState: session.agentState,
-            lastActiveAt: session.lastActiveAt,
-            lastResumedAtMs: session.terminal.lastResumedAtMs,
-            lastInputAtMs: session.terminal.lastInputAtMs,
-            lastOutputAtMs: session.terminal.lastOutputAtMs,
-          })),
-        hibernateSession: (input) => sessionsSvc.hibernateSession(input),
-        hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
-        terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
-        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
-      },
-      this.bus,
-    )
     // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
     // and broadcasts triggered during load must find the publisher in place.
@@ -438,6 +399,17 @@ export class SessionRegistry {
       },
       keyedUserOf: () => null,
     })
+    const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
+      const row = this.store.sync
+        .latestChangeStates()
+        .find((candidate) => candidate.entity === ref.entity && candidate.entityId === ref.entityId)
+      if (!row || row.op !== 'upsert' || row.payload === null) return undefined
+      try {
+        return JSON.parse(row.payload)
+      } catch {
+        return undefined
+      }
+    }
     const anchors: VisibilityAnchorPort = {
       visibilityEdge: (ref) => {
         if (ref.entity !== 'issue') return null
@@ -458,28 +430,19 @@ export class SessionRegistry {
               ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
               : [],
           ),
-          ...(issues?.allDepProjections() ?? [])
-            .filter((row) => parseIssueDepId(row.id)?.fromId === ref.entityId)
-            .map((row) => ({ entity: 'issueDep' as const, entityId: row.id })),
+          ...this.store.sync
+            .latestChangeStates()
+            .filter(
+              (row) =>
+                row.entity === 'issueDep' &&
+                row.op === 'upsert' &&
+                parseIssueDepId(row.entityId)?.fromId === ref.entityId,
+            )
+            .map((row) => ({ entity: 'issueDep' as const, entityId: row.entityId })),
         ]
         return { audience, subjects }
       },
-      currentValueOf: (ref) => {
-        if (ref.entity === 'issue') return issues?.get(ref.entityId) ?? undefined
-        if (ref.entity === 'issueProjection') {
-          return issues?.allProjections()?.find((row) => row.id === ref.entityId)?.value
-        }
-        if (ref.entity === 'issueDep') {
-          return issues?.allDepProjections()?.find((row) => row.id === ref.entityId)?.value
-        }
-        if (ref.entity === 'session') {
-          return sessionsSvc.listSessions().find((session) => session.sessionId === ref.entityId)
-        }
-        if (ref.entity === 'conversation') {
-          return conversations?.allConversations().find((row) => row.id === ref.entityId)
-        }
-        return undefined
-      },
+      currentValueOf: (ref) => durableChangeValueOf(ref),
     }
     const ledger = new Ledger({
       visibility,
@@ -533,9 +496,19 @@ export class SessionRegistry {
       serving: feedServing,
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
+    const snapshotTail = (): SnapshotTail => ({
+      issues: ledger.authority.snapshot('issue') as SnapshotTail['issues'],
+      issueProjections: ledger.authority.snapshot(
+        'issueProjection',
+      ) as SnapshotTail['issueProjections'],
+      issueDeps: ledger.authority.snapshot('issueDep') as SnapshotTail['issueDeps'],
+      repos: repoProjectionRows(this.store.repos.listRepos()).map((row) => row.value),
+      conversations: ledger.authority.snapshot('conversation') as SnapshotTail['conversations'],
+      automations: ledger.authority.snapshot('automation') as SnapshotTail['automations'],
+      automationRuns: ledger.authority.snapshot('automationRun') as SnapshotTail['automationRuns'],
+      diagnostics: [...conversationDiagnostics.current],
+    })
     const publisher = new IssuePublisher({
-      allWire: () => issues?.allWire(),
-      allProjections: () => issues?.allProjections(),
       // Write-less full-list rebroadcasts (session churn, staleness flips):
       // reconcile against the ledger baseline (durable append, #255), then fan
       // the committed changes out.
@@ -558,112 +531,12 @@ export class SessionRegistry {
         // deleted): `undefined` means only "cannot project; do not touch the
         // kind". A build that has never heard of the 'issueDep' kind ignores
         // the rows and advances its cursor.
-        const depRows = issues?.allDepProjections()
+        const depRows = issueDepProjectionRows(this.store.issues.listAllIssueDeps())
         if (depRows) ledger.reconcile('issueDep', depRows)
       },
     })
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
-    })
-    // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
-    const approvals = new ApprovalService({
-      store: this.store.approvals,
-      now: () => new Date().toISOString(),
-      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
-      clients: () => clients().values(),
-      sessionIssueId: (sessionId) => {
-        const s = sessionsSvc.listSessions().find((x) => x.sessionId === sessionId)
-        return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
-      },
-      issueInfo: (issueId) => {
-        const row = issues.getMeta(issueId)
-        if (!row) return null
-        const prefix = this.store.repos.prefixForPath(row.repoPath)
-        return {
-          seq: row.seq,
-          title: row.title,
-          displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
-        }
-      },
-      machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
-      notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
-      executeServerOp: (op, sessionId) => {
-        const caller = workflowCallerForCapability(sessionsSvc.capabilityForSession(sessionId))
-        if (op.kind === 'workflow-publish') {
-          // The approval broker's server-side ops enter by the SAME door every
-          // transport uses (POD-732) — the deleted `publish`/`assign` shims were
-          // its only other way in, and a server op that skipped the contract's
-          // parse would be the one caller whose input nobody validated.
-          const revision = workflows.execute(caller, 'publish', {
-            revisionId: op.revisionId,
-          })
-          return `published workflow revision ${revision.id}`
-        }
-        if (op.kind === 'workflow-set-default') {
-          const binding = workflows.execute(caller, 'assign', {
-            targetKind: op.targetKind,
-            targetId: op.targetId,
-            revisionId: op.revisionId,
-          })
-          return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
-        }
-        if (op.kind === 'automation-schedule') {
-          const existingSessionId =
-            op.target.kind === 'current'
-              ? sessionId
-              : op.target.kind === 'session'
-                ? op.target.sessionId
-                : null
-          const existing =
-            existingSessionId === null
-              ? null
-              : sessionsSvc
-                  .listSessions()
-                  .find((session) => session.sessionId === existingSessionId)
-          if (existingSessionId !== null && !existing) {
-            throw new Error(`unknown target session: ${existingSessionId}`)
-          }
-          const fresh = op.target.kind === 'fresh' ? op.target : null
-          const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
-            parentSessionOf: (candidate) =>
-              sessionSpawnerParentId(
-                sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
-                  ?.spawnedBy,
-              ),
-            onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
-          })
-          const scheduled = automations.create(
-            {
-              name: op.name,
-              scheduleKind: 'once',
-              cron: null,
-              runAt: op.runAt,
-              targetSessionId: existingSessionId,
-              repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
-              agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
-              model: fresh?.model ?? 'auto',
-              effort: fresh?.effort ?? 'auto',
-              prompt: op.prompt,
-              enabled: true,
-              sessionMode: existingSessionId === null ? 'fresh' : 'resume',
-            },
-            principal,
-          )
-          return `scheduled one-off automation ${scheduled.id} for ${scheduled.runAt}`
-        }
-
-        return null
-      },
-      logEvent: (kind, issueId, payload) => {
-        try {
-          this.store.events.appendEvent({
-            ts: new Date().toISOString(),
-            kind,
-            subject: issueId ?? 'approvals',
-            payload,
-          })
-        } catch {}
-      },
     })
     // Advisory named lease locks [spec:SP-85d1]. Lazy closures: sessionsSvc and
     // issues are assigned below and only ever consulted per-operation.
@@ -696,23 +569,122 @@ export class SessionRegistry {
           feedServing.publishAdvisory('conversation-diagnostics')
         },
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+          requestBroker.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
       options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
     )
+    const rpc = new DaemonRpcService({
+      broker: requestBroker,
+      store: this.store.conversations,
+      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      defaultMachine: () => machines.defaultMachine(),
+      resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
+      hasDaemon: (machineId) => machines.hasDaemon(machineId),
+      machineName: (id) => machines.machineName(id),
+      onlineMachineIds: () => machines.onlineMachineIds(),
+      getSession: (sessionId) => {
+        const session = liveSessions.get(sessionId)
+        return session
+          ? {
+              cwd: session.cwd,
+              machineId: session.machineId,
+              agentKind: session.agentKind,
+              resume: session.resume,
+              transcriptItems: () => session.terminal.transcriptItems(),
+            }
+          : undefined
+      },
+      readTranscriptFromLake: (session, input) =>
+        conversations.readTranscriptFromLake(session, input),
+    })
+    const capabilityForLiveSession = (sessionId: SessionId) => {
+      const session = liveSessions.get(sessionId)
+      if (!session) return { role: 'worker', scope: { kind: 'none' } } as const
+      const issueId = session.issueId ?? issueAccess.issueForCwd(session.cwd)
+      return issueId
+        ? {
+            role: 'worker' as const,
+            scope: { kind: 'subtree' as const, rootId: issueId },
+            actorSessionId: sessionId,
+            onBehalfOf: session.ownerUserId,
+          }
+        : {
+            role: 'worker' as const,
+            scope: { kind: 'none' as const },
+            actorSessionId: sessionId,
+            onBehalfOf: session.ownerUserId,
+          }
+    }
+    const liveSessionOwnership = (sessionId: SessionId) => {
+      const session = liveSessions.get(sessionId)
+      if (!session) return undefined
+      return {
+        owner: session.ownerUserId,
+        grants: this.store.grants
+          .listForResource('session', sessionId)
+          .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+          .map((edge) => edge.grantee),
+      }
+    }
+    const mail = principalMailPolicy({
+      principalForCapability,
+      principalForMessage: (message) => {
+        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
+        if (message.fromSession) {
+          try {
+            return principalForCapability(capabilityForLiveSession(message.fromSession))
+          } catch {
+            return undefined
+          }
+        }
+        if (!message.attribution?.onBehalfOf) return undefined
+        const userId = asUserId(message.attribution?.onBehalfOf)
+        const role = this.store.users.roleOf(userId)
+        return role ? userCommandPrincipal(userId, role) : undefined
+      },
+      policyFor: (principal) => {
+        const userId = onBehalfOfUser(principal)
+        return {
+          ceiling: {
+            canSee: (ref) => {
+              if (principal.kind === 'system') return true
+              if (userId === null) return false
+              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
+              if (ref.kind === 'session') {
+                const owner = liveSessionOwnership(asSessionId(ref.id))
+                return owner?.owner === userId || owner?.grants.includes(userId) === true
+              }
+              return false
+            },
+          },
+          machines: {
+            mayUse: (machineId) =>
+              principal.kind === 'system' ||
+              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
+            isReachable: (machineId) => machines.hasDaemon(machineId),
+          },
+        }
+      },
+    })
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
+    const queuedMessageApply = new QueuedMessageApply({
+      messages: this.store.messages,
+      events: this.store.events,
+      authorize: mail.authorizeAtApply,
+      bus: this.bus,
+      now: () => new Date(this.now()).toISOString(),
+    })
     const sessionsSvc = new SessionLifecycle({
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
-      authorizeQueuedMessage: (messageId) => messagesSvc.authorizeQueuedInput(messageId),
-      rejectQueuedMessage: (messageId, reason) => messagesSvc.rejectQueuedInput(messageId, reason),
+      authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
+      rejectQueuedMessage: (messageId, reason) => queuedMessageApply.reject(messageId, reason),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
-      disconnectClient: (id) => this.clientGateway.detachClient(id),
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
@@ -721,19 +693,37 @@ export class SessionRegistry {
         : {}),
       machines,
       rpc,
-      hosts,
       conversations,
-      issues: () => issues,
-      issuesWire: () => publisher.currentIssuesList(),
-      issueProjectionsWire: () => (issues.allProjections() ?? []).map((row) => row.value),
-      issueDepsWire: () => (issues.allDepProjections() ?? []).map((row) => row.value),
-      issueReposWire: () => (issues.allRepoProjections() ?? []).map((row) => row.value),
-      automationsWire: () => automations.list(),
-      automationRunsWire: () => automations.allRuns(),
+      issueAccess,
+      snapshotTail,
       onWorktreesChanged: broadcastWorktreesChanged,
-      approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
+    const hosts = new HostsService(
+      {
+        getSettings: () => this.store.settings.getSettings(),
+        clients: () => clients().values(),
+        machineName: (id) => machines.machineName(id),
+        sessions: () =>
+          [...liveSessions.values()].map((session) => ({
+            sessionId: session.sessionId,
+            machineId: session.machineId,
+            status: session.status,
+            resume: session.resume,
+            agentState: session.agentState,
+            lastActiveAt: session.lastActiveAt,
+            lastResumedAtMs: session.terminal.lastResumedAtMs,
+            lastInputAtMs: session.terminal.lastInputAtMs,
+            lastOutputAtMs: session.terminal.lastOutputAtMs,
+          })),
+        hibernateSession: (input) => sessionsSvc.hibernateSession(input),
+        hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
+        terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
+        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
+          rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+      },
+      this.bus,
+    )
     const headless = sessionsSvc.headless
     this.bus.on('feed.published', ({ seq }) => {
       sessionsSvc.onFeedPublished(seq)
@@ -763,6 +753,9 @@ export class SessionRegistry {
           this.store.settings.getSettingsFor(ownerUserId),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
+        telegramRouteAvailable: (ownerUserId) =>
+          this.store.telegramBindings.listForUser(ownerUserId).length === 1,
+        requestTelegram: (request) => this.bus.emit('notification.telegramRequested', request),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
         clients: (ownerUserId) =>
@@ -780,7 +773,6 @@ export class SessionRegistry {
             ownerUserId: FIRST_ADMIN_USER_ID,
           })),
         notificationsEnabled: () => featureEnabled('notifications'),
-        ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
       this.bus,
@@ -847,8 +839,73 @@ export class SessionRegistry {
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
     })
+    this.bus.on('issue.sessionDerived', (event) => {
+      switch (event.kind) {
+        case 'gitActivity':
+          issues.recordSessionGitActivity(event.sessionId, {
+            ...(event.commits ? { commits: event.commits } : {}),
+            ...(event.touched ? { touched: event.touched } : {}),
+          })
+          break
+        case 'activity':
+          issues.onSessionActivity(event.sessionId)
+          break
+        case 'attention':
+          issues.onSessionAttention(event.sessionId)
+          break
+        case 'turnEnd':
+          issues.onSessionTurnEnd(event.sessionId)
+          break
+        case 'removedOrArchived':
+          issues.onSessionRemovedOrArchived(event.sessionId)
+          break
+        case 'reapDraft':
+          issues.reapIfEmptyDraft(event.issueId)
+          break
+        case 'adoptWorktree': {
+          const issue = issueAccess.getMeta(event.issueId)
+          const message = event.message
+          if (
+            !issue ||
+            issue.archived ||
+            issue.worktreePath !== null ||
+            message.kind !== 'worktree'
+          )
+            break
+          if (message.repoRoot !== undefined && message.repoRoot !== issue.repoPath) break
+          if (issueAccess.worktreePaths().includes(message.cwd)) break
+          issues.update(issue.id, {
+            worktreePath: message.cwd,
+            ...(message.branch ? { branch: message.branch } : {}),
+          })
+          break
+        }
+      }
+    })
+    const issueSessionLifecycle = new IssueSessionLifecycle({
+      issues,
+      sessions: sessionsSvc,
+      ledger,
+    })
+    this.bus.on('session.wakeRequested', ({ sessionId, principal }) => {
+      const authorized = sessionsSvc.authorizeQueuedInputAtApply({
+        sessionId,
+        principal,
+        sourceMessageId: null,
+      })
+      if (!authorized.ok) return
+      void issueSessionLifecycle
+        .resurrectSession({ sessionId })
+        .then((result) => {
+          if (!result.ok)
+            console.warn('[podium] wake-on-queue failed for ' + sessionId + ': ' + result.reason)
+        })
+        .catch((err) => {
+          console.warn('[podium] wake-on-queue failed for ' + sessionId + ':', err)
+        })
+    })
     this.bus.on('session.listChanged', () => {
-      publisher.publishIssues(issues.allWire())
+      publisher.publishIssues(issues.allWire(), issues.allProjections())
     })
     const locks = new LockService({
       locks: this.store.locks,
@@ -889,46 +946,6 @@ export class SessionRegistry {
     // rejection path (ADR 3 D8 / Amendment 1 D16) is now LIVE end to end rather
     // than only unit-tested against the handler, so POD-1075's real ceiling
     // arrives at a composition root that already carries it.
-    const mail = principalMailPolicy({
-      principalForCapability,
-      principalForMessage: (message) => {
-        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
-        if (message.fromSession) {
-          try {
-            return principalForCapability(sessionsSvc.capabilityForSession(message.fromSession))
-          } catch {
-            return undefined
-          }
-        }
-        if (!message.attribution?.onBehalfOf) return undefined
-        const userId = asUserId(message.attribution?.onBehalfOf)
-        const role = this.store.users.roleOf(userId)
-        return role ? userCommandPrincipal(userId, role) : undefined
-      },
-      policyFor: (principal) => {
-        const userId = onBehalfOfUser(principal)
-        return {
-          ceiling: {
-            canSee: (ref) => {
-              if (principal.kind === 'system') return true
-              if (userId === null) return false
-              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
-              if (ref.kind === 'session') {
-                const owner = sessionsSvc.sessionOwner(asSessionId(ref.id))
-                return owner?.owner === userId || owner?.grants.includes(userId) === true
-              }
-              return false
-            },
-          },
-          machines: {
-            mayUse: (machineId) =>
-              principal.kind === 'system' ||
-              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
-            isReachable: (machineId) => machines.hasDaemon(machineId),
-          },
-        }
-      },
-    })
     const messagesSvc = new MessageDeliveryService({
       authorizeAtApply: mail.authorizeAtApply,
       messages: this.store.messages,
@@ -962,6 +979,9 @@ export class SessionRegistry {
       machineName: (id) => machines.listMachines().find((m) => m.id === id)?.name ?? id,
       now: () => new Date(this.now()).toISOString(),
     })
+    this.bus.on('message.deadLettered', ({ messageId, reason }) =>
+      messagesSvc.notifyQueuedInputRejected(messageId, reason),
+    )
     // Event-complete delivery eligibility [spec:SP-c29e]: every durable session
     // or issue metadata transition lands here after commit. Session upserts cover
     // bind/live, resume-ref, attachment/CWD and draft changes; issue upserts cover
@@ -1169,11 +1189,6 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
 
-    const issueSessionLifecycle = new IssueSessionLifecycle({
-      issues,
-      sessions: sessionsSvc,
-      ledger,
-    })
     const issueAttach = new IssueAttachOrchestrator({
       transact: (work) => this.store.transact(work),
       attention: issues.attention,
@@ -1217,6 +1232,106 @@ export class SessionRegistry {
         undefined,
       now: () => new Date(this.now()),
     })
+    // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
+    const approvals = new ApprovalService({
+      store: this.store.approvals,
+      now: () => new Date().toISOString(),
+      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      clients: () => clients().values(),
+      sessionIssueId: (sessionId) => {
+        const s = sessionsSvc.listSessions().find((x) => x.sessionId === sessionId)
+        return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
+      },
+      issueInfo: (issueId) => {
+        const row = issues.getMeta(issueId)
+        if (!row) return null
+        const prefix = this.store.repos.prefixForPath(row.repoPath)
+        return {
+          seq: row.seq,
+          title: row.title,
+          displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
+        }
+      },
+      machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
+      notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
+      executeServerOp: (op, sessionId) => {
+        const caller = workflowCallerForCapability(sessionsSvc.capabilityForSession(sessionId))
+        if (op.kind === 'workflow-publish') {
+          // The approval broker's server-side ops enter by the SAME door every
+          // transport uses (POD-732) — the deleted `publish`/`assign` shims were
+          // its only other way in, and a server op that skipped the contract's
+          // parse would be the one caller whose input nobody validated.
+          const revision = workflows.execute(caller, 'publish', {
+            revisionId: op.revisionId,
+          })
+          return `published workflow revision ${revision.id}`
+        }
+        if (op.kind === 'workflow-set-default') {
+          const binding = workflows.execute(caller, 'assign', {
+            targetKind: op.targetKind,
+            targetId: op.targetId,
+            revisionId: op.revisionId,
+          })
+          return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
+        }
+        if (op.kind === 'automation-schedule') {
+          const existingSessionId =
+            op.target.kind === 'current'
+              ? sessionId
+              : op.target.kind === 'session'
+                ? op.target.sessionId
+                : null
+          const existing =
+            existingSessionId === null
+              ? null
+              : sessionsSvc
+                  .listSessions()
+                  .find((session) => session.sessionId === existingSessionId)
+          if (existingSessionId !== null && !existing) {
+            throw new Error(`unknown target session: ${existingSessionId}`)
+          }
+          const fresh = op.target.kind === 'fresh' ? op.target : null
+          const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
+            parentSessionOf: (candidate) =>
+              sessionSpawnerParentId(
+                sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
+                  ?.spawnedBy,
+              ),
+            onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
+          })
+          const scheduled = automations.create(
+            {
+              name: op.name,
+              scheduleKind: 'once',
+              cron: null,
+              runAt: op.runAt,
+              targetSessionId: existingSessionId,
+              repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
+              agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
+              model: fresh?.model ?? 'auto',
+              effort: fresh?.effort ?? 'auto',
+              prompt: op.prompt,
+              enabled: true,
+              sessionMode: existingSessionId === null ? 'fresh' : 'resume',
+            },
+            principal,
+          )
+          return `scheduled one-off automation ${scheduled.id} for ${scheduled.runAt}`
+        }
+
+        return null
+      },
+      logEvent: (kind, issueId, payload) => {
+        try {
+          this.store.events.appendEvent({
+            ts: new Date().toISOString(),
+            kind,
+            subject: issueId ?? 'approvals',
+            payload,
+          })
+        } catch {}
+      },
+    })
     const issueCommands = new IssueCommandDispatcher({
       attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues,
@@ -1251,8 +1366,39 @@ export class SessionRegistry {
         return r.ok ? { ok: true, via: r.via } : r
       },
       // issue stop [spec:SP-9904]: park every member session + free worktree.
-      stopIssueSessions: (input) => sessionsSvc.stopIssue(input),
+      stopIssueSessions: (input) => issueSessionLifecycle.stopIssue(input),
     })
+    this.issues = issues
+    this.issueCommands = issueCommands
+    this.modules = {
+      bus: this.bus,
+      funnel,
+      sessions: sessionsSvc,
+      machines,
+      rpc,
+      conversations,
+      hosts,
+      settings,
+      headless,
+      reactions: REACTIONS,
+      notify,
+      issues,
+      issueSessionLifecycle,
+      issuePublisher: publisher,
+      issueCommands,
+      specs,
+      approvals,
+      workflows,
+      locks,
+      lockCommands,
+      messages: messagesSvc,
+      messageGate,
+      readToolkit,
+      issueArtifacts,
+      automations,
+      perf,
+      mutations,
+    }
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -1536,7 +1682,7 @@ export class SessionRegistry {
                   }
                 }
               }
-              const r = await sessionsSvc.stopSession({
+              const r = await issueSessionLifecycle.stopSession({
                 sessionId,
                 force: raw.force === true,
                 selfStop,
@@ -1633,6 +1779,7 @@ export class SessionRegistry {
       messages: this.store.messages,
       issues,
       listSessions: () => sessionsSvc.listSessions(),
+      sessionOwner: (sessionId) => sessionsSvc.sessionOwner(sessionId)?.owner,
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
       sendTextWhenReady: (sessionId, text, mutationId) => {
         const result = sessionsSvc.queueText({
@@ -1645,7 +1792,7 @@ export class SessionRegistry {
       },
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.
-      notify: (notice) => notify.notifyExternal(notice),
+      notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
       getSettings: () => this.store.settings.getSettings(),
       // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: stitch issue
       // stage + last commit (best-effort daemon git) into the system notice.
@@ -1712,37 +1859,6 @@ export class SessionRegistry {
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()
 
-    this.issues = issues
-    this.issueCommands = issueCommands
-    this.modules = {
-      bus: this.bus,
-      funnel,
-      sessions: sessionsSvc,
-      machines,
-      rpc,
-      conversations,
-      hosts,
-      settings,
-      headless,
-      reactions: REACTIONS,
-      notify,
-      issues,
-      issueSessionLifecycle,
-      issuePublisher: publisher,
-      issueCommands,
-      specs,
-      approvals,
-      workflows,
-      locks,
-      lockCommands,
-      messages: messagesSvc,
-      messageGate,
-      readToolkit,
-      issueArtifacts,
-      automations,
-      perf,
-      mutations,
-    }
     // THE GATEWAY (POD-317 / POD-389). The daemon socket mux is composed HERE,
     // over the feature ports, so no feature module owns another feature's
     // traffic. `agentRelay` is its own port and receives exactly the two relay
@@ -1771,6 +1887,12 @@ export class SessionRegistry {
       ports: { sessions: sessionsSvc },
       feed: feedServing,
       presence,
+      bootstrap: (client) => {
+        if (!client.publication || client.publication.global) {
+          client.send({ type: 'approvalsChanged', pending: approvals.listPending() })
+          hosts.snapshotFor(client.send)
+        }
+      },
     })
     this.gateway = new DaemonMux({
       bus: this.bus,

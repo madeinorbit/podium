@@ -9,7 +9,13 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
-import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
+import type { InboxPrincipalReference } from './sessions/inbox'
+import type {
+  AgentObservation,
+  DaemonMessage,
+  MetadataChange,
+  SessionOpenUrlMessage,
+} from '@podium/protocol'
 
 /**
  * The typed in-process event map (architecture redesign, issue #13 Phase 2).
@@ -40,6 +46,18 @@ export interface EventMap {
   'session.created': { sessionId: SessionId; agentKind: AgentKind }
   /** A session's process ended (agentExit / reattachFailed death). */
   'session.exited': { sessionId: SessionId; code: number }
+  /** Durable queued input requested a best-effort asynchronous wake. */
+  'session.wakeRequested': { sessionId: SessionId; principal: InboxPrincipalReference }
+  /** System derived-field maintenance driven by committed/live session facts. */
+  'issue.sessionDerived':
+    | { kind: 'gitActivity'; sessionId: SessionId; commits?: string[]; touched?: string[] }
+    | { kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'; sessionId: SessionId }
+    | { kind: 'reapDraft'; issueId: string }
+    | {
+        kind: 'adoptWorktree'
+        issueId: string
+        message: Extract<DaemonMessage, { type: 'sessionCwd' }>
+      }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
   'session.openUrl': SessionOpenUrlMessage
   /** The session list changed in a way that was broadcast (post-fanout). */
@@ -64,6 +82,12 @@ export interface EventMap {
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */
   'attention.raised': { sessionId: SessionId; title: string; body: string }
+  /** Per-user Telegram delivery requested after notification policy decides to push. */
+  'notification.telegramRequested': {
+    ownerUserId: UserId
+    text: string
+    sessionId?: SessionId
+  }
   /** Settings were replaced via setSettings (previous → next). */
   'settings.changed': {
     previous: import('@podium/runtime').PodiumSettings
@@ -78,6 +102,8 @@ export interface EventMap {
   /** Agent mail was sent to an issue (issue #103) — the sessions module picks a
    *  live member session to nudge. */
   'issue.mailSent': { seq: number; worktreePath?: string }
+  /** Durable refusal committed; sender notification is an asynchronous nudge. */
+  'message.deadLettered': { messageId: string; reason: string }
   /** The hub-reachability flag flipped (spec §2.3) — the conversation and issue
    *  mirrors rebroadcast their stale overlays on this. */
   'upstream.staleChanged': { stale: boolean }
