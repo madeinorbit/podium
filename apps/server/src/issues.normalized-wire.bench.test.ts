@@ -1,6 +1,5 @@
 import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
-import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
 import {
   issueMembershipScanCount,
@@ -13,14 +12,27 @@ import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
 
 /**
- * POD-797 residue bench at live scale. A capless attach still builds the
- * session-free transitional issue list, while every later session change must
- * perform zero issue builds and zero membership scans.
+ * POD-797 residue path through the production composition root.
+ *
+ * A capless attach still paints the session-free transitional issue list, and
+ * every later session change must perform zero issue builds and zero membership
+ * scans. The detector is those exact counters — not wall-clock.
+ *
+ * Scale is 300×200, the same as `issues.normalized-wire.test.ts` D7.2. A
+ * historical live snapshot (793×588, measured 2026-07-17 from ~/.podium) was
+ * tried here, but `new SessionRegistry` alone exceeds five minutes on a quiet
+ * host at that size (POD-1418): seed and the zero-counter assertions take
+ * seconds; the timeout fired before they ran. The zero property does not need
+ * the live census — any residual coupling fails the counters at 300×200 — and
+ * the unit lane must not soak composition-root boot at full live entity counts.
+ * Evidence: docs/agents/pod-1418-normalized-wire-bench.md.
  */
 
-// The live instance, measured 2026-07-17 from a read-only copy of ~/.podium.
-const ISSUE_COUNT = 793
-const SESSION_COUNT = 588
+const ISSUE_COUNT = 300
+const SESSION_COUNT = 200
+/** Sister D7.2 scale guards use 60s. Same order of magnitude here: wedge only;
+ *  the zero-build / zero-scan assertions are the detector. */
+const RESIDUE_GUARD_TIMEOUT_MS = 60_000
 
 function issueRow(i: number): IssueRow {
   // The fixture builds ids from template strings; branding at the boundary keeps
@@ -134,11 +146,8 @@ function world() {
   return { registry, sessionIds, attachBuilds, attachScans }
 }
 
-it('session-free residue at live scale never couples session changes back to issues', {
-  // Quiet isolated runs take about 75s; this 8-vCPU host measured 177.3s at load
-  // 24.6 even after isolation. Four times the quiet baseline is a wedge watchdog,
-  // not the detector: the exact zero-build and zero-scan assertions below are.
-  timeout: 300_000,
+it('session-free residue never couples session changes back to issues', {
+  timeout: RESIDUE_GUARD_TIMEOUT_MS,
 }, () => {
   const { registry, sessionIds, attachBuilds, attachScans } = world()
   // BOUNDED, not pinned at ISSUE_COUNT. Main measures one build per issue at

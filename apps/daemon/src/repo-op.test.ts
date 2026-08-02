@@ -41,6 +41,62 @@ describe('repoOpCommand', () => {
     ).toEqual({ error: 'clone path must be absolute' })
     expect(repoOpCommand('clone', {})).toEqual({ error: 'missing args' })
   })
+  /**
+   * POD-1405 — the object half of a handoff, for a machine that has no session to
+   * move. `git bundle create` has NO `--` protecting its rev slots, so an
+   * unguarded value like `--all` parses as an option and bundles the whole
+   * repository; and neither op may take a filesystem path shaped by a caller.
+   */
+  it('bundleCreate guards every rev slot and refuses a relative output', () => {
+    expect(
+      repoOpCommand('bundleCreate', {
+        out: '/stage/t.bundle',
+        ref: 'integration/x',
+        bases: `${'a'.repeat(40)},${'b'.repeat(40)}`,
+      }),
+    ).toEqual({
+      bin: 'git',
+      argv: [
+        'bundle',
+        'create',
+        '/stage/t.bundle',
+        'integration/x',
+        `^${'a'.repeat(40)}`,
+        `^${'b'.repeat(40)}`,
+      ],
+    })
+    // No bases is legal — a target that shares nothing gets the full history.
+    expect(repoOpCommand('bundleCreate', { out: '/stage/t.bundle', ref: 'main' })).toEqual({
+      bin: 'git',
+      argv: ['bundle', 'create', '/stage/t.bundle', 'main'],
+    })
+    // The rev slots refuse a dash rather than passing it to git as an option.
+    expect(repoOpCommand('bundleCreate', { out: '/stage/t.bundle', ref: '--all' })).toEqual({
+      error: "unsafe ref: must not start with '-' (got '--all')",
+    })
+    expect(
+      repoOpCommand('bundleCreate', { out: '/stage/t.bundle', ref: 'main', bases: '--all' }),
+    ).toEqual({ error: "unsafe base: must not start with '-' (got '--all')" })
+    expect(repoOpCommand('bundleCreate', { out: 'relative.bundle', ref: 'main' })).toEqual({
+      error: 'bundle path must be absolute',
+    })
+    expect(repoOpCommand('bundleCreate', {})).toEqual({ error: 'missing args' })
+  })
+
+  it('bundleFetch takes the bundle as a positional and guards the ref', () => {
+    expect(repoOpCommand('bundleFetch', { bundle: '/stage/t.bundle', ref: 'main' })).toEqual({
+      bin: 'git',
+      argv: ['fetch', '--', '/stage/t.bundle', 'main'],
+    })
+    expect(repoOpCommand('bundleFetch', { bundle: '/stage/t.bundle', ref: '--exec=evil' })).toEqual(
+      { error: "unsafe ref: must not start with '-' (got '--exec=evil')" },
+    )
+    expect(repoOpCommand('bundleFetch', { bundle: 'relative', ref: 'main' })).toEqual({
+      error: 'bundle path must be absolute',
+    })
+    expect(repoOpCommand('bundleFetch', {})).toEqual({ error: 'missing args' })
+  })
+
   it('worktreeAdd with and without start point (options before --, positionals after)', () => {
     expect(repoOpCommand('worktreeAdd', { path: '/r/wt', branch: 'issue/1-x' })).toEqual({
       bin: 'git',
@@ -272,6 +328,46 @@ describe('repoOpCommand against a real git scratch repo (issue #81)', () => {
     expect(r.code).not.toBe(0)
     expect(r.out).toMatch(/Not a valid object name/)
   })
+  /**
+   * POD-1405 END TO END, AGAINST REAL GIT — a commit that exists on NO shared
+   * remote reaching a second repository.
+   *
+   * This is the failure the whole issue is about: our integration branches never
+   * reach origin, so a clone on another machine cannot resolve the start point no
+   * matter how it fetches. Asserting the argv would only prove the builder agrees
+   * with itself; the claim worth pinning is that the OBJECTS actually arrive.
+   *
+   * The second repo is a fresh `git init`, NOT a clone — it shares no remote and
+   * no history with the source, which is the state a newly-provisioned machine is
+   * in and the state a fetch cannot rescue.
+   */
+  it('moves a commit into a repository that shares no remote with the source', () => {
+    const other = mkdtempSync(join(tmpdir(), 'podium-repo-op-target-'))
+    const bundle = join(other, 'transfer.bundle')
+    try {
+      git(['init', '-q', '-b', 'main'], other)
+      // A commit that exists ONLY here.
+      git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'local-only'])
+      const sha = git(['rev-parse', 'HEAD']).out.trim()
+
+      // The target genuinely cannot see it — the precondition, asserted rather
+      // than assumed, so this cannot pass by the commit already being there.
+      expect(git(['cat-file', '-e', sha], other).code).not.toBe(0)
+
+      expect(run(repoOpCommand('bundleCreate', { out: bundle, ref: 'main' })).code).toBe(0)
+      const fetched = repoOpCommand('bundleFetch', { bundle, ref: 'main' })
+      if ('error' in fetched) throw new Error(`builder refused: ${fetched.error}`)
+      expect(git(fetched.argv, other).code).toBe(0)
+
+      // The object is now reachable there, which is exactly what a later
+      // `worktree add <path> <startPoint>` needs in order to resolve.
+      expect(git(['cat-file', '-e', sha], other).code).toBe(0)
+      expect(git(['rev-parse', 'FETCH_HEAD'], other).out.trim()).toBe(sha)
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
+  })
+
   it('happy paths still work through the -- forms', () => {
     expect(
       run(repoOpCommand('isMergedInto', { branch: 'victim', parentBranch: 'main' })).code,

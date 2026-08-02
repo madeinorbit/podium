@@ -45,6 +45,13 @@ export function verifiedCommonBundleBases(
  * WHAT THE TRANSFER IS FOR (POD-362) — a `SessionId` on the handoff path, a
  * synthetic `ws-<uuid>` fetch id on the workspace-fetch path.
  *
+ * THREE CALLERS NOW (POD-1405 added `ref-<uuid>`): a base-ref transfer moves git
+ * OBJECTS to a machine that has no session and no workspace — only a repository
+ * missing a commit. It rides this same pipe because the pipe is about moving
+ * BYTES between two daemons through the server, and a second copy of that is the
+ * duplication this epic exists to cure. The union below is still the honest
+ * record of what the value can be, and POD-1171 still owns the naming.
+ *
  * TWO CALLERS, TWO ID SPACES, measured: `handoff/coordinator.ts` passes
  * `session.sessionId`; `sessions/lifecycle.ts`'s workspace fetch passes its local
  * `fetchId = ws-${randomUUID().slice(0, 13)}`, which is not a session at all.
@@ -53,7 +60,7 @@ export function verifiedCommonBundleBases(
  * union records the fact instead. Whether the workspace-fetch path should be its
  * own function rather than borrowing this parameter is filed as POD-1171.
  */
-export type HandoffTransferSubjectId = SessionId | `ws-${string}`
+export type HandoffTransferSubjectId = SessionId | `ws-${string}` | `ref-${string}`
 
 export async function transferHandoffPackage(input: {
   rpc: HandoffTransferRpc

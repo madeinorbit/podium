@@ -103,17 +103,17 @@ one.
 
 ## Verdict at this candidate
 
-28 production modules over 600 lines. **24 carry a reviewed exception whose
-structural claim holds; 4 are open items.**
+28 production modules over 600 lines. **25 carry a reviewed exception whose
+structural claim holds; 3 are open items.**
 
 | module | physical | code | status |
 | --- | ---: | ---: | --- |
 | `modules/sessions/lifecycle.ts` | 2955 | 2081 | **ITEM** — six responsibilities, 96 methods |
 | `modules/messages/service.ts` | 2595 | 1749 | **ITEM** — 18 owned state fields |
 | `relay.ts` | 2026 | 1606 | composition-root |
-| `modules/issues/registry.ts` | 1664 | 1188 | **ITEM** — table + 2 classes in one file |
 | `migrations/schema.ts` | 1404 | 1056 | declaration-table |
 | `modules/superagent/service.ts` | 1187 | 952 | cohesive-owner |
+| `modules/issues/registry.ts` | 1157 | 818 | declaration-table (POD-1398 — was an ITEM at 1664/1188, "table + 2 classes in one file") |
 | `modules/issues/service/workflow.ts` | 1152 | 906 | cohesive-owner |
 | `steward.ts` | 1080 | 701 | cohesive-owner (POD-355) |
 | `modules/superagent/tools.ts` | 969 | 857 | declaration-table |
@@ -137,10 +137,21 @@ structural claim holds; 4 are open items.**
 | `modules/sessions/session-state/service.ts` | 621 | 495 | cohesive-owner (POD-393, named in the Phase 4 ledger) |
 | `modules/sessions/handoff/coordinator.ts` | 616 | 421 | **ITEM** — one private method spans 401 of its 421 code lines |
 
-The four items are tracked as sub-issues of POD-1385. The audit exits 1 while
-they are open. That is the correct state of the world rather than a number to
-tune the predicates against: each of the four was examined and none of them has
-an argument that is true.
+The items are tracked as sub-issues of POD-1385. The audit exits 1 while they
+are open. That is the correct state of the world rather than a number to tune
+the predicates against: each of the four was examined and none of them had an
+argument that was true.
+
+`issues/registry.ts` is the one that has since closed, and it closed by
+decomposition rather than by argument (POD-1398). It held three concerns — the
+command table, the `IssueCommandCtx` every handler is handed, and the
+`IssueCommandDispatcher` that runs one — and the seam was the dependency order
+the code already had: context, then the table written against it, then the
+dispatcher that needs both. Each is now its own module in that order
+(`command-ctx.ts` 381, `registry.ts` 1157, `dispatcher.ts` 201), the table
+imports the context as a TYPE only so it adds no runtime edge back, and nothing
+imports the dispatcher back. Only then did the table qualify for a
+`declaration-table` entry; the other two fell under the threshold entirely.
 
 `handoff/coordinator.ts` is the case worth naming, because it would have passed
 a weaker instrument. At 421 code lines it satisfies the `documented` predicate
@@ -175,3 +186,13 @@ correctly stayed silent (the ceiling is 2). Recorded because it is the reason to
 run real-tree mutations at all: a fixture probe had already passed on synthetic
 inputs, and only the real tree showed that a mutation had been too weak to
 prove anything.
+
+POD-1398 ran the `declaration-table` arms against its own file after the split,
+for the same reason — a predicate that has only ever been seen passing is not
+evidence. All three fired:
+
+| mutation to `modules/issues/registry.ts` | audit response |
+| --- | --- |
+| `export class MutantProbe {}` appended | `exception-predicate-failed` — "exports 1 class(es) (MutantProbe)" |
+| a non-exported class holding `private cache = new Map()` | `exception-predicate-failed` — "holds owned mutable state (cache)" |
+| `issueRegistry` renamed to `issueRegistryRenamed` | `exception-predicate-failed` — "table export 'issueRegistry', which the module does not export" |

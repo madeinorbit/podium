@@ -10,6 +10,7 @@ import type { EventBus } from '../bus'
 import type { MemoryService } from '../memory/service'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionInbox } from './inbox'
+import type { SessionObservationLeases } from './observation-leases'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
 
@@ -23,7 +24,7 @@ export interface SessionDaemonLifecyclePorts {
   projection: SessionDaemonProjection
   store: SessionStore
   memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>
-  observationLeases: Map<SessionId, ObservationLeaseRecord>
+  observationLeases: SessionObservationLeases
   persist(session: Session, additionalWrite?: () => void): void
   broadcastSessions(): void
   onSessionActivity(sessionId: SessionId): void
@@ -76,7 +77,7 @@ export class SessionDaemonLifecycle {
   private get store(): SessionStore {
     return this.ports.store
   }
-  private get observationLeases(): Map<SessionId, ObservationLeaseRecord> {
+  private get observationLeases(): SessionObservationLeases {
     return this.ports.observationLeases
   }
   private readonly persist = (session: Session, additionalWrite?: () => void): void =>
@@ -303,7 +304,7 @@ export class SessionDaemonLifecycle {
           break
         }
         const rebound = outcome.lease
-        this.observationLeases.set(session.sessionId, rebound)
+        this.observationLeases.record(session.sessionId, rebound)
         this.toMachine(session.machineId, {
           type: 'agentObservationRebindAck',
           sessionId: session.sessionId,
@@ -331,7 +332,7 @@ export class SessionDaemonLifecycle {
         // Durable state is authoritative: a foreign daemon or reattach may
         // have advanced the lease since this process cached it.
         const lease = this.store.observationCheckpoints.get(observation.podiumSessionId)
-        if (lease) this.observationLeases.set(observation.podiumSessionId, lease)
+        if (lease) this.observationLeases.record(observation.podiumSessionId, lease)
         const outcome =
           observation.podiumSessionId !== session.sessionId || !lease
             ? ({ kind: 'rejected', rejectionReason: 'legacy_unfenced_observation' } as const)
@@ -393,7 +394,7 @@ export class SessionDaemonLifecycle {
             }
           }
         })
-        this.observationLeases.set(session.sessionId, acceptedLease)
+        this.observationLeases.record(session.sessionId, acceptedLease)
         const next = session.agentState ?? outcome.checkpoint.turnState
 
         // The durable commit above is the release point for daemon-side
@@ -466,7 +467,7 @@ export class SessionDaemonLifecycle {
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
         // Mixed deployment: legacy remains visible until the first v1
         // checkpoint. It can never downgrade or overwrite causal truth.
-        if (this.observationLeases.get(msg.sessionId)?.checkpoint) {
+        if (this.observationLeases.hasCheckpoint(msg.sessionId)) {
           console.warn(`[podium] rejected legacy unfenced observation for ${msg.sessionId}`)
           break
         }

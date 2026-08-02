@@ -206,6 +206,17 @@ export interface IssueDeps {
    * literals stay valid.
    */
   ensureRepoOnMachine?(machineId: string, sourceRepoPath: string): Promise<string>
+  /**
+   * Make `ref` resolvable on that machine, moving the commits if it cannot reach
+   * them any other way (POD-1405).
+   *
+   * `ensureRepoOnMachine` puts the right REPOSITORY on the target; this puts the
+   * right COMMITS in it. Both are needed because `worktree add <path> <startPoint>`
+   * fails on a start point the target cannot resolve, and our integration branches
+   * are on NO shared remote — so a clone plus fetch cannot produce them and the
+   * objects have to move machine-to-machine.
+   */
+  ensureRefOnMachine?(machineId: string, repoPath: string, ref: string): Promise<void>
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

@@ -85,6 +85,51 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (bad) return { error: bad }
       return { bin: 'git', argv: ['rev-parse', '--verify', `${ref}^{commit}`] }
     }
+    /**
+     * Bundle `ref`, minus everything the target already proved it has (POD-1405).
+     *
+     * `out` is NOT caller-supplied: the exec layer derives it from an opaque
+     * transfer token inside the daemon's own stage directory, exactly as the
+     * chunk-read side already confines what it will read. A caller that could
+     * name the output path could write a file anywhere the daemon can write.
+     *
+     * Every base rides as `^<sha>` and both it and `ref` go through the
+     * leading-dash guard: `git bundle create` has no `--` that protects the rev
+     * slots, so a value like `--all` would otherwise parse as an option and
+     * bundle the entire repository.
+     */
+    case 'bundleCreate': {
+      const { out, ref, bases } = args
+      if (!out || !ref) return { error: 'missing args' }
+      if (!isAbsolute(out)) return { error: 'bundle path must be absolute' }
+      const baseList = (bases ?? '').split(',').filter(Boolean)
+      const bad =
+        assertSafeRef(ref, 'ref') ??
+        baseList.map((sha) => assertSafeRef(sha, 'base')).find((e): e is string => e !== null)
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: ['bundle', 'create', out, ref, ...baseList.map((sha) => `^${sha}`)],
+      }
+    }
+    /**
+     * Fetch a bundle that arrived in this daemon's stage into the repository,
+     * landing `ref` at the bundled tip (POD-1405).
+     *
+     * `git fetch <file> <ref>` — the bundle is a positional, and `ref` is
+     * validated for the same reason as above. This deliberately does NOT create
+     * or move a branch: it makes the OBJECTS reachable so a later `worktree add`
+     * can resolve the start point. Deciding what branch should point where is the
+     * caller's business, not the transport's.
+     */
+    case 'bundleFetch': {
+      const { bundle, ref } = args
+      if (!bundle || !ref) return { error: 'missing args' }
+      if (!isAbsolute(bundle)) return { error: 'bundle path must be absolute' }
+      const bad = assertSafeRef(ref, 'ref')
+      if (bad) return { error: bad }
+      return { bin: 'git', argv: ['fetch', '--', bundle, ref] }
+    }
     case 'worktreeAdd': {
       // Options before `--`; path + optional startPoint ride after it as
       // guaranteed positionals. The -b value is an option argument `--` cannot
