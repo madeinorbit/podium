@@ -66,9 +66,13 @@ afterward and are not treated as a fix for ordinary worktree installation.
 ## Process closure
 
 - POD-645 and POD-734 are now `done`.
-- POD-1078 is now `done`. Its owner reported 4 files/66 deliberate-violation tests and 1 file/2
-  real-server pressure tests after this gate run, but that work is not in candidate `aba864a9`
-  and therefore cannot retroactively satisfy this candidate.
+- POD-1078 is now `done` and reports reconciliation with integration `0e62caa9` at `02b65cbe`.
+  Its focused room/feed/protocol evidence is 9 files/209 tests, with a cross-user non-leak
+  production mutation refusing red then restoring green; the 50 Hz reattach storm is 1 file/2
+  tests. Reported typecheck, composition, web, mobile, Bun SQLite, and multi-instance lanes are
+  green. Its full unit lane is red (5 failed files/10 failed tests), and the submitted attribution
+  currently lists eight timeouts plus three other failures, an unresolved 10-versus-11 mismatch.
+  None of this work is in candidate `aba864a9` or can retroactively satisfy that candidate.
 - POD-1079 is `done`.
 - POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where the defaulted first-admin principal remains. POD-1316 remains open and leaves the real wire-window integration test unauthenticated and timing out at the fail-closed client gate.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
