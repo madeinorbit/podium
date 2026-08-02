@@ -1,7 +1,6 @@
 import type { AgentRuntimeState, HostMetricsWire, SessionId } from '@podium/model'
 import type { DaemonMessage, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 
@@ -110,7 +109,7 @@ export class HostsService {
       machineId,
       name: this.deps.machineName(machineId),
     }
-    const idleCapUnmet = this.maybeAutoHibernate(tagged)
+    const idleCapUnmet = this.maybeAutoHibernate(machineId, tagged)
     this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
     this.broadcastHostMetrics()
   }
@@ -129,10 +128,16 @@ export class HostsService {
     for (const c of this.deps.clients()) c.send(msg)
   }
 
-  /** Apply memory and idle-count pressure independently [spec:SP-c29e]. */
-  private maybeAutoHibernate(sample: HostMetricsWire): number | undefined {
+  /** Apply memory and idle-count pressure independently [spec:SP-c29e].
+   *
+   *  `machineId` is a PARAMETER, not `sample.machineId`: the reporting machine is a
+   *  fact of the authenticated frame this sample arrived on, and the wire field is
+   *  optional (a daemon does not name itself per sample — the socket does). Reading it
+   *  off the payload meant a `?? '__local__'` fallback on all three of these methods,
+   *  i.e. a scope that silently collapsed to a placeholder if the tag were ever
+   *  dropped. Passing it down cannot. */
+  private maybeAutoHibernate(machineId: string, sample: HostMetricsWire): number | undefined {
     const cfg = this.deps.getSettings().hibernation
-    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
     if (!cfg.enabled) {
       this.lastCapUnmetByMachine.delete(machineId)
       return
@@ -174,17 +179,22 @@ export class HostsService {
       this.lastCapUnmetByMachine.delete(machineId)
       return
     }
-    return this.applyCountPressure(sample, cfg.idleMinutes, cfg.maxIdleSessions, now, failed)
+    return this.applyCountPressure(
+      machineId,
+      cfg.idleMinutes,
+      cfg.maxIdleSessions,
+      now,
+      failed,
+    )
   }
 
   private applyCountPressure(
-    sample: HostMetricsWire,
+    machineId: string,
     idleMinutes: number,
     targetCount: number,
     now: number,
     failed: Set<string>,
   ): number | undefined {
-    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
     const budget = this.countBudgetFor(machineId, now)
 
     while (true) {
@@ -199,7 +209,7 @@ export class HostsService {
 
       const candidates = this.eligibleCandidates(machineId, idleMinutes, now, failed)
       if (candidates.length === 0) {
-        this.reportCapUnmet(sample, targetCount, overage)
+        this.reportCapUnmet(machineId, targetCount, overage)
         return overage
       }
 
@@ -305,8 +315,7 @@ export class HostsService {
     return budget
   }
 
-  private reportCapUnmet(sample: HostMetricsWire, targetCount: number, overage: number): void {
-    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
+  private reportCapUnmet(machineId: string, targetCount: number, overage: number): void {
     const signature = `${targetCount}:${overage}`
     if (this.lastCapUnmetByMachine.get(machineId) === signature) return
     this.lastCapUnmetByMachine.set(machineId, signature)

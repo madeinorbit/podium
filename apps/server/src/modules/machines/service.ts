@@ -136,6 +136,13 @@ export class MachinesService {
 
   constructor(private readonly deps: MachinesDeps) {}
 
+  /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
+   *  the handshake's machine directory has to name the machine the loopback bootstrap
+   *  secret belongs to, and taking it from here keeps ONE answer in the process. */
+  get hostMachineId(): string {
+    return this.deps.hostMachineId
+  }
+
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
   attach(machineId: string, send: Send<ControlMessage>): void {

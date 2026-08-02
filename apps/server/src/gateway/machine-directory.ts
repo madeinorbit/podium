@@ -27,11 +27,15 @@ import type {
   PeerObservations,
   ResolvedMachine,
 } from '@podium/protocol'
-import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import type { PairingGrant } from '../modules/machines/service'
 
 /** The slice of `MachinesService` this adapter needs. */
 export interface MachineAuthenticator {
+  /** The machine the loopback bootstrap secret is a credential FOR — this host, under
+   *  the id minted in `<stateDir>/machine.id`. Read from the service rather than
+   *  written as a constant here: the directory must not be a second opinion about who
+   *  the host is, and there is no id in this process that is not minted material. */
+  readonly hostMachineId: string
   authenticateDaemon(frame: {
     type: 'pair' | 'hello'
     code?: string
@@ -61,17 +65,19 @@ const resolved = (
 
 export const createMachineDirectory = (machines: MachineAuthenticator): MachineDirectory => ({
   /**
-   * ADR 5 D5 row 2. The local machine's shared host secret IS its stored
-   * credential (`ensureLocalMachine` registers `local` with it at startup), so
-   * verifying the secret is verifying `local`'s credential — the same hello path
-   * as any remote, not a bootstrap special case.
+   * ADR 5 D5 row 2. The host machine's shared secret IS its stored credential
+   * (`ensureHostMachine` registers this host with it at startup), so verifying the
+   * secret is verifying that machine's credential — the same hello path as any
+   * remote, not a bootstrap special case. The id comes from the service, so the
+   * split-mode daemon presenting the id it read from the same state dir and the
+   * server checking the credential are talking about the same row by construction.
    */
   verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null {
     const auth = machines.authenticateDaemon({
       type: 'hello',
-      machineId: LOCAL_MACHINE_ID,
+      machineId: machines.hostMachineId,
       token: secret,
-      hostname: observed?.hostname ?? LOCAL_MACHINE_ID,
+      hostname: observed?.hostname ?? machines.hostMachineId,
     })
     return auth.ok ? resolved(auth.machineId, auth.name) : null
   },
