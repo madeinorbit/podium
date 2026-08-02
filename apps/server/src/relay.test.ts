@@ -6,6 +6,7 @@ import {
   type AgentPhase,
   type AgentRuntimeState,
   actorAgent,
+  agentCapabilityRejection,
   asAgentIdentityId,
   asMachineId,
   asSessionId,

@@ -16,6 +16,7 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
+import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
@@ -104,7 +105,9 @@ export interface MachinesDeps {
   /** Compatibility-only for isolated fixtures without a bus. */
   sessionsChangedForMachine?(machineId: string): void
   /** Connected client fan-out (machinesChanged). */
-  clients(): Iterable<{ send(msg: ServerMessage): void }>
+  clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
+  /** Principal-scoped projection supplied by the command-policy composition boundary. */
+  machinesForPrincipal(principal: ClientPrincipal, machines: MachinesService): MachineListing[]
 }
 
 /**
@@ -618,7 +621,12 @@ export class MachinesService {
 
   broadcastMachines(): void {
     // Classified live-only (@podium/protocol message-class): re-served in full on attach.
-    const msg: LiveServerMessage = { type: 'machinesChanged', machines: this.listMachines() }
-    for (const c of this.deps.clients()) c.send(msg)
+    for (const c of this.deps.clients()) {
+      const msg: LiveServerMessage = {
+        type: 'machinesChanged',
+        machines: this.deps.machinesForPrincipal(c.principal, this),
+      }
+      c.send(msg)
+    }
   }
 }

@@ -181,6 +181,10 @@ export type HostMetricsWire = z.infer<typeof HostMetricsWire>
  *  existence, name and liveness are the whole content of §3.1.4 M1's `see`
  *  verb; `inventory` is what a principal with `see` but not `use` must not
  *  learn, and it is a single field so the projection split is a field drop. */
+/** One principal's live USE verdict for a visible machine. */
+export const MachineUseDecision = z.enum(['granted', 'denied'])
+export type MachineUseDecision = z.infer<typeof MachineUseDecision>
+
 export const MachineWire = z.object({
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this
@@ -193,6 +197,8 @@ export const MachineWire = z.object({
   hostname: z.string(),
   online: z.boolean(),
   lastSeenAt: z.string(), // ISO 8601
+  /** The authenticated viewer's live `USE` decision. Absent only on unscoped internal lists. */
+  use: MachineUseDecision.optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
 })
