@@ -46,7 +46,6 @@
 
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import type { ResumeRef } from '@podium/model'
 import {
   type AccountId,
@@ -66,6 +65,7 @@ import type {
   SessionBindingSpawnInstruction,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
@@ -73,10 +73,34 @@ import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
-import { DEFAULT_GEOMETRY, type SessionSpawnResult } from './session-shared'
+import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
 import type { SessionView } from './view'
+
+/**
+ * What the caller of a spawn is told about the session it just created.
+ *
+ * DECLARED HERE because this module is what produces it — both `create()` and
+ * `spawn()` return it, and the resume path gets it back through `spawn()`.
+ * POD-302's representation registry records this file as its site; a type whose
+ * registered site is a module that merely re-exports it is exactly the rot that
+ * audit caught after the extraction.
+ *
+ * It reports the RESOLVED launch tuple — model/effort/account as the server
+ * actually chose them, which the request may have left to defaults — and it
+ * carries both `machine` and `machineId`, a duality the aggregate does not have.
+ */
+export interface SessionSpawnResult {
+  sessionId: SessionId
+  agentId: string
+  harness: AgentKind
+  model: string | null
+  effort: string | null
+  machine: string
+  machineId: string
+  accountId: AccountId | null
+}
 
 export interface SessionStartPorts {
   store: SessionStore

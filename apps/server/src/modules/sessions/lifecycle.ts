@@ -112,9 +112,16 @@ import {
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
-import { DEFAULT_GEOMETRY, type SessionSpawnResult } from './session-shared'
+import { DEFAULT_GEOMETRY } from './session-shared'
+import type { SessionSpawnResult } from './session-start'
 
-export { DEFAULT_GEOMETRY, type SessionSpawnResult }
+export type { SessionSpawnResult }
+// Re-exported for `relay.ts`, which imports both from here. Neither is
+// DECLARED here: DEFAULT_GEOMETRY lives in session-shared.ts (three
+// consumers, no single owner) and SessionSpawnResult lives with the module
+// that produces it. POD-302's registry names declaration SITES, so pointing
+// it at a re-export is what went stale after the extraction.
+export { DEFAULT_GEOMETRY }
 
 import { SessionLaunchConfig } from './launch-config'
 import { SessionMachineReconciler } from './machine-reconciler'
