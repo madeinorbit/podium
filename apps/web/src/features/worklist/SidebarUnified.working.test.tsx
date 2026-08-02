@@ -159,6 +159,14 @@ vi.mock('@/app/store', () => {
     useStore,
     useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    // POD-331: the worklist is a PUBLISHED slice now, so the component reads it
+    // through `useSlice` instead of deriving it locally. These suites assert
+    // BEHAVIOUR, not derivation counts, so this derives on every read rather
+    // than memoizing — sharing is measured in src/perf/slice-render-count.test.tsx,
+    // and a mock that pretended to memoize here would be a second, untested
+    // implementation of the mechanism.
+    useSlice: (def: { derive: (s: unknown) => unknown }) =>
+      def.derive({ ...(useStore() as object), coarseNow: Date.now() } as never),
   }
 })
 

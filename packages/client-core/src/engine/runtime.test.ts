@@ -25,7 +25,7 @@ import { asClientPrincipal } from '../principal'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
-import { createClientRuntime } from './runtime'
+import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -1585,5 +1585,63 @@ describe('eager mark-read-on-view (POD-272)', () => {
     expect(api.issues.markRead.mutate).not.toHaveBeenCalled()
     expect((engine.getSnapshot().issues[0] as { unread?: boolean })?.unread).toBe(true)
     engine.dispose()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-331 — THE COARSE CLOCK.
+//
+// This test exists because its absence was MEASURED, not suspected. Deleting
+// the clock interval from start() left all 760 client-core tests green, while a
+// `throw` on the same line reddened 46 of them — so the line runs constantly
+// and the silence was an ASSERTION GAP, not dead code.
+//
+// That is the shape POD-330 handed over as the single most important warning:
+// replacing a fragile mechanism does not inherit its coverage. The mechanism
+// replaced here is the per-component `useNow(60_000)` that the worklist
+// surfaces each ran privately, and NOTHING tested that one either — so without
+// this, "a snooze lapses on screen without a server round-trip" would have
+// crossed the port carried by nobody.
+// ---------------------------------------------------------------------------
+describe('coarse clock (POD-331)', () => {
+  it('republishes a fresh snapshot with an advanced clock on each tick', async () => {
+    vi.useFakeTimers()
+    try {
+      const { engine } = makeEngine()
+      engine.start()
+
+      const before = engine.getSnapshot()
+      expect(typeof before.coarseNow).toBe('number')
+
+      // Nothing about the world changes here — no session moves, no row
+      // arrives. ONLY time passes. This is precisely the case a snapshot-keyed
+      // slice cache gets wrong when the clock is read out of band.
+      await vi.advanceTimersByTimeAsync(COARSE_CLOCK_MS + 1)
+
+      const after = engine.getSnapshot()
+      expect(after).not.toBe(before)
+      expect(after.coarseNow).toBeGreaterThan(before.coarseNow)
+      engine.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops ticking once disposed, so a dead runtime cannot publish', async () => {
+    vi.useFakeTimers()
+    try {
+      const { engine } = makeEngine()
+      engine.start()
+      await vi.advanceTimersByTimeAsync(COARSE_CLOCK_MS + 1)
+      engine.dispose()
+
+      // A runtime whose interval outlived it would keep republishing under a
+      // principal that is gone — the leak the offs[] registration prevents.
+      const afterDispose = engine.getSnapshot()
+      await vi.advanceTimersByTimeAsync(COARSE_CLOCK_MS * 3)
+      expect(engine.getSnapshot()).toBe(afterDispose)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
