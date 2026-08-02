@@ -1,0 +1,25 @@
+{
+  "id": "C3b",
+  "file": "apps/server/src/auth-route.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/auth-route.test.ts apps/server/src/wsServer.client-auth.test.ts",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "be05e64008b838c10cfc8ce66e44b76db8bd648066506f38885489fd9f70306f",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 48,
+      "anchor_first_line": "if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined",
+      "grep_back_kind": "deletion: anchor absent",
+      "grep_back_probe": "if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "374db896b8ed03469ced0de2b3e8e7c9b50ba49f1fac6bcc5043b5c865335765",
+  "exit_code": 0,
+  "elapsed_s": 63.2,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n\n Test Files  2 passed (2)\n      Tests  29 passed (29)\n   Start at  16:24:18\n   Duration  60.86s (transform 69.26s, setup 683ms, import 87.04s, tests 19.17s, environment 1ms)\n\n",
+  "restored_sha256": "be05e64008b838c10cfc8ce66e44b76db8bd648066506f38885489fd9f70306f",
+  "restored_identical": true,
+  "git_clean_after": true
+}

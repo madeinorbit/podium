@@ -1,0 +1,25 @@
+{
+  "id": "C9b",
+  "file": "apps/server/src/command-principal.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/authz-matrix.test.ts apps/server/src/modules/issues/service/addComment-principal.test.ts",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "0fbb008d45c76cc63cd63a26503db23c02f07bd1f1c784a6994f17938130a283",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 171,
+      "anchor_first_line": "return { actor: `session:${principal.agentSessionId}`, onBehalfOf: principal.onBehalfOf }",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "return { actor: `session:${principal.agentSessionId}`, onBehalfOf: null }",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "b4af268ae583ac49c9b5514405656b95908a0347d7c698798a33981e96d22cd8",
+  "exit_code": 1,
+  "elapsed_s": 22.4,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| apps/server/src/authz-matrix.test.ts (60 tests | 2 failed) 183ms\n     \u00d7 cli stamps both halves and never collapses them 31ms\n     \u00d7 relay stamps both halves and never collapses them 1ms\n\n Test Files  1 failed | 1 passed (2)\n      Tests  2 failed | 61 passed (63)\n   Start at  16:30:06\n   Duration  20.11s (transform 24.31s, setup 1.31s, import 30.22s, tests 1.44s, environment 1ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/authz-matrix.test.ts > D17 \u2014 attribution is a PAIR, stamped from the transport > cli stamps both halves and never collapses them\n FAIL  |node| apps/server/src/authz-matrix.test.ts > D17 \u2014 attribution is a PAIR, stamped from the transport > relay stamps both halves and never collapses them\nAssertionError: expected null to be 'user:owner' // Object.is equality\n\n- Expected:\n\"user:owner\"\n\n+ Received:\nnull\n\n \u276f apps/server/src/authz-matrix.test.ts:323:29\n    321|     const pair = attributionOf(agent)\n    322|     expect(pair.actor).toBe(`session:${AGENT_OF_OWNER}`)\n    323|     expect(pair.onBehalfOf).toBe(OWNER)\n       |                             ^\n    324|     // The two questions [spec:SP-eb60] depends on stay separately ans\u2026\n    325|     // \"did a person or an agent do this?\" and \"which person was it fo\u2026\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/2]\u23af\n\n",
+  "restored_sha256": "0fbb008d45c76cc63cd63a26503db23c02f07bd1f1c784a6994f17938130a283",
+  "restored_identical": true,
+  "git_clean_after": true
+}

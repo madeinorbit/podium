@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    dispatch(this, conn, msg)\n    if (msg.type === 'hello' && msg.clientId && msg.clientId !== conn.id) {\n",
+    "replace": "    if (msg.type === 'hello' && msg.clientId) {\n      conn.principal = userClientPrincipal(msg.clientId, conn.principal.user, conn.principal.role)\n    }\n    dispatch(this, conn, msg)\n    if (msg.type === 'hello' && msg.clientId && msg.clientId !== conn.id) {\n"
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "id": "C4b2",
+  "file": "packages/sync/src/authority/scoping.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node scripts/audit-scoped-feed.test.ts",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 150,
+      "anchor_first_line": "return { kind: 'batch', throughSeq, changes: rows }",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "return { kind: 'batch', throughSeq: rows[rows.length - 1]?.seq ?? 0, changes: rows }",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "e576488457c26c601318e8e8c834c4317dabdeb6e3a67730bfc4c19ef5a3bb73",
+  "exit_code": 1,
+  "elapsed_s": 11.8,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| scripts/audit-scoped-feed.test.ts (4 tests | 1 failed) 58ms\n     \u00d7 filters, watermarks, and survives a suppressed firehose 38ms\n\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n   Start at  16:25:26\n   Duration  8.41s (transform 6.44s, setup 438ms, import 7.58s, tests 58ms, environment 0ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| scripts/audit-scoped-feed.test.ts > the shipped kernel passes its own runtime audit > filters, watermarks, and survives a suppressed firehose\nAssertionError: expected [ { \u2026(3) }, { \u2026(3) } ] to deeply equal []\n\n- Expected\n+ Received\n\n- []\n+ [\n+   {\n+     \"check\": \"runtime-watermark\",\n+     \"detail\": \"the suppressed range was NOT certified to the principal who could not see it. Every suppressed row without a watermark is a permanent invisible gap that heal-loops forever.\",\n+     \"where\": \"packages/sync (running objects)\",\n+   },\n+   {\n+     \"check\": \"runtime-watermark\",\n+     \"detail\": \"the scoped catch-up reply does not certify to the log head\",\n+     \"where\": \"packages/sync (running objects)\",\n+   },\n+ ]\n\n \u276f scripts/audit-scoped-feed.test.ts:38:56\n     36| describe('the shipped kernel passes its own runtime audit', () => {\n     37|   it('filters, watermarks, and survives a suppressed firehose', async \u2026\n     38|     expect(await runtimeChecks(await shippedKernel())).toEqual([])\n       |                                                        ^\n     39|   })\n     40| })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "restored_identical": true,
+  "git_clean_after": true
+}

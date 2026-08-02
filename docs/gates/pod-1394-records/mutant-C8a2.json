@@ -1,0 +1,25 @@
+{
+  "id": "C8a2",
+  "file": "packages/sync/src/feed/visibility.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/sync/src",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "336b05a45f70a80d2ebfaf9216b6cbe4b57ae1e598fa0d1850ec155419372036",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 291,
+      "anchor_first_line": "if (declared === null) return { visible: false, reason: 'unclassified' }",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "if (declared === null) return { visible: true, reason: 'unclassified' }",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "b4a9a4b54bfcdd36e3f3d4f1cb6ecd0c3cb6ff8c2302c4e26a410a54b5d6f8ec",
+  "exit_code": 1,
+  "elapsed_s": 63.6,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| packages/sync/src/authority/authority.scoped.test.ts (22 tests | 1 failed) 206ms\n     \u00d7 an UNCLASSIFIED entity kind is invisible \u2014 and says so, not \"personal\" 113ms\n \u276f |node| packages/sync/src/conformance/binding.test.ts (11 tests | 1 failed) 321ms\n     \u00d7 the shipped policy can say NO to something the FIXTURE granted 150ms\n\n Test Files  2 failed | 39 passed (41)\n      Tests  2 failed | 685 passed (687)\n   Start at  16:28:32\n   Duration  61.71s (transform 130.26s, setup 18.24s, import 248.59s, tests 34.91s, environment 4.29s)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/sync/src/authority/authority.scoped.test.ts > the CLASS rules refuse, and each refusal is distinguishable > an UNCLASSIFIED entity kind is invisible \u2014 and says so, not \"personal\"\nAssertionError: expected { visible: true, \u2026(1) } to deeply equal { visible: false, \u2026(1) }\n\n- Expected\n+ Received\n\n  {\n    \"reason\": \"unclassified\",\n-   \"visible\": false,\n+   \"visible\": true,\n  }\n\n \u276f packages/sync/src/authority/authority.scoped.test.ts:274:76\n    272|\n    273|     // Granted, and STILL refused, because the kind carries no declara\u2026\n    274|     expect(policy.decide(ADA, { entity: 'conversation', entityId: 'c1'\u2026\n       |                                                                            ^\n    275|       visible: false,\n    276|       reason: 'unclassified',\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/2]\u23af\n\n FAIL  |node| packages/sync/src/conformance/binding.test.ts > visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4) > the shipped policy can say NO to something the FIXTURE granted\nAssertionError: expected true to be false // Object.is equality\n\n- Expected\n+ Received\n\n- false\n+ true\n\n \u276f packages/sync/src/conformance/binding.test.ts:192:65\n    190|     authority.policy.grant('ada', 'automation', 'AUT-1')\n    191|\n    192|     expect(authority.policy.canSee(ADA, 'automation', 'AUT-1')).toBe(f\u2026\n       |                                                                 ^\n    193|     expect(\n    194|       authority.policy.evaluator.decide(ADA, { entity: 'automation', e\u2026\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af\n\n",
+  "restored_sha256": "336b05a45f70a80d2ebfaf9216b6cbe4b57ae1e598fa0d1850ec155419372036",
+  "restored_identical": true,
+  "git_clean_after": true
+}

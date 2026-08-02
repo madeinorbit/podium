@@ -1,0 +1,25 @@
+{
+  "id": "C4c",
+  "file": "packages/sync/src/authority/scoping.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/sync/src/authority",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 230,
+      "anchor_first_line": "return { ...base, op: 'evict' }",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "return { ...base, op: 'remove' }",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "3eacd7a4b45a04064c591ae5d1f8e19c7ccc8a907becb01f307ccd8d1621313b",
+  "exit_code": 1,
+  "elapsed_s": 24.5,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| packages/sync/src/authority/authority.scoped.test.ts (22 tests | 3 failed) 369ms\n     \u00d7 a revoke anchors an EVICT at the seq of the change that caused it 43ms\n     \u00d7 THE OP FOLLOWS THE POLICY: the same input yields evict or upsert 6ms\n     \u00d7 a re-grant re-admits the same entity \u2014 eviction is REVERSIBLE (D14.2) 13ms\n\n Test Files  1 failed | 4 passed (5)\n      Tests  3 failed | 76 passed (79)\n   Start at  16:25:38\n   Duration  21.14s (transform 49.01s, setup 3.04s, import 66.21s, tests 972ms, environment 3ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 3 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/sync/src/authority/authority.scoped.test.ts > a visibility change is DERIVED, and it is never a remove (D14) > a revoke anchors an EVICT at the seq of the change that caused it\nAssertionError: expected [ 'remove' ] to deeply equal [ 'evict' ]\n\n- Expected\n+ Received\n\n  [\n-   \"evict\",\n+   \"remove\",\n  ]\n\n \u276f packages/sync/src/authority/authority.scoped.test.ts:364:27\n    362|\n    363|     const [delivery] = ada\n    364|     expect(delivery?.ops).toEqual(['evict'])\n       |                           ^\n    365|     expect(delivery?.ids).toEqual(['shared'])\n    366|     // D14.5, asserted directly: `remove` would make the replica rende\u2026\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/3]\u23af\n\n FAIL  |node| packages/sync/src/authority/authority.scoped.test.ts > a visibility change is DERIVED, and it is never a remove (D14) > THE OP FOLLOWS THE POLICY: the same input yields evict or upsert\nAssertionError: expected [ 'remove' ] to deeply equal [ 'evict' ]\n\n- Expected\n+ Received\n\n  [\n-   \"evict\",\n+   \"remove\",\n  ]\n\n \u276f packages/sync/src/authority/authority.scoped.test.ts:404:24\n    402|\n    403|     expect(run(true)).toEqual(['upsert'])\n    404|     expect(run(false)).toEqual(['evict'])\n       |                        ^\n    405|   })\n    406|\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/3]\u23af\n\n FAIL  |node| packages/sync/src/authority/authority.scoped.test.ts > a visibility change is DERIVED, and it is never a remove (D14) > a re-grant re-admits the same entity \u2014 eviction is REVERSIBLE (D14.2)\nAssertionError: expected [ [ 'remove' ], [ 'upsert' ] ] to deeply equal [ [ 'evict' ], [ 'upsert' ] ]\n\n- Expected\n+ Received\n\n  [\n    [\n-     \"evict\",\n+     \"remove\",\n    ],\n    [\n      \"upsert\",\n    ],\n  ]\n\n \u276f packages/sync/src/authority/authority.scoped.test.ts:436:35\n    434|     authority.capture([upsert('grant-row', { granted: 'shared' })])\n    435|\n    436|     expect(ada.map((d) => d.ops)).toEqual([['evict'], ['upsert']])\n       |                                   ^\n    437|   })\n    438| })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[3/3]\u23af\n\n",
+  "restored_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "restored_identical": true,
+  "git_clean_after": true
+}

@@ -1,0 +1,25 @@
+{
+  "id": "C2b",
+  "file": "packages/sync/src/feed/visibility.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node scripts/audit-scoped-feed.test.ts",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "336b05a45f70a80d2ebfaf9216b6cbe4b57ae1e598fa0d1850ec155419372036",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 316,
+      "anchor_first_line": "return { visible: false, reason: 'personal-not-granted' }",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "return { visible: true, reason: 'personal-not-granted' }",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "ce748897e83f706931ee5890bc20e82a9091128857f11f0a070ecf014d610e1c",
+  "exit_code": 1,
+  "elapsed_s": 12.6,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| scripts/audit-scoped-feed.test.ts (4 tests | 2 failed) 211ms\n     \u00d7 filters, watermarks, and survives a suppressed firehose 116ms\n     \u00d7 catches a feed that filters WITHOUT watermarking \u2014 the protocol break 22ms\n\n Test Files  1 failed (1)\n      Tests  2 failed | 2 passed (4)\n   Start at  16:23:33\n   Duration  9.66s (transform 7.38s, setup 514ms, import 8.37s, tests 211ms, environment 4ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| scripts/audit-scoped-feed.test.ts > the shipped kernel passes its own runtime audit > filters, watermarks, and survives a suppressed firehose\nAssertionError: expected [ \u2026(2) ] to deeply equal []\n\n- Expected\n+ Received\n\n- []\n+ [\n+   {\n+     \"check\": \"runtime-filter\",\n+     \"detail\": \"a principal with no grant received the row \u2014 the filter does not filter\",\n+     \"where\": \"packages/sync (running objects)\",\n+   },\n+   {\n+     \"check\": \"runtime-filter\",\n+     \"detail\": \"the scoped catch-up reply served rows the principal may not see\",\n+     \"where\": \"packages/sync (running objects)\",\n+   },\n+ ]\n\n \u276f scripts/audit-scoped-feed.test.ts:38:56\n     36| describe('the shipped kernel passes its own runtime audit', () => {\n     37|   it('filters, watermarks, and survives a suppressed firehose', async \u2026\n     38|     expect(await runtimeChecks(await shippedKernel())).toEqual([])\n       |                                                        ^\n     39|   })\n     40| })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/2]\u23af\n\n FAIL  |node| scripts/audit-scoped-feed.test.ts > the instrument can say YES \u2014 three broken kernels, three catches > catches a feed that filters WITHOUT watermarking \u2014 the protocol break\nAssertionError: expected [ 'runtime-filter', 'runtime-filter' ] to include 'runtime-watermark'\n \u276f scripts/audit-scoped-feed.test.ts:75:42\n     73|       } as never as KernelUnderTest['Authority'],\n     74|     }))\n     75|     expect(findings.map((f) => f.check)).toContain('runtime-watermark')\n       |                                          ^\n     76|   })\n     77|\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af\n\n",
+  "restored_sha256": "336b05a45f70a80d2ebfaf9216b6cbe4b57ae1e598fa0d1850ec155419372036",
+  "restored_identical": true,
+  "git_clean_after": true
+}

@@ -1,0 +1,25 @@
+{
+  "id": "N5",
+  "file": "packages/model/src/annotations/ownership.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/model/src/annotations",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "3b13160a8a53029c8bd7ce3c0056eebe1c35f7ee5a60cf3ae25e3e002df557ff",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 302,
+      "anchor_first_line": "'in the scope of whatever it acted on. They never widen anyone\u2019s visibility and never act AS a ' +",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "'in the scope of whatever it acted on. They never act AS a ' +",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "2c176767f42e1ed220ff0fc8b6d862e479304c92dc3dfae255f6a9e3baab10bb",
+  "exit_code": 1,
+  "elapsed_s": 3.7,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| packages/model/src/annotations/matrix.test.ts (27 tests | 1 failed) 211ms\n     \u00d7 states the system-writer rule on EVERY row a system principal may write 30ms\n\n Test Files  1 failed | 2 passed (3)\n      Tests  1 failed | 42 passed (43)\n   Start at  16:34:18\n   Duration  2.24s (transform 2.19s, setup 1.38s, import 1.65s, tests 584ms, environment 4ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/model/src/annotations/matrix.test.ts > no annotation contradicts the ADR > states the system-writer rule on EVERY row a system principal may write\nAssertionError: expected 'System principals may READ across own\u2026' to match /never widen/\n\n- Expected:\n/never widen/\n\n+ Received:\n\"System principals may READ across owners, but every write is attributed as `system` and lands in the scope of whatever it acted on. They never act AS a person (readiness \u00a73.1.6 S5 / ADR 9 D8 S5).\"\n\n \u276f packages/model/src/annotations/matrix.test.ts:340:32\n    338|     expect(SYSTEM_WRITER_RULE).toMatch(/READ across owners/)\n    339|     expect(SYSTEM_WRITER_RULE).toMatch(/attributed as `system`/)\n    340|     expect(SYSTEM_WRITER_RULE).toMatch(/never widen/)\n       |                                ^\n    341|     expect(SYSTEM_WRITER_RULE).toMatch(/never act AS a/)\n    342|   })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "3b13160a8a53029c8bd7ce3c0056eebe1c35f7ee5a60cf3ae25e3e002df557ff",
+  "restored_identical": true,
+  "git_clean_after": true
+}

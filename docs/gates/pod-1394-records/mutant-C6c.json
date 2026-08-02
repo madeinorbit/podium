@@ -1,0 +1,25 @@
+{
+  "id": "C6c",
+  "file": "apps/server/src/gateway/presence-routing.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/gateway/presence-routing.test.ts apps/server/src/gateway/reattach-storm.integration.test.ts packages/protocol/src/planes",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "6a56ad2e24514dc34d1b7c4abeeaf23c3380b08f6eaadd853f3c62e3c41e9cf8",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 27,
+      "anchor_first_line": "export const STREAM_QUEUE_MAX_FRAMES = 64",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "export const STREAM_QUEUE_MAX_FRAMES = 1_000_000",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "314d68e0ac6051dfaa4306cde85f1abf3ffc2c9a3d7a3d93c048b58677b820ee",
+  "exit_code": 0,
+  "elapsed_s": 17.3,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n\n Test Files  6 passed (6)\n      Tests  88 passed (88)\n   Start at  16:27:36\n   Duration  14.68s (transform 48.28s, setup 3.22s, import 65.94s, tests 745ms, environment 2ms)\n\n",
+  "restored_sha256": "6a56ad2e24514dc34d1b7c4abeeaf23c3380b08f6eaadd853f3c62e3c41e9cf8",
+  "restored_identical": true,
+  "git_clean_after": true
+}

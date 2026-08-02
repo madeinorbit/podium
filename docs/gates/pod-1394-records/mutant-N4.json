@@ -1,0 +1,25 @@
+{
+  "id": "N4",
+  "file": "packages/model/src/annotations/matrix.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/model/src/annotations",
+  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "original_sha256": "25ba17bc1343de8064fa0b2fed48b11bf408a23bbbc30a4af3173766650a2888",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 2661,
+      "anchor_first_line": "note: 'A grant may never exceed its granter\u2019s own rights (ADR 9 D2 rule 4), so the GRANTER is the accountable party.',",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "note: 'A grant may never exceed its granter\u2019s own rights (ADR 9 D2 rule 4), so the GRANTER is the accountable party.',",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "a9ac5e024fbe7d2b7a56d9d2e4499877917bf1d47c0adcbb9e27d297a6b4b640",
+  "exit_code": 1,
+  "elapsed_s": 3.8,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| packages/model/src/annotations/matrix.test.ts (27 tests | 1 failed) 164ms\n     \u00d7 keeps the tenant-visible floor small and deliberate 15ms\n\n Test Files  1 failed | 2 passed (3)\n      Tests  1 failed | 42 passed (43)\n   Start at  16:34:14\n   Duration  2.28s (transform 2.30s, setup 1.64s, import 1.73s, tests 230ms, environment 1ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/model/src/annotations/matrix.test.ts > no annotation contradicts the ADR > keeps the tenant-visible floor small and deliberate\nAssertionError: expected Set{ 'instance-id', \u2026(6) } to deeply equal Set{ 'instance-id', \u2026(5) }\n\n- Expected\n+ Received\n\n  Set {\n    \"advisory-locks\",\n    \"applied-mutations\",\n    \"change-log\",\n    \"config-features\",\n+   \"grant-edge\",\n    \"instance-id\",\n    \"preferences-instance-keys\",\n  }\n\n \u276f packages/model/src/annotations/matrix.test.ts:409:32\n    407|     // is a WIDENING and needs an ADR 1 amendment (D9.3's one-way ratc\u2026\n    408|     // this list is deliberately exhaustive rather than a count.\n    409|     expect(new Set(substrate)).toEqual(\n       |                                ^\n    410|       new Set([\n    411|         ROW.instanceId,\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "25ba17bc1343de8064fa0b2fed48b11bf408a23bbbc30a4af3173766650a2888",
+  "restored_identical": true,
+  "git_clean_after": true
+}

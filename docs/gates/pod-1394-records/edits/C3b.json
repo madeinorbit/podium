@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined\n",
+    "replace": ""
+  }
+]
