@@ -21,6 +21,7 @@
  *  - auth (client_sessions)                              → store/auth.ts
  *  - superagent (threads/messages)                       → store/superagent.ts
  *  - settings/meta                                       → store/settings.ts
+ *  - layout (user_layout — sidebar/tab chrome, POD-1350)  → store/user-layout.ts
  *  - repos                                               → store/repos.ts
  *  - machines                                            → store/machines.ts
  *  - events/steward (podium_events/steward_state/subscriptions)
@@ -48,6 +49,7 @@ import { GrantsRepository } from './store/grants'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
+import { UserLayoutRepository } from './store/user-layout'
 import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingTopicsRepository } from './store/messaging-topics'
@@ -85,6 +87,10 @@ export class SessionStore {
   readonly auth: AuthRepository
   readonly superagent: SuperagentRepository
   readonly settings: SettingsRepository
+  /** Sidebar/tab layout rows keyed `(user_id, key)` (POD-1350) — the shell chrome
+   *  that follows a person across devices. Device-local route/selection/geometry
+   *  stay in client ui-state. */
+  readonly layout: UserLayoutRepository
   /** Server-owned secrets (ADR 1 D6) — the keyed store POD-419 lifted them into,
    *  out of the settings blob that round-trips to the browser. Same reasoning as
    *  `accounts` below, now applied to the material that was left behind. */
@@ -194,6 +200,7 @@ export class SessionStore {
     this.auth = new AuthRepository(this.db)
     this.superagent = new SuperagentRepository(this.db)
     this.settings = new SettingsRepository(this.db)
+    this.layout = new UserLayoutRepository(this.db)
     this.secrets = new ServerSecretsRepository(this.db)
     this.settingsAudit = new SettingsAuditRepository(this.db)
     this.accounts = new AccountsRepository(this.db)

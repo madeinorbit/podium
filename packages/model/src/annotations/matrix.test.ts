@@ -266,6 +266,7 @@ describe('no annotation contradicts the ADR', () => {
       ROW.snooze,
       ROW.pins,
       ROW.tabOrder,
+      ROW.sidebarTabLayout,
       ROW.preferencesPersonal,
       ROW.issueMessageReadAt,
     ]
