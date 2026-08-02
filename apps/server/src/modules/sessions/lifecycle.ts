@@ -112,6 +112,7 @@ import {
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import { SessionLaunchConfig } from './launch-config'
 import { SessionMachineReconciler } from './machine-reconciler'
 import { normalizeAgentName, SessionNaming } from './naming'
 import { SessionObservationLeases } from './observation-leases'
@@ -300,6 +301,8 @@ export class SessionLifecycle {
   private readonly machineReconciler: SessionMachineReconciler
   /** The curated name slot and its provenance rule (POD-1396). */
   private readonly naming: SessionNaming
+  /** Model/effort/credential resolution for a spawn frame (POD-1396). */
+  private readonly launchConfig: SessionLaunchConfig
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -370,6 +373,10 @@ export class SessionLifecycle {
         this.store.messages.pendingForSessionProof(sessionId, atIso),
       isDraining: (sessionId) => this.inbox.isDraining(sessionId),
       autoContinueActive: (sessionId) => this.autoContinue.isActive(sessionId),
+    })
+    this.launchConfig = new SessionLaunchConfig({
+      store: this.store,
+      settingsViewer: () => this.settingsViewer(),
     })
     this.naming = new SessionNaming({
       session: (sessionId) => this.sessions.get(sessionId),
@@ -2160,8 +2167,8 @@ export class SessionLifecycle {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...this.modelDefaults(session.agentKind),
-      ...this.accountEnv(session.agentKind, session.accountId),
+      ...this.launchConfig.modelDefaults(session.agentKind),
+      ...this.launchConfig.accountEnv(session.agentKind, session.accountId),
       ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     preparedInstructions.commit()
@@ -2408,7 +2415,7 @@ export class SessionLifecycle {
     const machineId = input.machineId
       ? asMachineId(input.machineId)
       : this.machines.defaultMachine()
-    const launch = this.modelDefaults(
+    const launch = this.launchConfig.modelDefaults(
       input.agentKind,
       input.model !== undefined || input.effort !== undefined
         ? { model: input.model, effort: input.effort }
@@ -2488,7 +2495,7 @@ export class SessionLifecycle {
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
-      ...this.accountEnv(input.agentKind, accountId),
+      ...this.launchConfig.accountEnv(input.agentKind, accountId),
       ...(this.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     this.broadcastSessions()
@@ -2527,62 +2534,6 @@ export class SessionLifecycle {
    */
   private settingsViewer(): UserId {
     return FIRST_ADMIN_USER_ID
-  }
-
-  private modelDefaults(
-    agentKind: AgentKind,
-    override?: { model?: string; effort?: string },
-  ): { model?: string; subagentModel?: string; effort?: string; seedCliTheme?: boolean } {
-    const settings = this.store.settings.getSettingsFor(this.settingsViewer())
-    const coding = settings.roles.coding
-    const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
-    const explicitModel = override?.model
-    const explicitEffort = override?.effort
-    const model =
-      explicitModel !== undefined && explicitModel !== 'auto'
-        ? explicitModel
-        : useCodingDefaults
-          ? coding.model
-          : 'auto'
-    const effort =
-      explicitEffort !== undefined && explicitEffort !== 'auto'
-        ? explicitEffort
-        : useCodingDefaults
-          ? coding.effort
-          : 'auto'
-    const subagentModel = coding.subagentModel
-    return {
-      ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),
-      ...(subagentModel !== 'auto' && harnessCapabilitiesFor(agentKind)?.subagentModelEnv
-        ? { subagentModel }
-        : {}),
-      // Cursor + shell have no effort flag; agentLaunchCommand also drops it, but
-      // gating here keeps the spawn message clean (capability lookup, #158).
-      ...(effort !== 'auto' && harnessSupportsEffort(agentKind) ? { effort } : {}),
-      // Per-session CLI theme seeding rides every (re)spawn so a resurrected
-      // session keeps the configured behaviour too [spec:SP-a04d].
-      ...(agentKind !== 'shell' ? { seedCliTheme: coding.seedCliTheme } : {}),
-    }
-  }
-
-  /** The managed credential (if any) for the coding role, as spawn env (#216).
-   *  Native accounts yield {} — the CLI uses its own login and the frame is
-   *  unchanged. Read live at spawn, like modelDefaults.
-   *
-   *  NEVER injected into a 'shell' pane: a shell is an interactive prompt the user
-   *  drives, so the credential would be one `env` away from being streamed to the
-   *  browser and written into persisted scrollback. Only an agent harness — which
-   *  is what the coding role's credential is FOR — gets it. (modelDefaults()
-   *  special-cases shell for the same reason of shape: a shell is not an agent.) */
-  private accountEnv(
-    agentKind: AgentKind,
-    accountId = resolveRole(
-      this.store.settings.getSettingsFor(this.settingsViewer()),
-      'coding',
-    ).accountId,
-  ): { env?: Record<string, string> } {
-    if (agentKind === 'shell') return {}
-    return resolveAccountEnv(this.store.accounts, accountId)
   }
 
   // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----
