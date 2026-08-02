@@ -261,13 +261,15 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(fleetAuthzFailure('machines.transferOwnership', input, unownedAdmin)?.code).toBe(
       'FORBIDDEN',
     )
-    // A genuine non-admin: the CAPABILITY role is what `machineVerbsFor` reads
-    // for the quarantine arm, and `user()` hardcodes `admin` there — passing
-    // `role: 'member'` alone only lowers the ACCOUNT role the floor consults.
+    // A genuine non-admin. Two different roles are in play and only one decides
+    // this: `machineVerbsFor`'s quarantine arm reads the CAPABILITY role (an
+    // `IssueRole`), while `deps.role` is the ACCOUNT role the floor consults.
+    // `user()` hardcodes capability `admin`, so lowering the account role alone
+    // would leave the caller admin-graded exactly where it matters.
     const memberPrincipal: CommandPrincipal = {
       kind: 'user',
       user: COLLEAGUE,
-      capability: { role: 'member', scope: { kind: 'all' } },
+      capability: { role: 'worker', scope: { kind: 'all' } },
     }
     const unownedMember = deps(memberPrincipal, { owner: null, role: 'member' })
     expect(fleetAuthzFailure('machines.transferOwnership', input, unownedMember)?.code).toBe(
