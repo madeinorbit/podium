@@ -74,14 +74,19 @@ import {
  * durable state back and leaves the baseline untouched.
  */
 
-/** One declared entity change: what a write did, stated by the writer.
- *  `value` is the entity's WIRE shape (present iff op === 'upsert'). */
-export interface EntityChangeSpec {
-  entity: MetadataEntityKind
-  id: string
-  op: 'upsert' | 'remove'
-  value?: unknown
-}
+/**
+ * One declared entity change, as the PRE-CUTOVER facade spells it.
+ *
+ * Composed from {@link KernelChangeSpec} (`StagedChangeSpec`) rather than
+ * restated (POD-1251): the only intentional difference is the target-id key
+ * name — this facade still says `id`, the kernel says `entityId`. Provenance
+ * remains optional on the kernel shape and is simply unused by current call
+ * sites; it is not stripped, so a future writer can pass it without a second
+ * type.
+ *
+ * `toKernelSpec` is the ONE place the two spellings meet.
+ */
+export type EntityChangeSpec = Omit<KernelChangeSpec, 'entityId'> & { id: string }
 
 /**
  * The composite overlay key. RE-EXPORTED from the Authority rather than declared
@@ -137,15 +142,6 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
     (typeof value === 'object' || typeof value === 'function') &&
     typeof (value as { then?: unknown }).then === 'function'
   )
-}
-
-/** A staged (already deduped) change row awaiting append/baseline commit. */
-interface StagedRow {
-  entity: MetadataEntityKind
-  entityId: string
-  op: 'upsert' | 'remove'
-  payload: string | null
-  value?: unknown
 }
 
 export class Ledger {
