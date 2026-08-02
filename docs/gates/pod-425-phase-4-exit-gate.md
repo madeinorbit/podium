@@ -7,8 +7,9 @@
 The scheduler dependency on POD-734 is closed, but dependency readiness is not the exit
 verdict. Required children remain open, POD-318's own phase-close audit refuses, the isolated
 live-redeploy proof cannot authenticate its browser, the literal module-size screen is non-zero,
-and the ten multi-user conditions lack the required production-tree counterfactuals. The gate
-therefore does not infer green results from child closure.
+the ten multi-user conditions lack the required production-tree counterfactuals, and the audited
+candidate is stale relative to integration. The gate therefore does not infer green results from
+child closure or from fixes merged after its named candidate.
 
 ## Evidence convention
 
@@ -19,6 +20,22 @@ deliberate-violation instruments, environment-neutrality checks, and process clo
 The worktree was clean and exactly aligned with `issue/279-integration` (`git rev-list
 --left-right --count HEAD...issue/279-integration` returned `0 0`). The candidate identity check
 `apps/server/src/issues.expected-revision.test.ts` passed 147/147, exit 0.
+
+### Tree-over-tracker rule
+
+An issue's closed stage and its fix being present in the audited candidate are different
+propositions. Only the latter is gate evidence. Every claimed blocker fix must be verified in the
+candidate tree; dependency status is process metadata and cannot substitute for that measurement.
+Likewise, later integration merges do not retroactively repair a named candidate. Once integration
+moves, the existing report remains an honest result for its immutable SHA and candidate staleness
+is a refusal ground until a new candidate is cut and verified.
+
+POD-1315 demonstrates the rule. Candidate `aba864a9` still contains
+`principal: CommandPrincipal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')` in the
+production `IssueService.addComment` signature even though the tracker now says POD-1315 is
+closed. At this report refresh, local `issue/279-integration` is `746580f2`, 35 commits ahead of
+the candidate, and its tree removes the override. That later fix is required in the next candidate
+but is not evidence for this one.
 
 The POD-279 coordinator later stated that the full landing lane was green with no baseline
 failures, but supplied no candidate SHA, command list, exit codes, or counts that this report can
@@ -152,6 +169,8 @@ the cross-owner policy.
 ## Required next candidate
 
 The gate may be rerun only after POD-1078, POD-1316, POD-1351, and POD-1356 close with evidence, and after POD-1315's correction plus every other blocker land in the next candidate.
+Closure alone is insufficient: the next candidate tree must be inspected for every claimed fix,
+including POD-1315, before any dependency is credited as satisfied.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
 codes, and attribution for the structural audits, session/issue/memory E2E, live redeploy survival,
 and multi-instance isolation. Against that same SHA, this gate must run and restore the real-tree
