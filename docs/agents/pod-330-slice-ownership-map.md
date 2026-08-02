@@ -345,6 +345,34 @@ The day that predicate fails is the day the exception expires, because it means 
 has become two. That is the difference between an exception and a note: **an exception is a claim
 with a check attached; a note is a claim.**
 
+### 4e.1 The limit of a shape predicate, found the day after it was written
+
+POD-1503 moved `elevateCoordinatorSession` into F3 (`session-urgency.ts`) to delete the
+`worklist -> terminal` edge, and justified it against F3's invariant *verbatim*: "a collection of
+sessions in, an order or a rank out. No issues, no rows, no repos." It fits — I checked the tip
+rather than the report, and F3 still imports only `@podium/model` and `../focus`. The invariant
+also REFUSED the function sitting immediately below it, `isCoordinatorSession`, because that one
+takes an `IssueWire`. Two adjacent symbols, one claimed and one refused, arbitrated by a written
+sentence rather than by anyone's judgement. That is what an invariant is for.
+
+**But note exactly what did the arbitrating: the SHAPE clause, not the QUESTION clause.** F3's
+question is *how sessions rank against each other*, and coordinator elevation does not rank
+sessions against each other — it honours an external designation. Shape said yes; question was
+never consulted, because the question is not mechanically checkable and the shape is.
+
+That is the honest limit of §4e's predicate, and it applies to F1's just as much:
+
+> **A shape predicate is a NECESSARY condition, not a sufficient one.** It refuses a symbol whose
+> shape is wrong. It cannot refuse a symbol whose shape is right and whose question is foreign —
+> which is the drift that actually produces god objects, since nobody adds a symbol that looks
+> wrong.
+
+The mechanical half is still worth having: it catches the drift a reviewer would have to notice by
+reading, and it fails loudly on the day someone hands F1 a list. It just must not be mistaken for
+the whole invariant. Where the two halves disagree, the WRITTEN QUESTION should be widened or the
+symbol moved — a module whose stated question no longer describes its contents is worse than one
+13% over its line budget, because the sentence is what does the arbitration next time.
+
 ## 5. What this map commits to
 
 - `derive.ts` is deleted; nothing named `*-helpers` or `*-common` replaces it.
