@@ -130,6 +130,13 @@ each reverted after:
 | a runtime export added to `store/types.ts` | `exception-predicate-failed` — "now exports 1 runtime symbol" |
 | `sessions/session.ts` truncated to 399 lines | `stale-ledger-entry` — the entry defends a file that no longer needs one |
 | construction-order record edited to "Forward dependencies: 3" | `exception-predicate-failed` — the composition root loses its exception |
+| the population glob broken (`apps/server/src` → `apps/server/srcTYPO`) | the test suite fails 2 of 19, and the CLI throws rather than reporting a clean tree |
+
+That last one is the specific failure an auditor is most likely to die of — going
+green forever the day somebody breaks its glob — so it is asserted rather than
+assumed. It is caught by the stale-entry check without needing a rule of its
+own: if the screen returns nothing, all 24 accepted entries are suddenly
+defending files the audit cannot see, and each one reports.
 
 The first attempt at the first mutation added only ONE field and the audit
 correctly stayed silent (the ceiling is 2). Recorded because it is the reason to
