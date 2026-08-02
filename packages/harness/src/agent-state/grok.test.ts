@@ -208,6 +208,8 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     ).resolves.toEqual([
       {
         kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
         verdict: { kind: 'question', summary: 'Want me to run the tests?' },
         at: mtime.toISOString(),
       },

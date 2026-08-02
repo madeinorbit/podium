@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { grokRecordToItems } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
+import { withStateChannel } from '../agent-state/types.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
 import { composeAgentInstructions } from '../instructions.js'
 import {
@@ -169,6 +170,13 @@ export const grokManifest: AgentManifest = {
   }),
 
   state: supported(grokStateProvider),
+  stateChannels: [
+    {
+      source: 'poll',
+      confidence: 0.7,
+      mechanism: 'Grok updates.jsonl tail; session/update turn_completed is the turn boundary',
+    },
+  ],
 
   // Grok's native hooks carry lifecycle/state, but the payload names only the
   // session id — not its on-disk transcript — so a polling observer still
@@ -268,8 +276,7 @@ export const grokManifest: AgentManifest = {
           : lease
             ? {}
             : {
-                onEvents: (events: Parameters<typeof host.onStateEvents>[0]) =>
-                  host.onStateEvents(events),
+                onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
               }),
       })
     }

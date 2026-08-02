@@ -7,7 +7,7 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { initialAgentState, reduceAgentState } from './reducer.js'
-import type { AgentStateEvent } from './types.js'
+import { type AgentStateEvent, withStateChannelEvent } from './types.js'
 
 export interface GrokObservationLease {
   podiumSessionId: SessionId
@@ -303,7 +303,7 @@ export class GrokCausalObserver {
         this.providerPromptId = nativeId(record.record, ['prompt_id', 'promptId'])
         this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId'])
         const prior = this.state
-        this.state = reduceAgentState(prior, event, this.now())
+        this.state = reduceAgentState(prior, withStateChannelEvent(event, 'poll'), this.now())
         if (live) {
           result = this.observation({
             cursor: this.transitionCursor(record.cursor),
@@ -327,7 +327,7 @@ export class GrokCausalObserver {
         event.kind === 'session_ended' ||
         event.kind === 'needs_user'
       const prior = this.state
-      const next = reduceAgentState(prior, event, this.now())
+      const next = reduceAgentState(prior, withStateChannelEvent(event, 'poll'), this.now())
       if (next === prior) continue
       this.state = next
       this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId']) ?? this.providerTurnId

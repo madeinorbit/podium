@@ -6,15 +6,36 @@ import type {
   ObservationInputOrigin,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import {
-  type ClaudeTranscriptFeatures,
-  classifyClaudeTranscriptDeterministically,
-  extractClaudeTranscriptFeatures,
-} from './claude-code-classifier.js'
 import { locateClaudeSessionFile } from './claude-locate.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
 import { reduceAgentState } from './reducer.js'
-import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
+import type { TranscriptClassifier } from './transcript-classifier.js'
+import {
+  type AgentInstrumentation,
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+  withStateChannelEvent,
+} from './types.js'
+
+type ClaudeClassifierFeatures = { scheduledSelfWake: boolean }
+type ClaudeTranscriptClassifier = TranscriptClassifier<
+  unknown,
+  ClaudeClassifierFeatures,
+  DeterministicAgentState
+>
+let claudeTranscriptClassifier: ClaudeTranscriptClassifier | undefined
+
+/** Configured once by the Claude manifest; core never imports Claude rules. */
+export function configureClaudeTranscriptClassifier(classifier: ClaudeTranscriptClassifier): void {
+  claudeTranscriptClassifier = classifier
+}
+
+function classifier(): ClaudeTranscriptClassifier {
+  if (!claudeTranscriptClassifier)
+    throw new Error('Claude transcript classifier is not configured by its manifest')
+  return claudeTranscriptClassifier
+}
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
 // ingest server), so injecting these can never block or steer the agent.
@@ -75,8 +96,8 @@ export const claudeCodeStateProvider: AgentStateProvider = {
       },
     }
   },
-  translate: translateClaudeHookPayload,
-  bootEvents: claudeBootEvents,
+  translate: async (payload) => withStateChannel(await translateClaudeHookPayload(payload), 'hook'),
+  bootEvents: async (opts) => withStateChannel(await claudeBootEvents(opts), 'classifier'),
 }
 
 // claudeProjectSlug moved beside the locator (claude-locate.ts); the package
@@ -443,7 +464,11 @@ export class ClaudeCausalObserver {
         (p.promptSource === 'system' || p.prompt_source === 'system' ? 'system' : 'unknown')
       this.currentOrigin = origin
       const prior = this.state
-      this.state = reduceAgentState(prior, { kind: 'prompt_submitted' }, this.now())
+      this.state = reduceAgentState(
+        prior,
+        withStateChannelEvent({ kind: 'prompt_submitted' }, 'hook'),
+        this.now(),
+      )
       return this.observation({
         sourceEventKind: hook,
         transitionKind: 'turn_opened',
@@ -482,7 +507,7 @@ export class ClaudeCausalObserver {
     }
 
     const prior = this.state
-    const next = reduceAgentState(prior, event, this.now())
+    const next = reduceAgentState(prior, withStateChannelEvent(event, 'hook'), this.now())
     if (next === prior) return null
     this.state = next
 
@@ -868,7 +893,7 @@ async function previousNewlineBoundary(
 }
 
 function bootEventsForClaudeRecords(records: unknown[]): AgentStateEvent[] {
-  const state = classifyClaudeTranscriptDeterministically(records, 'default')
+  const state = classifier().classify(records, 'default')
   const at = [...records].reverse().find((record) => {
     if (typeof record !== 'object' || record === null) return false
     const timestamp = (record as Record<string, unknown>).timestamp
@@ -963,7 +988,7 @@ export async function captureClaudeTranscript(
       device,
       inode,
       fileIdentity: `${device}:${inode}`,
-      bootEvents: bootEventsForClaudeRecords(records),
+      bootEvents: withStateChannel(bootEventsForClaudeRecords(records), 'classifier'),
       prompts: promptAccumulator.collected,
       promptCount: promptAccumulator.count,
       firstPrompt: promptAccumulator.first,
@@ -1028,19 +1053,15 @@ export function classifyIdleTranscript(
   records: unknown[],
   permissionMode: unknown,
 ): IdleClassification | undefined {
-  return idleClassificationFromState(
-    classifyClaudeTranscriptDeterministically(records, permissionMode),
-  )
+  return idleClassificationFromState(classifier().classify(records, permissionMode))
 }
 
 export function classifyClaudeTranscriptState(
   records: unknown[],
   permissionMode: unknown,
 ): DeterministicAgentState {
-  return classifyClaudeTranscriptDeterministically(records, permissionMode)
+  return classifier().classify(records, permissionMode)
 }
-
-export type { ClaudeTranscriptFeatures }
 
 /**
  * Translate a Stop hook into the right lifecycle event(s).
@@ -1069,7 +1090,7 @@ async function stopEvents(p: Record<string, unknown>): Promise<AgentStateEvent[]
     // unreadable transcript (rotated, perms) — Stop still means idle, just unclassified
     return [{ kind: 'turn_completed', ...(planVerdict ? { verdict: planVerdict } : {}) }]
   }
-  if (extractClaudeTranscriptFeatures(records, p.permission_mode).scheduledSelfWake) {
+  if (classifier().extract(records, p.permission_mode).scheduledSelfWake) {
     return [{ kind: 'activity' }]
   }
   const verdict = classifyIdleTranscript(records, p.permission_mode) ?? planVerdict

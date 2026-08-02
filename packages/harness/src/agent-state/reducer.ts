@@ -1,6 +1,35 @@
 import type { AgentRuntimeState } from '@podium/model'
 import type { AgentStateEvent } from './types.js'
 
+/** Stronger observations suppress lower-confidence reports for one live-transition window. */
+export const STATE_CHANNEL_STALENESS_MS = 5_000
+
+function stateProvenance(
+  event: AgentStateEvent,
+  now: string,
+): Pick<AgentRuntimeState, 'stateSource' | 'stateConfidence' | 'stateObservedAt'> {
+  if (event.source === undefined || event.confidence === undefined) return {}
+  return {
+    stateSource: event.source,
+    stateConfidence: event.confidence,
+    stateObservedAt: event.observedAt ?? now,
+  }
+}
+
+function lowerConfidenceIsStale(
+  prev: AgentRuntimeState,
+  event: AgentStateEvent,
+  now: string,
+): boolean {
+  if (event.confidence === undefined || prev.stateConfidence === undefined) return false
+  if (event.confidence >= prev.stateConfidence) return false
+  const previousObserved = Date.parse(prev.stateObservedAt ?? prev.since)
+  const nextObserved = Date.parse(event.observedAt ?? now)
+  if (!Number.isFinite(previousObserved) || !Number.isFinite(nextObserved)) return false
+  const age = nextObserved - previousObserved
+  return age >= 0 && age <= STATE_CHANNEL_STALENESS_MS
+}
+
 export function initialAgentState(now: string): AgentRuntimeState {
   return { phase: 'unknown', since: now, workingMsTotal: 0, nativeSubagentCount: 0 }
 }
@@ -15,9 +44,9 @@ function workingMsAt(prev: AgentRuntimeState, nextSince: string): number {
 }
 
 /** Carry the identity list only when non-empty (field is optional/additive). */
-function withSubagents(
-  list: NonNullable<AgentRuntimeState['nativeSubagents']> | undefined,
-): { nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']> } {
+function withSubagents(list: NonNullable<AgentRuntimeState['nativeSubagents']> | undefined): {
+  nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']>
+} {
   return list && list.length > 0 ? { nativeSubagents: list } : {}
 }
 
@@ -32,7 +61,10 @@ function withSubagents(
 function applyTaskDelta(
   prev: AgentRuntimeState,
   event: Extract<AgentStateEvent, { kind: 'task_delta' }>,
-): { nativeSubagentCount: number; nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']> } | null {
+): {
+  nativeSubagentCount: number
+  nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']>
+} | null {
   const prevList = prev.nativeSubagents ?? []
   const identityMode = prevList.length > 0
   if (event.agentId) {
@@ -94,6 +126,7 @@ export function reduceAgentState(
   event: AgentStateEvent,
   now: string,
 ): AgentRuntimeState {
+  if (lowerConfidenceIsStale(prev, event, now)) return prev
   const since = event.at ?? now
   // Intentionally omits awaitingSubagents / idle / need / error so non-hold
   // transitions clear the held-working flag and phase detail. Identity list
@@ -103,6 +136,7 @@ export function reduceAgentState(
     workingMsTotal: workingMsAt(prev, since),
     nativeSubagentCount: prev.nativeSubagentCount,
     ...withSubagents(prev.nativeSubagents),
+    ...stateProvenance(event, now),
   }
   switch (event.kind) {
     case 'session_started':
@@ -113,7 +147,12 @@ export function reduceAgentState(
       // Genuine tool activity while held (awaitingSubagents) means the parent
       // is working again — clear the flag. Same-phase no-op only when already
       // genuinely working.
-      if (prev.phase === 'working' && !prev.awaitingSubagents) return prev
+      if (prev.phase === 'working' && !prev.awaitingSubagents) {
+        if (event.confidence !== undefined && event.confidence > (prev.stateConfidence ?? -1)) {
+          return { ...prev, ...stateProvenance(event, now) }
+        }
+        return prev
+      }
       return { phase: 'working', ...base }
     case 'needs_user':
       return {
@@ -158,6 +197,7 @@ export function reduceAgentState(
           since,
           workingMsTotal: workingMsAt(prev, since),
           nativeSubagentCount: 0,
+          ...stateProvenance(event, now),
           idle: { kind: 'done' as const },
         }
       }
@@ -166,6 +206,7 @@ export function reduceAgentState(
         nativeSubagentCount,
         // Drop the key when empty so wire payloads stay lean / back-compat.
         nativeSubagents: applied.nativeSubagents,
+        ...stateProvenance(event, now),
       }
     }
     case 'session_ended':
@@ -176,6 +217,7 @@ export function reduceAgentState(
         since,
         workingMsTotal: workingMsAt(prev, since),
         nativeSubagentCount: 0,
+        ...stateProvenance(event, now),
       }
   }
 }

@@ -703,6 +703,7 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'manifest-role',
   'manifest-untagged',
   'harness-branching',
+  'harness-classifier-boundary',
   // Rule 12 (POD-307). A MANIFEST rule, not a legacy one, because it is the
   // guard that replaces what `packages/sync`'s node-only tag used to provide:
   // it has to run in `lint:architecture`, the BLOCKING step, or the retag would
@@ -711,7 +712,10 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
 ])
 
 /** Rules enforced at error level: allowlist entries cannot downgrade them. */
-export const ERROR_LEVEL_MANIFEST_RULES: ReadonlySet<string> = new Set(['harness-branching'])
+export const ERROR_LEVEL_MANIFEST_RULES: ReadonlySet<string> = new Set([
+  'harness-branching',
+  'harness-classifier-boundary',
+])
 
 /** Split one allowlist into [manifest entries, legacy entries]. */
 export function partitionAllowlist(

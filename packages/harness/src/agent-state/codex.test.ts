@@ -1987,6 +1987,8 @@ describe('codexBootEvents (resumed session classification)', () => {
     expect(events).toEqual([
       {
         kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
         verdict: { kind: 'done', summary: 'Done.' },
         at: '2026-07-06T10:05:00.000Z',
       },
@@ -2008,7 +2010,14 @@ describe('codexBootEvents (resumed session classification)', () => {
       resumeValue: 'th-3',
       homeDir: home,
     })
-    expect(events).toEqual([{ kind: 'prompt_submitted', at: '2026-07-06T10:10:00.500Z' }])
+    expect(events).toEqual([
+      {
+        kind: 'prompt_submitted',
+        source: 'poll',
+        confidence: 0.7,
+        at: '2026-07-06T10:10:00.500Z',
+      },
+    ])
   })
 
   it('seeds NEEDS_USER when the open turn ends on an unresolved request_user_input call', async () => {
@@ -2031,6 +2040,8 @@ describe('codexBootEvents (resumed session classification)', () => {
     expect(events).toEqual([
       {
         kind: 'needs_user',
+        source: 'poll',
+        confidence: 0.7,
         need: 'question',
         summary: 'Where should workflow defaults apply?',
         at: '2026-07-13T08:47:06.776Z',
@@ -2058,7 +2069,14 @@ describe('codexBootEvents (resumed session classification)', () => {
       resumeValue: 'th-answered',
       homeDir: home,
     })
-    expect(events).toEqual([{ kind: 'prompt_submitted', at: '2026-07-13T08:43:09.089Z' }])
+    expect(events).toEqual([
+      {
+        kind: 'prompt_submitted',
+        source: 'poll',
+        confidence: 0.7,
+        at: '2026-07-13T08:43:09.089Z',
+      },
+    ])
   })
 
   it('classifies an aborted last turn as interrupted', async () => {
@@ -2075,6 +2093,8 @@ describe('codexBootEvents (resumed session classification)', () => {
     expect(events).toEqual([
       {
         kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
         verdict: { kind: 'interrupted', summary: 'turn aborted' },
         at: '2026-07-06T10:02:00.000Z',
       },
@@ -2088,7 +2108,7 @@ describe('codexBootEvents (resumed session classification)', () => {
       resumeValue: 'th-5',
       homeDir: home,
     })
-    expect(events).toEqual([{ kind: 'session_started' }])
+    expect(events).toEqual([{ kind: 'session_started', source: 'poll', confidence: 0.7 }])
   })
 })
 

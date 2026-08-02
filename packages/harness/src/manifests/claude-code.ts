@@ -2,8 +2,12 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { claudeRecordToItems } from '@podium/transcript'
-import { claudeCodeStateProvider } from '../agent-state/claude-code.js'
+import {
+  claudeCodeStateProvider,
+  configureClaudeTranscriptClassifier,
+} from '../agent-state/claude-code.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
+import { createTranscriptClassifier } from '../agent-state/transcript-classifier.js'
 import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../instructions.js'
 import {
@@ -14,6 +18,9 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../manifest.js'
+import { claudeTranscriptClassifierRules } from './claude-code-classifier.js'
+
+configureClaudeTranscriptClassifier(createTranscriptClassifier(claudeTranscriptClassifierRules))
 
 // The claude session_id (resume value) IS the JSONL basename. The locator
 // tries the current-cwd bucket first, then sweeps all buckets — session.cwd is
@@ -130,6 +137,19 @@ export const claudeCodeManifest: AgentManifest = {
   }),
 
   state: supported(claudeCodeStateProvider),
+  stateChannels: [
+    {
+      source: 'hook',
+      confidence: 1,
+      mechanism: 'Claude Code lifecycle hooks (Stop is the turn boundary)',
+    },
+    {
+      source: 'classifier',
+      confidence: 0.3,
+      mechanism: 'Claude transcript rules classify an otherwise untyped Stop verdict',
+      fallbackWhen: 'the hook has no structured needs-human verdict',
+    },
+  ],
 
   // Claude Code needs no polling state observer — state arrives on the hook
   // channel. Observation here is the transcript-tail bootstrap: eagerly tail

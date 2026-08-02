@@ -7,6 +7,7 @@ import {
   observeCodexState,
   resolvePinnedCodexRollout,
 } from '../agent-state/codex.js'
+import { withStateChannel } from '../agent-state/types.js'
 import { createCodexConversationProvider } from '../discovery/providers/codex.js'
 import { composeAgentInstructions } from '../instructions.js'
 import {
@@ -286,6 +287,19 @@ export const codexManifest: AgentManifest = {
   }),
 
   state: supported(codexStateProvider),
+  stateChannels: [
+    {
+      source: 'hook',
+      confidence: 1,
+      mechanism: 'Codex native lifecycle hooks (including PermissionRequest)',
+    },
+    {
+      source: 'poll',
+      confidence: 0.7,
+      mechanism: 'Codex rollout JSONL tail, reconciled with hooks inside this manifest',
+      fallbackWhen: 'hooks are absent or the rollout supplies the durable boundary',
+    },
+  ],
 
   // Codex state arrives on TWO channels: native hooks (codex ≥0.142, fast +
   // authoritative, the only source for PermissionRequest) via the daemon's
@@ -388,7 +402,7 @@ export const codexManifest: AgentManifest = {
         // Codex's OSC terminal title is just the cwd basename (suppressed by
         // the daemon); the observer derives a real title from the thread instead.
         onTitle: (title) => host.onTitle(title),
-        onEvents: (events) => host.onStateEvents(events),
+        onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
       })
     }
     // A resume/reattach passes the session's known codex-thread id so the

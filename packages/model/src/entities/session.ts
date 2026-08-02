@@ -148,6 +148,10 @@ export const AgentRuntimeState = z.object({
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'
+  /** Winning daemon observation provenance; never a user or provider-account identity. */
+  stateSource: z.enum(['hook', 'poll', 'classifier']).optional(),
+  stateConfidence: z.number().min(0).max(1).optional(),
+  stateObservedAt: z.string().optional(),
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
 
