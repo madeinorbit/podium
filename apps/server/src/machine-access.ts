@@ -186,6 +186,9 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
 
 const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<MachineVerb> => {
   const verbs = new Set<MachineVerb>()
+  // Owner-null is quarantine / unowned (D19.4b): usable by nobody. Admin `see`
+  // is layered in {@link machineVerbsFor}, not here — this helper is ownership
+  // and grant edges only.
   if (subject === null || row.owner === null) return verbs
   if (row.owner === subject) {
     // M1: the owner holds all three by default. Sharing is a deliberate act.
@@ -231,6 +234,17 @@ export function machineVerbsFor(
   const row = ownership.rowFor(machineId)
   if (!row) return new Set()
   if (principal.kind === 'system') return new Set<MachineVerb>(['see', 'use'])
+  // QUARANTINE / UNOWNED (D19.4b): owner no longer resolves, or never was recorded.
+  // Admins hold `see` so they can assign an owner; nobody holds `use`. Not
+  // auto-assigned to the first admin — that would hand somebody's personal Mac to
+  // whoever is admin on a database restore.
+  if (row.owner === null) {
+    // system returned above; remaining arms are user | agent.
+    if (principal.capability.role === 'admin') {
+      return new Set<MachineVerb>(['see'])
+    }
+    return new Set()
+  }
   const held = verbsFromRow(row, onBehalfOfUser(principal))
   if (principal.kind !== 'agent') return held
   // The human's CURRENT rights are the ceiling; the agent's own delegation may

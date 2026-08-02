@@ -138,10 +138,26 @@ describe("the owner column decides: the machine's owner holds all three verbs, n
     expect(checkMachineUse(user(COLLEAGUE), 'local', ownership)).toBe('absent')
   })
 
-  it('an owner-less machine row grants use to NOBODY (the handshake guard, unchanged)', () => {
+  it('an owner-less machine row grants use to NOBODY (quarantine: admin see, nobody use)', () => {
+    // D19.4b: unowned / quarantine is usable by nobody. Admins hold `see` so they
+    // can assign an owner; that is not ambient execute. Members still cannot see.
     const ownership = ownershipTable(new Map([['legacy', { owner: null, grants: [] }]]))
 
-    expect(checkMachineUse(user(OWNER), 'legacy', ownership)).toBe('absent')
+    expect(checkMachineUse(user(OWNER), 'legacy', ownership)).toBe('unauthorized')
+    expect(canSeeMachine(user(OWNER), 'legacy', ownership)).toBe(true)
+    expect(machineVerbsFor(user(OWNER), 'legacy', ownership)).toEqual(new Set(['see']))
+    const member: CommandPrincipal = {
+      kind: 'user',
+      user: COLLEAGUE,
+      capability: {
+        role: 'worker',
+        scope: { kind: 'owned', userId: COLLEAGUE },
+        actorUser: COLLEAGUE,
+        onBehalfOf: COLLEAGUE,
+      },
+    }
+    expect(checkMachineUse(member, 'legacy', ownership)).toBe('absent')
+    expect(canSeeMachine(member, 'legacy', ownership)).toBe(false)
   })
 })
 
@@ -418,12 +434,16 @@ describe('ownership and grants come from the source, live', () => {
     expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBe('unauthorized')
   })
 
-  it('an owner-less row refuses everyone, including the account that owns the OTHER machines', () => {
+  it('an owner-less row refuses use to everyone, including the owner of OTHER machines', () => {
+    // D19.4b quarantine: the first admin may SEE the orphan (to assign an owner)
+    // but holds neither use nor manage on it — ownership of other machines does
+    // not spill. A member still cannot see it at all.
     const { rows, source } = liveSource()
     rows.set('orphan', null)
     const ownership = ownershipFromMachines(source)
 
-    expect(checkMachineUse(user(OWNER), 'orphan', ownership)).toBe('absent')
+    expect(checkMachineUse(user(OWNER), 'orphan', ownership)).toBe('unauthorized')
+    expect(canSeeMachine(user(OWNER), 'orphan', ownership)).toBe(true)
     expect(checkMachineUse(user(OWNER), 'laptop', ownership)).toBeUndefined()
   })
 
