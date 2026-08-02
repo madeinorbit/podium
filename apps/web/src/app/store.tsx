@@ -16,6 +16,7 @@ import {
   type IssueViewModel,
   type StoreNotices,
   useStore as useCoreStore,
+  useSlice as useCoreSlice,
   useStoreSelector as useCoreStoreSelector,
   useIssueViewModels,
 } from '@podium/client-core/react'
@@ -34,6 +35,7 @@ export type Store = CoreStore<Trpc>
 export type { IssueViewModel, UserFocus } from '@podium/client-core/react'
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/viewmodels'
+import type { SliceDefinition } from '@podium/client-core/viewmodels'
 
 const NOTICES: StoreNotices = {
   error: (message) => toast.error(message),
@@ -118,6 +120,13 @@ export function useStoreSelector<T>(
   isEqual?: (a: T, b: T) => boolean,
 ): T {
   return useCoreStoreSelector<T, Trpc>(selector, isEqual)
+}
+
+/** Read a PUBLISHED slice (POD-330): derived once per store change and shared by
+ *  every reader, unlike `useStoreSelector`, whose cache is per component. Use
+ *  this for a named slice several surfaces read; use the selector for a one-off. */
+export function useSlice<T>(def: SliceDefinition<Store, T>): T {
+  return useCoreSlice<T, Trpc>(def)
 }
 
 /** Issues rendered from normalized replica projections plus local D7.3 views. */

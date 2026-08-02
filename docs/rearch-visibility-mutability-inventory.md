@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **45 of 78 classes have mutable visibility.** This is the majority of
+1. **45 of 79 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -107,6 +107,7 @@ disappearance a scoped feed must be able to signal.
 | `instance-id` | InstanceId (deployment partition) | deployment-substrate | — | Tenant-visible from creation and never narrows. |
 | `pairing-token` | Pairing token / client session token | secret | — | Never visible to any replica, so there is nothing to change. |
 | `daemon-identity-file` | Daemon local identity file | owned-compute | — | A local file; not replicated, so replica visibility never changes. |
+| `enrollment-ledger` | Enrollment ledger (`<stateDir>/enrollment.ledger`) | secret | — | Never replicated and excluded from every wire projection, so no principal’s view of it can change. Recovery reads it and never RECLASSIFIES what it recovers: the machine it re-enrols returns owned-compute with grants dropped (D19.4b). |
 | `session-read-at` | Session `readAt` (moved out of the labels group by Amendment 1 D10) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `snooze` | Snooze (`snoozes` / `snoozedUntil`) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `session-observation-bookkeeping` | Session observation leases, rebinds and terminal candidates (`session_observation_checkpoints`, `session_observation_rebinds`, `session_terminal_candidates`) | personal | — | Never replicated, so no principal’s view of it can change — the `applied-mutations` combination with nothing for Phase 2 to signal. |

@@ -6,6 +6,7 @@ import type {
   IssueDepProjection,
   IssueProjection,
   IssueWire,
+  ReadPositionWire,
   LayoutWire,
   MachineWire,
   RepoProjection,
@@ -13,7 +14,7 @@ import type {
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
-import { layoutRowId } from '@podium/model'
+import { readPositionRowId, layoutRowId } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -263,6 +264,13 @@ export interface HubEvents {
    * event lets a second device see live layout deltas without a second store.
    */
   userLayouts: [rows: LayoutWire[]]
+  /**
+   * Per-user read-cursor rows after any change (POD-1380, entity kind
+   * `userReadPosition`). Feed demux only, same split as `userLayouts`: the feed is
+   * how a person's OTHER device learns the position moved, and the hydrate/write
+   * owner is the ui-state module.
+   */
+  userReadPositions: [rows: ReadPositionWire[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
@@ -320,6 +328,8 @@ export class SocketHub {
   private repoList: RepoProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
+  /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
+  private userReadPositionList: ReadPositionWire[] = []
   private intentionalClose = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
@@ -1411,6 +1421,15 @@ export class SocketHub {
             (x) => layoutRowId(x.userId, x.key) === c.id,
           )
           break
+        case 'userReadPosition':
+          // Same demux for POD-1380's read positions, matched on readPositionRowId.
+          this.userReadPositionList = applyChange(
+            this.userReadPositionList,
+            c.op,
+            c.value,
+            (x) => readPositionRowId(x.userId, x.streamId) === c.id,
+          )
+          break
         default:
           c satisfies never
       }
@@ -1424,6 +1443,7 @@ export class SocketHub {
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
     if (touched.has('userLayout')) this.emit('userLayouts', this.userLayoutList)
+    if (touched.has('userReadPosition')) this.emit('userReadPositions', this.userReadPositionList)
   }
 
   private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {

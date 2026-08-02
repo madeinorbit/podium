@@ -99,6 +99,62 @@ export const machineUnshareHandler = ({
   return mods(ctx).machines.listMachines()
 }
 
+/**
+ * Hand a machine to another person (POD-1480) — the surface D19.4d's ownership
+ * transition never had.
+ *
+ * The OUTGOING owner is read off the transport principal and the INCOMING one
+ * off the input, and that asymmetry is the whole security shape: a frame may
+ * nominate a recipient, it may not nominate who is asking (ADR 3 D7). A
+ * principal with no human behind it — the in-process system principal — cannot
+ * own a machine and therefore cannot give one away.
+ */
+export const machineTransferOwnershipHandler = ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; newOwnerUserId: string }>) => {
+  const owner = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
+  if (owner === null) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'machine ownership transfer requires a human owner',
+    })
+  }
+  try {
+    mods(ctx).machines.transferMachineOwnership(input.id, input.newOwnerUserId, owner)
+  } catch (e) {
+    return badRequest(e)
+  }
+  return mods(ctx).machines.listMachines()
+}
+
+/**
+ * Give an owner to an unowned machine (POD-1494).
+ *
+ * NOTHING IS READ OFF THE PRINCIPAL HERE, and the contrast with
+ * {@link machineTransferOwnershipHandler} directly above is the security shape.
+ * Transfer must ask who is calling, because the caller must BE the outgoing
+ * owner. Adoption must not, because the caller is not becoming the owner — the
+ * admin floor has already decided they may act at all, and the recipient is a
+ * named payload field. A handler that quietly adopted "to the caller" would turn
+ * an authority into a self-grant, which is the shape D19.4b refused when it
+ * declined to auto-assign a quarantined machine to the first admin.
+ *
+ * The admin may of course name themselves. That is a choice they make in the
+ * open and it lands in the ledger with their id on it.
+ */
+export const machineAdoptHandler = ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; newOwnerUserId: string }>) => {
+  try {
+    mods(ctx).machines.adoptMachine(input.id, input.newOwnerUserId)
+  } catch (e) {
+    return badRequest(e)
+  }
+  return mods(ctx).machines.listMachines()
+}
+
 export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) => {
   mods(ctx).machines.revokeMachine(input.id)
   return mods(ctx).machines.listMachines()

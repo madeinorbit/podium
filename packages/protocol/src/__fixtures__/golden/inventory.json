@@ -79,6 +79,89 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"inventoryRequest\"}"
+    },
+    {
+      "schema": "ModelChoiceWire",
+      "variant": "minimal",
+      "wire": {
+        "value": "value",
+        "label": "label"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":\"value\",\"label\":\"label\"}"
+    },
+    {
+      "schema": "ModelChoiceWire",
+      "variant": "full",
+      "wire": {
+        "value": "value",
+        "label": "label",
+        "efforts": ["efforts[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":\"value\",\"label\":\"label\",\"efforts\":[\"efforts[0]\"]}"
+    },
+    {
+      "schema": "ModelProbeRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "modelProbeRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"modelProbeRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ModelProbeRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "modelProbeRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"modelProbeRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ModelProbeResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "modelProbeResult",
+        "requestId": "requestId",
+        "byAgent": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"modelProbeResult\",\"requestId\":\"requestId\",\"byAgent\":{}}"
+    },
+    {
+      "schema": "ModelProbeResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "modelProbeResult",
+        "requestId": "requestId",
+        "byAgent": {
+          "byAgent.key": [
+            {
+              "value": "byAgent.byAgent.key[0].value",
+              "label": "byAgent.byAgent.key[0].label",
+              "efforts": ["byAgent.byAgent.key[0].efforts[0]"]
+            }
+          ]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"modelProbeResult\",\"requestId\":\"requestId\",\"byAgent\":{\"byAgent.key\":[{\"value\":\"byAgent.byAgent.key[0].value\",\"label\":\"byAgent.byAgent.key[0].label\",\"efforts\":[\"byAgent.byAgent.key[0].efforts[0]\"]}]}}"
     }
   ]
 }

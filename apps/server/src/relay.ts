@@ -8,6 +8,7 @@ import {
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
+  parseReadPositionRowId,
   parseIssueDepId,
   parseLayoutRowId,
 } from '@podium/model'
@@ -31,7 +32,7 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
-import { REACTIONS, type ReactionDefinition } from './composition/reactions'
+import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
 import { deviceGradeSoleOwner } from './device-grade-owner'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { ClientMux } from './gateway/client-mux'
@@ -59,6 +60,7 @@ import { issueDepProjectionRows, repoProjectionRows } from './modules/issues/pro
 import { IssuePublisher } from './modules/issues/publish'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
+import { ReadPositionService } from './modules/read-position/service'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
@@ -139,6 +141,11 @@ interface SessionRegistryOptions {
   publicationWorker?: PublishWorkerClient
   /** Rollout-only semantic comparison of legacy and worker publications. */
   publicationShadowCompare?: boolean
+  /** Reaction contracts to publish on the module seam. Defaults to the registry;
+   *  injected only so the runtime refusal of an invalid principal is observable
+   *  (POD-1470). Whatever is passed goes through the same totality check the
+   *  registry does — a widened system writeScope fails construction. */
+  reactions?: readonly unknown[]
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -155,6 +162,8 @@ export interface RegistryModules {
   settings: SettingsService
   /** Per-user sidebar/tab layout (POD-1350) — store + feed publish behind one service. */
   layout: LayoutService
+  /** Per-user event-stream read positions (POD-1380) — same shape, monotonic merge. */
+  readPosition: ReadPositionService
   issueSessionLifecycle: IssueSessionLifecycle
   headless: HeadlessService
   notify: NotifyService
@@ -271,6 +280,10 @@ export class SessionRegistry {
     notificationPushers: NotificationPushers | undefined,
     options: SessionRegistryOptions,
   ) {
+    // Validated BEFORE anything is constructed: an invalid reaction principal — a
+    // system reaction widening its writeScope — must refuse the assembly outright
+    // rather than surface after services and timers exist (POD-1470).
+    const reactions = composeReactions(options.reactions ?? REACTIONS)
     this.store = store ?? new SessionStore(':memory:')
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
@@ -406,6 +419,11 @@ export class SessionRegistry {
         // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
         // filter. Must NOT fall through to personal or unclassified.
         if (entity === 'userLayout') return 'per-user-state'
+        // Per-user read positions (POD-1380): same class, same reason. A cursor
+        // that fell through to `personal` would be grantable, and "share my read
+        // state" is not a verb — it is the privacy defect this member exists to
+        // avoid.
+        if (entity === 'userReadPosition') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issue' ||
@@ -453,9 +471,17 @@ export class SessionRegistry {
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
         if (ref.entity === 'userLayout') return false
+        if (ref.entity === 'userReadPosition') return false
         return false
       },
       keyedUserOf: (ref) => {
+        if (ref.entity === 'userReadPosition') {
+          try {
+            return parseReadPositionRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
         if (ref.entity !== 'userLayout') return null
         try {
           return parseLayoutRowId(ref.entityId).userId
@@ -1497,6 +1523,8 @@ export class SessionRegistry {
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
     const layout = new LayoutService({ layout: this.store.layout, ledger })
+    // Same composition seam for the read-cursor family (POD-1380).
+    const readPosition = new ReadPositionService({ cursors: this.store.readPositions, ledger })
     this.modules = {
       bus: this.bus,
       funnel,
@@ -1507,8 +1535,9 @@ export class SessionRegistry {
       hosts,
       settings,
       layout,
+      readPosition,
       headless,
-      reactions: REACTIONS,
+      reactions,
       notify,
       issues,
       issueSessionLifecycle,

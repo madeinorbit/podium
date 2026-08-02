@@ -193,6 +193,12 @@ export async function openKernelAssembly(
     // The same verdict governs the legacy QUEUE: an unattributable device's
     // unsent writes are not this user's to replay.
     adoptLegacyOutbox: adoption.adopt,
+    // ADR 6 D4.4 clause 3 (POD-1231). Mobile passed this from the start; web did
+    // not, so a denied outbox write threw and logged and then died at the seam
+    // with nothing above it any the wiser. The legacy-queue fold at construction
+    // writes through this same guard, which is the one outbox write on web that
+    // happens before anything else could report it.
+    onDegraded: (error) => options.onDegraded?.(error),
   })
   const facade = createKernelReplica({
     cache: view.cache,

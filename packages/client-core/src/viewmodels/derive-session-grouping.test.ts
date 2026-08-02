@@ -9,7 +9,7 @@ import {
   sessionHasNativeSubagents,
   sessionIssueLinkage,
   sessionsNeedChildRows,
-} from './derive'
+} from './index'
 
 function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {

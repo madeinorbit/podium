@@ -61,7 +61,9 @@ describe('workspace ui-state routing', () => {
       expect(uiStateRoute(key).home, key).toBe('pre-auth-theme')
     }
     expect(() => uiStateRoute('podium.unclassified')).toThrow(/Unclassified UI-state key/)
-    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('known-unrouted')
+    // POD-1380 gave the last unrouted key a home, and it is not this module's:
+    // per-user state with its own family and command (`readPosition.advance`).
+    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('per-user-command')
   })
 
   it('panelMode is one modeled map plus one tested derivation', async () => {

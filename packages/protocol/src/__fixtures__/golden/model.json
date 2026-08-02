@@ -5694,6 +5694,7 @@
         "online": true,
         "lastSeenAt": "lastSeenAt",
         "use": "granted",
+        "owned": true,
         "inventory": {
           "os": "linux",
           "arch": "x64",
@@ -5723,7 +5724,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MutationId",
@@ -6298,6 +6299,103 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"key\":\"key\",\"label\":\"label\",\"usedPercent\":1,\"resetsAt\":\"resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"scopeModel\"}"
+    },
+    {
+      "schema": "ReadPositionSnapshot",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "ReadPositionSnapshot",
+      "variant": "full",
+      "wire": {
+        "issueEvents": {
+          "lastEventId": 7,
+          "seenAt": "2026-08-02T00:00:00.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueEvents\":{\"lastEventId\":7,\"seenAt\":\"2026-08-02T00:00:00.000Z\"}}"
+    },
+    {
+      "schema": "ReadPositionState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "issueEvents",
+        "lastEventId": 1,
+        "seenAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"issueEvents\",\"lastEventId\":1,\"seenAt\":null}"
+    },
+    {
+      "schema": "ReadPositionState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "issueEvents",
+        "lastEventId": 1,
+        "seenAt": "seenAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"issueEvents\",\"lastEventId\":1,\"seenAt\":\"seenAt\"}"
+    },
+    {
+      "schema": "ReadPositionWire",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "streamId": "issueEvents",
+        "lastEventId": 1,
+        "seenAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"streamId\":\"issueEvents\",\"lastEventId\":1,\"seenAt\":null}"
+    },
+    {
+      "schema": "ReadPositionWire",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "streamId": "issueEvents",
+        "lastEventId": 1,
+        "seenAt": "seenAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"streamId\":\"issueEvents\",\"lastEventId\":1,\"seenAt\":\"seenAt\"}"
+    },
+    {
+      "schema": "ReadStreamIdField",
+      "variant": "minimal",
+      "wire": "issueEvents",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"issueEvents\""
+    },
+    {
+      "schema": "ReadStreamIdField",
+      "variant": "full",
+      "wire": "issueEvents",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"issueEvents\""
     },
     {
       "schema": "ReplicatedProvenance",

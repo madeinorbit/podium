@@ -4,7 +4,8 @@ import { shallowEqual } from '@podium/client-core/store'
 import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { superagentSlice } from '@podium/client-core/viewmodels'
+import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/features/chat/ChatView'
@@ -28,21 +29,6 @@ import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
 import type { TrayActions } from './TrayCard'
 import { useIssueEvents } from './useIssueEvents'
-
-interface SuperThread {
-  id: string
-  kind: 'global' | 'btw' | 'concierge'
-  originSessionId?: string
-  title?: string
-  repoPath?: string
-  /** The headless Podium session rendering this thread (set on the first turn). */
-  podiumSessionId?: SessionId
-  /** The harness's own session id — present once the thread has a real session. */
-  harnessSessionId?: string
-  /** Query-backed running state for reloads/late joiners. Live events keep the
-   * embedded chat current after mount. */
-  turnRunning?: boolean
-}
 
 interface AtOption {
   kind: 'repo' | 'worktree' | 'conversation'
@@ -88,12 +74,14 @@ export function SuperagentView({
     trpc,
     sessions,
     selectedIssueId,
-    superRefreshKey,
+    superThreads,
+    refreshSuperThreads,
     setPane,
     setSelectedWorktree,
     setSelectedIssueId,
     setView,
     uiState,
+    readPosition,
     setSessionDraft,
   } = useStoreSelector(
     (s) => ({
@@ -101,22 +89,27 @@ export function SuperagentView({
       trpc: s.trpc,
       sessions: s.sessions,
       selectedIssueId: s.selectedIssueId,
-      superRefreshKey: s.superRefreshKey,
+      superThreads: s.superThreads,
+      refreshSuperThreads: s.refreshSuperThreads,
       setPane: s.setPane,
       setSelectedWorktree: s.setSelectedWorktree,
       setSelectedIssueId: s.setSelectedIssueId,
       setView: s.setView,
       uiState: s.uiState,
+      readPosition: s.readPosition,
       setSessionDraft: s.setSessionDraft,
     }),
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const [threads, setThreads] = useState<SuperThread[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pendingDraft, setPendingDraft] = useState('')
   const [pendingFirstTurn, setPendingFirstTurn] = useState<string | null>(null)
-  const thread = threads.find((t) => t.id === THREAD_ID)
+  // POD-330 (audit item zero): the thread list is STORE state. The view used to
+  // declare its own SuperThread type, hold the list in useState, fetch it from
+  // tRPC itself and be poked to refetch by a `superRefreshKey` counter that
+  // actions bumped from across the app. One published slice replaces all four.
+  const { threads, active: thread } = useSlice(superagentSlice)
   const podiumSessionId = thread?.podiumSessionId
 
   // ---- per-section collapse + tray/chat split (engraved-column.md §2.7) ----
@@ -161,18 +154,9 @@ export function SuperagentView({
     window.addEventListener('pointerup', up)
   }
 
-  const feed = useIssueEvents(trpc, uiState, mobile || chatOpen, true)
+  const feed = useIssueEvents(trpc, readPosition, mobile || chatOpen, true)
 
-  const refreshThreads = () =>
-    trpc.superagent.listThreads
-      .query()
-      .then((t) => setThreads(t as SuperThread[]))
-      .catch(() => {})
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch after seeding
-  useEffect(() => {
-    void refreshThreads()
-  }, [trpc, superRefreshKey])
+  const refreshThreads = () => refreshSuperThreads().catch(() => {})
 
   // The thread learns its harnessSessionId when a turn ENDS — that id reveals
   // the "open in terminal" button, so refetch on turn end.
@@ -182,7 +166,7 @@ export function SuperagentView({
     return hub.subscribeHeadless?.(podiumSessionId, (event) => {
       if (event.kind === 'turn-end') void refreshThreads()
     })
-  }, [hub, podiumSessionId])
+  }, [hub, podiumSessionId, refreshSuperThreads])
 
   // "Open in terminal": focus the PTY session once its row lands in the
   // sessions broadcast (a fresh resume may beat the broadcast by a beat).

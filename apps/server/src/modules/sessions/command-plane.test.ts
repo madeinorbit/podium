@@ -287,6 +287,21 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
     expect(offered.find((m) => m.id === 'shared')?.use).toBe('denied')
 
     /**
+     * POD-1495 — and the field the comment above was WAITING for. The same
+     * projection now also carries "may you give this machine away", so the
+     * settings panel can withhold a transfer control the server would refuse.
+     *
+     * Both arms in one list, so neither can be the fixture's only answer: the
+     * owned machine says `true` and the visible-but-not-owned one says `false`.
+     * `false` is what a manage grantee would see here too — ownership is
+     * strictly larger than any verb the machine can grant — and it is
+     * deliberately the same `false` an unowned machine produces, since no owner
+     * IDENTITY may cross this boundary.
+     */
+    expect(offered.find((m) => m.id === 'mine')?.owned).toBe(true)
+    expect(offered.find((m) => m.id === 'shared')?.owned).toBe(false)
+
+    /**
      * POD-1386 — `podium machine list` joins each machine's registered checkouts
      * onto this projection, because an enumeration without them cannot answer
      * "which machine can take this work". Repo rows are stored UNSCOPED, so the

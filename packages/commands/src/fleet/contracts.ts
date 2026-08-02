@@ -105,6 +105,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
+import { UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -140,7 +141,10 @@ export type FleetServerRole = 'core' | 'hub'
 
 export interface FleetCommandContract<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknown>
   extends CommandContract<In, Out> {
-  readonly policy: CommandPolicy & { readonly machineSharingAuthority?: 'owner-only' }
+  readonly policy: CommandPolicy & {
+    readonly machineSharingAuthority?: 'owner-only'
+    readonly machineOwnerPrecondition?: 'unowned'
+  }
   readonly serverRole: FleetServerRole
 }
 
@@ -168,6 +172,24 @@ export const machineShareInput = z.object({
 export const machineUnshareInput = machineShareInput
 
 export const machineRevokeInput = z.object({ id: z.string() })
+
+/** WHO the machine goes to is a payload field; WHO IS ASKING is not, and never
+ *  appears here — that identity comes from the authenticated transport (ADR 3
+ *  D7), so a frame claiming to act for the owner is inert. */
+export const machineTransferOwnershipInput = z.object({
+  id: z.string(),
+  newOwnerUserId: UserIdField,
+})
+
+/** Adoption's input is SHAPED IDENTICALLY to transfer's and means something
+ *  different, which is the point: the adopter names a recipient (possibly
+ *  themselves) and never names themselves as the authority. Who is asking comes
+ *  from the authenticated transport (ADR 3 D7); an `adoptedBy` field would be a
+ *  second answer to that question and is deliberately absent. */
+export const machineAdoptInput = z.object({
+  id: z.string(),
+  newOwnerUserId: UserIdField,
+})
 
 export const machinePairingCodeInput = z
   .object({ copyAgentCredentials: z.boolean().optional() })
@@ -449,6 +471,198 @@ export const machineUnshareContract = {
   serverRole: 'hub',
   cli: { summary: 'Remove a user’s machine access' },
 } as const satisfies FleetCommandContract<typeof machineUnshareInput>
+
+/**
+ * Hand a machine to another person — the product surface for D19.4d's ownership
+ * transition (POD-1480).
+ *
+ * OWNER-ONLY, and deliberately NOT owner-or-admin. Ownership is the root of the
+ * machine's whole access graph: every `see`/`use`/`manage` verb in
+ * `machineVerbsFor` resolves from it, so the authority to give the machine away
+ * is strictly larger than any verb the machine can grant. `machineSharingAuthority`
+ * already encodes exactly that rule for `share`/`unshare` — "a delegated manage
+ * grant is not authority to rewrite delegation" — and transfer is the same
+ * argument one step up. Admins are excluded for D19.4b's stated reason: an
+ * instance admin must not be able to take somebody's personal Mac, which is why
+ * a quarantined machine is not auto-assigned to the first admin either.
+ *
+ * CONSEQUENCE, stated rather than discovered: this makes an UNOWNED machine
+ * untransferable by anyone (`machineOwnerRefusal` answers absent-shaped when the
+ * owner column is null). Adopting a quarantined machine is a different act with
+ * a different authority and is filed separately, not smuggled in here.
+ *
+ * The ledger append is the commit point and `machines.owner_user_id` is the
+ * projection; this command does not change that ordering, and the enrollment
+ * ledger keeps its 'secret' / owner 'none' / 'append' / 'never-delete'
+ * classification — a transfer APPENDS an owner event, it never rewrites one.
+ */
+export const machineTransferOwnershipContract = {
+  name: 'machines.transferOwnership',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineTransferOwnershipInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    machineSharingAuthority: 'owner-only',
+    confirmation: 'none',
+    rationale:
+      'Transfer moves the root of a machine’s access graph to another person: the new owner gains see, use and manage by default and the old owner keeps none of them. The member floor keeps ordinary owners able to hand over their own hardware, the manage check keeps an invisible machine invisible, and owner-only authority excludes both a manage grantee and an instance admin from giving away compute that is not theirs.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: ['enrollment ledger owner event'],
+    owner: 'on-behalf-of-human',
+    visibility: 'owned-compute',
+    inheritanceOnCreate: 'parent',
+    note: 'Appends an owner event to the enrollment ledger — the commit point (D19.4d) — and projects it onto machines.owner_user_id. Existing grant edges are not carried over.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'An invisible machine and an unknown id share one refusal; a visible non-owner is told transfer is owner-only. The recipient id is caller-supplied too, and an unknown recipient is refused rather than silently quarantining the machine.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Transfer machine ownership to another user' },
+} as const satisfies FleetCommandContract<typeof machineTransferOwnershipInput>
+
+/**
+ * Give an owner to a machine that has none — the act transfer cannot perform,
+ * and the one POD-1114's quarantine was holding a door open for (POD-1494).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS NOT `transferOwnership` WITH A LOOSER CHECK
+ * ---------------------------------------------------------------------------
+ *
+ * Transfer's authority is the INCUMBENT OWNER'S CONSENT: `machineSharingAuthority:
+ * 'owner-only'` names a person whose say-so is the whole justification. An
+ * unowned machine has no such person, so transfer refuses it by construction —
+ * `machineOwnerRefusal` answers absent-shaped on a null owner column. Adoption
+ * is the case where consent cannot be obtained because there is nobody to obtain
+ * it from, so the authority has to come from somewhere else. Two different
+ * authorities are two contracts; one contract with an `if` in it would make the
+ * authority a runtime branch instead of a declaration.
+ *
+ * ---------------------------------------------------------------------------
+ * WHICH MACHINES — THREE UNOWNED STATES, ALL COVERED, READ OFF THE LEDGER
+ * ---------------------------------------------------------------------------
+ *
+ * "Unowned" is not one state, and the three are distinguished by what the
+ * ENROLLMENT LEDGER says, never by the `machines.owner_user_id` projection:
+ *
+ *  1. NEVER RECORDED — `recordedOwner()` is `undefined`. No owner event was ever
+ *     appended for this machine.
+ *  2. RECORDED AS UNOWNED — `recordedOwner()` is `null`. The pairing code carried
+ *     no `ownerUserId`, and `authenticateDaemon` wrote that through on purpose
+ *     ("a code with no owner produces an unowned machine").
+ *  3. QUARANTINE (D19.4b / POD-1114) — `recordedOwner()` is a user id that
+ *     `userExists` no longer resolves, so `resolveOwnerForRecovery` projects
+ *     `null`.
+ *
+ * All three are adoptable, and the predicate is one expression that already
+ * exists: `effectiveOwner()` — ledger first, row second (D19.4d rule 4) — is
+ * `null` or `undefined` in exactly these three and in no other state.
+ *
+ * COVERING QUARANTINE IS THE DELIBERATE PART, because POD-1114 is easy to
+ * misread as forbidding it. What POD-1114 refused was AUTOMATIC assignment to
+ * whoever happens to be admin after a database restore. It did not refuse
+ * assignment; it reserved room for it, and said so at the quarantine arm of
+ * `machineVerbsFor`: "Admins hold `see` so they can assign an owner; nobody
+ * holds `use`. Not auto-assigned to the first admin." This command is that
+ * assignment — deliberate, authenticated, attributed, and appended to the
+ * ledger. Refusing quarantine here would leave a remote quarantined machine with
+ * no remedy but revoke-and-physically-re-pair, which is unavailable precisely
+ * when the machine is remote.
+ *
+ * THE STATE IT REFUSES is the fourth one: a machine whose effective owner
+ * resolves to a live account. That is transfer's case, and routing it here would
+ * let the admin floor below become a way around owner-only consent.
+ *
+ * ---------------------------------------------------------------------------
+ * WHO — `admin`, AND THE FLOOR IS THE REAL GATE HERE
+ * ---------------------------------------------------------------------------
+ *
+ * Every other machine command in this family is `member`, for the reason stated
+ * at the top of this file: a floor of `admin` would make D6 M1's OWNER column
+ * unreachable. Adoption is the one machine command where that argument does not
+ * apply, because there IS no owner column to reach — the same asymmetry that
+ * makes `machines.pairingCode` an admin, and for the same underlying rule.
+ * Readiness M3 makes the PAIRING act what establishes a machine's owner, and
+ * pairing is admin-gated (ADR 9 D3 rule 5); adoption re-asserts that act for a
+ * machine that can no longer be re-paired, so it inherits pairing's authority
+ * rather than inventing a new one.
+ *
+ * The alternative — any member may claim an unowned machine — is the attacker's
+ * product. `use` on a machine is a code-execution boundary (D6 M2, readiness
+ * M2), so a self-serve claim on abandoned hardware is arbitrary code execution
+ * for anybody with an account.
+ *
+ * `machineVerb: 'see'` is NOT a weaker verb chosen for convenience; on this
+ * command it is a second, independent statement of the same rule.
+ * `machineVerbsFor` grants an admin `see` if and ONLY if the owner is null — on a
+ * machine owned by another live human an admin holds NOTHING — so `admin` + `see`
+ * already resolves to "an admin, and only on an unowned machine", and an admin
+ * pointed at somebody else's Mac gets D20's absent-shaped refusal rather than a
+ * FORBIDDEN that would confirm the machine exists. `manage` would have been
+ * wrong for a mechanical reason as well as a modelling one: nobody holds
+ * `manage` on an unowned machine, so the command would refuse every caller.
+ *
+ * `machineOwnerPrecondition: 'unowned'` then states the row condition as a
+ * DECLARATION rather than leaving it an emergent property of two other tables.
+ * Without it, adoption would still be correct today and would silently become
+ * wrong the day `machineVerbsFor`'s quarantine arm changes.
+ *
+ * ---------------------------------------------------------------------------
+ * COMMIT POINT — UNCHANGED
+ * ---------------------------------------------------------------------------
+ *
+ * Adoption APPENDS an owner event to the enrollment ledger and projects it onto
+ * `machines.owner_user_id` afterwards, through the same `transferOwnership`
+ * sequence D19.4d specifies. It rewrites no ledger entry and deletes none, so
+ * the ledger keeps its 'secret' / owner 'none' / 'append' / 'never-delete'
+ * classification, and no path is added on which the row is authoritative.
+ */
+export const machineAdoptContract = {
+  name: 'machines.adopt',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineAdoptInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'admin',
+    resource: 'machine',
+    machineVerb: 'see',
+    machineOwnerPrecondition: 'unowned',
+    confirmation: 'none',
+    rationale:
+      'Adoption gives an owner to a machine that has none — never recorded, recorded as unowned, or quarantined because the recorded account no longer resolves. There is no incumbent owner whose consent could be the authority, so the authority is the instance admin floor that already gates pairing, the act readiness M3 makes responsible for establishing a machine’s owner. The see verb is the second half of the same rule rather than a weaker check: an admin holds see on a machine only while its owner is null, so an admin aimed at an owned machine is refused as if it did not exist. The unowned precondition is declared so a machine with a live owner stays reachable only through owner-only transfer.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: ['enrollment ledger owner event'],
+    owner: 'on-behalf-of-human',
+    visibility: 'owned-compute',
+    inheritanceOnCreate: 'parent',
+    note: 'Appends an owner event to the enrollment ledger — the commit point (D19.4d) — and projects it onto machines.owner_user_id. The adopting admin names the recipient, who may be themselves; any grant edges surviving on the unowned row are dropped before the append.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'A non-admin is refused at the floor before the machine id is read, so it learns nothing. An admin naming a machine owned by someone else cannot see it and gets the never-paired refusal verbatim. Only an admin already looking at an unowned machine reaches a refusal that names the reason, and the recipient id is caller-supplied: an unresolvable recipient is refused rather than written, which would re-quarantine the machine it was adopting.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Give an owner to an unowned machine' },
+} as const satisfies FleetCommandContract<typeof machineAdoptInput>
 
 /**
  * Remove a machine from the fleet. M1's `manage` again ("unpair", "remove from
@@ -845,6 +1059,8 @@ export const FLEET_CONTRACTS = {
   'machines.rename': machineRenameContract,
   'machines.share': machineShareContract,
   'machines.unshare': machineUnshareContract,
+  'machines.transferOwnership': machineTransferOwnershipContract,
+  'machines.adopt': machineAdoptContract,
   'machines.revoke': machineRevokeContract,
   'machines.pairingCode': machinePairingCodeContract,
   'repos.add': repoAddContract,

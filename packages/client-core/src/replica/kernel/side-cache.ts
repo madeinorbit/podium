@@ -183,19 +183,87 @@ function writeJson(storage: StorageApi, key: string, value: unknown): void {
 function writeQueued(
   storage: StorageApi,
   key: string,
-  value: unknown,
+  entries: readonly OutboxEntry[],
   onDegraded: (error: unknown) => void,
 ): void {
   try {
-    storage.setItem(key, JSON.stringify(value))
+    storage.setItem(key, JSON.stringify(entries))
   } catch (error) {
-    console.error(
-      '[podium] OUTBOX persistence failed (storage quota?) — queued offline writes may be LOST on reload',
-      error,
-    )
-    onDegraded(error)
-    throw error
+    const failure = new OutboxNotDurableError(key, entries, storage, error)
+    console.error(failure.message, error)
+    onDegraded(failure)
+    throw failure
   }
+}
+
+/**
+ * A DENIED OUTBOX WRITE, SAID DETERMINATELY.
+ *
+ * The legacy path's observable — "queued offline writes MAY be LOST on reload"
+ * (POD-785 watched it fire in a real client) — is the defect wearing the costume
+ * of its own fix. It reports that something might have happened, names no
+ * mutation, and cannot be told apart from a run in which nothing was lost. A
+ * signal a reader cannot act on leaves the queue exactly as unaccountable as the
+ * empty catch did; it just makes the log longer.
+ *
+ * So this reads the store back and DIFFS it. A blob rewrite that throws leaves
+ * the previous value in place (measured, not assumed — see the suite's
+ * bounded-loss case), which means the durable set is knowable at the moment of
+ * failure and the shortfall is exactly the entries missing from it. `notDurable`
+ * is that shortfall by mutationId: what is in memory, is not on disk, and will
+ * not survive a reload.
+ *
+ * The read-back is itself guarded. A store that denies a write may well refuse a
+ * read, and a diagnostic that throws while explaining a throw would replace a
+ * determinate answer with none — so an unreadable store degrades to "every entry
+ * is unaccounted for", which is the honest reading of it.
+ */
+export class OutboxNotDurableError extends Error {
+  readonly kind = 'outbox-not-durable' as const
+  /** Which home refused: the queued, awaiting-truth or dead-letter blob. */
+  readonly stage: string
+  /** In memory, NOT on disk. These are the writes a reload would lose. */
+  readonly notDurable: readonly string[]
+  /** Confirmed on disk after the failure — the queue that a reload still sees. */
+  readonly durable: readonly string[]
+
+  constructor(
+    stage: string,
+    attempted: readonly OutboxEntry[],
+    storage: StorageApi,
+    override readonly cause: unknown,
+  ) {
+    const durable = readDurableIds(storage, stage)
+    const notDurable = attempted.map((e) => e.mutationId).filter((id) => !durable.has(id))
+    super(
+      `[podium] OUTBOX write NOT durable (${stage}): ${notDurable.length} of ${attempted.length} ` +
+        `queued writes are not on disk and will be lost on reload — ` +
+        `${notDurable.length === 0 ? 'none' : notDurable.join(', ')}`,
+    )
+    this.name = 'OutboxNotDurableError'
+    this.stage = stage
+    this.durable = [...durable]
+    this.notDurable = notDurable
+  }
+}
+
+/** What the store will still hand back after a refused write. An unreadable or
+ *  unparseable store yields NOTHING durable rather than a guess. */
+function readDurableIds(storage: StorageApi, key: string): Set<string> {
+  const ids = new Set<string>()
+  try {
+    const raw = storage.getItem(key)
+    if (raw === null) return ids
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return ids
+    for (const row of parsed) {
+      const id = (row as { mutationId?: unknown } | null)?.mutationId
+      if (typeof id === 'string') ids.add(id)
+    }
+  } catch {
+    return new Set<string>()
+  }
+  return ids
 }
 
 export function createSideCache(init: SideCacheInit): SideCache {

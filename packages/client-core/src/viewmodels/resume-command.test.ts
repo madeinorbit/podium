@@ -1,6 +1,6 @@
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { resumeCommand } from './derive'
+import { resumeCommand } from './index'
 
 describe('resumeCommand', () => {
   it('separates the Claude executable from the resume flag', () => {

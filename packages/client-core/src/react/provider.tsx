@@ -280,7 +280,11 @@ export function useCurrentPrincipal(): ClientPrincipal | null {
   return useContext(PrincipalCtx)
 }
 
-function useStoreHandle<TApi extends PodiumClientApi>(): StoreHandle<TApi> {
+/** The read seam itself. Exported for `useSlice` (POD-330), which needs the
+ *  HANDLE rather than a snapshot: the slice publisher is keyed on handle
+ *  identity so the whole tree shares one, and a new principal — a new handle —
+ *  gets a new publisher holding nothing. */
+export function useStoreHandle<TApi extends PodiumClientApi>(): StoreHandle<TApi> {
   const s = useContext(Ctx)
   if (!s) throw new Error('useStore outside StoreProvider')
   return s as unknown as StoreHandle<TApi>

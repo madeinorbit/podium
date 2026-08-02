@@ -1,5 +1,5 @@
 /**
- * The L1 gate over the twelve fleet contracts: classifications are TOTAL, the
+ * The L1 gate over the thirteen fleet contracts: classifications are TOTAL, the
  * `manage` / `use` partition is exact, the server-role split is exact, and the
  * visibility classes agree with ADR 1's matrix rather than with a literal
  * written twice.
@@ -24,10 +24,12 @@ import {
   fleetServerRoleOf,
 } from './contracts'
 
-const TWELVE: readonly FleetContractName[] = [
+const FOURTEEN: readonly FleetContractName[] = [
   'machines.rename',
   'machines.share',
   'machines.unshare',
+  'machines.transferOwnership',
+  'machines.adopt',
   'machines.revoke',
   'machines.pairingCode',
   'repos.add',
@@ -55,9 +57,9 @@ const contracts = (): AnyCommandContract[] =>
 const isDeclaredMatrixRow = (row: string): boolean =>
   OWNERSHIP_MATRIX.some((r) => (r.id as string) === row)
 
-describe('the twelve fleet contracts', () => {
-  it('declares exactly the twelve fleet commands, and no thirteenth', () => {
-    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...TWELVE].sort())
+describe('the thirteen fleet contracts', () => {
+  it('declares exactly the thirteen fleet commands, and no fourteenth', () => {
+    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...FOURTEEN].sort())
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -121,6 +123,8 @@ describe('the twelve fleet contracts', () => {
     const writesInto: Record<FleetContractName, string> = {
       'machines.rename': 'machine',
       'machines.share': 'machine',
+      'machines.transferOwnership': 'machine',
+      'machines.adopt': 'machine',
       'machines.unshare': 'machine',
       'machines.revoke': 'machine',
       'machines.pairingCode': 'pairing-token',
@@ -142,7 +146,7 @@ describe('the twelve fleet contracts', () => {
   })
 
   /**
-   * THE COUNTERFACTUAL for the assertion above. Eleven of the twelve share one class,
+   * THE COUNTERFACTUAL for the assertion above. Twelve of the thirteen share one class,
    * so an assertion that only ever compared `owned-compute` to `owned-compute`
    * would pass against a table where every contract had been copied from its
    * neighbour — which is precisely the mistake the brief flagged as costliest
@@ -167,6 +171,13 @@ describe('the twelve fleet contracts', () => {
     expect(byVerb).toEqual({
       'machines.rename': 'manage',
       'machines.share': 'manage',
+      'machines.transferOwnership': 'manage',
+      // ADOPTION IS THE ONE `see`, and it is a rule rather than a weaker check:
+      // `machineVerbsFor` grants an admin `see` only while the owner is null, so
+      // `see` here resolves to "an admin, on an unowned machine" and nothing
+      // else. `manage` would refuse every caller — nobody holds it on an
+      // unowned machine.
+      'machines.adopt': 'see',
       'machines.unshare': 'manage',
       'machines.revoke': 'manage',
       // No machine exists yet, so there is no machine to hold a verb against.
@@ -221,6 +232,8 @@ describe('the twelve fleet contracts', () => {
     expect(byRole).toEqual({
       'machines.rename': 'hub',
       'machines.share': 'hub',
+      'machines.transferOwnership': 'hub',
+      'machines.adopt': 'hub',
       'machines.unshare': 'hub',
       'machines.revoke': 'hub',
       'machines.pairingCode': 'hub',
@@ -278,14 +291,29 @@ describe('the twelve fleet contracts', () => {
     const byFloor = Object.fromEntries(
       Object.entries(FLEET_CONTRACTS).map(([n, c]) => [n, c.policy.roleFloor]),
     )
-    // The pairing mint has no row to own — the machine does not exist yet — so
-    // the floor is the only gate there is (ADR 9 D3 rule 5). Everything else
-    // has an owner column, and a floor of `admin` there would make ADR 9 D6
-    // M1's "Owner + admins" unreachable for the owner.
-    expect(byFloor['machines.pairingCode']).toBe('admin')
-    for (const name of TWELVE.filter((n) => n !== 'machines.pairingCode')) {
+    // TWO admin floors, and they are the same argument twice rather than two
+    // exceptions. The rule is "admin only where no ownership check could ever
+    // admit a member", so the question per command is whether there is an owner
+    // for such a check to read.
+    //
+    //  - `machines.pairingCode` mints a credential for a machine that does not
+    //    exist yet, so there is no row to own (ADR 9 D3 rule 5).
+    //  - `machines.adopt` (POD-1494) acts on a machine whose owner is precisely
+    //    what is MISSING — its declared precondition is `unowned`. An owner
+    //    check could not admit a member here either, because there is no owner
+    //    column with anybody in it.
+    //
+    // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
+    // D6 M1's "Owner + admins" unreachable for the owner themselves.
+    const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt']
+    for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
+    for (const name of FOURTEEN.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
     }
+    // Non-vacuity: the admin set is a strict, non-empty subset. If a refactor
+    // made every floor `admin` the loop above would pass and this would not.
+    expect(ADMIN_FLOOR.length).toBeLessThan(FOURTEEN.length)
+    expect(Object.values(byFloor).some((f) => f === 'member')).toBe(true)
   })
 
   it('validates through the SAME schema the shipped procedure validated with', () => {

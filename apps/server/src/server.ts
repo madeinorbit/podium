@@ -37,7 +37,6 @@ import { openEnrollmentLedger } from './enrollment-ledger'
 import { PairingManager } from './hub/pairing'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
-import { probeAllModels } from './model-probe'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -231,25 +230,32 @@ export async function startServer(
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager() } : {}),
-    // Live model enumeration shells out to the agent CLIs, so it's only wired in the
-    // real process; tests get the empty default and never spawn a CLI. The claude list
-    // matches the agent's auth: an Anthropic API key (env or the existing
-    // `apiKeys.anthropic` setting) for API-based Claude, else the OAuth login — no new
-    // setting. Read fresh each refresh so a settings change takes effect.
-    // TODO(#251-followup): fold this env+settings-row dual-source (and the other
-    // settings-coupled env reads: PODIUM_WEB_DIR/PODIUM_MOBILE_WEB_DIR bundle-path
-    // fallbacks below, PODIUM_HOST/PODIUM_PASSWORD, PODIUM_LOOP_PROFILE, PODIUM_CLOUD_*)
-    // into the server-side layer of the @podium/runtime/config resolver.
-    // machineId is threaded so the catalog cache keys by machine (POD-1123); the
-    // probe still shells out on THIS host today. Remote-machine probing rides the
-    // daemon later — until then only the host machine's catalog fills in live.
-    modelProbe: (_machineId) =>
-      probeAllModels({
-        claude: {
-          apiKey:
-            process.env.ANTHROPIC_API_KEY || store.secrets.get('apiKeys.anthropic') || undefined,
-        },
-      }),
+    // Live model enumeration is only wired in the real process; tests get the empty
+    // default and nothing is ever asked of a daemon.
+    // TODO(#251-followup): fold the remaining settings-coupled env reads
+    // (PODIUM_WEB_DIR/PODIUM_MOBILE_WEB_DIR bundle-path fallbacks below,
+    // PODIUM_HOST/PODIUM_PASSWORD, PODIUM_LOOP_PROFILE, PODIUM_CLOUD_*) into the
+    // server-side layer of the @podium/runtime/config resolver. The model probe's
+    // own env+settings dual-source is gone: it reads the DAEMON host's env now.
+    //
+    // WHERE THE PROBE RUNS IS WHICH MACHINE IT DESCRIBES (POD-1466).
+    //
+    // The probe only ever sees the agent CLIs installed on the host executing it,
+    // so EVERY machineId — including this host's — is answered by that machine's
+    // own daemon (`modelProbeRequest`, settled by the request correlator; `{}` on
+    // timeout, which the catalog reads as "keep the last-good snapshot"). The
+    // server used to shell out locally for every machineId, which served its own
+    // models as if they were the remote machine's.
+    //
+    // Uniform rather than "local host in-process, remote via daemon": the host's
+    // daemon is the same box, so the local branch would have bought nothing but a
+    // second code path — and it is what kept apps/server importing @podium/harness
+    // to drive agent CLIs, which the dependency boundary forbids for good reason.
+    // The one behaviour it carried is noted at the daemon handler: the claude list
+    // now resolves auth from the DAEMON host (its ANTHROPIC_API_KEY, else its
+    // Claude Code login) rather than the server's `apiKeys.anthropic` secret —
+    // which is also the auth the agents on that machine actually run under.
+    modelProbe: (machineId) => registry.modules.rpc.modelProbe(machineId),
   })
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled

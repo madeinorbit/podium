@@ -9,7 +9,7 @@ import {
   type SidebarSections,
   type UnifiedIssueRow,
   unifiedWorkList,
-} from './derive'
+} from './index'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000

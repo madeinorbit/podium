@@ -141,6 +141,8 @@ export {
   type FleetContractName,
   type FleetServerRole,
   fleetServerRoleOf,
+  machineAdoptContract,
+  machineAdoptInput,
   machinePairingCodeContract,
   machinePairingCodeInput,
   machineRenameContract,
@@ -149,6 +151,8 @@ export {
   machineRevokeInput,
   machineShareContract,
   machineShareInput,
+  machineTransferOwnershipContract,
+  machineTransferOwnershipInput,
   machineUnshareContract,
   machineUnshareInput,
   repoAddContract,
@@ -232,6 +236,14 @@ export {
   WRITE_DELIVERY,
   WRITE_POLICY,
 } from './issues/cells'
+export {
+  READ_POSITION_CONTRACT_NAMES,
+  READ_POSITION_CONTRACTS,
+  type ReadPositionAdvanceInput,
+  type ReadPositionContractName,
+  readPositionAdvanceContract,
+  readPositionAdvanceInput,
+} from './read-position/contracts'
 export {
   ISSUE_COMMAND_NAMES,
   ISSUE_CONTRACT_LIST,

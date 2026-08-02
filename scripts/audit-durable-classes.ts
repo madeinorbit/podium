@@ -207,6 +207,9 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // Deliberately NOT `personal` (grantable) and NOT `secret` (must replicate to
   // the owner's own devices). Key routing shared with POD-403.
   { store: 'user_layout', kind: 'drizzle-table', row: 'sidebar-tab-layout' },
+  // POD-1380. Event-stream read positions — per-user-state for the same reason
+  // as the layout row, and monotonic rather than last-writer-wins.
+  { store: 'user_read_position', kind: 'drizzle-table', row: 'feed-read-cursor' },
   {
     store: '<repo>/pspec/SP-xxxx.html',
     kind: 'filesystem',
@@ -347,6 +350,12 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     kind: 'filesystem',
     row: 'pairing-token',
     writeSites: ['packages/runtime/src/local-machine.ts'],
+  },
+  {
+    store: '<stateDir>/enrollment.ledger',
+    kind: 'filesystem',
+    row: 'enrollment-ledger',
+    writeSites: ['apps/server/src/enrollment-ledger.ts'],
   },
   {
     store: '<stateDir>/instance.json',

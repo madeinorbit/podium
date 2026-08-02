@@ -66,6 +66,9 @@ export const HOST_EDGE_FRAMES = [
   // Inventory probes and host metrics.
   'inventoryRequest',
   'inventoryReport',
+  // Live model enumeration (POD-1466) — the same host edge, request-correlated.
+  'modelProbeRequest',
+  'modelProbeResult',
   'hostMetrics',
   'memoryBreakdownRequest',
   'memoryBreakdownResult',

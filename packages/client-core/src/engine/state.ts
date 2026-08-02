@@ -16,6 +16,7 @@
  * to wait for it to arrive.
  */
 
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AutomationRunWire,
   AutomationWire,
@@ -73,7 +74,9 @@ export interface EngineState {
   superThreadId: string
   superOpen: boolean
   dockTab: DockTab
-  superRefreshKey: number
+  /** The signed-in user's superagent threads, published by the store (POD-330,
+   *  audit item zero). The view no longer keeps its own copy. */
+  superThreads: SuperThreadView[]
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
@@ -230,7 +233,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // an optional dock — only an explicit close ('0') keeps it collapsed.
     superOpen: seed.persisted.superOpen,
     dockTab: seed.persisted.dockTab,
-    superRefreshKey: 0,
+    superThreads: [],
     paletteOpen: false,
     // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
     selectedWorktree: seed.persisted.selectedWorktree,

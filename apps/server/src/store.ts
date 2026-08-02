@@ -22,6 +22,8 @@
  *  - superagent (threads/messages)                       → store/superagent.ts
  *  - settings/meta                                       → store/settings.ts
  *  - layout (user_layout — sidebar/tab chrome, POD-1350)  → store/user-layout.ts
+ *  - feed cursors (user_read_position — read positions, POD-1380)
+ *                                                        → store/user-read-position.ts
  *  - repos                                               → store/repos.ts
  *  - machines                                            → store/machines.ts
  *  - events/steward (podium_events/steward_state/subscriptions)
@@ -49,6 +51,7 @@ import { GrantsRepository } from './store/grants'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
+import { UserReadPositionRepository } from './store/user-read-position'
 import { UserLayoutRepository } from './store/user-layout'
 import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
@@ -91,6 +94,9 @@ export class SessionStore {
    *  that follows a person across devices. Device-local route/selection/geometry
    *  stay in client ui-state. */
   readonly layout: UserLayoutRepository
+  /** Event-stream read positions keyed `(user_id, stream_id)` (POD-1380) — how far
+   *  a person has read the issue-event log, on every device they use. */
+  readonly readPositions: UserReadPositionRepository
   /** Server-owned secrets (ADR 1 D6) — the keyed store POD-419 lifted them into,
    *  out of the settings blob that round-trips to the browser. Same reasoning as
    *  `accounts` below, now applied to the material that was left behind. */
@@ -201,6 +207,7 @@ export class SessionStore {
     this.superagent = new SuperagentRepository(this.db)
     this.settings = new SettingsRepository(this.db)
     this.layout = new UserLayoutRepository(this.db)
+    this.readPositions = new UserReadPositionRepository(this.db)
     this.secrets = new ServerSecretsRepository(this.db)
     this.settingsAudit = new SettingsAuditRepository(this.db)
     this.accounts = new AccountsRepository(this.db)

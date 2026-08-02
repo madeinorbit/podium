@@ -664,7 +664,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     review: 'POD-1385',
     protectedState: ['daemons', 'pendingByMachine', 'machineRecordsCache', 'machineNameCache'],
     argument:
-      'Machine identity, ownership and the live daemon set in one owner. `daemons` is the live connection map and `pendingByMachine` is the queue for a machine that is briefly offline — a message must move between them atomically or it is dropped or doubled, so they cannot be separated. The two caches are derived from the same rows and invalidated on the same writes. No method exceeds 45 lines; the file is 329 lines of code.',
+      'Machine INVENTORY in one owner: the live daemon set, the offline queue, the row caches, and the selection/routing that reads them. `daemons` is the live connection map and `pendingByMachine` is the queue for a machine that is briefly offline — a message must move between them atomically or it is dropped or doubled, so they cannot be separated. The two caches are derived from the same rows and invalidated on the same writes. POD-1467 re-reviewed this after POD-1114/POD-1125 grew the file past 800 and found a SECOND job had accreted: the credential lifecycle (pair/hello, the D19.4 verdict for an absent row, ledger→row owner projection), which touches none of the four protected fields. It now lives in `machines/enrollment.ts` and reaches this owner only through the `EnrollmentHost` port — deps plus the two inventory effects a credential write has. `revokeMachine` deliberately stayed here: it deletes the live socket out of `daemons`. The budget is UNCHANGED at 800 and the file is 358 lines of code under it.',
   },
   {
     file: 'apps/server/src/modules/issues/service/workflow.ts',

@@ -16,8 +16,10 @@
  * store reads them; inputs match exactly what it sends.
  */
 
+import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type {
   AgentKind,
+  ReadPositionSnapshot,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   LayoutSnapshot,
@@ -120,6 +122,16 @@ export interface PodiumClientApi {
       Record<string, string[]>
     >
   }
+  /** Per-user event-stream read positions (POD-1380). `advance` is monotonic —
+   *  the server clamps to max(stored, proposed) — and returns the caller's whole
+   *  snapshot, never anyone else's. */
+  readPosition: {
+    get: ApiQuery<void, ReadPositionSnapshot>
+    advance: ApiMutation<
+      WithMutationId<{ streamId: string; lastEventId: number; seenAt?: string | null }>,
+      ReadPositionSnapshot
+    >
+  }
   layout: {
     get: ApiQuery<void, LayoutSnapshot>
     set: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, LayoutSnapshot>
@@ -162,6 +174,10 @@ export interface PodiumClientApi {
     updatePersonal: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, PodiumSettings>
   }
   superagent: {
+    /** The signed-in principal's own threads. The authority scopes this to the
+     *  caller (doc §3.1.6 S2: superagent state is per-user and private), so the
+     *  client never asks for "a user's" threads — only for its own. */
+    listThreads: ApiQuery<void, SuperThreadView[]>
     startBtw: ApiMutation<{ sessionId: SessionId }>
     sendTurn: ApiMutation<
       { threadId: string; text: string },

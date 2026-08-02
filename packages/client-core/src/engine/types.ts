@@ -6,6 +6,7 @@
  * client).
  */
 
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AgentKind,
   ArtifactId,
@@ -33,6 +34,7 @@ import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
+import type { ReadPositionPort } from '../read-position'
 import type { ReplicatedLayoutPort } from './replicated-layout'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
@@ -132,8 +134,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   dockTab: DockTab
   setDockTab: (tab: DockTab) => void
   setSuperOpen: (open: boolean) => void
-  /** Bumped when a btw thread finishes seeding, so the superagent view refetches. */
-  superRefreshKey: number
+  /** The signed-in user's superagent threads (POD-330, audit item zero). The
+   *  view reads these instead of holding its own mirror; anything that changes
+   *  them calls {@link Store.refreshSuperThreads} rather than bumping a key. */
+  superThreads: SuperThreadView[]
+  /** Re-read the thread list. Named for what it does, unlike the refresh COUNTER
+   *  it replaces: a counter can only say "something, somewhere, changed". */
+  refreshSuperThreads: () => Promise<void>
   /** Open (or re-open) a btw superagent thread seeded from a chat session's transcript. */
   startBtw: (sessionId: SessionId) => Promise<void>
   /** Open the session's btw thread and ask the superagent for a concise tl;dr of
@@ -309,6 +316,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Command-owned replicated layout writer consumed by POD-403's routing,
    * hydration, and migration module. Device-local keys fail closed here. */
   replicatedLayout: ReplicatedLayoutPort
+  /** This person's event-stream read positions (POD-1380). Its own port, not a
+   * ui-state key: the position follows the user and merges monotonically. */
+  readPosition: ReadPositionPort
   /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
   httpOrigin: string
   /** Count of not-yet-synced outbox entries (offline-authored writes waiting to

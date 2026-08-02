@@ -665,8 +665,16 @@ export function assertReactionRegistryTotal(
     }
     const principal = row.principal as Record<string, unknown>
     if (principal.class === 'system') {
-      if (principal.actor !== 'system' || principal.writeScope !== 'acted-on-entity') {
-        throw new Error(`${id}: system reactions must preserve system attribution and entity scope`)
+      // The two halves throw SEPARATELY on purpose (POD-1470): while they shared one
+      // message, a fixture violating both could not say WHICH clause refused it, and
+      // the no-widening half went unenforced without any test noticing.
+      if (principal.actor !== 'system') {
+        throw new Error(`${id}: system reactions must preserve system attribution`)
+      }
+      if (principal.writeScope !== 'acted-on-entity') {
+        throw new Error(
+          `${id}: system reactions must not widen write scope beyond the acted-on entity`,
+        )
       }
     } else if (principal.class === 'delegated') {
       if (principal.delegation !== 'live-reference' || principal.reauthorizeAtApply !== true) {
@@ -680,6 +688,22 @@ export function assertReactionRegistryTotal(
       throw new Error(`${id}: observability must name registry events`)
     }
   }
+}
+
+/**
+ * What the composition root installs on the module seam (POD-1470).
+ *
+ * The registry literal is checked once at import, which says nothing about the
+ * assembled system: before this, a reaction reaching `modules.reactions` was never
+ * re-checked, so the principal invariants held only for definitions declared in
+ * this file. Every reaction the running server publishes now passes the totality
+ * check — a system reaction declaring a widened `writeScope` is refused at boot.
+ */
+export function composeReactions(
+  definitions: readonly unknown[] = REACTIONS,
+): readonly ReactionDefinition[] {
+  assertReactionRegistryTotal(definitions)
+  return definitions
 }
 
 assertReactionRegistryTotal(REACTIONS)

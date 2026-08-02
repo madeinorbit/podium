@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { exitedRecovery } from './derive'
+import { exitedRecovery } from './index'
 
 describe('exitedRecovery spawn errors', () => {
   it('surfaces the exact daemon diagnosis', () => {
