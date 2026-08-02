@@ -1,5 +1,7 @@
 # POD-425 Phase 4 exit gate
 
+> Latest named-candidate verdict: [2b637a2b exit gate](./pod-425-final-2b637a2b.md).
+
 > Final named-candidate verdict: [2359f9d9 exit gate](./pod-425-final-2359f9d9.md).
 > The sections below are the preserved history of earlier immutable candidates.
 
