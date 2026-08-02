@@ -1,30 +1,22 @@
 /**
- * Shapes shared by the session modules that both START a session and OWN it
- * (POD-1396).
+ * The one constant genuinely shared by the session modules (POD-1396).
  *
- * These lived on `lifecycle.ts` and moved here for one structural reason:
- * `session-start.ts` needs them, `lifecycle.ts` imports `session-start.ts`, and
- * leaving them on lifecycle would have made that pair a CYCLE. The composition
- * graph reports 0 cycles and this decomposition is not going to be what breaks
- * that.
+ * WHY THIS FILE IS THIS SMALL. It briefly held `SessionSpawnResult` too, which
+ * was wrong: a representation's home is the module that PRODUCES it, and that
+ * is `session-start.ts`. POD-302's representation registry caught the mistake —
+ * it names a declaration SITE, and after the extraction the registered site was
+ * `lifecycle.ts`, which by then only re-exported. A re-export is not a
+ * declaration.
  *
- * `lifecycle.ts` re-exports both so existing importers (`relay.ts`) are
- * unaffected — the move is invisible outside this directory.
+ * `DEFAULT_GEOMETRY` genuinely belongs here and not with either owner: it is a
+ * VALUE read by `session-start.ts` (the spawn frame), `lifecycle.ts` (the
+ * headless port) and `relay.ts`. Putting it on `session-start.ts` would have
+ * been the same mistake in the other direction — a shared constant filed under
+ * one of its three consumers. `lifecycle.ts` re-exports it so `relay.ts` is
+ * unaffected.
  */
 
-import type { AccountId, AgentKind, Geometry, SessionId } from '@podium/model'
+import type { Geometry } from '@podium/model'
 
 /** The geometry a session is born with, before any client reports a real one. */
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
-
-/** What every spawn path returns, fresh spawn and resurrect alike. */
-export interface SessionSpawnResult {
-  sessionId: SessionId
-  agentId: string
-  harness: AgentKind
-  model: string | null
-  effort: string | null
-  machine: string
-  machineId: string
-  accountId: AccountId | null
-}

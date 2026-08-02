@@ -187,6 +187,21 @@ Established over the five already landed, and worth keeping:
 5. Dispose contracts: check whether the extracted module owns a timer, loop or
    async work. None of the five so far did — but that was checked, not assumed.
    POD-1390 proved this is where a split silently drops behaviour.
+6. **GREP FOR THE OLD PATH IN THINGS THAT NAME IT, not just things that import
+   it.** Two separate instruments have now caught the same side effect of these
+   cuts, and neither typecheck nor any test can see it:
+
+   - `scripts/boundary-allowlist.ts` — a per-FILE exemption does not travel with
+     an extracted import. Moving `@podium/harness` imports into new paths made
+     `lint:boundaries` red while the design was unchanged.
+   - `packages/model/src/representations/registry.ts` — a representation entry
+     names a declaration SITE. Moving `SessionSpawnResult` left the entry
+     pointing at a module that only re-exported it, and **a re-export is not a
+     declaration**. `audit:rearch` caught it as registry rot.
+
+   So after each cut: `grep -rn '<old/path>' scripts/ packages/ docs/` and check
+   allowlists, registries and ledgers. The rule of thumb is that anything keyed
+   by a PATH rather than by a symbol will rot silently when the path changes.
 
 ## Two files whose lane verdict is ORDER-DEPENDENT
 
