@@ -1,7 +1,7 @@
 # POD-327 daemon decomposition evidence
 
-Status recorded 2026-08-02. The implementation is complete; Phase-5 exit is still open because
-the repository oracle is red and the required paired-VPS soak has not run.
+Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for a
+contention-free acceptance measurement and the required paired-VPS soak.
 
 ## Result
 
@@ -44,23 +44,28 @@ smoke passed with `codex-cli 0.146.0`.
 ## Verification
 
 - Focused daemon/protocol/router run: 10 files passed, 233 tests passed, 1 skipped.
-- Full `bun run test`: unit 639 files (9,322 passed, 19 skipped), web 182 files / 1,456 tests,
-  mobile 4 files / 34 tests, and Bun SQLite 14 tests passed.
-- `bun run typecheck`: 22/22 packages passed.
-- `bun run test:multi-instance`: passed using separate concurrent runtimes, including managed
-  account spawn and install-shell lanes.
-- `bun run audit:rearch`: passed at the checked-in baseline (31 items, 168 sites).
+- The authorization-state mutant (`auth-failed` → `blocked`) made the exact connection suite fail
+  1 of 6 tests with `blocked` versus `unauthorized`; after restoration, 1 file / 6 tests passed.
+- The configured integration lane passed 40/40 files: 287 tests passed and 6 skipped. Its separate
+  acceptance test now reaches the performance property after explicit ownership/auth updates;
+  two measurements under host load average 58–63 on 8 CPUs exceeded the unchanged 25 ms p95
+  threshold (35.84 ms and 33.23 ms), so neither is recorded as a valid green measurement.
+- `bun run typecheck`: all 25 workspace packages passed.
+- `bun run test:multi-instance`: the independent-runtime test passed 1/1 with 41 assertions,
+  managed-account spawn passed 3/3, and the install-shell lane reported `ALL OK`.
+- `bun run audit:rearch`: passed at the checked-in baseline (31 items, 142 sites).
 - `bun run audit:machine-grants`: passed.
-- `bun run audit:composition`: passed after regenerating the composition graph and construction
-  order for the new machine-diagnostic route.
+- The composition graph is acyclic/current at 177 modules, construction order is current, and the
+  reactions ledger is current at 25 reactions.
+- The Codex guard suite passed 10 tests and skipped 1 in one file; the installed binary reported
+  `codex-cli 0.146.0` and took the real-binary arm.
 - `bun scripts/render-systemd.ts --check`: passed.
 - Changed issue-local source files pass scoped Biome checks.
 
 ## Open Phase-5 gates
 
-- The oracle is red only in the integration lane. The failing pre-existing multi-user fixtures are
-  tracked by proposed discovered issue `.#3` (Oracle integration fixture drift); this result is
-  recorded as a quarantine, not described as green.
+- The integration oracle is green. The separate load acceptance still needs one low-contention
+  run at its unchanged thresholds; a host-starved timing sample is not promoted to green.
 - `bun run lint:boundaries` still reports the unrelated POD-1321 daemon-lifecycle import and dead
   allowlist entry. POD-1321 received issue mail with the current output.
 - The 48-hour unattended paired-VPS soak has not run. The authoritative steps and pass criteria

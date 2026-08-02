@@ -2423,13 +2423,15 @@ hooks contract is 0.142–0.146; another or unparsable version leaves `hooks.jso
 byte-for-byte untouched, writes a daemon banner, and sends a transport-scoped diagnostic that
 becomes one deterministic personal issue-mail for the affected machine's owner and each admin.
 
-**Gate status (2026-08-02):** the rearchitecture and machine-grant audits, typecheck, unit, E2E,
-and independent multi-instance lanes are green. The oracle is not green: its integration lane has
-pre-existing multi-user fixture drift in the janitor, version-gate, restart-notification, sync, and
-wire-window suites, tracked as discovered issue `.#3` (Oracle integration fixture drift). None of
-those failures exercises the daemon connection path, but they are not waived as a green oracle.
-The boundary audit also retains the unrelated POD-1321 allowlist failure. Phase-5 exit therefore
-remains blocked on those repository gates and the soak below.
+**Gate status (2026-08-02):** the rearchitecture and machine-grant audits, typecheck, configured
+integration lane (40/40 files; 287 passed, 6 skipped), Codex real-binary guard, and independent
+multi-instance lanes are green. The stale multi-user fixtures in janitor, version-gate,
+restart-notification, sync, wire-window, reattach-storm, and representative-load acceptance now
+carry explicit owner, transport principal, minted host-machine, and current-wire facts. The load
+acceptance reaches its measured property but still requires a contention-free pass: two runs at
+host load average 58–63 on 8 CPUs exceeded the unchanged 25 ms p95 threshold and are not accepted
+as oracle evidence. The boundary audit also retains the unrelated POD-1321 allowlist failure.
+Phase-5 exit therefore remains open on that valid timing measurement and the soak below.
 
 **POD-327 paired-VPS soak runbook (human gate):** mint a join token as the intended owner, run
 `podium setup --join <TOKEN> --persist systemd` on the VPS, and attach the resulting machine to an
