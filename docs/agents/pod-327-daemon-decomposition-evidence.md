@@ -3,9 +3,10 @@
 Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for a
 fully green oracle and the required paired-VPS soak. The unchanged interaction budget now passes
 on the current tip; repeated measurements showed that the earlier red was not a reproducible code
-regression. A quiet-VPS oracle completed but exposed deterministic registry drift, an environment
-prerequisite, and a 300-second benchmark timeout, so it is evidence of a real red rather than a
-green exit lane.
+regression. Quiet-VPS oracle runs completed the unit census. The current integration rerun
+verifies that the deterministic registry and authorization drift is repaired, but a 300-second
+benchmark timeout still reproduces on the quiet host and the VPS lacks the Codex binary required
+by the real-binary smoke. The full oracle is therefore still red rather than a green exit lane.
 
 The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. Catch-up merge
 `197271ca` incorporates integration through `3336ae8b` and the POD-1350 oracle repairs at
@@ -170,6 +171,42 @@ smoke passed with `codex-cli 0.146.0`.
   `oracle-authz.test.ts` observed `sessions.handoff` absent from relay dispatch instead of
   gate-refused; integration advanced during the run to `dfa58a4f`, whose POD-1386 delta directly
   repairs and classifies that case. The other reds are untouched by that delta and remain open.
+- The requested quiet-VPS rerun used exact integration commit
+  `809895679a1658e74e26f883f35bf1fa3b3fd170` in an isolated worktree. The exact full command was
+  `/home/till/.bun/bin/bun run test`, with
+  `PODIUM_NODE_BIN=/home/till/.podium/pod327-oracle/node-v22.22.2`; the staged Node binary's
+  SHA-256 is `81925c0995b5c1427b5d538e6a90ca2fdc4daffb786b09af749beaf7369d4e90`.
+  The transient user unit had `Restart=no` and `NRestarts=0`, ran from 16:07:43 to 16:24:44 CEST,
+  and exited 1 after 1,019.86 seconds. Load was 0.74 / 0.43 / 0.84 before the run and
+  0.75 / 2.94 / 3.86 immediately afterward.
+- The rerun's unit census was 663 files total (657 passed, 3 failed, 3 skipped) and 9,524 tests
+  total (9,500 passed, 4 failed, 20 skipped). Because `test:unit` failed, the chained web,
+  mobile, and Bun-only stages did not run. The Node override made
+  `resolve-node-executable.test.ts` pass 1 file / 2 tests. The prior deterministic
+  rearchitecture and `sessions.handoff` contract failures no longer appear.
+- `issues.normalized-wire.bench.test.ts` again hit its unchanged 300,000 ms timeout, finishing at
+  336.773 seconds while the VPS remained quiet. This is the second quiet-host reproduction and
+  remains the product red tracked by POD-1418; its timeout was not raised. The ordinary
+  `issues.normalized-wire.test.ts` passed 1 file / 7 tests in 94.661 seconds.
+- The full lane's two `rearch-audit.test.ts` failures were timing-shaped: the output-flag gate and
+  baseline-write cases exceeded 40 and 20 seconds respectively. With the VPS Bun directory
+  explicitly restored to the non-login shell's `PATH`, the entire file passed standalone:
+  1 file / 75 tests in 147.54 seconds. The first standalone attempt without that `PATH` is invalid
+  setup evidence because eight child-process cases could not resolve `bun`.
+- Both POD-1414 order-sensitive files passed in separate standalone Vitest processes:
+  `oracle-authz.test.ts` passed 1 file / 29 tests in 38.57 seconds, including the dispatched
+  `sessions.handoff` arm, and `wsServer.client-auth.test.ts` passed 1 file / 7 tests in
+  22.83 seconds. They also emitted no failure in the full lane.
+- `codex-hooks.test.ts` failed its installed-real-binary smoke because this VPS has no `codex`
+  executable on `PATH`. That is an explicit host prerequisite rather than permission to install
+  or invoke a real agent; the already-authorized local real-binary smoke remains green with
+  `codex-cli 0.146.0`. The full log is preserved on the VPS at
+  `/home/till/.podium/pod327-oracle/oracle-80989567.log` with SHA-256
+  `055fbbc35b19b91544e3568263350a4d7ad88a5740747d76e8a38d1e0d118754`. Standalone logs are
+  preserved beside it with SHA-256 values `54e712ebec9c0570be7dd600037c339fea765a5198673a18bfa14f0da108bc08`
+  (rearchitecture), `198454a0ca26263ce28567bfac0390b07da30c82bc465b4b04b3a368952351a6`
+  (oracle authorization), and `319fa88501bdd3dce386400840c7ed4f6280d709a69284a0c6ef75316d0d62a8`
+  (WebSocket client authorization).
 - Protocol-compatible soak evidence requires the control plane and daemon to be built from the
   same deployed lineage at or after integration merge `6e87329f`, which is the narrowest proven
   same-tree contract containing the POD-327 gateway/daemon handshake. There is no documented
