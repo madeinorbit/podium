@@ -23,6 +23,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { assertHermeticStateDir } from './test-hermetic-state-guard'
 
 // PODIUM_CODEX_HOOK_* (the codex hook ingest locator — PODIUM_CODEX_HOOK_URL today, plus any
 // locator POD-565's official-hooks migration adds) is scrubbed by prefix so a codex session's
@@ -119,3 +120,4 @@ if (!process.env.PODIUM_STATE_DIR) {
   // container above, so the exit cleanup removes it too.
   process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-test-'))
 }
+assertHermeticStateDir()

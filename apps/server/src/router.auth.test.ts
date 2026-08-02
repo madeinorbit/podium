@@ -18,6 +18,8 @@ function caller() {
   return appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
 }
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('auth tRPC (set / change / clear the login password)', () => {
   let dir: string
   beforeEach(() => {
@@ -25,7 +27,7 @@ describe('auth tRPC (set / change / clear the login password)', () => {
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 

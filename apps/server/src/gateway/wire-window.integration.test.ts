@@ -42,6 +42,8 @@ import { startServer } from '../server'
 
 const MACHINE = 'local'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('the wire window, over real sockets', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
@@ -61,7 +63,7 @@ describe('the wire window, over real sockets', () => {
 
   afterAll(async () => {
     await handle?.close()
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(stateDir, { recursive: true, force: true })
   })
 

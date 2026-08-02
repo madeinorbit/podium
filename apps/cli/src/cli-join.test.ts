@@ -6,6 +6,8 @@ import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyJoinToken } from './cli-join'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('applyJoinToken', () => {
   let dir: string
   beforeEach(() => {
@@ -13,7 +15,7 @@ describe('applyJoinToken', () => {
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 

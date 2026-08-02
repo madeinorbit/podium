@@ -5,6 +5,8 @@ import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerSetupRoute } from './setup-route'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('setup route', () => {
   let dir: string
   let app: Hono
@@ -15,7 +17,7 @@ describe('setup route', () => {
     registerSetupRoute(app)
   })
   afterEach(() => {
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
   })
 
