@@ -642,6 +642,37 @@ per-component `useNow` — had no test either, which is §6.5's warning arriving
 schedule: replacing a fragile mechanism does not inherit its coverage, because
 there was none to inherit. Two tests in `runtime.test.ts` close it.
 
+#### 6.4.3 The reader repairs the claim, and a repaired sentence feels like a read one
+
+Everything above — and §6.6's as-of rule, and "name what the number COUNTS" — guards
+the WRITE side. This is the same class on the READ side, and it happened between
+POD-331 and POD-1496 while they were trading the write-side rules.
+
+A sentence arrived corrupted: `sidebarSections takes , the publisher keys on
+snapshot identity alone` — a word eaten because a mail body ran through bash and
+executed the backticked parameter name. The recipient read it, understood it,
+quoted around the hole in their reply, and did not notice the hole was there. The
+surrounding sentence made the meaning recoverable, so it was recovered — silently.
+
+> **A reader with enough context to reconstruct a corrupted claim will reconstruct
+> it instead of flagging it, and the MORE EXPERT the reader, the more reliably the
+> corruption survives.** The dumb instrument caught it and the expert did not: the
+> shell printed `now: command not found`, having no model of the sentence to paper
+> the gap over with.
+
+The two failure shapes are complementary, and neither announces itself:
+
+| | reads as | caught by |
+|---|---|---|
+| a stale measurement | current | an as-of / a SHA |
+| a corrupted claim | intact | the dumb instrument, not the expert |
+
+In both, the person best equipped to notice is the one least likely to. Practical
+consequence for this repo: mail bodies and commit messages are bash arguments, so
+backticks EXECUTE — use a quoted heredoc into a file and `--body "$(cat file)"`,
+whose substituted output is not re-evaluated. The same hazard once ran `git init`
+against a worktree; here it cost one word and very nearly cost the meaning.
+
 ### 6.5 What remains after this commit
 
 - ~~The published worklist slice — POD-1502~~ — **DONE**, POD-331, at `0f760eef`.
