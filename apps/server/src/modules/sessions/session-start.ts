@@ -46,7 +46,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import { harnessSupportsInitialPrompt } from '@podium/harness'
+import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import type { ResumeRef } from '@podium/model'
 import {
   type AccountId,

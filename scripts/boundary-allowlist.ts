@@ -73,6 +73,14 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     phase: 'POD-740',
     note: 'Narrow static projection introduced by POD-398: capability metadata, resume labels and pure transcript mapper selection flow from the canonical per-CLI manifests without exposing process-driving APIs to server consumers. POD-740 moves this projection to an allowed browser-safe package.',
   },
+  // MOVED FILE, NOT NEW DEBT (POD-1385). This entry named lifecycle.ts until
+  // 72e99bfe ("refactor(sessions): split workspace and daemon lifecycle",
+  // 2026-08-01) moved the acceptAgentObservation import into daemon-lifecycle.ts
+  // and did not bring the entry with it. The gate has been red for that file
+  // ever since — an exemption does not travel with the code, and a per-file
+  // allowlist is what makes that visible. Re-pointed, not widened: still ONE
+  // entry for ONE import.
+  //
   // A third case of the SAME debt, found red on issue/279-integration (POD-1105).
   // Not new debt: this ledger was authored 2026-07-16 and the import landed
   // 2026-07-18 (ae03d500, "Establish causal session reattachment"), so it is an
@@ -90,7 +98,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   // moving a module plus its three test suites out of a guardrail issue's scope.
   {
     rule: 'agent-host-consumers',
-    file: 'apps/server/src/modules/sessions/lifecycle.ts',
+    file: 'apps/server/src/modules/sessions/daemon-lifecycle.ts',
     count: 1,
     phase: 'POD-740',
     note: 'Imports acceptAgentObservation (agent-state/causal.ts) for the observation ledger. That function is harness-agnostic — it depends only on @podium/protocol types — so this is a misfiled protocol symbol, not harness coupling. POD-740 relocates it to a package apps/server may legally reach, at which point this entry goes to zero.',

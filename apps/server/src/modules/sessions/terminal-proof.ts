@@ -31,7 +31,7 @@
  * proof is refused.
  */
 
-import { harnessObservationProvider } from '@podium/harness'
+import { harnessObservationProvider } from '../../harness-manifest'
 import type { SessionId } from '@podium/model'
 import type { ObservationCheckpointsRepository } from '../../store/observation-checkpoints'
 import type { ObservationLeaseRecord, TerminalCandidateFacts } from '../../store/types'
