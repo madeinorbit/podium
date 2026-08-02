@@ -2,12 +2,13 @@
 
 **Gate run:** 2026-08-02  
 **Candidate:** `aba864a9e2531cd8b543633ef48bb60b8f7d76a4`  
-**Verdict:** **HELD OPEN — Phase 7 entry is not unblocked.**
+**Verdict:** **REFUSED — Phase 7 entry is not unblocked.**
 
 The scheduler dependency on POD-734 is closed, but dependency readiness is not the exit
-verdict. The candidate still has an open required child, open Phase 4 defects, no fresh
-same-candidate landing record for all required lanes, and a reproduced environment-neutrality
-failure. The gate therefore does not infer green results from child closure.
+verdict. Required children remain open, POD-318's own phase-close audit refuses, the isolated
+live-redeploy proof cannot authenticate its browser, the literal module-size screen is non-zero,
+and the ten multi-user conditions lack the required production-tree counterfactuals. The gate
+therefore does not infer green results from child closure.
 
 ## Evidence convention
 
@@ -18,6 +19,16 @@ deliberate-violation instruments, environment-neutrality checks, and process clo
 The worktree was clean and exactly aligned with `issue/279-integration` (`git rev-list
 --left-right --count HEAD...issue/279-integration` returned `0 0`). The candidate identity check
 `apps/server/src/issues.expected-revision.test.ts` passed 147/147, exit 0.
+
+The POD-279 coordinator later stated that the full landing lane was green with no baseline
+failures, but supplied no candidate SHA, command list, exit codes, or counts that this report can
+audit. The coordinator separately directed this gate to run the three structural generators,
+their named refusal cases, the focused E2E lane, and the isolated redeploy check; those results
+are recorded below. Vitest resolves workspace packages to this worktree through aliases derived
+from `vitest.config.ts`'s own `import.meta.url`. The structural generators derive their repository
+root from their own local `import.meta.dirname`. Direct Bun acceptance runs used temporary root
+links whose `import.meta.resolve` output was checked against this worktree; the links were removed
+afterward and are not treated as a fix for ordinary worktree installation.
 
 ## Process closure
 
@@ -30,8 +41,13 @@ The worktree was clean and exactly aligned with `issue/279-integration` (`git re
   first-admin principal on `IssueService.addComment`; the second leaves the real wire-window
   integration test unauthenticated and timing out at the fail-closed client gate.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
-- POD-1343 is a blocking child of this gate for the reproduced worktree runtime-resolution
-  failure below.
+- POD-1351 is an open blocking child: POD-318's phase-close audit refuses three undeclared
+  residue families.
+- POD-1356 is an open blocking child: the isolated browser harness has no authenticated account,
+  so it cannot create the session required by the redeploy proof.
+- POD-1343 remains real work, but the same resolution failure reproduces before Phase 4. It was
+  corrected to top-level `discovered-from` work rather than used as evidence of a Phase 4
+  regression.
 
 The named Phase 4 child-closure criterion is therefore not met.
 
@@ -39,16 +55,40 @@ The named Phase 4 child-closure criterion is therefore not met.
 
 | Requirement | Candidate evidence | Disposition |
 | --- | --- | --- |
-| Acyclic composition and no forward thunks | Committed `docs/architecture/server-composition-graph.md`: 176 runtime modules, 282 edges, 0 cycles. Committed `docs/architecture/server-construction-order.md`: 51 declarations, 0 forward dependencies, 0 deferred service closures, 0 non-null late bindings. POD-734 attaches the latter document. | **Documented**, but no same-candidate command/exit record was attached. |
-| God-object audit zero | POD-395 records deletion of `sessions/service.ts`; POD-320 records zero IssueService inheritance and six composed capabilities over one store. The living Phase 4 ledger explicitly accepts the 600-plus session-state module as a cohesion-reviewed exception; POD-355 likewise records line count as a review signal. | **Earlier child evidence only**; no same-candidate audit result with exit code. |
-| Module graph committed | Both generated graph documents are committed at the candidate; `aba864a9` regenerates construction-order line numbers after POD-734. | **Met as a repository fact.** |
-| Session, issue, memory E2E green | POD-395 records session E2E 8 files/31 tests at its earlier candidate. POD-320 records focused issue suites but refers final lanes to its handoff. POD-322 attaches only the living ledger. | **Not evidenced at `aba864a9`.** |
-| Live redeploy preserves sessions | POD-395 records a successful supervised redeploy on 2026-08-01, including unchanged durable scope and agent PID start time. | **Attributable earlier child evidence**, not a candidate landing record. |
-| Multi-instance isolation green | POD-395 records an earlier green lane. POD-734's sole artifact is the construction-order document; its issue has no command, exit code, or same-candidate multi-instance result. | **Not evidenced at `aba864a9`.** |
+| Acyclic composition and no forward thunks | All three generators exit 0 without `--write`: 176 modules, topological construction, 25 reactions. Four files/15 named tests exercise every requested refusal mode. | **Met.** |
+| God-object audit zero | `sessions/service.ts` is absent; IssueService has one store, six capabilities, no inheritance/protected sharing. A direct size screen finds 28 production server TS modules over 600 lines; only the 621-line session-state module and 1,080-line steward have explicit reviewed exceptions in the Phase 4 record. | **Refused under the literal size criterion.** |
+| Module graph committed | All three documents are tracked and the generators report them current. The resolution ledger now has 14 former-cycle rows, not the prompt's stale count of 13. | **Met.** |
+| Session, issue, memory E2E green | `bun run test:e2e` exits 0: Test Files 8/8, Tests 31/31. It covers real session and issue/feed paths but contains no named memory-service E2E assertion. | **Partial; memory-specific evidence absent.** |
+| Live redeploy preserves sessions | Three isolated browser runs fail before session creation with `authenticated account is unavailable`; no restart assertion executes. POD-395 remains older historical evidence. | **Refused; POD-1356.** |
+| Multi-instance isolation green | Candidate-local `bun run test:multi-instance` exits 0: Bun 1/1 (41 assertions), Vitest 1 file/3 tests, installer `ALL OK`. | **Met.** |
 
 There is no fresh integrator landing record at `aba864a9` covering the required lanes. The latest
 durable coordinator handover is for an older SHA and explicitly records red tests. It cannot be
 promoted into same-candidate gate evidence.
+
+### Structural command and refusal evidence
+
+`bun scripts/server-composition-graph.ts`, `bun scripts/server-construction-order.ts`, and `bun scripts/reactions-ledger.ts` each exited 0 without `--write`: 176 modules, topological construction, and 25 reactions.
+The corresponding Vitest run passed 4 files/15 tests and names the planted runtime import cycle, future service hidden in a thunk, deferred closure around an already-constructed service, non-null late binding, `this.modules` read, missing reaction properties, durable replay without reauthorization, and system attribution/scope violations.
+
+The deletion ratchet exits 0 at the exact baseline (31 items/142 sites), but its phase-close commands disagree.
+- `bun scripts/rearch-audit.ts --phase POD-321`: exit 0, its sole item at zero.
+- `bun scripts/rearch-audit.ts --phase POD-318`: exit 1, with `local-placeholders=3`, `adoption-backfill-heals=5`, and `machine-id-unbranded-fields=26`; POD-1351 owns the required in-repository disposition and a negative case proving undeclared residue still fails.
+
+### Isolated runtime evidence
+
+Before the E2E lane, ports 9921–9923 were explicitly checked free. `bun run test:e2e` exited 0 with 8 files/31 tests and released all three ports.
+The multi-instance lane used fresh roots and six reserved ports; its Bun process test passed 1/1 with 41 assertions, its Vitest process layer passed 1 file/3 tests, and its installer layer ended `ALL OK`.
+
+For live redeploy, three fresh temp roots and explicit free ports 19921–19923 were used with `PODIUM_NO_RELAY=1`; the reaper's entire search root was redirected into each fresh directory and the test could signal only the PID stored there.
+Two unmodified runs hit the 30-second test ceiling; a diagnostic raising only Playwright's outer ceiling to 120 seconds reached the helper's own 60-second limit. All failed before session creation or restart and showed:
+
+```text
+Podium could not open its private replica
+authenticated account is unavailable
+```
+
+Every exact PID marker disappeared and every port was released. Immediately before and after these runs and the multi-instance lane, `/home/mgw/.podium/config.json` had unchanged mtime `1785657372` (`2026-08-02 09:56:12.911369050 +0200`). The live instance was never redeployed.
 
 ## Deliberate-violation probes
 
@@ -80,9 +120,14 @@ the drizzle migrator does not recognise this database handle ...
 the package is loaded twice — check how the lane resolves it
 ```
 
-This proves the gate environment can resolve two copies of `@podium/runtime`, including one from
-outside this worktree. POD-1343 owns the repair. Until it is green, further resolution-sensitive
-probe results are not trustworthy as environment-neutral evidence.
+This proves the ordinary gate environment can resolve two copies of `@podium/runtime`, including one from outside this worktree. POD-1343 owns the repair.
+
+The failure is **pre-existing, not introduced by Phase 4**. In an isolated detached worktree at `b9cf3b91b7432cd0cfe72115247b0a8ed72cc576` — the first-parent integration commit immediately before the first Phase 4 merge — the same Bun 1.3.14 sequence produced the same result:
+
+- `bun install --frozen-lockfile`: exit 0, 2,704 packages, root `node_modules/@podium` absent.
+- `bun test --conditions=@podium/source scripts/runtime-resolution.integration.test.ts`: exit 1, 0/1, identical duplicate-runtime database-handle error.
+
+POD-1343 is therefore top-level discovered work rather than a Phase 4 blocker. Evidence in this report is labelled local-by-relative-path, local-by-Vitest-alias, or local after temporary root-link instrumentation; the three earlier detector-fixture runs are not counted as gate evidence.
 
 ## Deliberately open questions
 
@@ -100,7 +145,7 @@ the cross-owner policy.
 
 ## Required next candidate
 
-The gate may be rerun only after POD-1078, POD-1315, POD-1316, and POD-1343 close with evidence.
+The gate may be rerun only after POD-1078, POD-1315, POD-1316, POD-1351, and POD-1356 close with evidence and land.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
 codes, and attribution for the structural audits, session/issue/memory E2E, live redeploy survival,
 and multi-instance isolation. Against that same SHA, this gate must run and restore the real-tree
