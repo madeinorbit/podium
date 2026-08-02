@@ -35,9 +35,11 @@ The replica first consumes known raw legacy keys into the acting principal's ver
 
 ## Verification
 
-- Final merged boundary lane: 105 tests passed across 8 files covering UI-state, totality/lint audit, Actions, replicated layout, engine, Outbox contracts, socket feed, and sync composition. The Actions/engine pair alone passed 63/63.
+- Final merged boundary lane: 106 tests passed across 8 files covering UI-state, totality/lint audit, Actions, replicated layout, engine, Outbox contracts, socket feed, and sync composition. The Actions/engine pair alone passed 63/63.
 - Counterfactual refusal was observed before the green run: a temporary second `layoutSet` from `setDockTab` failed the real-caller assertion with two pending rows, and a temporary `layoutSet` from `setView` failed the device-local assertion with one row instead of zero. Both mutations were reversed byte-for-byte; the production tree was clean before rerunning green.
+- Follow-up refusal was also observed: replacing the missing-layout-key throw with a return failed the assertion test, and widening the two exact panel-mode owner declarations back to a whole-file exemption hid a planted rogue site and failed its audit test. Both mutations were reversed; the two targeted tests passed green, and the live deletion ratchet remained exact at 32 items / 125 sites.
 - Workspace typecheck: 22/22 tasks passed across 25 scoped packages on the cached lane.
 - Browser runtime: Chromium drove a real second-panel click, real pointer tab reorder, real split/pane selection, Git dock selection, and page reload. Tab order, both pane identities/geometry, split layout, and Git dock selection survived identically; the migrated raw `podium.panelModeDefault` key was deleted.
-- Before the final integration merge, the broader lanes were node 9,404, web 1,460, mobile 34, Bun 14, plus the multi-instance acceptance lane. On integration `dfa58a4f`, the exact rearchitecture audit ran 74 tests (71 passed, 3 deterministic stale POD-1251/change-row assertions failed); that separate integration defect is the active POD-1417 and was not rebaselined in this issue.
+- Before the final integration merge, the broader lanes were node 9,404, web 1,460, mobile 34, Bun 14, plus the multi-instance acceptance lane.
+- POD-1417's stale change-row self-test fix is now merged. A full-file confirmation retry on the loaded host produced no verdict after more than three minutes and was interrupted with exit 130; after that merge, the two POD-403 selected tests passed 2/2 with 81 skipped, the live ratchet stayed baseline-exact, and workspace typecheck passed 22/22.
 

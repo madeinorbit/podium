@@ -5,6 +5,7 @@ import {
   createMemoryRouterWindow,
   createRoutedUiState,
   createRouterUiState,
+  requireReplicatedLayoutKey,
   type ReplicatedUiStatePort,
   UI_STATE_KEYS,
   UI_STATE_ROUTES,
@@ -61,6 +62,12 @@ describe('workspace ui-state routing', () => {
     }
     expect(() => uiStateRoute('podium.unclassified')).toThrow(/Unclassified UI-state key/)
     expect(uiStateRoute('podium:superfeed:cursor').home).toBe('known-unrouted')
+  })
+
+  it('throws when a replicated route has no canonical family key', () => {
+    expect(() => requireReplicatedLayoutKey(UI_STATE_KEYS.split)).toThrow(
+      'Replicated UI-state key has no layout key: podium.split',
+    )
   })
 
   it('routes local and replicated writes to exactly one home', () => {

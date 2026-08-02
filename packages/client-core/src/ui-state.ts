@@ -212,6 +212,13 @@ function replicatedString(port: ReplicatedUiStatePort, key: string): string | nu
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
+/** Fail closed: a replicated route without a canonical family key is a routing-table defect. */
+export function requireReplicatedLayoutKey(key: string): string {
+  const layoutKey = layoutKeyFromLegacy(key)
+  if (layoutKey === null) throw new Error(`Replicated UI-state key has no layout key: ${key}`)
+  return layoutKey
+}
+
 /**
  * Route reads/writes and finish the one-shot legacy migration. Replica.uiState
  * has already folded raw legacy localStorage into the acting principal's local
@@ -227,8 +234,7 @@ export function createRoutedUiState(init: {
   const read = (key: string): string | null => {
     const route = uiStateRoute(key)
     if (route.home !== 'per-user-replicated') return local.get(key)
-    const layoutKey = layoutKeyFromLegacy(key)
-    if (layoutKey === null) throw new Error(`Replicated UI-state key has no layout key: ${key}`)
+    const layoutKey = requireReplicatedLayoutKey(key)
     const current = replicatedString(replicated, layoutKey)
     if (current !== null) {
       if (local.get(key) !== null) local.set(key, null)
@@ -246,8 +252,7 @@ export function createRoutedUiState(init: {
       const route = uiStateRoute(key)
       if (route.home !== 'per-user-replicated') local.set(key, value)
       else {
-        const layoutKey = layoutKeyFromLegacy(key)
-        if (layoutKey === null) throw new Error(`Replicated UI-state key has no layout key: ${key}`)
+        const layoutKey = requireReplicatedLayoutKey(key)
         if (value === null) replicated.clear(layoutKey)
         else replicated.set(layoutKey, value)
         if (local.get(key) !== null) local.set(key, null)

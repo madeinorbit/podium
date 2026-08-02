@@ -308,6 +308,23 @@ describe('inventory checks', () => {
     expect(new Set(CHECKS.map((c) => c.id)).size).toBe(CHECKS.length)
   })
 
+  it('panel-mode-duality exempts only the two canonical owner declarations', () => {
+    const ctx = ctxOf({
+      'packages/client-core/src/ui-state.ts': [
+        "panelMode: 'podium.panelMode',",
+        "panelModeDefault: 'podium.panelModeDefault',",
+        "const rogue = 'podium.panelMode'",
+      ].join('\n'),
+      'apps/web/src/rogue.ts': "const copy = 'podium.panelModeDefault'",
+    })
+    const sites = CHECKS.find((check) => check.id === 'panel-mode-duality')?.collect(ctx) ?? []
+
+    expect(sites.map(({ file, line }) => `${file}:${line}`).sort()).toEqual([
+      'apps/web/src/rogue.ts:1',
+      'packages/client-core/src/ui-state.ts:3',
+    ])
+  })
+
   it('agent-kind-enums counts redeclarations but not the canonical one or an alias', () => {
     const ctx = ctxOf({
       // Canonical home — never counted.
