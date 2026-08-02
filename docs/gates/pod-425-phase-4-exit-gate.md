@@ -37,6 +37,18 @@ closed. At this report refresh, local `issue/279-integration` is `746580f2`, 35 
 the candidate, and its tree removes the override. That later fix is required in the next candidate
 but is not evidence for this one.
 
+### Re-candidate scheduling and red attribution
+
+This refusal is held against `aba864a9`; no new candidate should be cut until POD-1351 and
+POD-1356 land and POD-1316 either lands independently or is demonstrably covered by POD-1356's
+shared authenticated-client bootstrap. The verified results below are banked rather than rerun
+against a moving integration branch.
+
+The coordinator retracted the earlier rule that every red on this host is new. POD-1363 records a
+load-dependent rearchitecture-audit timeout, and POD-1329 found a unit-test path that overwrites
+the live host config. Therefore a future red is unattributed until it is compared under controlled
+state isolation; neither “new regression” nor “known baseline” may be inferred from color alone.
+
 The POD-279 coordinator later stated that the full landing lane was green with no baseline
 failures, but supplied no candidate SHA, command list, exit codes, or counts that this report can
 audit. The coordinator separately directed this gate to run the three structural generators,
@@ -50,10 +62,9 @@ afterward and are not treated as a fix for ordinary worktree installation.
 ## Process closure
 
 - POD-645 and POD-734 are now `done`.
-- POD-1078 is still `in_progress`. Its owner reports review-ready evidence at branch
-  `45f7420d` (4 files/66 deliberate-violation tests and 1 file/2 real-server pressure tests),
-  but that work is neither closed nor landed in candidate `aba864a9`; this gate was instructed
-  not to independently verify it before landing.
+- POD-1078 is now `done`. Its owner reported 4 files/66 deliberate-violation tests and 1 file/2
+  real-server pressure tests after this gate run, but that work is not in candidate `aba864a9`
+  and therefore cannot retroactively satisfy this candidate.
 - POD-1079 is `done`.
 - POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where the defaulted first-admin principal remains. POD-1316 remains open and leaves the real wire-window integration test unauthenticated and timing out at the fail-closed client gate.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
@@ -168,7 +179,7 @@ the cross-owner policy.
 
 ## Required next candidate
 
-The gate may be rerun only after POD-1078, POD-1316, POD-1351, and POD-1356 close with evidence, and after POD-1315's correction plus every other blocker land in the next candidate.
+The gate may be rerun only after POD-1316, POD-1351, and POD-1356 close with evidence, and after POD-1078, POD-1315's correction, and every other blocker land in the next candidate.
 Closure alone is insufficient: the next candidate tree must be inspected for every claimed fix,
 including POD-1315, before any dependency is credited as satisfied.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
