@@ -49,6 +49,41 @@
  * the argument from outliving its truth.
  *
  * ---------------------------------------------------------------------------
+ * WHAT THIS INSTRUMENT CANNOT SEE — READ BEFORE QUOTING A GREEN
+ * ---------------------------------------------------------------------------
+ *
+ * A clean run here means "no module over the line is unexplained". It does NOT
+ * mean the decomposition is sound, and the gate must not read it that way.
+ *
+ * This audit measures ONE FILE AT A TIME. Every coupling defect — the entire
+ * class of failure this epic actually exists to remove — is between files, and
+ * is therefore invisible to it. Three shapes, all real in this tree:
+ *
+ *  1. A MODULE OWNING ASYNC WORK THAT OUTLIVES ITS OWNER. POD-1390 found that
+ *     `SessionRegistry.dispose()` never touches `modules.memory`, so
+ *     memory-owned work survives the close and a ranged daemon read resolves
+ *     ~10s AFTER the SQLite handle is shut. No line count would ever surface
+ *     that, and the fix is ONE line. A short file with this defect is worse
+ *     than a long file without it.
+ *
+ *  2. PROTECTED STATE SHARED BY REFERENCE ACROSS A BOUNDARY. `observationLeases`
+ *     is a raw `Map` passed into both `SessionRepository` and
+ *     `SessionDaemonLifecycle`, and all three modules read AND write it
+ *     (POD-1396). Three files, each individually defensible; one shared mutable
+ *     map between them. Splitting a god object while leaving a map shared makes
+ *     the audit greener and the design worse.
+ *
+ *  3. A SPLIT THAT ONLY LOOKS LIKE ONE. Two files reaching into each other's
+ *     internals pass every predicate below, because each is measured alone.
+ *
+ * So the honest reading of a green is narrow: nobody is carrying an unargued
+ * god object. Acyclicity is `scripts/server-composition-graph.ts`; construction
+ * order is `scripts/server-construction-order.ts`; lifecycle ownership has NO
+ * instrument at all today and is checked only by review. This file is one of
+ * four inputs to the criterion and the weakest of them — it is the one that
+ * proves an argument EXISTS, not that the argument describes a good design.
+ *
+ * ---------------------------------------------------------------------------
  * AND WHY THERE IS NO `--update`
  * ---------------------------------------------------------------------------
  *

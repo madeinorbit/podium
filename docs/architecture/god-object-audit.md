@@ -55,6 +55,38 @@ only catches growth large enough that the reviewer's model of the file is gone.
 There is deliberately **no `--update` flag**: regenerating budgets from the tree
 would launder growth into an accepted baseline.
 
+## What this audit cannot see — read before quoting a green
+
+A clean run means **"no module over the line is unexplained."** It does **not**
+mean the decomposition is sound, and the gate must not read it that way.
+
+This audit measures **one file at a time**. Every coupling defect — the class of
+failure this epic exists to remove — is *between* files, and is therefore
+structurally invisible to it. Three shapes, all real in this tree right now:
+
+1. **A module owning async work that outlives its owner.** POD-1390 found that
+   `SessionRegistry.dispose()` never touches `modules.memory`, so memory-owned
+   work survives the close and a ranged daemon read resolves ~10 seconds *after*
+   the SQLite handle is shut. No line count would ever surface that; the fix is
+   one line. A short file with this defect is worse than a long file without it.
+   It was found by distrusting a 300 ms observation window that **passed** —
+   widening it to 14 s turned it red.
+2. **Protected state shared by reference across a boundary.** `observationLeases`
+   is a raw `Map` passed into both `SessionRepository` and
+   `SessionDaemonLifecycle`; all three modules read *and* write it (POD-1396).
+   Three files, each individually defensible, one shared mutable map between
+   them. Splitting a god object while leaving that map shared would make this
+   audit greener and the design worse.
+3. **A split that only looks like one.** Two files reaching into each other's
+   internals pass every predicate here, because each is measured alone.
+
+So the honest reading of a green is narrow: nobody is carrying an unargued god
+object. Acyclicity is `scripts/server-composition-graph.ts`; construction order
+is `scripts/server-construction-order.ts`; **lifecycle ownership has no
+instrument at all today** and is checked only by review. This audit is one of
+four inputs to the criterion and the weakest of them — it proves an argument
+*exists*, not that the argument describes a good design.
+
 ## What the predicates do not catch
 
 Stated plainly so a pass is not read as more than it is.
