@@ -28,7 +28,11 @@ import { reposToViews, tabIdFor } from '../viewmodels'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
-/** Genuinely device-local actions. This is an exclusion list, not a default. */
+/**
+ * Genuinely device-local actions. Route entries delegate to Router; the rest
+ * mutate the UiState-backed action snapshot. POD-403 owns the per-key routing.
+ * This is an exclusion list, not a default.
+ */
 export const UI_LOCAL_ACTIONS = [
   'setView',
   'setSettingsTab',
@@ -153,12 +157,24 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   const api = rt.api
   return {
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
-      rt.apply({ pins: reducePin(rt.state().pins, kind, id, pinned) })
-      await rt.outbox.enqueue('pinSet', { kind, id, pinned })
+      const previous = rt.state().pins
+      rt.apply({ pins: reducePin(previous, kind, id, pinned) })
+      try {
+        await rt.outbox.enqueue('pinSet', { kind, id, pinned })
+      } catch (error) {
+        rt.apply({ pins: previous })
+        throw error
+      }
     },
     setTabOrder: async (worktree: string, sessionIds: SessionId[]) => {
-      rt.apply({ tabOrders: { ...rt.state().tabOrders, [worktree]: sessionIds } })
-      await rt.outbox.enqueue('tabSetOrder', { worktree, sessionIds })
+      const previous = rt.state().tabOrders
+      rt.apply({ tabOrders: { ...previous, [worktree]: sessionIds } })
+      try {
+        await rt.outbox.enqueue('tabSetOrder', { worktree, sessionIds })
+      } catch (error) {
+        rt.apply({ tabOrders: previous })
+        throw error
+      }
     },
     setView: (view) => {
       const current = rt.router.current()
@@ -451,13 +467,17 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     setIssueTucked: async (id, tucked) => rt.enqueueOverlayed('issueSetTucked', { id, tucked }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
     setSidebarSettings: async (next) => {
-      rt.apply({ sidebarSettings: { ...rt.state().sidebarSettings, ...next } })
+      const previous = rt.state().sidebarSettings
+      rt.apply({ sidebarSettings: { ...previous, ...next } })
+      const values = Object.fromEntries(
+        Object.entries(next).map(([key, value]) => [`sidebar.${key}`, value]),
+      )
       try {
-        const values = Object.fromEntries(
-          Object.entries(next).map(([key, value]) => [`sidebar.${key}`, value]),
-        )
         await rt.outbox.enqueue('settingsUpdatePersonal', { values })
-      } catch {}
+      } catch (error) {
+        rt.apply({ sidebarSettings: previous })
+        throw error
+      }
     },
   }
 }

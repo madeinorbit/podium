@@ -76,6 +76,7 @@ function harness() {
   } as unknown as EngineActionRuntime<PodiumClientApi>
   return {
     actions: createEngineActions(runtime),
+    enqueue,
     queued,
     navigated,
     state: () => state,
@@ -116,6 +117,16 @@ describe('engine action ownership boundary', () => {
     expect(h.queued).toEqual([
       { kind: 'pinSet', input: { kind: 'panel', id: sessionId, pinned: true } },
     ])
+  })
+
+  it('rolls reducer optimism back when durable enqueue itself fails', async () => {
+    const h = harness()
+    h.enqueue.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    await expect(h.actions.setPinned('panel', sessionId, true)).rejects.toThrow(
+      'storage unavailable',
+    )
+    expect(h.state().pins.panels).toEqual([])
   })
 
   it('never accepts client attribution fields in assembled command payloads', async () => {
