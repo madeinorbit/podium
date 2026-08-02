@@ -72,6 +72,8 @@ function client(
     worktreeFreed?: boolean
     deferredKill?: boolean
   } = { ok: true, worktreeFreed: true, deferredKill: true },
+  handoff: { ok?: boolean; reason?: string } = { ok: true },
+  fleet: unknown = FLEET,
 ) {
   return {
     sessions: {
@@ -84,8 +86,25 @@ function client(
       ask: { mutate: vi.fn(async (): Promise<unknown> => ask) },
       title: { mutate: vi.fn(async () => title) },
       stop: { mutate: vi.fn(async () => stop) },
+      handoff: { mutate: vi.fn(async () => handoff) },
     },
+    machines: { listWithRepos: { query: vi.fn(async (): Promise<unknown> => fleet) } },
   } satisfies SessionControlClient
+}
+
+/** Two machines so `--to` has something to choose WRONG, not just something to find. */
+const FLEET = {
+  machines: [
+    { id: 'm-here', name: 'ludovico', hostname: 'ludovico', online: true, lastSeenAt: 'x' },
+    {
+      id: 'm-there',
+      name: 'quiet-box',
+      hostname: 'vmi3407763.contaboserver.net',
+      online: true,
+      lastSeenAt: 'x',
+    },
+  ],
+  repos: [],
 }
 
 describe('podium session CLI', () => {
@@ -351,3 +370,85 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
     })
   },
 )
+
+/**
+ * `podium session handoff --to <machine>` (POD-1424).
+ *
+ * POD-642 shipped the move itself; the web UI has driven it since. What was missing was
+ * a door for agents. These pin the two things this layer is responsible for: it resolves
+ * a NAME exactly, and it does not second-guess the server about anything else.
+ */
+describe('podium session handoff', () => {
+  it('resolves a machine name to the id the proc takes', async () => {
+    const c = client()
+    await expect(runSessionCli(['handoff', 's1', '--to', 'quiet-box'], c)).resolves.toBe(
+      'handing s1 off to quiet-box (m-there)',
+    )
+    expect(c.sessions.handoff.mutate).toHaveBeenCalledWith({
+      sessionId: 's1',
+      machineId: 'm-there',
+    })
+  })
+
+  it('accepts an id and a hostname for the same machine', async () => {
+    const byId = client()
+    await runSessionCli(['handoff', 's1', '--to', 'm-there'], byId)
+    expect(byId.sessions.handoff.mutate).toHaveBeenCalledWith({
+      sessionId: 's1',
+      machineId: 'm-there',
+    })
+    const byHost = client()
+    await runSessionCli(['handoff', 's1', '--to', 'vmi3407763.contaboserver.net'], byHost)
+    expect(byHost.sessions.handoff.mutate).toHaveBeenCalledWith({
+      sessionId: 's1',
+      machineId: 'm-there',
+    })
+  })
+
+  it('refuses a near-miss name WITHOUT calling handoff', async () => {
+    const c = client()
+    await expect(runSessionCli(['handoff', 's1', '--to', 'quiet'], c)).rejects.toThrow(
+      /no visible machine named 'quiet'/,
+    )
+    // The refusal has to happen BEFORE the move: a guessed name that reached the server
+    // would place a live session on a host nobody named.
+    expect(c.sessions.handoff.mutate).not.toHaveBeenCalled()
+  })
+
+  it('needs both a session id and a destination', async () => {
+    await expect(runSessionCli(['handoff', '--to', 'quiet-box'], client())).rejects.toThrow(
+      /handoff needs a session id/,
+    )
+    await expect(runSessionCli(['handoff', 's1'], client())).rejects.toThrow(
+      /handoff needs a destination/,
+    )
+  })
+
+  it("surfaces the server's refusal reason rather than a local guess", async () => {
+    // No client-side pre-flight on online-ness or harness exportability: the server
+    // decides, with a reason this layer could not have reconstructed.
+    const c = client(undefined, undefined, undefined, undefined, undefined, {
+      ok: false,
+      reason: 'target machine is offline',
+    })
+    await expect(runSessionCli(['handoff', 's1', '--to', 'quiet-box'], c)).rejects.toThrow(
+      /target machine is offline/,
+    )
+  })
+
+  it('--json reports the machine it resolved to', async () => {
+    const out = await runSessionCli(['handoff', 's1', '--to', 'quiet-box', '--json'], client())
+    expect(JSON.parse(out)).toEqual({
+      command: 'handoff',
+      ok: true,
+      sessionId: 's1',
+      machineId: 'm-there',
+      machine: 'quiet-box',
+    })
+  })
+
+  it('lists handoff in the help', async () => {
+    const out = await runSessionCli(['--help'], client())
+    expect(out).toContain('handoff <session-id> --to <name|id>')
+  })
+})

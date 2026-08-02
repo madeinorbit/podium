@@ -1,5 +1,6 @@
 import { makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { type MachineRow, selectMachine } from './machine-cli'
 import { makeOperatorIssueClient } from './operator-client'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
@@ -9,6 +10,9 @@ type SessionQuery = { query(input: Record<string, unknown>): Promise<unknown> }
 /** `sessions.title` (#490): the agent names its OWN session — refusal (the user
  *  already named it) comes back as ok:false + reason, not as a thrown error. */
 type TitleResult = { ok: boolean; name?: string; reason?: string }
+
+/** `sessions.handoff` (POD-642): move a live session, worktree and all, to another machine. */
+type HandoffResult = { ok?: boolean; reason?: string; machineId?: string }
 
 /** `sessions.stop` [spec:SP-9904]: clean end; free worktree, keep branch. */
 type StopResult = {
@@ -32,7 +36,11 @@ export interface SessionControlClient {
     title: { mutate(input: Record<string, unknown>): Promise<TitleResult> }
     /** Clean end [spec:SP-9904] — no sessionId = stop the CALLING session. */
     stop: { mutate(input: Record<string, unknown>): Promise<StopResult> }
+    /** Move a live session to another machine (POD-642), opened to agents by POD-1424. */
+    handoff: { mutate(input: Record<string, unknown>): Promise<HandoffResult> }
   }
+  /** Only to turn the machine NAME a human typed into the id the proc takes. */
+  machines: { listWithRepos: { query(input?: unknown): Promise<unknown> } }
 }
 
 /** Tier-1 status wire shape (modules/sessions/read-toolkit). */
@@ -246,6 +254,10 @@ function helpText(): string {
     "      No id = stop THIS session (an agent's last act when done). Refuses when the",
     '      working tree has unsaved changes unless --force. Stopping a session outside',
     '      your issue subtree requires --outside-scope (human permission asserted).',
+    '  handoff <session-id> --to <name|id> [--outside-scope]',
+    '      Move a running session to another machine: its worktree, branch, conversation',
+    '      and binding all travel. See `podium machine list` for the names. The target is',
+    '      re-authorized at apply time, so a refusal comes back with the server reason.',
   ].join('\n')
 }
 
@@ -269,6 +281,7 @@ export async function runSessionCli(
     'since',
     'question',
     'timeout',
+    'to',
   ])
   const unknown = Object.keys(args).filter((k) => !known.has(k))
   if (unknown.length) {
@@ -325,6 +338,48 @@ export async function runSessionCli(
           ...(r.reason ? { reason: r.reason } : {}),
         })
       : parts.join('; ')
+  }
+
+  /**
+   * `podium session handoff <id> --to <name|id>` (POD-1424).
+   *
+   * POD-642 shipped the whole cross-machine handoff — worktree, branch, conversation
+   * and binding all move, with the target re-authorized at apply time — and the web UI
+   * has driven it since. Agents had no door to it. This is the door.
+   *
+   * IT RESOLVES A NAME AND DOES NOTHING ELSE. No local pre-flight on whether the target
+   * is online, whether `use` is granted, or whether the harness can export: the server
+   * refuses all three at apply time with reasons this layer cannot reconstruct, and a
+   * friendly client-side check would flatten "refused" and "unreachable" into one guess
+   * — a distinction this project keeps on purpose.
+   */
+  if (command === 'handoff') {
+    const target = positionals[0]
+    if (!target) throw new SessionCliError('handoff needs a session id')
+    if (positionals.length > 1) throw new SessionCliError(`unexpected argument: ${positionals[1]}`)
+    const to = args.to
+    if (typeof to !== 'string' || !to.trim()) {
+      throw new SessionCliError(
+        'handoff needs a destination: podium session handoff <session-id> --to <name|id> (see `podium machine list`)',
+      )
+    }
+    const { machines } = (await client.machines.listWithRepos.query()) as {
+      machines: MachineRow[]
+    }
+    // Same exact matcher `podium machine show` uses, so an unknown name is refused
+    // identically by both rather than by a second copy of the rule.
+    const machine = selectMachine(machines, to.trim())
+    const r = await client.sessions.handoff.mutate({ sessionId: target, machineId: machine.id })
+    if (r?.ok === false) throw new SessionCliError(r.reason ?? 'handoff was not accepted')
+    return args.json === true
+      ? JSON.stringify({
+          command: 'handoff',
+          ok: true,
+          sessionId: target,
+          machineId: machine.id,
+          machine: machine.name,
+        })
+      : `handing ${target} off to ${machine.name} (${machine.id})`
   }
 
   const sessionId = positionals[0]
