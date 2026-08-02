@@ -9,6 +9,7 @@ import {
 } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { systemPrincipal } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -21,6 +22,21 @@ import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
+
+/**
+ * Who the worktree/integration comments below are stamped as (POD-1315).
+ *
+ * `addComment` now REQUIRES a principal, and these sites have no user to name:
+ * `freeWorktreeKeepBranch`, `cleanup` and `integrate` take an issue ref and
+ * nothing else, so the invoking human is already gone by the time this plane
+ * runs. A system principal is the honest answer — `attributionOf` renders it as
+ * `system:<job>`, matching the `author` these comments have always carried, and
+ * leaves `onBehalfOf` null instead of defaulting to an operator (ADR 3
+ * Amendment 1 D21.2). This is NOT a stand-in for a user: threading the real
+ * caller down here is POD-1344, and until that lands nothing in this plane may
+ * pretend to know one.
+ */
+const automationPrincipal = (job: 'stop' | 'cleanup' | 'integrate') => systemPrincipal(job)
 
 /**
  * Git-workflow capability: worktree
@@ -369,6 +385,7 @@ export class IssueGitWorkflowModule {
       row.id,
       'system:stop',
       `stop: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
+      automationPrincipal('stop'),
     )
     this.store.emitEvent('issue.worktree_freed', row.id, {
       seq: row.seq,
@@ -495,6 +512,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
+        automationPrincipal('cleanup'),
       )
       this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
       return { ok: true, output: `deleted branch ${branch}`, issue }
@@ -520,6 +538,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${branch})`,
+        automationPrincipal('cleanup'),
       )
       this.store.emitEvent('issue.cleaned', row.id, {
         seq: row.seq,
@@ -565,6 +584,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
+        automationPrincipal('cleanup'),
       )
       return {
         ok: false,
@@ -578,6 +598,7 @@ export class IssueGitWorkflowModule {
       row.id,
       'system:cleanup',
       `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
+      automationPrincipal('cleanup'),
     )
     this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
     return { ok: true, output: `removed ${worktreePath}; deleted branch ${branch}`, issue }
@@ -728,7 +749,13 @@ export class IssueGitWorkflowModule {
       .listIssueComments(row.id)
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
-    if (prior?.body !== summary) this.commentsMail().addComment(row.id, 'system:integrate', summary)
+    if (prior?.body !== summary)
+      this.commentsMail().addComment(
+        row.id,
+        'system:integrate',
+        summary,
+        automationPrincipal('integrate'),
+      )
     if (blockedAt != null) {
       this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
     }
