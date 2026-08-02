@@ -263,7 +263,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     terminal(
-      rejection.reason === 'auth-failed' ? 'blocked' : 'blocked',
+      rejection.reason === 'auth-failed' ? 'unauthorized' : 'blocked',
       'peerHelloRejected',
       rejection.message ?? rejection.reason,
       active,
