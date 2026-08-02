@@ -81,10 +81,8 @@ import {
   useSyncExternalStore,
 } from 'react'
 import type { PodiumClientApi } from '../api'
-import type { ClientPrincipal } from '../principal'
-import { samePrincipal } from '../principal'
 import {
-  ClientRuntime,
+  type ClientRuntime,
   type CreateReplicaForPrincipal,
   createClientRuntime,
 } from '../engine/runtime'
@@ -96,16 +94,18 @@ import {
   type StoreServerConfig,
 } from '../engine/types'
 import type { CreateEngineOutbox } from '../engine/wiring'
-import type { RouterWindow } from '../ui-state'
+import type { ClientPrincipal } from '../principal'
+import { samePrincipal } from '../principal'
 import type { FeedSinkPort } from '../socket-transport'
+import type { RouterWindow } from '../ui-state'
 
 // Shared runtime seams (#262): types live with the runtime; re-exported here so
 // the react entrypoint's public surface is unchanged.
 export type { Store, StoreNotices, StoreServerConfig, UserFocus } from '../engine/types'
+export type { ClientPrincipal } from '../principal'
 // The main-view union lives with the router (URL ↔ view mapping).
 export type { MainView } from '../ui-state'
 export type { FileTab } from '../viewmodels'
-export type { ClientPrincipal } from '../principal'
 
 /** The read seam the hooks consume — the runtime, structurally. */
 interface StoreHandle<TApi extends PodiumClientApi> {

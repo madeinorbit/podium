@@ -19,6 +19,7 @@
 
 import type { ClientPrincipal } from '@podium/client-core/principal'
 import { inspectPrincipalNamespaces, type ReplicaMode } from '@podium/client-core/replica'
+import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import {
@@ -27,7 +28,6 @@ import {
   openKernelAssembly,
   resolveWebReplicaMode,
 } from './kernelReplica'
-import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 
 export type KernelReplicaGate =
   /** Still deciding. The caller must render its loading screen. */

@@ -362,11 +362,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   /** The #119 placeholder pair: paint a starting session and its draft issue
    *  before the create round-trips, and settle them when it answers. */
-  spawnDraftAgent(args: {
-    target: SpawnTarget
-    agentKind: AgentKind
-    firstPrompt?: string
-  }): { sessionId: SessionId; issueId: IssueId } {
+  spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
+    sessionId: SessionId
+    issueId: IssueId
+  } {
     // Machine USE is a code-execution boundary. Refuse before minting ids or
     // painting optimistic rows: a forbidden target must never appear as a
     // temporarily-created session/issue while the async network seam rejects.

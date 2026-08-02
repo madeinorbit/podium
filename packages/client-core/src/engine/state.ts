@@ -36,7 +36,14 @@ import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
-import type { DockTab, FileTab, PinState, RecentFileEntry } from '../viewmodels'
+import {
+  type DockTab,
+  EMPTY_PINS,
+  type FileTab,
+  type PinState,
+  type RecentFileEntry,
+} from '../viewmodels'
+import { EMPTY_ID_SET } from './overlay'
 import type { Store, UserFocus } from './types'
 
 /** The runtime's mutable data slices — exactly the non-function fields of Store
@@ -162,5 +169,90 @@ export function userFocus(st: EngineState): UserFocus {
     ...(focusedId && isSession(focusedId) ? { focusedSessionId: focusedId } : {}),
     visibleSessionIds: paneIds.filter(isSession),
     ...(focusedFile ? { filePath: focusedFile.path } : {}),
+  }
+}
+
+/** Everything the first snapshot needs that the runtime has to gather first:
+ *  the hydrated UI state, the current route, the replica's seed rows already
+ *  folded through the optimistic ledger, and the outbox's restored recovery
+ *  home. */
+export interface EngineStateSeed {
+  readonly persisted: WorkspaceUiSnapshot
+  readonly route: { settingsTab: string | null; issueId?: string | null }
+  readonly sessions: SessionMeta[]
+  readonly issues: IssueWire[]
+  readonly issueProjections: IssueProjectionRow[]
+  readonly conversations: ConversationSummaryWire[]
+  readonly automations: AutomationWire[]
+  readonly automationRuns: AutomationRunWire[]
+  readonly outboxDeadLetters: OutboxDeadLetterEntry[]
+  readonly recoverOutbox: Store['recoverOutbox']
+}
+
+/**
+ * The FIRST snapshot, hydrate-first (#262 review).
+ *
+ * The replica's collections load synchronous storage at construction, so the
+ * entity slices are seeded from them BEFORE any subscriber reads — an empty
+ * initial snapshot regressed persisted rows into "not found" flashes until
+ * start() (a passive effect) ran. The same reasoning covers the queued outbox
+ * overlays and the restored dead letters: anything already durable belongs in
+ * the very first paint, or it appears to have been lost.
+ *
+ * It is a pure function of the seed so the shape and its initial value live
+ * together — a field added to `EngineState` without an initial value here is a
+ * compile error rather than an `undefined` that shows up as a blank pane.
+ */
+export function initialEngineState(seed: EngineStateSeed): EngineState {
+  return {
+    repos: [],
+    reposLoading: false,
+    reposLoaded: false,
+    repoDiagnostics: [],
+    sessions: seed.sessions,
+    issues: seed.issues,
+    issueProjections: seed.issueProjections,
+    conversations: seed.conversations,
+    automations: seed.automations,
+    automationRuns: seed.automationRuns,
+    pendingSpawnIds: EMPTY_ID_SET,
+    hostMetrics: [],
+    machines: [],
+    approvals: [],
+    pins: EMPTY_PINS,
+    tabOrders: {},
+    view: seed.persisted.view,
+    settingsTab: seed.route.settingsTab,
+    openIssueId: asIssueIdOrNull(seed.route.issueId),
+    peekIssueId: null,
+    superThreadId: 'global',
+    // Default OPEN: the superagent is the desktop shell's center column now, not
+    // an optional dock — only an explicit close ('0') keeps it collapsed.
+    superOpen: seed.persisted.superOpen,
+    dockTab: seed.persisted.dockTab,
+    superRefreshKey: 0,
+    paletteOpen: false,
+    // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
+    selectedWorktree: seed.persisted.selectedWorktree,
+    selectedIssueId: seed.persisted.selectedIssueId,
+    // DECODE EDGE: the pane selection comes from the URL route or persisted UI
+    // state — both raw strings — so this is where it re-enters the id space.
+    paneA: seed.persisted.paneA,
+    paneB: seed.persisted.paneB,
+    split: seed.persisted.split,
+    // Which pane has input focus. Not persisted — it resets to A on reload,
+    // which is the right default (A is always the shown pane when split is off).
+    focusedPane: 'A',
+    panelMode: seed.persisted.panelMode,
+    dockShells: seed.persisted.dockShells,
+    dockVisibleSession: null,
+    autoContinuePromptSessionId: null,
+    drafts: {},
+    sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+    fileTabs: [],
+    recentFiles: seed.persisted.recentFiles,
+    outboxSize: 0,
+    outboxDeadLetters: seed.outboxDeadLetters,
+    recoverOutbox: seed.recoverOutbox,
   }
 }

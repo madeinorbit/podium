@@ -68,18 +68,22 @@ import {
   type RouteState,
   routeDefaults,
 } from '../ui-state'
-import { EMPTY_PINS, type RecentFileEntry, reposToViews } from '../viewmodels'
+import { type RecentFileEntry, reposToViews } from '../viewmodels'
 import { createEngineActions, type EngineActions } from './actions'
 import { BootFetches } from './boot'
-import { EMPTY_ID_SET } from './overlay'
 import { dedupeSessions, OptimismLedger } from './optimism'
 import { Reactions } from './reactions'
-import { createReplicaBinding, type ReplicaBinding, type ReplicaPublication } from './replica-binding'
+import {
+  createReplicaBinding,
+  type ReplicaBinding,
+  type ReplicaPublication,
+} from './replica-binding'
 import type { ReplicatedLayoutController } from './replicated-layout'
 import {
   asIssueIdOrNull,
   type EngineState,
   type EngineStatics,
+  initialEngineState,
   tabIsVisible,
   userFocus,
   workspaceUiSnapshot,
@@ -214,7 +218,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (typeof init.createReplicaFn !== 'function') {
       throw new Error(
         'a client runtime requires createReplicaFn: the platform composition root builds the ' +
-          "replica for a NAMED principal and is responsible for establishing that its persisted " +
+          'replica for a NAMED principal and is responsible for establishing that its persisted ' +
           'store belongs to that principal (POD-307 / POD-1239 / POD-404).',
       )
     }
@@ -309,57 +313,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.baseIssueProjections,
       (i) => i.id,
     )
-    this.state = {
-      repos: [],
-      reposLoading: false,
-      reposLoaded: false,
-      repoDiagnostics: [],
+    this.state = initialEngineState({
+      persisted,
+      route,
       sessions: seededSessionFold.rows,
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
       conversations: replicaSeed.conversations,
       automations: replicaSeed.automations,
       automationRuns: replicaSeed.automationRuns,
-      pendingSpawnIds: EMPTY_ID_SET,
-      hostMetrics: [],
-      machines: [],
-      approvals: [],
-      pins: EMPTY_PINS,
-      tabOrders: {},
-      view: persisted.view,
-      settingsTab: route.settingsTab,
-      openIssueId: asIssueIdOrNull(route.issueId),
-      peekIssueId: null,
-      superThreadId: 'global',
-      // Default OPEN: the superagent is the desktop shell's center column now, not
-      // an optional dock — only an explicit close ('0') keeps it collapsed.
-      superOpen: persisted.superOpen,
-      dockTab: persisted.dockTab,
-      superRefreshKey: 0,
-      paletteOpen: false,
-      // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
-      selectedWorktree: persisted.selectedWorktree,
-      selectedIssueId: persisted.selectedIssueId,
-      // DECODE EDGE: the pane selection comes from the URL route or persisted UI
-      // state — both raw strings — so this is where it re-enters the id space.
-      paneA: persisted.paneA,
-      paneB: persisted.paneB,
-      split: persisted.split,
-      // Which pane has input focus. Not persisted — it resets to A on reload,
-      // which is the right default (A is always the shown pane when split is off).
-      focusedPane: 'A',
-      panelMode: persisted.panelMode,
-      dockShells: persisted.dockShells,
-      dockVisibleSession: null,
-      autoContinuePromptSessionId: null,
-      drafts: {},
-      sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
-      fileTabs: [],
-      recentFiles: persisted.recentFiles,
-      outboxSize: 0,
-      // Hydrate-first, like the entity slices above: the outbox constructor has
+      // Hydrate-first, like the entity slices: the outbox constructor has
       // already restored its durable recovery home, so the first Store snapshot
-      // must expose it without waiting for start() or another queue notification.
+      // must expose it without waiting for start() or a queue notification.
       outboxDeadLetters: this.outbox.deadLetters(),
       recoverOutbox: {
         // Every one of these repaints through the outbox subscription, because
@@ -378,7 +343,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.apply({ outboxDeadLetters: this.outbox.deadLetters() })
         },
       },
-    }
+    })
     this.statics = this.buildStatics(actions)
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot())
   }
@@ -636,7 +601,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // Session-follows-view policy: diffs consecutive session snapshots.
     if (changed.has('sessions')) this.reactions.worktreeFollow()
     // Worktree fallback selection.
-    if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree')) this.reactions.worktreeFallback()
+    if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree'))
+      this.reactions.worktreeFallback()
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))

@@ -271,12 +271,12 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // the fact that teardown was CALLED — can be measured.
     const torn: ClientRuntime[] = []
     const realDestroy = ClientRuntime.prototype.destroy
-    const destroySpy = vi
-      .spyOn(ClientRuntime.prototype, 'destroy')
-      .mockImplementation(function (this: ClientRuntime) {
-        torn.push(this)
-        realDestroy.call(this)
-      })
+    const destroySpy = vi.spyOn(ClientRuntime.prototype, 'destroy').mockImplementation(function (
+      this: ClientRuntime,
+    ) {
+      torn.push(this)
+      realDestroy.call(this)
+    })
 
     // ---- ALICE, with all four carriers loaded -----------------------------
     await renderAs(ALICE, api)

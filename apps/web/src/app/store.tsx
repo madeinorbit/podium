@@ -7,12 +7,9 @@
  * and re-exports the typed hooks so existing `./store` imports keep working.
  */
 
-import type {
-  CreateEngineOutbox,
-  CreateReplicaForPrincipal,
-} from '@podium/client-core/engine'
-import type { ClientPrincipal } from '@podium/client-core/principal'
+import type { CreateEngineOutbox, CreateReplicaForPrincipal } from '@podium/client-core/engine'
 import { setSwitchTraceReporter } from '@podium/client-core/perf'
+import type { ClientPrincipal } from '@podium/client-core/principal'
 import {
   type Store as CoreStore,
   StoreProvider as CoreStoreProvider,

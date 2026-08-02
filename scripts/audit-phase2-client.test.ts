@@ -18,7 +18,9 @@ import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   clientVisibilityFilter,
+  constructionOutsideProvider,
   discoverCompositionRoots,
+  identityFromNonTransportSource,
   perUserStateLocalHome,
   REPO_ROOT,
   readClientLines,
@@ -310,6 +312,87 @@ describe('phase-2 client audit — the composition-root detector', () => {
   })
 })
 
+describe('phase-2 client audit — the POD-404 principal-boundary detectors', () => {
+  const PROVIDER = 'packages/client-core/src/react/provider.tsx'
+  const RUNTIME = 'packages/client-core/src/engine/runtime.ts'
+  const WIRING = 'packages/client-core/src/engine/wiring.ts'
+
+  it('construction-outside-provider fires on a second runtime construction site', () => {
+    const found = constructionOutsideProvider(
+      lines('apps/web/src/features/preview/PreviewShell.tsx', 'const rt = createClientRuntime({})'),
+    )
+    expect(found).toHaveLength(1)
+  })
+
+  it('fires on the `new` spelling too — one concept, two syntaxes', () => {
+    // A detector that knows only the factory certifies the constructor. The
+    // failure it must catch is a second principal boundary, and `new` opens one
+    // exactly as well as the factory does.
+    const found = constructionOutsideProvider(
+      lines('apps/mobile/src/client/Preview.tsx', 'const rt = new ClientRuntime(init)'),
+    )
+    expect(found).toHaveLength(1)
+  })
+
+  it('fires on a transport or an outbox opened outside the runtime', () => {
+    const found = constructionOutsideProvider([
+      ...lines('apps/web/src/lib/sneaky.ts', 'const hub = createEngineHub({ wsClientUrl })'),
+      ...lines('apps/web/src/lib/sneaky.ts', 'const q = createEngineOutbox({ api, replica })'),
+    ])
+    expect(found).toHaveLength(2)
+  })
+
+  it('does NOT fire on the provider, the runtime, or the DEFINITIONS in wiring', () => {
+    // The three near misses that would make this item unlivable: the one legal
+    // caller, the factory's own body, and the declarations themselves. A
+    // MENTION is not a call and a DEFINITION is not a call — item 4 learned that
+    // the expensive way and this item inherits the lesson rather than repeating it.
+    const found = constructionOutsideProvider([
+      ...lines(PROVIDER, 'runtime: createClientRuntime<TApi>({ principal, config, api })'),
+      ...lines(RUNTIME, 'return new ClientRuntime(init)'),
+      ...lines(RUNTIME, 'this.hub = createEngineHub({ wsClientUrl: init.config.wsClientUrl })'),
+      ...lines(RUNTIME, 'this.outbox = (init.createOutboxFn ?? createEngineOutbox)({ api })'),
+      ...lines(WIRING, 'export function createEngineHub(init: CreateEngineHubInit): SocketHub {'),
+      ...lines(
+        WIRING,
+        'export function createEngineOutbox(init: EngineOutboxInit): EngineOutbox {',
+      ),
+    ])
+    expect(found).toEqual([])
+  })
+
+  it('identity-from-non-transport-source fires on all three spellings of the concept', () => {
+    // Enumerated rather than approximated: storage, URL, payload. A detector
+    // that knew only one would certify the other two, which is how a rule that
+    // reads as absolute becomes a rule about one syntax.
+    const found = identityFromNonTransportSource([
+      ...lines('apps/web/src/lib/x.ts', "const who = localStorage.getItem('podium.last-user')"),
+      ...lines('apps/web/src/lib/y.ts', "const who = searchParams.get('userId')"),
+      ...lines('apps/mobile/src/z.ts', 'const principal = payload.userId'),
+    ])
+    expect(found).toHaveLength(3)
+  })
+
+  it('does NOT fire on the theme, the namespace markers, or the retirement of the old ledger', () => {
+    // THE THREE THAT MUST STAY LEGAL, and each for a different reason:
+    //  - the theme is the ONE documented pre-auth storage read and names no identity;
+    //  - the offline fallback ENUMERATES namespace markers rather than reading an
+    //    identity-named key, and fails closed when more than one exists;
+    //  - deleting the retired raw ledger derives nothing at all — flagging it
+    //    would be arguing for the ledger's return.
+    const found = identityFromNonTransportSource([
+      ...lines('apps/web/src/lib/theme.ts', "localStorage.getItem('podium-theme')"),
+      ...lines('apps/web/src/lib/use-kernel-replica.ts', 'inspectPrincipalNamespaces({ storage })'),
+      ...lines(
+        'apps/web/src/lib/kernelReplica.ts',
+        "globalThis.localStorage.removeItem('podium-kernel-identity-ledger')",
+      ),
+      ...lines('apps/web/src/lib/k.ts', 'const principal = await resolveReplicaPrincipal()'),
+    ])
+    expect(found).toEqual([])
+  })
+})
+
 describe('phase-2 client audit — it reads a non-empty repository', () => {
   it('finds source lines under every client root', () => {
     // The whole audit runs over `readClientLines`. If a root were renamed, every
@@ -326,6 +409,8 @@ describe('phase-2 client audit — it reads a non-empty repository', () => {
       'client-visibility-filter',
       'per-user-state-local-home',
       'unattributed-store-read',
+      'construction-outside-provider',
+      'identity-from-non-transport-source',
     ])
   })
 })

@@ -78,6 +78,35 @@ describe('UI persistence ownership lint', () => {
     expect(source).toContain('writePreAuthTheme(key: PreAuthThemeKey, value: string)')
   })
 
+  it('the theme is the ONLY pre-auth home — the converse of the forward check', () => {
+    // POD-403 asserts every theme key routes to `pre-auth-theme`. That is half
+    // the claim, and the half that cannot notice a SECOND key joining the
+    // exception. POD-404 makes the theme the *named* exception, so the closed
+    // direction is what has to hold: over the whole known vocabulary, exactly
+    // the theme keys are pre-auth. A new pre-auth key is a new read that happens
+    // before a principal exists, which is the one thing the fail-closed
+    // provider cannot police — it does not exist yet when that read happens.
+    const everyKnownKey = [
+      ...DEVICE_LOCAL_UI_KEYS,
+      ...Object.keys(LAYOUT_KEY_FROM_LEGACY),
+      ...CLIENT_DEVICE_LOCAL_UI_KEYS,
+      ...THEME_UI_KEYS,
+      'podium:superfeed:cursor',
+    ]
+    const preAuth = everyKnownKey.filter((key) => uiStateRoute(key).home === 'pre-auth-theme')
+    expect([...new Set(preAuth)].sort()).toEqual([...THEME_UI_KEYS].sort())
+  })
+
+  it('ui-state has exactly one unnamespaced READER, and it is the theme', () => {
+    // The write side is asserted above. The read side is the one that matters
+    // for the pre-auth claim: a read is what can adopt another principal's data,
+    // and a raw read is one that happens outside the principal namespace.
+    const source = readFileSync(UI_STATE_SOURCE, 'utf8')
+    const reads = source.match(/(?:globalThis\.|window\.)?localStorage\??\.getItem\([^\n]+/g) ?? []
+    expect(reads).toEqual(['globalThis.localStorage?.getItem(key) ?? null'])
+    expect(source).toContain('readPreAuthTheme')
+  })
+
   it('the raw-storage detector rejects a planted owned-key access', () => {
     expect(directOwnedStorage("localStorage.setItem('podium.view', 'issues')")).toEqual([
       'podium.view',

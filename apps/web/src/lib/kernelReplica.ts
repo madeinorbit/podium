@@ -41,8 +41,8 @@ import {
   FeedAuthorityClient,
   FeedSink,
   PushedBootstrapSource,
-  type ReplicaMode,
   preparePrincipalNamespace,
+  type ReplicaMode,
   resolveReplicaMode,
 } from '@podium/client-core/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'

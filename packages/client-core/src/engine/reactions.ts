@@ -17,8 +17,8 @@
  */
 
 import type { IssueWire, SessionId } from '@podium/model'
-import type { SocketHub } from '../socket-transport'
 import { markSwitch } from '../perf/switch-trace'
+import type { SocketHub } from '../socket-transport'
 import { planWorktreeMoves, reposToViews } from '../viewmodels'
 import {
   type EngineState,

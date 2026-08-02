@@ -1,11 +1,24 @@
-import { asIssueId, asSessionId, IssueProjection } from '@podium/model'
+import { asClientPrincipal } from '@podium/client-core/principal'
 import type { IssueWire, SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, IssueProjection } from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import { WEB_REPLICA_PRINCIPAL } from '@/lib/legacyStoreAttribution'
 import { createWebReplica } from '@/lib/webReplica'
+
+/**
+ * The SAME principal the bare `createWebReplica()` seeds under.
+ *
+ * Storage is namespaced per principal (POD-401/POD-404), so a suite that seeds
+ * a store as "a previous session of the app" and then mounts the provider must
+ * name one principal for both halves — otherwise the seed lands in a namespace
+ * the provider never opens, and the suite silently stops measuring hydration at
+ * all while still looking like a hydration test.
+ */
+const TEST_PRINCIPAL = asClientPrincipal(WEB_REPLICA_PRINCIPAL)
 
 // ---------------------------------------------------------------------------
 // Store ↔ replica wiring (docs/spec/thin-client-replica.md §2.2): hydrate-first
@@ -173,6 +186,7 @@ function render(): void {
   act(() => {
     root.render(
       <StoreProvider
+        principal={TEST_PRINCIPAL}
         config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
         onFatalError={() => {}}
       >
