@@ -82,6 +82,7 @@ import {
   SYNC_QUERIES,
   TAB_QUERIES,
 } from './modules/sessions/queries'
+import { layoutFamilyProcedures } from './modules/layout/trpc'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specsInputs } from './modules/specs/service'
@@ -289,7 +290,10 @@ export const appRouter = t.router({
     ask: mailMutation('ask'),
   }),
   sync: t.router(queryProcedures('sync', SYNC_QUERIES)),
-  // PER-USER STATE (POD-380): each list is the CALLER's, not the instance's.
+  // PER-USER STATE (POD-380 / POD-1350): each list is the CALLER's, not the instance's.
+  // layout: sidebar/tab chrome that follows a person across devices (not device-local
+  // route/selection/pane geometry — those stay in client ui-state, POD-403).
+  layout: t.router(layoutFamilyProcedures()),
   pins: t.router({ ...queryProcedures('pins', PIN_QUERIES), ...sessionFamily.pins }),
   // set: until === null => "until next message"; ISO string => timed.
   snoozes: t.router({ ...queryProcedures('snoozes', SNOOZE_QUERIES), ...sessionFamily.snoozes }),

@@ -6,12 +6,14 @@ import type {
   IssueDepProjection,
   IssueProjection,
   IssueWire,
+  LayoutWire,
   MachineWire,
   RepoProjection,
   SessionId,
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
+import { layoutRowId } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -266,6 +268,12 @@ export interface HubEvents {
   issueDeps: [deps: IssueDepProjection[]]
   /** Full logical-repo list after any change [POD-822] — the `displayRef` prefix join. */
   repos: [repos: RepoProjection[]]
+  /**
+   * Per-user layout rows after any change (POD-1350, entity kind `userLayout`).
+   * Feed demux only — POD-403's ui-state module is the hydrate/write owner; this
+   * event lets a second device see live layout deltas without a second store.
+   */
+  userLayouts: [rows: LayoutWire[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
@@ -321,6 +329,8 @@ export class SocketHub {
    *  authority's flag is on. */
   private issueDepList: IssueDepProjection[] = []
   private repoList: RepoProjection[] = []
+  /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
+  private userLayoutList: LayoutWire[] = []
   private intentionalClose = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
@@ -1402,6 +1412,16 @@ export class SocketHub {
             (x) => x.id === c.id,
           )
           break
+        case 'userLayout':
+          // Feed demux for POD-1350's per-user layout rows. Match on the same
+          // composite id the Authority logs (layoutRowId), not payload equality.
+          this.userLayoutList = applyChange(
+            this.userLayoutList,
+            c.op,
+            c.value,
+            (x) => layoutRowId(x.userId, x.key) === c.id,
+          )
+          break
         default:
           c satisfies never
       }
@@ -1414,6 +1434,7 @@ export class SocketHub {
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
+    if (touched.has('userLayout')) this.emit('userLayouts', this.userLayoutList)
   }
 
   private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {
