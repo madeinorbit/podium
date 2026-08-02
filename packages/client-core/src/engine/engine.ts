@@ -297,10 +297,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  dispose(): a replaced engine's late timer must not roll back overlays or
    *  toast after its successor took over the same storage/session state. */
   private readonly spawnConfirmTimers = new Set<ReturnType<typeof setTimeout>>()
-  /** Effective rendered mode per session (what AgentPanel actually shows),
-   *  reported up the viewState channel. Not in the snapshot — only the setter
-   *  is public — and not persisted (re-reported on mount from live state). */
-  private panelRenderModes: Record<string, 'chat' | 'native'> = {}
   private prevRoute: RouteState
   private prevCwds: Record<string, string> = {}
   private markReadKey: string | null = null
@@ -886,7 +882,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // Rendered mode (native/chat) for each visible session — default 'native'
     // until its AgentPanel reports its effective mode.
     const modes: Record<string, 'native' | 'chat'> = {}
-    for (const sid of visible) modes[sid] = this.panelRenderModes[sid] ?? 'native'
+    for (const sid of visible) modes[sid] = st.panelMode[sid] ?? 'native'
     this.hub.setViewState(visible, focused, modes)
     // Switch-latency trace [POD-701]: stamp when the view-state report carrying
     // the traced session went out (markSwitch no-ops for untraced sessions).
@@ -1462,11 +1458,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         },
         revealFileTab: (args) => this.revealFileTab(args),
         recordRecentFile: (entry) => this.recordRecentFile(entry),
-        setPanelRenderMode: (sessionId, mode) => {
-          if (this.panelRenderModes[sessionId] === mode) return
-          this.panelRenderModes = { ...this.panelRenderModes, [sessionId]: mode }
-          this.reportViewState()
-        },
         spawnDraftAgent: (args) => this.spawnDraftAgent(args),
         setSessionDraft: (sessionId, text) => {
           this.adoptSessionDraft(sessionId, text)

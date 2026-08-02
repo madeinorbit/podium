@@ -200,7 +200,6 @@ export function AgentPanel({
     openFile,
     panelMode,
     setPanelMode,
-    setPanelRenderMode,
     uiState,
     selectedIssueId,
   } = useStoreSelector(
@@ -218,7 +217,6 @@ export function AgentPanel({
       openFile: s.openFile,
       panelMode: s.panelMode,
       setPanelMode: s.setPanelMode,
-      setPanelRenderMode: s.setPanelRenderMode,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
     }),
@@ -259,21 +257,17 @@ export function AgentPanel({
   // pick (PANEL_MODE_DEFAULT_KEY) → the `startScreen` setting →
   // chat-on-mobile/native-on-desktop.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-  const mode: PanelMode = initialPanelMode({
+  // One derivation produces the modeled, persisted, and reported mode.
+  const effectiveMode: PanelMode = initialPanelMode({
     startScreen,
     chatCapable,
     isMobile,
     saved: panelMode[sessionId],
     deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
   })
-  // The hibernated/exited-forces-chat rule still wins over any persisted 'native'.
-  const effectiveMode: PanelMode = chatCapable ? mode : 'native'
-
-  // Report the EFFECTIVE rendered mode up to the store so it's wired through the
-  // viewState channel to the server (available signal; does not change streaming).
   useEffect(() => {
-    setPanelRenderMode(sessionId, effectiveMode)
-  }, [sessionId, effectiveMode, setPanelRenderMode])
+    setPanelMode(sessionId, effectiveMode)
+  }, [sessionId, effectiveMode, setPanelMode])
 
   // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
   // markSwitch) unless a switch to THIS session is being traced.

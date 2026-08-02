@@ -368,12 +368,17 @@ export interface WorkspaceUiSnapshot {
   recentFiles: RecentFileEntry[]
 }
 
-function parseRecord<T>(raw: string | null, accept: (value: unknown) => value is T): Record<string, T> {
+function parseRecord<T>(
+  raw: string | null,
+  accept: (value: unknown) => value is T,
+): Record<string, T> {
   if (!raw) return {}
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') return {}
-    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, T] => accept(entry[1])))
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, T] => accept(entry[1])),
+    )
   } catch {
     return {}
   }
@@ -393,14 +398,22 @@ export function readStoredView(ui: Pick<RoutedUiState, 'get'>): MainView {
 }
 
 export function readStoredDockShells(ui: Pick<RoutedUiState, 'get'>): Record<string, SessionId> {
-  const rows = parseRecord(ui.get(UI_STATE_KEYS.dockShells), (v): v is string => typeof v === 'string' && v.length > 0)
-  return Object.fromEntries(Object.entries(rows).map(([worktree, id]) => [worktree, asSessionId(id)]))
+  const rows = parseRecord(
+    ui.get(UI_STATE_KEYS.dockShells),
+    (v): v is string => typeof v === 'string' && v.length > 0,
+  )
+  return Object.fromEntries(
+    Object.entries(rows).map(([worktree, id]) => [worktree, asSessionId(id)]),
+  )
 }
 
 export function readStoredPanelModes(
   ui: Pick<RoutedUiState, 'get'>,
 ): Record<string, 'chat' | 'native'> {
-  return parseRecord(ui.get(UI_STATE_KEYS.panelMode), (v): v is 'chat' | 'native' => v === 'chat' || v === 'native')
+  return parseRecord(
+    ui.get(UI_STATE_KEYS.panelMode),
+    (v): v is 'chat' | 'native' => v === 'chat' || v === 'native',
+  )
 }
 
 export function readStoredRecentFiles(ui: Pick<RoutedUiState, 'get'>): RecentFileEntry[] {
@@ -412,17 +425,32 @@ export function readStoredRecentFiles(ui: Pick<RoutedUiState, 'get'>): RecentFil
     return parsed.flatMap((value): RecentFileEntry[] => {
       if (!value || typeof value !== 'object') return []
       const row = value as Record<string, unknown>
-      if (typeof row.path !== 'string' || !row.path || typeof row.worktreePath !== 'string' || typeof row.openedAt !== 'number') return []
+      if (
+        typeof row.path !== 'string' ||
+        !row.path ||
+        typeof row.worktreePath !== 'string' ||
+        typeof row.openedAt !== 'number'
+      )
+        return []
       const artifact = row.artifact as Record<string, unknown> | undefined
-      return [{
-        path: row.path,
-        worktreePath: row.worktreePath,
-        openedAt: row.openedAt,
-        ...(typeof row.machineId === 'string' ? { machineId: row.machineId } : {}),
-        ...(artifact && typeof artifact.issueId === 'string' && typeof artifact.artifactId === 'string'
-          ? { artifact: { issueId: asIssueId(artifact.issueId), artifactId: asArtifactId(artifact.artifactId) } }
-          : {}),
-      }]
+      return [
+        {
+          path: row.path,
+          worktreePath: row.worktreePath,
+          openedAt: row.openedAt,
+          ...(typeof row.machineId === 'string' ? { machineId: row.machineId } : {}),
+          ...(artifact &&
+          typeof artifact.issueId === 'string' &&
+          typeof artifact.artifactId === 'string'
+            ? {
+                artifact: {
+                  issueId: asIssueId(artifact.issueId),
+                  artifactId: asArtifactId(artifact.artifactId),
+                },
+              }
+            : {}),
+        },
+      ]
     })
   } catch {
     return []
@@ -438,8 +466,17 @@ export interface RouterUiState {
 }
 
 const ALL_SNAPSHOT_KEYS = new Set<keyof WorkspaceUiSnapshot>([
-  'view', 'selectedWorktree', 'selectedIssueId', 'dockTab', 'paneA', 'paneB', 'split',
-  'superOpen', 'panelMode', 'dockShells', 'recentFiles',
+  'view',
+  'selectedWorktree',
+  'selectedIssueId',
+  'dockTab',
+  'paneA',
+  'paneB',
+  'split',
+  'superOpen',
+  'panelMode',
+  'dockShells',
+  'recentFiles',
 ])
 
 export function createRouterUiState(init: {
@@ -457,10 +494,18 @@ export function createRouterUiState(init: {
       return {
         view: route.view,
         selectedWorktree: route.worktree ?? ui.get(UI_STATE_KEYS.selectedWorktree),
-        selectedIssueId: ui.get(UI_STATE_KEYS.selectedIssueId) ? asIssueId(ui.get(UI_STATE_KEYS.selectedIssueId) as string) : null,
+        selectedIssueId: ui.get(UI_STATE_KEYS.selectedIssueId)
+          ? asIssueId(ui.get(UI_STATE_KEYS.selectedIssueId) as string)
+          : null,
         dockTab: readStoredDockTab(ui.get(UI_STATE_KEYS.dockTab)),
-        paneA: route.pane ? asSessionId(route.pane) : ui.get(UI_STATE_KEYS.paneA) ? asSessionId(ui.get(UI_STATE_KEYS.paneA) as string) : null,
-        paneB: ui.get(UI_STATE_KEYS.paneB) ? asSessionId(ui.get(UI_STATE_KEYS.paneB) as string) : null,
+        paneA: route.pane
+          ? asSessionId(route.pane)
+          : ui.get(UI_STATE_KEYS.paneA)
+            ? asSessionId(ui.get(UI_STATE_KEYS.paneA) as string)
+            : null,
+        paneB: ui.get(UI_STATE_KEYS.paneB)
+          ? asSessionId(ui.get(UI_STATE_KEYS.paneB) as string)
+          : null,
         split: ui.get(UI_STATE_KEYS.split) === '1',
         superOpen: ui.get(UI_STATE_KEYS.superOpen) !== '0',
         panelMode: readStoredPanelModes(ui),
@@ -469,7 +514,11 @@ export function createRouterUiState(init: {
       }
     },
     flush: (state, changed = ALL_SNAPSHOT_KEYS) => {
-      const write = (field: keyof WorkspaceUiSnapshot, key: WorkspaceUiStateKey, value: string | null): void => {
+      const write = (
+        field: keyof WorkspaceUiSnapshot,
+        key: WorkspaceUiStateKey,
+        value: string | null,
+      ): void => {
         if (changed.has(field)) ui.set(key, value)
       }
       write('view', UI_STATE_KEYS.view, state.view)

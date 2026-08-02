@@ -70,7 +70,6 @@ function harness() {
     enqueueOverlayed: (kind: keyof OutboxKinds, input: unknown) => queued.push({ kind, input }),
     revealFileTab: vi.fn(),
     recordRecentFile: vi.fn(),
-    setPanelRenderMode: vi.fn(),
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
     setSessionDraft: vi.fn(),
   } as unknown as EngineActionRuntime<PodiumClientApi>
