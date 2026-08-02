@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    if (this.deps.visibility.canSee(target.principal, ref) !== true) return false\n",
+    "replace": "    if (this.deps.visibility.canSee(target.principal, ref) === false) return false\n"
+  }
+]

@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    if (msg.type === 'hello' && msg.clientId && msg.clientId !== conn.id) {\n      this.reclaim(msg.clientId, conn)\n",
+    "replace": "    if (msg.type === 'hello' && msg.clientId && msg.clientId !== conn.id) {\n      conn.principal = userClientPrincipal(msg.clientId, conn.principal.user, conn.principal.role)\n      this.reclaim(msg.clientId, conn)\n"
+  }
+]

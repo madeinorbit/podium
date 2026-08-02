@@ -16,7 +16,41 @@ Usage:
   mutate.py --id C1a --file <path> --anchor-file <f> --replace-file <f> \
             --cmd '<shell>' [--timeout 600] [--expect-exit nonzero|zero]
 """
-import argparse, hashlib, json, os, subprocess, sys, time
+import argparse, atexit, hashlib, json, os, signal, subprocess, sys, time
+
+# --- P2 mitigation: a mutant must not outlive the RUNNER, not merely the run ---
+# A `finally` block does not run when the process is killed by SIGTERM (the shape
+# that actually happened: a batch driver hit a harness timeout and left a mutant
+# in the tree). So: drop a BREADCRUMB naming the applied mutant and its original
+# bytes BEFORE touching the file, restore from it on SIGTERM/SIGINT/exit, and
+# remove it only after a verified restore. `--restore-orphans` replays any
+# breadcrumb an external observer finds, so recovery does not need this process.
+BREADCRUMB_DIR = os.environ.get(
+    "MUT_BREADCRUMBS",
+    os.path.join(os.environ.get("MUT_OUT", "/tmp"), "applied"))
+_active = {"path": None, "original": None, "crumb": None}
+
+
+def _restore_active(*_a):
+    st = _active
+    if st["path"] and st["original"] is not None:
+        try:
+            with open(st["path"], "wb") as f:
+                f.write(st["original"])
+        except Exception:
+            pass
+    if st["crumb"] and os.path.exists(st["crumb"]):
+        try:
+            os.remove(st["crumb"])
+        except Exception:
+            pass
+    st["path"] = st["original"] = st["crumb"] = None
+
+
+def _on_signal(signum, _frame):
+    _restore_active()
+    print(f"\n!! signal {signum}: mutant restored before exit", file=sys.stderr)
+    os._exit(143)
 
 REPO = os.environ.get("REPO_ROOT") or subprocess.run(
     ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
@@ -44,8 +78,36 @@ def die(msg):
     sys.exit(2)
 
 
+def restore_orphans():
+    """Replay every breadcrumb left by a killed run. Usable by anyone, any time."""
+    if not os.path.isdir(BREADCRUMB_DIR):
+        print("no breadcrumb directory — nothing was left applied")
+        return 0
+    crumbs = [f for f in os.listdir(BREADCRUMB_DIR) if f.endswith(".json")]
+    if not crumbs:
+        print("no orphaned mutants")
+        return 0
+    for c in crumbs:
+        rec = json.load(open(os.path.join(BREADCRUMB_DIR, c)))
+        with open(rec["original_bytes"], "rb") as f:
+            original = f.read()
+        with open(rec["abs"], "wb") as f:
+            f.write(original)
+        now = sha256(rec["abs"])
+        ok = now == rec["original_sha256"]
+        print(f"restored {rec['file']} from mutant {rec['id']}: "
+              f"sha256 {now[:12]} {'IDENTICAL' if ok else '!! MISMATCH'}")
+        if ok:
+            os.remove(os.path.join(BREADCRUMB_DIR, c))
+            os.remove(rec["original_bytes"])
+    print(sh("git status --porcelain")[1] or "git status clean")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
+    if "--restore-orphans" in sys.argv:
+        sys.exit(restore_orphans())
     ap.add_argument("--id", required=True)
     ap.add_argument("--file", required=True)
     ap.add_argument("--anchor-file")
@@ -88,6 +150,20 @@ def main():
             die(f"anchor {e['anchor'].strip().splitlines()[0][:80]!r} matches "
                 f"{count} times in {args.file}, expected exactly 1")
         print(f"[{args.id}] anchor found exactly once at {args.file}:{line_no}")
+
+    # --- breadcrumb BEFORE the write, so a kill is recoverable ------------
+    os.makedirs(BREADCRUMB_DIR, exist_ok=True)
+    crumb = os.path.join(BREADCRUMB_DIR, f"{args.id}.json")
+    bak = os.path.join(BREADCRUMB_DIR, f"{args.id}.orig")
+    with open(bak, "wb") as f:
+        f.write(original)
+    with open(crumb, "w") as f:
+        json.dump({"id": args.id, "file": args.file, "abs": target,
+                   "original_sha256": orig_hash, "original_bytes": bak}, f, indent=2)
+    _active.update(path=target, original=original, crumb=crumb)
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
+    atexit.register(_restore_active)
 
     try:
         # --- 3. apply + grep-back -----------------------------------------
@@ -148,8 +224,13 @@ def main():
             die("RESTORE FAILED: hash does not match the original")
         if dirty_after:
             die(f"RESTORE FAILED: git status not clean:\n{dirty_after}")
+        # Verified restore — only now is the breadcrumb allowed to disappear.
+        _active.update(path=None, original=None, crumb=None)
+        for p in (crumb, bak):
+            if os.path.exists(p):
+                os.remove(p)
         print(f"[{args.id}] restored: sha256 {restored_hash[:12]} identical, "
-              f"every anchor count back to 1, git status clean")
+              f"every anchor count back to 1, git status clean; breadcrumb cleared")
 
     out_path = args.out or os.path.join(
         os.environ.get("MUT_OUT", "/tmp"), f"mutant-{args.id}.json")

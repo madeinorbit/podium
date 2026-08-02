@@ -1,0 +1,34 @@
+{
+  "id": "C1",
+  "file": "apps/server/src/gateway/presence-routing.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/gateway/presence-routing.test.ts packages/protocol/src/planes",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "original_sha256": "6a56ad2e24514dc34d1b7c4abeeaf23c3380b08f6eaadd853f3c62e3c41e9cf8",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 21,
+      "anchor_first_line": "type SubscriptionRegistry,",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "SubscriptionRegistry,",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    },
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 69,
+      "anchor_first_line": "this.router = new PlaneRouter(",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "const ownRegistry = new SubscriptionRegistry()",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "a0f914ce1657f0e0ecac8164c55b8e332c00a1112208bb1f947e0b59f686fd1d",
+  "exit_code": 1,
+  "elapsed_s": 34.3,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| apps/server/src/gateway/presence-routing.test.ts (9 tests | 2 failed) 343ms\n     \u00d7 shares one registry with the principal feed and derives all leaves on disconnect 28ms\n     \u00d7 evicts stale rooms when the durable feed reports a rights change 38ms\n\n Test Files  1 failed | 5 passed (6)\n      Tests  2 failed | 87 passed (89)\n   Start at  17:03:14\n   Duration  29.98s (transform 95.59s, setup 3.10s, import 134.27s, tests 2.47s, environment 5ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/gateway/presence-routing.test.ts > production presence routing > shares one registry with the principal feed and derives all leaves on disconnect\nAssertionError: expected 1 to be 2 // Object.is equality\n\n- Expected\n+ Received\n\n- 2\n+ 1\n\n \u276f apps/server/src/gateway/presence-routing.test.ts:146:36\n    144|     presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM\u2026\n    145|\n    146|     expect(subscriptions.keyCount).toBe(2)\n       |                                    ^\n    147|     presence.disconnect(alice.conn)\n    148|     presence.flushNow()\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/2]\u23af\n\n FAIL  |node| apps/server/src/gateway/presence-routing.test.ts > production presence routing > evicts stale rooms when the durable feed reports a rights change\nAssertionError: expected [ { identity: { \u2026(2) }, \u2026(2) } ] to deeply equal []\n\n- Expected\n+ Received\n\n- []\n+ [\n+   {\n+     \"identity\": {\n+       \"kind\": \"user\",\n+       \"user\": \"user:sole\",\n+     },\n+     \"payload\": undefined,\n+     \"visible\": undefined,\n+   },\n+ ]\n\n \u276f apps/server/src/gateway/presence-routing.test.ts:178:38\n    176|         .some((key) => String(key).startsWith('room:')),\n    177|     ).toBe(false)\n    178|     expect(presence.occupancy(ROOM)).toEqual([])\n       |                                      ^\n    179|     expect(alice.sent).toContainEqual({ type: 'presenceRoomClosed', ro\u2026\n    180|   })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af\n\n",
+  "restored_sha256": "6a56ad2e24514dc34d1b7c4abeeaf23c3380b08f6eaadd853f3c62e3c41e9cf8",
+  "restored_identical": true,
+  "git_clean_after": true
+}

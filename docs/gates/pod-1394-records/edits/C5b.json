@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  ctx.repos.scanReposAll(fleetUsePredicate(fleetAuthzDeps(ctx), 'use'))\n",
+    "replace": "  ctx.repos.scanReposAll()\n"
+  }
+]

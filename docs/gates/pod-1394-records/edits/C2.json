@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "      return { visible: false, reason: 'personal-not-granted' }\n",
+    "replace": "      return { visible: true, reason: 'personal-not-granted' }\n"
+  }
+]

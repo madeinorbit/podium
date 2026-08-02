@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  disconnect(subscriberId: SubscriberId): void {\n    const keys = this.router.forget(subscriberId)\n    for (const key of keys) this.settleAfterLeave(subscriberId, key)\n",
+    "replace": "  disconnect(subscriberId: SubscriberId): void {\n    const keys: readonly RoutingKey[] = []\n    for (const key of keys) this.settleAfterLeave(subscriberId, key)\n"
+  }
+]

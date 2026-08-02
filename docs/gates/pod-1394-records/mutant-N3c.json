@@ -1,0 +1,25 @@
+{
+  "id": "N3c",
+  "file": "packages/protocol/src/planes/stream-port.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/protocol/src/planes apps/server/src/gateway/presence-routing.test.ts",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "original_sha256": "15524e1680fae5546b96a4abf44ced754765a1c82c50f1efe4e791a0c5407bea",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 110,
+      "anchor_first_line": "if (this.deps.visibility.canSee(target.principal, room) !== true) {",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "if (this.deps.visibility.canSee(target.principal, room) !== true) {",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "d0c901b0319383b335b25e5fac5afbdb54236e5bdeddfca10f947067caf11225",
+  "exit_code": 1,
+  "elapsed_s": 23.6,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| packages/protocol/src/planes/stream-port.test.ts (18 tests | 1 failed) 549ms\n     \u00d7 does not subscribe a refused connection to anything 135ms\n\n Test Files  1 failed | 5 passed (6)\n      Tests  1 failed | 88 passed (89)\n   Start at  17:17:36\n   Duration  21.61s (transform 69.24s, setup 3.04s, import 91.96s, tests 2.11s, environment 2ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/protocol/src/planes/stream-port.test.ts > joins are visibility-gated and default-closed (D14) > does not subscribe a refused connection to anything\nAssertionError: expected 1 to be +0 // Object.is equality\n\n- Expected\n+ Received\n\n- 0\n+ 1\n\n \u276f packages/protocol/src/planes/stream-port.test.ts:132:31\n    130|     const { port, registry } = setup({ canSee: () => false })\n    131|     port.join(conn('a', user('alice')), room)\n    132|     expect(registry.keyCount).toBe(0)\n       |                               ^\n    133|   })\n    134|\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "restored_sha256": "15524e1680fae5546b96a4abf44ced754765a1c82c50f1efe4e791a0c5407bea",
+  "restored_identical": true,
+  "git_clean_after": true
+}

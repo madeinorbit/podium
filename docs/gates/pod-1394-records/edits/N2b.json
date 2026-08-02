@@ -1,0 +1,10 @@
+[
+  {
+    "anchor": "  const row = ownership.rowFor(machineId)\n  if (!row) return new Set()\n",
+    "replace": "  const memoKey = machineId + '\\u0000' + JSON.stringify(principal)\n  const memoised = MACHINE_VERB_MEMO.get(memoKey)\n  if (memoised !== undefined) return memoised\n  const row = ownership.rowFor(machineId)\n  if (!row) return new Set()\n"
+  },
+  {
+    "anchor": "export function machineVerbsFor(\n",
+    "replace": "const MACHINE_VERB_MEMO = new Map<string, ReadonlySet<MachineVerb>>()\n\nexport function machineVerbsFor(\n"
+  }
+]

@@ -1,9 +1,39 @@
 # POD-1394 — Multi-user mutation probe campaign: transcript
 
-**Candidate SHA:** `d8fba769ee7b107ab655387559b4281c74aef8b9` (branch
-`issue/1394-multi-user-mutation-probe-campaign`, branched from integration `d8fba769`; worktree
-clean before and after every mutant).
+**Candidate SHA:** `7ceec3f7` (this branch, merging integration through POD-1410's `bbd05a08` and
+POD-1412's fix). Every mutant below was executed at this SHA. Earlier full runs at `d8fba769` and
+`4b5c3a43` are superseded, not merely appended — their records are in git history.
 **Date:** 2026-08-02
+
+## Status against POD-425's refusals (`dd017634`, `2f17c125`)
+
+| Ground | Disposition |
+| --- | --- |
+| Durable raw records | **Cleared** by the gate at `2f17c125`. 30 records under `docs/gates/pod-1394-records/`. |
+| Candidate-wide rerun | **Cleared.** Now re-run a third time, at `7ceec3f7`. |
+| Signal-safe restoration | **Cleared.** See P2 — implemented after the hazard fired for real. |
+| POD-1410 absent from candidate → C3b survived | **Fixed.** `bbd05a08` merged; C3b now **exit 1**. |
+| POD-1412 open → C6c survived | **Fixed.** Merged; C6c now **exit 1**. |
+| Compound coverage partial (5 clauses) | **Done.** `N1`–`N5b`, each clause its own mutant; sub-clauses split out (`N1b` `N1c` `N2b2` `N2c` `N3c`). |
+| P2 paragraph stale | **Corrected** — it now records breadcrumbs as implemented, with the incident that forced them. |
+
+## Result
+
+**30 production mutants, 29 caught, 1 survivor.** Every caught row exits non-zero with a diagnostic
+naming the property that was broken. The single survivor is filed as **POD-1429** and is a genuine
+clause gap, described below.
+
+Both of the campaign's original survivors are now **caught**: the findings this campaign produced
+were fixed, and the fixes are themselves mutation-proven.
+
+## BLOCKER — one clause the guardrails cannot fail on
+
+**POD-1429** — `N5b`. Deleting the `writeScope` half of the system-reaction invariant
+(`composition/reactions.ts:668`) leaves `bun run audit:composition` at **exit 0** and the composition
+suite at **exit 0, 8 passed**. The only fixture pinning it sets *both* violations at once —
+`{ class: 'system', actor: 'human', writeScope: 'all' }` — and both throw the same message, so
+`actor !== 'system'` still fires alone and the no-widening check is dead weight to the suite.
+*A compliance fixture that violates two clauses at once cannot isolate either.*
 
 ## What this transcript is, and what it deliberately is not
 
@@ -12,140 +42,163 @@ file has been proven to reject **a string**. Every mutant below is planted in **
 no fixture directories, no `--probe` mode, no test file — and graded on whether the real guardrail
 refuses it *and names the thing that was broken*.
 
+Per the gate's standard (`0c40250b`), each row names the guardrail **half** that actually walked the
+property. Where a source-text audit and its running-object test disagree, the test is cited.
+
 ## Protocol, enforced mechanically
 
-Every mutant went through one runner (`mutate.py`) that ABORTS rather than reports:
+Every mutant went through one runner (`pod-1394-mutate.py`) that ABORTS rather than reports:
 
 1. `git status --porcelain` empty before the mutation.
-2. Each anchor matches **exactly once** in the target file (abort otherwise), with its line recorded.
-3. Apply; assert the file's sha256 **moved**; grep back and assert the replacement text is present.
-   A mutant that never applied otherwise produces a green that reads exactly like a working guardrail.
-4. Run the guardrail; record exit code, elapsed, and the diagnostic text.
-5. Restore the original bytes; assert sha256 **identical** to the original, every anchor count back
-   to 1, and `git status --porcelain` empty again.
+2. Each anchor matches **exactly once** in the target file, with its line recorded.
+3. A **breadcrumb** (mutant id, target, original sha256, original bytes) is written **before** the
+   file is touched — see P2.
+4. Apply; assert the sha256 **moved**; grep back. For a replacement: the new text is present and the
+   anchor is gone. For a **deletion**: the anchor is ABSENT — see P1.
+5. Run the guardrail; record exit code, elapsed, and the diagnostic.
+6. Restore; assert sha256 **identical**, every anchor count back to 1, `git status` empty. Only then
+   is the breadcrumb cleared.
 
-Steps 3 and 5 are inside a `try/finally`, so a guardrail that crashes or times out still restores.
+SIGTERM/SIGINT/atexit handlers restore before exit, and `--restore-orphans` replays any breadcrumb,
+so recovery does not require the process that made the mess.
 
-## Environment
+## Verdict — one line per mutant, all at `7ceec3f7`
 
-| Fact | Value |
-| --- | --- |
-| Worktree install | had no `node_modules`; `bun install --frozen-lockfile` exit 0 |
-| Module identity | `bun test --conditions=@podium/source scripts/runtime-resolution.integration.test.ts` → **3 pass, 0 fail, 65 expect() calls, exit 0**. POD-1343's repair (`af302fee`) is an ancestor of the candidate, so the dual-copy ambiguity POD-425 recorded at `aba864a9` does not apply here. |
-| State dir | `PODIUM_STATE_DIR` redirected to a scratch dir for every run; `~/.podium` never written |
-| Live config mtime before | `2026-08-02 11:07:07.128162673 +0200` |
-| Ports | nothing bound to 18787 by this campaign |
-| Host load | 22–37 during the campaign (shared box, three other workers) |
+| Mutant | Cond | What was planted | File:line | Exit | Diagnostic |
+| --- | --- | --- | --- | ---: | --- |
+| `C1` | 1 | second registry INSIDE PresenceRouting | `apps/server/src/gateway/presence-routing.ts:21` | **1** | shares one registry with the principal feed … expected 1 to be 2 |
+| `C1b` | 1 | second registry AT THE COMPOSITION ROOT | `apps/server/src/relay.ts:536` | **1** | routes the open/result family only through session-room subscriptions (+3) |
+| `C2b` | 2 | personal-not-granted flipped to visible | `packages/sync/src/feed/visibility.ts:316` | **1** | a principal with no grant received the row — the filter does not filter |
+| `C3a2` | 3 | principal minted from hello.clientId before dispatch | `apps/server/src/gateway/client-mux.ts:288` | **1** | mints it from the connection, never from a frame body |
+| `C3b` | 3 | session-expiry check DELETED from the auth gate | `apps/server/src/auth-route.ts:48` | **1** | rejects an expired session cookie (present row, past expiresAt) |
+| `C4a` | 4 | throughSeq made optional on the batch arm | `packages/sync/src/authority/scoping.ts:67` | **1** | `throughSeq` is not a required `number` on the batch arm |
+| `C4b2` | 4 | watermark taken from visible data | `packages/sync/src/authority/scoping.ts:150` | **1** | the suppressed range was NOT certified to the principal who could not see it |
+| `C4c` | 4 | evict replaced by remove on the anchor path | `packages/sync/src/authority/scoping.ts:230` | **1** | a visibility change is DERIVED, and it is never a remove (D14) |
+| `N1` | 4 | feed epoch RE-MINTED instead of read from the store | `packages/sync/src/feed/identity.ts:141` | **1** | mints on first use and PERSISTS … (+2) |
+| `N1b` | 4 | per-principal frames renumber seq densely | `packages/sync/src/authority/scoping.ts:149` | **1** | returns the appended changes with contiguous seqs matching the durable log (+3) |
+| `N1c` | 4 | no visibility edge ever derived (mid-session rescope) | `packages/sync/src/authority/scoping.ts:128` | **1** | rescope is derived from the SIZE of the derived set (D14.4) (+1) |
+| `C5a` | 5 | verb check dropped: anything that can SEE may USE | `apps/server/src/machine-access.ts:305` | **1** | a `see` grant is not enough for a `manage` command (+6) |
+| `C5b` | 5 | fleet fan-out loses its per-machine `use` filter | `apps/server/src/modules/fleet/handlers.ts:205` | **1** | `scanReposAll()` with no `mayUse` predicate scans every online machine |
+| `N2` | 5 | delegation human read off the LEAF, not the chain ROOT | `apps/server/src/command-principal.ts:224` | **1** | an agent chain carries exactly ONE human, taken from the ROOT and not the leaf |
+| `N2b2` | 5 | machine verbs MEMOISED across applies | `apps/server/src/machine-access.ts:219` | **1** | a `manage` grant does not carry `use`: discovery on the same machine is still refused |
+| `N2c` | 5 | migrated ownerless machine silently re-owned | `apps/server/src/machine-access.ts:179` | **1** | an unowned machine refuses EVERYONE, grant or no grant |
+| `C6a` | 6 | room join no longer visibility-gated | `packages/protocol/src/planes/stream-port.ts:110` | **1** | joins are visibility-gated and default-closed (D14) (+3) |
+| `C6b` | 6 | presence state outlives the connection | `packages/protocol/src/planes/stream-port.ts:197` | **1** | drops all presence state when the connection goes — nothing outlives it (D12) |
+| `C6c` | 6 | outbound stream queue bound 64 → 1,000,000 | `apps/server/src/gateway/presence-routing.ts:27` | **1** | bounds the undrained outbound queue so a busy room drops rather than buffers |
+| `C7a` | 7 | absent refusal leaks the machine NAME | `apps/server/src/machine-access.ts:326` | **1** | a colleague's invisible machine and an id that never existed refuse IDENTICALLY |
+| `N3b` | 7 | refused subscription EMITS a reason code | `packages/protocol/src/planes/control-port.ts:125` | **1** | admits an entity only when the resolver says so, and never says why |
+| `N3c` | 7 | refused join leaves a subscription behind | `packages/protocol/src/planes/stream-port.ts:110` | **1** | does not subscribe a refused connection to anything |
+| `C8a2` | 8 | unclassified entity kind resolves VISIBLE | `packages/sync/src/feed/visibility.ts:291` | **1** | an UNCLASSIFIED entity kind is invisible — and says so, not 'personal' |
+| `C8b` | 8 | aggregate points at a nonexistent matrix row | `packages/model/src/aggregates/registry.ts:153` | **1** | every registered row id is really on the matrix — with the backstop shown firing |
+| `N4` | 8 | a `personal` row widened to `deployment-substrate` | `packages/model/src/annotations/matrix.ts:2661` | **1** | keeps the tenant-visible floor small and deliberate |
+| `C9a` | 9 | SYSTEM writer attributed as a user | `apps/server/src/command-principal.ts:173` | **1** | a system write is attributed `system` with no human (D17.5) |
+| `C9b` | 9 | agent attribution drops its on-behalf-of half | `apps/server/src/command-principal.ts:171` | **1** | attribution is a PAIR … never collapses them |
+| `N5` | 9 | SYSTEM_WRITER_RULE loses its no-widening clause | `packages/model/src/annotations/ownership.ts:302` | **1** | expected … to match /never widen/ |
+| `N5b` | 9 | writeScope half of the system-reaction invariant deleted | `apps/server/src/composition/reactions.ts:668` | **0** | **SURVIVED — POD-1429** |
+| `C10` | 10 | instance_id column planted on the sessions table | `apps/server/src/migrations/schema.ts:33` | **1** | instance-partitions baseline 0 → now 1 … sessions.instance_id (column) |
 
-## Ancestry (measured with `git merge-base --is-ancestor`, not inferred from dates)
+All 30 rows restored to **byte identity**, every anchor count back to 1, `git status --porcelain`
+empty after each — asserted by the runner, which aborts rather than reports. Exit codes are recorded
+per mutant rather than inferred from test counts: a lane whose worker dies still summarises as
+all-passed, so the count is not the verdict.
 
-| Commit | Meaning | Ancestor of `d8fba769`? |
+## The five compound clauses (POD-425 refusal ground 2)
+
+| Clause named in the refusal | Mutant | Independently mutable? |
 | --- | --- | --- |
-| `1cb323c8` | `merge: POD-1078 final — cross-user presence non-leak mutation-proven` | **yes** |
-| `3336ae8b` | `docs(POD-1078): closure evidence` | **yes** |
-| `b45dce5b` | POD-1078 branch TIP, `docs(gateway): finalize stable candidate evidence` | no (docs-only) |
-| `af302fee` | POD-1343 tip, worktree runtime resolution | **yes** |
+| global sequence / feed epoch / healing, and mid-session grant/revoke | `N1` (epoch re-minted), plus `C4a` `C4b2` `C4c` | yes |
+| live agent delegation, revoke-at-next-apply, machine migration/fact scoping | `N2` (human off the leaf), plus `C5a` `C5b` | yes |
+| subscription / join / invisible-target oracle equivalence | `N3b` (refusal emits a reason), plus `C6a` `C7a` | yes |
+| the deliberately small tenant-visible floor | `N4` (a `personal` row widened to substrate) | yes |
+| SYSTEM scope and no-widening beyond attribution helpers | `N5` (rule loses its no-widening clause) | **partly — see below** |
 
-POD-1078's code is in the candidate. Its evidence is nonetheless **not cited**: every condition below
-was re-run first-party against this candidate.
+**`N5` is a declaration mutant, and its limit must be stated.** `SYSTEM_WRITER_RULE` is production
+data — the declared rule every row carries verbatim — and the matrix test asserts its content. So
+"the declaration lost its no-widening clause" is mutation-provable. What is **not** independently
+mutable at this candidate is the *runtime* no-widening behaviour: `FeedPrincipal` has only `user` and
+`agent` arms, so a SYSTEM principal never reaches `GrantEdgeVisibilityPolicy.decide` and there is no
+runtime path on which a system write could widen a slice. The clause is enforced by construction plus
+a declaration check, not by a runtime guard. That is a defensible design, but the gate should record
+that `N5` proves the *declaration* is checked and **not** that a runtime widening path is guarded —
+because there is no such path to guard today, and there will be one the day `FeedPrincipal` grows a
+`system` arm.
 
-## Ambient-principal census
+## Three mis-aims and one equivalent mutant
 
-POD-425's coordinator carries a production ambient-principal count of **77**. No script, doc or
-baseline in the candidate produces that figure, so the definition is stated here explicitly rather
-than assumed:
-
-```
-grep -rn "FIRST_ADMIN_USER_ID" --include=*.ts packages/*/src apps/*/src \
-  | grep -v "\.test\.\|__fixtures__\|/conformance/" | wc -l
-```
-
-Before the campaign: **77**. (Re-measured after; see the closing section.)
-
-## Verdict — one line per mutant
-
-| Mutant | Cond | What was planted | File:line | Guardrail | Exit | Result |
-| --- | --- | --- | --- | --- | ---: | --- |
-| `C1` | 1 | second registry INSIDE PresenceRouting | `apps/server/src/gateway/presence-routing.ts:21` | presence-routing.test.ts + protocol planes | **1** | CAUGHT |
-| `C1b-scoped` | 1 | second registry AT THE COMPOSITION ROOT | `apps/server/src/relay.ts:536` | browser-open + oracle-decomposition | **1** | CAUGHT |
-| `C2b` | 2 | personal-not-granted flipped to visible | `packages/sync/src/feed/visibility.ts:316` | scripts/audit-scoped-feed.test.ts | **1** | CAUGHT |
-| `C3a2` | 3 | principal minted from hello.clientId before dispatch | `apps/server/src/gateway/client-mux.ts:288` | client-mux.test.ts | **1** | CAUGHT |
-| `C3b` | 3 | session-expiry check deleted from the auth gate | `apps/server/src/auth-route.ts:48` | auth-route + wsServer.client-auth | **0** | **SURVIVED** |
-| `C4a` | 4 | throughSeq made optional on the batch arm | `packages/sync/src/authority/scoping.ts:67` | bun run audit:scoped-feed | **1** | CAUGHT |
-| `C4b2` | 4 | watermark taken from visible data, not the evaluated range | `packages/sync/src/authority/scoping.ts:150` | scripts/audit-scoped-feed.test.ts | **1** | CAUGHT |
-| `C4c-runtime` | 4 | evict replaced by remove on the anchor path | `packages/sync/src/authority/scoping.ts:230` | packages/sync/src/authority | **1** | CAUGHT |
-| `C5a` | 5 | verb check dropped: any principal that can SEE may USE | `apps/server/src/machine-access.ts:305` | fleet + machine-access + grants | **1** | CAUGHT |
-| `C5b` | 5 | fleet fan-out loses its per-machine use filter | `apps/server/src/modules/fleet/handlers.ts:205` | bun run audit:machine-grants | **1** | CAUGHT |
-| `C6a` | 6 | room join no longer visibility-gated | `packages/protocol/src/planes/stream-port.ts:110` | protocol planes + presence-routing | **1** | CAUGHT |
-| `C6b` | 6 | presence state outlives the connection | `packages/protocol/src/planes/stream-port.ts:197` | protocol planes + presence-routing | **1** | CAUGHT |
-| `C6c` | 6 | outbound stream queue bound raised 64 -> 1,000,000 | `apps/server/src/gateway/presence-routing.ts:27` | presence-routing + reattach-storm + planes | **0** | **SURVIVED** |
-| `C7a` | 7 | absent refusal leaks the machine NAME | `apps/server/src/machine-access.ts:326` | fleet + machine-access + handoff | **1** | CAUGHT |
-| `C8a2` | 8 | unclassified entity kind resolves VISIBLE | `packages/sync/src/feed/visibility.ts:291` | packages/sync/src | **1** | CAUGHT |
-| `C8b` | 8 | real aggregate points at a nonexistent matrix row | `packages/model/src/aggregates/registry.ts:153` | model aggregates + representations | **1** | CAUGHT |
-| `C9a` | 9 | SYSTEM writer attributed as a user | `apps/server/src/command-principal.ts:173` | authz-matrix + addComment-principal + … | **1** | CAUGHT |
-| `C9b` | 9 | agent attribution drops its on-behalf-of half | `apps/server/src/command-principal.ts:171` | authz-matrix + addComment-principal + … | **1** | CAUGHT |
-| `C10` | 10 | instance_id column planted on the sessions table | `apps/server/src/migrations/schema.ts:33` | bun run audit:rearch | **1** | CAUGHT |
-
-Every row above restored to **byte identity** (sha256 equal to the original), every anchor count
-back to 1, and `git status --porcelain` empty after each run — asserted by the runner, which aborts
-rather than reports if any of those fail.
-## Three mis-aims, recorded because a green from a mis-aim reads exactly like a pass
-
-The campaign produced three exit-0 results that were **not** guardrail gaps. Each is recorded with
-the re-aim, because "the mutant ran and nothing failed" is the same observation in both cases and
-only reading the code path distinguishes them.
+A green from a mis-aim reads exactly like a pass. Recorded with the re-aim:
 
 | Mutant | Why the green meant "missed" | Re-aimed as |
 | --- | --- | --- |
-| `C3a` | Reassigned `conn.principal` **after** `dispatch(this, conn, msg)` had already handed the port the original principal — the guardrail never walks that path. | `C3a2`, set before the dispatch → exit 1 |
-| `C4b` | Wrote `?? throughSeq` as the fallback, so a **fully suppressed** batch still watermarked correctly — and the fully-suppressed case is exactly what the check exercises. | `C4b2`, `?? 0` → exit 1 |
-| `C8a` | Aimed correctly, but run scoped to `packages/sync/src/feed`, which does not contain the assertion (`conformance/binding.test.ts`). | `C8a2`, scoped to `packages/sync/src` → exit 1 |
+| `C3a` | Reassigned `conn.principal` **after** `dispatch()` had already handed the port the original — the guardrail never walks that path. | `C3a2` → exit 1 |
+| `C4b` | `?? throughSeq` fallback preserved the **fully suppressed** batch, which is exactly the case the check exercises. | `C4b2` → exit 1 |
+| `C8a` | Aimed right, run scoped to `packages/sync/src/feed`, which does not hold the assertion. | `C8a2` → exit 1 |
 
-A fourth was an instrument error rather than a mis-aim: `C4c`'s first invocation ended in a shell
-pipe, so the recorded exit code was `tail`'s (`0`) and not the guardrail's. Re-run as `C4c-runtime`
-with an unpiped command → exit 1. **A piped guardrail command cannot produce evidence.**
+**`N3` was an EQUIVALENT MUTANT, and its survival is not a finding.** Changing
+`canSee(...) !== true` to `=== false` in `ControlPlanePort.admitEntity` is observationally identical
+for every input the suite supplies: all test resolvers return strict booleans. The two forms differ
+only for a non-boolean answer. Reporting that survival as a coverage gap would have been wrong, so it
+is recorded as what it is. It does leave a true but narrow observation: the **defensive** half of the
+default-closed idiom — `!== true` rather than `=== false`, used identically at `control-port.ts:126`,
+`bulk-port.ts:64` and `stream-port.ts:110` — has no test behind it at any of the three ports. That is
+worth a test, not a blocker. The real clause was then probed by `N3b`, which fired.
 
-## Findings — three places the guardrails cannot say NO
+A fourth error was instrumental rather than aim: `C4c`'s first invocation ended in `| tail -25`, so
+the recorded exit was `tail`'s `0`. Re-run unpiped → exit 1. **A piped guardrail command reports the
+pipe.**
 
-### F1 — the fail-closed auth gate has no test caller at all (POD-1410)
+## Process findings — the runner's own blind spots
 
-`C3b` deleted the session-expiry check from `requestUserId()` and **29 tests passed**. The test that
-looks like it covers this (`auth-route.test.ts:279`, *"a session validates until it expires, then no
-longer"*) asserts on the **store predicate**, never on the gate that consults it.
-`grep -rn 'requestUserId\|isRequestAuthed'` over `apps/ packages/ tests/` returns **only production
-call sites**. `requestUserId` feeds `server.ts:367 requestPrincipal`, which performs no second expiry
-check, so an expired cookie resolves to that user's full principal. §3.1.6 S4's fail-closed rule is
-unenforced at this edge. This is the most serious result in the campaign: unlike the others, **no
-lane can catch it, because nothing calls the function.**
+These are not code defects. They are defects in *how the campaign proves things*, and each was found
+by the campaign turning on itself mid-run.
 
-### F2 — condition 1's guardrail covers the seam, not the composition root
+### P1 — a deletion mutant can SELF-CERTIFY
 
-`C1` (inside `PresenceRouting`) is caught with a diagnostic that names the property. `C1b` (the same
-defect at `relay.ts:536`, which is where `routing.ts` says the one instance actually lives) exits **0**
-against `bun run audit:scoped-feed` and against the **entire 9-file / 112-test gateway suite**, because
-every `PresenceRouting` test injects its own registry and is blind to it by construction. It is caught
-— but only by `browser-open.test.ts` and `oracle-decomposition.test.ts`, which no one would think to
-cite as the single-registry guardrail. The condition is satisfied; the *instrument a gate would reach
-for* is not the instrument that holds.
+The runner's grep-back originally asserted *"the replacement text is present in the file"*. For a
+**deletion** the replacement is the empty string, and `"" in text` is **vacuously true**. A deletion
+that never applied would therefore have passed grep-back and gone on to report its guardrail's green
+as evidence — the precise failure grep-back exists to prevent, reintroduced by the check itself.
 
-### F3 — the presence queue bound is unguarded (POD-1412)
+Found when `C3b` (a deletion) crashed the runner on an unrelated `IndexError`. Fixed mid-campaign:
+for an empty replacement the runner asserts the **anchor is ABSENT**; for a non-empty one it asserts
+the replacement is present **and** the anchor is gone (unless the anchor is a substring of the
+replacement). `C3b` was then re-run under the corrected runner, so POD-1410 rests on a deletion that
+provably applied.
 
-`C6c` raised `STREAM_QUEUE_MAX_FRAMES` from 64 to 1,000,000 and **88 tests passed**. That constant has
-exactly two references in the repo: its definition and its single use. The test that appears to cover
-it drives a socket whose `send` **fails** and counts `STREAM_EVICT_AFTER_DROPS`; it never exercises the
-queue **depth**. Condition 6's other halves are genuinely guarded (`C6a` gating, `C6b` durability), so
-this is a narrow hole in a mostly-covered condition — but it is the half that matters for a consumer
-that accepts slowly rather than failing.
+### P2 — the `finally` block protects a RUN, not a SESSION
 
-## Two instrument observations for the gate
+The runner guarantees a mutant never outlives its run. It does **not** guarantee a mutant never
+outlives the *agent*. During `C1b-full` — an 18-minute full-lane run — the worktree carried a live
+mutant in `relay.ts` for the whole duration. Had the session been killed in that window, the mutant
+would have survived in the tree with nothing scheduled to remove it, and a branch carrying a live
+mutant looks exactly like a branch carrying a bug.
 
-1. **`bun run audit:scoped-feed` is source-text only.** It exits **0** on `C2` — a real, wide-open
-   cross-principal leak — and says so in its own output (*"the running-object half is
-   audit-scoped-feed.test.ts"*). A gate that ran the audit script and stopped would have recorded
-   condition 2 as protected while the filter was returning `visible: true` for every ungranted row.
-2. **The `remove-for-revocation` source-text check cannot see the real production site.** It keys on
-   functions whose *name* names revocation; the shipped site is `anchorFor`, which does not. `C4c`
-   exits 0 against `audit:scoped-feed` and is caught only by the running objects.
+**It then happened, for real.** A later batch driver hit the harness's 10-minute cap; SIGTERM killed
+it, and Python's default SIGTERM handling **does not run `finally`**. It left
+`apps/server/src/machine-access.ts` mutated in the tree with C7a's edit. The tree was restored and
+verified byte-identical (`c1695a60cf579f77`) against HEAD. So P2 is not a maxim — it is an observed
+failure of this campaign's own instrument.
+
+**Implemented, not proposed.** The runner now:
+
+- writes a **breadcrumb** (mutant id, target path, original sha256, original bytes) to disk **before**
+  the file is touched;
+- installs **SIGTERM / SIGINT / atexit** handlers that restore from it and exit;
+- clears the breadcrumb **only after** a verified restore (hash identical, anchor counts back,
+  `git status` empty);
+- exposes **`--restore-orphans`**, which replays any breadcrumb left behind — so recovery does not
+  require the process that made the mess, which is exactly the position an outside observer was in
+  when this fired.
+
+Self-tested by killing a live mutant with SIGTERM: `signal 15: mutant restored before exit`, tree
+clean, hash back. The residual advice stands on its own: keep long full-lane runs to the few
+questions that need them (this campaign used one), because scoped runs shrink the exposure window
+from minutes to seconds.
+
+### P3 — a piped guardrail command cannot produce evidence
+
+`C4c`'s first invocation ended in `| tail -25`, so the recorded exit code was `tail`'s `0` while the
+guardrail underneath had failed. Re-run unpiped as `C4c-runtime` -> exit 1. Any guardrail whose exit
+code passes through a pipe is reporting the pipe.
 
 ## Reds observed that are NOT this campaign's
 
@@ -167,25 +220,35 @@ that accepts slowly rather than failing.
 
 | Fact | Value |
 | --- | --- |
-| Candidate | `d8fba769`, unchanged |
-| `git status --porcelain` | empty |
-| Ambient-principal census, my command | **77** |
-| Ambient-principal census, coordinator's command | **77** (the two definitions agree at this candidate) |
-| Live config mtime after | `2026-08-02 11:07:07.128162673 +0200` — **unchanged** |
+| Candidate | `7ceec3f7` — every mutant in the verdict table executed here |
+| Superseded candidates | `d8fba769` (first run), `4b5c3a43` (second) — records in git history |
+| `git status --porcelain` after every mutant | empty |
+| Live config mtime, before and after | `2026-08-02 11:07:07.128162673 +0200` — **unchanged** |
+| `~/.podium` | never written; `PODIUM_STATE_DIR` redirected to scratch for every run |
+| Port 18787 | never bound by this campaign |
 
-Census commands, both reported because a number nobody can re-derive is not a baseline:
+### The ambient-principal census now has an instrument
+
+This campaign opened by refusing to adopt a number it could not re-derive. The gate had carried
+**84**, then **77**; POD-1385 then found that both of the later commands filtered on line **CONTENT**
+rather than **PATH** (`grep -v '\.test\.ts'`), silently dropping production lines whose text happened
+to contain `.test.ts`. Three numbers, one concept, and nothing in the build that could check any.
+
+POD-1408 shipped the ratchet, and at this candidate it runs clean:
 
 ```
-# mine
-grep -rn "FIRST_ADMIN_USER_ID" --include=*.ts packages/*/src apps/*/src \
-  | grep -v "\.test\.\|__fixtures__\|/conformance/" | wc -l     # 77
-
-# coordinator's
-grep -rn 'FIRST_ADMIN_USER_ID' apps packages --include=*.ts \
-  | grep -v '\.test\.ts' | grep -v '/dist/' | wc -l             # 77
+bun run audit:ambient-principals        # --probe, then the gate
+FIRST_ADMIN_USER_ID: 41 usage sites  (baseline 41)
+DEVICE_GRADE_PRINCIPAL: 11 usage sites  (reported only)
+DeviceGradeUnscopedPolicy: 4 usage sites  (reported only)
+ambient-principal census: no drift
+exit 0
 ```
 
-Neither is enforced by anything. Filed as POD-1408.
+It took the shape the finding argued for: a **declared union** rather than one spelling, counting
+**usage sites** rather than raw grep hits, with a baseline a build can fail on. The number is no
+longer a coordinator's shell history, which is the only thing that made the earlier disagreement
+possible.
 
 ## Discovered work
 

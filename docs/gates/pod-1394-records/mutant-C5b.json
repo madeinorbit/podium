@@ -1,0 +1,25 @@
+{
+  "id": "C5b",
+  "file": "apps/server/src/modules/fleet/handlers.ts",
+  "cmd": "bun run audit:machine-grants",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "original_sha256": "882d585105a29b32c59fd4b868089207b2b6dc05f85c2726238d6fbc397e3547",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 205,
+      "anchor_first_line": "ctx.repos.scanReposAll(fleetUsePredicate(fleetAuthzDeps(ctx), 'use'))",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "ctx.repos.scanReposAll()",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "192acbfc82a9a5faa9ad00d3477ef6ce31f83572a9b9c8623e57d3f1cb29652c",
+  "exit_code": 1,
+  "elapsed_s": 1.0,
+  "output": "machine-grants audit: every check found its planted fixture and spared the clean ones\n$ bun scripts/audit-machine-grants.ts --probe && bun scripts/audit-machine-grants.ts\nMachine-grants audit: 1 finding(s). POD-1079's claims are:\n  \u00b7 the device-grade owner placeholder has a small, declared set of homes \u2014 in BOTH spellings\n  \u00b7 the fleet gate is DERIVED from each contract's roleFloor/machineVerb, and no handler copies it\n  \u00b7 every fleet contract says which machine it is about\n  \u00b7 a fleet-wide fan-out carries the principal's `use` filter\n  \u00b7 ownership never travels on the machine wire\n  (whether the gate actually REFUSES is apps/server/src/modules/fleet/authz.test.ts, which\n   builds the real appRouter \u2014 a source scan cannot see that)\n\n  unfiltered-fan-out  apps/server/src/modules/fleet/handlers.ts:205\n      `scanReposAll()` with no `mayUse` predicate scans every online machine, including ones this caller holds no `use` on (ADR 9 D6 M2).\nerror: script \"audit:machine-grants\" exited with code 1\n",
+  "restored_sha256": "882d585105a29b32c59fd4b868089207b2b6dc05f85c2726238d6fbc397e3547",
+  "restored_identical": true,
+  "git_clean_after": true
+}

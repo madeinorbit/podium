@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  admitEntity(target: PlaneTarget, ref: EntityRef): boolean {\n    if (this.deps.visibility.canSee(target.principal, ref) !== true) return false\n",
+    "replace": "  admitEntity(target: PlaneTarget, ref: EntityRef): boolean {\n    if (this.deps.visibility.canSee(target.principal, ref) !== true) {\n      this.deps.emit(target.subscriberId, {\n        type: 'subscribeDenied',\n        ref,\n        reason: 'not-visible-to-you',\n      })\n      return false\n    }\n"
+  }
+]
