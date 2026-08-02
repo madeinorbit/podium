@@ -84,9 +84,7 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
     // why this is one transaction rather than three heals.
     expect(store.sessions.loadSessions().map((s) => s.machineId)).toEqual([HOST, HOST])
     expect(store.repos.listRepos().map((r) => r.machineId)).toEqual([HOST])
-    expect(store.conversations.searchConversations({ query: '' }).map((c) => c.machineId)).toEqual([
-      HOST,
-    ])
+    expect(store.conversations.index.search({ query: '' }).map((c) => c.machineId)).toEqual([HOST])
     // ONE machine row, RENAMED rather than replaced: a duplicate would have split
     // the fleet in half, and a fresh insert would have dropped the owner the
     // legacy row carried.

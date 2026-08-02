@@ -406,10 +406,10 @@ gained. The named ones first.
 | `packages/sync/src/mirror.ts:128` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
 | `packages/sync/src/mirror.ts:166` | `` `${machineId}\n${item.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
 | `packages/sync/src/mirror.ts:205` | `` `${machineId}\n${item.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
-| `apps/server/src/transcript-indexer.ts:79` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
-| `apps/server/src/transcript-indexer.ts:94` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
-| `apps/server/src/transcript-indexer.ts:116` | `` `${machineId}\n${s.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
-| `apps/server/src/transcript-indexer.ts:140` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/modules/memory/transcript-indexer.ts:79` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/modules/memory/transcript-indexer.ts:94` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/modules/memory/transcript-indexer.ts:116` | `` `${machineId}\n${s.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
+| `apps/server/src/modules/memory/transcript-indexer.ts:140` | `` `${machineId}\n${nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
 | `apps/server/src/search.ts:173` | `` `${t.machineId}\n${t.nativeId}` `` | B → `machineScopedKey` | ✅ POD-362 |
 | `packages/model/src/identity/session-identity.ts:69` (was `packages/domain`) | `` `${session.resume.kind}:${session.resume.value}` `` | B → `resumeKey` | ✅ POD-362 |
 | `packages/model/src/identity/session-identity.ts:74` (was `packages/domain`) | `` `${s.resume.kind}:${s.resume.value}` `` | B → `resumeKey` | ✅ POD-362 |

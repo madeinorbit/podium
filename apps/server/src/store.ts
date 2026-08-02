@@ -13,7 +13,7 @@
  *  - sessions (+ pins/snoozes/tab_order/session_drafts) → store/sessions.ts
  *  - issues (+ labels/deps/comments/mail)               → store/issues.ts
  *  - conversations (index/FTS/registry/mirror/transcript index)
- *                                                        → store/conversations.ts
+ *                                                        → store/conversations.ts + store/conversations/
  *  - sync (changes/applied_mutations/queued_messages/upstream_outbox)
  *                                                        → @podium/sync's SyncRepository
  *                                                          (query-only; schema DDL stays
@@ -55,10 +55,10 @@ import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
-import { SessionsRepository } from './store/sessions'
 import { ServerSecretsRepository } from './store/server-secrets'
-import { SettingsAuditRepository } from './store/settings-audit'
+import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
+import { SettingsAuditRepository } from './store/settings-audit'
 import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
 import { UsersRepository } from './store/users'
@@ -224,7 +224,6 @@ export class SessionStore {
     // call-order discipline.
     this.migrateLegacyMachineIdentity(this.hostMachineId)
     this.conversations.ensureFts()
-    this.conversations.repairSubagentSegmentPaths()
     this.superagent.seedGlobalThread()
     this.repos.importReposJson(this.path, this.hostMachineId)
     this.backfillRepoIds()

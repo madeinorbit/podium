@@ -426,7 +426,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'LakeReadSession',
     entity: 'session',
-    site: 'apps/server/src/modules/conversations/service.ts',
+    site: 'apps/server/src/modules/memory/lake.ts',
     role: 'R5',
     purpose: 'The fields the transcript-lake read resolves a segment path from.',
     distinctSemantics:

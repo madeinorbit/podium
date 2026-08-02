@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -70,7 +70,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     mkdirSync(join(lakeDir, 'm1'), { recursive: true })
     writeFileSync(join(lakeDir, 'm1', `${nativeId}.jsonl`), lakeContent)
-    store.conversations.setMirrorCursor(
+    store.conversations.mirror.setMirrorCursor(
       'm1',
       nativeId,
       Buffer.byteLength(lakeContent),
@@ -86,7 +86,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
-      { kind: 'user', id: 'lake-reader' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
@@ -114,7 +114,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
-      { kind: 'user', id: 'lake-reader' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
@@ -147,7 +147,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
-      { kind: 'user', id: 'lake-reader' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     expect(res.items.map((i) => i.text)).toEqual(['fresh from the daemon'])
   })
@@ -157,17 +157,17 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     // Pre-P5 state: lake file + mirrored_bytes > 0, indexed_bytes 0, and NO
     // onBytes hook will ever fire for it (the mirror is already caught up).
     seedMirroredSession(registry, store, lakeDir, 'native-old', LAKE_LINES)
-    expect(store.conversations.transcriptIndexRows('m1', 'native-old')).toEqual([])
+    expect(store.conversations.transcriptIndex.rows('m1', 'native-old')).toEqual([])
 
     // The attach trigger runs the backfill sweep (same seam as enqueueMachine).
     registry.gateway.detachDaemon('m1')
     registry.gateway.attachDaemon('m1', () => {})
     await vi.waitFor(() => {
       expect(
-        store.conversations.transcriptIndexRows('m1', 'native-old').map((r) => r.content),
+        store.conversations.transcriptIndex.rows('m1', 'native-old').map((r) => r.content),
       ).toEqual(['where does the flux capacitor live?', 'The flux capacitor lives in engine.ts'])
     })
-    expect(store.conversations.segmentsToIndex('m1')).toEqual([])
+    expect(store.conversations.transcriptIndex.segmentsToIndex('m1')).toEqual([])
   })
 
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {
@@ -186,8 +186,27 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
-      { kind: 'user', id: 'lake-reader' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     expect(res).toEqual({ items: [], hasMore: false })
+  })
+
+  it('fails closed before daemon or lake access for another user', async () => {
+    const { registry } = setup()
+    const sent: unknown[] = []
+    registry.gateway.attachDaemon('m1', (message) => sent.push(message))
+    const { sessionId } = registry.modules.sessions.createSession({
+      ownerUserId: asUserId('usr_transcript_owner'),
+      agentKind: 'claude-code',
+      cwd: '/private',
+    })
+    const result = await registry.modules.rpc.readTranscript(
+      { sessionId, direction: 'before', limit: 10 },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+    )
+    expect(result).toEqual({ items: [], hasMore: false })
+    expect(sent.some((message) => (message as { type?: string }).type === 'transcriptRead')).toBe(
+      false,
+    )
   })
 })

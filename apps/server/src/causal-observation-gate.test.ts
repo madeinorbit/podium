@@ -145,7 +145,9 @@ describe('causal session observation gate', () => {
     expect(
       restarted.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) => restartedSent.push(msg))
+    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
+      restartedSent.push(msg),
+    )
     const reattach = restartedSent.find(
       (msg): msg is Extract<ControlMessage, { type: 'reattach' }> =>
         msg.type === 'reattach' && msg.sessionId === sessionId,
@@ -400,9 +402,12 @@ describe('causal session observation gate', () => {
       observationGeneration: 2,
       checkpoint: { lastTransitionId: 'thread-2-bootstrap' },
     })
-    const thread2Conversation = store.conversations.conversationPodiumId(store.hostMachineId, 'thread-2')
+    const thread2Conversation = store.conversations.registry.podiumId(
+      store.hostMachineId,
+      'thread-2',
+    )
     expect(thread2Conversation).toBeDefined()
-    expect(store.conversations.conversationPodiumId(store.hostMachineId, 'thread-3')).toBeUndefined()
+    expect(store.conversations.registry.podiumId(store.hostMachineId, 'thread-3')).toBeUndefined()
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId,
@@ -427,7 +432,9 @@ describe('causal session observation gate', () => {
     reg.dispose()
     const restartedSent: ControlMessage[] = []
     const restarted = new SessionRegistry(store)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) => restartedSent.push(msg))
+    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
+      restartedSent.push(msg),
+    )
     expect(
       restartedSent.find(
         (msg): msg is Extract<ControlMessage, { type: 'reattach' }> =>
@@ -483,7 +490,7 @@ describe('causal session observation gate', () => {
       type: 'agentObservation',
       observation: bootstrap,
     })
-    vi.spyOn(store.conversations, 'linkConversationSegment').mockImplementation(() => {
+    vi.spyOn(store.conversations.registry, 'linkSegment').mockImplementation(() => {
       throw new Error('link failed')
     })
     expect(() =>

@@ -39,7 +39,6 @@ import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
-import { ConversationsService } from './modules/conversations/service'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
@@ -57,6 +56,7 @@ import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
+import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
 import { QueuedMessageApply } from './modules/messages/queued-apply'
@@ -126,7 +126,7 @@ export interface RegistryModules {
   sessions: SessionLifecycle
   machines: MachinesService
   rpc: DaemonRpcService
-  conversations: ConversationsService
+  memory: MemoryService
   hosts: HostsService
   settings: SettingsService
   issueSessionLifecycle: IssueSessionLifecycle
@@ -567,7 +567,7 @@ export class SessionRegistry {
       }
       for (const c of clientRegistry.values()) c.send(msg)
     }
-    const conversations = new ConversationsService(
+    const memory = new MemoryService(
       {
         store: this.store,
         now: () => this.now(),
@@ -591,7 +591,7 @@ export class SessionRegistry {
     )
     const rpc = new DaemonRpcService({
       broker: requestBroker,
-      store: this.store.conversations,
+      memory,
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: () => machines.defaultMachine(),
       resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
@@ -602,6 +602,7 @@ export class SessionRegistry {
         const session = liveSessions.get(sessionId)
         return session
           ? {
+              id: session.sessionId,
               cwd: session.cwd,
               machineId: session.machineId,
               agentKind: session.agentKind,
@@ -610,8 +611,6 @@ export class SessionRegistry {
             }
           : undefined
       },
-      readTranscriptFromLake: (session, input) =>
-        conversations.readTranscriptFromLake(session, input),
     })
     const capabilityForLiveSession = (sessionId: SessionId) => {
       const session = liveSessions.get(sessionId)
@@ -709,7 +708,7 @@ export class SessionRegistry {
         : {}),
       machines,
       rpc,
-      conversations,
+      memory,
       issueAccess,
       snapshotTail,
       onWorktreesChanged: broadcastWorktreesChanged,
@@ -1385,7 +1384,7 @@ export class SessionRegistry {
       sessions: sessionsSvc,
       machines,
       rpc,
-      conversations,
+      memory,
       hosts,
       settings,
       headless,
@@ -1909,7 +1908,7 @@ export class SessionRegistry {
         sessions: sessionsSvc,
         machines,
         hosts,
-        conversations,
+        conversations: memory,
         rpc,
         headless,
         approvals,

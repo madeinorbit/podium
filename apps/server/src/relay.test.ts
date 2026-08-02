@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { IssueWire } from '@podium/model'
+import { asUserId, type IssueWire } from '@podium/model'
 import {
   type AgentPhase,
   type AgentRuntimeState,
@@ -2391,7 +2391,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
 
     const p = reg.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
-      { kind: 'user', id: 'reader-a' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     const req = daemon.find((m) => m.type === 'transcriptRead') as
       | { requestId: string; direction: string; limit: number; sessionId: string }
@@ -2433,7 +2433,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
         direction: 'after',
         limit: 200,
       },
-      { kind: 'user', id: 'reader-b' },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     const req = daemon.find((m) => m.type === 'transcriptRead') as
       | {
@@ -2472,7 +2472,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     await expect(
       reg.modules.rpc.readTranscript(
         { sessionId: asSessionId('nope'), direction: 'before', limit: 10 },
-        { kind: 'user', id: 'reader-c' },
+        { kind: 'user', id: FIRST_ADMIN_USER_ID },
       ),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()

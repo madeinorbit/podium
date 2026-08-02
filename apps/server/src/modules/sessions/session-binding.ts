@@ -2,6 +2,7 @@ import type { SessionId, UserId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { harnessRequiresExclusiveInteractiveResume } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
+import type { MemoryService } from '../memory/service'
 import type { Session } from './session'
 
 type ResumeObservation = Extract<DaemonMessage, { type: 'sessionResumeRef' }>
@@ -12,7 +13,7 @@ interface SessionOwnership {
 }
 
 export interface SessionBindingReceiptsDeps {
-  store: SessionStore
+  memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>
   now(): number
   sessions(): Iterable<Session>
   session(sessionId: SessionId): Session | undefined
@@ -110,13 +111,13 @@ export class SessionBindingReceipts {
       const prior = session.resume?.value
       session.resume = message.resume
       session.conversationPodiumId = prior
-        ? this.deps.store.conversations.linkConversationSegment({
+        ? this.deps.memory.linkConversationSegment({
             machineId: session.machineId,
             newNativeId: message.resume.value,
             priorNativeId: prior,
             providerId: session.agentKind,
           })
-        : this.deps.store.conversations.ensureConversationIdentity({
+        : this.deps.memory.ensureConversationIdentity({
             machineId: session.machineId,
             nativeId: message.resume.value,
             providerId: session.agentKind,
