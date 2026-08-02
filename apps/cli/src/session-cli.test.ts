@@ -37,6 +37,8 @@ const RECAP = {
   delta: true,
 }
 
+const NOW_ISO = '2026-08-02T12:00:00.000Z'
+
 const ASK = {
   answered: true,
   questionId: 'msg_q1',
@@ -56,6 +58,10 @@ function client(
     worktreeFreed?: boolean
     deferredKill?: boolean
   } = { ok: true, worktreeFreed: true, deferredKill: true },
+  handoff: { ok: boolean; newCwd?: string; reason?: string } = {
+    ok: true,
+    newCwd: '/home/till/podium-repos/podium-abc/.worktrees/issue-7',
+  },
 ) {
   return {
     sessions: {
@@ -68,9 +74,17 @@ function client(
       ask: { mutate: vi.fn(async (): Promise<unknown> => ask) },
       title: { mutate: vi.fn(async () => title) },
       stop: { mutate: vi.fn(async () => stop) },
+      handoff: { mutate: vi.fn(async () => handoff) },
     },
+    machines: { list: { query: vi.fn(async (): Promise<unknown> => MACHINES) } },
   } satisfies SessionControlClient
 }
+
+/** Two visible machines, so name resolution has something to get wrong. */
+const MACHINES = [
+  { id: 'm-here', name: 'ludovico', hostname: 'ludovico', online: true, lastSeenAt: NOW_ISO, use: 'granted' },
+  { id: 'm-there', name: 'quiet-box', hostname: 'quiet-box.example.net', online: true, lastSeenAt: NOW_ISO, use: 'granted' },
+]
 
 describe('podium session CLI', () => {
   it('parses boolean flags without consuming positionals', () => {
@@ -78,6 +92,45 @@ describe('podium session CLI', () => {
       command: 'send',
       args: { wake: true, text: 'hello' },
       positionals: ['s1'],
+    })
+  })
+
+  describe('handoff', () => {
+    it('resolves the machine name to an id and reports where the session landed', async () => {
+      const c = client()
+      await expect(runSessionCli(['handoff', 's1', '--to', 'quiet-box'], c)).resolves.toBe(
+        'handed s1 to quiet-box — now at /home/till/podium-repos/podium-abc/.worktrees/issue-7',
+      )
+      expect(c.sessions.handoff.mutate).toHaveBeenCalledWith({
+        sessionId: 's1',
+        machineId: 'm-there',
+      })
+    })
+
+    it('needs a target', async () => {
+      await expect(runSessionCli(['handoff', 's1'], client())).rejects.toThrow(
+        /handoff needs --to <machine>/u,
+      )
+    })
+
+    it('refuses an unknown machine name without calling handoff', async () => {
+      const c = client()
+      await expect(runSessionCli(['handoff', 's1', '--to', 'quiet'], c)).rejects.toThrow(
+        /no visible machine named 'quiet'/u,
+      )
+      expect(c.sessions.handoff.mutate).not.toHaveBeenCalled()
+    })
+
+    it('surfaces the server refusal rather than reconstructing one locally', async () => {
+      // The coordinator refuses at apply time and owns the reason (offline vs
+      // denied vs unexportable harness). The CLI must pass it through verbatim.
+      const c = client(undefined, undefined, undefined, undefined, undefined, {
+        ok: false,
+        reason: 'handoff target unreachable',
+      })
+      await expect(runSessionCli(['handoff', 's1', '--to', 'quiet-box'], c)).rejects.toThrow(
+        'handoff target unreachable',
+      )
     })
   })
 

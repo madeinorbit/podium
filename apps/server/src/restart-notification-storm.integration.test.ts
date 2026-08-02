@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -122,11 +123,19 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       const dbPath = join(root, 'state', 'podium.db')
       const ntfy = vi.fn()
       const telegram = vi.fn()
+      const telegramRequest = vi.fn()
       const web: ServerMessage[] = []
-      let store = new SessionStore(dbPath)
+      // A server restart reopens the same owned host machine; reminting here
+      // would model a replacement machine and invalidate every durable binding.
+      const hostMachineId = randomUUID()
+      let store = new SessionStore(dbPath, hostMachineId)
       let registry = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
+      registry.bus.on('notification.telegramRequested', telegramRequest)
       const controls: ControlMessage[] = []
-      const attach = () => registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (msg) => controls.push(msg))
+      const attach = () =>
+        registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (msg) =>
+          controls.push(msg),
+        )
       attach()
       registry.modules.settings.setSettingsFor(
         FIRST_ADMIN_USER_ID,
@@ -144,6 +153,17 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // (POD-420): configuring it is `setSecret`'s job, which is the only path
       // authorized to write credential material.
       registry.modules.settings.setSecret('notifications.telegramBotToken', 'fixture-token')
+      // Outbound routing is usable only after the same owner's chat has passed
+      // the binding ceremony; a preference string alone is intentionally inert.
+      store.telegramBindings.upsert({
+        chatId: 'fixture-chat',
+        userId: FIRST_ADMIN_USER_ID,
+        boundAt: at(0),
+        boundBy: {
+          actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+          onBehalfOf: FIRST_ADMIN_USER_ID,
+        },
+      })
       attachTestClient(registry.clientGateway, (message) => web.push(message))
       const parentId = `parent-${provider}`
       const childId = asSessionId(`child-${provider}`)
@@ -255,8 +275,9 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           // a replaced daemon folds the frozen provider fixture again.
           registry.dispose()
           store.close()
-          store = new SessionStore(dbPath)
+          store = new SessionStore(dbPath, hostMachineId)
           registry = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
+          registry.bus.on('notification.telegramRequested', telegramRequest)
           attachTestClient(registry.clientGateway, (message) => web.push(message))
           attach()
         }
@@ -370,7 +391,15 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         phaseEvents.map((event) => (event.payload as { transitionId: string }).transitionId),
       ).toEqual([`${provider}:live-working`, `${provider}:live-terminal`])
       expect(ntfy).toHaveBeenCalledTimes(1)
-      expect(telegram).toHaveBeenCalledTimes(1)
+      expect(telegramRequest).toHaveBeenCalledTimes(1)
+      expect(telegramRequest).toHaveBeenCalledWith({
+        ownerUserId: FIRST_ADMIN_USER_ID,
+        sessionId: childId,
+        text: expect.any(String),
+      })
+      // Owner-routed requests are consumed by MessagingService at the server
+      // composition root; the legacy ambient pusher must remain unused.
+      expect(telegram).not.toHaveBeenCalled()
       expect(web.filter((message) => message.type === 'attentionEvent')).toHaveLength(1)
       expect(
         store.notificationFacts.hasActive(

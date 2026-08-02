@@ -61,6 +61,7 @@ import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
+import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
@@ -76,7 +77,12 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
-import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
+import {
+  fleetViewFor,
+  machinesForPrincipal,
+  sessionCommandCtx,
+  visibleMachinesFor,
+} from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
@@ -876,6 +882,10 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
+      // POD-1386: the repoId-keyed resolver handoff already uses, so a machine-pinned
+      // start finds the repository on the target instead of demanding the source's path.
+      ensureRepoOnMachine: (machineId, repoPath) =>
+        sessionsSvc.workspace.resolveRepoOnMachine(repoPath, machineId),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
@@ -1430,6 +1440,27 @@ export class SessionRegistry {
       stopIssueSessions: (input) => issueSessionLifecycle.stopIssue(input),
     })
     this.issues = issues
+    this.bus.on('machine.diagnostic', (diagnostic) => {
+      routeMachineDiagnostic(diagnostic, {
+        recipients: (machineId) => {
+          const owner = machines.ownershipRows().find((row) => row.id === machineId)?.ownerUserId
+          return [
+            ...(owner ? [asUserId(owner)] : []),
+            ...this.store.users
+              .list()
+              .filter((user) => user.role === 'admin')
+              .map((user) => asUserId(user.id)),
+          ]
+        },
+        repoPath: (machineId) =>
+          this.store.repos.listRepoPaths(machineId)[0] ?? this.store.repos.listRepoPaths()[0],
+        issueExists: (id) => this.store.issues.getIssue(id) !== null,
+        createIssue: (input) => void issues.create(input),
+        sendMail: (issueId, body) => void issues.sendMail(issueId, 'machine-diagnostic', body),
+        notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
+        warn: (message) => console.warn(message),
+      })
+    })
     this.issueCommands = issueCommands
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
@@ -1478,6 +1509,47 @@ export class SessionRegistry {
         }
         if (router === 'quota' && proc === 'summary') {
           return this.modules.rpc.agentQuotaAll()
+        }
+        /**
+         * `machines.list` for agents (POD-1386) — "what can I run on?".
+         *
+         * INHERITED, NOT RESTATED. This calls the SAME `visibleMachinesFor` the
+         * router serves at router.ts:399, and that is the whole design: the
+         * projection filters the see-set and stamps each row's `use` decision, and
+         * a second copy of that scoping decision is precisely how the property
+         * would quietly stop holding on ONE path while still holding on the other,
+         * with nothing to report it. There is no policy in this arm.
+         *
+         * WHY REPOS RIDE ALONG, AND WHY THEY ARE FILTERED TWICE. A machine's
+         * registered checkout paths are what makes an enumeration actionable —
+         * without them "which machine can take this work" is unanswerable — but
+         * `repos.listDetailed` returns every row across every machine, unscoped.
+         * Allowlisting that proc would disclose checkout paths on machines the
+         * caller cannot even see: a worse leak than the gap being closed. So the
+         * rows are cut to machines that survived the projection AND carry
+         * `use: 'granted'`, putting a checkout path in the same class the model
+         * already puts `inventory` in — "what can I run on your hardware, and as
+         * whom" is a `use` question, not a `see` question.
+         *
+         * A `see`-only machine therefore arrives with no repos and no inventory,
+         * and the CLI renders that as "not available to this session" rather than
+         * "none registered" — the two differ in what they are a fact ABOUT, and
+         * only the second would be a lie.
+         *
+         * TWO PROCS, ONE SHAPE EACH. `list` answers EXACTLY what the router
+         * answers — the same projection, the same array — because a proc that
+         * returned one shape over HTTP and another over the relay would be a trap
+         * for every caller that can reach both (`podium issue start --machine`
+         * resolves names over whichever transport it has). The repo join is a
+         * SECOND proc rather than a wider `list`.
+         */
+        if (router === 'machines' && proc === 'list') {
+          return Promise.resolve(visibleMachinesFor(this.modules, capability))
+        }
+        if (router === 'machines' && proc === 'listWithRepos') {
+          return Promise.resolve(
+            fleetViewFor(this.modules, capability, this.store.repos.listRepos()),
+          )
         }
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
@@ -2007,6 +2079,12 @@ export class SessionRegistry {
   }
 
   dispose(): void {
+    // FIRST, and before store.close() further down the shutdown's persist list:
+    // the memory service owns paced loops (transcript mirror + FTS indexer) that
+    // keep writing to the store on later turns. Left running they woke after the
+    // handle closed and logged their own failure, so a clean stop was
+    // indistinguishable from a broken one (POD-1390).
+    this.modules.memory.dispose()
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)

@@ -1,4 +1,13 @@
-import { AgentMemoryWire, AgentQuotaWire, HostMemoryWire, HostMetricsWire, MachineWire, ProjectMemoryWire, SessionIdField, UsageBucketWire } from '@podium/model'
+import {
+  AgentMemoryWire,
+  AgentQuotaWire,
+  HostMemoryWire,
+  HostMetricsWire,
+  MachineWire,
+  ProjectMemoryWire,
+  SessionIdField,
+  UsageBucketWire,
+} from '@podium/model'
 import { z } from 'zod'
 
 // MachineWire, host metrics + memory, usage buckets and agent/machine quota all
@@ -48,6 +57,22 @@ export const HostMetricsMessage = z.object({
   type: z.literal('hostMetrics'),
   ...HostMetricsWire.shape,
 })
+
+/**
+ * A host-local integration degraded in a way that needs a person's attention.
+ *
+ * Machine identity is deliberately absent: the gateway stamps the authenticated
+ * machine principal on delivery (ADR 3 D7). A daemon cannot redirect a warning
+ * to another machine or name a human in this payload.
+ */
+export const MachineDiagnosticMessage = z.object({
+  type: z.literal('machineDiagnostic'),
+  code: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().min(1),
+  observedVersion: z.string().optional(),
+})
+export type MachineDiagnosticMessage = z.infer<typeof MachineDiagnosticMessage>
 
 // On-demand (chip click), not periodic — a full /proc walk is too heavy for the
 // 5s hostMetrics heartbeat. `roots` are the repo/worktree paths the client controls;

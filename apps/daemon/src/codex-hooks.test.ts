@@ -7,8 +7,15 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finished } from 'node:stream/promises'
 import { promisify } from 'node:util'
-import { afterAll, describe, expect, it } from 'vitest'
-import { ensurePodiumCodexHooks, PODIUM_CODEX_HOOK_COMMAND } from './codex-hooks.js'
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import {
+  type CodexVersionProbe,
+  detectCodexVersion,
+  ensurePodiumCodexHooks,
+  PODIUM_CODEX_HOOK_COMMAND,
+  parseCodexVersion,
+  supportsCodexHooks,
+} from './codex-hooks.js'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -25,6 +32,9 @@ afterAll(() => {
 const LEGACY_PODIUM_CODEX_HOOK_COMMAND = `bash -c 'u="$PODIUM_CODEX_HOOK_URL"; [ -n "$u" ] || exit 0; curl --data-binary @- "$u"'`
 
 const execFileAsync = promisify(execFile)
+const knownVersion: CodexVersionProbe = async () => 'codex-cli 0.146.0'
+const ensureHooks = (opts: Parameters<typeof ensurePodiumCodexHooks>[0] = {}) =>
+  ensurePodiumCodexHooks({ ...opts, versionProbe: opts.versionProbe ?? knownVersion })
 
 const home = async (): Promise<string> => {
   const dir = trackTmp('podium-codex-hooks-')
@@ -35,14 +45,14 @@ const home = async (): Promise<string> => {
 describe('ensurePodiumCodexHooks', () => {
   it('skips silently when ~/.codex does not exist', async () => {
     const dir = trackTmp('podium-codex-hooks-')
-    const res = await ensurePodiumCodexHooks({ homeDir: dir })
+    const res = await ensureHooks({ homeDir: dir })
     expect(res.installed).toBe(false)
     expect(existsSync(join(dir, '.codex', 'hooks.json'))).toBe(false)
   })
 
   it('creates hook definitions without writing private trust state', async () => {
     const dir = await home()
-    const res = await ensurePodiumCodexHooks({ homeDir: dir })
+    const res = await ensureHooks({ homeDir: dir })
     expect(res).toMatchObject({ installed: true, changed: true })
 
     const doc = JSON.parse(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8'))
@@ -62,8 +72,8 @@ describe('ensurePodiumCodexHooks', () => {
 
   it('is idempotent — second run writes nothing', async () => {
     const dir = await home()
-    await ensurePodiumCodexHooks({ homeDir: dir })
-    const res = await ensurePodiumCodexHooks({ homeDir: dir })
+    await ensureHooks({ homeDir: dir })
+    const res = await ensureHooks({ homeDir: dir })
     expect(res).toMatchObject({ installed: true, changed: false })
   })
 
@@ -82,7 +92,7 @@ describe('ensurePodiumCodexHooks', () => {
       }),
     )
 
-    await ensurePodiumCodexHooks({ homeDir: dir })
+    await ensureHooks({ homeDir: dir })
     const doc = JSON.parse(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8'))
     expect(doc.hooks.Stop[0].hooks[0].command).toBe(PODIUM_CODEX_HOOK_COMMAND)
   })
@@ -106,13 +116,41 @@ describe('ensurePodiumCodexHooks', () => {
       '',
     ].join('\n')
     await writeFile(join(dir, '.codex', 'config.toml'), config)
-    await ensurePodiumCodexHooks({ homeDir: dir })
+    await ensureHooks({ homeDir: dir })
 
     const doc = JSON.parse(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8'))
     expect(doc.hooks.Stop[0].hooks[0].command).toBe(foreignCommand)
     expect(doc.hooks.Stop[1].hooks[0].command).toBe(PODIUM_CODEX_HOOK_COMMAND)
 
     expect(await readFile(join(dir, '.codex', 'config.toml'), 'utf8')).toBe(config)
+  })
+
+  it('degrades loudly and leaves both Codex files untouched on an unknown version', async () => {
+    const dir = await home()
+    const hooks = '{"hooks":{"Stop":[]}}\n'
+    const config = 'model = "gpt-5.6"\n'
+    await writeFile(join(dir, '.codex', 'hooks.json'), hooks)
+    await writeFile(join(dir, '.codex', 'config.toml'), config)
+    const onDegraded = vi.fn()
+    const banner = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await ensureHooks({
+      homeDir: dir,
+      versionProbe: async () => 'codex-cli 0.147.0',
+      onDegraded,
+    })
+
+    expect(res).toMatchObject({ installed: false, changed: false, degraded: true })
+    expect(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8')).toBe(hooks)
+    expect(await readFile(join(dir, '.codex', 'config.toml'), 'utf8')).toBe(config)
+    expect(onDegraded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'codex-version-unsupported',
+        observedVersion: 'codex-cli 0.147.0',
+      }),
+    )
+    expect(banner).toHaveBeenCalledWith(expect.stringContaining('CODEX HOOKS NEED REVIEW'))
+    banner.mockRestore()
   })
 })
 
@@ -221,6 +259,12 @@ describe('codex hooks real-binary smoke', () => {
         return false
       }
     })()
+
+  it('recognizes the installed real Codex binary before editing hook files', async () => {
+    const version = parseCodexVersion(await detectCodexVersion())
+    if (!version) throw new Error('installed Codex binary did not report a parseable version')
+    expect(supportsCodexHooks(version)).toBe(true)
+  })
 
   it.skipIf(!enabled)(
     '[real-agent:codex] official hook payload reaches the ingest URL',

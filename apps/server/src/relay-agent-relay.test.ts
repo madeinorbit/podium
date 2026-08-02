@@ -150,6 +150,80 @@ describe('server agent relay handler (P1b)', () => {
     expect(r.error).toMatch(/not permitted via relay/)
   })
 
+  /**
+   * POD-1386 — an agent could not enumerate machines at all: the server had the
+   * projection (`machines.list`, router.ts) but the relay refused to carry it, and
+   * the missing CLI flag hid the missing allowlist entry. These pin the two
+   * properties the new arm exists for.
+   */
+  describe('machines enumeration', () => {
+    it('relays the machine projection an agent needs to choose a host', async () => {
+      const reply = captureReply(registry, machineId)
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-machines-list',
+        sessionId: asSessionId(sA),
+        router: 'machines',
+        proc: 'list',
+      })
+      const result = await reply
+      expect(result.ok).toBe(true)
+      // Shape, not identity: the rows are whatever the machines table holds, and
+      // the point is that every one carries what a placement decision reads —
+      // liveness and this principal's `use` verdict. The scoping itself is pinned
+      // where it can be watched refusing (command-plane.test.ts, three machines).
+      const rows = result.result as { id: string; online: boolean; use?: string }[]
+      expect(Array.isArray(rows)).toBe(true)
+      expect(rows.length).toBeGreaterThan(0)
+      for (const row of rows) {
+        expect(typeof row.id).toBe('string')
+        expect(typeof row.online).toBe('boolean')
+        expect(row.use).toBe('granted')
+      }
+    })
+
+    it('joins registered repos onto the machines this caller may USE', async () => {
+      const reply = captureReply(registry, machineId)
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-machines-fleet',
+        sessionId: asSessionId(sA),
+        router: 'machines',
+        proc: 'listWithRepos',
+      })
+      const result = await reply
+      expect(result.ok).toBe(true)
+      const view = result.result as {
+        machines: { id: string }[]
+        repos: { machineId: string; path: string }[]
+      }
+      expect(view.machines.length).toBeGreaterThan(0)
+      // Every repo row belongs to a machine present in the projection — the guard
+      // against `repos.listDetailed`'s unscoped cross-machine disclosure.
+      const visible = new Set(view.machines.map((machine) => machine.id))
+      expect(view.repos.every((repo) => visible.has(repo.machineId))).toBe(true)
+    })
+
+    it('still refuses every other machines proc', async () => {
+      // The allowlist grants reach to two READS, not to the router: rename and
+      // revoke stay operator-side.
+      for (const proc of ['rename', 'revoke', 'pairingCode']) {
+        const reply = captureReply(registry, machineId)
+        registry.gateway.routeDaemonFrame(machineId, {
+          type: 'agentRelayRequest',
+          requestId: `ir-machines-${proc}`,
+          sessionId: asSessionId(sA),
+          router: 'machines',
+          proc,
+          input: {},
+        })
+        const r = await reply
+        expect(r.ok).toBe(false)
+        expect(r.error).toMatch(/not permitted via relay/)
+      }
+    })
+  })
+
   it('relays the read-only multi-machine quota summary used by the panel', async () => {
     const reply = new Promise<RelayResult>((resolve) => {
       registry.gateway.attachDaemon(machineId, (msg) => {

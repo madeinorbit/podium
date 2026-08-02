@@ -33,6 +33,7 @@ import {
 import {
   AgentQuotaResultMessage,
   HostMetricsMessage,
+  MachineDiagnosticMessage,
   MemoryBreakdownResultMessage,
   UsageResultMessage,
 } from './host'
@@ -183,6 +184,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   BrowseDirsResultMessage,
   TranscriptMirrorResultMessage,
   HostMetricsMessage,
+  MachineDiagnosticMessage,
   MemoryBreakdownResultMessage,
   TranscriptDeltaMessage,
   TranscriptReadResultMessage,

@@ -18,6 +18,7 @@
     "local-placeholders": 3,
     "machine-id-unbranded-fields": 26,
     "mobile-client-value": 1,
+    "oversized-daemon-composition-root": 0,
     "panel-mode-duality": 3,
     "per-user-singletons": 1,
     "publish-computed-fanout": 0,
