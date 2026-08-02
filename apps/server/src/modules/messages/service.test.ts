@@ -611,6 +611,47 @@ describe('MessageDeliveryService.send', () => {
     expect(r.message.deliveredTo).not.toBe('sCoord')
   })
 
+  // [POD-1365] The coordinator preference turns on session STATUS, and status is a
+  // different axis from agent PHASE. An agent sitting at its prompt is phase 'idle'
+  // and status 'live' — it IS preferred; SessionStatus has no 'idle' member at all
+  // ('starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'). Conflating the
+  // two reads the table below as far more broken than it is, so pin every status:
+  // exactly one routes to the coordinator, and the rest fall through to the
+  // most-recently-active peer. The hibernated row is the real gap — a coordinator
+  // resting between fan-out waves loses its mail to a busier worker (POD-1371).
+  it.each([
+    { status: 'live', wins: true },
+    { status: 'starting', wins: false },
+    { status: 'reconnecting', wins: false },
+    { status: 'hibernated', wins: false },
+    { status: 'exited', wins: false },
+  ])('coordinator with status $status receives issue mail: $wins', ({ status, wins }) => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        status: status as SessionMeta['status'],
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      // A live, more-recently-active peer — what recency would pick.
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane status', urgency: 'fyi' },
+    )
+    expect(r.message.deliveredTo).toBe(wins ? 'sCoord' : 'sWorker')
+  })
+
   it('records queued→injected→delivered on the ledger and emits an event per transition', () => {
     const { svc, store } = harness([session({ sessionId: 's1' })])
     const r = svc.send(
