@@ -2435,6 +2435,15 @@ The complete rebased unit/web/mobile/Bun census also remains to be repeated outs
 host window. Phase-5 exit therefore remains open on those valid oracle measurements and the soak
 below.
 
+POD-327's phase-close audit is now explicit rather than inferred from the global ratchet:
+`bun scripts/rearch-audit.ts --phase POD-327 --json` reports exactly one item,
+`oversized-daemon-composition-root`, at count 0 with `clearToClose: true`. A real planted mutation
+to 301 physical lines made it exit 1 at line 301; restoration returned `daemon.ts` to 74 lines and
+green. The later catch-up to integration `40e2cac3` also exposed two unrelated deterministic
+layout regressions in the global audit (`router-triple-access` 0→1 and `panel-mode-duality` 3→5)
+and a Grok real-binary event-case drift. Their owners were notified; none is waived or rebaselined,
+so the full oracle remains open alongside the performance measurement and soak.
+
 **Named quiet-host handoff (open):** keep the 25 ms p95 budget unchanged. Capture `uptime`, run
 `bun run test:acceptance`, then capture `uptime` again; that command is deliberately isolated to
 `scripts/loop-split-load.integration.test.ts` with one worker and no retries. Next capture

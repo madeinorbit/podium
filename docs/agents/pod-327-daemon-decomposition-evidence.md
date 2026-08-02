@@ -3,9 +3,10 @@
 Status recorded 2026-08-02. The implementation is complete; Phase-5 exit remains open for a
 contention-free acceptance measurement and the required paired-VPS soak.
 
-The branch was refreshed onto integration through `689a1b3c` and pushed at merge commit
-`8b7e12aa14c21d2f3f5754f639d2669d141cce12`. The two generated architecture documents were
-regenerated from the resolved code rather than hand-merged.
+The implementation merge is `8b7e12aa14c21d2f3f5754f639d2669d141cce12`. Catch-up merge
+`1136d78997daaa140d44eaef2ed2e96ebd2a95c0` also incorporates integration through
+`40e2cac3`. Generated architecture documents were regenerated from resolved code rather than
+hand-merged.
 
 ## Result
 
@@ -60,13 +61,17 @@ smoke passed with `codex-cli 0.146.0`.
 - Post-merge `bun run typecheck`: 22/22 tasks passed across the 25-package workspace scope.
 - `bun run test:multi-instance`: the independent-runtime test passed 1/1 with 41 assertions,
   managed-account spawn passed 3/3, and the install-shell lane reported `ALL OK`.
-- `bun run audit:rearch`: passed at the checked-in baseline (31 items, 142 sites).
+- POD-327 now has a real phase-close audit item. The phase JSON command,
+  `bun scripts/rearch-audit.ts --phase POD-327 --json`, reports one item
+  (`oversized-daemon-composition-root`) at count 0, no sites or declared residue, and
+  `clearToClose: true`. A planted real mutation from 74 to 301 physical lines made
+  the gate exit 1 at line 301; exact restoration returned it to 74 lines and green. The detector
+  test passed 1/1 (73 unrelated cases skipped); the pre-catch-up full audit file passed 73/73.
 - `bun run audit:machine-grants`: passed.
-- On the pushed merge tip, the composition graph is acyclic/current at 177 modules, construction
+- On the current merge tip, the composition graph is acyclic/current at 178 modules, construction
   order is current, and the reactions ledger is current at 25 reactions; all three passed without
   `--write` after the generated documents were refreshed.
-- On that same tip, the machine-grants planted-fixture probe and clean gate passed, the systemd
-  render matched, and the rearchitecture audit held its exact baseline at 31 items / 142 sites.
+- The machine-grants planted-fixture probe and clean gate passed, and the systemd render matched.
 - The Codex guard suite passed 10 tests and skipped 1 in one file; the installed binary reported
   `codex-cli 0.146.0` and took the real-binary arm.
 - The production diff moves the existing `FIRST_ADMIN_USER_ID` legacy-binding migration input
@@ -76,6 +81,18 @@ smoke passed with `codex-cli 0.146.0`.
 - Changed issue-local source files pass scoped Biome checks.
 
 ## Open Phase-5 gates
+
+- A saturated full node run recorded 650 files: 642 passed, 5 failed, 3 skipped; 9,370 tests
+  passed, 6 failed, and 33 skipped. Three timing-shaped files then passed 3/3 in isolation:
+  terminal keyboard 13/13 each, mirror lag 1 passed / 14 skipped each, and the audit baseline-write
+  case 1 passed / 73 skipped each. Integration fixed the three principal-probe failures and the
+  merged file now passes 3/3. The remaining Grok real-binary hook smoke is deterministically red
+  3/3 because the installed CLI emits `pre_tool_use` while the test expects `PreToolUse`; POD-1329
+  received the exact finding.
+- The global deletion ratchet on integration is currently red outside POD-327: the newest layout
+  merge grew `router-triple-access` from 0 to 1 and `panel-mode-duality` from 3 to 5. POD-1350 and
+  the rewrite coordinator received the exact sites. These are not rebaselined or called green;
+  POD-327's own phase-specific item remains proven at zero.
 
 - The isolated load acceptance remains a named open item. On a credible host, capture `uptime`,
   run `bun run test:acceptance`, and capture `uptime` again. This runs only
