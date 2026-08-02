@@ -36,6 +36,16 @@ export class SpawnPlacementError extends Error {
   }
 }
 
+/**
+ * Refuse a placement before any optimistic entity is painted or network request
+ * is assembled. Engine calls this at its action boundary; createDraftAgent
+ * repeats it as defense in depth for direct callers.
+ */
+export function assertSpawnPlacement(target: SpawnTarget): void {
+  if (target.placement === 'unauthorized') throw new SpawnPlacementError('unauthorized')
+  if (target.placement === 'unreachable') throw new SpawnPlacementError('unreachable')
+}
+
 export async function createDraftAgent(args: {
   trpc: PodiumClientApi
   sessionId: SessionId
@@ -44,8 +54,7 @@ export async function createDraftAgent(args: {
   agentKind: AgentKind
   firstPrompt?: string
 }): Promise<void> {
-  if (args.target.placement === 'unauthorized') throw new SpawnPlacementError('unauthorized')
-  if (args.target.placement === 'unreachable') throw new SpawnPlacementError('unreachable')
+  assertSpawnPlacement(args.target)
   await args.trpc.sessions.create.mutate({
     sessionId: args.sessionId,
     agentKind: args.agentKind,

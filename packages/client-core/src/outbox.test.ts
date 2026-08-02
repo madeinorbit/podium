@@ -530,6 +530,46 @@ describe('definitive refusals park for recovery instead of retrying forever', ()
     expect(calls.length).toBe(attemptsAfterPark)
   })
 
+  it('queues while offline, then a revoked right dead-letters on reconnect with zero retry loop', async () => {
+    let online = false
+    const attempts: string[] = []
+    const surfaced: string[] = []
+    const { executors } = makeExecutors(async (_kind, input) => {
+      attempts.push((input as { mutationId: string }).mutationId)
+      throw refusal({ code: 'UNAUTHORIZED' })
+    })
+    const ob = createOutbox<Kinds>({
+      executors,
+      storage: memoryStorage().storage,
+      deadLetterStorage: memoryStorage().storage,
+      isOnline: () => online,
+      retryMs: 5,
+      randomId: deterministicIds(),
+      onDeadLetter: (parked) => surfaced.push(parked.entry.mutationId),
+    })
+    outboxes.push(ob)
+    const queued = ob.enqueue('rename', {
+      sessionId: asSessionId('s-revoked'),
+      name: 'written on the plane',
+    })
+
+    expect(ob.size()).toBe(1)
+    expect(attempts).toEqual([])
+    online = true
+    await ob.drain()
+
+    expect(ob.size()).toBe(0)
+    expect(ob.deadLetters()).toMatchObject([
+      { entry: { mutationId: queued.mutationId }, reason: { code: 'unauthorized' } },
+    ])
+    expect(surfaced).toEqual([queued.mutationId])
+    expect(attempts).toEqual([queued.mutationId])
+
+    await ob.drain()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(attempts).toEqual([queued.mutationId])
+  })
+
   it('keeps an UNRECOGNISED refusal queued and retryable — an unknown code is transient, not a park', async () => {
     // Fails OPEN toward keeping the user's work. The opposite default would park
     // on a guess, and a parked entry is one the drain never touches again.

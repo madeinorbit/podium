@@ -15,6 +15,12 @@ import type { EngineOutbox, OutboxKinds } from './wiring'
 
 const sessionId = asSessionId('session-1')
 
+function nestedKeys(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(nestedKeys)
+  if (value === null || typeof value !== 'object') return []
+  return Object.entries(value).flatMap(([key, nested]) => [key, ...nestedKeys(nested)])
+}
+
 function harness() {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
   const pending: OutboxEntry[] = []
@@ -235,7 +241,7 @@ describe('engine action ownership boundary', () => {
     h.actions.replicatedLayout.clear('superOpen')
 
     for (const { input } of h.queued) {
-      expect(Object.keys(input as object)).not.toEqual(
+      expect(nestedKeys(input)).not.toEqual(
         expect.arrayContaining(['actor', 'owner', 'ownerId', 'origin']),
       )
     }
