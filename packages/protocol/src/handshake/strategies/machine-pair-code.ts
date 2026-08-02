@@ -11,10 +11,11 @@
  * machine is PRIVATE to its pairer — the directory records that; this module does
  * not widen it.
  *
- * What it is refused: an unknown, expired or already-redeemed code, and a server
- * with pairing disabled. This is the one branch that may return a peer-visible
- * message, because "invalid or expired code" is the pairing ceremony's own UX and
- * discloses nothing about any identity.
+ * What it is refused: an unknown, expired or already-redeemed code, a server with
+ * pairing disabled, and a requested machineId that already has a row (POD-1125 —
+ * a pair code must not rebind another machine's credential). This is the one
+ * branch that may return a peer-visible message, because "invalid or expired code"
+ * is the pairing ceremony's own UX and discloses nothing about any identity.
  *
  * INERT: `claims.name` / `claims.hostname` are a DISPLAY-NAME REQUEST. They are
  * passed to the directory as a requested label and can never select which machine
@@ -57,7 +58,8 @@ export const createMachinePairCodeStrategy = (
       return {
         ok: false,
         reason: 'auth-failed',
-        diagnostic: 'pair code invalid, expired, already used, or pairing disabled',
+        diagnostic:
+          'pair code invalid, expired, already used, pairing disabled, or machine id already registered',
         peerMessage: 'invalid or expired code',
       }
     return {

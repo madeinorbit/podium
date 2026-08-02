@@ -220,10 +220,14 @@ export class MachinesService {
   /**
    * Authenticate a daemon's handshake frame (pre-Control/Daemon-union, parsed by
    * wsServer). `pair` redeems a one-time code and mints a fresh token, hashing it
-   * for storage and returning the plaintext once (the daemon persists it). `hello`
-   * verifies a returning daemon's token against the stored hash for its machineId,
-   * then attaches as that machineId — the id always comes FROM the frame, never a
-   * token lookup, so getMachineByToken returning a boolean is sufficient.
+   * for storage and returning the plaintext once (the daemon persists it). The
+   * peer-chosen `machineId` is a REQUEST only: if that id already has a row, the
+   * pair is refused rather than upserting over its credential (POD-1125). A
+   * revoked machine is gone from the table, so the same id may pair again as a
+   * fresh insert. `hello` verifies a returning daemon's token against the stored
+   * hash for its machineId, then attaches as that machineId — the id always comes
+   * FROM the frame, never a token lookup, so getMachineByToken returning a
+   * boolean is sufficient.
    */
   authenticateDaemon(
     frame: DaemonHandshake,
@@ -234,6 +238,12 @@ export class MachinesService {
       // No pairing manager = node role: this server is not a rendezvous point,
       // so new machines can't join it. Returning daemons (`hello`) still work.
       if (!this.deps.pairing) return { ok: false, reason: 'pairing is disabled on this server' }
+      // Existence check BEFORE redeem: a collision must not burn a single-use code.
+      // The peer proposed this id; the directory decides, and an existing row is a
+      // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
+      if (this.deps.store.machines.getMachine(frame.machineId)) {
+        return { ok: false, reason: 'machine id already registered' }
+      }
       const pairingGrant = this.deps.pairing.redeem(frame.code)
       if (!pairingGrant) {
         return { ok: false, reason: 'invalid or expired code' }

@@ -185,6 +185,51 @@ describe('payload identity is inert at the real MachinesService', () => {
     // Single use.
     expect(directory.redeemPairCode(code, { machineId: 'm-new' })).toBeNull()
   })
+
+  /**
+   * POD-1125: a pair code is permission to ADD a machine, not to take over one.
+   * Redeeming under an existing machineId must refuse without rewriting tokenHash
+   * and without burning the single-use code (operator can retry with a fresh id).
+   */
+  it('a pair code cannot rebind an existing machine id', () => {
+    const store = new SessionStore(':memory:')
+    store.machines.upsertMachine({
+      id: 'victim',
+      name: 'Admin Laptop',
+      hostname: 'admin.local',
+      tokenHash: sha256('victim-tok'),
+      ownerUserId: 'user:admin',
+    })
+    const pairing = new PairingManager()
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing })
+    const code = pairing.mint({})
+    const directory = createMachineDirectory(reg.modules.machines)
+
+    expect(
+      directory.redeemPairCode(code, {
+        machineId: 'victim',
+        name: 'Attacker Box',
+        hostname: 'evil.local',
+      }),
+    ).toBeNull()
+
+    // Original credential still verifies; name/inventory ownership untouched.
+    expect(directory.verifyMachineToken('victim-tok', 'victim')).toMatchObject({
+      machine: 'victim',
+    })
+    expect(store.machines.getMachine('victim')).toMatchObject({
+      name: 'Admin Laptop',
+      ownerUserId: 'user:admin',
+    })
+    // Collision refused before redeem, so the code still works for a new id.
+    const paired = directory.redeemPairCode(code, {
+      machineId: 'fresh',
+      name: 'New Box',
+      hostname: 'new.local',
+    })
+    expect(paired).toMatchObject({ machine: 'fresh', name: 'New Box' })
+    expect(paired?.issuedToken).toBeTruthy()
+  })
 })
 
 describe('the machine principal carries owner and grants, and fails closed without them', () => {
