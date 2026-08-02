@@ -61,7 +61,7 @@ function fakePorts() {
     sessions: proxyFor('sessions'),
     machines,
     hosts: proxyFor('hosts'),
-    conversations: () => conversations,
+    conversations,
     rpc: proxyFor('rpc'),
     headless: proxyFor('headless'),
     approvals: proxyFor('approvals'),

@@ -15,7 +15,7 @@ export function replyHandler(
   input: ContractInput<typeof mailReplyContract>,
 ): unknown {
   const { caller, deps, access } = ctx
-  const svc = deps.messages()
+  const svc = deps.messages
   const original = svc.message(input.id)
   if (!original) throw new Error(`unknown message ${input.id}`)
   // Only the RECIPIENT (or the operator) replies — the reply routes to the

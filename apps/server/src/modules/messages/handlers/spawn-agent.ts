@@ -27,7 +27,7 @@ export function spawnAgentHandler(
   const callerOwner = onBehalfOfUser(caller.principal)
   if (callerOwner === null) throw new Error('agent spawn requires a human owner')
   if (!deps.spawnSession) throw new Error('agent spawn is not wired on this server')
-  const issues = deps.issues()
+  const issues = deps.issues
   if (input.issue && input.newTitle) throw new Error('pass --issue OR --new, not both')
   let issueId: string
   if (input.issue) {
@@ -78,7 +78,7 @@ export function spawnAgentHandler(
   // full PTY sessions. Human intent is never braked (contract: the exemption
   // attaches to a human principal, not to an admin grade).
   const budgeted = caller.capability.scope.kind !== 'all'
-  if (budgeted && !deps.messages().takeSpawnBudget(issueId).ok) {
+  if (budgeted && !deps.messages.takeSpawnBudget(issueId).ok) {
     try {
       deps.appendEvent?.({
         ts: deps.now?.() ?? new Date().toISOString(),

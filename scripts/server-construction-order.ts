@@ -78,14 +78,25 @@ export function auditConstructionSource(text: string, path = ROOT): AssemblyAudi
     const locations = nonNullAssertions.map(
       (node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
     )
-    throw new Error(`composition root contains non-null late binding(s) at line(s) ${locations.join(', ')}`)
+    throw new Error(
+      `composition root contains non-null late binding(s) at line(s) ${locations.join(', ')}`,
+    )
   }
 
   const positions = new Map(declarations.map((declaration, index) => [declaration.name, index]))
   const steps: AssemblyStep[] = declarations.map((declaration, index) => {
     const dependencies = new Set<string>()
+    const deferredServiceClosures = new Set<string>()
     const visit = (node: ts.Node): void => {
       if (ts.isTypeNode(node)) return
+      if (
+        ts.isArrowFunction(node) &&
+        node.parameters.length === 0 &&
+        ts.isIdentifier(node.body) &&
+        positions.has(node.body.text)
+      ) {
+        deferredServiceClosures.add(node.body.text)
+      }
       if (ts.isIdentifier(node) && !isPropertyName(node) && positions.has(node.text)) {
         dependencies.add(node.text)
       }
@@ -93,13 +104,26 @@ export function auditConstructionSource(text: string, path = ROOT): AssemblyAudi
     }
     if (declaration.node.initializer) visit(declaration.node.initializer)
     dependencies.delete(declaration.name)
-    const future = [...dependencies].filter((dependency) => (positions.get(dependency) ?? -1) > index)
+    const future = [...dependencies].filter(
+      (dependency) => (positions.get(dependency) ?? -1) > index,
+    )
     if (future.length > 0) {
       throw new Error(
         `${declaration.name} at line ${declaration.line} depends on later service(s): ${future.join(', ')}`,
       )
     }
-    return { name: declaration.name, dependencies: [...dependencies].sort(), line: declaration.line }
+    if (deferredServiceClosures.size > 0) {
+      throw new Error(
+        `${declaration.name} at line ${declaration.line} wraps constructed service ${[
+          ...deferredServiceClosures,
+        ].join(', ')} in a deferred closure`,
+      )
+    }
+    return {
+      name: declaration.name,
+      dependencies: [...dependencies].sort(),
+      line: declaration.line,
+    }
   })
 
   const visitPropertyReads = (node: ts.Node): void => {
@@ -112,7 +136,9 @@ export function auditConstructionSource(text: string, path = ROOT): AssemblyAudi
       if (write && !isWrite && node.getStart(source) < write.getStart(source)) {
         const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
         const writeLine = source.getLineAndCharacterOfPosition(write.getStart(source)).line + 1
-        throw new Error(`this.${node.name.text} is read at line ${line} before assignment at line ${writeLine}`)
+        throw new Error(
+          `this.${node.name.text} is read at line ${line} before assignment at line ${writeLine}`,
+        )
       }
     }
     ts.forEachChild(node, visitPropertyReads)
@@ -143,7 +169,7 @@ function render(audit: AssemblyAudit): string {
     '',
     `Root: \`${relative(REPO, ROOT)}\``,
     '',
-    `Verified constructor declarations: ${audit.steps.length}. Forward dependencies: 0. Non-null late bindings: 0.`,
+    `Verified constructor declarations: ${audit.steps.length}. Forward dependencies: 0. Deferred service closures: 0. Non-null late bindings: 0.`,
     '',
     '| Order | Declaration | Earlier declaration dependencies | Source line |',
     '|---:|---|---|---:|',

@@ -230,13 +230,13 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
-    issues: () => issues,
-    sessions: () => ({
+    issues,
+    sessions: {
       listSessions: () => sessions,
       sendText: record('sendText'),
       queueText: record('queueText'),
       interruptText: record('interruptText'),
-    }),
+    },
     // Production wires both legacy-mirror seams; the #463 regression class and
     // the read-consumption semantics both run through them.
     mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
@@ -248,7 +248,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       ? {}
       : {
           spawnOnWake: makeSpawnOnWake({
-            issues: () => issues,
+            issues,
             createSession: (input) => {
               wakeSpawns.push(input as unknown as Record<string, unknown>)
               const sessionId = asSessionId(`woken${wakeSpawns.length}`)
@@ -269,8 +269,8 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
 
   const gate = new MessageGate(
     {
-      messages: () => svc,
-      issues: () => issues,
+      messages: svc,
+      issues,
       listSessions: () => sessions,
       spawnSession:
         opts?.spawnSession ??

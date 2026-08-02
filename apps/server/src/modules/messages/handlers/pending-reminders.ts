@@ -16,5 +16,5 @@ export function pendingRemindersHandler(
 ): { id: string; from: string; body: string }[] {
   const sessionId = ctx.caller.capability.actorSessionId
   if (!sessionId) return []
-  return ctx.deps.messages().pendingReminders(sessionId)
+  return ctx.deps.messages.pendingReminders(sessionId)
 }

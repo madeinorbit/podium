@@ -30,6 +30,15 @@ describe('server construction order audit', () => {
     ).toThrow('sessions at line 5 depends on later service(s): issues')
   })
 
+  it('rejects a deferred closure around an already-constructed service', () => {
+    expect(() =>
+      auditConstructionSource(
+        root(`    const issues = {}
+    const messages = { issues: () => issues }`),
+      ),
+    ).toThrow('wraps constructed service issues in a deferred closure')
+  })
+
   it('rejects non-null assertions and property reads before assignment', () => {
     expect(() => auditConstructionSource(root(`    const sessions = future!`))).toThrow(
       'non-null late binding',
