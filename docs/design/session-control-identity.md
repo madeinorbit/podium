@@ -39,17 +39,20 @@ intersected with its human's **current** rights (ADR 9 D5 A1), resolved live at 
 
 ## 2. PTY input attribution — live vs durable
 
-**Decision: LIVE-ONLY for keystroke-level PTY input. Durable for intentional sends.**
+**Decision: LIVE server state for keystroke-level PTY input. Durable rows for intentional sends.**
 
-| Path | Attribution retained | Why |
+Attribution that lives only in an unstructured log is not attribution. The property is: the
+server can answer "who produced this input?" from **its own state**, stamped from the transport
+principal (ADR 3 D7), never from a frame payload.
+
+| Path | Where the answer is stored | Why |
 |---|---|---|
-| Raw PTY keystrokes (`input` frames from the controller socket) | **Live only** — `lastInputAttribution` on the session's live overlay; stamped on the daemon-bound `input` frame for the current hop | Keystroke volume would bloat any durable store; watchers need "human or agent right now", not a per-byte audit log |
-| Inbox / chat / answer / queued sends | **Durable** — already on `QueuedInboxMessage.principal` (delegation reference + attribution pair) | These are intentional turns; the product already depends on "did a person or an agent ask this?" (`humanQuestionAskedBy` precedent) |
+| Raw PTY keystrokes (`input` frames from the controller socket) | **Live server state** — `SessionTerminal.lastInputAttribution` (queryable while the session is live); also stamped on the daemon-bound `input` frame for the hop | Watchers need "human or agent right now". Per-keystroke durable history is not built (volume). Survives client reattach; blank after server restart (same class as presence) |
+| Inbox / chat / answer / queued sends | **Durable** — `QueuedInboxMessage.principal` (delegation reference + attribution pair) | Intentional turns; product already depends on "did a person or an agent ask this?" (`humanQuestionAskedBy`) |
 
-Live field: `lastInputAttribution: Attribution | null` (model pair: `actor` + `onBehalfOf`), updated
-whenever controller-gated or inbox-originated input is accepted. It is **not** written to the
-session row, the transcript item stream, or any oplog entity. Offline/reload → blank, same as
-presence.
+`lastInputAttribution` is the model pair `{ actor, onBehalfOf }`. Client frames may carry an
+`attribution` field; the attach path **never threads it** — `client-control` passes only
+`data`, and `SessionInbox` stamps from `ClientPrincipal`.
 
 ---
 
@@ -86,6 +89,16 @@ Rationale: (1) matches shipped behaviour and last-foregrounded-wins clients; (2)
 UX is Phase 6 presence UI, not this issue; (3) terminal input is not collaborative text — two
 drivers is always wrong, so the product answer is exclusive control with an explicit handoff,
 not a negotiation protocol.
+
+**Race between two authorized claimants.** Last successful apply wins. Each transfer broadcasts
+`controllerChanged` with the new `controllerId` + `controllerIdentity`, so the previous driver
+**observes** the loss — a silent takeover is rejected as worse than a refused one. Unauthorized
+claimants get `terminalOutcome: unauthorized` and the current controller is unchanged.
+
+**Today's single-operator degradation.** One shared credential resolves every human to the first
+admin. Owner checks and grants are live but every connection is the same person; machine `use`
+holds for that owner. Behaviour matches pre-multi-user first-attacher / requestControl, with
+identity now stamped (always the same user).
 
 ### Idle and disconnect
 
