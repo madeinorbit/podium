@@ -15,6 +15,7 @@ import {
   type Principal,
   presenceCoalesceKey,
   type RoomRef,
+  roomRefFromRoutingKey,
   StreamPlanePort,
   type SubscriberId,
   type SubscriptionRegistry,
@@ -32,6 +33,7 @@ export interface PresenceRoutingDeps {
   readonly clients: ClientRegistry
   readonly visibility: VisibilityResolver
   readonly now?: () => number
+  readonly onJoined?: (conn: ClientConn, room: RoomRef) => void
 }
 
 const identityOf = (principal: Principal): PresenceIdentity => {
@@ -86,7 +88,9 @@ export class PresenceRouting {
     const target = this.target(conn)
     switch (frame.type) {
       case 'presenceSubscribe':
-        this.port.join(target, frame.room, frame.token)
+        if (this.port.join(target, frame.room, frame.token)) {
+          this.deps.onJoined?.(conn, frame.room)
+        }
         this.scheduleFlush()
         return
       case 'presenceUnsubscribe':
@@ -128,6 +132,20 @@ export class PresenceRouting {
 
   isWatchedBy(principal: Principal): boolean {
     return this.port.isWatchedBy(principal)
+  }
+
+  /** Re-check live rooms after the durable feed reports an evict or rescope. */
+  revalidateSubscribers(subscriberIds: readonly SubscriberId[]): void {
+    for (const subscriberId of subscriberIds) {
+      const conn = this.deps.clients.get(String(subscriberId))
+      if (!conn) continue
+      for (const key of this.deps.subscriptions.keysOf(subscriberId)) {
+        const room = roomRefFromRoutingKey(key)
+        if (!room || this.deps.visibility.canSee(conn.principal, room) === true) continue
+        this.port.evict(this.target(conn), room)
+      }
+    }
+    this.scheduleFlush()
   }
 
   /** Deterministic test seam; production normally drains on the next microtask. */

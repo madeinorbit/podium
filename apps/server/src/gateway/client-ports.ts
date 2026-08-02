@@ -29,8 +29,9 @@ export interface SessionsClientPort {
   /**
    * A client connection was admitted and registered: send it the world it is
    * owed (session list or prepared publication, issues, automations, drafts,
-   * conversations, machines, approvals, host snapshot, parked open-url
-   * requests). Runs AFTER `welcome`, which the gateway owns.
+   * conversations, machines, approvals and host snapshot). Parked browser-open
+   * requests wait for a successful session-room join. Runs AFTER `welcome`,
+   * which the gateway owns.
    */
   onClientAttached(principal: ClientPrincipal, conn: ClientConn): void
   /** Move controller roles from a reconnecting user's stale connection before

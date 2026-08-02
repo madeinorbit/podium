@@ -329,7 +329,7 @@ const identityKey = (identity: PresenceIdentity): string =>
   identity.kind === 'user' ? `user:${identity.user}` : `agent:${identity.agentIdentity}`
 
 /** Inverse of {@link roomRoutingKey} for the derived-leave path. */
-const roomKeyToRef = (key: RoutingKey): RoomRef | null => {
+export const roomRefFromRoutingKey = (key: RoutingKey): RoomRef | null => {
   const [ns, kind, ...rest] = key.split(':')
   if (ns !== 'room' || rest.length === 0) return null
   if (kind !== 'session' && kind !== 'issue') return null

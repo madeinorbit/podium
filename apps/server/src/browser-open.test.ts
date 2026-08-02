@@ -97,7 +97,7 @@ const SPOOFED_RESOLVER = {
 } satisfies Attribution
 
 describe('remote browser-open routing', () => {
-  it('prefers focused clients, then visible clients, then all clients', () => {
+  it('routes the open/result family only through session-room subscriptions', () => {
     const { registry, sessionId } = setup()
     const first: ServerMessage[] = []
     const second: ServerMessage[] = []
@@ -106,52 +106,52 @@ describe('remote browser-open routing', () => {
     first.length = 0
     second.length = 0
 
+    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-parked'))
+    expect(first).not.toContainEqual(expect.objectContaining({ type: 'sessionOpenUrl' }))
+    expect(second).not.toContainEqual(expect.objectContaining({ type: 'sessionOpenUrl' }))
+
     registry.clientGateway.routeClientFrame(c0, {
-      type: 'viewState',
-      visible: [sessionId],
-      focused: sessionId,
+      type: 'presenceSubscribe',
+      room: { kind: 'session', id: sessionId },
     })
-    registry.clientGateway.routeClientFrame(c1, {
-      type: 'viewState',
-      visible: [sessionId],
-      focused: null,
-    })
-    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-focus'))
     expect(first).toContainEqual(
-      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-focus' }),
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-parked' }),
     )
     expect(second).not.toContainEqual(
-      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-focus' }),
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-parked' }),
     )
 
-    first.length = 0
-    second.length = 0
-    registry.clientGateway.routeClientFrame(c0, {
-      type: 'viewState',
-      visible: [],
-      focused: null,
-    })
-    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-visible'))
-    expect(first).not.toContainEqual(
-      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-visible' }),
-    )
-    expect(second).toContainEqual(
-      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-visible' }),
-    )
-
-    first.length = 0
-    second.length = 0
     registry.clientGateway.routeClientFrame(c1, {
-      type: 'viewState',
-      visible: [],
-      focused: null,
+      type: 'presenceSubscribe',
+      room: { kind: 'session', id: sessionId },
     })
-    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-all'))
+    first.length = 0
+    second.length = 0
+    registry.gateway.routeDaemonFrame('m1', {
+      type: 'sessionOpenUrlResult',
+      sessionId,
+      requestId: 'open-parked',
+      status: 'failed',
+    })
     expect(first).toContainEqual(
-      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-all' }),
+      expect.objectContaining({ type: 'sessionOpenUrlResult', requestId: 'open-parked' }),
     )
     expect(second).toContainEqual(
-      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-all' }),
+      expect.objectContaining({ type: 'sessionOpenUrlResult', requestId: 'open-parked' }),
+    )
+
+    registry.clientGateway.routeClientFrame(c0, {
+      type: 'presenceUnsubscribe',
+      room: { kind: 'session', id: sessionId },
+    })
+    first.length = 0
+    second.length = 0
+    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-room-only'))
+    expect(first).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-room-only' }),
+    )
+    expect(second).toContainEqual(
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-room-only' }),
     )
   })
 
@@ -160,7 +160,7 @@ describe('remote browser-open routing', () => {
     const owner: ServerMessage[] = []
     const grantee: ServerMessage[] = []
     const unrelated: ServerMessage[] = []
-    attachTestClient(
+    const ownerId = attachTestClient(
       registry.clientGateway,
       {
         send: (message) => owner.push(message),
@@ -169,7 +169,7 @@ describe('remote browser-open routing', () => {
       },
       scopedAuthority('owner', [sessionId]),
     )
-    attachTestClient(
+    const granteeId = attachTestClient(
       registry.clientGateway,
       {
         send: (message) => grantee.push(message),
@@ -178,7 +178,7 @@ describe('remote browser-open routing', () => {
       },
       scopedAuthority('grantee', [sessionId]),
     )
-    attachTestClient(
+    const unrelatedId = attachTestClient(
       registry.clientGateway,
       {
         send: (message) => unrelated.push(message),
@@ -187,6 +187,16 @@ describe('remote browser-open routing', () => {
       },
       scopedAuthority('unrelated', []),
     )
+    owner.length = 0
+    grantee.length = 0
+    unrelated.length = 0
+
+    for (const clientId of [ownerId, granteeId, unrelatedId]) {
+      registry.clientGateway.routeClientFrame(clientId, {
+        type: 'presenceSubscribe',
+        room: { kind: 'session', id: sessionId },
+      })
+    }
     owner.length = 0
     grantee.length = 0
     unrelated.length = 0
@@ -204,12 +214,18 @@ describe('remote browser-open routing', () => {
     )
   })
 
-  it('parks an intent with no client and replays it on the next attach', () => {
+  it('parks an intent until the next successful session-room join', () => {
     const { registry, sessionId } = setup()
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-parked'))
 
     const messages: ServerMessage[] = []
-    attachTestClient(registry.clientGateway, (message) => messages.push(message))
+    const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
+    expect(messages).not.toContainEqual(expect.objectContaining({ type: 'sessionOpenUrl' }))
+
+    registry.clientGateway.routeClientFrame(clientId, {
+      type: 'presenceSubscribe',
+      room: { kind: 'session', id: sessionId },
+    })
     expect(messages).toContainEqual(
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-parked' }),
     )
@@ -219,6 +235,10 @@ describe('remote browser-open routing', () => {
     const { registry, sessionId, m1, m2 } = setup()
     const messages: ServerMessage[] = []
     const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
+    registry.clientGateway.routeClientFrame(clientId, {
+      type: 'presenceSubscribe',
+      room: { kind: 'session', id: sessionId },
+    })
     messages.length = 0
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-callback'))
 
@@ -278,7 +298,11 @@ describe('remote browser-open routing', () => {
   it('drops open intents forged by a daemon that does not own the session', () => {
     const { registry, sessionId } = setup()
     const messages: ServerMessage[] = []
-    attachTestClient(registry.clientGateway, (message) => messages.push(message))
+    const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
+    registry.clientGateway.routeClientFrame(clientId, {
+      type: 'presenceSubscribe',
+      room: { kind: 'session', id: sessionId },
+    })
     messages.length = 0
 
     registry.gateway.routeDaemonFrame('m2', request(sessionId, 'open-forged'))
