@@ -38,7 +38,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Authority } from './authority'
-import type { StagedChangeSpec } from './change-lifecycle'
+import type { ChangeLogReadRow, StagedChangeSpec } from './change-lifecycle'
 import type { ChangeLogStore } from '../change-log'
 import {
   GrantEdgeVisibilityPolicy,
@@ -50,13 +50,7 @@ import {
 import type { VisibilityClass } from '@podium/model'
 
 function memoryStore(): ChangeLogStore {
-  const rows: {
-    seq: number
-    entity: string
-    entityId: string
-    op: string
-    payload: string | null
-  }[] = []
+  const rows: ChangeLogReadRow[] = []
   let nextSeq = 1
   return {
     appendChanges(batch) {

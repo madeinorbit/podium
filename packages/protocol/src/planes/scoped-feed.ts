@@ -1,4 +1,6 @@
+import { CHANGE_OPS, ChangeOpField } from '@podium/model'
 import { z } from 'zod'
+import { changeRowArm } from '../messages/change-row'
 
 /**
  * The control port's scoped-feed vocabulary — ADR 2 Amendment 1 D13/D14, whose
@@ -46,10 +48,14 @@ export type FeedCursor = z.infer<typeof FeedCursor>
  * The change-op vocabulary of the scoped feed. `evict` is a THIRD member of the
  * soft-delete / tombstone family, not a synonym for `remove` (ADR 2 D14.5,
  * ADR 2 D5's warning arriving a third time).
+ *
+ * THE MODEL'S {@link CHANGE_OPS}, not a second three-literal tuple (POD-1251).
+ * The model builds the full vocabulary by EXTENDING the global ops, so this
+ * port and the kernel cannot drift on membership.
  */
-export const SCOPED_CHANGE_OPS = ['upsert', 'remove', 'evict'] as const
+export const SCOPED_CHANGE_OPS = CHANGE_OPS
 export type ScopedChangeOp = (typeof SCOPED_CHANGE_OPS)[number]
-export const ScopedChangeOp = z.enum(SCOPED_CHANGE_OPS)
+export const ScopedChangeOp = ChangeOpField
 
 export interface ChangeOpSemantics {
   /** What a replica must render. */
@@ -99,15 +105,13 @@ export const CHANGE_OP_SEMANTICS = {
  * One scoped change. `evict` carries an entity kind and id and NO payload
  * (D14.1); the shape is the port's, and the entity-typed union on the wire is
  * `MetadataChange`'s (POD-1077 adds the op there).
+ *
+ * COMPOSED through {@link changeRowArm} (POD-1251) — the same factory the v1/v2
+ * wire arms use — so the field list is not a fourth restatement. The port still
+ * spells the target `id` (pre-cutover); the kernel and v2 wire spell `entityId`.
+ * `seq` is the model's ChangeSeqField, composed inside the arm factory.
  */
-export const ScopedChange = z.object({
-  seq: z.number().int().positive(),
-  entity: z.string().min(1),
-  id: z.string().min(1),
-  op: ScopedChangeOp,
-  /** Present iff `op === 'upsert'`; `evict` and `remove` carry none. */
-  value: z.unknown().optional(),
-})
+export const ScopedChange = changeRowArm('id', z.string().min(1), ScopedChangeOp, z.unknown())
 export type ScopedChange = z.infer<typeof ScopedChange>
 
 /**
