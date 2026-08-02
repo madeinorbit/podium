@@ -20,6 +20,11 @@
       "types": "./src/id.ts",
       "import": "./src/id.ts"
     },
+    "./principal": {
+      "@podium/source": "./src/principal.ts",
+      "types": "./src/principal.ts",
+      "import": "./src/principal.ts"
+    },
     "./transport": {
       "@podium/source": "./src/transport.ts",
       "types": "./src/transport.ts",

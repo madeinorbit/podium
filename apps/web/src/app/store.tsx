@@ -7,7 +7,11 @@
  * and re-exports the typed hooks so existing `./store` imports keep working.
  */
 
-import type { CreateEngineOutbox } from '@podium/client-core/engine'
+import type {
+  CreateEngineOutbox,
+  CreateReplicaForPrincipal,
+} from '@podium/client-core/engine'
+import type { ClientPrincipal } from '@podium/client-core/principal'
 import { setSwitchTraceReporter } from '@podium/client-core/perf'
 import {
   type Store as CoreStore,
@@ -40,6 +44,7 @@ const NOTICES: StoreNotices = {
 }
 
 export function StoreProvider({
+  principal,
   config,
   onFatalError,
   engineOverrides,
@@ -47,11 +52,18 @@ export function StoreProvider({
   // AppShell passes `undefined` on the flag-off, non-Tauri path, and a
   // destructuring default fires on `undefined` — so this is the same one branch
   // it always was, moved to where it is a named composition root.
-  createReplicaFn = createWebReplica,
+  //
+  // It takes the PRINCIPAL now (POD-404): the default root binds the store it
+  // opens to whoever the provider says is signed in, rather than to a constant
+  // that was only ever right while there was exactly one operator.
+  createReplicaFn = (forPrincipal) => createWebReplica({ principal: forPrincipal.userId }),
   feed,
   createOutboxFn,
   children,
 }: {
+  /** The authenticated principal (from `/auth/status` via the boot gate).
+   *  `null` until it settles — the core provider then builds nothing. */
+  principal: ClientPrincipal | null
   config: ServerOrigin
   onFatalError: (message: string) => void
   /** Test seam passthrough (see client-core StoreProviderProps.engineOverrides). */
@@ -61,7 +73,7 @@ export function StoreProvider({
    *  facade. Unset = the plain browser, which gets {@link createWebReplica} —
    *  an EXPLICIT root rather than the engine's old ambient localStorage reach
    *  (POD-1239). */
-  createReplicaFn?: () => Replica
+  createReplicaFn?: CreateReplicaForPrincipal
   /** Kernel-replica passthrough (POD-1223): supplied together with the
    *  kernel-backed `createReplicaFn` when the flag resolves to the kernel path.
    *  Providing it makes the engine's hub advertise wire v2. */
@@ -81,6 +93,7 @@ export function StoreProvider({
   }, [trpc])
   return (
     <CoreStoreProvider
+      principal={principal}
       config={config}
       api={trpc}
       onFatalError={onFatalError}

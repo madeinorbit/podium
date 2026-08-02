@@ -17,6 +17,7 @@
  * carries the reason so Settings can say so.
  */
 
+import type { ClientPrincipal } from '@podium/client-core/principal'
 import { inspectPrincipalNamespaces, type ReplicaMode } from '@podium/client-core/replica'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
@@ -36,6 +37,12 @@ export type KernelReplicaGate =
   | {
       readonly status: 'kernel'
       readonly mode: ReplicaMode
+      /** The authenticated principal this gate resolved and opened for — the
+       *  value `StoreProvider` binds its whole runtime to (POD-404). It comes
+       *  from `/auth/status` (or, offline, from an unambiguous single retained
+       *  namespace marker); never from the URL and never from a raw storage
+       *  "last user" key. */
+      readonly principal: ClientPrincipal
       readonly assembly: KernelAssembly
       /** True when the shadow comparison should also run (POD-1223). */
       readonly shadow: boolean
@@ -157,6 +164,7 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
         setGate({
           status: 'kernel',
           mode,
+          principal: assembly.principal,
           assembly,
           shadow: mode.path === 'kernel-with-shadow',
           authorityScoped: serverGrade === 'per-principal',

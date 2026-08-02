@@ -1,6 +1,6 @@
 import type { SessionId, SessionMeta } from '@podium/model'
 import { useEffect, useRef } from 'react'
-import { MARK_READ_ON_VIEW_MS } from '../engine/engine'
+import { MARK_READ_ON_VIEW_MS } from '../engine/reactions'
 
 // The debounce constant lives with the engine (whose mark-read reaction is the
 // store's live path, #262); re-exported here for existing hook consumers.

@@ -116,6 +116,11 @@ export function AppShell(): JSX.Element {
       ) : (
         <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
           <StoreProvider
+            // The principal the boot gate resolved from the authenticated
+            // transport — the runtime, its socket, its replica and its outbox
+            // are all bound to it, and a change to it rebuilds all three
+            // (POD-404). Never read from the URL or a raw storage key.
+            principal={kernel.principal}
             config={config}
             onFatalError={setAppError}
             createReplicaFn={kernel.assembly.createReplicaFn}
