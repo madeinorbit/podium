@@ -126,6 +126,7 @@ import {
   type EngineOutbox,
   type OutboxKinds,
 } from './wiring'
+import { createEngineActions } from './actions'
 
 /** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface
  *  the operator is looking at marks it read immediately (POD-272 — it is already
@@ -1351,6 +1352,42 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  here mostly verbatim. Built once so every snapshot carries the same
    *  function identities. */
   private buildStatics(): Omit<Store<TApi>, keyof EngineState> {
+    return {
+      hub: this.hub,
+      trpc: this.api,
+      replica: this.replica,
+      uiState: this.ui,
+      httpOrigin: this.httpOrigin,
+      getUserFocus: () => this.getUserFocus(),
+      refreshRepos: () => this.refreshRepos(),
+      ...createEngineActions({
+        api: this.api,
+        hub: this.hub,
+        outbox: this.outbox,
+        router: this.router,
+        notices: this.notices,
+        state: () => this.state,
+        apply: (patch) => this.apply(patch),
+        enqueueOverlayed: (kind, input) => {
+          void this.enqueueOverlayed(kind, input)
+        },
+        revealFileTab: (args) => this.revealFileTab(args),
+        recordRecentFile: (entry) => this.recordRecentFile(entry),
+        setPanelRenderMode: (sessionId, mode) => {
+          if (this.panelRenderModes[sessionId] === mode) return
+          this.panelRenderModes = { ...this.panelRenderModes, [sessionId]: mode }
+          this.reportViewState()
+        },
+        spawnDraftAgent: (args) => this.spawnDraftAgent(args),
+        setSessionDraft: (sessionId, text) => {
+          this.adoptSessionDraft(sessionId, text)
+          this.hub.sendSessionDraft(sessionId, text)
+        },
+      }),
+    }
+  }
+
+  private buildLegacyStatics(): Omit<Store<TApi>, keyof EngineState> {
     const api = this.api
     return {
       hub: this.hub,
