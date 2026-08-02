@@ -74,11 +74,17 @@ afterward and are not treated as a fix for ordinary worktree installation.
   Its focused room/feed/protocol evidence is 9 files/209 tests, with a cross-user non-leak
   production mutation refusing red then restoring green; the 50 Hz reattach storm is 1 file/2
   tests. Reported typecheck, composition, web, mobile, Bun SQLite, and multi-instance lanes are
-  green. Its full unit lane is red (5 failed files/10 failed tests), and the submitted attribution
-  currently lists eight timeouts plus three other failures, an unresolved 10-versus-11 mismatch.
+  green. Its historical full unit lane exited 1 with 5 failed files/10 failed tests: seven timed-out
+  tests plus three POD-1315 principal-refusal failures. A TerminalView keyboard-fidelity `beforeAll`
+  hook failed at file setup and skipped 13 tests, so it added a failed file but not an eleventh
+  failed test. The four timeout groups passed isolated with 72, 7, 1, and 13 tests; raw titles were
+  not retained for five rearchitecture-audit cases or one normalized-wire case, so the corrected
+  detached full-lane record remains pending after host load drains.
   None of this work is in candidate `aba864a9` or can retroactively satisfy that candidate.
 - POD-1079 is `done`.
-- POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where the defaulted first-admin principal remains. POD-1316 remains open and leaves the real wire-window integration test unauthenticated and timing out at the fail-closed client gate.
+- POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where
+  the defaulted first-admin principal remains. POD-1078 reports integration `c557f306` passes its
+  focused principal suite at 1 file/3 tests, exit 0. POD-1316 remains open and unauthenticated.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
 - POD-1351 is now `done` and landed after this gate run at `61cf1b8b`, with reported phase-audit,
   baseline, one-to-one refusal, focused-test, and typecheck evidence. It remains absent from
