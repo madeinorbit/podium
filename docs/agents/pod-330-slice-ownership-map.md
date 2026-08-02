@@ -295,3 +295,106 @@ reference is honest about the existence of work you cannot see, and hiding leaks
 - The import graph above is a DAG and is enforced, not merely intended.
 - Single-user parity is the regression guard: one admin owning everything must produce output
   indistinguishable from today's.
+
+---
+
+## 6. POD-1496 — the row half, and what the cut measured
+
+**Measured at:** `09e4fe07` (branch `issue/1496-worklist-row-machinery`).
+`derive.ts` is **deleted**. The map's §5 commitment is met: nothing named
+`*-helpers` or `*-common` replaced it.
+
+### 6.1 The six row modules, and why six
+
+The row machinery was one interlocking body because a row's SHAPE, its ORDER,
+its ATTENTION and its LANE were all reachable from each other inside one file.
+Split by question, each edge points one way and the whole thing is a DAG:
+
+```
+        row-types.ts ──┬──▶ row-order.ts ──┐
+        (what a row IS)│                   ├──▶ rows.ts  (which work earns a row)
+                       └──▶ row-attention.ts    ▲
+                                  │             │
+                                  ▼        visibility.ts
+                              folds.ts     (has finished work decayed out)
+                           (which lane)
+```
+
+`row-types.ts` is the leaf and imports nothing from worklist. The
+**worklist → issues** edge the previous agent predicted lands exactly where it
+said it would: `row-attention.ts` (the `issuePendingDecision` family,
+`pendingDecisionLabel`, `issueFinishedAt`) and `folds.ts`
+(`isClosedTopLevelIssue`, `issueAwaitingMerge`, `issueFinishedAt`). One way.
+
+### 6.2 `orderMap` was NOT duplicated — it had no callers
+
+The brief asked for `orderMap` to be copied into the row-ordering module WITH
+its comment, as a deliberate non-edge. It was not, because the copy in
+`derive.ts` was **dead**: the only reference to it in the whole tree was its own
+declaration, and the only live copy is `slices/terminal.ts`'s — which already
+carries the comment explaining why the duplication is deliberate.
+
+The non-edge is real and the comment is right. But carrying a dead helper across
+a cut in order to honour it would make the non-edge HARDER to see, not easier: a
+future reader finds two copies, one of which nothing calls, and cannot tell
+whether the duplication is a decision or an accident. The decision survives where
+it is load-bearing.
+
+> **A non-edge is documented by the comment on the live copy, not by the number
+> of copies.**
+
+### 6.3 `UnifiedWorkRow.rank` is computed state with no reader
+
+`rowRank` runs on every row, on every build, and on every nesting pass. Mutating
+it (`Math.min` → `Math.max` — the most urgent session becomes the least urgent)
+was **SILENT across both lanes**, 86 client-core and 91 web tests green.
+
+It is not an assertion gap. A `throw` on the same line reddens **51 named tests**
+across both lanes, so the function is entered constantly. And a tree-wide census
+of `.rank` readers finds none: the only `.rank` in the codebase outside this
+family is `apps/server/src/modules/memory/search.ts`, an unrelated relevance
+score.
+
+So the mutant is **genuinely equivalent**, and the reason is that the field has
+no consumer. It is a leftover from when the sidebar sorted by urgency; §3 of the
+`row-order.ts` header records why it no longer does ("attention is carried
+per-row by the square language, never by reordering", #64). Removing it is a
+separate change with its own blast radius — filed, not smuggled into this cut.
+
+> **A silent mutant has three meanings and you must name which. Here the probe
+> said the code RUNS, and the census said nothing READS it — which makes the
+> silence a finding about the design, not about the tests.**
+
+### 6.4 The render probe: no regression, and no improvement yet
+
+Post-cut, on the deleted-derive tree:
+
+```
+[POD-330 worklist] per publish: commits=2.2 sidebarSections=1 unifiedWorkList=1
+```
+
+Byte-identical to the ceilings measured on the uncut tree at `c3b8247e`. The
+split cost nothing, and gained nothing — as predicted. The gain is one
+derivation per CHANGE instead of one per CONSUMER, and it needs the published
+slice hook, which is NOT in this commit.
+
+**A caveat for whoever measures it.** The probe renders `SidebarUnified` and
+nothing else, so it observes ONE consumer. A published hook would move the
+number from 1-per-consumer to 1-per-change, but with one consumer those are the
+same number: **the probe as written cannot show the improvement it exists to
+measure.** Landing the hook must also add a second consumer to the probe's tree
+(`CommandPalette` calls `sidebarSections` independently; `SidebarUnified` itself
+calls it at two separate call sites, lines 247 and 947) — otherwise the hook
+will land, be correct, and measure as a flat 1, and someone will read that as
+"no gain".
+
+### 6.5 What remains after this commit
+
+- The single `useSlice` hook (published worklist slice, one derivation per
+  change) — and the probe's second consumer, per §6.4.
+- `superagent-shadow-types` → zero. NOTE: the audit assigns this to **POD-332**,
+  not here, and it is not a deletion — `SuperagentThread` / `SuperagentMessage`
+  are declared ONLY in `apps/mobile/src/client/trpc.ts`; there is no canonical
+  copy in `@podium/protocol` or `@podium/model` to point at. Reaching zero means
+  CREATING the shared type first.
+- Removing `UnifiedWorkRow.rank` (§6.3).
