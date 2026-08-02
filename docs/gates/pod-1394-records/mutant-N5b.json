@@ -1,0 +1,25 @@
+{
+  "id": "N5b",
+  "file": "apps/server/src/composition/reactions.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/composition",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "original_sha256": "a09b2c48dbefb032456c7f08fdd4570d31dd1ca60d70125337403c48e30049b3",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 668,
+      "anchor_first_line": "if (principal.actor !== 'system' || principal.writeScope !== 'acted-on-entity') {",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "if (principal.actor !== 'system') {",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "ea32ba9cbfeac76eed09aa7f41757c934d14d87019fec78db74589c51453b225",
+  "exit_code": 0,
+  "elapsed_s": 3.2,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n\n Test Files  1 passed (1)\n      Tests  8 passed (8)\n   Start at  17:18:13\n   Duration  1.47s (transform 639ms, setup 345ms, import 445ms, tests 80ms, environment 4ms)\n\n",
+  "restored_sha256": "a09b2c48dbefb032456c7f08fdd4570d31dd1ca60d70125337403c48e30049b3",
+  "restored_identical": true,
+  "git_clean_after": true
+}

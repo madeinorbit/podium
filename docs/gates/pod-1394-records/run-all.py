@@ -43,11 +43,25 @@ MUTANTS = [
     ("C9b", "apps/server/src/command-principal.ts", "C9b.json",
      f"{V} apps/server/src/authz-matrix.test.ts apps/server/src/modules/issues/service/addComment-principal.test.ts"),
     ("C10", "apps/server/src/migrations/schema.ts", "C10.json", "bun run audit:rearch"),
+    ("N1","packages/sync/src/feed/identity.ts","N1.json",f"{V} packages/sync/src/feed"),
+    ("N1b","packages/sync/src/authority/scoping.ts","N1b.json",f"{V} packages/sync/src"),
+    ("N1c","packages/sync/src/authority/scoping.ts","N1c.json",f"{V} packages/sync/src"),
+    ("N2","apps/server/src/command-principal.ts","N2.json",
+     f"{V} apps/server/src/authz-matrix.test.ts apps/server/src/machine-access.test.ts packages/model/src/identity"),
+    ("N2b2","apps/server/src/machine-access.ts","N2b2.json",
+     f"{V} apps/server/src/machine-access.test.ts apps/server/src/modules/fleet"),
+    ("N2c","apps/server/src/machine-access.ts","N2c.json",
+     f"{V} apps/server/src/machine-access.test.ts apps/server/src/modules/fleet apps/server/src/store/grants.test.ts"),
+    ("N3b","packages/protocol/src/planes/control-port.ts","N3b.json",f"{V} {PLANES}"),
+    ("N3c","packages/protocol/src/planes/stream-port.ts","N3c.json",f"{V} {PLANES} {PRES}"),
+    ("N4","packages/model/src/annotations/matrix.ts","N4.json",f"{V} packages/model/src/annotations"),
+    ("N5","packages/model/src/annotations/ownership.ts","N5.json",f"{V} packages/model/src/annotations"),
+    ("N5b","apps/server/src/composition/reactions.ts","N5b.json",f"{V} apps/server/src/composition"),
 ]
 
 only = sys.argv[1:] or None
 env = dict(os.environ)
-env["MUT_OUT"] = f"{S}/records2"
+env["MUT_OUT"] = f"{S}/records3"
 env["PODIUM_STATE_DIR"] = f"{S}/state"
 
 print(f"{'id':<8}{'exit':<6}{'result':<12}{'file:line':<52}note")
@@ -59,7 +73,7 @@ for mid, path, edits, cmd in MUTANTS:
         ["python3", f"{S}/mutate.py", "--id", mid, "--file", path,
          "--edits", f"{S}/edits/{edits}", "--cmd", cmd, "--timeout", "900"],
         capture_output=True, text=True, cwd=REPO, env=env)
-    rec_path = f"{S}/records2/mutant-{mid}.json"
+    rec_path = f"{S}/records3/mutant-{mid}.json"
     if p.returncode != 0 or not os.path.exists(rec_path):
         tail = (p.stdout + p.stderr).strip().splitlines()
         note = tail[-1][:70] if tail else "?"

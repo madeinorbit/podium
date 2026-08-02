@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    if (this.deps.visibility.canSee(target.principal, room) !== true) {\n      this.deps.emit(target.subscriberId, {\n        type: 'presenceRoomClosed',\n        room,\n        ...(token === undefined ? {} : { token }),\n      })\n      return false\n    }\n",
+    "replace": "    if (this.deps.visibility.canSee(target.principal, room) !== true) {\n      this.deps.emit(target.subscriberId, {\n        type: 'presenceRoomClosed',\n        room,\n        ...(token === undefined ? {} : { token }),\n      })\n      this.registry.subscribe(roomRoutingKey(room), {\n        subscriberId: target.subscriberId,\n        principal: target.principal,\n      })\n      return false\n    }\n"
+  }
+]

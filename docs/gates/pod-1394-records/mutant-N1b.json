@@ -1,0 +1,25 @@
+{
+  "id": "N1b",
+  "file": "packages/sync/src/authority/scoping.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node packages/sync/src",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "original_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 149,
+      "anchor_first_line": "const rows = [...visible, ...anchored].sort((a, b) => a.seq - b.seq)",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "const rows = [...visible, ...anchored]",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "3f0a28de9363ac03aefa2766cafae7dc203d0a2b52c928fe9403a5c8a0fa49fb",
+  "exit_code": 1,
+  "elapsed_s": 54.6,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| packages/sync/src/authority/authority.test.ts (20 tests | 1 failed) 249ms\n     \u00d7 does not deliver a reentrant commit ahead of the batch that caused it 62ms\n \u276f |node| packages/sync/src/ledger.test.ts (30 tests | 3 failed) 1472ms\n     \u00d7 serves changesSince within the retained range and rejects everything else 33ms\n     \u00d7 falls back to snapshot when the cursor predates the retained log 20ms\n     \u00d7 returns the appended changes with contiguous seqs matching the durable log 9ms\n\n Test Files  2 failed | 39 passed (41)\n      Tests  4 failed | 683 passed (687)\n   Start at  17:12:58\n   Duration  52.43s (transform 138.02s, setup 18.73s, import 236.55s, tests 35.85s, environment 1.62s)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 4 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| packages/sync/src/ledger.test.ts > Ledger > serves changesSince within the retained range and rejects everything else\nAssertionError: expected [ 1 ] to deeply equal [ 2 ]\n\n- Expected\n+ Received\n\n  [\n-   2,\n+   1,\n  ]\n\n \u276f packages/sync/src/ledger.test.ts:163:55\n    161|     commit(ledger, [issueSpec('a', 2)])\n    162|     expect(ledger.changesSince(0)?.map((c) => c.seq)).toEqual([1, 2])\n    163|     expect(ledger.changesSince(1)?.map((c) => c.seq)).toEqual([2])\n       |                                                       ^\n    164|     expect(ledger.changesSince(2)).toEqual([]) // caught up\n    165|     expect(ledger.changesSince(3)).toBeNull() // future cursor (server\u2026\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/4]\u23af\n\n FAIL  |node| packages/sync/src/ledger.test.ts > Ledger > falls back to snapshot when the cursor predates the retained log\nAssertionError: expected [ 1 ] to deeply equal [ 3 ]\n\n- Expected\n+ Received\n\n  [\n-   3,\n+   1,\n  ]\n\n \u276f packages/sync/src/ledger.test.ts:179:55\n    177|     )\n    178|     expect(ledger.changesSince(0)).toBeNull() // seq 1-2 pruned away -\u2026\n    179|     expect(ledger.changesSince(2)?.map((c) => c.seq)).toEqual([3]) // \u2026\n       |                                                       ^\n    180|   })\n    181|\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/4]\u23af\n\n FAIL  |node| packages/sync/src/ledger.test.ts > Ledger commit atomicity (sqlite) > returns the appended changes with contiguous seqs matching the durable log\nAssertionError: expected [ 1, 2, 3 ] to deeply equal [ 2, 3, 4 ]\n\n- Expected\n+ Received\n\n  [\n+   1,\n    2,\n    3,\n-   4,\n  ]\n\n \u276f packages/sync/src/ledger.test.ts:611:55\n    609|     ])\n    610|     expect(ledger.cursor()).toBe(4)\n    611|     expect(ledger.changesSince(1)?.map((c) => c.seq)).toEqual([2, 3, 4\u2026\n       |                                                       ^\n    612|   })\n    613| })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[3/4]\u23af\n\n FAIL  |node| packages/sync/src/authority/authority.test.ts > the broadcast pipe delivers in APPEND order under reentrancy > does not deliver a reentrant commit ahead of the batch that caused it\nAssertionError: expected [ 1, 1 ] to deeply equal [ 1, 2 ]\n\n- Expected\n+ Received\n\n  [\n    1,\n-   2,\n+   1,\n  ]\n\n \u276f packages/sync/src/authority/authority.test.ts:302:18\n    300|     })\n    301|     authority.commit({ write: () => 'ok', changes: () => [upsert('s1',\u2026\n    302|     expect(bSaw).toEqual([1, 2])\n       |                  ^\n    303|   })\n    304|\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[4/4]\u23af\n\n",
+  "restored_sha256": "7d661c2c76edbcd4b8716c8f037ec992d27280d5b664c2be5c2253bceebf743d",
+  "restored_identical": true,
+  "git_clean_after": true
+}

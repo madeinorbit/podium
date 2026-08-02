@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "export function machineVerbsFor(\n  principal: CommandPrincipal,\n  machineId: string,\n  ownership: MachineOwnershipIndex,\n): ReadonlySet<MachineVerb> {\n",
+    "replace": "const MACHINE_VERB_MEMO = new Map<string, ReadonlySet<MachineVerb>>()\n\nexport function machineVerbsFor(\n  principal: CommandPrincipal,\n  machineId: string,\n  ownership: MachineOwnershipIndex,\n): ReadonlySet<MachineVerb> {\n  const memoKey = machineId + '\\u0000' + JSON.stringify(principal)\n  const hit = MACHINE_VERB_MEMO.get(memoKey)\n  if (hit !== undefined) return hit\n  const computed = machineVerbsForUncached(principal, machineId, ownership)\n  MACHINE_VERB_MEMO.set(memoKey, computed)\n  return computed\n}\n\nfunction machineVerbsForUncached(\n  principal: CommandPrincipal,\n  machineId: string,\n  ownership: MachineOwnershipIndex,\n): ReadonlySet<MachineVerb> {\n"
+  }
+]

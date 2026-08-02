@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "  const rows = [...visible, ...anchored].sort((a, b) => a.seq - b.seq)\n",
+    "replace": "  const rows = [...visible, ...anchored]\n    .sort((a, b) => a.seq - b.seq)\n    .map((r, i) => ({ ...r, seq: i + 1 }))\n"
+  }
+]

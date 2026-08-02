@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "        owner: row.ownerUserId === null ? null : (row.ownerUserId as UserId),\n",
+    "replace": "        owner: (row.ownerUserId ?? 'user:sole') as UserId,\n"
+  }
+]

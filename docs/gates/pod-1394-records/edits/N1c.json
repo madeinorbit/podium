@@ -1,0 +1,6 @@
+[
+  {
+    "anchor": "    const edge = deps.anchors.visibilityEdge(change)\n",
+    "replace": "    const edge = null as ReturnType<typeof deps.anchors.visibilityEdge>\n"
+  }
+]

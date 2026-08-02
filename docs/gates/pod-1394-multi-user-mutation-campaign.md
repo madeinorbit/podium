@@ -1,36 +1,39 @@
 # POD-1394 — Multi-user mutation probe campaign: transcript
 
-**Candidate SHA:** `4b5c3a43` (this branch, merging integration `80989567`). The campaign was first
-run at `d8fba769` and **re-run in full here** — every mutant below was executed at `4b5c3a43`, so no
-condition describes a different tree from any other.
+**Candidate SHA:** `7ceec3f7` (this branch, merging integration through POD-1410's `bbd05a08` and
+POD-1412's fix). Every mutant below was executed at this SHA. Earlier full runs at `d8fba769` and
+`4b5c3a43` are superseded, not merely appended — their records are in git history.
 **Date:** 2026-08-02
 
-## Status against POD-425's refusal (`dd017634`)
+## Status against POD-425's refusals (`dd017634`, `2f17c125`)
 
 | Ground | Disposition |
 | --- | --- |
-| 1 — the two survivors are hard dependencies | **Stated as BLOCKERS below, not as results.** POD-1410 and POD-1412 are open; this campaign cannot close the gate while they are. |
-| 2 — five compound clauses unmutated | **Done.** `N1`–`N5` below, one production mutant per named clause. |
-| 3 — raw per-mutant JSON in scratch | **Done.** `docs/gates/pod-1394-records/` — 25 records with command, exit, full diagnostic, and original/mutated/restored sha256, plus the edit set and both batch drivers. |
-| 4 — re-request review with the SHA | Requested at `4b5c3a43`. |
+| Durable raw records | **Cleared** by the gate at `2f17c125`. 30 records under `docs/gates/pod-1394-records/`. |
+| Candidate-wide rerun | **Cleared.** Now re-run a third time, at `7ceec3f7`. |
+| Signal-safe restoration | **Cleared.** See P2 — implemented after the hazard fired for real. |
+| POD-1410 absent from candidate → C3b survived | **Fixed.** `bbd05a08` merged; C3b now **exit 1**. |
+| POD-1412 open → C6c survived | **Fixed.** Merged; C6c now **exit 1**. |
+| Compound coverage partial (5 clauses) | **Done.** `N1`–`N5b`, each clause its own mutant; sub-clauses split out (`N1b` `N1c` `N2b2` `N2c` `N3c`). |
+| P2 paragraph stale | **Corrected** — it now records breadcrumbs as implemented, with the incident that forced them. |
 
-## BLOCKERS — the gate cannot pass on this campaign alone
+## Result
 
-Two production violations survive at this candidate. They are **dependencies of the gate**, not
-findings of the campaign:
+**30 production mutants, 29 caught, 1 survivor.** Every caught row exits non-zero with a diagnostic
+naming the property that was broken. The single survivor is filed as **POD-1429** and is a genuine
+clause gap, described below.
 
-- **POD-1410** — `C3b`. The session-expiry check can be deleted from the transport auth gate and
-  29 tests stay green. `requestUserId` / `isRequestAuthed` have **zero test callers anywhere**;
-  `auth-route.test.ts:279` asserts the *store predicate*, never the gate that consults it.
-  *A guard that no test invokes is indistinguishable from a guard that was deleted, from the suite's
-  point of view.*
-  This is **more severe than a mis-aimed guardrail**: `C1b` was eventually caught by other suites, so
-  a guardrail existed and was pointed slightly wrong. Here no lane can catch it, because nothing
-  calls the function.
-- **POD-1412** — `C6c`. `STREAM_QUEUE_MAX_FRAMES` can go 64 → 1,000,000 with 88 tests green. The
-  constant has exactly two references in the repo — its definition and its one use. The test that
-  looks like coverage drives a socket whose `send` **fails** and counts evictions; it never
-  exercises queue depth.
+Both of the campaign's original survivors are now **caught**: the findings this campaign produced
+were fixed, and the fixes are themselves mutation-proven.
+
+## BLOCKER — one clause the guardrails cannot fail on
+
+**POD-1429** — `N5b`. Deleting the `writeScope` half of the system-reaction invariant
+(`composition/reactions.ts:668`) leaves `bun run audit:composition` at **exit 0** and the composition
+suite at **exit 0, 8 passed**. The only fixture pinning it sets *both* violations at once —
+`{ class: 'system', actor: 'human', writeScope: 'all' }` — and both throw the same message, so
+`actor !== 'system'` still fires alone and the no-widening check is dead weight to the suite.
+*A compliance fixture that violates two clauses at once cannot isolate either.*
 
 ## What this transcript is, and what it deliberately is not
 
@@ -59,41 +62,45 @@ Every mutant went through one runner (`pod-1394-mutate.py`) that ABORTS rather t
 SIGTERM/SIGINT/atexit handlers restore before exit, and `--restore-orphans` replays any breadcrumb,
 so recovery does not require the process that made the mess.
 
-## Verdict — one line per mutant, all at `4b5c3a43`
+## Verdict — one line per mutant, all at `7ceec3f7`
 
-| Mutant | Cond | What was planted | File:line | Exit | Result | Diagnostic |
-| --- | --- | --- | --- | ---: | --- | --- |
-| `C1` | 1 | second registry INSIDE PresenceRouting | `apps/server/src/gateway/presence-routing.ts:21` | **1** | CAUGHT | shares one registry with the principal feed and derives all leaves on disconnect — expected 1 to be 2 |
-| `C1b` | 1 | second registry AT THE COMPOSITION ROOT | `apps/server/src/relay.ts:536` | **1** | CAUGHT | routes the open/result family only through session-room subscriptions (+3) |
-| `C2b` | 2 | personal-not-granted flipped to visible | `packages/sync/src/feed/visibility.ts:316` | **1** | CAUGHT | a principal with no grant received the row — the filter does not filter |
-| `C3a2` | 3 | principal minted from hello.clientId before dispatch | `apps/server/src/gateway/client-mux.ts:288` | **1** | CAUGHT | mints it from the connection, never from a frame body — expected 'client:attacker' to be 'client:c0' |
-| `C3b` | 3 | session-expiry check DELETED from the auth gate | `apps/server/src/auth-route.ts:48` | **0** | SURVIVED | **no test caller exists** — POD-1410 |
-| `C4a` | 4 | throughSeq made optional on the batch arm | `packages/sync/src/authority/scoping.ts:67` | **1** | CAUGHT | `throughSeq` is not a required `number` on the batch arm |
-| `C4b2` | 4 | watermark taken from visible data, not the evaluated range | `packages/sync/src/authority/scoping.ts:150` | **1** | CAUGHT | the suppressed range was NOT certified to the principal who could not see it |
-| `C4c` | 4 | evict replaced by remove on the anchor path | `packages/sync/src/authority/scoping.ts:230` | **1** | CAUGHT | a visibility change is DERIVED, and it is never a remove (D14) |
-| `N1` | 4 | feed epoch RE-MINTED instead of read from the store | `packages/sync/src/feed/identity.ts:141` | **1** | CAUGHT | mints on first use and PERSISTS, so a second registry over the same store agrees (+2) |
-| `C5a` | 5 | verb check dropped: anything that can SEE may USE | `apps/server/src/machine-access.ts:305` | **1** | CAUGHT | a `see` grant is not enough for a `manage` command (+6) |
-| `C5b` | 5 | fleet fan-out loses its per-machine `use` filter | `apps/server/src/modules/fleet/handlers.ts:205` | **1** | CAUGHT | `scanReposAll()` with no `mayUse` predicate scans every online machine |
-| `N2` | 5 | delegation human read off the LEAF, not the chain ROOT | `apps/server/src/command-principal.ts:224` | **1** | CAUGHT | an agent chain carries exactly ONE human, taken from the ROOT and not the leaf |
-| `C6a` | 6 | room join no longer visibility-gated | `packages/protocol/src/planes/stream-port.ts:110` | **1** | CAUGHT | joins are visibility-gated and default-closed (D14) (+3) |
-| `C6b` | 6 | presence state outlives the connection | `packages/protocol/src/planes/stream-port.ts:197` | **1** | CAUGHT | drops all presence state when the connection goes — nothing outlives it (D12) |
-| `C6c` | 6 | outbound stream queue bound 64 -> 1,000,000 | `apps/server/src/gateway/presence-routing.ts:27` | **0** | SURVIVED | **queue depth untested** — POD-1412 |
-| `C7a` | 7 | absent refusal leaks the machine NAME | `apps/server/src/machine-access.ts:326` | **1** | CAUGHT | a colleague's invisible machine and an id that never existed refuse IDENTICALLY |
-| `N3b` | 7 | refused subscription EMITS a reason code | `packages/protocol/src/planes/control-port.ts:125` | **1** | CAUGHT | admits an entity only when the resolver says so, and never says why |
-| `C8a2` | 8 | unclassified entity kind resolves VISIBLE | `packages/sync/src/feed/visibility.ts:291` | **1** | CAUGHT | an UNCLASSIFIED entity kind is invisible — and says so, not 'personal' |
-| `C8b` | 8 | real aggregate points at a nonexistent matrix row | `packages/model/src/aggregates/registry.ts:153` | **1** | CAUGHT | every registered row id is really on the matrix — with the backstop shown firing |
-| `N4` | 8 | a `personal` row widened to `deployment-substrate` | `packages/model/src/annotations/matrix.ts:2661` | **1** | CAUGHT | keeps the tenant-visible floor small and deliberate |
-| `C9a` | 9 | SYSTEM writer attributed as a user | `apps/server/src/command-principal.ts:173` | **1** | CAUGHT | a system write is attributed `system` with no human (D17.5) |
-| `C9b` | 9 | agent attribution drops its on-behalf-of half | `apps/server/src/command-principal.ts:171` | **1** | CAUGHT | attribution is a PAIR … never collapses them |
-| `N5` | 9 | SYSTEM_WRITER_RULE loses its no-widening clause | `packages/model/src/annotations/ownership.ts:302` | **1** | CAUGHT | states the system-writer rule on EVERY row a system principal may write — expected … to match /never widen/ |
-| `C10` | 10 | instance_id column planted on the sessions table | `apps/server/src/migrations/schema.ts:33` | **1** | CAUGHT | instance-partitions baseline 0 -> now 1 … sessions.instance_id (column) |
+| Mutant | Cond | What was planted | File:line | Exit | Diagnostic |
+| --- | --- | --- | --- | ---: | --- |
+| `C1` | 1 | second registry INSIDE PresenceRouting | `apps/server/src/gateway/presence-routing.ts:21` | **1** | shares one registry with the principal feed … expected 1 to be 2 |
+| `C1b` | 1 | second registry AT THE COMPOSITION ROOT | `apps/server/src/relay.ts:536` | **1** | routes the open/result family only through session-room subscriptions (+3) |
+| `C2b` | 2 | personal-not-granted flipped to visible | `packages/sync/src/feed/visibility.ts:316` | **1** | a principal with no grant received the row — the filter does not filter |
+| `C3a2` | 3 | principal minted from hello.clientId before dispatch | `apps/server/src/gateway/client-mux.ts:288` | **1** | mints it from the connection, never from a frame body |
+| `C3b` | 3 | session-expiry check DELETED from the auth gate | `apps/server/src/auth-route.ts:48` | **1** | rejects an expired session cookie (present row, past expiresAt) |
+| `C4a` | 4 | throughSeq made optional on the batch arm | `packages/sync/src/authority/scoping.ts:67` | **1** | `throughSeq` is not a required `number` on the batch arm |
+| `C4b2` | 4 | watermark taken from visible data | `packages/sync/src/authority/scoping.ts:150` | **1** | the suppressed range was NOT certified to the principal who could not see it |
+| `C4c` | 4 | evict replaced by remove on the anchor path | `packages/sync/src/authority/scoping.ts:230` | **1** | a visibility change is DERIVED, and it is never a remove (D14) |
+| `N1` | 4 | feed epoch RE-MINTED instead of read from the store | `packages/sync/src/feed/identity.ts:141` | **1** | mints on first use and PERSISTS … (+2) |
+| `N1b` | 4 | per-principal frames renumber seq densely | `packages/sync/src/authority/scoping.ts:149` | **1** | returns the appended changes with contiguous seqs matching the durable log (+3) |
+| `N1c` | 4 | no visibility edge ever derived (mid-session rescope) | `packages/sync/src/authority/scoping.ts:128` | **1** | rescope is derived from the SIZE of the derived set (D14.4) (+1) |
+| `C5a` | 5 | verb check dropped: anything that can SEE may USE | `apps/server/src/machine-access.ts:305` | **1** | a `see` grant is not enough for a `manage` command (+6) |
+| `C5b` | 5 | fleet fan-out loses its per-machine `use` filter | `apps/server/src/modules/fleet/handlers.ts:205` | **1** | `scanReposAll()` with no `mayUse` predicate scans every online machine |
+| `N2` | 5 | delegation human read off the LEAF, not the chain ROOT | `apps/server/src/command-principal.ts:224` | **1** | an agent chain carries exactly ONE human, taken from the ROOT and not the leaf |
+| `N2b2` | 5 | machine verbs MEMOISED across applies | `apps/server/src/machine-access.ts:219` | **1** | a `manage` grant does not carry `use`: discovery on the same machine is still refused |
+| `N2c` | 5 | migrated ownerless machine silently re-owned | `apps/server/src/machine-access.ts:179` | **1** | an unowned machine refuses EVERYONE, grant or no grant |
+| `C6a` | 6 | room join no longer visibility-gated | `packages/protocol/src/planes/stream-port.ts:110` | **1** | joins are visibility-gated and default-closed (D14) (+3) |
+| `C6b` | 6 | presence state outlives the connection | `packages/protocol/src/planes/stream-port.ts:197` | **1** | drops all presence state when the connection goes — nothing outlives it (D12) |
+| `C6c` | 6 | outbound stream queue bound 64 → 1,000,000 | `apps/server/src/gateway/presence-routing.ts:27` | **1** | bounds the undrained outbound queue so a busy room drops rather than buffers |
+| `C7a` | 7 | absent refusal leaks the machine NAME | `apps/server/src/machine-access.ts:326` | **1** | a colleague's invisible machine and an id that never existed refuse IDENTICALLY |
+| `N3b` | 7 | refused subscription EMITS a reason code | `packages/protocol/src/planes/control-port.ts:125` | **1** | admits an entity only when the resolver says so, and never says why |
+| `N3c` | 7 | refused join leaves a subscription behind | `packages/protocol/src/planes/stream-port.ts:110` | **1** | does not subscribe a refused connection to anything |
+| `C8a2` | 8 | unclassified entity kind resolves VISIBLE | `packages/sync/src/feed/visibility.ts:291` | **1** | an UNCLASSIFIED entity kind is invisible — and says so, not 'personal' |
+| `C8b` | 8 | aggregate points at a nonexistent matrix row | `packages/model/src/aggregates/registry.ts:153` | **1** | every registered row id is really on the matrix — with the backstop shown firing |
+| `N4` | 8 | a `personal` row widened to `deployment-substrate` | `packages/model/src/annotations/matrix.ts:2661` | **1** | keeps the tenant-visible floor small and deliberate |
+| `C9a` | 9 | SYSTEM writer attributed as a user | `apps/server/src/command-principal.ts:173` | **1** | a system write is attributed `system` with no human (D17.5) |
+| `C9b` | 9 | agent attribution drops its on-behalf-of half | `apps/server/src/command-principal.ts:171` | **1** | attribution is a PAIR … never collapses them |
+| `N5` | 9 | SYSTEM_WRITER_RULE loses its no-widening clause | `packages/model/src/annotations/ownership.ts:302` | **1** | expected … to match /never widen/ |
+| `N5b` | 9 | writeScope half of the system-reaction invariant deleted | `apps/server/src/composition/reactions.ts:668` | **0** | **SURVIVED — POD-1429** |
+| `C10` | 10 | instance_id column planted on the sessions table | `apps/server/src/migrations/schema.ts:33` | **1** | instance-partitions baseline 0 → now 1 … sessions.instance_id (column) |
 
-All 24 rows restored to **byte identity**, every anchor count back to 1, `git status --porcelain`
-empty after each — asserted by the runner, which aborts rather than reports.
-
-**No guardrail drift.** All 19 original mutants were re-run at `4b5c3a43` after first being measured
-at `d8fba769`, 41 commits earlier. Every verdict is identical and every anchor still matched exactly
-once. The two survivors are therefore not artefacts of a stale tree.
+All 30 rows restored to **byte identity**, every anchor count back to 1, `git status --porcelain`
+empty after each — asserted by the runner, which aborts rather than reports. Exit codes are recorded
+per mutant rather than inferred from test counts: a lane whose worker dies still summarises as
+all-passed, so the count is not the verdict.
 
 ## The five compound clauses (POD-425 refusal ground 2)
 
@@ -165,16 +172,27 @@ mutant in `relay.ts` for the whole duration. Had the session been killed in that
 would have survived in the tree with nothing scheduled to remove it, and a branch carrying a live
 mutant looks exactly like a branch carrying a bug.
 
-It did not happen here: `C1b-full` completed (exit 1, 1098.8 s) and its `finally` restored
-`relay.ts` to sha256 `ce4c4e7b1989...`, anchor count 1, `git status` empty — re-verified afterwards
-from a clean session. But the hazard is structural and scales with run length: the longer the
-guardrail takes, the wider the window.
+**It then happened, for real.** A later batch driver hit the harness's 10-minute cap; SIGTERM killed
+it, and Python's default SIGTERM handling **does not run `finally`**. It left
+`apps/server/src/machine-access.ts` mutated in the tree with C7a's edit. The tree was restored and
+verified byte-identical (`c1695a60cf579f77`) against HEAD. So P2 is not a maxim — it is an observed
+failure of this campaign's own instrument.
 
-**Mitigations for the next campaign of this shape:** keep long full-lane runs to the few questions
-that genuinely need them (this campaign used one); prefer scoped runs, which shrink the window from
-minutes to seconds; and write the mutant's identity and original hash to disk *before* applying —
-the per-mutant JSON record here is written only on success, so a killed run leaves no breadcrumb
-naming what is still applied.
+**Implemented, not proposed.** The runner now:
+
+- writes a **breadcrumb** (mutant id, target path, original sha256, original bytes) to disk **before**
+  the file is touched;
+- installs **SIGTERM / SIGINT / atexit** handlers that restore from it and exit;
+- clears the breadcrumb **only after** a verified restore (hash identical, anchor counts back,
+  `git status` empty);
+- exposes **`--restore-orphans`**, which replays any breadcrumb left behind — so recovery does not
+  require the process that made the mess, which is exactly the position an outside observer was in
+  when this fired.
+
+Self-tested by killing a live mutant with SIGTERM: `signal 15: mutant restored before exit`, tree
+clean, hash back. The residual advice stands on its own: keep long full-lane runs to the few
+questions that need them (this campaign used one), because scoped runs shrink the exposure window
+from minutes to seconds.
 
 ### P3 — a piped guardrail command cannot produce evidence
 

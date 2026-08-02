@@ -2,7 +2,7 @@
   "id": "C6c",
   "file": "apps/server/src/gateway/presence-routing.ts",
   "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/gateway/presence-routing.test.ts apps/server/src/gateway/reattach-storm.integration.test.ts packages/protocol/src/planes",
-  "candidate_sha": "4b5c3a43f92dc264895ff21686ddf764289fb3e7",
+  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
   "original_sha256": "6a56ad2e24514dc34d1b7c4abeeaf23c3380b08f6eaadd853f3c62e3c41e9cf8",
   "edits": [
     {
@@ -16,9 +16,9 @@
     }
   ],
   "mutated_sha256": "314d68e0ac6051dfaa4306cde85f1abf3ffc2c9a3d7a3d93c048b58677b820ee",
-  "exit_code": 0,
-  "elapsed_s": 17.3,
-  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n\n Test Files  6 passed (6)\n      Tests  88 passed (88)\n   Start at  16:27:36\n   Duration  14.68s (transform 48.28s, setup 3.22s, import 65.94s, tests 745ms, environment 2ms)\n\n",
+  "exit_code": 1,
+  "elapsed_s": 28.7,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| apps/server/src/gateway/presence-routing.test.ts (9 tests | 1 failed) 138ms\n     \u00d7 bounds the undrained outbound queue so a busy room drops rather than buffers 54ms\n\n Test Files  1 failed | 5 passed (6)\n      Tests  1 failed | 88 passed (89)\n   Start at  17:08:56\n   Duration  26.43s (transform 76.84s, setup 7.49s, import 105.85s, tests 1.21s, environment 19ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/gateway/presence-routing.test.ts > production presence routing > bounds the undrained outbound queue so a busy room drops rather than buffers\nAssertionError: expected 1000000 to be 64 // Object.is equality\n\n- Expected\n+ Received\n\n- 64\n+ 1000000\n\n \u276f apps/server/src/gateway/presence-routing.test.ts:222:37\n    220|     // is a hard number above 64, not `STREAM_QUEUE_MAX_FRAMES + k` (w\u2026\n    221|     // scale with the mutant and still pass).\n    222|     expect(STREAM_QUEUE_MAX_FRAMES).toBe(64)\n       |                                     ^\n    223|\n    224|     const { subscriptions, clients, presence } = setup()\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
   "restored_sha256": "6a56ad2e24514dc34d1b7c4abeeaf23c3380b08f6eaadd853f3c62e3c41e9cf8",
   "restored_identical": true,
   "git_clean_after": true
