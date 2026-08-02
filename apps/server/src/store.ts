@@ -189,7 +189,7 @@ export class SessionStore {
       this.hostMachineId,
     )
     this.approvals = new ApprovalsRepository(this.db)
-    this.conversations = new ConversationsRepository(this.db)
+    this.conversations = new ConversationsRepository(this.db, this.hostMachineId)
     this.sync = new SyncRepository(this.db)
     this.auth = new AuthRepository(this.db)
     this.superagent = new SuperagentRepository(this.db)

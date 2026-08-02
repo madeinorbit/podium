@@ -96,7 +96,6 @@ describe('Session', () => {
       sessionId: asSessionId('s1'),
       controllerId: 'a',
       geometry: geo,
-      machineId: TEST_MACHINE,
       epoch: 0,
       resumed: false,
     })

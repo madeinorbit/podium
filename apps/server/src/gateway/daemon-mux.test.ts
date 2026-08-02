@@ -270,7 +270,8 @@ describe('attach / detach orchestration', () => {
     new DaemonMux({ ports, bus: bus as never }).attachDaemon('local', () => {})
     expect(calls.map((c) => `${c.port}.${c.method}`)).toEqual([
       'machines.attach',
-      'machines.adoptPlaceholderRows',
+      // No adoption step: POD-318 writes every row under a real machine id from
+      // boot, so an attaching daemon has nothing to claim — it becomes reachable.
       'machines.flushQueued',
       'sessions.onMachineAttached',
       'machines.broadcastMachines',
@@ -278,7 +279,9 @@ describe('attach / detach orchestration', () => {
     expect(bus.emit).toHaveBeenCalledWith('machine.connected', { machineId: 'local' })
   })
 
-  it('adopts placeholder rows for the LOCAL machine only', () => {
+  it('claims nothing on attach — no machine is special any more', () => {
+    // The step used to fire for the hard-coded local machine and for nothing else.
+    // Both halves of that are gone; an attach is an attach.
     const { ports, calls } = fakePorts()
     muxWith(ports).attachDaemon('m2', () => {})
     expect(calls.map((c) => c.method)).not.toContain('adoptPlaceholderRows')

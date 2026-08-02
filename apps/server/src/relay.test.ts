@@ -135,7 +135,7 @@ describe('SessionRegistry', () => {
 
   it('createSession records spawnedBy provenance, persists it, and omits it when unset (issue #60)', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store = new SessionStore(file)
+    const store = new SessionStore(file, TEST_MACHINE)
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -154,7 +154,7 @@ describe('SessionRegistry', () => {
     expect(metaOf(anon)?.spawnedBy).toBeUndefined()
     store.close()
     // Survives a restart (round-trips through the sessions table).
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE))
     expect(metaOf(sessionId, reg2)?.spawnedBy).toBe('issue:iss_1')
     expect(metaOf(anon, reg2)?.spawnedBy).toBeUndefined()
   })
@@ -496,7 +496,7 @@ describe('SessionRegistry', () => {
   })
 
   it('delivers worker checkpoints through the durable system:workflow message ledger', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const coordinator = reg.modules.sessions.createSession({
@@ -1033,7 +1033,7 @@ describe('SessionRegistry', () => {
   })
 
   it('probes an exited session on boot and reattaches it when the master is alive', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const id = 'orphan-1'
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
@@ -1052,7 +1052,7 @@ describe('SessionRegistry', () => {
   })
 
   it('leaves a dead exited session exited and untouched when its master is gone', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const id = 'dead-1'
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
@@ -1071,7 +1071,7 @@ describe('SessionRegistry', () => {
   })
 
   it('does not probe an archived exited session', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession(exitedRow('arch-1', { archived: true }))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
@@ -1080,7 +1080,7 @@ describe('SessionRegistry', () => {
   })
 
   it('reattaches most-recently-used sessions first', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     // Insert out of recency order to prove the order is by lastActiveAt, not insertion.
     store.sessions.upsertSession(exitedRow('mid', { lastActiveAt: '2026-03-02T00:00:00.000Z' }))
     store.sessions.upsertSession(exitedRow('newest', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
@@ -1097,7 +1097,7 @@ describe('SessionRegistry', () => {
     // (the daemon gates its fan-out). A session some connected client is focused
     // on / rendering must beat a merely-recent one; within a tier the order stays
     // most-recently-used.
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession(exitedRow('recent', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
     store.sessions.upsertSession(exitedRow('focused', { lastActiveAt: '2026-01-02T00:00:00.000Z' }))
     store.sessions.upsertSession(exitedRow('visible', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
@@ -1375,7 +1375,7 @@ describe('SessionRegistry', () => {
   })
 
   it('write-through: a spawned session is persisted, live/exit/title update the row', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -1401,7 +1401,7 @@ describe('SessionRegistry', () => {
   })
 
   it('write-through: an agentState change persists lastActiveAt so recency survives a restart', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -1419,7 +1419,7 @@ describe('SessionRegistry', () => {
   })
 
   it('write-through: running-shell activity persists the row (recency is durable)', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
@@ -1439,7 +1439,7 @@ describe('SessionRegistry', () => {
   })
 
   it('mints opaque durable session ids (uuid), not the s0 counter', () => {
-    const reg = new SessionRegistry(new SessionStore(':memory:'))
+    const reg = new SessionRegistry(new SessionStore(':memory:', TEST_MACHINE))
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -1450,7 +1450,7 @@ describe('SessionRegistry', () => {
 
   it('boot reconcile: persisted live sessions retain geometry and trigger a same-size reattach', async () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file)
+    const store1 = new SessionStore(file, TEST_MACHINE)
     const reg1 = new SessionRegistry(store1)
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.issueSessionLifecycle.resumeSession({
@@ -1478,7 +1478,7 @@ describe('SessionRegistry', () => {
     store1.close()
 
     // Restart: fresh registry over the same db.
-    const store2 = new SessionStore(file)
+    const store2 = new SessionStore(file, TEST_MACHINE)
     const reg2 = new SessionRegistry(store2)
     expect(
       reg2.modules.sessions.listSessions().find((m) => m.sessionId === sessionId),
@@ -1511,7 +1511,7 @@ describe('SessionRegistry', () => {
 
   it('reattach success: bind on a reconnecting session makes it live', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file)
+    const store1 = new SessionStore(file, TEST_MACHINE)
     const reg1 = new SessionRegistry(store1)
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -1520,7 +1520,7 @@ describe('SessionRegistry', () => {
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
     store1.close()
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE))
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('reconnecting')
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
@@ -1529,7 +1529,7 @@ describe('SessionRegistry', () => {
 
   it('reattachFailed marks the session exited', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file)
+    const store1 = new SessionStore(file, TEST_MACHINE)
     const reg1 = new SessionRegistry(store1)
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -1538,7 +1538,7 @@ describe('SessionRegistry', () => {
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
     store1.close()
-    const reg2 = new SessionRegistry(new SessionStore(file))
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE))
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('reconnecting') // handler must drive the transition
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
@@ -1550,7 +1550,7 @@ describe('SessionRegistry', () => {
   })
 
   it('skips a persisted session with an invalid agentKind on load', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession({
       id: asSessionId('good'),
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -1643,7 +1643,7 @@ describe('host metrics relay', () => {
     // Per-machine model: each machine reports its own single host sample, keyed by its
     // machineId, so two distinct machines sit side by side (a SAME-machine re-report
     // replaces — see the "latest sample per host" test above).
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     store.machines.upsertMachine({
       id: 'm-alpha',
       name: 'alpha',
@@ -1846,7 +1846,7 @@ describe('agent state', () => {
   })
 
   it('sends every configured external push target only when no client is visible', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -1945,7 +1945,7 @@ describe('agent state', () => {
   it('notifyExternal pushes to every configured target, visible client or not (#470)', () => {
     // The subscription "Notify" switch is an explicit standing request — unlike the
     // attention path it must NOT be suppressed by an open browser tab [spec:SP-17db].
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -1983,7 +1983,7 @@ describe('agent state', () => {
   })
 
   it('suppresses configured notification delivery while the feature is disabled', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -2010,7 +2010,7 @@ describe('agent state', () => {
     }
   })
   it('connects Telegram from a start-code update', async () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -2090,7 +2090,7 @@ describe('agent state', () => {
   })
 
   it('sends a catch-up Telegram push when Telegram is enabled for an existing attention session', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const ntfy = vi.fn()
     const telegram = vi.fn()
 
@@ -2866,7 +2866,7 @@ describe('hibernation', () => {
   }
 
   it('does not write the DB on every output frame — coalesces to the flush', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -2889,7 +2889,7 @@ describe('hibernation', () => {
   it('dispose stops the periodic flush timer (no DB write after shutdown) and is idempotent', () => {
     vi.useFakeTimers()
     try {
-      const store = new SessionStore(':memory:')
+      const store = new SessionStore(':memory:', TEST_MACHINE)
       const reg = new SessionRegistry(store)
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -2914,7 +2914,7 @@ describe('hibernation', () => {
   })
 
   it('seeds activity counters from the DB on a fresh registry (survives restart)', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3032,7 +3032,7 @@ describe('hibernation', () => {
   })
 
   it('does not auto-hibernate a legacy unfenced idle session', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3076,7 +3076,7 @@ describe('hibernation', () => {
   })
 
   it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', async () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3111,7 +3111,7 @@ describe('hibernation', () => {
   })
 
   it('keeps a session awake when the user typed recently, even with no agent activity', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3366,7 +3366,7 @@ describe('reconnect identity (hello reclaim)', () => {
     it('clears the persisted draft immediately when the composer empties (send)', () => {
       vi.useFakeTimers()
       try {
-        const store = new SessionStore(':memory:')
+        const store = new SessionStore(':memory:', TEST_MACHINE)
         const reg = new SessionRegistry(store)
         const sessionId = seedSession(reg)
         const idA = attachTestClient(reg.clientGateway, () => {})
@@ -3397,7 +3397,7 @@ describe('reconnect identity (hello reclaim)', () => {
 })
 
 describe('session draft sync — versioned (POD-859, flag on)', () => {
-  function flaggedReg(store = new SessionStore(':memory:')) {
+  function flaggedReg(store = new SessionStore(':memory:', TEST_MACHINE)) {
     // Enable draft sync through the canonical experiments store [spec:SP-f4b9].
     // Tests run with PODIUM_APP_VERSION unset → devMode → the flag is listed, so a
     // user toggle enables it (matches getFeatureStates resolution).
@@ -3574,7 +3574,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
 
 describe('SessionRegistry read state (#124)', () => {
   it('a fresh session is unread; markSessionRead clears it and persists across reload', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -3621,7 +3621,7 @@ describe('SessionRegistry read state (#124)', () => {
   })
 
   it('markSessionUnread nulls readAt so the session re-reads as unread + broadcasts (#138)', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -3724,7 +3724,7 @@ describe('SessionRegistry snooze', () => {
   })
 
   it('seeds snoozedUntil from the store at load', () => {
-    const store = new SessionStore(':memory:')
+    const store = new SessionStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession({
       id: asSessionId('s1'),
       ownerUserId: FIRST_ADMIN_USER_ID,

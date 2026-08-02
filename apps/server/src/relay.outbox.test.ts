@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   actorAgent,
   asAgentIdentityId,
+  asMachineId,
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
@@ -18,6 +19,12 @@ import {
   type ServerMessage,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+
+/** One host across the simulated restart: storeA writes rows under this id and storeB
+ *  re-opens the same file as the same machine, which is what a real reboot is. Without
+ *  pinning it each store would mint its own (POD-318) and the restart would look like
+ *  a different computer. */
+const TEST_MACHINE = asMachineId('machine-under-test')
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -279,7 +286,7 @@ describe('queueText (durable outbox sends)', () => {
     vi.useFakeTimers()
     try {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-outbox-relay-')), 'podium.db')
-      const storeA = new SessionStore(file)
+      const storeA = new SessionStore(file, TEST_MACHINE)
       const regA = new SessionRegistry(storeA)
       const daemonA: ControlMessage[] = []
       regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
@@ -300,7 +307,7 @@ describe('queueText (durable outbox sends)', () => {
       storeA.close()
 
       // Restart: fresh store + registry over the same DB file.
-      const storeB = new SessionStore(file)
+      const storeB = new SessionStore(file, TEST_MACHINE)
       const regB = new SessionRegistry(storeB)
       expect(
         regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)

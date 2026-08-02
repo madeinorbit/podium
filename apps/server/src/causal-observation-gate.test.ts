@@ -400,9 +400,9 @@ describe('causal session observation gate', () => {
       observationGeneration: 2,
       checkpoint: { lastTransitionId: 'thread-2-bootstrap' },
     })
-    const thread2Conversation = store.conversations.conversationPodiumId('local', 'thread-2')
+    const thread2Conversation = store.conversations.conversationPodiumId(store.hostMachineId, 'thread-2')
     expect(thread2Conversation).toBeDefined()
-    expect(store.conversations.conversationPodiumId('local', 'thread-3')).toBeUndefined()
+    expect(store.conversations.conversationPodiumId(store.hostMachineId, 'thread-3')).toBeUndefined()
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId,

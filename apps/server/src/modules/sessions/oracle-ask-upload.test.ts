@@ -44,13 +44,13 @@ function answerUploads(
     path: string
     error?: string
   },
-  machineId = 'local',
+  machineId = o.store.hostMachineId,
 ): ControlMessage[] {
   const seen: ControlMessage[] = []
   const svc = o.reg.gateway
   svc.attachDaemon(machineId, (msg) => {
     seen.push(msg)
-    if (machineId === 'local') o.daemon.push(msg)
+    if (machineId === o.store.hostMachineId) o.daemon.push(msg)
     if (msg.type === 'imageUploadRequest') {
       const r = reply(msg)
       svc.routeDaemonFrame(machineId, {
@@ -466,7 +466,7 @@ describe('oracle: sessions.uploadImage', () => {
       // characterization because the two states are genuinely different inputs
       // that today produce the same output — which is the fact worth pinning.
       o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (msg) => o.daemon.push(msg))
-      expect(o.reg.modules.machines.onlineMachineIds()).toEqual(['local'])
+      expect(o.reg.modules.machines.onlineMachineIds()).toEqual([o.store.hostMachineId])
 
       const settled = o.call.sessions
         .uploadImage({

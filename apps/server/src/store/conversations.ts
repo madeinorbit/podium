@@ -20,7 +20,12 @@ export class ConversationsRepository {
    *  fallback, and search simply omits the source. */
   private transcriptFtsAvailable = false
 
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(
+    private readonly db: SqlDatabase,
+    /** This host's minted machine id — the machine a row this repository has to
+     *  CONJURE belongs to. See {@link setConversationMeta}. */
+    private readonly hostMachineId: string,
+  ) {}
 
   // ---- per-boot runtime DDL (environment-conditional — NOT a schema migration) ----
 
@@ -192,10 +197,15 @@ export class ConversationsRepository {
     const exists = this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)
     if (!exists) {
       this.db
+        // Curating a conversation nobody has discovered yet CREATES the row, and
+        // since POD-318 the machine column has no default to manufacture one — so
+        // this names the host, which is where a local curation act happens. It used
+        // to lean on the `'__local__'` default, silently.
         .prepare(
-          `INSERT INTO conversations (id, agent_kind, provider_id) VALUES (?, 'claude-code', 'unknown')`,
+          `INSERT INTO conversations (id, agent_kind, provider_id, machine_id)
+             VALUES (?, 'claude-code', 'unknown', ?)`,
         )
-        .run(id)
+        .run(id, this.hostMachineId)
     }
     if (meta.name !== undefined) {
       this.db.prepare('UPDATE conversations SET name = ? WHERE id = ?').run(meta.name, id)

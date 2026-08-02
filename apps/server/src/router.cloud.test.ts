@@ -115,7 +115,7 @@ describe('cloud router', () => {
     const { call, registry } = caller(cloud.provider)
     registry.sessionStore.repos.addRepo(
       '/workspace/podium',
-      'local',
+      registry.sessionStore.hostMachineId,
       'git@github.com:madeinorbit/podium.git',
     )
     const { sessionId } = await registry.modules.issueSessionLifecycle.resumeSession({
@@ -146,7 +146,7 @@ describe('cloud router', () => {
           agent: 'codex',
           resumeRef: 'thread-1',
           cwd: '/workspace/podium',
-          machineId: 'local',
+          machineId: registry.sessionStore.hostMachineId,
         },
       },
     ])
@@ -158,7 +158,7 @@ describe('cloud router', () => {
     const { call, registry } = caller(cloud.provider, (message) => daemon.push(message))
     registry.sessionStore.repos.addRepo(
       '/workspace/podium',
-      'local',
+      registry.sessionStore.hostMachineId,
       'https://github.com/madeinorbit/podium.git',
     )
     const { sessionId } = registry.modules.sessions.createSession({
@@ -190,7 +190,7 @@ describe('cloud router', () => {
         agent: 'claude-code',
         resumeRef: 'claude-resume-1',
         cwd: '/workspace/podium',
-        machineId: 'local',
+        machineId: registry.sessionStore.hostMachineId,
       },
     })
   })

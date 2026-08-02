@@ -268,7 +268,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
 
   it(`${MUST_NOT_CHANGE}: handoff to an offline machine is refused BEFORE anything is stopped or moved`, async () => {
     const o = makeOracle({ offlineMachines: OFFLINE })
-    o.store.repos.addRepo('/r', 'local', 'git@github.com:example/r.git')
+    o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/x',
@@ -280,7 +280,10 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       'target machine is offline',
     )
     // Nothing moved, nothing parked, and no handover overlay was ever painted.
-    expect(o.meta(sessionId)).toMatchObject({ machineId: 'local', status: 'starting' })
+    expect(o.meta(sessionId)).toMatchObject({
+      machineId: o.store.hostMachineId,
+      status: 'starting',
+    })
     expect(o.meta(sessionId).handoffTarget).toBeUndefined()
   })
 })
