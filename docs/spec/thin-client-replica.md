@@ -46,6 +46,36 @@ the interface doesn't change. Document the choice made.
   is local, reconcile when the network answers). Offline reload = full UI with
   last-known data instead of a blank shell.
 
+### 2.2.1 Principal-scoped persistence (2026-08-01 amendment)
+
+The replica holds the authenticated principal's Authority-selected slice, not the
+tenant's world. Every persisted address is principal-bound: IndexedDB/SQLite use
+the principal in every compound key, while localStorage/AsyncStorage use
+`<base>.principal.<encoded-user-id>` before the collection, cursor, UI-state,
+transcript and outbox-family suffixes. Storage-event listeners compare the exact
+namespaced key and are detached when that principal's assembly closes.
+
+Sign-out **erases** the acting principal's complete namespace by default,
+including authored outbox rows. This is deliberately different from D7 cache
+healing/rescope, which must preserve the outbox: sign-out is a privacy boundary on
+a shared device, while healing replaces re-derivable Authority data. Web
+IndexedDB and mobile SQLite delete entity, cursor and outbox regions in one native
+transaction; the side-cache namespace is removed with them.
+
+Retained namespaces are bounded to the three most recently active principals and
+expire after 30 days of inactivity. Opening a principal records a marker inside
+that same namespace; pruning the marker also atomically erases that principal's
+transactional regions. The active principal is never selected for pruning. This
+keeps the quota guard meaningful when per-principal slices multiply on a shared
+device.
+
+Legacy raw UI/outbox inputs are folded into the acting principal once and retired
+only after the namespaced copy and migration marker are durable, so another user
+cannot consume them. The sole raw, pre-auth exception is the theme: ThemeProvider
+wraps StoreProvider and must avoid a flash before identity is known. Theme is safe
+to mirror because it is cosmetic and carries no cursor, entity, identity, rights
+or authored-work data; no other key may join that exception.
+
 ### 2.3 Offline transcript windows
 
 - ChatView's transcript reads (`sessions.transcriptRead`) get a write-through

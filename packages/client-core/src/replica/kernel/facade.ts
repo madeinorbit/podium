@@ -147,6 +147,7 @@ const EMPTY: readonly never[] = Object.freeze([])
 export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplica {
   const { cache, side } = init
   const listeners = new Map<ReplicaKind, Set<() => void>>()
+  const batchListeners = new Set<(changed: ReadonlySet<ReplicaKind>) => void>()
   /** Cleared per kind when an event touched it; `rows()` re-projects lazily so a
    *  burst of frames costs one projection, not one per frame. */
   const projected = new Map<ReplicaKind, readonly unknown[]>()
@@ -176,6 +177,14 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           // A listener that throws must not stop the others, and must not take
           // the frame's application down with it.
         }
+      }
+    }
+    const changed = new Set(kinds)
+    for (const cb of [...batchListeners]) {
+      try {
+        cb(changed)
+      } catch {
+        // A batch observer has the same isolation contract as row observers.
       }
     }
   }
@@ -305,6 +314,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       listeners.set(kind, set)
       set.add(cb)
       return () => set.delete(cb)
+    },
+
+    subscribeRowBatch(cb: (changed: ReadonlySet<ReplicaKind>) => void): () => void {
+      batchListeners.add(cb)
+      return () => batchListeners.delete(cb)
     },
 
     batch<T>(fn: () => T): T {

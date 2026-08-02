@@ -19,11 +19,20 @@ function openDesktop() {
 
 export function SettingsScreen() {
   const router = useRouter()
-  const { connected, conversations, cursor, issues, outboxSize, serverConfig, sessions } =
-    useMobileClient()
+  const {
+    connected,
+    conversations,
+    cursor,
+    eraseLocalData,
+    issues,
+    outboxSize,
+    serverConfig,
+    sessions,
+  } = useMobileClient()
   const [loggedOut, setLoggedOut] = useState(false)
 
   const doLogout = async () => {
+    await eraseLocalData()
     await logout(serverConfig.httpOrigin)
     setLoggedOut(true)
     if (typeof window !== 'undefined') window.location.reload()

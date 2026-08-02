@@ -223,6 +223,10 @@ export interface Replica {
   /** Non-React change seam (#262). Notifications are COALESCED per application:
    *  a listener never observes the transient half-applied list. Never throws. */
   subscribeRows(kind: ReplicaKind, cb: () => void): () => void
+  /** Optional whole-application notification. Kernel adapters use this to
+   *  publish an atomic bootstrap/rescope as one changed-kind set; callers fall
+   *  back to the collection-scoped seam when it is absent. */
+  subscribeRowBatch?(cb: (changed: ReadonlySet<ReplicaKind>) => void): () => void
   /** Coalesce `subscribeRows` notifications across every write issued inside
    *  `fn` (#262 review, nestable): listeners fire at most once per touched kind,
    *  AFTER the outermost batch completed — i.e. against the FINAL state. */

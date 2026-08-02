@@ -35,7 +35,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // is a trusted dir so claude renders its composer instead of a trust prompt. We type a
 // char but never submit it, so no model call is made.
 describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !ready)(
-  'real claude smoke (node-pty backend)',
+  '[real-agent:claude] real claude smoke (node-pty backend)',
   () => {
     it('boots, renders a substantial frame, and echoes a keystroke', async () => {
       const s = spawnAgent(

@@ -262,7 +262,7 @@ function AppBody(): JSX.Element {
   }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
 
   if (!reposLoaded) return <LoadingScreen />
-  if (repos.length === 0 && !dismissed) {
+  if (repos.length === 0 && sessions.length === 0 && !dismissed) {
     return <OnboardingWizard onDismiss={() => setDismissed(true)} />
   }
 
