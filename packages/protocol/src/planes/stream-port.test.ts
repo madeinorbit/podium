@@ -26,10 +26,11 @@ import {
   controlEntityDelivery,
   PlaneRouter,
   principalRoutingKey,
+  roomRoutingKey,
   SubscriptionRegistry,
   streamLiveDelivery,
 } from './routing'
-import { presenceCoalesceKey, StreamPlanePort } from './stream-port'
+import { presenceCoalesceKey, roomRefFromRoutingKey, StreamPlanePort } from './stream-port'
 
 const user = (id: string): Principal => ({
   kind: 'user',
@@ -77,6 +78,19 @@ describe('rooms are entity references on the stream port', () => {
     // A free-string room name is unrepresentable, not merely discouraged.
     expect(RoomRef.safeParse({ kind: 'issue-42-sidebar', id: 'x' }).success).toBe(false)
     expect(RoomRef.safeParse({ kind: 'issue', id: asIssueId('i1') }).success).toBe(true)
+  })
+
+  it('round-trips a room routing key with a hostile id (POD-1134)', () => {
+    // Naive split(':') would turn kind=session id='a:b' into a non-room or a
+    // different room; the escaped inverse must recover the constructor input.
+    const hostile: RoomRef = { kind: 'session', id: asSessionId('a:b') }
+    expect(roomRefFromRoutingKey(roomRoutingKey(hostile))).toEqual(hostile)
+    expect(roomRefFromRoutingKey(roomRoutingKey({ kind: 'issue', id: asIssueId('x\\y') }))).toEqual({
+      kind: 'issue',
+      id: 'x\\y',
+    })
+    // Non-room kinds stay unparseable even if a key was joined for them.
+    expect(roomRefFromRoutingKey(roomRoutingKey({ kind: 'document', id: 'd1' }))).toBeNull()
   })
 
   it('declares stream · live and refuses a non-coalescing or foreign router', () => {

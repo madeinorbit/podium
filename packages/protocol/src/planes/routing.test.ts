@@ -10,12 +10,20 @@ import {
   asSubscriberId,
   controlEntityDelivery,
   entityRoutingKey,
+  parseEntityRoutingKey,
+  parseRoomRoutingKey,
   PlaneRouter,
   principalRoutingKey,
+  principalRoutingKeyFromId,
   roomRoutingKey,
   SubscriptionRegistry,
   streamLiveDelivery,
 } from './routing'
+
+// Parts chosen to attack the escaping: each contains the separator, the escape
+// character, or a shape that would look like a valid multi-part key on its own.
+// Same battery as packages/model/src/ids/keys.test.ts (POD-1134).
+const HOSTILE = ['a:b', 'a\\b', 'a\nb', '\\', ':', '\n', 'a\\:b', '', 'x:y:z']
 
 const user = (id: string, device = `${id}-d1`): Principal => ({
   kind: 'user',
@@ -28,6 +36,67 @@ interface Frame {
   readonly seq: number
   readonly member?: string
 }
+
+describe('routing key constructors — injective over hostile parts (POD-1134)', () => {
+  it('entityRoutingKey round-trips every hostile kind/id pair', () => {
+    for (const kind of HOSTILE.filter((p) => p !== '')) {
+      for (const id of HOSTILE.filter((p) => p !== '')) {
+        expect(parseEntityRoutingKey(entityRoutingKey({ kind, id }))).toEqual({ kind, id })
+      }
+    }
+  })
+
+  it('roomRoutingKey round-trips every hostile kind/id pair', () => {
+    for (const kind of HOSTILE.filter((p) => p !== '')) {
+      for (const id of HOSTILE.filter((p) => p !== '')) {
+        expect(parseRoomRoutingKey(roomRoutingKey({ kind, id }))).toEqual({ kind, id })
+      }
+    }
+  })
+
+  it('is injective: no two distinct (kind, id) pairs collide on one entity key', () => {
+    const seen = new Map<string, [string, string]>()
+    for (const kind of HOSTILE.filter((p) => p !== '')) {
+      for (const id of HOSTILE.filter((p) => p !== '')) {
+        const key = entityRoutingKey({ kind, id })
+        const prior = seen.get(key)
+        expect(prior, `collision on ${JSON.stringify(key)}`).toBeUndefined()
+        seen.set(key, [kind, id])
+      }
+    }
+  })
+
+  it('separates the classic colon-collision pairs that unescaped concat merges', () => {
+    // kind='a', id='b:c' vs kind='a:b', id='c' — the defect this issue ends.
+    expect(entityRoutingKey({ kind: 'a', id: 'b:c' })).not.toBe(
+      entityRoutingKey({ kind: 'a:b', id: 'c' }),
+    )
+    expect(roomRoutingKey({ kind: 'a', id: 'b:c' })).not.toBe(
+      roomRoutingKey({ kind: 'a:b', id: 'c' }),
+    )
+  })
+
+  it('keeps the legacy byte shape when no part contains the separator or a backslash', () => {
+    // Adoption property: in-memory keys for ordinary ids stay byte-identical so
+    // live registries do not need a dual-read window for the POD-1134 flip.
+    expect(entityRoutingKey({ kind: 'issue', id: 'i1' })).toBe('entity:issue:i1')
+    expect(roomRoutingKey({ kind: 'session', id: 's1' })).toBe('room:session:s1')
+    expect(principalRoutingKeyFromId('user:alice:d1')).toBe('principal:user:alice:d1')
+  })
+
+  it('refuses empty kind or id rather than building an unparseable key', () => {
+    expect(() => entityRoutingKey({ kind: '', id: 'x' })).toThrow(/must not be empty/)
+    expect(() => entityRoutingKey({ kind: 'issue', id: '' })).toThrow(/must not be empty/)
+    expect(() => roomRoutingKey({ kind: 'session', id: '' })).toThrow(/must not be empty/)
+  })
+
+  it('namespaces stay distinct: entity, room, and principal never share a key', () => {
+    const ref = { kind: 'session', id: 's1' }
+    expect(entityRoutingKey(ref)).not.toBe(roomRoutingKey(ref))
+    expect(entityRoutingKey(ref)).not.toBe(principalRoutingKeyFromId('session:s1'))
+    expect(roomRoutingKey(ref)).not.toBe(principalRoutingKeyFromId('session:s1'))
+  })
+})
 
 describe('ADR 7 Amendment 1 D13 — ONE routing primitive, parameterized by durability', () => {
   it('routes the scoped feed and room presence through the SAME registry instance', () => {

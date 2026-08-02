@@ -1,7 +1,6 @@
 import type { PlaneTarget } from './control-port'
 import type { PlaneClass } from './plane'
 import type { VisibilityResolver } from './principal'
-import type { EntityRef } from './routing'
 
 /**
  * THE BULK PORT — ADR 7 D1: the paged port. Large, paged, lazy transfers on
@@ -20,13 +19,28 @@ import type { EntityRef } from './routing'
  * across two ports would lose requestId correlation as its primary contract.
  */
 
+/**
+ * A bulk-channel resource — NOT an {@link EntityRef}.
+ *
+ * Transcript pages, file bodies, and artifact bytes are paged streams. They are
+ * not rows in the entity set and must not share the model `EntityRef` name
+ * (POD-1134: two same-named types for one concept is the drift the single-home
+ * rule stops). Visibility still consults `{ kind, id }` structurally; the kind
+ * space here is bulk-owned (`transcript`, file/asset ids, …), not
+ * `ENTITY_KINDS`.
+ */
+export interface BulkResourceRef {
+  readonly kind: string
+  readonly id: string
+}
+
 export interface BulkPage {
   readonly offset: number
   readonly limit: number
 }
 
 export interface BulkChunk<B = Uint8Array | string> {
-  readonly resource: EntityRef
+  readonly resource: BulkResourceRef
   readonly offset: number
   readonly bytes: B
   readonly eof: boolean
@@ -35,14 +49,14 @@ export interface BulkChunk<B = Uint8Array | string> {
 export interface BulkPortDeps<B = Uint8Array | string> {
   readonly visibility: VisibilityResolver
   /** Feature-owned reader. The port owns paging policy, not content. */
-  readonly read: (resource: EntityRef, page: BulkPage) => Promise<BulkChunk<B>>
+  readonly read: (resource: BulkResourceRef, page: BulkPage) => Promise<BulkChunk<B>>
   /** Largest single response this channel will serve. */
   readonly maxChunkBytes: number
 }
 
 export interface BulkPort<B = Uint8Array | string> {
   readonly planeClasses: readonly PlaneClass[]
-  read(target: PlaneTarget, resource: EntityRef, page: BulkPage): Promise<BulkChunk<B> | null>
+  read(target: PlaneTarget, resource: BulkResourceRef, page: BulkPage): Promise<BulkChunk<B> | null>
 }
 
 export class BulkPlanePort<B = Uint8Array | string> implements BulkPort<B> {
@@ -58,7 +72,7 @@ export class BulkPlanePort<B = Uint8Array | string> implements BulkPort<B> {
    */
   async read(
     target: PlaneTarget,
-    resource: EntityRef,
+    resource: BulkResourceRef,
     page: BulkPage,
   ): Promise<BulkChunk<B> | null> {
     if (this.deps.visibility.canSee(target.principal, resource) !== true) return null

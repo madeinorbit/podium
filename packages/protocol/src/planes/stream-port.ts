@@ -11,6 +11,7 @@ import {
 import { type Principal, principalRoutingId, type VisibilityResolver } from './principal'
 import {
   type PlaneRouter,
+  parseRoomRoutingKey,
   type RoutingKey,
   roomRoutingKey,
   type SubscriberId,
@@ -328,10 +329,18 @@ export const presenceCoalesceKey = (frame: PresenceRoomServerMessage): string =>
 const identityKey = (identity: PresenceIdentity): string =>
   identity.kind === 'user' ? `user:${identity.user}` : `agent:${identity.agentIdentity}`
 
-/** Inverse of {@link roomRoutingKey} for the derived-leave path. */
+/**
+ * Inverse of {@link roomRoutingKey} for the derived-leave path.
+ * Uses the escaped-part parser so a hostile id containing `:` cannot be
+ * mis-split into a different room (POD-1134).
+ */
 export const roomRefFromRoutingKey = (key: RoutingKey): RoomRef | null => {
-  const [ns, kind, ...rest] = key.split(':')
-  if (ns !== 'room' || rest.length === 0) return null
-  if (kind !== 'session' && kind !== 'issue') return null
-  return { kind, id: rest.join(':') } as RoomRef
+  let parsed: { kind: string; id: string }
+  try {
+    parsed = parseRoomRoutingKey(key)
+  } catch {
+    return null
+  }
+  if (parsed.kind !== 'session' && parsed.kind !== 'issue') return null
+  return { kind: parsed.kind, id: parsed.id } as RoomRef
 }

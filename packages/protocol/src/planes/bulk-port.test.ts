@@ -8,7 +8,8 @@ import {
   type Principal,
   type VisibilityResolver,
 } from './principal'
-import { asSubscriberId, type EntityRef } from './routing'
+import type { BulkResourceRef } from './bulk-port'
+import { asSubscriberId } from './routing'
 
 const target: PlaneTarget = {
   subscriberId: asSubscriberId('conn'),
@@ -20,10 +21,11 @@ const target: PlaneTarget = {
   } satisfies Principal,
 }
 
-const resource: EntityRef = { kind: 'transcript', id: 's1' }
+// Transcript is a bulk resource kind, not an EntityRef (POD-1134).
+const resource: BulkResourceRef = { kind: 'transcript', id: 's1' }
 
 const setup = (visibility: VisibilityResolver = { canSee: () => true }) => {
-  const read = vi.fn(async (r: EntityRef, page: { offset: number; limit: number }) => ({
+  const read = vi.fn(async (r: BulkResourceRef, page: { offset: number; limit: number }) => ({
     resource: r,
     offset: page.offset,
     bytes: 'x'.repeat(page.limit),
