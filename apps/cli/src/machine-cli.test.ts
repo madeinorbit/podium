@@ -46,10 +46,19 @@ const repos = [
 ]
 
 function fakeClient(machines: MachineWire[], repoRows = repos): MachineClient {
-  return {
-    machines: { list: { query: async () => machines } },
-    repos: { listDetailed: { query: async () => repoRows } },
-  }
+  return { machines: { listWithRepos: { query: async () => ({ machines, repos: repoRows }) } } }
+}
+
+/** A machine this principal can SEE but not USE: the server drops both its
+ *  inventory and its repo rows, so the view must not turn either absence into a
+ *  claim about the machine. */
+const seeOnly: MachineWire = {
+  id: asMachineId('m-theirs'),
+  name: 'someone-elses-box',
+  hostname: 'someone-elses-box',
+  online: true,
+  lastSeenAt: '2026-08-02T11:59:00.000Z',
+  use: 'denied',
 }
 
 describe('renderMachines', () => {
@@ -68,6 +77,15 @@ describe('renderMachines', () => {
     expect(out).toContain('quiet-box (quiet-box.example.net) — offline · use granted')
     expect(out).toContain('last seen 2026-07-22T12:00:00.000Z (11d ago)')
     expect(out).toContain('repos: none registered')
+  })
+
+  it('does not report a see-only machine as having no repos', () => {
+    // The absence of repo rows for a `use: denied` machine says nothing about the
+    // machine — only about this caller. Both strings are legal output; only one
+    // is true here, and the wire cannot tell them apart.
+    const out = renderMachines([seeOnly], repos, NOW)
+    expect(out).toContain('repos: not available to this session')
+    expect(out).not.toContain('none registered')
   })
 
   it('says inventory is unavailable rather than inventing an empty one', () => {
@@ -138,14 +156,7 @@ describe('runMachineCli', () => {
   it('answers --help without reaching the server', async () => {
     const exploding: MachineClient = {
       machines: {
-        list: {
-          query: async () => {
-            throw new Error('must not be called')
-          },
-        },
-      },
-      repos: {
-        listDetailed: {
+        listWithRepos: {
           query: async () => {
             throw new Error('must not be called')
           },

@@ -40,6 +40,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { ChangeLogStore } from '../change-log'
+import type { ChangeLogReadRow } from './change-lifecycle'
 import {
   assertOpaqueEpoch,
   FeedIdentityRegistry,
@@ -60,13 +61,7 @@ import type { StagedChangeSpec } from './change-lifecycle'
  * is; that is ADR 5 D8 S4 stated as code rather than as a comment.
  */
 function instantiateKernelPorts(name: string) {
-  let rows: {
-    seq: number
-    entity: string
-    entityId: string
-    op: string
-    payload: string | null
-  }[] = []
+  let rows: ChangeLogReadRow[] = []
   let nextSeq = 1
   let identity: FeedIdentity | null = null
   let minted = 0

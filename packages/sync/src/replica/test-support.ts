@@ -11,30 +11,62 @@
  * drive the automatic path cannot test D6's buffering rule at all.
  */
 
+import { asMutationId } from '@podium/model'
 import type { AuthorityReadPort } from './ports'
 import type { BootstrapChunk, ChangeEnvelope, ChangesSinceReply, Cursor, DeltaFrame } from './types'
 
 export const FEED_ID = 'feed-1'
 export const EPOCH = 'epoch-1'
 
+/**
+ * Provenance fields as fixtures write them — plain strings for mutationId.
+ * Branded at the envelope boundary so tests stay readable while the composed
+ * {@link ChangeEnvelope} carries the model's MutationId brand (POD-1251).
+ */
+export type ChangeEnvelopeExtra = Omit<Partial<ChangeEnvelope>, 'mutationId'> & {
+  readonly mutationId?: string
+}
+
 export function upsertChange(
   seq: number,
   entity: string,
   entityId: string,
   payload: unknown,
-  extra: Partial<ChangeEnvelope> = {},
+  extra: ChangeEnvelopeExtra = {},
 ): ChangeEnvelope {
-  return { seq, entity, entityId, op: 'upsert', payload, ...extra }
+  return withExtra({ seq, entity, entityId, op: 'upsert', payload }, extra)
+}
+
+function withExtra(
+  base: ChangeEnvelope,
+  extra: ChangeEnvelopeExtra = {},
+): ChangeEnvelope {
+  const { mutationId, ...rest } = extra
+  return {
+    ...base,
+    ...rest,
+    ...(mutationId === undefined ? {} : { mutationId: asMutationId(mutationId) }),
+  }
 }
 
 /** A TOMBSTONE — the entity is gone, globally. */
-export function removeChange(seq: number, entity: string, entityId: string): ChangeEnvelope {
-  return { seq, entity, entityId, op: 'remove' }
+export function removeChange(
+  seq: number,
+  entity: string,
+  entityId: string,
+  extra: ChangeEnvelopeExtra = {},
+): ChangeEnvelope {
+  return withExtra({ seq, entity, entityId, op: 'remove' }, extra)
 }
 
 /** A VISIBILITY exit — it still exists, for others (Amendment 1 D14.1). */
-export function evictChange(seq: number, entity: string, entityId: string): ChangeEnvelope {
-  return { seq, entity, entityId, op: 'evict' }
+export function evictChange(
+  seq: number,
+  entity: string,
+  entityId: string,
+  extra: ChangeEnvelopeExtra = {},
+): ChangeEnvelope {
+  return withExtra({ seq, entity, entityId, op: 'evict' }, extra)
 }
 
 export function deltaFrame(

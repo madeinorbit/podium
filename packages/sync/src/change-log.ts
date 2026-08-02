@@ -1,5 +1,6 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
+import type { ChangeLogReadRow, ChangeLogWriteRow } from './authority/change-lifecycle'
 
 /**
  * Internals of the durable metadata change log [spec:SP-3fe2] (#253): the
@@ -12,36 +13,32 @@ export interface ChangePrunePlan {
   readonly thresholdSeq: number
 }
 
-/** Narrow structural view over SyncRepository — everything a change-log
- *  writer needs. Injected so the writers never depend on the outbox half of
- *  the repository (and so tests can wrap/stub the append). */
+/**
+ * Narrow structural view over SyncRepository — everything a change-log writer
+ * needs. Injected so the writers never depend on the outbox half of the
+ * repository (and so tests can wrap/stub the append).
+ *
+ * Row shapes are COMPOSED from the lifecycle types (POD-1251), not restated:
+ * three inline field lists here used to drift from {@link StoredChangeRow}
+ * (`op: string` vs the global op union; missing provenance) and from each
+ * other. One definition site cannot disagree with itself.
+ */
 export interface ChangeLogStore {
   /** Append pre-diffed rows atomically; returns their contiguous seqs. */
-  appendChanges(
-    rows: { entity: string; entityId: string; op: 'upsert' | 'remove'; payload: string | null }[],
-    eventTime: number,
-  ): number[]
+  appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): number[]
   /** Highest seq ever assigned (survives head-pruning). 0 = none. */
   maxChangeSeq(): number
   /** Lowest RETAINED seq, or null when the log is empty. */
   minChangeSeq(): number | null
   /** Plain range read: rows with seq > cursor, in seq order. */
-  changesSince(
-    cursor: number,
-  ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[]
+  changesSince(cursor: number): readonly ChangeLogReadRow[]
   /** Snapshot the head-only retention threshold once per job. */
   planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
   /** Latest retained row per (entity, id) — the boot seed for the baseline, and
    *  the bootstrap read (see `ChangeStorePort.latestChangeStates`). */
-  latestChangeStates(): {
-    seq: number
-    entity: string
-    entityId: string
-    op: string
-    payload: string | null
-  }[]
+  latestChangeStates(): readonly ChangeLogReadRow[]
 }
 
 /** Retention: keep the newest 20k rows, and nothing older than 3 days —
@@ -294,7 +291,7 @@ export function readChangesSince(
     const rows = store.changesSince(from)
     if (rows.length === 0) break
     for (const r of rows) {
-      const base = { seq: r.seq, id: r.entityId, op: r.op as 'upsert' | 'remove' }
+      const base = { seq: r.seq, id: r.entityId, op: r.op }
       if (r.op === 'upsert') {
         if (r.payload == null) return null // corrupt row — snapshot instead of a hole
         let value: unknown

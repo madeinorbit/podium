@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { isExposedOn, sessionCommandPlane } from '@podium/commands'
+import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import {
@@ -882,6 +882,10 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
+      // POD-1386: the repoId-keyed resolver handoff already uses, so a machine-pinned
+      // start finds the repository on the target instead of demanding the source's path.
+      ensureRepoOnMachine: (machineId, repoPath) =>
+        sessionsSvc.workspace.resolveRepoOnMachine(repoPath, machineId),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
@@ -1837,6 +1841,35 @@ export class SessionRegistry {
           // resolved in the handler from ctx.principal), and an agent addressing
           // an absent session throws `session not found` where the operator's
           // returns the substrate's dead_letter. Both are POD-379-pinned.
+          /**
+           * `sessions.handoff` over the relay (POD-1386) — the SAME schema and the
+           * SAME handler the tRPC procedure uses (`modules/sessions/trpc.ts`
+           * `handoffProcedure`), so this arm is transport and nothing else.
+           *
+           * Deliberately NOT hand-validated: parsing with the contract's own
+           * `sessionHandoffInput` is what keeps the two transports from drifting,
+           * and hand-rolled input checks beside a contract are exactly what POD-381
+           * deleted from this file.
+           *
+           * The caller rides as a SEPARATE argument built from the capability, never
+           * out of `input` — the input schema carries no identity field at all, so a
+           * forged `actor`/`onBehalfOf` is inert by construction (ADR 3 D7). The
+           * principal comes from `sessionCommandCtx`, the same resolver the command
+           * plane below uses, so an agent hands off AS ITSELF on behalf of its human
+           * and cannot reach past its parent.
+           *
+           * It sits outside the command plane for the reason `handoffProcedure`
+           * gives: handoff gates `use` on BOTH machines and re-authorizes at two
+           * apply points minutes apart, which the plane's dispatch does not model.
+           */
+          if (proc === 'handoff') {
+            const parsed = sessionHandoffInput.parse(input)
+            return issueSessionLifecycle.handoffSession(parsed, {
+              capability,
+              principal: sessionCommandCtx(this.modules, capability, overrideScope, 'relay')
+                .principal,
+            })
+          }
           if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {
             return Promise.resolve(
               dispatchSessionCommand(

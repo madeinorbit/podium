@@ -19,6 +19,7 @@ import {
   type SessionMeta,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
+import type { EntityChangeSpec } from '@podium/sync'
 import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { decodePanel, fromStorage } from '../../../store/issue-storage'
@@ -674,12 +675,14 @@ export class IssueStore {
    *  a call site can spread it and stay a single expression when the flag is off. */
   depChanges(
     deps: readonly { fromId: string; toId: string; type: string }[],
-    op: 'upsert' | 'remove',
-  ): { entity: 'issueDep'; id: string; op: 'upsert' | 'remove'; value?: IssueDepProjection }[] {
+    op: EntityChangeSpec['op'],
+  ): EntityChangeSpec[] {
     return deps.map((dep) => {
       const value = issueDepToProjection(dep)
       // A remove carries no value (the ledger drops it; the row is gone). An
       // upsert carries the whole edge — there is no partial edge.
+      // Shape is {@link EntityChangeSpec} — the ledger's composed change spec —
+      // not a hand-restated issueDep field list (POD-1251).
       return op === 'upsert'
         ? { entity: 'issueDep' as const, id: value.id, op, value }
         : { entity: 'issueDep' as const, id: value.id, op }
@@ -796,12 +799,8 @@ export class IssueStore {
        * can claim an edge the store rejected — a permanently `blocked` issue on
        * every replica, healed by nothing.
        */
-      extraChanges?: readonly {
-        entity: 'issueDep'
-        id: string
-        op: 'upsert' | 'remove'
-        value?: IssueDepProjection
-      }[]
+      /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
+      extraChanges?: readonly EntityChangeSpec[]
     },
   ): IssueWire {
     // In-place rollback seam (#247): for an EXISTING issue, `row` is the

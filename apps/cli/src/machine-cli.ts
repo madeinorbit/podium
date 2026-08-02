@@ -20,14 +20,25 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import type { AgentInventory, MachineWire } from '@podium/model'
+import { type AgentInventory, machineByRef, type MachineWire } from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type Proc = { query(input?: unknown): Promise<unknown> }
 
+/**
+ * `machines.listWithRepos` — the projection plus the registered checkout paths of
+ * the machines this caller may USE. It is a separate proc from `machines.list`
+ * (which is byte-identical to the router's) so that neither ever returns two
+ * shapes; and the repo rows are joined SERVER-side because the unscoped
+ * `repos.listDetailed` would disclose paths on machines the caller cannot see.
+ */
 export interface MachineClient {
-  machines: { list: Proc }
-  repos: { listDetailed: Proc }
+  machines: { listWithRepos: Proc }
+}
+
+interface FleetView {
+  machines: MachineWire[]
+  repos: RepoRow[]
 }
 
 export class MachineCliError extends Error {}
@@ -137,11 +148,18 @@ function machineBlock(machine: MachineWire, repos: RepoRow[], nowMs: number): st
     )
   }
 
+  // "none registered" is a fact about the MACHINE; "not available" is a fact
+  // about the CALLER. The server sends no repo rows for a machine this principal
+  // cannot `use`, so reporting that as "none registered" would state the first
+  // when only the second is known — and the wire is identical either way, so no
+  // authorization test would ever catch the substitution.
   const machineRepos = repos.filter((repo) => repo.machineId === machine.id)
   lines.push(
-    machineRepos.length === 0
-      ? '  repos: none registered — work cannot be placed here until one is'
-      : `  repos: ${machineRepos.map((repo) => repo.path).join(', ')}`,
+    machine.use === 'granted' || machineRepos.length > 0
+      ? machineRepos.length === 0
+        ? '  repos: none registered — work cannot be placed here until one is'
+        : `  repos: ${machineRepos.map((repo) => repo.path).join(', ')}`
+      : '  repos: not available to this session',
   )
   return lines.join('\n')
 }
@@ -155,14 +173,11 @@ export function renderMachines(
   return machines.map((machine) => machineBlock(machine, repos, nowMs)).join('\n\n')
 }
 
-/** Match on id first, then exact name, then exact hostname. Deliberately no
- *  fuzzy or prefix matching: picking the wrong machine places real work on the
- *  wrong host, and an agent that guessed a name should be told it guessed. */
+/** `machineByRef` (@podium/model) plus this command's refusal. The MATCHING rule
+ *  is shared with `podium issue start --machine` so the two surfaces cannot come
+ *  to disagree about which host a name means; only the error type is local. */
 export function selectMachine(machines: MachineWire[], selector: string): MachineWire {
-  const match =
-    machines.find((machine) => machine.id === selector) ??
-    machines.find((machine) => machine.name === selector) ??
-    machines.find((machine) => machine.hostname === selector)
+  const match = machineByRef(machines, selector)
   if (match) return match
   const known = machines.map((machine) => machine.name).join(', ')
   throw new MachineCliError(
@@ -181,8 +196,7 @@ export async function runMachineCli(
   const invalid = argumentError(argv)
   if (invalid) throw new MachineCliError(invalid)
 
-  const machines = (await client.machines.list.query()) as MachineWire[]
-  const repos = (await client.repos.listDetailed.query()) as RepoRow[]
+  const { machines, repos } = (await client.machines.listWithRepos.query()) as FleetView
   const json = argv.includes('--json')
 
   if (argv[0] === 'show') {

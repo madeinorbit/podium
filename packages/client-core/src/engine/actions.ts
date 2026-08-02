@@ -19,12 +19,15 @@ import type {
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
-import type { Router } from '../router'
-import { routeDefaults } from '../router'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
+import { type Router, routeDefaults } from '../ui-state'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 import { reposToViews, tabIdFor } from '../viewmodels'
+import {
+  createReplicatedLayoutController,
+  type ReplicatedLayoutController,
+} from './replicated-layout'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -39,18 +42,14 @@ export const UI_LOCAL_ACTIONS = [
   'setOpenIssueId',
   'setPeekIssueId',
   'setSuperThreadId',
-  'setSuperOpen',
   'setPaletteOpen',
   'setSelectedWorktree',
   'setSelectedIssueId',
   'setPane',
   'setFocusedPane',
   'navigateToSession',
-  'setDockTab',
-  'setPanelMode',
   'setDockShell',
   'setDockVisibleSession',
-  'setPanelRenderMode',
   'toggleSplit',
   'openFile',
   'openFileInWorktree',
@@ -63,6 +62,9 @@ export const UI_LOCAL_ACTIONS = [
 export const COMMAND_ACTIONS = [
   'setPinned',
   'setTabOrder',
+  'setSuperOpen',
+  'setDockTab',
+  'setPanelMode',
   'startBtw',
   'tldrSession',
   'writeFileScoped',
@@ -90,6 +92,8 @@ export const COMMAND_ACTIONS = [
 export const ACTION_STATE_REDUCER_COMMANDS = [
   'pins.set',
   'tabs.setOrder',
+  'layout.set',
+  'layout.clear',
   'settings.updatePersonal',
 ] as const
 
@@ -124,7 +128,7 @@ type ActionName = (typeof UI_LOCAL_ACTIONS)[number] | (typeof COMMAND_ACTIONS)[n
 export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick<
   Store<TApi>,
   ActionName | 'readFileScoped' | 'listDir' | 'gitStatus' | 'gitLog' | 'gitDiffFile'
->
+> & { readonly replicatedLayout: ReplicatedLayoutController }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly api: TApi
@@ -137,7 +141,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   enqueueOverlayed<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): void
   revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void
   recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void
-  setPanelRenderMode(sessionId: SessionId, mode: 'chat' | 'native'): void
   spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
     sessionId: SessionId
     issueId: IssueId
@@ -155,7 +158,13 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
   const api = rt.api
+  const replicatedLayout = createReplicatedLayoutController({
+    outbox: rt.outbox,
+    api,
+    notices: rt.notices,
+  })
   return {
+    replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
       const previous = rt.state().pins
       rt.apply({ pins: reducePin(previous, kind, id, pinned) })
@@ -261,7 +270,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       else delete dockShells[worktreePath]
       rt.apply({ dockShells })
     },
-    setPanelRenderMode: (sessionId, mode) => rt.setPanelRenderMode(sessionId, mode),
     toggleSplit: () => rt.apply({ split: !rt.state().split }),
     openFile: (sessionId, path) => {
       const scope: FileScope = { kind: 'session', sessionId }
