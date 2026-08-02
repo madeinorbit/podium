@@ -172,6 +172,11 @@ export class Authority implements AuthorityPort {
     this.baseline.seed(deps.store)
   }
 
+  /** Current durable values for one entity kind, used only for full snapshot assembly. */
+  snapshot(entity: MetadataEntityKind): readonly unknown[] {
+    return this.baseline.values(entity)
+  }
+
   commit<T>(op: AuthorityCommit<T>): AuthorityCommitOutcome<T> {
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     op.authorize?.()
@@ -415,7 +420,9 @@ export class Authority implements AuthorityPort {
         rows.push({ spec, payload: json })
         overlay.set(key, { op: 'upsert', json, value: spec.value })
       } else {
-        const present = prior ? prior.op === 'upsert' : this.baseline.has(spec.entity, spec.entityId)
+        const present = prior
+          ? prior.op === 'upsert'
+          : this.baseline.has(spec.entity, spec.entityId)
         if (!present) continue
         rows.push({ spec, payload: null })
         overlay.set(key, { op: 'remove' })
@@ -446,7 +453,10 @@ export class Authority implements AuthorityPort {
    * throwing must not make a committed write look failed to its caller, and must
    * not stop the subscribers after it in the set from being told.
    */
-  private finalize(rows: readonly StagedRow[], seqs: readonly number[]): readonly SequencedChange[] {
+  private finalize(
+    rows: readonly StagedRow[],
+    seqs: readonly number[],
+  ): readonly SequencedChange[] {
     if (rows.length === 0) return []
     for (const row of rows) {
       if (row.spec.op === 'upsert') {
