@@ -81,6 +81,60 @@ describe('agent manifest registry', () => {
     }
   })
 
+  it('declares truthful state channels in preference order', () => {
+    expect(
+      Object.fromEntries(
+        BUILTIN_HARNESS_KINDS.map((kind) => [
+          kind,
+          AGENT_MANIFESTS[kind].stateChannels.map((channel) => channel.source),
+        ]),
+      ),
+    ).toEqual({
+      'claude-code': ['hook', 'classifier'],
+      codex: ['hook', 'poll'],
+      grok: ['poll'],
+      opencode: ['poll'],
+      cursor: ['poll'],
+    })
+    for (const manifest of Object.values(AGENT_MANIFESTS)) {
+      expect(manifest.stateChannels.length, manifest.kind).toBeGreaterThan(0)
+      for (let index = 1; index < manifest.stateChannels.length; index += 1) {
+        const previous = manifest.stateChannels[index - 1]
+        const current = manifest.stateChannels[index]
+        if (!previous || !current) throw new Error(`${manifest.kind} has a channel gap`)
+        expect(previous.confidence).toBeGreaterThan(current.confidence)
+      }
+    }
+    expect(AGENT_MANIFESTS.grok.stateChannels[0]?.mechanism).toContain('turn_completed')
+    expect(AGENT_MANIFESTS.codex.stateChannels[1]?.mechanism).toContain('inside this manifest')
+  })
+
+  it('attributes every provider-boundary event with source and confidence', async () => {
+    const payloads: Partial<Record<BuiltinHarnessKind, unknown>> = {
+      'claude-code': { hook_event_name: 'SessionStart' },
+      codex: { hook_event_name: 'SessionStart' },
+      grok: {
+        method: 'session/update',
+        params: { update: { sessionUpdate: 'user_message_chunk' } },
+      },
+      cursor: { role: 'user', timestamp: '2026-08-02T10:00:00.000Z' },
+    }
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const provider = declaredValue(AGENT_MANIFESTS[kind].state)
+      expect(provider, kind).toBeDefined()
+      if (!provider) throw new Error(`${kind} has no state provider`)
+      const events =
+        kind === 'opencode'
+          ? await provider.bootEvents?.({ cwd: '/repo' })
+          : await provider.translate(payloads[kind])
+      expect(events?.length, kind).toBeGreaterThan(0)
+      for (const event of events ?? []) {
+        expect(event.source, kind).toBe(AGENT_MANIFESTS[kind].stateChannels[0]?.source)
+        expect(event.confidence, kind).toBe(AGENT_MANIFESTS[kind].stateChannels[0]?.confidence)
+      }
+    }
+  })
+
   it('declares every incremental-completeness field — implemented or explicitly unsupported', () => {
     // THE totality check POD-303 asks for. A field left off entirely would be
     // `undefined` here, which is neither `supported: true` nor `supported: false`
@@ -247,6 +301,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       exec: unsupported('no one-shot mode'),
       headless: unsupported('no headless mode yet'),
       state: unsupported('no state instrumentation yet'),
+      stateChannels: [],
       observer: unsupported('no native store to observe yet'),
       transcript: unsupported('no transcript reader yet'),
       classifyBrowserOpen: unsupported('no known domains'),

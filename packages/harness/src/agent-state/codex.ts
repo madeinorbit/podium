@@ -24,7 +24,12 @@ import {
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
 import { initialAgentState, reduceAgentState, withEventTime } from './reducer.js'
-import type { AgentStateEvent, AgentStateProvider } from './types.js'
+import {
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+  withStateChannelEvent,
+} from './types.js'
 
 const POLL_MS = 700
 // This is a fallback for disabled/untrusted hooks, not the primary binding path.
@@ -555,7 +560,11 @@ export async function foldCodexRolloutBootstrap(
         ? checkpoint.turnState
         : initialAgentState(new Date(0).toISOString())
     if (!canResumeCheckpoint) {
-      state = reduceAgentState(state, { kind: 'session_started', at: state.since }, state.since)
+      state = reduceAgentState(
+        state,
+        withStateChannelEvent({ kind: 'session_started', at: state.since }, 'poll'),
+        state.since,
+      )
     }
     let providerSessionId: string | null =
       checkpoint && canResumeCheckpoint ? checkpoint.providerSessionId : null
@@ -625,7 +634,11 @@ export async function foldCodexRolloutBootstrap(
         ) {
           continue
         }
-        state = reduceAgentState(state, event, event.at ?? state.since)
+        state = reduceAgentState(
+          state,
+          withStateChannelEvent(event, 'poll'),
+          event.at ?? state.since,
+        )
         if (event.at) providerAt = event.at
       }
       if (at && translated.length === 0 && recordType === 'turn_context') providerAt ??= at
@@ -937,7 +950,14 @@ export class CodexCausalCursorObserver {
 
     const priorState = this.accepted.state
     const now = this.config.now?.() ?? new Date().toISOString()
-    next.state = reduceAgentState(priorState, event, event.at ?? now)
+    next.state = reduceAgentState(
+      priorState,
+      withStateChannelEvent(
+        event,
+        isRecord(record) && strField(record, 'hook_event_name') ? 'hook' : 'poll',
+      ),
+      event.at ?? now,
+    )
     next.providerAt = validProviderAt(record) ?? next.providerAt
     const observation: AgentObservation = {
       podiumSessionId: this.config.podiumSessionId,
@@ -1031,8 +1051,16 @@ export const codexStateProvider: AgentStateProvider = {
       },
     }
   },
-  translate: translateCodexEvent,
-  bootEvents: codexBootEvents,
+  translate: async (payload) =>
+    withStateChannel(
+      await translateCodexEvent(payload),
+      typeof payload === 'object' &&
+        payload !== null &&
+        typeof (payload as Record<string, unknown>).hook_event_name === 'string'
+        ? 'hook'
+        : 'poll',
+    ),
+  bootEvents: async (opts) => withStateChannel(await codexBootEvents(opts), 'poll'),
 }
 
 /** Legacy rolling-upgrade callback used when no stable socket was injected. */

@@ -17,7 +17,11 @@ import {
   type TranscriptRecordMapper,
   type TranscriptSource,
 } from '@podium/transcript'
-import type { AgentStateEvent, AgentStateProvider } from './agent-state/types.js'
+import type {
+  AgentStateEventSource,
+  AgentStateProvider,
+  ProviderAgentStateEvent,
+} from './agent-state/types.js'
 import type { ConversationProvider } from './discovery/types.js'
 
 /** The harness kinds — every AgentKind except 'shell' (a shell is spawned by the
@@ -303,7 +307,7 @@ export interface HarnessObserverHost {
    *  cwd basename and is suppressed — the observer-derived title replaces it). */
   onTitle(title: string): void
   /** Normalized state events for the session's reducer. */
-  onStateEvents(events: AgentStateEvent[]): void
+  onStateEvents(events: ProviderAgentStateEvent[]): void
   /** Provider-normalized causal evidence. The host validates the exact session,
    * provider, generation and binding before putting it on the wire. */
   onObservation(observation: AgentObservation): void
@@ -474,6 +478,8 @@ export interface AgentManifest {
   /** Hook/observer state provider. Unsupported ⇒ phase stays 'unknown' rather
    *  than being guessed from another harness's output conventions. */
   state: Declared<AgentStateProvider>
+  /** State channels in strict preference order; software provenance only. */
+  stateChannels: readonly StateChannelDeclaration[]
   /** Per-session native-store observation (state observer + live tail setup).
    *  Unsupported ⇒ no native-store observation; transcript and status stay blind. */
   observer: Declared<HarnessObserver>
@@ -490,6 +496,14 @@ export interface AgentManifest {
    *  heuristic. Unsupported (or returning undefined) ⇒ generic fallback decides.
    *  POD-738 owns making this a fully declared capability. */
   classifyBrowserOpen: Declared<(url: URL) => BrowserOpenClassification | undefined>
+}
+
+export interface StateChannelDeclaration {
+  source: AgentStateEventSource
+  confidence: number
+  /** Concrete native mechanism and turn boundary for capability ledgers. */
+  mechanism: string
+  fallbackWhen?: string
 }
 
 /** Static per-CLI feature declarations. This is software metadata: it carries no

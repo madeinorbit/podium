@@ -150,6 +150,8 @@ describe('opencode state provider', () => {
     expect(events).toEqual([
       {
         kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
         verdict: { kind: 'done', summary: 'Ready when you are.' },
         at: new Date(2).toISOString(), // the assistant part row's time_updated
       },

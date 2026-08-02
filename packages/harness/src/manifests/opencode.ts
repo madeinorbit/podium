@@ -6,6 +6,7 @@ import {
   type TranscriptSource,
 } from '@podium/transcript'
 import { observeOpencodeState, opencodeStateProvider } from '../agent-state/opencode.js'
+import { withStateChannel } from '../agent-state/types.js'
 import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
 import { composeAgentInstructions } from '../instructions.js'
 import { type AgentManifest, isSet, supported, unsupported } from '../manifest.js'
@@ -143,6 +144,13 @@ export const opencodeManifest: AgentManifest = {
   }),
 
   state: supported(opencodeStateProvider),
+  stateChannels: [
+    {
+      source: 'poll',
+      confidence: 0.7,
+      mechanism: 'OpenCode SQLite session/message polling',
+    },
+  ],
 
   // No hook channel and no file to tail (SQLite store): the observer polls the
   // DB, discovers the session, and pushes live transcript items itself. Items
@@ -156,7 +164,7 @@ export const opencodeManifest: AgentManifest = {
       ...(input.homeDir ? { homeDir: input.homeDir } : {}),
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),
-      onEvents: (events) => host.onStateEvents(events),
+      onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
       onTranscriptItems: (items, reset) => host.onTranscriptItems(items, reset),
     })
     return { stop: () => obs.stop() }

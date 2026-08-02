@@ -1,5 +1,14 @@
 import type { AgentRuntimeState } from '@podium/model'
 
+/** State-channel provenance. Confidence orders competing observations; source never names a person. */
+export type AgentStateEventSource = 'hook' | 'poll' | 'classifier'
+
+export interface AgentStateEventProvenance {
+  source: AgentStateEventSource
+  confidence: number
+  observedAt?: string
+}
+
 /**
  * Normalized cross-agent lifecycle events. Providers translate harness-native
  * payloads (e.g. a Claude Code hook POST body) into these; one shared reducer
@@ -34,6 +43,40 @@ export type AgentStateEvent = (
    *  the recent transcript tail) from restamping every session to "now". Absent →
    *  the reducer falls back to wall-clock `now` (fine for real-time hooks). */
   at?: string
+  /** Required at provider boundaries; optional only for bare reducer-unit inputs. */
+  source?: AgentStateEventSource
+  confidence?: number
+  observedAt?: string
+}
+
+export type ProviderAgentStateEvent = AgentStateEvent & AgentStateEventProvenance
+
+export const STATE_CHANNEL_CONFIDENCE = {
+  hook: 1,
+  poll: 0.7,
+  classifier: 0.3,
+} as const satisfies Record<AgentStateEventSource, number>
+
+/** Attach only channel provenance. Provider payload fields, including identity-shaped ones, stay inert. */
+export function withStateChannelEvent(
+  event: AgentStateEvent,
+  source: AgentStateEventSource,
+  observedAt?: string,
+): ProviderAgentStateEvent {
+  return {
+    ...event,
+    source,
+    confidence: STATE_CHANNEL_CONFIDENCE[source],
+    ...(observedAt ? { observedAt } : {}),
+  }
+}
+
+export function withStateChannel(
+  events: readonly AgentStateEvent[],
+  source: AgentStateEventSource,
+  observedAt?: string,
+): ProviderAgentStateEvent[] {
+  return events.map((event) => withStateChannelEvent(event, source, observedAt))
 }
 
 /** What a provider injects at spawn so the harness reports events. */
@@ -59,7 +102,7 @@ export interface AgentStateProvider {
   }): AgentInstrumentation
   /** Translate one harness-native payload into zero or more normalized events.
    *  Async because some translations read the transcript (idle classification). */
-  translate(payload: unknown): Promise<AgentStateEvent[]>
+  translate(payload: unknown): Promise<ProviderAgentStateEvent[]>
   /**
    * Events to seed state at spawn, once the CLI is up. Needed because some
    * harnesses emit nothing at interactive boot (Claude Code fires no SessionStart
@@ -75,7 +118,7 @@ export interface AgentStateProvider {
     pathHint?: string
     /** Test hook; defaults to os.homedir(). */
     homeDir?: string
-  }): Promise<AgentStateEvent[]>
+  }): Promise<ProviderAgentStateEvent[]>
 }
 
 export type { AgentRuntimeState }

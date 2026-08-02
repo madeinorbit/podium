@@ -1159,13 +1159,47 @@ export function checkFile(
 // once an equivalent manifest constraint exists).
 // ---------------------------------------------------------------------------
 
+/** Classifier engine is harness-core-internal; provider rules stay private to their owning manifest. */
+export function checkHarnessClassifierBoundary(file: string, source: string): Violation[] {
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    if (
+      ref.specifier.includes('agent-state/transcript-classifier') &&
+      !file.startsWith('packages/harness/')
+    ) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'harness-classifier-boundary',
+        message: `${file}: classifier engine is internal to packages/harness`,
+      })
+    }
+    if (
+      ref.specifier.includes('claude-code-classifier') &&
+      file !== 'packages/harness/src/manifests/claude-code.ts' &&
+      file !== 'packages/harness/src/manifests/claude-code-classifier.ts'
+    ) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'harness-classifier-boundary',
+        message: `${file}: Claude classifier rules are private to the Claude manifest`,
+      })
+    }
+  }
+  return violations
+}
+
 /** Check one file against the MANIFEST rules (layer, platform, role, harness). */
 export function checkManifestFile(
   file: string,
   source: string,
   harnessLiterals: readonly string[] = [],
 ): Violation[] {
-  const violations: Violation[] = [...findHarnessBranching(file, source, harnessLiterals)]
+  const violations: Violation[] = [
+    ...findHarnessBranching(file, source, harnessLiterals),
+    ...checkHarnessClassifierBoundary(file, source),
+  ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
     // Role tiers are same-workspace edges, which the cross-workspace matrix skips.

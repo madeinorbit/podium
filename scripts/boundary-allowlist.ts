@@ -101,7 +101,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     file: 'apps/server/src/modules/sessions/daemon-lifecycle.ts',
     count: 1,
     phase: 'POD-740',
-    note: 'Imports acceptAgentObservation (agent-state/causal.ts) for the observation ledger. That function is harness-agnostic — it depends only on @podium/protocol types — so this is a misfiled protocol symbol, not harness coupling. POD-740 relocates it to a package apps/server may legally reach, at which point this entry goes to zero.',
+    note: 'Imports acceptAgentObservation (agent-state/causal.ts) for the observation ledger. That function is harness-agnostic and depends only on @podium/protocol types; POD-740 relocates it to an allowed package.',
   },
   // -------------------------------------------------------------------------
   // Layer + platform — apps/desktop -> scripts.

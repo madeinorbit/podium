@@ -8,6 +8,7 @@ import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
   checkDeclaredDeps,
   checkFile,
+  checkHarnessClassifierBoundary,
   checkHostEdgeSeparationAll,
   checkManifestFile,
   checkPrincipalFree,
@@ -19,6 +20,37 @@ import {
   loadModelExportNames,
   SYNC_BROWSER_ENTRYPOINTS,
 } from './check-boundaries'
+
+describe('harness classifier manifest boundary', () => {
+  it('keeps the engine inside harness and Claude rules inside their manifest', () => {
+    expect(
+      checkHarnessClassifierBoundary(
+        'apps/daemon/src/leak.ts',
+        [
+          'im',
+          `port { createTranscriptClassifier } from '../../../packages/harness/src/agent-state/transcript-classifier'`,
+        ].join(''),
+      ).map((v) => v.rule),
+    ).toEqual(['harness-classifier-boundary'])
+    expect(
+      checkHarnessClassifierBoundary(
+        'packages/harness/src/agent-state/leak.ts',
+        [
+          'im',
+          `port { claudeTranscriptClassifierRules } from '../manifests/claude-code-classifier'`,
+        ].join(''),
+      ).map((v) => v.rule),
+    ).toEqual(['harness-classifier-boundary'])
+    expect(
+      checkHarnessClassifierBoundary(
+        'packages/harness/src/manifests/claude-code.ts',
+        ['im', `port { claudeTranscriptClassifierRules } from './claude-code-classifier.js'`].join(
+          '',
+        ),
+      ),
+    ).toEqual([])
+  })
+})
 
 describe('extractImports', () => {
   it('extracts value, type-only, side-effect, export-from and dynamic imports', () => {
