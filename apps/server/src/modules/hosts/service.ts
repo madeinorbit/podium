@@ -232,7 +232,7 @@ export class HostsService {
       }
       budget.tokens -= 1
       console.info(
-        `[podium] idle-session target ${targetCount} on ${sample.hostname} — hibernating idle session ${target.sessionId}`,
+        `[podium] idle-session target ${targetCount} on ${this.deps.machineName(machineId)} — hibernating idle session ${target.sessionId}`,
       )
     }
   }
@@ -320,7 +320,7 @@ export class HostsService {
     if (this.lastCapUnmetByMachine.get(machineId) === signature) return
     this.lastCapUnmetByMachine.set(machineId, signature)
     console.info(
-      `[podium] idle-session cap unmet: ${overage} protected/ineligible on ${sample.hostname} (target ${targetCount})`,
+      `[podium] idle-session cap unmet: ${overage} protected/ineligible on ${this.deps.machineName(machineId)} (target ${targetCount})`,
     )
   }
 

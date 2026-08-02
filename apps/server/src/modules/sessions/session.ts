@@ -74,9 +74,10 @@ export interface SessionInit {
   createdAt: string
   geometry: Geometry
   toDaemon: Send<ControlMessage>
-  /** The machine (daemon) this session runs on. Defaults to the placeholder
-   *  '__local__' until a real machine adopts it (single-machine boot, pre-pairing). */
-  machineId?: string
+  /** The machine (daemon) this session runs on. REQUIRED: the caller has resolved a
+   *  real machine before a Session object exists (POD-318), so there is no default to
+   *  supply and no placeholder to adopt away from later. */
+  machineId: string
   resume?: ResumeRef
   durableLabel?: string
   lastActiveAt?: string
@@ -203,9 +204,9 @@ export class Session {
   refLetter: string | null
   /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
   refDraft: number | null
-  /** The machine (daemon) this session runs on. The registry routes this
-   *  session's control messages to it; '__local__' until a real machine adopts
-   *  it (see SessionRegistry.ensureLocalMachine), so it is reassignable, not readonly. */
+  /** The machine (daemon) this session runs on. The registry routes this session's
+   *  control messages to it. Reassignable rather than readonly because a handoff moves
+   *  a session between machines — never because it starts out unattributed. */
   machineId: string
   /** How to bring this session back after its process is gone (hibernate→resume).
    *  Set at spawn for resumes; learned later from the daemon for fresh spawns. */
@@ -315,7 +316,7 @@ export class Session {
         this.transcriptAvailable = true
       },
     })
-    this.machineId = init.machineId ?? '__local__'
+    this.machineId = init.machineId
     this.durableLabel = init.durableLabel ?? durableSessionLabel(init.sessionId)
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt

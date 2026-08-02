@@ -91,9 +91,11 @@
  *     gating parent-session authorization. A brand does not fix that — it still
  *     permits seven hand-built strings — so it needs a shared constructor AND
  *     parser (POD-1133), not a type.
- *   - `MachineId`, at every field: see {@link machineIdBlockedOnPOD318}. The
- *     brand exists; POD-361 adopts it at ZERO fields, by ADR 1 Amendment 2
- *     D16.2's ordering constraint.
+ * `MachineId` used to be on this list, carved out at every field by ADR 1
+ * Amendment 2 D16.2's ordering constraint. POD-318 retired `'local'` and
+ * `'__local__'`, so the constraint is discharged: {@link MachineId} now REFUSES
+ * both, every field is bound to {@link MachineIdField}, and there is no carve-out
+ * marker left to bind to.
  */
 
 import { z } from 'zod'
@@ -110,13 +112,31 @@ const idField = <B extends string>() => z.string().brand<B>()
 // ---------------------------------------------------------------------------
 
 /**
- * A machine (daemon) identity.
+ * A machine (daemon) identity — minted material, and NOT either retired sentinel.
  *
- * ADOPTED AT ZERO SCHEMA FIELDS BY DECISION — see
- * {@link machineIdBlockedOnPOD318}. The brand is here so POD-318 has something
- * to brand *towards*; it is not a to-do that POD-361 skipped.
+ * ADR 1 Amendment 2 D16.2 rule 2 blocked this brand from every field until POD-318
+ * retired `'local'` and `'__local__'`, on the grounds that branding a sentinel
+ * LAUNDERS it: `MachineId` validates length, not shape, so `.parse('local')` used
+ * to succeed and hand back something the type system swore was an identity.
+ *
+ * The refusal below is what discharges that argument rather than merely outliving
+ * it. Every machine id in the system is now a UUID minted by the machine that owns
+ * it — `<stateDir>/machine.id` for the host, `~/.podium/daemon.json` for a remote —
+ * so the two literals name nothing, and a value that still carries one is a row (or
+ * a payload, or a hand-written test fixture) from before the migration. Refusing it
+ * at the boundary is how that gets FOUND instead of silently routed to a machine
+ * that does not exist.
+ *
+ * Deliberately a denylist of the two retired values, not a UUID pattern: a remote
+ * daemon's id is its own to mint and this brand has never dictated its shape.
  */
-export const MachineId = z.string().min(1).brand<'MachineId'>()
+export const MachineId = z
+  .string()
+  .min(1)
+  .refine((id) => id !== 'local' && id !== '__local__', {
+    message: "'local' and '__local__' are retired machine sentinels (POD-318), not ids",
+  })
+  .brand<'MachineId'>()
 export type MachineId = z.infer<typeof MachineId>
 export const MachineIdField = idField<'MachineId'>()
 export const asMachineId = (s: string): MachineId => s as MachineId
@@ -294,38 +314,3 @@ export const AccountId = z.string().min(1).brand<'AccountId'>()
 export type AccountId = z.infer<typeof AccountId>
 export const AccountIdField = idField<'AccountId'>()
 export const asAccountId = (s: string): AccountId => s as AccountId
-
-// ---------------------------------------------------------------------------
-// The MachineId carve-out — ADR 1 Amendment 2 D16.2
-// ---------------------------------------------------------------------------
-
-/**
- * A machine-id FIELD that is deliberately still a raw string.
- *
- * ADR 1 Amendment 2 D16.2 rule 2 is normative and is quoted here in full
- * because this is the one place a future flip would be attempted:
- *
- * > POD-318's migration must retire `local` and `__local__` BEFORE `MachineId`
- * > branding is applied at any site that can hold either value. … If branding
- * > must land first for an unrelated reason, the sentinel sites are carved out
- * > and left as raw strings until the migration lands — a narrower, visible
- * > debt, rather than a well-typed lie.
- *
- * Why the debt is narrower than it looks: {@link MachineId} validates LENGTH,
- * not shape, so `MachineId.parse('local')` SUCCEEDS. Branding a sentinel does
- * not flag it, it launders it — and `'__local__'` is a column DEFAULT on three
- * tables (`sessions.machine_id`, `conversations.machine_id`,
- * `repos.machine_id`), so the database MANUFACTURES the value for any insert
- * that omits the column. Every machine-id field in `entities/` is downstream of
- * one of those three defaults or of `LOCAL_MACHINE_ID = 'local'`, so the
- * carve-out is all of them, not a subset.
- *
- * This is a marker, not a comment: it is the same `z.string()` at runtime, but
- * `ids.machine-carveout.test.ts` asserts that every machine-id field in
- * `packages/model/src/entities/` uses THIS export and none uses
- * {@link MachineIdField} — so POD-318 flips the carve-out by changing these
- * sites, and a well-meaning sweep cannot brand them silently in the meantime.
- * The test enumerates fields by shape (`/machineId|machine_id|^id$/` inside a
- * machine schema), not by a hand-written list of the seven known sites.
- */
-export const machineIdBlockedOnPOD318 = z.string()

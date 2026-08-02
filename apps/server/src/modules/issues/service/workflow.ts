@@ -8,7 +8,6 @@ import {
 } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -223,7 +222,7 @@ export class IssueGitWorkflowModule {
             ? null
             : selection.effort
           : spawned.effort,
-      machine: spawned.machine ?? row.machineId ?? LOCAL_PLACEHOLDER,
+      machine: spawned.machine,
     }
   }
 

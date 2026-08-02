@@ -7,7 +7,7 @@ import { HandoffManifest } from '../entities/handoff'
 import { IssueDepWire, IssueWire } from '../entities/issue'
 import { AgentMemoryWire, GitRepositoryWire, MachineWire } from '../entities/machine'
 import { SessionMeta, SessionOrigin } from '../entities/session'
-import { MachineIdField, machineIdBlockedOnPOD318, SessionId, SessionIdField } from './brands'
+import { MachineId, MachineIdField, SessionId, SessionIdField } from './brands'
 
 /**
  * WHY THIS FILE EXISTS: branding is a compile-time construct, and the two things
@@ -27,7 +27,7 @@ describe('the field schema does not tighten what parses', () => {
 
   it('parses a value through unchanged — the brand adds no transformation', () => {
     expect(SessionIdField.parse('s1')).toBe('s1')
-    expect(machineIdBlockedOnPOD318.parse('__local__')).toBe('__local__')
+    expect(MachineIdField.parse('m1')).toBe('m1')
   })
 })
 
@@ -214,18 +214,44 @@ it('IssueWire still parses with every id field empty', () => {
 })
 
 /**
- * THE MachineId CARVE-OUT RATCHET — ADR 1 Amendment 2 D16.2.
+ * THE MachineId REFUSAL — ADR 1 Amendment 2 D16.2, discharged by POD-318.
  *
- * A source scan, not a type assertion, because `machineIdBlockedOnPOD318` and
- * `MachineIdField` are indistinguishable at runtime by design: the whole point is
- * that the carve-out is the same `z.string()` with a name that says why.
+ * D16.2 rule 2 blocked this brand at every field "until `local` / `__local__` are
+ * retired", because `MachineId` validates LENGTH, not shape: branding a sentinel
+ * laundered it instead of flagging it. The sentinels are gone — every machine now
+ * carries a UUID minted by the machine itself — so the block is lifted, and these
+ * tests pin the OPPOSITE of what they pinned before: the boundary schema refuses
+ * both literals, and every machine-id field in `entities/` is bound to the brand.
  *
- * The detector enumerates the CONCEPT — every property in `entities/` whose name
- * is a machine-id shape, in any of the forms the schemas use — rather than a
- * hand-written list of today's seven sites, so a new machine-id field added
- * later is caught too.
+ * The field scan is still a SOURCE scan rather than a type assertion, for the same
+ * reason it always was: `MachineIdField` is a brand with no added validation, so at
+ * runtime it is indistinguishable from the bare `z.string()` it replaced. Only the
+ * source says which one a field chose.
  */
-describe('MachineId is adopted at ZERO entity fields until POD-318', () => {
+describe('MachineId refuses the retired sentinels', () => {
+  it('rejects both literals at the validating boundary', () => {
+    expect(MachineId.safeParse('local').success).toBe(false)
+    expect(MachineId.safeParse('__local__').success).toBe(false)
+  })
+
+  it('still accepts a real minted machine id, and still rejects the empty string', () => {
+    // The counterfactual: the refusal is a denylist of two retired values, not a
+    // narrowing of what a machine may call itself. A remote daemon mints its own id.
+    expect(MachineId.parse('550e8400-e29b-41d4-a716-446655440000')).toBe(
+      '550e8400-e29b-41d4-a716-446655440000',
+    )
+    expect(MachineId.safeParse('').success).toBe(false)
+  })
+
+  it('leaves the FIELD schema permissive, so branding still changes no payload', () => {
+    // Entity fields were bare `z.string()` and must keep parsing what they parsed
+    // (this file's `EMPTY_ID_PAYLOADS` block is the wider pin). The refusal lives on
+    // the boundary schema, which is where a value ARRIVES from outside.
+    expect(MachineIdField.safeParse('').success).toBe(true)
+  })
+})
+
+describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
   const dir = join(import.meta.dirname, '..', 'entities')
   const sources = readdirSync(dir)
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
@@ -239,29 +265,21 @@ describe('MachineId is adopted at ZERO entity fields until POD-318', () => {
   })
 
   /**
-   * THE SHARED FIELD GROUPS, scanned so composition cannot launder a brand
-   * (POD-1141).
+   * THE SHARED FIELD GROUPS, scanned so composition cannot launder the brand
+   * (POD-1141) — now in the other direction.
    *
-   * Since POD-1141 an entity may write `machineId: IssueWorkspace.shape.machineId`
-   * instead of naming the carve-out directly. That is a SECOND legitimate syntax
-   * form for the same concept, and the detector above could not see through it —
-   * so it reported the composed line as an offender.
-   *
-   * The fix is the detector, not the line. Crucially it is NOT an allowlist for
-   * the `<Group>.shape.<key>` spelling: the referenced group member is resolved
-   * in `fields/`, and the form is accepted ONLY when that member is itself bound
-   * to `machineIdBlockedOnPOD318`. Rebinding `IssueWorkspace.machineId` to
-   * `MachineIdField` therefore still fails this test — which is the whole
-   * property, since composition otherwise moves the branding decision to a file
-   * this scan never read.
+   * An entity may write `machineId: IssueWorkspace.shape.machineId` instead of
+   * naming a schema directly. The form is accepted ONLY when the referenced group
+   * member is itself bound to `MachineIdField`, so moving a field into `fields/`
+   * cannot move the branding decision out of this scan's reach.
    */
   const fieldsDir = join(import.meta.dirname, '..', 'fields')
   const fieldSources = readdirSync(fieldsDir)
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
     .map((f) => [f, readFileSync(join(fieldsDir, f), 'utf8')] as const)
 
-  /** `IssueWorkspace.shape.machineId` -> is that member the carve-out? */
-  const composedFromCarveOut = (rhs: string): boolean => {
+  /** `IssueWorkspace.shape.machineId` -> is that member the brand? */
+  const composedFromBrand = (rhs: string): boolean => {
     const ref = /^(\w+)\.shape\.(\w+),?$/.exec(rhs.trim())
     if (!ref) return false
     const [, group, key] = ref
@@ -271,24 +289,24 @@ describe('MachineId is adopted at ZERO entity fields until POD-318', () => {
       )?.[0]
       if (!block) continue
       const member = new RegExp(`^\\s*${key}\\s*:\\s*(.+)$`, 'm').exec(block)?.[1]
-      return member?.includes('machineIdBlockedOnPOD318') ?? false
+      return member?.includes('MachineIdField') ?? false
     }
     return false
   }
 
   it('reads the field-group sources the composition check depends on', () => {
-    // Verify the instrument: if `fields/` were empty or renamed,
-    // `composedFromCarveOut` would return false for everything, which reads as
-    // "offender" rather than as a silent pass — but the group it must resolve
-    // has to actually be there for the ACCEPT path to be exercised at all.
+    // Verify the instrument: if `fields/` were empty or renamed, `composedFromBrand`
+    // would return false for everything, which reads as "offender" rather than as a
+    // silent pass — but the group it must resolve has to actually be there for the
+    // ACCEPT path to be exercised at all.
     expect(fieldSources.length).toBeGreaterThanOrEqual(6)
-    expect(composedFromCarveOut('IssueWorkspace.shape.machineId')).toBe(true)
-    // ...and it must be able to say NO: a group member that is not the carve-out.
-    expect(composedFromCarveOut('IssueWorkspace.shape.branch')).toBe(false)
-    expect(composedFromCarveOut('NoSuchGroup.shape.machineId')).toBe(false)
+    expect(composedFromBrand('IssueWorkspace.shape.machineId')).toBe(true)
+    // ...and it must be able to say NO: a group member that is not the brand.
+    expect(composedFromBrand('IssueWorkspace.shape.branch')).toBe(false)
+    expect(composedFromBrand('NoSuchGroup.shape.machineId')).toBe(false)
   })
 
-  it('has no machine-id-shaped field bound to MachineIdField', () => {
+  it('has no machine-id-shaped field left unbranded', () => {
     const offenders: string[] = []
     for (const [file, src] of sources) {
       for (const [i, line] of src.split('\n').entries()) {
@@ -297,12 +315,12 @@ describe('MachineId is adopted at ZERO entity fields until POD-318', () => {
         const m = /^\s*(\w*[Mm]achine_?[Ii]d)\s*:\s*(.+)$/.exec(line)
         if (!m) continue
         const rhs = m[2] ?? ''
-        if (!rhs.includes('machineIdBlockedOnPOD318') && !composedFromCarveOut(rhs)) {
+        if (!rhs.includes('MachineIdField') && !composedFromBrand(rhs)) {
           offenders.push(`${file}:${i + 1}: ${line.trim()}`)
         }
       }
     }
-    expect(offenders, 'ADR 1 Amd 2 D16.2: retire the sentinels (POD-318) BEFORE branding').toEqual(
+    expect(offenders, 'POD-318 retired the sentinels: machine-id fields carry the brand').toEqual(
       [],
     )
   })
@@ -319,18 +337,12 @@ describe('MachineId is adopted at ZERO entity fields until POD-318', () => {
     expect(seen.length).toBeGreaterThanOrEqual(6)
   })
 
-  it("brands MachineWire's own `id` with the carve-out, not with the brand", () => {
+  it("brands MachineWire's own `id`", () => {
     // MachineWire.id is the sharpest site and the one the name-shape detector
     // above cannot see, because the property is called `id`.
     const src = sources.find(([f]) => f === 'machine.ts')?.[1] ?? ''
     const block = /export const MachineWire = z\.object\(\{[\s\S]*?\n\}\)/.exec(src)?.[0]
     expect(block, 'MachineWire not found in entities/machine.ts').toBeTruthy()
-    expect(block).toMatch(/\n {2}id: machineIdBlockedOnPOD318,/)
-  })
-
-  it('keeps the brand itself available for POD-318 to adopt', () => {
-    // The carve-out is an ordering constraint, not a decision to leave machine
-    // ids unbranded forever: the brand exists and validates.
-    expect(MachineIdField.parse('m1')).toBe('m1')
+    expect(block).toMatch(/\n {2}id: MachineIdField,/)
   })
 })

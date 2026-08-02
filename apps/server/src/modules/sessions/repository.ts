@@ -18,7 +18,6 @@ import { AgentKind } from '@podium/model'
 export type SessionWirePrincipal = SessionStatePrincipal
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { type ControlMessage, type MetadataChange } from '@podium/protocol'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
@@ -326,7 +325,7 @@ export class SessionRepository {
     if (r.originKind === 'resume' && !r.conversationId) {
       console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
     }
-    const machineId = r.machineId ?? LOCAL_PLACEHOLDER
+    const machineId = r.machineId
     let session!: Session
     session = new Session({
       sessionId: r.id,

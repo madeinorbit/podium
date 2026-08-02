@@ -81,7 +81,7 @@
  */
 
 import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
-import { IssueIdField, machineIdBlockedOnPOD318, RepoIdField, SessionIdField, UserIdField } from '../ids'
+import { IssueIdField, MachineIdField, RepoIdField, SessionIdField, UserIdField } from '../ids'
 import { z } from 'zod'
 import { SessionMeta } from './session'
 import {

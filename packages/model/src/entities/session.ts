@@ -54,7 +54,7 @@ import {
   AccountIdField,
   ConversationIdField,
   IssueIdField,
-  machineIdBlockedOnPOD318,
+  MachineIdField,
   SessionIdField,
 } from '../ids'
 import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
@@ -294,7 +294,7 @@ export const SessionMetaEntity = z.object({
   // (LOCAL_MACHINE_ID), and ADR 1 Amendment 2 D16.2 forbids branding a site that
   // can hold either until POD-318 retires them — a brand that validates length
   // and not shape would launder the sentinel instead of flagging it.
-  machineId: machineIdBlockedOnPOD318.optional(),
+  machineId: MachineIdField.optional(),
   machineName: z.string().optional(),
   /** Snooze state — orthogonal to agentState. `undefined`/absent = not snoozed;
    *  `null` = snoozed until the next message; an ISO string = snoozed until that

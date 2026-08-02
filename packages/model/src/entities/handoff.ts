@@ -185,7 +185,7 @@ import { Attribution } from '../fields/attribution'
 import { IssueIdentity, IssueWorkspace } from '../fields/issue'
 import { Ownership } from '../fields/ownership'
 import { SessionIdentity, SessionNaming, SessionPlacement, SessionResume } from '../fields/session'
-import { machineIdBlockedOnPOD318 } from '../ids'
+import { MachineIdField } from '../ids'
 
 // ---------------------------------------------------------------------------
 // THE THREE TIGHTENINGS, and why a `Pick` alone would have been wrong
@@ -273,7 +273,7 @@ const HANDOFF_BUNDLE_CORE = {
    *  on the bundled local daemon stamps LOCAL_MACHINE_ID = 'local' here, and a
    *  length-only brand would launder that sentinel into a well-typed identity.
    *  POD-318 retires it; this becomes MachineIdField then. */
-  sourceMachineId: machineIdBlockedOnPOD318,
+  sourceMachineId: MachineIdField,
 } as const
 
 /**

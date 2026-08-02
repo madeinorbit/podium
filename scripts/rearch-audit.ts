@@ -1263,14 +1263,17 @@ export const CHECKS: AuditCheck[] = [
     // Amendment 2 D16.2 is normative that `MachineId` must NOT be adopted at any
     // field until `local` / `__local__` are retired, because branding a sentinel
     // LAUNDERS it instead of flagging it. D16.2 asks for "a narrower, VISIBLE
-    // debt" — a carve-out nobody counts is not visible — so these are counted
-    // here instead of being silently excluded from the item above. POD-301 must
-    // not be able to close by laundering them, and POD-318 must not be able to
-    // close while any remain.
+    // debt" — a carve-out nobody counts is not visible — so these were counted
+    // here instead of being silently excluded from the item above.
+    //
+    // POD-318 discharged it: the sentinels are retired, `MachineId` refuses both
+    // literals, and every field carries the brand, so the carve-out spelling this
+    // item also counted no longer exists. The detector stays as a RATCHET — a new
+    // machine-id field written as a raw string raises this number again.
     id: 'machine-id-unbranded-fields',
-    title: 'Machine-id field still an unbranded string (the D16.2 carve-out)',
+    title: 'Machine-id field still an unbranded string',
     phase: 'POD-318',
-    unit: 'one machine-id zod field, in either spelling — bare z.string() or the machineIdBlockedOnPOD318 marker',
+    unit: 'one machine-id zod field declared as a bare z.string()',
     collect: (ctx) => machineIdUnbrandedFields(ctx),
   },
   {

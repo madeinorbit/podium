@@ -48,7 +48,6 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import {
@@ -1763,7 +1762,7 @@ export class SessionLifecycle {
         'status',
         worktreePath,
         undefined,
-        session.machineId === LOCAL_PLACEHOLDER ? undefined : session.machineId,
+        session.machineId,
       )
       if (st.ok) {
         const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
@@ -2441,7 +2440,12 @@ export class SessionLifecycle {
     this.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
 
     this.toMachine(
-      session?.machineId ?? LOCAL_PLACEHOLDER,
+      // The live Session is the truth while it exists; after it is dropped the durable
+      // row still names the machine that ran it, and only a session with neither gets
+      // the fleet default. Every arm is a machine some daemon actually answers to.
+      session?.machineId ??
+        this.store.sessions.getSession(sessionId)?.machineId ??
+        this.machines.defaultMachine(),
       terminalRetirement
         ? {
             type: 'sessionBindingRetire',
@@ -2582,7 +2586,7 @@ export class SessionLifecycle {
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const machineId = input.machineId ?? LOCAL_PLACEHOLDER
+    const machineId = input.machineId ?? this.machines.defaultMachine()
     const launch = this.modelDefaults(
       input.agentKind,
       input.model !== undefined || input.effort !== undefined
