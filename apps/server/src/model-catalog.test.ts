@@ -16,17 +16,39 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     expect(probe).toHaveBeenCalledWith(M)
   })
 
-  it('keeps separate snapshots per machineId', async () => {
+  /**
+   * THE multi-machine property (POD-1123). Two machines with different catalogs
+   * must not see each other. A single-machine fixture cannot distinguish a
+   * per-machine cache from a global one — if this collapses to one snapshot,
+   * the second refresh overwrites the first and BOTH reads return the last
+   * probe. Measured quantities in the message so a red is greppable.
+   */
+  it('two machines keep distinct catalogs — neither sees the other', async () => {
     const probe = vi.fn(async (machineId: string) =>
       machineId === M
-        ? { grok: [{ value: 'a', label: 'a' }] }
-        : { grok: [{ value: 'b', label: 'b' }] },
+        ? { grok: [{ value: 'laptop-only', label: 'laptop-only' }] }
+        : { grok: [{ value: 'desktop-only', label: 'desktop-only' }] },
     )
     const cat = new ModelCatalog(probe, { now: () => 1 })
     await cat.refresh(M)
     await cat.refresh(M2)
-    expect(cat.get(M).byAgent.grok?.[0]?.value).toBe('a')
-    expect(cat.get(M2).byAgent.grok?.[0]?.value).toBe('b')
+    const a = cat.get(M)
+    const b = cat.get(M2)
+    // Each snapshot names its own machine.
+    expect(a.machineId, `machine-a snapshot.machineId=${a.machineId}`).toBe(M)
+    expect(b.machineId, `machine-b snapshot.machineId=${b.machineId}`).toBe(M2)
+    // Neither reads the other's model list.
+    expect(
+      a.byAgent.grok?.map((m) => m.value),
+      `machine-a models=${JSON.stringify(a.byAgent.grok)} (must be [laptop-only], not desktop)`,
+    ).toEqual(['laptop-only'])
+    expect(
+      b.byAgent.grok?.map((m) => m.value),
+      `machine-b models=${JSON.stringify(b.byAgent.grok)} (must be [desktop-only], not laptop)`,
+    ).toEqual(['desktop-only'])
+    // Cross-read: machine-a must not contain desktop-only, and vice versa.
+    expect(a.byAgent.grok?.some((m) => m.value === 'desktop-only')).toBe(false)
+    expect(b.byAgent.grok?.some((m) => m.value === 'laptop-only')).toBe(false)
     expect(probe).toHaveBeenCalledWith(M)
     expect(probe).toHaveBeenCalledWith(M2)
   })
@@ -111,6 +133,26 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     })
     expect(cat.get(M).byAgent).toEqual({}) // not seeded from the stale snapshot
     expect(probe).toHaveBeenCalledWith(M) // get() kicked a re-probe
+  })
+
+  /** Independent witness for the VERSION guard: same machineId, pre-split version.
+   *  Without this, dropping only `version === MODEL_CATALOG_VERSION` is silent
+   *  because the unkeyed fixture also fails the machineId match. */
+  it('discards a same-machine snapshot from an older MODEL_CATALOG_VERSION', () => {
+    const probe = vi.fn(async () => ({}))
+    const cat = new ModelCatalog(probe, {
+      load: () => ({
+        machineId: M,
+        byAgent: { grok: [{ value: 'pre-split', label: 'pre-split' }] },
+        fetchedAt: 123,
+        version: MODEL_CATALOG_VERSION - 1,
+      }),
+    })
+    expect(
+      cat.get(M).byAgent,
+      `seeded pre-split models=${JSON.stringify(cat.get(M).byAgent)} (must be empty)`,
+    ).toEqual({})
+    expect(probe).toHaveBeenCalledWith(M)
   })
 
   it('discards a persisted snapshot that names a different machine', () => {
