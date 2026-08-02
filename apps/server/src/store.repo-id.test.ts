@@ -74,9 +74,13 @@ describe('repo_id schema (v8, #74)', () => {
     )
     // Issue under a registered repo inherits its repo_id via prefix match…
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(repos.find((r) => r.path === '/r')?.repoId)
-    // …and an unregistered repo_path gets the deterministic '__local__' fallback.
+    // …and an unregistered repo_path gets the deterministic (host, path) fallback.
+    // POD-318: the machine half of that derivation is this host's minted id, not the
+    // `'__local__'` placeholder it used to be. A path NOBODY has registered is the
+    // only thing that ever reaches it — every registered repo returns its STORED id,
+    // untouched by the identity change (see `resolveRepoIdForPath`).
     expect(s.issues.getIssue('iss_2')?.repoId).toBe(
-      deriveRepoId({ machineId: '__local__', path: '/unregistered' }),
+      deriveRepoId({ machineId: s.hostMachineId, path: '/unregistered' }),
     )
     s.close()
   })
@@ -119,9 +123,9 @@ describe('repo_id schema (v8, #74)', () => {
     expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_2')?.repoId).toBe(originId)
-    // untouched: issue outside the repo
+    // untouched: issue outside the repo (path-fallback under THIS host — see above)
     expect(s.issues.getIssue('iss_3')?.repoId).toBe(
-      deriveRepoId({ machineId: '__local__', path: '/other' }),
+      deriveRepoId({ machineId: s.hostMachineId, path: '/other' }),
     )
 
     // A later, different origin must NOT rewrite the established identity.

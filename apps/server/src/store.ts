@@ -251,72 +251,82 @@ export class SessionStore {
    * ONE-TIME BOOT UPGRADE — the only place the retired sentinels are still spelled.
    *
    * Installs that predate POD-318 carry a `machines` row literally called `'local'`
-   * and sessions/repos/conversations rows on either `'local'` or the `'__local__'`
-   * column default. A static SQL migration cannot fix them, because the value they
-   * must become — this host's minted UUID — does not exist until the state dir has
-   * a `machine.id` file. So the rewrite is code, run once at boot, in one
-   * transaction, and it is an UPGRADE WITH A DELETION HORIZON rather than a
-   * standing heal: the name says migrate, not heal or adopt, because nothing here
-   * is supposed to still be finding work a year from now.
+   * and rows all over the schema pointing at it, or at the `'__local__'` column
+   * default three tables used to have. A static SQL migration cannot fix them,
+   * because the value they must become — this host's minted UUID — does not exist
+   * until the state dir has a `machine.id` file. So the rewrite is code, run once at
+   * boot, in one transaction, and it is an UPGRADE WITH A DELETION HORIZON rather
+   * than a standing heal: the name says migrate, not heal or adopt, because nothing
+   * here is supposed to still be finding work a year from now.
+   *
+   * THE TABLE LIST IS READ FROM THE DATABASE, not written out here, and that is
+   * load-bearing. A hand-written list of "sessions, repos, conversations" is what
+   * the placeholder era actually shipped, and it was already wrong: `issues`,
+   * `conversation_segments`, `approval_requests` and `execution_profiles` all carry
+   * a `machine_id` too — an issue pinned to the machine the UI called `local` is
+   * ordinary user data. Asking sqlite which tables have the column means a table
+   * that grows one tomorrow is covered by construction instead of being remembered.
    *
    * IDEMPOTENCE IS BY CONSTRUCTION, not by a flag: every statement is
-   * `WHERE machine_id IN ('local','__local__')`, and after the first run nothing
-   * matches — there is no writer left in the codebase that can produce either
-   * value, which is what the `local-placeholders` audit counter and the brand
-   * refusal on `MachineId` together guarantee. A second boot therefore updates
-   * zero rows, and so does the millionth.
+   * `WHERE … IN ('local','__local__')`, and after the first run nothing matches —
+   * there is no writer left in the codebase that can produce either value, which is
+   * what the `local-placeholders` audit counter and the brand refusal on `MachineId`
+   * together guarantee. A second boot updates zero rows, and so does the millionth.
    *
-   * THE RESIDUE CHECK IS THE POINT. After the rewrite, still inside the same
-   * transaction, it counts what is left. Non-zero means the rewrite did not run or
-   * did not cover a table that grew a machine column — i.e. this boot is about to
-   * serve MIXED IDENTITIES, where the fleet says one thing and the rows say
-   * another. That fails loudly here instead of quietly stranding rows nobody can
-   * see, which is exactly how the placeholder era went wrong.
+   * THE RESIDUE CHECK IS THE POINT, and it is deliberately a SECOND READ of the
+   * database rather than a restatement of what was just written: it re-discovers the
+   * columns and counts what is left. Non-zero means this boot is about to serve
+   * MIXED IDENTITIES — the fleet answering to a UUID while rows still name a
+   * sentinel — which is precisely how the placeholder era stranded people's
+   * sessions. It fails loudly here instead of quietly.
    *
-   * The `machines` row is renamed rather than re-inserted so its credential,
-   * owner and grant edges survive the change of id. `INSERT OR IGNORE`-style
-   * duplication would have left a second row and split the fleet in half.
+   * The `machines` row is RENAMED rather than re-inserted so its credential, owner
+   * and grant edges survive the change of id; a fresh insert would have left a
+   * second row and split the fleet in half.
    */
   migrateLegacyMachineIdentity(hostMachineId: string): void {
+    const LEGACY = ["'local'", "'__local__'"].join(', ')
+    /** Every `(table, column)` in THIS database that holds a machine id. */
+    const machineColumns = (): { table: string; column: string }[] => {
+      const tables = this.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        .all() as { name: string }[]
+      const found: { table: string; column: string }[] = []
+      for (const { name } of tables) {
+        const columns = this.db.prepare(`PRAGMA table_info("${name}")`).all() as { name: string }[]
+        if (name === 'machines') {
+          if (columns.some((c) => c.name === 'id')) found.push({ table: name, column: 'id' })
+          continue
+        }
+        if (columns.some((c) => c.name === 'machine_id'))
+          found.push({ table: name, column: 'machine_id' })
+      }
+      return found
+    }
     this.transact(() => {
-      // Order matters only for readability — the whole thing is one transaction.
-      this.db
-        .prepare("UPDATE OR REPLACE machines SET id = ? WHERE id IN ('local', '__local__')")
-        .run(hostMachineId)
-      for (const table of ['sessions', 'repos', 'conversations']) {
+      for (const { table, column } of machineColumns()) {
+        // OR REPLACE: a row already carrying the host id on the same primary key
+        // wins, rather than aborting the whole upgrade on a unique constraint.
         this.db
           .prepare(
-            `UPDATE OR REPLACE ${table} SET machine_id = ? WHERE machine_id IN ('local', '__local__')`,
+            `UPDATE OR REPLACE "${table}" SET "${column}" = ? WHERE "${column}" IN (${LEGACY})`,
           )
           .run(hostMachineId)
       }
-      const residue = [
-        ...['sessions', 'repos', 'conversations'].map(
-          (table) =>
-            [
-              table,
-              (
-                this.db
-                  .prepare(
-                    `SELECT COUNT(*) AS c FROM ${table} WHERE machine_id IN ('local', '__local__')`,
-                  )
-                  .get() as { c: number }
-              ).c,
-            ] as const,
-        ),
-        [
-          'machines',
-          (
+      const residue = machineColumns()
+        .map(({ table, column }) => ({
+          table,
+          count: (
             this.db
-              .prepare("SELECT COUNT(*) AS c FROM machines WHERE id IN ('local', '__local__')")
+              .prepare(`SELECT COUNT(*) AS c FROM "${table}" WHERE "${column}" IN (${LEGACY})`)
               .get() as { c: number }
           ).c,
-        ] as const,
-      ].filter(([, count]) => count > 0)
+        }))
+        .filter(({ count }) => count > 0)
       if (residue.length > 0) {
         throw new Error(
           `legacy machine identity survived the boot upgrade (${residue
-            .map(([table, count]) => `${table}: ${count}`)
+            .map(({ table, count }) => `${table}: ${count}`)
             .join(', ')}) — refusing to serve mixed machine identities`,
         )
       }

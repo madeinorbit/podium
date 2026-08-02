@@ -94,7 +94,7 @@ describe('machines store', () => {
     const s = new SessionStore(':memory:')
     s.repos.addRepo('/abs/local', s.hostMachineId)
     s.repos.addRepo('/abs/remote', 'm2')
-    expect(s.repos.listRepos('__local__').map((r) => r.path)).toEqual(['/abs/local'])
+    expect(s.repos.listRepos(s.hostMachineId).map((r) => r.path)).toEqual(['/abs/local'])
     expect(s.repos.listRepos('m2').map((r) => r.path)).toEqual(['/abs/remote'])
     expect(s.repos.listRepoPaths('m2')).toEqual(['/abs/remote'])
     s.close()
@@ -153,9 +153,13 @@ describe('machines store', () => {
     })
     s1.close()
 
-    // Second open: migrate() must be a clean no-op — no throw, data intact.
+    // Second open: migrate() must be a clean no-op — no throw, data intact. The
+    // row keeps the machine id the FIRST store wrote it under; a second store over
+    // the same file is a different host as far as its own default is concerned, and
+    // nothing rewrites rows behind it.
+    const host = s1.hostMachineId
     const s2 = new SessionStore(file)
-    expect(s2.sessions.loadSessions()[0]?.machineId).toBe('__local__')
+    expect(s2.sessions.loadSessions()[0]?.machineId).toBe(host)
     expect(s2.machines.listMachines()).toHaveLength(1)
     expect(s2.repos.listRepoPaths()).toEqual(['/a'])
     // The settings row written through migrate() survives the reopen — a proxy that
