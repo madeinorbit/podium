@@ -25,6 +25,10 @@ import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 import { reposToViews, tabIdFor } from '../viewmodels'
+import {
+  createReplicatedLayoutController,
+  type ReplicatedLayoutController,
+} from './replicated-layout'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -90,6 +94,8 @@ export const COMMAND_ACTIONS = [
 export const ACTION_STATE_REDUCER_COMMANDS = [
   'pins.set',
   'tabs.setOrder',
+  'layout.set',
+  'layout.clear',
   'settings.updatePersonal',
 ] as const
 
@@ -124,7 +130,7 @@ type ActionName = (typeof UI_LOCAL_ACTIONS)[number] | (typeof COMMAND_ACTIONS)[n
 export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick<
   Store<TApi>,
   ActionName | 'readFileScoped' | 'listDir' | 'gitStatus' | 'gitLog' | 'gitDiffFile'
->
+> & { readonly replicatedLayout: ReplicatedLayoutController }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly api: TApi
@@ -155,7 +161,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
   const api = rt.api
+  const replicatedLayout = createReplicatedLayoutController({
+    outbox: rt.outbox,
+    notices: rt.notices,
+  })
   return {
+    replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
       const previous = rt.state().pins
       rt.apply({ pins: reducePin(previous, kind, id, pinned) })

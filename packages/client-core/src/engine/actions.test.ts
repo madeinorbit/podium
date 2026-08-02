@@ -1,6 +1,7 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
+import type { OutboxEntry } from '../outbox'
 import type { Router } from '../router'
 import type { SocketHub } from '../socket-transport'
 import {
@@ -16,6 +17,8 @@ const sessionId = asSessionId('session-1')
 
 function harness() {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
+  const pending: OutboxEntry[] = []
+  const errors: string[] = []
   const navigated: unknown[] = []
   let state = {
     pins: { panels: [], worktrees: [], repos: [] },
@@ -45,7 +48,14 @@ function harness() {
   }
   const enqueue = vi.fn(async (kind: keyof OutboxKinds, input: unknown) => {
     queued.push({ kind, input })
-    return { mutationId: `m-${queued.length}`, kind, input, queuedAt: 1 }
+    const entry = {
+      mutationId: `m-${queued.length}`,
+      kind,
+      input,
+      queuedAt: queued.length,
+    }
+    pending.push(entry)
+    return entry
   })
   const router = {
     current: () => ({
@@ -60,9 +70,14 @@ function harness() {
   const runtime = {
     api: {} as PodiumClientApi,
     hub: {} as SocketHub,
-    outbox: { enqueue } as unknown as EngineOutbox,
+    outbox: {
+      enqueue,
+      pending: () => pending,
+      awaiting: () => [],
+      retireAwaiting: vi.fn(),
+    } as unknown as EngineOutbox,
     router,
-    notices: {} as StoreNotices,
+    notices: { error: (message: string) => errors.push(message), info: vi.fn() } as StoreNotices,
     state: () => state,
     apply: (patch: Partial<typeof state>) => {
       state = { ...state, ...patch }
@@ -77,6 +92,7 @@ function harness() {
   return {
     actions: createEngineActions(runtime),
     enqueue,
+    errors,
     queued,
     navigated,
     state: () => state,

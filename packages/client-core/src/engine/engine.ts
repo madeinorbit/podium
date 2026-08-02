@@ -70,6 +70,7 @@ import {
   reposToViews,
 } from '../viewmodels'
 import { createEngineActions } from './actions'
+import type { ReplicatedLayoutController } from './replicated-layout'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
@@ -261,6 +262,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly outbox: EngineOutbox
   readonly router: Router
   readonly ui: UiState
+  readonly replicatedLayout: ReplicatedLayoutController
 
   private readonly replicaBinding: ReplicaBinding
 
@@ -496,6 +498,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       },
     }
     this.statics = this.buildStatics()
+    this.replicatedLayout = this.statics.replicatedLayout as ReplicatedLayoutController
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot())
   }
 
@@ -529,6 +532,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(
       this.outbox.subscribe((size) => {
         this.apply({ outboxSize: size, outboxDeadLetters: this.outbox.deadLetters() })
+        this.replicatedLayout.outboxChanged()
         this.recomputeSessions()
         this.recomputeIssues()
         this.recomputeIssueProjections()
@@ -1129,7 +1133,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Returns true to keep the entry DURABLY in storage (finding 1) until
    *  covering truth retires it. */
   private onMutationApplied(entry: OutboxEntry): boolean {
-    if (this.reconcileActionState(entry)) return false
+    const actionHold = this.reconcileActionState(entry, 'applied')
+    if (actionHold !== null) return actionHold
     const overlay = overlayForOutboxEntry(entry)
     if (overlay?.op !== 'patch') return false
     const row =
@@ -1208,7 +1213,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Definitive failure — retirement rule (b): the wiring already surfaced the
    *  poison toast; repaint without the dropped entry's overlay. */
   private onMutationDropped(entry: OutboxEntry): void {
-    this.reconcileActionState(entry)
+    this.reconcileActionState(entry, 'dropped')
     this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
@@ -1216,20 +1221,32 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  outbox subscription (armed in start()) already repaints on any queue
    *  change; recomputing here as well keeps actions optimistic before start()
    *  and after dispose() (the duplicate recompute is a no-op publish). */
-  private reconcileActionState(entry: OutboxEntry): boolean {
+  private reconcileActionState(
+    entry: OutboxEntry,
+    outcome: 'applied' | 'dropped',
+  ): boolean | null {
+    if (entry.kind === 'layoutSet' || entry.kind === 'layoutClear') {
+      if (outcome === 'dropped') {
+        this.replicatedLayout.commandDropped(entry)
+        return false
+      }
+      const hold = this.replicatedLayout.commandApplied(entry)
+      if (hold) void this.refreshReplicatedLayout([entry.mutationId]).catch(() => {})
+      return hold
+    }
     if (entry.kind === 'pinSet') {
       void this.refreshPins().catch(() => {})
-      return true
+      return false
     }
     if (entry.kind === 'tabSetOrder') {
       void this.refreshTabOrders().catch(() => {})
-      return true
+      return false
     }
     if (entry.kind === 'settingsUpdatePersonal') {
       void this.refreshPersonalSettings().catch(() => {})
-      return true
+      return false
     }
-    return false
+    return null
   }
 
   private async enqueueOverlayed<K extends keyof OutboxKinds & string>(
@@ -1309,6 +1326,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private async refreshPersonalSettings(): Promise<void> {
     const settings = await this.api.settings.get.query()
     this.apply({ sidebarSettings: settings.sidebar })
+  }
+
+  private async refreshReplicatedLayout(mutationIds: readonly string[]): Promise<void> {
+    const snapshot = await this.api.layout.get.query()
+    this.replicatedLayout.reconcile(snapshot, mutationIds)
   }
 
   private getUserFocus(): UserFocus {
